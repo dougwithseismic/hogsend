@@ -10,7 +10,7 @@
     "test": "turbo run test",
     "check-types": "turbo run check-types",
     "setup": "bash scripts/setup.sh",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install || true"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
