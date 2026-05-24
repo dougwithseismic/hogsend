@@ -1,4 +1,4 @@
-import { NonRetryableError } from "@hatchet-dev/typescript-sdk/v1";
+import { NonRetryableError } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import { createResendClient } from "@hogsend/email";
 import { hatchet } from "../lib/hatchet.js";
 
