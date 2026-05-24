@@ -1,9 +1,28 @@
 import { JourneyRegistry } from "@hogsend/core/registry";
+import { activationNudgeSeries } from "./activation-nudge-series.js";
 import { activationWelcome } from "./activation-welcome.js";
+import { churnPrevention } from "./churn-prevention.js";
+import { conversionAbandonedCheckout } from "./conversion-abandoned-checkout.js";
+import { conversionTrialUpgrade } from "./conversion-trial-upgrade.js";
 import type { DefinedJourney } from "./define-journey.js";
+import { feedbackNps } from "./feedback-nps.js";
+import { reactivationDormancy } from "./reactivation-dormancy.js";
+import { referralInvite } from "./referral-invite.js";
+import { retentionMilestone } from "./retention-milestone.js";
 import { testOnboarding } from "./test-onboarding.js";
 
-const allJourneys: DefinedJourney[] = [activationWelcome, testOnboarding];
+const allJourneys: DefinedJourney[] = [
+  activationWelcome,
+  activationNudgeSeries,
+  conversionTrialUpgrade,
+  conversionAbandonedCheckout,
+  retentionMilestone,
+  referralInvite,
+  feedbackNps,
+  reactivationDormancy,
+  churnPrevention,
+  testOnboarding,
+];
 
 function parseEnabledFilter(value?: string): Set<string> | "*" {
   if (!value || value.trim() === "*") return "*";

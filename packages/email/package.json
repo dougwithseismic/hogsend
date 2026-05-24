@@ -16,10 +16,10 @@
     "test:watch": "vitest watch"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "@hogsend/db": "workspace:^",
-    "drizzle-orm": ">=0.35.0"
+    "drizzle-orm": ">=0.35.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "peerDependenciesMeta": {
     "@hogsend/db": {
@@ -35,6 +35,7 @@
   },
   "devDependencies": {
     "@hogsend/db": "workspace:^",
+    "@react-email/ui": "^6.3.2",
     "@repo/typescript-config": "workspace:^",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
