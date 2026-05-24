@@ -49,28 +49,30 @@ export function createApp(container: Container) {
 
   registerRoutes(app);
 
-  app.doc("/openapi.json", {
-    openapi: "3.1.0",
-    info: {
-      title: "GrowthHog API",
-      version: API_VERSION,
-      description: "Journey orchestration API",
-    },
-    servers: [
-      {
-        url: `http://localhost:${container.env.PORT}`,
-        description: "Local development",
+  if (container.env.NODE_ENV !== "production") {
+    app.doc("/openapi.json", {
+      openapi: "3.1.0",
+      info: {
+        title: "GrowthHog API",
+        version: API_VERSION,
+        description: "Journey orchestration API",
       },
-    ],
-  });
+      servers: [
+        {
+          url: `http://localhost:${container.env.PORT}`,
+          description: "Local development",
+        },
+      ],
+    });
 
-  app.get(
-    "/docs",
-    apiReference({
-      spec: { url: "/openapi.json" },
-      theme: "kepler",
-    }),
-  );
+    app.get(
+      "/docs",
+      apiReference({
+        spec: { url: "/openapi.json" },
+        theme: "kepler",
+      }),
+    );
+  }
 
   return app;
 }
