@@ -1,12 +1,17 @@
+import { getJourneyTasks } from "./journeys/index.js";
 import { hatchet } from "./lib/hatchet.js";
-import { runJourneyTask, sendEmailTask } from "./workflows/index.js";
+import { sendEmailTask } from "./workflows/send-email.js";
 
 async function main() {
+  const journeyTasks = getJourneyTasks(process.env.ENABLED_JOURNEYS);
+
   const worker = await hatchet.worker("hogsend-worker", {
-    workflows: [sendEmailTask, runJourneyTask],
+    workflows: [sendEmailTask, ...journeyTasks],
   });
 
-  console.log("Hogsend worker started, waiting for workflow runs...");
+  console.log(
+    `Hogsend worker started with ${journeyTasks.length} journey task(s)`,
+  );
   await worker.start();
 }
 

@@ -34,15 +34,6 @@ const posthogResponseSchema = z.object({
   ok: z.boolean(),
   event: z.string(),
   userId: z.string(),
-  enrollments: z
-    .array(
-      z.object({
-        journeyId: z.string(),
-        enrolled: z.boolean(),
-        reason: z.string().optional(),
-      }),
-    )
-    .optional(),
   exits: z
     .array(
       z.object({
@@ -60,7 +51,7 @@ const posthogWebhookRoute = createRoute({
   tags: ["Webhooks"],
   summary: "PostHog webhook receiver",
   description:
-    "Receives events from PostHog webhook destinations. Transforms the PostHog payload into internal events and processes journey enrollment and exits.",
+    "Receives events from PostHog webhook destinations. Transforms the PostHog payload into internal events, pushes to Hatchet for journey routing, and processes exit conditions.",
   request: {
     body: {
       content: {
@@ -84,7 +75,7 @@ const posthogWebhookRoute = createRoute({
 export const posthogWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
   posthogWebhookRoute,
   async (c) => {
-    const { db, registry, logger, env } = c.get("container");
+    const { db, registry, hatchet, logger, env } = c.get("container");
 
     if (env.POSTHOG_WEBHOOK_SECRET) {
       const provided =
@@ -116,11 +107,17 @@ export const posthogWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
       hasEmail: !!userEmail,
     });
 
-    const result = await ingestEvent(db, registry, logger, {
-      event: eventName,
-      userId,
-      userEmail: typeof userEmail === "string" ? userEmail : "",
-      properties,
+    const result = await ingestEvent({
+      db,
+      registry,
+      hatchet,
+      logger,
+      event: {
+        event: eventName,
+        userId,
+        userEmail: typeof userEmail === "string" ? userEmail : "",
+        properties,
+      },
     });
 
     return c.json(
@@ -128,7 +125,6 @@ export const posthogWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
         ok: true,
         event: eventName,
         userId,
-        enrollments: result.enrollments,
         exits: result.exits,
       },
       200,

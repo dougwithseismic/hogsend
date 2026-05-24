@@ -1,7 +1,6 @@
 import type { PropertyCondition } from "./conditions.js";
-import type { JourneyNode } from "./nodes.js";
 
-export interface JourneyDefinition {
+export interface JourneyMeta {
   id: string;
   name: string;
   description?: string;
@@ -21,8 +20,12 @@ export interface JourneyDefinition {
   }>;
 
   suppressHours: number;
+}
 
-  entryNode: string;
-
-  nodes: Record<string, JourneyNode>;
+export interface JourneyUser {
+  id: string;
+  email: string;
+  properties: Record<string, string | number | boolean | null>;
+  stateId: string;
+  journeyId: string;
 }

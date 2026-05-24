@@ -1,3 +1,4 @@
+import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import {
   createDatabase,
@@ -9,6 +10,7 @@ import type { Resend } from "resend";
 import { env } from "./env.js";
 import { createJourneyRegistry } from "./journeys/index.js";
 import { type Auth, createAuth } from "./lib/auth.js";
+import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 
 export interface Container {
@@ -19,6 +21,7 @@ export interface Container {
   auth: Auth;
   email: Resend;
   registry: JourneyRegistry;
+  hatchet: HatchetClient;
 }
 
 export function createContainer(): Container {
@@ -41,5 +44,6 @@ export function createContainer(): Container {
     auth,
     email,
     registry,
+    hatchet,
   };
 }

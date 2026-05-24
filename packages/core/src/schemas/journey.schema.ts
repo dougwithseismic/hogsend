@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const propertyConditionSchema = z.object({
+export const propertyConditionSchema = z.object({
   type: z.literal("property"),
   source: z.enum(["posthog", "context"]),
   property: z.string(),
@@ -18,7 +18,7 @@ const propertyConditionSchema = z.object({
   value: z.union([z.string(), z.number(), z.boolean()]).optional(),
 });
 
-const eventConditionSchema = z.object({
+export const eventConditionSchema = z.object({
   type: z.literal("event"),
   eventName: z.string(),
   check: z.enum(["exists", "not_exists", "count"]),
@@ -27,13 +27,13 @@ const eventConditionSchema = z.object({
   withinHours: z.number().positive().optional(),
 });
 
-const emailEngagementConditionSchema = z.object({
+export const emailEngagementConditionSchema = z.object({
   type: z.literal("email_engagement"),
   templateKey: z.string(),
   check: z.enum(["opened", "clicked", "not_opened", "not_clicked"]),
 });
 
-const conditionEvalSchema: z.ZodType<unknown> = z.lazy(() =>
+export const conditionEvalSchema: z.ZodType<unknown> = z.lazy(() =>
   z.discriminatedUnion("type", [
     propertyConditionSchema,
     eventConditionSchema,
@@ -46,68 +46,7 @@ const conditionEvalSchema: z.ZodType<unknown> = z.lazy(() =>
   ]),
 );
 
-const sendEmailActionSchema = z.object({
-  type: z.literal("send_email"),
-  templateKey: z.string(),
-  subject: z.string(),
-  category: z.string().optional(),
-});
-
-const fireEventActionSchema = z.object({
-  type: z.literal("fire_event"),
-  eventName: z.string(),
-  properties: z.record(z.string(), z.unknown()).optional(),
-});
-
-const webhookActionSchema = z.object({
-  type: z.literal("webhook"),
-  url: z.url(),
-  method: z.enum(["POST", "PUT"]).optional(),
-  headers: z.record(z.string(), z.string()).optional(),
-  body: z.record(z.string(), z.unknown()).optional(),
-});
-
-const enrollJourneyActionSchema = z.object({
-  type: z.literal("enroll_journey"),
-  journeyId: z.string(),
-});
-
-const journeyActionSchema = z.discriminatedUnion("type", [
-  sendEmailActionSchema,
-  fireEventActionSchema,
-  webhookActionSchema,
-  enrollJourneyActionSchema,
-]);
-
-const actionNodeSchema = z.object({
-  type: z.literal("action"),
-  id: z.string(),
-  action: journeyActionSchema,
-  next: z.string().nullable(),
-});
-
-const waitNodeSchema = z.object({
-  type: z.literal("wait"),
-  id: z.string(),
-  hours: z.number().positive(),
-  next: z.string(),
-});
-
-const conditionNodeSchema = z.object({
-  type: z.literal("condition"),
-  id: z.string(),
-  eval: conditionEvalSchema,
-  onTrue: z.string(),
-  onFalse: z.string(),
-});
-
-const journeyNodeSchema = z.discriminatedUnion("type", [
-  actionNodeSchema,
-  waitNodeSchema,
-  conditionNodeSchema,
-]);
-
-export const journeyDefinitionSchema = z.object({
+export const journeyMetaSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
@@ -131,6 +70,4 @@ export const journeyDefinitionSchema = z.object({
     .optional(),
 
   suppressHours: z.number().min(0),
-  entryNode: z.string().min(1),
-  nodes: z.record(z.string(), journeyNodeSchema),
 });

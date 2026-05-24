@@ -1,1 +1,1 @@
-export { journeyDefinitionSchema } from "./journey.schema.js";
+export { journeyMetaSchema } from "./journey.schema.js";

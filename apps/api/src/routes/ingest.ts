@@ -12,13 +12,6 @@ const ingestRequestSchema = z.object({
 
 const ingestResponseSchema = z.object({
   stored: z.boolean(),
-  enrollments: z.array(
-    z.object({
-      journeyId: z.string(),
-      enrolled: z.boolean(),
-      reason: z.string().optional(),
-    }),
-  ),
   exits: z.array(
     z.object({
       journeyId: z.string(),
@@ -34,7 +27,7 @@ const ingestRoute = createRoute({
   tags: ["Ingestion"],
   summary: "Ingest an event",
   description:
-    "Receives events from direct API calls. Stores the event, checks for journey enrollment, and processes exit conditions.",
+    "Receives events from direct API calls. Stores the event, pushes it to Hatchet for journey routing, and processes exit conditions.",
   request: {
     body: {
       content: {
@@ -47,7 +40,7 @@ const ingestRoute = createRoute({
       content: {
         "application/json": { schema: ingestResponseSchema },
       },
-      description: "Event accepted and processed",
+      description: "Event accepted and dispatched",
     },
   },
 });
@@ -56,13 +49,19 @@ export const ingestRouter = new OpenAPIHono<AppEnv>().openapi(
   ingestRoute,
   async (c) => {
     const body = c.req.valid("json");
-    const { db, registry, logger } = c.get("container");
+    const { db, registry, hatchet, logger } = c.get("container");
 
-    const result = await ingestEvent(db, registry, logger, {
-      event: body.event,
-      userId: body.userId,
-      userEmail: body.userEmail ?? "",
-      properties: body.properties ?? {},
+    const result = await ingestEvent({
+      db,
+      registry,
+      hatchet,
+      logger,
+      event: {
+        event: body.event,
+        userId: body.userId,
+        userEmail: body.userEmail ?? "",
+        properties: body.properties ?? {},
+      },
     });
 
     return c.json(result, 202);

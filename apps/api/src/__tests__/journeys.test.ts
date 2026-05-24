@@ -1,5 +1,29 @@
-import { describe, expect, it } from "vitest";
-import { createJourneyRegistry } from "../journeys/index.js";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../lib/hatchet.js", () => ({
+  hatchet: {
+    durableTask: vi.fn(() => ({
+      run: vi.fn(),
+      runNoWait: vi.fn(),
+      runAndWait: vi.fn(),
+    })),
+    task: vi.fn(() => ({
+      run: vi.fn(),
+      runNoWait: vi.fn(),
+    })),
+    events: { push: vi.fn() },
+    worker: vi.fn(),
+  },
+}));
+
+vi.mock("../workflows/send-email.js", () => ({
+  sendEmailTask: {
+    run: vi.fn(),
+    runNoWait: vi.fn(),
+  },
+}));
+
+const { createJourneyRegistry } = await import("../journeys/index.js");
 
 describe("createJourneyRegistry", () => {
   it("loads all journeys when filter is '*'", () => {

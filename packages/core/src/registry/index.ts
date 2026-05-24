@@ -1,13 +1,13 @@
-import { journeyDefinitionSchema } from "../schemas/index.js";
-import type { JourneyDefinition } from "../types/index.js";
+import { journeyMetaSchema } from "../schemas/index.js";
+import type { JourneyMeta } from "../types/index.js";
 
 export class JourneyRegistry {
-  private journeys: Map<string, JourneyDefinition> = new Map();
-  private triggerIndex: Map<string, JourneyDefinition[]> = new Map();
+  private journeys: Map<string, JourneyMeta> = new Map();
+  private triggerIndex: Map<string, JourneyMeta[]> = new Map();
 
-  register(journey: JourneyDefinition): void {
-    const parsed = journeyDefinitionSchema.parse(journey);
-    const validated = parsed as unknown as JourneyDefinition;
+  register(journey: JourneyMeta): void {
+    const parsed = journeyMetaSchema.parse(journey);
+    const validated = parsed as unknown as JourneyMeta;
 
     this.journeys.set(validated.id, validated);
 
@@ -17,19 +17,19 @@ export class JourneyRegistry {
     this.triggerIndex.set(event, existing);
   }
 
-  get(id: string): JourneyDefinition | undefined {
+  get(id: string): JourneyMeta | undefined {
     return this.journeys.get(id);
   }
 
-  getByTriggerEvent(eventName: string): JourneyDefinition[] {
+  getByTriggerEvent(eventName: string): JourneyMeta[] {
     return this.triggerIndex.get(eventName) ?? [];
   }
 
-  getAll(): JourneyDefinition[] {
+  getAll(): JourneyMeta[] {
     return Array.from(this.journeys.values());
   }
 
-  getEnabled(): JourneyDefinition[] {
+  getEnabled(): JourneyMeta[] {
     return this.getAll().filter((j) => j.enabled);
   }
 
