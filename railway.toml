@@ -1,6 +1,6 @@
 [build]
 buildCommand = "pnpm --filter @growthhog/api build"
-watchPatterns = ["apps/api/**", "packages/db/**", "packages/typescript-config/**"]
+watchPatterns = ["apps/api/**", "packages/db/**", "packages/typescript-config/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
 
 [deploy]
 preDeployCommand = "pnpm --filter @growthhog/db db:migrate"
