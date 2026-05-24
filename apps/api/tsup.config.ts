@@ -8,5 +8,10 @@ export default defineConfig({
   clean: true,
   splitting: false,
   sourcemap: true,
-  noExternal: ["@hogsend/core", "@hogsend/db", "@hogsend/email"],
+  noExternal: [
+    "@hogsend/core",
+    "@hogsend/db",
+    "@hogsend/email",
+    "@hatchet-dev/typescript-sdk",
+  ],
 });
