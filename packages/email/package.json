@@ -1,0 +1,50 @@
+{
+  "name": "@hogsend/email",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./templates/*": "./emails/*.tsx"
+  },
+  "scripts": {
+    "dev": "email dev --port 3003",
+    "build": "tsup",
+    "preview": "email export --outDir out --pretty",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest watch"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@hogsend/db": "workspace:^",
+    "drizzle-orm": ">=0.35.0"
+  },
+  "peerDependenciesMeta": {
+    "@hogsend/db": {
+      "optional": true
+    },
+    "drizzle-orm": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "resend": "^6.12.3",
+    "svix": "^1.94.0"
+  },
+  "devDependencies": {
+    "@hogsend/db": "workspace:^",
+    "@repo/typescript-config": "workspace:^",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "drizzle-orm": "^0.45.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-email": "^6.3.2",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
+  }
+}
