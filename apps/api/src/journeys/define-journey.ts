@@ -44,7 +44,7 @@ export function defineJourney(options: {
   const { meta } = options;
 
   const task = hatchet.durableTask({
-    name: `journey:${meta.id}`,
+    name: `journey-${meta.id}`,
     onEvents: [meta.trigger.event],
     executionTimeout: "720h",
     retries: 0,

@@ -88,7 +88,7 @@ Journeys use a code-first `defineJourney()` pattern — each journey is its own 
 - **`JourneyContext`** (`src/journeys/journey-context.ts`) provides typed helpers: `sendEmail`, `hasEvent`, `checkProperty`, `checkEmailEngagement`, `fireEvent`, `webhook`, `enrollJourney`, `sleepFor`, `checkpoint`
 - **`@hogsend/core`** provides types (`JourneyMeta`, `JourneyUser`, `JourneyContext`, `HatchetEventPayload`), Zod schema (`journeyMetaSchema`), condition evaluation, and the `JourneyRegistry`
 - **Ingest endpoint** (`/v1/ingest`) stores events, pushes to Hatchet (`hatchet.events.push()`), and processes exit conditions — enrollment is handled asynchronously by the journey tasks
-- Each journey registers as a Hatchet task named `journey:<id>` (e.g. `journey:activation-welcome`)
+- Each journey registers as a Hatchet task named `journey-<id>` (e.g. `journey-activation-welcome`)
 
 When adding a new journey: create a file in `src/journeys/`, call `defineJourney()` with meta + run function, import it in `src/journeys/index.ts` and add to the `allJourneys` array. The worker and registry pick it up automatically.
 
