@@ -43,3 +43,7 @@ pgdata/
 # Misc
 .DS_Store
 *.pem
+
+# Hogsend CLI
+.hogsend.yaml
+cli/hogsend
