@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/hogsend/cli/internal/config"
@@ -16,18 +17,26 @@ var statusCmd = &cobra.Command{
 	RunE:  runStatus,
 }
 
+func apiURL(domain string) string {
+	if strings.HasPrefix(domain, "localhost") || strings.HasPrefix(domain, "127.0.0.1") {
+		return fmt.Sprintf("http://%s", domain)
+	}
+	return fmt.Sprintf("https://%s", domain)
+}
+
 func runStatus(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
 
-	apiURL := fmt.Sprintf("https://%s", cfg.Railway.Domain)
+	url := apiURL(cfg.Railway.Domain)
+	isLocal := strings.HasPrefix(cfg.Railway.Domain, "localhost")
 
 	fmt.Println(tui.Banner.Render("HOGSEND STATUS"))
 	fmt.Println()
 
-	h, err := health.Check(apiURL)
+	h, err := health.Check(url)
 
 	var statusLine string
 	if err != nil {
@@ -42,15 +51,20 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	md := fmt.Sprintf(
 		"## %s\n\n"+
 			"- **Slug:** %s\n"+
-			"- **API:** %s\n"+
-			"- **Railway:** https://railway.com/project/%s\n\n"+
-			"### Health\n\n%s\n"+
-			"### Journeys\n\n"+
-			"- **Enabled:** %v\n",
+			"- **API:** %s\n",
 		cfg.Name,
 		cfg.Slug,
-		apiURL,
-		cfg.Railway.ProjectID,
+		url,
+	)
+
+	if !isLocal && cfg.Railway.ProjectID != "" {
+		md += fmt.Sprintf("- **Railway:** https://railway.com/project/%s\n", cfg.Railway.ProjectID)
+	}
+
+	md += fmt.Sprintf(
+		"\n### Health\n\n%s\n"+
+			"### Journeys\n\n"+
+			"- **Enabled:** %v\n",
 		statusLine,
 		cfg.Journeys.Enabled,
 	)

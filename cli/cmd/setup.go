@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 
+	"github.com/hogsend/cli/internal/config"
 	"github.com/hogsend/cli/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -12,7 +14,7 @@ import (
 var setupCmd = &cobra.Command{
 	Use:   "setup",
 	Short: "Set up local development environment",
-	Long:  "Checks prerequisites, starts Docker containers, installs dependencies, and creates .env file.",
+	Long:  "Checks prerequisites, starts Docker containers, installs dependencies, creates .env file, and writes local config.",
 	RunE:  runSetup,
 }
 
@@ -80,11 +82,32 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("pnpm install failed: %w", err)
 	}
 
+	if !config.Exists() {
+		if err := tui.RunWithSpinner("Writing .hogsend.yaml...", func() error {
+			return config.Save(&config.Config{
+				Name:      "Local Development",
+				Slug:      "local",
+				CreatedAt: time.Now().UTC().Format(time.RFC3339),
+				Railway: config.RailwayConfig{
+					Domain: "localhost:3002",
+				},
+				Journeys: config.JourneysConfig{
+					Enabled: []string{"*"},
+				},
+			})
+		}); err != nil {
+			return err
+		}
+	} else {
+		fmt.Println(tui.SuccessBadge.Render("  Skip") + " .hogsend.yaml already exists")
+	}
+
 	fmt.Println()
 	fmt.Println(tui.Card.Render(
 		tui.SuccessBadge.Render("Ready to go!") + "\n\n" +
 			"  pnpm dev              Start the API\n" +
-			"  hatchet worker dev    Start the worker (separate terminal)\n\n" +
+			"  hatchet worker dev    Start the worker (separate terminal)\n" +
+			"  hogsend status        Check health\n\n" +
 			"  Hatchet dashboard:    http://localhost:8888\n" +
 			"  API:                  http://localhost:3002",
 	))
