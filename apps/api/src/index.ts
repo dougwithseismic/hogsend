@@ -20,9 +20,10 @@ server.requestTimeout = 30_000;
 server.headersTimeout = 60_000;
 server.keepAliveTimeout = 72_000;
 
-function shutdown(signal: string) {
+async function shutdown(signal: string) {
   logger.info(`${signal} received, shutting down gracefully`);
-  server.close(() => {
+  server.close(async () => {
+    await container.dbClient.end({ timeout: 5 });
     logger.info("Server closed");
     process.exit(0);
   });

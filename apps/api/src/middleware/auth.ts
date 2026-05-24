@@ -1,30 +1,24 @@
+import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../app.js";
 
-export const sessionMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+async function resolveSession(c: Context<AppEnv>) {
   const { auth } = c.get("container");
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
+  c.set("user", session?.user ?? null);
+  c.set("session", session?.session ?? null);
+  return session;
+}
 
-  if (!session) {
-    c.set("user", null);
-    c.set("session", null);
-    return next();
-  }
-
-  c.set("user", session.user);
-  c.set("session", session.session);
+export const sessionMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  await resolveSession(c);
   return next();
 });
 
 export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
-  const { auth } = c.get("container");
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-
+  const session = await resolveSession(c);
   if (!session) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-
-  c.set("user", session.user);
-  c.set("session", session.session);
   return next();
 });

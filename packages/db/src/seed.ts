@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema/index.js";
@@ -14,7 +15,6 @@ const db = drizzle(client, { schema });
 async function seed() {
   console.log("Seeding database...");
 
-  // --- Auth: demo user + org ---
   const demoUserId = "seed-user-001";
   const demoOrgId = "seed-org-001";
 
@@ -47,7 +47,6 @@ async function seed() {
     })
     .onConflictDoNothing();
 
-  // --- Email preferences: demo user opted-in ---
   await db
     .insert(schema.emailPreferences)
     .values({
@@ -58,7 +57,10 @@ async function seed() {
     })
     .onConflictDoNothing();
 
-  // --- Sample user events ---
+  await db
+    .delete(schema.userEvents)
+    .where(sql`${schema.userEvents.properties}->>'source' = 'seed'`);
+
   await db.insert(schema.userEvents).values([
     {
       userId: demoUserId,

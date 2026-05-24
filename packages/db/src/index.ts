@@ -15,6 +15,7 @@ export function createDatabase(databaseUrl: string) {
 }
 
 export type Database = ReturnType<typeof createDatabase>["db"];
+export type DatabaseClient = ReturnType<typeof postgres>;
 
 export * from "./schema/index.js";
 export { schema };

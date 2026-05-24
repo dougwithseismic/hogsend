@@ -6,16 +6,19 @@ import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import type { Container } from "./container.js";
 import { API_VERSION } from "./env.js";
+import type { Auth } from "./lib/auth.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
+
+type AuthSession = Awaited<ReturnType<Auth["api"]["getSession"]>>;
 
 export type AppEnv = {
   Variables: {
     container: Container;
     requestId: string;
-    user: Record<string, unknown> | null;
-    session: Record<string, unknown> | null;
+    user: NonNullable<AuthSession>["user"] | null;
+    session: NonNullable<AuthSession>["session"] | null;
   };
 };
 
@@ -39,7 +42,6 @@ export function createApp(container: Container) {
     return c.json({ error: "Not Found" }, 404);
   });
 
-  // Mount better-auth handler
   app.on(["POST", "GET"], "/api/auth/*", (c) => {
     const { auth } = c.get("container");
     return auth.handler(c.req.raw);
