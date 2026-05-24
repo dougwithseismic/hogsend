@@ -38,17 +38,17 @@ docker compose up -d            # Start postgres + redis
 
 ### Monorepo layout
 
-- **apps/api** — Hono REST API with OpenAPI spec (Zod OpenAPI + Scalar docs at `/docs`)
-- **packages/ui** — Shared React component library (`@repo/ui`), exports `./src/*.tsx`
-- **packages/eslint-config** — Shared ESLint config (`@repo/eslint-config`)
+- **apps/api** — Hono REST API with OpenAPI spec (Zod OpenAPI + Scalar docs at `/docs`, dev only)
+- **packages/db** — Drizzle ORM schema, migrations, and seed (`@growthhog/db`). Exports raw `.ts` — no build step, bundled by consumers via tsup `noExternal`
 - **packages/typescript-config** — Shared tsconfig bases (`@repo/typescript-config`)
 
 ### API patterns (apps/api)
 
 The API uses a dependency-injection container pattern:
 
-- `src/env.ts` — `@t3-oss/env-core` validates env vars at startup (DATABASE_URL required)
-- `src/container.ts` — `createContainer()` builds the DI container (env, logger); passed to the app factory
+- `src/env.ts` — `@t3-oss/env-core` validates env vars at startup (DATABASE_URL, BETTER_AUTH_SECRET required)
+- `src/container.ts` — `createContainer()` builds the DI container (env, logger, auth); passed to the app factory
+- `src/lib/auth.ts` — Better Auth instance, configured from container env
 - `src/app.ts` — `createApp(container)` creates the OpenAPIHono app, registers middleware and routes; container is available via `c.get("container")` in any handler
 - `src/routes/index.ts` — `registerRoutes(app)` mounts versioned routers under `/v1`
 - Routes use `createRoute()` + `OpenAPIHono.openapi()` with Zod schemas for request/response validation and auto-generated OpenAPI spec
@@ -72,5 +72,16 @@ Tests use vitest and live in `src/__tests__/`. The vitest config injects test en
 
 - **TimescaleDB** (Postgres 18) via docker-compose on port 5432 (user/pass/db: `growthhog`)
 - **Redis** 8 (Alpine) via docker-compose on port 6379, for caching/queues
-- API Dockerfile: multi-stage Node 22 build, runs `dist/index.js` in production
 - API default port is 3002 (configured via PORT env var)
+- Node 22 required (pinned via `.node-version`)
+
+### Deployment
+
+- **Railway** (withSeismic team) — API + Postgres + Redis deployed to `hogsend-production.up.railway.app`
+- **Cloudflare** — `hogsend.com` DNS on Cloudflare, `api.hogsend.com` CNAME → Railway
+- **GitHub auto-deploy** — push to `main` triggers Railway build via GitHub integration
+- **PR environments** — available in Railway project settings (focused PR environments for monorepo)
+- `railway.toml` at repo root configures build (`pnpm --filter @growthhog/api build`), start (`pnpm --filter @growthhog/api start`), health check (`/v1/health`), and watch patterns
+- `lefthook install` is `|| true` in the prepare script — no `.git` in CI/build environments
+- tsup bundles `@growthhog/db` via `noExternal`, all npm deps resolve from `node_modules` at runtime
+- `/docs` and `/openapi.json` are disabled in production (`NODE_ENV=production`)
