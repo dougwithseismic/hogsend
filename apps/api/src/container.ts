@@ -29,7 +29,7 @@ export function createContainer(): Container {
     baseURL: env.BETTER_AUTH_URL,
   });
   const email = createResendClient(env.RESEND_API_KEY);
-  const registry = createJourneyRegistry();
+  const registry = createJourneyRegistry(env.ENABLED_JOURNEYS);
 
   logger.info(`Journey registry loaded: ${registry.count()} journeys`);
 

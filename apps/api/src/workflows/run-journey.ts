@@ -9,7 +9,7 @@ import { hatchet } from "../lib/hatchet.js";
 import { sendEmailTask } from "./send-email.js";
 
 const { db } = createDatabase(process.env.DATABASE_URL ?? "");
-const registry = createJourneyRegistry();
+const registry = createJourneyRegistry(process.env.ENABLED_JOURNEYS);
 
 const MAX_NODES = 50;
 
