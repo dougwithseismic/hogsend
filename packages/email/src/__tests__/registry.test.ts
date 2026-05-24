@@ -14,7 +14,7 @@ describe("template registry", () => {
     expect(names).toContain("welcome");
     expect(names).toContain("password-reset");
     expect(names).toContain("journey-notification");
-    expect(names).toHaveLength(3);
+    expect(names).toHaveLength(16);
   });
 
   it("gets a template definition by key", () => {

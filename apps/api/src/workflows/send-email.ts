@@ -24,6 +24,7 @@ export const sendEmailTask = hatchet.task({
     from?: string;
     replyTo?: string;
     tags?: Array<{ name: string; value: string }>;
+    headers?: Record<string, string>;
   }) => {
     const { data, error } = await resend.emails.send({
       from:
@@ -35,6 +36,7 @@ export const sendEmailTask = hatchet.task({
       html: input.html,
       replyTo: input.replyTo,
       tags: input.tags,
+      headers: input.headers,
     });
 
     if (error) {

@@ -2,6 +2,7 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { and, eq, inArray } from "drizzle-orm";
+import { upsertContact } from "./contacts.js";
 import { evaluateTriggerConditions } from "./enrollment-guards.js";
 import type { Logger } from "./logger.js";
 
@@ -57,6 +58,16 @@ export async function ingestEvent(opts: {
       userId: event.userId,
       eventName: event.event,
       properties: event.properties,
+    }),
+    upsertContact(db, {
+      externalId: event.userId,
+      email: event.userEmail || undefined,
+      properties: event.properties,
+    }).catch((err) => {
+      logger.warn("Contact upsert failed", {
+        userId: event.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }),
   ]);
 

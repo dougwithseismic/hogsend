@@ -1,4 +1,5 @@
 export * from "./auth.js";
+export * from "./contacts.js";
 export * from "./email-preferences.js";
 export * from "./email-sends.js";
 export * from "./enums.js";

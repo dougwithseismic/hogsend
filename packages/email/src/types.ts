@@ -366,6 +366,7 @@ export interface EmailServiceConfig {
   webhookSecret?: string;
   webhookHandlers?: WebhookHandlerMap;
   retryOptions?: RetryOptions;
+  bounceThreshold?: number;
 }
 
 export interface EmailServiceSendOptions<

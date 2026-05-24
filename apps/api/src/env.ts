@@ -20,6 +20,8 @@ export const env = createEnv({
     RESEND_FROM_EMAIL: z.string().email().default("noreply@hogsend.com"),
     HATCHET_CLIENT_TOKEN: z.string().min(1).optional(),
     POSTHOG_WEBHOOK_SECRET: z.string().min(1).optional(),
+    RESEND_WEBHOOK_SECRET: z.string().min(1).optional(),
+    API_PUBLIC_URL: z.string().url().default("http://localhost:3002"),
     ENABLED_JOURNEYS: z.string().default("*"),
   },
   runtimeEnv: process.env,

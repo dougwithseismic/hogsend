@@ -88,6 +88,23 @@ export {
   EmailSuppressionError,
   WebhookVerificationError,
 } from "./types.js";
+export type {
+  TokenAction,
+  TokenOptions,
+  UnsubscribeTokenPayload,
+} from "./unsubscribe-tokens.js";
+// Unsubscribe tokens
+export {
+  generateUnsubscribeToken,
+  InvalidTokenError,
+  validateUnsubscribeToken,
+} from "./unsubscribe-tokens.js";
+export type { UnsubscribeUrlOptions } from "./unsubscribe-url.js";
+// Unsubscribe URLs
+export {
+  generatePreferenceCenterUrl,
+  generateUnsubscribeUrl,
+} from "./unsubscribe-url.js";
 // Webhooks
 export {
   createWebhookHandler,

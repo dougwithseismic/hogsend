@@ -48,6 +48,15 @@ async function seed() {
     .onConflictDoNothing();
 
   await db
+    .insert(schema.contacts)
+    .values({
+      externalId: demoUserId,
+      email: "demo@hogsend.dev",
+      properties: { plan: "free", name: "Demo User" },
+    })
+    .onConflictDoNothing();
+
+  await db
     .insert(schema.emailPreferences)
     .values({
       userId: demoUserId,

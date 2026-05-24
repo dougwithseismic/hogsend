@@ -1,5 +1,5 @@
 import type { Database } from "@hogsend/db";
-import { emailSends } from "@hogsend/db";
+import { emailPreferences, emailSends } from "@hogsend/db";
 import { eq } from "drizzle-orm";
 import { Resend } from "resend";
 import { getTemplate } from "./registry.js";
@@ -168,10 +168,12 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
         },
         "email.bounced": async (event) => {
           await updateEmailStatus(event.type, event.data.email_id);
+          await handleBounce(event.data.to);
           await userHandlers["email.bounced"]?.(event);
         },
         "email.complained": async (event) => {
           await updateEmailStatus(event.type, event.data.email_id);
+          await handleComplaint(event.data.to);
           await userHandlers["email.complained"]?.(event);
         },
         "email.delivery_delayed": async (event) => {
@@ -182,6 +184,55 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
       return handler(options.payload, options.headers);
     },
   };
+
+  const bounceThreshold = config.bounceThreshold ?? 3;
+
+  async function handleBounce(toAddresses: string[]): Promise<void> {
+    if (!db) return;
+    const email = toAddresses[0];
+    if (!email) return;
+
+    const rows = await db
+      .select()
+      .from(emailPreferences)
+      .where(eq(emailPreferences.email, email))
+      .limit(1);
+
+    if (rows.length === 0) return;
+
+    const prefs = rows[0];
+    if (!prefs) return;
+
+    const newBounceCount = prefs.bounceCount + 1;
+    const shouldSuppress = newBounceCount >= bounceThreshold;
+
+    await db
+      .update(emailPreferences)
+      .set({
+        bounceCount: newBounceCount,
+        lastBounceAt: new Date(),
+        ...(shouldSuppress
+          ? { suppressed: true, suppressedAt: new Date() }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(emailPreferences.id, prefs.id));
+  }
+
+  async function handleComplaint(toAddresses: string[]): Promise<void> {
+    if (!db) return;
+    const email = toAddresses[0];
+    if (!email) return;
+
+    await db
+      .update(emailPreferences)
+      .set({
+        suppressed: true,
+        suppressedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(emailPreferences.email, email));
+  }
 
   async function updateEmailStatus(
     eventType: WebhookEventType,

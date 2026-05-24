@@ -108,6 +108,14 @@ export function defineJourney(options: {
         journeyId: meta.id,
       };
 
+      const unsubscribeConfig =
+        process.env.API_PUBLIC_URL && process.env.BETTER_AUTH_SECRET
+          ? {
+              baseUrl: process.env.API_PUBLIC_URL,
+              secret: process.env.BETTER_AUTH_SECRET,
+            }
+          : undefined;
+
       const ctx = createJourneyContext({
         db,
         hatchet,
@@ -117,7 +125,9 @@ export function defineJourney(options: {
         journeyId: meta.id,
         journeyName: meta.name,
         userId,
+        userEmail,
         journeyContext: { ...properties },
+        unsubscribeConfig,
       });
 
       try {

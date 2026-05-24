@@ -9,10 +9,19 @@ import type {
   SendEmailOptions,
 } from "@hogsend/core/types";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
-import { JourneyNotificationEmail, renderToHtml } from "@hogsend/email";
+import {
+  generateUnsubscribeUrl,
+  JourneyNotificationEmail,
+  renderToHtml,
+} from "@hogsend/email";
 import { eq } from "drizzle-orm";
 import { createElement } from "react";
 import type { sendEmailTask as SendEmailTaskType } from "../workflows/send-email.js";
+
+interface UnsubscribeConfig {
+  baseUrl: string;
+  secret: string;
+}
 
 interface JourneyContextConfig {
   db: Database;
@@ -23,7 +32,9 @@ interface JourneyContextConfig {
   journeyId: string;
   journeyName: string;
   userId: string;
+  userEmail: string;
   journeyContext: Record<string, unknown>;
+  unsubscribeConfig?: UnsubscribeConfig;
 }
 
 export function createJourneyContext(
@@ -39,6 +50,7 @@ export function createJourneyContext(
     journeyName,
     userId,
     journeyContext,
+    unsubscribeConfig,
   } = config;
 
   async function updateCheckpoint(label: string): Promise<void> {
@@ -55,6 +67,16 @@ export function createJourneyContext(
     ): Promise<{ emailId: string }> {
       await updateCheckpoint(`email:${options.template}`);
 
+      let unsubscribeUrl: string | undefined;
+      if (unsubscribeConfig) {
+        unsubscribeUrl = generateUnsubscribeUrl({
+          baseUrl: unsubscribeConfig.baseUrl,
+          secret: unsubscribeConfig.secret,
+          externalId: user.id,
+          email: user.email,
+        });
+      }
+
       const element = createElement(JourneyNotificationEmail, {
         name:
           (options.props?.firstName as string) ??
@@ -64,8 +86,15 @@ export function createJourneyContext(
         journeyName,
         eventName: options.template,
         body: options.subject,
+        unsubscribeUrl,
       });
       const html = await renderToHtml(element);
+
+      const headers: Record<string, string> = {};
+      if (unsubscribeUrl) {
+        headers["List-Unsubscribe"] = `<${unsubscribeUrl}>`;
+        headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+      }
 
       const result = await sendEmailTask.run({
         to: user.email,
@@ -76,6 +105,7 @@ export function createJourneyContext(
           { name: "templateKey", value: options.template },
           { name: "userId", value: user.id },
         ],
+        headers,
       });
 
       await hatchet.events.push("journey:email.sent", {

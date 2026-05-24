@@ -7,16 +7,49 @@ import {
   session,
   user,
 } from "./auth.js";
+import { contacts } from "./contacts.js";
+import { emailPreferences } from "./email-preferences.js";
 import { emailSends } from "./email-sends.js";
 import { journeyLogs } from "./journey-logs.js";
 import { journeyStates } from "./journey-states.js";
 import { linkClicks } from "./link-clicks.js";
 import { trackedLinks } from "./tracked-links.js";
+import { userEvents } from "./user-events.js";
 
-export const journeyStatesRelations = relations(journeyStates, ({ many }) => ({
-  logs: many(journeyLogs),
-  emailSends: many(emailSends),
+export const contactsRelations = relations(contacts, ({ many }) => ({
+  emailPreferences: many(emailPreferences),
+  userEvents: many(userEvents),
+  journeyStates: many(journeyStates),
 }));
+
+export const emailPreferencesRelations = relations(
+  emailPreferences,
+  ({ one }) => ({
+    contact: one(contacts, {
+      fields: [emailPreferences.userId],
+      references: [contacts.externalId],
+    }),
+  }),
+);
+
+export const userEventsRelations = relations(userEvents, ({ one }) => ({
+  contact: one(contacts, {
+    fields: [userEvents.userId],
+    references: [contacts.externalId],
+  }),
+}));
+
+export const journeyStatesRelations = relations(
+  journeyStates,
+  ({ one, many }) => ({
+    contact: one(contacts, {
+      fields: [journeyStates.userId],
+      references: [contacts.externalId],
+    }),
+    logs: many(journeyLogs),
+    emailSends: many(emailSends),
+  }),
+);
 
 export const journeyLogsRelations = relations(journeyLogs, ({ one }) => ({
   journeyState: one(journeyStates, {

@@ -5,7 +5,11 @@ import {
   type Database,
   type DatabaseClient,
 } from "@hogsend/db";
-import { createResendClient } from "@hogsend/email";
+import {
+  createEmailService,
+  createResendClient,
+  type EmailService,
+} from "@hogsend/email";
 import type { Resend } from "resend";
 import { env } from "./env.js";
 import { createJourneyRegistry } from "./journeys/index.js";
@@ -20,6 +24,7 @@ export interface Container {
   dbClient: DatabaseClient;
   auth: Auth;
   email: Resend;
+  emailService: EmailService | null;
   registry: JourneyRegistry;
   hatchet: HatchetClient;
 }
@@ -34,6 +39,16 @@ export function createContainer(): Container {
   const email = createResendClient(env.RESEND_API_KEY);
   const registry = createJourneyRegistry(env.ENABLED_JOURNEYS);
 
+  const emailService = env.RESEND_WEBHOOK_SECRET
+    ? createEmailService({
+        apiKey: env.RESEND_API_KEY,
+        defaultFrom: env.RESEND_FROM_EMAIL,
+        db,
+        webhookSecret: env.RESEND_WEBHOOK_SECRET,
+        bounceThreshold: 3,
+      })
+    : null;
+
   logger.info(`Journey registry loaded: ${registry.count()} journeys`);
 
   return {
@@ -43,6 +58,7 @@ export function createContainer(): Container {
     dbClient: client,
     auth,
     email,
+    emailService,
     registry,
     hatchet,
   };
