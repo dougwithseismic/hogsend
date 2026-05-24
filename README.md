@@ -70,6 +70,23 @@ Fills the gap between "PostHog webhooks firing into a Hono handler" and "paying 
 4. Set `HATCHET_CLIENT_TOKEN` on the API and Worker services
 5. Both services will redeploy and connect
 
+### Install the CLI
+
+```bash
+# curl (macOS, Linux, WSL)
+curl -fsSL https://raw.githubusercontent.com/dougwithseismic/hogsend/main/install.sh | bash
+
+# or download from GitHub Releases
+# https://github.com/dougwithseismic/hogsend/releases
+```
+
+Then set up a new deployment:
+
+```bash
+hogsend init      # interactive Railway provisioning wizard
+hogsend status    # verify everything is healthy
+```
+
 ### Self-hosted (Docker Compose)
 
 ```bash
@@ -245,6 +262,27 @@ export const activationWelcome: JourneyDefinition = {
 | `HATCHET_CLIENT_TOKEN` | No | - | Hatchet API token for workflow execution |
 | `POSTHOG_WEBHOOK_SECRET` | No | - | Shared secret for verifying PostHog webhooks |
 | `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs to load, or `*` for all |
+
+---
+
+## CLI Reference
+
+```bash
+hogsend init        # Interactive wizard — provisions Railway project, all services, env vars
+hogsend setup       # Local dev — Docker, deps, .env, .hogsend.yaml
+hogsend status      # Health check for this deployment
+hogsend deploy      # Trigger Railway deploy for API + Worker
+hogsend journeys    # Enable/disable journeys via ENABLED_JOURNEYS env var
+hogsend destroy     # Tear down the Railway project (with confirmation)
+```
+
+### Releasing
+
+```bash
+cd cli
+git tag v0.1.0
+make release        # goreleaser builds all platforms, creates GitHub Release
+```
 
 ---
 
