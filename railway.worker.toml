@@ -1,0 +1,8 @@
+[build]
+buildCommand = "pnpm --filter @hogsend/api build"
+watchPatterns = ["apps/api/**", "packages/**", "pnpm-lock.yaml", "railway.worker.toml"]
+
+[deploy]
+startCommand = "pnpm --filter @hogsend/api worker"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

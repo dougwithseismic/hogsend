@@ -1,3 +1,5 @@
+// biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
+import React from "react";
 import { Heading, Text } from "react-email";
 import type { JourneyNotificationEmailProps } from "../src/types.js";
 import { Footer } from "./_components/footer.js";

@@ -1,13 +1,17 @@
 import { evaluateCondition } from "@hogsend/core";
 import type { JourneyNode } from "@hogsend/core/types";
 import { createDatabase, journeyStates, userEvents } from "@hogsend/db";
+import { JourneyNotificationEmail, renderToHtml } from "@hogsend/email";
 import { eq } from "drizzle-orm";
+import { createElement } from "react";
 import { createJourneyRegistry } from "../journeys/index.js";
 import { hatchet } from "../lib/hatchet.js";
 import { sendEmailTask } from "./send-email.js";
 
 const { db } = createDatabase(process.env.DATABASE_URL ?? "");
 const registry = createJourneyRegistry();
+
+const MAX_NODES = 50;
 
 type RunJourneyInput = {
   stateId: string;
@@ -17,11 +21,11 @@ type RunJourneyInput = {
   context: Record<string, string | number | boolean | null>;
 };
 
-export const runJourneyTask = hatchet.task({
+export const runJourneyTask = hatchet.durableTask({
   name: "run-journey",
-  executionTimeout: "5m",
+  executionTimeout: "720h",
   retries: 0,
-  fn: async (input: RunJourneyInput) => {
+  fn: async (input: RunJourneyInput, ctx) => {
     const { stateId, userId, userEmail } = input;
     const journeyContext = { ...input.context };
     const journeyDefinition = registry.get(input.journeyId);
@@ -32,9 +36,10 @@ export const runJourneyTask = hatchet.task({
     }
 
     let currentNodeId: string | null = journeyDefinition.entryNode;
+    let nodesProcessed = 0;
 
     try {
-      while (currentNodeId) {
+      while (currentNodeId && nodesProcessed < MAX_NODES) {
         const node = journeyDefinition.nodes[currentNodeId] as
           | JourneyNode
           | undefined;
@@ -52,6 +57,7 @@ export const runJourneyTask = hatchet.task({
               userEmail,
               stateId,
               journeyId: input.journeyId,
+              journeyName: journeyDefinition.name,
             });
             currentNodeId = node.next;
             break;
@@ -61,12 +67,16 @@ export const runJourneyTask = hatchet.task({
               .update(journeyStates)
               .set({ status: "waiting", updatedAt: new Date() })
               .where(eq(journeyStates.id, stateId));
-            return {
-              stateId,
-              status: "waiting",
-              resumeAfterHours: node.hours,
-              nextNodeId: node.next,
-            };
+
+            await ctx.sleepFor(`${node.hours}h`);
+
+            await db
+              .update(journeyStates)
+              .set({ status: "active", updatedAt: new Date() })
+              .where(eq(journeyStates.id, stateId));
+
+            currentNodeId = node.next;
+            break;
 
           case "condition": {
             const result = await evaluateCondition(node.eval, {
@@ -78,6 +88,8 @@ export const runJourneyTask = hatchet.task({
             break;
           }
         }
+
+        nodesProcessed++;
       }
     } catch (err) {
       const message =
@@ -109,7 +121,7 @@ export const runJourneyTask = hatchet.task({
       userId,
     });
 
-    return { stateId, status: "completed" };
+    return { stateId, status: "completed", nodesProcessed };
   },
 });
 
@@ -134,6 +146,7 @@ interface ActionContext {
   userEmail: string;
   stateId: string;
   journeyId: string;
+  journeyName: string;
 }
 
 async function executeAction(
@@ -144,10 +157,18 @@ async function executeAction(
 
   switch (action.type) {
     case "send_email": {
+      const element = createElement(JourneyNotificationEmail, {
+        name: ctx.userEmail.split("@")[0] ?? "there",
+        journeyName: ctx.journeyName,
+        eventName: action.templateKey,
+        body: action.subject,
+      });
+      const html = await renderToHtml(element);
+
       const result = await sendEmailTask.run({
         to: ctx.userEmail,
         subject: action.subject,
-        html: `<p>${action.subject}</p>`,
+        html,
         tags: [
           { name: "journeyId", value: ctx.journeyId },
           { name: "templateKey", value: action.templateKey },

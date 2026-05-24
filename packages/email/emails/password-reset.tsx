@@ -1,3 +1,5 @@
+// biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
+import React from "react";
 import { Button, Heading, Text } from "react-email";
 import type { PasswordResetEmailProps } from "../src/types.js";
 import { Footer } from "./_components/footer.js";

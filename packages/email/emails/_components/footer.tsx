@@ -1,3 +1,5 @@
+// biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
+import React from "react";
 import { Hr, Link, Section, Text } from "react-email";
 
 interface FooterProps {

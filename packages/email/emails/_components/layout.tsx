@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+// biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
+import React, { type ReactNode } from "react";
 import {
   Body,
   Container,
