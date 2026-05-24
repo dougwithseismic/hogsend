@@ -192,6 +192,79 @@ export type WebhookHandlerMap = {
 };
 
 // ---------------------------------------------------------------------------
+// Email service (high-level DX)
+// ---------------------------------------------------------------------------
+
+export interface EmailServiceConfig {
+  apiKey: string;
+  defaultFrom: string;
+  db?: unknown;
+  webhookSecret?: string;
+  webhookHandlers?: WebhookHandlerMap;
+  retryOptions?: RetryOptions;
+}
+
+export interface EmailServiceSendOptions<
+  K extends TemplateName = TemplateName,
+> {
+  template: K;
+  props: TemplateMap[K];
+  to: string;
+  from?: string;
+  subject?: string;
+  journeyStateId?: string;
+  category?: string;
+  tags?: Array<{ name: string; value: string }>;
+  headers?: Record<string, string>;
+  replyTo?: string | string[];
+  skipPreferenceCheck?: boolean;
+}
+
+export interface EmailServiceRenderOptions<
+  K extends TemplateName = TemplateName,
+> {
+  template: K;
+  props: TemplateMap[K];
+}
+
+export interface EmailServiceRenderResult {
+  html: string;
+  text: string;
+  subject: string;
+  category?: string;
+}
+
+export interface EmailServiceWebhookOptions {
+  payload: string;
+  headers: Record<string, string>;
+}
+
+export interface EmailServiceWebhookResult {
+  type: WebhookEventType;
+  handled: boolean;
+}
+
+export interface EmailService {
+  send<K extends TemplateName>(
+    options: EmailServiceSendOptions<K>,
+  ): Promise<TrackedSendResult>;
+
+  sendRaw(options: SendEmailOptions): Promise<SendResult>;
+
+  sendBatch(options: { emails: BatchEmailItem[] }): Promise<{
+    results: SendResult[];
+  }>;
+
+  render<K extends TemplateName>(
+    options: EmailServiceRenderOptions<K>,
+  ): Promise<EmailServiceRenderResult>;
+
+  handleWebhook(
+    options: EmailServiceWebhookOptions,
+  ): Promise<EmailServiceWebhookResult>;
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 

@@ -19,6 +19,8 @@ export { renderToHtml, renderToPlainText } from "./render.js";
 // Sending (with retry + auto-chunking)
 export { sendBatchEmails, sendEmail } from "./send.js";
 
+// Service (high-level DX)
+export { createEmailService } from "./service.js";
 // Tracked email (DB integration)
 export { sendTrackedEmail } from "./tracked.js";
 // Types
@@ -31,6 +33,13 @@ export type {
   EmailDeliveryDelayedEvent,
   EmailOpenedEvent,
   EmailSentEvent,
+  EmailService,
+  EmailServiceConfig,
+  EmailServiceRenderOptions,
+  EmailServiceRenderResult,
+  EmailServiceSendOptions,
+  EmailServiceWebhookOptions,
+  EmailServiceWebhookResult,
   JourneyNotificationEmailProps,
   PasswordResetEmailProps,
   RetryOptions,
