@@ -1,159 +1,267 @@
-# Turborepo starter
+# Hogsend
 
-This Turborepo starter is maintained by the Turborepo core team.
+Code-first lifecycle engine for teams on PostHog + Resend. Journeys are typed TypeScript objects, not YAML, not drag-and-drop canvases. Self-hostable. Open source.
 
-## Using this example
+Fills the gap between "PostHog webhooks firing into a Hono handler" and "paying $500/mo for Customer.io."
 
-Run the following command:
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
 
-```sh
-npx create-turbo@latest
+---
+
+## Why Hogsend
+
+- **Agentic-native.** Journeys are typed `.ts` files. An AI agent can create, modify, and reason about them. No proprietary format, no visual-only builder.
+- **PostHog-native.** Bi-directional event sync. Events flow in from PostHog webhooks, engagement data flows back. Build cohorts based on email engagement alongside product metrics.
+- **Self-hostable.** Postgres + Redis + one Node process. Deploy to Railway in 5 minutes. Your data stays yours.
+
+---
+
+## Architecture
+
+```
+                         Event Sources
+  PostHog webhooks ──┐
+  Internal events ───┤──> Hono Ingestion (/v1/ingest)
+  API calls ─────────┘         |
+                               v
+                        Journey Engine
+           ┌─────────────┐  ┌──────────────┐
+           │  Enrollment  │  │   Hatchet    │
+           │  (match      │  │  (durable    │
+           │   trigger,   │  │   workflow   │
+           │   check      │  │   execution, │
+           │   limits,    │  │   sleeps,    │
+           │   kick off   │  │   retries,   │
+           │   workflow)  │  │   dashboard) │
+           └──────┬──────┘  └──────┬───────┘
+                  └────────────────┤
+                                   v
+                            Action Router
+                               |
+          ┌────────────┬───────┴──────┬──────────────┐
+          v            v              v              v
+     Resend       PostHog        Webhook        Enroll
+     Email        Event          (HTTP)         Another
+     Send         Push                          Journey
 ```
 
-## What's inside?
+| Concern | Tool |
+|---------|------|
+| Runtime | Hono on Node.js |
+| Workflow orchestration | Hatchet (durable execution, sleeps, retries) |
+| Database | TimescaleDB (Postgres 18) |
+| ORM | Drizzle |
+| Job queue / cache | Redis |
+| Event source | PostHog (webhooks + API) |
+| Email delivery | Resend |
+| Email templates | React Email |
+| Journey definitions | TypeScript (typed objects) |
+| Deploy | Railway or self-hosted Docker |
 
-This Turborepo includes the following packages/apps:
+---
 
-### Apps and Packages
+## Quick Start
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### Deploy to Railway
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+1. Click the deploy button above
+2. Set your `RESEND_API_KEY` and `RESEND_FROM_EMAIL`
+3. Open the Hatchet dashboard (deployed as a service), generate an API token under Settings > API Tokens
+4. Set `HATCHET_CLIENT_TOKEN` on the API and Worker services
+5. Both services will redeploy and connect
 
-### Utilities
+### Self-hosted (Docker Compose)
 
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+```bash
+git clone https://github.com/hogsend/hogsend.git
+cd hogsend
+pnpm setup          # checks Docker, starts containers, installs deps, creates .env
+pnpm dev            # starts API on port 3002
 ```
 
-Without global `turbo`, use your package manager:
+In a separate terminal:
 
-```sh
-cd my-turborepo
-npx turbo build
-pnpm dlx turbo build
-pnpm exec turbo build
+```bash
+cd apps/api
+hatchet worker dev  # starts Hatchet worker with hot-reload
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+Hatchet dashboard: `http://localhost:8888` (login: `admin@example.com` / `Admin123!!`)
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+### Common Commands
 
-```sh
-turbo build --filter=docs
+```bash
+pnpm dev                          # Start API via Turbo
+pnpm build                        # Build all packages
+pnpm lint                         # Biome check
+pnpm check-types                  # TypeScript check across workspaces
+pnpm --filter @hogsend/api test   # Run tests
+
+# Database
+pnpm --filter @hogsend/db db:generate   # Generate migration from schema
+pnpm --filter @hogsend/db db:migrate    # Run migrations
+pnpm --filter @hogsend/db db:studio     # Open Drizzle Studio
 ```
 
-Without global `turbo`:
+---
 
-```sh
-npx turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+## Writing Journeys
+
+Journeys are TypeScript files in `apps/api/src/journeys/`. Each exports a typed `JourneyDefinition` object.
+
+### Example: Activation Welcome Series
+
+```typescript
+import type { JourneyDefinition } from "@hogsend/core/types";
+
+export const activationWelcome: JourneyDefinition = {
+  id: "activation-welcome",
+  name: "Activation — Welcome Series",
+  enabled: true,
+
+  trigger: { event: "user.created" },   // enroll when this event fires
+  entryLimit: "once",                    // each user enters once
+  suppressHours: 12,                     // min hours between emails
+  exitOn: [{ event: "user.deleted" }],   // exit immediately on this event
+
+  entryNode: "send_welcome",
+
+  nodes: {
+    send_welcome: {
+      type: "action",
+      id: "send_welcome",
+      action: {
+        type: "send_email",
+        templateKey: "activation/welcome",
+        subject: "Welcome — let's get you set up",
+      },
+      next: "wait_48h",
+    },
+
+    wait_48h: {
+      type: "wait",
+      id: "wait_48h",
+      hours: 48,
+      next: "check_engagement",
+    },
+
+    check_engagement: {
+      type: "condition",
+      id: "check_engagement",
+      eval: {
+        type: "event",
+        eventName: "feature.used",
+        check: "exists",
+      },
+      onTrue: "send_advanced",    // they used it -> tips email
+      onFalse: "send_nudge",      // they didn't -> nudge email
+    },
+
+    send_advanced: {
+      type: "action",
+      id: "send_advanced",
+      action: { type: "send_email", templateKey: "activation/advanced", subject: "Nice work — here's what to try next" },
+      next: "wait_48h_2",
+    },
+
+    send_nudge: {
+      type: "action",
+      id: "send_nudge",
+      action: { type: "send_email", templateKey: "activation/nudge", subject: "You haven't tried the key feature yet" },
+      next: "wait_48h_2",
+    },
+
+    wait_48h_2: { type: "wait", id: "wait_48h_2", hours: 48, next: "send_community" },
+
+    send_community: {
+      type: "action",
+      id: "send_community",
+      action: { type: "send_email", templateKey: "activation/community", subject: "Join the community" },
+      next: null,  // journey complete
+    },
+  },
+};
 ```
 
-### Develop
+### Node Types
 
-To develop all apps and packages, run the following command:
+| Type | Fields | Behavior |
+|------|--------|----------|
+| `action` | `action`, `next` | Execute an action, advance to `next` (or complete if `null`) |
+| `wait` | `hours`, `next` | Sleep durably via Hatchet, then advance |
+| `condition` | `eval`, `onTrue`, `onFalse` | Evaluate a condition, branch accordingly |
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
+### Action Types
 
-```sh
-cd my-turborepo
-turbo dev
+| Type | What it does |
+|------|-------------|
+| `send_email` | Render React Email template, send via Resend |
+| `fire_event` | Insert into local event store + push to PostHog |
+| `webhook` | POST/PUT to an external URL |
+| `enroll_journey` | Enroll the user in another journey |
+
+### Condition Types
+
+| Type | What it checks |
+|------|---------------|
+| `event` | Has a specific event been recorded? How many times? Within a time window? |
+| `property` | Check a PostHog person property or journey context value |
+| `email_engagement` | Has the user opened/clicked a specific email? |
+| `composite` | AND/OR combinations of other conditions |
+
+### Adding a Journey
+
+1. Create `apps/api/src/journeys/your-journey.ts` exporting a `JourneyDefinition`
+2. Import and register it in `apps/api/src/journeys/index.ts`
+3. Deploy
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/v1/ingest` | Ingest events from PostHog webhooks or direct API calls |
+| POST | `/v1/webhooks/posthog` | PostHog webhook receiver (signature verified) |
+| GET | `/v1/health` | Health check |
+| GET | `/docs` | Scalar API reference (dev only) |
+| GET | `/openapi.json` | OpenAPI spec (dev only) |
+
+---
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
+| `BETTER_AUTH_SECRET` | Yes | - | Auth secret (min 32 characters) |
+| `RESEND_API_KEY` | Yes | - | Resend API key for email delivery |
+| `NODE_ENV` | No | `development` | `development`, `production`, or `test` |
+| `PORT` | No | `3002` | HTTP server port |
+| `LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `http`, `debug` |
+| `REDIS_URL` | No | `redis://localhost:6379` | Redis connection string |
+| `BETTER_AUTH_URL` | No | `http://localhost:3002` | Auth base URL |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Sender email address |
+| `HATCHET_CLIENT_TOKEN` | No | - | Hatchet API token for workflow execution |
+| `POSTHOG_WEBHOOK_SECRET` | No | - | Shared secret for verifying PostHog webhooks |
+| `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs to load, or `*` for all |
+
+---
+
+## Monorepo Layout
+
+```
+apps/
+  api/                  Hono REST API + Hatchet worker
+packages/
+  core/                 Journey types, schemas, condition engine, registry
+  db/                   Drizzle ORM schema and migrations
+  email/                Resend client, React Email templates
+  typescript-config/    Shared tsconfig bases
 ```
 
-Without global `turbo`, use your package manager:
+---
 
-```sh
-cd my-turborepo
-npx turbo dev
-pnpm exec turbo dev
-pnpm exec turbo dev
-```
+## License
 
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-pnpm exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-pnpm exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+MIT
