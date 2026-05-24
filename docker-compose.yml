@@ -29,6 +29,47 @@ services:
       timeout: 5s
       retries: 5
 
+  hatchet-postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: hatchet
+      POSTGRES_DB: hatchet
+    volumes:
+      - hatchetpgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  hatchet-lite:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    restart: unless-stopped
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+    ports:
+      - "8888:8888"
+      - "7077:7077"
+    environment:
+      DATABASE_URL: postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable
+      SERVER_URL: http://localhost:8888
+      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_INSECURE: "true"
+      SERVER_AUTH_SET_EMAIL_VERIFIED: "true"
+      SERVER_DEFAULT_ENGINE_VERSION: V1
+      SERVER_GRPC_BIND_ADDRESS: 0.0.0.0
+      SERVER_GRPC_PORT: "7077"
+      SERVER_GRPC_INSECURE: "true"
+      SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
+      SERVER_MSGQUEUE_KIND: postgres
+    volumes:
+      - hatchetdata:/app/config
+
 volumes:
   pgdata:
   redisdata:
+  hatchetpgdata:
+  hatchetdata:

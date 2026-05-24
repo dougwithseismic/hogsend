@@ -1,0 +1,6 @@
+dev:
+  runCmd: "pnpm tsx --env-file=.env src/worker.ts"
+  files:
+    - "src/**/*.ts"
+    - "!**/node_modules/**"
+  reload: true

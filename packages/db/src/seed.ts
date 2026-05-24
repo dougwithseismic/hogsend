@@ -23,7 +23,7 @@ async function seed() {
     .values({
       id: demoUserId,
       name: "Demo User",
-      email: "demo@growthhog.dev",
+      email: "demo@hogsend.dev",
       emailVerified: true,
     })
     .onConflictDoNothing();
@@ -32,8 +32,8 @@ async function seed() {
     .insert(schema.organization)
     .values({
       id: demoOrgId,
-      name: "GrowthHog Demo",
-      slug: "growthhog-demo",
+      name: "Hogsend Demo",
+      slug: "hogsend-demo",
     })
     .onConflictDoNothing();
 
@@ -51,7 +51,7 @@ async function seed() {
     .insert(schema.emailPreferences)
     .values({
       userId: demoUserId,
-      email: "demo@growthhog.dev",
+      email: "demo@hogsend.dev",
       unsubscribedAll: false,
       categories: {},
     })

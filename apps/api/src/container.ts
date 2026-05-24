@@ -1,9 +1,13 @@
+import type { JourneyRegistry } from "@hogsend/core/registry";
 import {
   createDatabase,
   type Database,
   type DatabaseClient,
-} from "@growthhog/db";
+} from "@hogsend/db";
+import { createResendClient } from "@hogsend/email";
+import type { Resend } from "resend";
 import { env } from "./env.js";
+import { createJourneyRegistry } from "./journeys/index.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 
@@ -13,6 +17,8 @@ export interface Container {
   db: Database;
   dbClient: DatabaseClient;
   auth: Auth;
+  email: Resend;
+  registry: JourneyRegistry;
 }
 
 export function createContainer(): Container {
@@ -22,6 +28,10 @@ export function createContainer(): Container {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
   });
+  const email = createResendClient(env.RESEND_API_KEY);
+  const registry = createJourneyRegistry();
+
+  logger.info(`Journey registry loaded: ${registry.count()} journeys`);
 
   return {
     env,
@@ -29,5 +39,7 @@ export function createContainer(): Container {
     db,
     dbClient: client,
     auth,
+    email,
+    registry,
   };
 }

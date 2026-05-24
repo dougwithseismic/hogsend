@@ -1,10 +1,10 @@
 [build]
-buildCommand = "pnpm --filter @growthhog/api build"
+buildCommand = "pnpm --filter @hogsend/api build"
 watchPatterns = ["apps/api/**", "packages/db/**", "packages/typescript-config/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
 
 [deploy]
-preDeployCommand = "pnpm --filter @growthhog/db db:migrate"
-startCommand = "pnpm --filter @growthhog/api start"
+preDeployCommand = "pnpm --filter @hogsend/db db:migrate"
+startCommand = "pnpm --filter @hogsend/api start"
 healthcheckPath = "/v1/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

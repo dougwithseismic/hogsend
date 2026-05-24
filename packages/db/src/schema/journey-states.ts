@@ -5,6 +5,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
@@ -14,18 +15,27 @@ export const journeyStates = pgTable(
   "journey_states",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    journeyId: text("journey_id").notNull(),
     userId: text("user_id").notNull(),
+    userEmail: text("user_email").notNull(),
+    journeyId: text("journey_id").notNull(),
     currentNodeId: text("current_node_id").notNull(),
     status: journeyStatusEnum("status").notNull().default("active"),
+    hatchetRunId: text("hatchet_run_id"),
     context: jsonb("context").$type<Record<string, unknown>>().default({}),
-    waitUntil: timestamp("wait_until", { withTimezone: true }),
+    errorMessage: text("error_message"),
     entryCount: integer("entry_count").notNull().default(1),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    exitedAt: timestamp("exited_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [
-    index("journey_states_journey_user_idx").on(table.journeyId, table.userId),
+    uniqueIndex("uq_user_journey_active").on(
+      table.userId,
+      table.journeyId,
+      table.status,
+    ),
     index("journey_states_status_idx").on(table.status),
-    index("journey_states_wait_until_idx").on(table.waitUntil),
+    index("journey_states_hatchet_run_idx").on(table.hatchetRunId),
+    index("journey_states_user_id_idx").on(table.userId),
   ],
 );

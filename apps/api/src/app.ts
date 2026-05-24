@@ -53,7 +53,7 @@ export function createApp(container: Container) {
     app.doc("/openapi.json", {
       openapi: "3.1.0",
       info: {
-        title: "GrowthHog API",
+        title: "Hogsend API",
         version: API_VERSION,
         description: "Journey orchestration API",
       },

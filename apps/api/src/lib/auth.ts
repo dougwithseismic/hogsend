@@ -1,5 +1,5 @@
-import type { Database } from "@growthhog/db";
-import * as schema from "@growthhog/db/schema";
+import type { Database } from "@hogsend/db";
+import * as schema from "@hogsend/db/schema";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins/organization";
