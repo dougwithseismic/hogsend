@@ -8,4 +8,5 @@ export default defineConfig({
   clean: true,
   splitting: false,
   sourcemap: true,
+  noExternal: ["@growthhog/db"],
 });

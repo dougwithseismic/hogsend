@@ -63,7 +63,8 @@ Tests use vitest and live in `src/__tests__/`. The vitest config injects test en
 
 - **Biome** for linting and formatting (not ESLint/Prettier at root level)
 - 2-space indent, double quotes, semicolons always
-- **Lefthook** git hooks: pre-commit runs `biome check` on staged files; pre-push runs `check-types`
+- **Conventional Commits** enforced via `commitlint` + Lefthook `commit-msg` hook. Format: `type(scope): description` — types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Scope is optional, kebab-case. Header max 100 chars.
+- **Lefthook** git hooks: `commit-msg` runs commitlint; pre-commit runs `biome check` on staged files; pre-push runs `check-types`
 - API builds target Node 22, ESM-only (`"type": "module"`)
 - Use `.js` extensions in relative imports within the API (ESM resolution)
 

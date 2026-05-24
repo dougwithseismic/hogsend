@@ -14,6 +14,8 @@ export type AppEnv = {
   Variables: {
     container: Container;
     requestId: string;
+    user: Record<string, unknown> | null;
+    session: Record<string, unknown> | null;
   };
 };
 
@@ -35,6 +37,12 @@ export function createApp(container: Container) {
 
   app.notFound((c) => {
     return c.json({ error: "Not Found" }, 404);
+  });
+
+  // Mount better-auth handler
+  app.on(["POST", "GET"], "/api/auth/*", (c) => {
+    const { auth } = c.get("container");
+    return auth.handler(c.req.raw);
   });
 
   registerRoutes(app);

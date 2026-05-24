@@ -14,6 +14,8 @@ export const env = createEnv({
       .default("info"),
     DATABASE_URL: z.string().min(1),
     REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
+    BETTER_AUTH_SECRET: z.string().min(1),
+    BETTER_AUTH_URL: z.string().url().default("http://localhost:3002"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

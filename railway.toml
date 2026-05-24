@@ -1,0 +1,11 @@
+[build]
+buildCommand = "pnpm --filter @growthhog/api build"
+watchPatterns = ["apps/api/**", "packages/db/**", "packages/typescript-config/**"]
+
+[deploy]
+preDeployCommand = "pnpm --filter @growthhog/db db:migrate"
+startCommand = "pnpm --filter @growthhog/api start"
+healthcheckPath = "/v1/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
