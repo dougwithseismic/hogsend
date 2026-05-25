@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="hogsend-banner.png" alt="Hogsend" width="100%" />
+</p>
+
 # Hogsend
 
 > **Work in progress.** This is a no-fuss, self-hosted lifecycle marketing platform for scrappy startups that want full lifecycle email on top of PostHog and Resend — yesterday. Use it to move fast and test ideas before going full send into Customer.io, Brevo, etc.
