@@ -4,35 +4,20 @@ import type {
   JourneyRunFn,
   JourneyUser,
 } from "@hogsend/core/types";
-import { createDatabase, type Database, journeyStates } from "@hogsend/db";
-import { eq } from "drizzle-orm";
+import { journeyStates } from "@hogsend/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { getDb } from "../lib/db.js";
 import {
   checkEmailPreferences,
   checkEntryLimit,
   evaluateTriggerConditions,
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
-import { createLogger, type Logger } from "../lib/logger.js";
+import { createLogger } from "../lib/logger.js";
 import { createJourneyContext } from "./journey-context.js";
 import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
-let _db: Database | undefined;
-let _logger: Logger | undefined;
-
-function getDb(): Database {
-  if (!_db) {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
-    _db = db;
-  }
-  return _db;
-}
-
-function getLogger(): Logger {
-  if (!_logger) {
-    _logger = createLogger(process.env.LOG_LEVEL ?? "info");
-  }
-  return _logger;
-}
+const logger = createLogger(process.env.LOG_LEVEL);
 
 interface EventPayloadInput {
   userId: JsonValue;
@@ -95,6 +80,17 @@ export function defineJourney(options: {
         return { status: "skipped", reason: "user_unsubscribed" };
       }
 
+      const activeState = await db.query.journeyStates.findFirst({
+        where: and(
+          eq(journeyStates.userId, userId),
+          eq(journeyStates.journeyId, meta.id),
+          inArray(journeyStates.status, ["active", "waiting"]),
+        ),
+      });
+      if (activeState) {
+        return { status: "skipped", reason: "already_active" };
+      }
+
       const [state] = await db
         .insert(journeyStates)
         .values({
@@ -128,7 +124,7 @@ export function defineJourney(options: {
         hatchet,
         hatchetCtx,
         registry: getJourneyRegistrySingleton(),
-        logger: getLogger(),
+        logger,
         stateId,
         userId,
         userEmail,

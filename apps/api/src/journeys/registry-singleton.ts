@@ -14,3 +14,8 @@ export function getJourneyRegistrySingleton(): JourneyRegistry {
   }
   return _registry;
 }
+
+/** Reset the singleton — only for test cleanup. */
+export function resetJourneyRegistry(): void {
+  _registry = undefined;
+}

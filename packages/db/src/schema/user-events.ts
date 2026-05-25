@@ -22,5 +22,10 @@ export const userEvents = pgTable(
     index("user_events_user_id_idx").on(table.userId),
     index("user_events_event_idx").on(table.event),
     index("user_events_occurred_at_idx").on(table.occurredAt),
+    index("user_events_user_event_occurred_idx").on(
+      table.userId,
+      table.event,
+      table.occurredAt,
+    ),
   ],
 );
