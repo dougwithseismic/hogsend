@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { createContainer } from "./container.js";
+import { getPostHog } from "./lib/posthog.js";
+import { getRedisIfConnected } from "./lib/redis.js";
 
 const container = createContainer();
 const app = createApp(container);
@@ -23,7 +25,11 @@ server.keepAliveTimeout = 72_000;
 async function shutdown(signal: string) {
   logger.info(`${signal} received, shutting down gracefully`);
   server.close(async () => {
-    await container.dbClient.end({ timeout: 5 });
+    await Promise.allSettled([
+      container.dbClient.end({ timeout: 5 }),
+      getPostHog()?.shutdown(),
+      getRedisIfConnected()?.quit(),
+    ]);
     logger.info("Server closed");
     process.exit(0);
   });

@@ -10,9 +10,9 @@ export async function evaluatePropertyCondition(
   if (condition.source === "context") {
     value = ctx.journeyContext[condition.property];
   } else if (condition.source === "posthog") {
-    // PostHog person properties lookup — stub for now.
-    // In production: GET /api/persons/?distinct_id={userId}, cache 5 min.
-    return false;
+    if (!ctx.getPostHogProperties) return false;
+    const props = await ctx.getPostHogProperties(ctx.userId);
+    value = props[condition.property];
   }
 
   return compareValue(value, condition.operator, condition.value);

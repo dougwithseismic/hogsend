@@ -9,6 +9,7 @@ export interface ConditionContext {
   db: Database;
   userId: string;
   journeyContext: Record<string, unknown>;
+  getPostHogProperties?: (userId: string) => Promise<Record<string, unknown>>;
 }
 
 export async function evaluateCondition(

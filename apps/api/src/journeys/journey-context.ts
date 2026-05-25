@@ -33,6 +33,7 @@ interface JourneyContextConfig {
   userEmail: string;
   journeyContext: Record<string, unknown>;
   unsubscribeConfig?: UnsubscribeConfig;
+  getPostHogProperties?: (userId: string) => Promise<Record<string, unknown>>;
 }
 
 export function createJourneyContext(
@@ -49,6 +50,7 @@ export function createJourneyContext(
     userId,
     journeyContext,
     unsubscribeConfig,
+    getPostHogProperties,
   } = config;
 
   async function updateCheckpoint(label: string): Promise<void> {
@@ -96,7 +98,7 @@ export function createJourneyContext(
             check: "exists",
             withinHours,
           },
-          { db, userId: targetUserId, journeyContext },
+          { db, userId: targetUserId, journeyContext, getPostHogProperties },
         );
         return { found, count: found ? 1 : 0 };
       },
@@ -180,7 +182,7 @@ export function createJourneyContext(
       async checkEngagement({ templateKey, check }) {
         const matched = await evaluateCondition(
           { type: "email_engagement", templateKey, check },
-          { db, userId, journeyContext },
+          { db, userId, journeyContext, getPostHogProperties },
         );
         return { matched, check };
       },
@@ -190,7 +192,7 @@ export function createJourneyContext(
       async check({ source, property, operator, value }) {
         const matched = await evaluateCondition(
           { type: "property", source, property, operator, value },
-          { db, userId, journeyContext },
+          { db, userId, journeyContext, getPostHogProperties },
         );
 
         let actualValue: unknown;

@@ -12,6 +12,7 @@ import {
   evaluateTriggerConditions,
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
+import { getPostHog } from "../lib/posthog.js";
 import { sendEmailTask } from "../workflows/send-email.js";
 import { createJourneyContext } from "./journey-context.js";
 
@@ -116,6 +117,8 @@ export function defineJourney(options: {
             }
           : undefined;
 
+      const posthog = getPostHog();
+
       const ctx = createJourneyContext({
         db,
         hatchet,
@@ -128,6 +131,9 @@ export function defineJourney(options: {
         userEmail,
         journeyContext: { ...properties },
         unsubscribeConfig,
+        getPostHogProperties: posthog
+          ? (uid: string) => posthog.getPersonProperties(uid)
+          : undefined,
       });
 
       try {

@@ -317,7 +317,8 @@ pnpm --filter @hogsend/db db:studio     # Open Drizzle Studio
 | Durable execution | Hatchet (sleeps, retries, event routing) |
 | Database | TimescaleDB (Postgres 18) via Drizzle ORM |
 | Cache / queues | Redis |
-| Email delivery | Resend |
+| Email delivery | Resend (via `@hogsend/plugin-resend`) |
+| Product analytics | PostHog (via `@hogsend/plugin-posthog`) |
 | Email templates | React Email |
 | Journey definitions | TypeScript (`defineJourney()`) |
 | CLI | Go (cobra) |
@@ -332,7 +333,9 @@ cli/                    Go CLI (init, deploy, status, journeys, contacts)
 packages/
   core/                 Journey types, Zod schemas, condition engine, registry
   db/                   Drizzle ORM schema and migrations
-  email/                Resend client, React Email templates, webhook handling
+  email/                React Email templates, render helpers
+  plugin-posthog/       PostHog person properties, event capture, feature flags
+  plugin-resend/        Resend email delivery, tracked sends, webhook handling
   typescript-config/    Shared tsconfig bases
 ```
 
@@ -391,6 +394,8 @@ hogsend destroy     # Tear down Railway project (with confirmation)
 | `REDIS_URL` | No | `redis://localhost:6379` | Redis connection string |
 | `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Sender address |
 | `HATCHET_CLIENT_TOKEN` | No | — | Hatchet API token |
+| `POSTHOG_API_KEY` | No | — | PostHog personal API key (enables person property lookups in journeys) |
+| `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog API host (US or EU cloud, or self-hosted) |
 | `POSTHOG_WEBHOOK_SECRET` | No | — | Secret for verifying PostHog webhooks |
 | `API_PUBLIC_URL` | No | — | Public URL for unsubscribe links |
 | `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs, or `*` for all |

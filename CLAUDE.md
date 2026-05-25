@@ -47,6 +47,8 @@ docker compose up -d            # Start postgres, redis, hatchet-lite
 - **packages/core** — Journey type definitions, Zod schemas, condition evaluation engine, journey registry (`@hogsend/core`)
 - **packages/db** — Drizzle ORM schema, migrations, and seed (`@hogsend/db`). Exports raw `.ts` — no build step, bundled by consumers via tsup `noExternal`
 - **packages/email** — Resend client, React Email templates, send/render helpers (`@hogsend/email`)
+- **packages/plugin-posthog** — PostHog integration: person property fetching (with Redis cache), event capture, feature flags (`@hogsend/plugin-posthog`)
+- **packages/plugin-resend** — Resend email delivery: send, batch, tracked sends, webhook handling (`@hogsend/plugin-resend`)
 - **packages/typescript-config** — Shared tsconfig bases (`@repo/typescript-config`)
 
 ### API patterns (apps/api)

@@ -1,5 +1,7 @@
 import { getJourneyTasks } from "./journeys/index.js";
 import { hatchet } from "./lib/hatchet.js";
+import { getPostHog } from "./lib/posthog.js";
+import { getRedisIfConnected } from "./lib/redis.js";
 import { sendEmailTask } from "./workflows/send-email.js";
 
 async function main() {
@@ -12,6 +14,21 @@ async function main() {
   console.log(
     `Hogsend worker started with ${journeyTasks.length} journey task(s)`,
   );
+
+  async function shutdown(signal: string) {
+    console.log(`${signal} received, shutting down worker`);
+    await Promise.allSettled([
+      worker.stop(),
+      getPostHog()?.shutdown(),
+      getRedisIfConnected()?.quit(),
+    ]);
+    console.log("Worker stopped");
+    process.exit(0);
+  }
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
   await worker.start();
 }
 
