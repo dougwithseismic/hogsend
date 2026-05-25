@@ -1,6 +1,6 @@
 ---
 title: API Reference
-description: REST API endpoints for event ingestion, contact management, and email preferences.
+description: REST API endpoints for event ingestion, contact management, email preferences, and admin visibility.
 ---
 
 Hogsend exposes a REST API built on [Hono](https://hono.dev) with [Zod OpenAPI](https://github.com/honojs/middleware/tree/main/packages/zod-openapi) for request/response validation. All endpoints are versioned under `/v1`.
@@ -818,6 +818,356 @@ curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll \
     "userEmail": "user@example.com",
     "properties": { "source": "admin_enroll" }
   }'
+```
+
+---
+
+## Admin — Events
+
+Browse and inspect ingested events. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/events`
+
+List events with optional filters. Results are ordered by `occurredAt` descending.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `userId` | `string` | — | Filter by user ID |
+| `event` | `string` | — | Filter by event name |
+| `from` | `string` | — | ISO 8601 datetime lower bound |
+| `to` | `string` | — | ISO 8601 datetime upper bound |
+
+**Response `200`**
+
+```json
+{
+  "events": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "user_abc123",
+      "event": "user:signed_up",
+      "properties": { "plan": "pro", "source": "website" },
+      "occurredAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/events?event=user:signed_up&from=2025-01-01T00:00:00Z"
+```
+
+### `GET /v1/admin/events/{id}`
+
+Get a single event with its full properties.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Event UUID |
+
+**Response `200`**
+
+```json
+{
+  "event": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "user_abc123",
+    "event": "user:signed_up",
+    "properties": { "plan": "pro", "source": "website" },
+    "occurredAt": "2025-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Response `404`** — Event not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/events/550e8400-e29b-41d4-a716-446655440000
+```
+
+---
+
+## Admin — Emails
+
+Browse email send history and inspect delivery details. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/emails`
+
+List email sends with optional filters. Results are ordered by `createdAt` descending.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `toEmail` | `string` | — | Filter by recipient email |
+| `templateKey` | `string` | — | Filter by template key |
+| `status` | `string` | — | Filter by status: `queued`, `rendered`, `sent`, `delivered`, `opened`, `clicked`, `bounced`, `complained`, `failed` |
+| `from` | `string` | — | ISO 8601 datetime lower bound |
+| `to` | `string` | — | ISO 8601 datetime upper bound |
+
+**Response `200`**
+
+```json
+{
+  "emails": [
+    {
+      "id": "email-uuid",
+      "journeyStateId": "state-uuid",
+      "templateKey": "activation/welcome",
+      "resendId": "resend-id",
+      "fromEmail": "noreply@hogsend.com",
+      "toEmail": "user@example.com",
+      "subject": "Welcome to Hogsend",
+      "category": "journey",
+      "status": "delivered",
+      "sentAt": "2025-01-15T10:30:00.000Z",
+      "deliveredAt": "2025-01-15T10:30:05.000Z",
+      "openedAt": "2025-01-15T11:00:00.000Z",
+      "clickedAt": null,
+      "bouncedAt": null,
+      "complainedAt": null,
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T11:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/emails?status=delivered&toEmail=user@example.com"
+```
+
+### `GET /v1/admin/emails/{id}`
+
+Get a single email with its delivery timeline, tracked link clicks, and journey context.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Email send UUID |
+
+**Response `200`**
+
+```json
+{
+  "email": {
+    "id": "email-uuid",
+    "journeyStateId": "state-uuid",
+    "templateKey": "activation/welcome",
+    "resendId": "resend-id",
+    "fromEmail": "noreply@hogsend.com",
+    "toEmail": "user@example.com",
+    "subject": "Welcome to Hogsend",
+    "category": "journey",
+    "status": "delivered",
+    "sentAt": "2025-01-15T10:30:00.000Z",
+    "deliveredAt": "2025-01-15T10:30:05.000Z",
+    "openedAt": "2025-01-15T11:00:00.000Z",
+    "clickedAt": null,
+    "bouncedAt": null,
+    "complainedAt": null,
+    "createdAt": "2025-01-15T10:30:00.000Z",
+    "updatedAt": "2025-01-15T11:00:00.000Z"
+  },
+  "trackedLinks": [
+    {
+      "id": "link-uuid",
+      "originalUrl": "https://example.com/docs",
+      "clickCount": 3,
+      "clicks": [
+        {
+          "id": "click-uuid",
+          "clickedAt": "2025-01-15T11:05:00.000Z",
+          "ipAddress": "192.168.1.1",
+          "userAgent": "Mozilla/5.0..."
+        }
+      ]
+    }
+  ],
+  "journeyContext": {
+    "journeyId": "activation-welcome",
+    "userId": "user_abc123",
+    "status": "completed",
+    "currentNodeId": "done"
+  }
+}
+```
+
+The `journeyContext` field is `null` if the email was not sent from a journey. The `trackedLinks` array is empty if no links were tracked.
+
+**Response `404`** — Email not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/emails/email-uuid
+```
+
+---
+
+## Admin — Journey Logs
+
+Retrieve the full execution log for a journey instance. Requires the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/journey-logs/{stateId}`
+
+Get the journey state and its complete log sequence, ordered chronologically.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `stateId` | `string` | Journey state UUID |
+
+**Response `200`**
+
+```json
+{
+  "state": {
+    "id": "state-uuid",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "journeyId": "activation-welcome",
+    "currentNodeId": "post-welcome",
+    "status": "completed",
+    "hatchetRunId": "run-uuid",
+    "context": { "plan": "pro" },
+    "errorMessage": null,
+    "entryCount": 1,
+    "completedAt": "2025-01-16T10:30:00.000Z",
+    "exitedAt": null,
+    "createdAt": "2025-01-15T10:30:00.000Z",
+    "updatedAt": "2025-01-16T10:30:00.000Z"
+  },
+  "logs": [
+    {
+      "id": "log-uuid-1",
+      "fromNodeId": null,
+      "toNodeId": "start",
+      "action": "entered",
+      "detail": null,
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "log-uuid-2",
+      "fromNodeId": "start",
+      "toNodeId": "post-welcome",
+      "action": "email_sent",
+      "detail": { "template": "activation/welcome" },
+      "createdAt": "2025-01-15T10:30:01.000Z"
+    }
+  ]
+}
+```
+
+**Response `404`** — Journey state not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/journey-logs/state-uuid
+```
+
+---
+
+## Admin — Contact Timeline
+
+View a contact's full activity history across events, journeys, and emails. Requires the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/contacts/{id}/timeline`
+
+Get a chronological feed of all activity for a contact, interleaving events received, journey state changes, and emails sent. Results are ordered by timestamp descending.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `type` | `string` | — | Filter by entry type: `event`, `journey`, `email` |
+
+**Response `200`**
+
+```json
+{
+  "timeline": [
+    {
+      "type": "event",
+      "timestamp": "2025-01-15T10:30:00.000Z",
+      "data": {
+        "id": "event-uuid",
+        "event": "user:signed_up",
+        "properties": { "plan": "pro" }
+      }
+    },
+    {
+      "type": "journey",
+      "timestamp": "2025-01-15T10:30:01.000Z",
+      "data": {
+        "id": "state-uuid",
+        "journeyId": "activation-welcome",
+        "status": "completed",
+        "currentNodeId": "done",
+        "completedAt": "2025-01-16T10:30:00.000Z",
+        "exitedAt": null
+      }
+    },
+    {
+      "type": "email",
+      "timestamp": "2025-01-15T10:30:02.000Z",
+      "data": {
+        "id": "email-uuid",
+        "templateKey": "activation/welcome",
+        "subject": "Welcome to Hogsend",
+        "status": "delivered",
+        "toEmail": "user@example.com",
+        "sentAt": "2025-01-15T10:30:02.000Z",
+        "deliveredAt": "2025-01-15T10:30:07.000Z",
+        "openedAt": null
+      }
+    }
+  ],
+  "total": 3,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Each entry has a `type` discriminator and a `data` object whose shape varies by type:
+
+| Type | Data fields |
+|---|---|
+| `event` | `id`, `event`, `properties` |
+| `journey` | `id`, `journeyId`, `status`, `currentNodeId`, `completedAt`, `exitedAt` |
+| `email` | `id`, `templateKey`, `subject`, `status`, `toEmail`, `sentAt`, `deliveredAt`, `openedAt` |
+
+**Response `404`** — Contact not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/contacts/user_abc123/timeline?type=email&limit=10"
 ```
 
 ---
