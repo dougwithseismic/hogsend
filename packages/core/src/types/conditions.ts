@@ -1,6 +1,5 @@
 export interface PropertyCondition {
   type: "property";
-  source: "posthog" | "context";
   property: string;
   operator:
     | "eq"

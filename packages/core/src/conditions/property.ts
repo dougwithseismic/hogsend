@@ -1,20 +1,24 @@
 import type { PropertyCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
-export async function evaluatePropertyCondition(opts: {
+export function evaluatePropertyCondition(opts: {
   condition: PropertyCondition;
   ctx: ConditionContext;
-}): Promise<boolean> {
+}): boolean {
   const { condition, ctx } = opts;
-  let value: unknown;
-
-  if (condition.source === "context") {
-    value = ctx.journeyContext[condition.property];
-  } else if (condition.source === "posthog") {
-    return false;
-  }
-
+  const value = ctx.journeyContext[condition.property];
   return compareValue(value, condition.operator, condition.value);
+}
+
+export function evaluatePropertyConditions(opts: {
+  conditions: PropertyCondition[];
+  properties: Record<string, unknown>;
+}): boolean {
+  const { conditions, properties } = opts;
+  return conditions.every((condition) => {
+    const value = properties[condition.property];
+    return compareValue(value, condition.operator, condition.value);
+  });
 }
 
 function compareValue(

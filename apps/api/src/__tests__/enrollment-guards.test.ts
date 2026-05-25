@@ -1,7 +1,7 @@
+import { evaluatePropertyConditions } from "@hogsend/core";
 import { describe, expect, it } from "vitest";
-import { evaluateTriggerConditions } from "../lib/enrollment-guards.js";
 
-describe("evaluateTriggerConditions", () => {
+describe("evaluatePropertyConditions", () => {
   const properties = {
     plan: "pro",
     name: "Alice",
@@ -12,11 +12,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches eq operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "plan",
             operator: "eq",
             value: "pro",
@@ -29,11 +29,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("rejects eq when not matching", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "plan",
             operator: "eq",
             value: "free",
@@ -46,11 +46,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches neq operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "plan",
             operator: "neq",
             value: "free",
@@ -63,11 +63,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches exists operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "plan",
             operator: "exists",
           },
@@ -79,11 +79,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("rejects exists for null values", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "empty",
             operator: "exists",
           },
@@ -95,11 +95,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches not_exists for missing property", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "missing",
             operator: "not_exists",
           },
@@ -111,11 +111,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches contains operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "name",
             operator: "contains",
             value: "lic",
@@ -128,11 +128,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("rejects contains when not a string", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "score",
             operator: "contains",
             value: "42",
@@ -145,18 +145,18 @@ describe("evaluateTriggerConditions", () => {
 
   it("requires all conditions to match (AND logic)", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "plan",
             operator: "eq",
             value: "pro",
           },
           {
             type: "property",
-            source: "context",
+
             property: "active",
             operator: "eq",
             value: true,
@@ -169,18 +169,18 @@ describe("evaluateTriggerConditions", () => {
 
   it("fails when any condition does not match", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "plan",
             operator: "eq",
             value: "pro",
           },
           {
             type: "property",
-            source: "context",
+
             property: "name",
             operator: "eq",
             value: "Bob",
@@ -192,18 +192,18 @@ describe("evaluateTriggerConditions", () => {
   });
 
   it("returns true for empty conditions array", () => {
-    expect(evaluateTriggerConditions({ conditions: [], properties })).toBe(
+    expect(evaluatePropertyConditions({ conditions: [], properties })).toBe(
       true,
     );
   });
 
   it("matches gt operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "score",
             operator: "gt",
             value: 40,
@@ -216,11 +216,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("rejects gt when not greater", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "score",
             operator: "gt",
             value: 42,
@@ -233,11 +233,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches gte operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "score",
             operator: "gte",
             value: 42,
@@ -250,11 +250,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches lt operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "score",
             operator: "lt",
             value: 50,
@@ -267,11 +267,11 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches lte operator", () => {
     expect(
-      evaluateTriggerConditions({
+      evaluatePropertyConditions({
         conditions: [
           {
             type: "property",
-            source: "context",
+
             property: "score",
             operator: "lte",
             value: 42,

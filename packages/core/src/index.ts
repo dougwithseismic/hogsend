@@ -2,6 +2,7 @@ export {
   type ConditionContext,
   evaluateCondition,
   evaluateEventCondition,
+  evaluatePropertyConditions,
 } from "./conditions/index.js";
 export {
   type DurationObject,

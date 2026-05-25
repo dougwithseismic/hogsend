@@ -1,9 +1,9 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { upsertContact } from "./contacts.js";
-import { evaluateTriggerConditions } from "./enrollment-guards.js";
 import type { Logger } from "./logger.js";
 
 export interface IngestEvent {
@@ -99,6 +99,8 @@ async function checkExits(
     ),
   });
 
+  const statesToExit: string[] = [];
+
   for (const state of activeStates) {
     const journey = registry.get(state.journeyId);
     if (!journey?.exitOn) continue;
@@ -106,34 +108,32 @@ async function checkExits(
     const shouldExit = journey.exitOn.some((exitCondition) => {
       if (exitCondition.event !== event.eventName) return false;
       if (!exitCondition.where?.length) return true;
-      return evaluateTriggerConditions({
+      return evaluatePropertyConditions({
         conditions: exitCondition.where,
         properties: event.properties,
       });
     });
 
     if (shouldExit) {
-      await db
-        .update(journeyStates)
-        .set({
-          status: "exited",
-          exitedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(journeyStates.id, state.id));
-
-      results.push({
-        journeyId: state.journeyId,
-        stateId: state.id,
-        exited: true,
-      });
-    } else {
-      results.push({
-        journeyId: state.journeyId,
-        stateId: state.id,
-        exited: false,
-      });
+      statesToExit.push(state.id);
     }
+
+    results.push({
+      journeyId: state.journeyId,
+      stateId: state.id,
+      exited: shouldExit,
+    });
+  }
+
+  if (statesToExit.length > 0) {
+    await db
+      .update(journeyStates)
+      .set({
+        status: "exited",
+        exitedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(inArray(journeyStates.id, statesToExit));
   }
 
   return results;

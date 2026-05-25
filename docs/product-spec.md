@@ -329,8 +329,6 @@ export type ConditionEval =
 
 export interface PropertyCondition {
   type: "property";
-  /** "posthog" queries PostHog person properties API. "context" checks journey context object. */
-  source: "posthog" | "context";
   property: string;
   operator: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "exists" | "not_exists" | "contains";
   value?: string | number | boolean;
@@ -540,14 +538,9 @@ The engine evaluates one node at a time per user per journey. A single evaluatio
 ### Condition Evaluation
 
 ```
-PropertyCondition (source: "posthog"):
-  → GET /api/persons/?distinct_id={userId} from PostHog API
-  → Check property against operator/value
-  → Cache response for 5 min to avoid hammering PostHog
-
-PropertyCondition (source: "context"):
-  → Check journey_states.context JSONB field
-  → e.g. context.subscription_tier = "pro"
+PropertyCondition:
+  → Check event properties / journey context against operator/value
+  → e.g. plan = "pro", login_count >= 10
 
 EventCondition:
   → Query local user_events table

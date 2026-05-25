@@ -1,4 +1,5 @@
 import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
+import { evaluatePropertyConditions } from "@hogsend/core";
 import type {
   JourneyMeta,
   JourneyRunFn,
@@ -10,7 +11,6 @@ import { getDb } from "../lib/db.js";
 import {
   checkEmailPreferences,
   checkEntryLimit,
-  evaluateTriggerConditions,
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
@@ -64,7 +64,7 @@ export function defineJourney(options: {
 
       if (meta.trigger.where?.length) {
         if (
-          !evaluateTriggerConditions({
+          !evaluatePropertyConditions({
             conditions: meta.trigger.where,
             properties,
           })

@@ -2,7 +2,6 @@ import { z } from "zod";
 
 export const propertyConditionSchema = z.object({
   type: z.literal("property"),
-  source: z.enum(["posthog", "context"]),
   property: z.string(),
   operator: z.enum([
     "eq",

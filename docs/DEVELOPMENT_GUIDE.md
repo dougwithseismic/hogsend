@@ -430,7 +430,6 @@ export * from "./conditions.js";
 ```typescript
 export interface PropertyCondition {
   type: "property";
-  source: "posthog" | "context";
   property: string;
   operator:
     | "eq"
@@ -590,7 +589,6 @@ import { z } from "zod";
 
 const propertyConditionSchema = z.object({
   type: z.literal("property"),
-  source: z.enum(["posthog", "context"]),
   property: z.string(),
   operator: z.enum([
     "eq", "neq", "gt", "gte", "lt", "lte", "exists", "not_exists", "contains",
@@ -819,20 +817,11 @@ export async function evaluateCondition(
 import type { PropertyCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
-export async function evaluatePropertyCondition(
+export function evaluatePropertyCondition(
   condition: PropertyCondition,
   ctx: ConditionContext,
-): Promise<boolean> {
-  let value: unknown;
-
-  if (condition.source === "context") {
-    value = ctx.journeyContext[condition.property];
-  } else if (condition.source === "posthog") {
-    // PostHog person properties lookup — stub for now.
-    // In production: GET /api/persons/?distinct_id={userId}, cache 5 min.
-    return false;
-  }
-
+): boolean {
+  const value = ctx.journeyContext[condition.property];
   return compareValue(value, condition.operator, condition.value);
 }
 
