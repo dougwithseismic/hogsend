@@ -89,15 +89,18 @@ Task input types must be JSON-serializable (extend Hatchet's `JsonObject`). Don'
 
 Journeys use a code-first `defineJourney()` pattern — each journey is its own Hatchet durable task with TypeScript control flow:
 
-- **`defineJourney({ meta, run })`** in `src/journeys/define-journey.ts` — accepts `JourneyMeta` (trigger, entryLimit, exitOn, suppressHours) and a `run` function `(user: JourneyUser, ctx: JourneyContext) => Promise<void>`. Returns `{ meta, task }` where task is the Hatchet durable task
+- **`defineJourney({ meta, run })`** in `src/journeys/define-journey.ts` — accepts `JourneyMeta` (trigger, entryLimit, exitOn, suppress) and a `run` function `(user: JourneyUser, ctx: JourneyContext) => Promise<void>`. Returns `{ meta, task }` where task is the Hatchet durable task. Includes an active-state guard that prevents concurrent enrollment in the same journey
 - **Event-driven triggers** — each journey declares `onEvents: [trigger.event]`; when the ingest endpoint pushes an event, Hatchet routes it to matching journeys
 - **Enrollment guards** — checked inside the task before `run()` executes, in order: (1) `meta.enabled` flag, (2) `evaluateTriggerConditions()` against event properties if `trigger.where` is set, (3) `checkEntryLimit()` enforcing once/once_per_period/unlimited, (4) `checkEmailPreferences()` for unsubscribed users. Ineligible events return `{ status: "skipped", reason }` without creating state
 - **State tracking** — on entry, a `journeyStates` row is created with status "active". On completion → "completed" + `journey:completed` event. On error → "failed" + `journey:failed` event
 - **`JourneyContext`** (`src/journeys/journey-context.ts`) provides only durable execution primitives:
   - `ctx.sleep({ duration, label? })` — Hatchet durable sleep; sets state to "waiting", resumes to "active"; returns `{ sleptAt, resumedAt }`
   - `ctx.checkpoint(label)` — updates `currentNodeId` in journeyStates for observability
-  - `ctx.event.check({ userId, event, withinHours? })` — queries userEvents via condition engine; returns `{ found, count }`
-  - `ctx.event.fire({ userId, event, properties? })` — inserts userEvent, pushes to Hatchet, updates checkpoint
+  - `ctx.trigger({ event, userId, properties? })` — pushes event through the full ingest pipeline (stores, routes to Hatchet, processes exitOn). Enables cross-journey triggers
+  - `ctx.guard.isSubscribed()` — checks if user is still subscribed (useful after long sleeps)
+  - `ctx.history.hasEvent({ userId, event, within? })` — check if event occurred, returns `{ found, count }`
+  - `ctx.history.journey({ userId, journeyId })` — check journey completion history, returns `{ completed, lastCompletedAt, entryCount }`
+  - `ctx.history.email({ email, template })` — check email send history, returns `{ sent, lastSentAt, count }`
 - **Service integrations are standalone imports**, not on the context. Email: `sendEmail()` from `src/lib/email.ts`. PostHog: `getPostHog()` from `src/lib/posthog.ts`. All functions follow single-object-in, result-object-out pattern
 - **Duration helpers** — `days()`, `hours()`, `minutes()` from `@hogsend/core` replace magic duration strings
 - **Constants** — `Events` and `Templates` in `src/journeys/constants/` replace magic string literals with `as const` typed values

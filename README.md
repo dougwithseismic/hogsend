@@ -77,10 +77,10 @@ Journeys use `defineJourney()` — you declare metadata (trigger, entry limits, 
 ### Example: Welcome Series
 
 ```typescript
-import { days } from "@hogsend/core";
+import { days, hours } from "@hogsend/core";
+import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
-import { sendEmail } from "../lib/email.js";
 
 export const activationWelcome = defineJourney({
   meta: {
@@ -89,30 +89,39 @@ export const activationWelcome = defineJourney({
     enabled: true,
     trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
-    suppressHours: 12,
+    suppress: hours(12),
     exitOn: [{ event: Events.USER_DELETED }],
   },
 
   run: async (user, ctx) => {
-    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyName: user.journeyName,
       template: Templates.ACTIVATION_WELCOME,
       subject: "Welcome — let's get you set up",
     });
 
     await ctx.sleep({ duration: days(2), label: "post-welcome" });
 
-    const { found: hasUsedFeature } = await ctx.event.check({
+    const { found: hasUsedFeature } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.FEATURE_USED,
     });
 
     if (hasUsedFeature) {
-      await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyName: user.journeyName,
         template: Templates.ACTIVATION_ADVANCED,
         subject: "Nice work — here's what to try next",
       });
     } else {
-      await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyName: user.journeyName,
         template: Templates.ACTIVATION_NUDGE,
         subject: "You haven't tried the key feature yet",
       });
@@ -120,7 +129,10 @@ export const activationWelcome = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "pre-community" });
 
-    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyName: user.journeyName,
       template: Templates.ACTIVATION_COMMUNITY,
       subject: "Join the community",
     });
@@ -142,8 +154,8 @@ export const churnPrevention = defineJourney({
     enabled: true,
     trigger: { event: Events.PAYMENT_FAILED },
     entryLimit: "once_per_period",
-    entryPeriodHours: 168,
-    suppressHours: 4,
+    entryPeriod: days(7),
+    suppress: hours(4),
     exitOn: [
       { event: Events.PAYMENT_SUCCEEDED },
       { event: Events.SUBSCRIPTION_CANCELLED },
@@ -151,21 +163,27 @@ export const churnPrevention = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyName: user.journeyName,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Your payment didn't go through",
     });
 
     await ctx.sleep({ duration: days(1), label: "first-retry" });
 
-    const { found: hasRetried } = await ctx.event.check({
+    const { found: hasRetried } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.PAYMENT_SUCCEEDED,
-      withinHours: 24,
+      within: days(1),
     });
     if (hasRetried) return;
 
-    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyName: user.journeyName,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Reminder: please update your payment method",
       props: { gracePeriodDays: 2 },
@@ -173,13 +191,16 @@ export const churnPrevention = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "final-notice" });
 
-    const { found: hasResolved } = await ctx.event.check({
+    const { found: hasResolved } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.PAYMENT_SUCCEEDED,
-      withinHours: 72,
+      within: days(3),
     });
     if (!hasResolved) {
-      await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyName: user.journeyName,
         template: Templates.CHURN_PAYMENT_FAILED,
         subject: "Final notice: your account will be downgraded tomorrow",
         props: { gracePeriodDays: 1 },
@@ -224,8 +245,8 @@ Duration helpers from `@hogsend/core`: `days(n)`, `hours(n)`, `minutes(n)` — t
 | `trigger.event` | `string` | The event that enrolls users (e.g. `"user.created"`, `"payment.failed"`) |
 | `trigger.where` | `PropertyCondition[]` | Optional conditions that must also match on the event properties |
 | `entryLimit` | `"once" \| "once_per_period" \| "unlimited"` | How often a user can enter |
-| `entryPeriodHours` | `number` | Minimum hours between entries (when `once_per_period`) |
-| `suppressHours` | `number` | Minimum hours between emails within this journey |
+| `entryPeriod` | `DurationObject` | Minimum time between entries, e.g. `days(7)` (when `once_per_period`) |
+| `suppress` | `DurationObject` | Minimum time between emails, e.g. `hours(12)` |
 | `exitOn` | `Array<{ event, where? }>` | Events that immediately exit the user from the journey |
 | `enabled` | `boolean` | Toggle without removing code |
 
