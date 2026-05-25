@@ -56,14 +56,20 @@ describe("parseWebhookEvent", () => {
 
 describe("createWebhookHandler", () => {
   it("requires valid svix headers", async () => {
-    const handler = createWebhookHandler("whsec_test", {});
+    const handler = createWebhookHandler({
+      signingSecret: "whsec_test",
+      handlers: {},
+    });
     await expect(handler(JSON.stringify(makeSentEvent()), {})).rejects.toThrow(
       WebhookVerificationError,
     );
   });
 
   it("requires svix headers to be present", async () => {
-    const handler = createWebhookHandler("whsec_test", {});
+    const handler = createWebhookHandler({
+      signingSecret: "whsec_test",
+      handlers: {},
+    });
     await expect(
       handler(JSON.stringify(makeSentEvent()), {
         "svix-id": "msg_123",

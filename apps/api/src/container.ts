@@ -31,12 +31,12 @@ export interface Container {
 
 export function createContainer(): Container {
   const logger = createLogger(env.LOG_LEVEL);
-  const { db, client } = createDatabase(env.DATABASE_URL);
+  const { db, client } = createDatabase({ url: env.DATABASE_URL });
   const auth = createAuth(db, {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
   });
-  const email = createResendClient(env.RESEND_API_KEY);
+  const email = createResendClient({ apiKey: env.RESEND_API_KEY });
   const registry = createJourneyRegistry(env.ENABLED_JOURNEYS);
 
   const emailService = env.RESEND_WEBHOOK_SECRET

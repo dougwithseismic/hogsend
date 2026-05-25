@@ -2,10 +2,11 @@ import type { JourneyMeta, PropertyCondition } from "@hogsend/core/types";
 import { type Database, emailPreferences, journeyStates } from "@hogsend/db";
 import { and, eq } from "drizzle-orm";
 
-export function evaluateTriggerConditions(
-  conditions: PropertyCondition[],
-  properties: Record<string, unknown>,
-): boolean {
+export function evaluateTriggerConditions(opts: {
+  conditions: PropertyCondition[];
+  properties: Record<string, unknown>;
+}): boolean {
+  const { conditions, properties } = opts;
   return conditions.every((condition) => {
     const value = properties[condition.property];
     switch (condition.operator) {
@@ -85,10 +86,11 @@ export async function checkEntryLimit(opts: {
   return { allowed: true };
 }
 
-export async function checkEmailPreferences(
-  db: Database,
-  userId: string,
-): Promise<{ unsubscribed: boolean }> {
+export async function checkEmailPreferences(opts: {
+  db: Database;
+  userId: string;
+}): Promise<{ unsubscribed: boolean }> {
+  const { db, userId } = opts;
   const prefs = await db.query.emailPreferences.findFirst({
     where: eq(emailPreferences.userId, userId),
   });

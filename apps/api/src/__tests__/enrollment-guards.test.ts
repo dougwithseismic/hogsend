@@ -12,8 +12,8 @@ describe("evaluateTriggerConditions", () => {
 
   it("matches eq operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -23,14 +23,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("rejects eq when not matching", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -40,14 +40,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(false);
   });
 
   it("matches neq operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -57,14 +57,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("matches exists operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -73,14 +73,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("rejects exists for null values", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -89,14 +89,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(false);
   });
 
   it("matches not_exists for missing property", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -105,14 +105,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("matches contains operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -122,14 +122,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("rejects contains when not a string", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -139,14 +139,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(false);
   });
 
   it("requires all conditions to match (AND logic)", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -163,14 +163,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("fails when any condition does not match", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -187,18 +187,20 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(false);
   });
 
   it("returns true for empty conditions array", () => {
-    expect(evaluateTriggerConditions([], properties)).toBe(true);
+    expect(evaluateTriggerConditions({ conditions: [], properties })).toBe(
+      true,
+    );
   });
 
   it("matches gt operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -208,14 +210,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("rejects gt when not greater", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -225,14 +227,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(false);
   });
 
   it("matches gte operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -242,14 +244,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("matches lt operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -259,14 +261,14 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 
   it("matches lte operator", () => {
     expect(
-      evaluateTriggerConditions(
-        [
+      evaluateTriggerConditions({
+        conditions: [
           {
             type: "property",
             source: "context",
@@ -276,7 +278,7 @@ describe("evaluateTriggerConditions", () => {
           },
         ],
         properties,
-      ),
+      }),
     ).toBe(true);
   });
 });

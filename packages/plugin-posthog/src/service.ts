@@ -13,7 +13,7 @@ export function createPostHogService(
   config: PostHogServiceConfig,
 ): PostHogService {
   const host = config.host ?? DEFAULT_HOST;
-  const client = createPostHogClient(config.apiKey, host);
+  const client = createPostHogClient({ apiKey: config.apiKey, host });
 
   const propsConfig: PersonPropertiesConfig = {
     apiKey: config.apiKey,
@@ -26,11 +26,15 @@ export function createPostHogService(
 
   return {
     async getPersonProperties(distinctId: string) {
-      return getPersonProperties(propsConfig, distinctId, propsCache);
+      return getPersonProperties({
+        config: propsConfig,
+        distinctId,
+        cache: propsCache,
+      });
     },
 
     captureEvent(opts: CaptureOptions) {
-      captureEvent(client, opts);
+      captureEvent({ client, ...opts });
     },
 
     async isFeatureEnabled(distinctId: string, flag: string) {

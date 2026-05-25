@@ -1,5 +1,5 @@
 import { days } from "@hogsend/core";
-import { sendJourneyEmail } from "../lib/journey-email.js";
+import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -15,16 +15,22 @@ export const retentionMilestone = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await sendJourneyEmail(user, {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
       template: Templates.RETENTION_ACHIEVEMENT,
       subject: "Congratulations on your achievement!",
+      journeyName: user.journeyName,
     });
 
     await ctx.sleep({ duration: days(1), label: "post-milestone" });
 
-    await sendJourneyEmail(user, {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
       template: Templates.ACTIVATION_COMMUNITY_ALT,
       subject: "Share your achievement with the community",
+      journeyName: user.journeyName,
     });
   },
 });

@@ -3,10 +3,11 @@ import { and, eq } from "drizzle-orm";
 import type { EmailEngagementCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
-export async function evaluateEmailEngagementCondition(
-  condition: EmailEngagementCondition,
-  ctx: ConditionContext,
-): Promise<boolean> {
+export async function evaluateEmailEngagementCondition(opts: {
+  condition: EmailEngagementCondition;
+  ctx: ConditionContext;
+}): Promise<boolean> {
+  const { condition, ctx } = opts;
   const send = await ctx.db.query.emailSends.findFirst({
     where: and(
       eq(emailSends.toEmail, ctx.userId),

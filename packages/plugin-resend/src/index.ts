@@ -32,7 +32,6 @@ export type {
   WebhookEventType,
   WebhookHandlerMap,
 } from "./types.js";
-export type { WebhookVerifyOptions } from "./webhooks.js";
 // Webhooks
 export {
   createWebhookHandler,

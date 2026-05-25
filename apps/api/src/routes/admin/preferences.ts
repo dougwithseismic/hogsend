@@ -96,7 +96,7 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { contactId } = c.req.valid("param");
 
-    const contact = await resolveContact(db, contactId);
+    const contact = await resolveContact({ db, id: contactId });
     if (!contact) {
       return c.json({ error: "Contact not found" }, 404);
     }
@@ -119,7 +119,7 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
     const { contactId } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const contact = await resolveContact(db, contactId);
+    const contact = await resolveContact({ db, id: contactId });
     if (!contact) {
       return c.json({ error: "Contact not found" }, 404);
     }

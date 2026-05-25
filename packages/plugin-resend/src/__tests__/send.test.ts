@@ -35,11 +35,14 @@ function dummyElement() {
 describe("sendEmail", () => {
   it("sends successfully and returns id", async () => {
     const client = mockResendClient();
-    const result = await sendEmail(client, {
-      from: "test@hogsend.com",
-      to: "user@example.com",
-      subject: "Test",
-      react: dummyElement(),
+    const result = await sendEmail({
+      client,
+      options: {
+        from: "test@hogsend.com",
+        to: "user@example.com",
+        subject: "Test",
+        react: dummyElement(),
+      },
     });
     expect(result.id).toBe("resend_123");
   });
@@ -51,11 +54,14 @@ describe("sendEmail", () => {
     });
     const client = mockResendClient({ sendFn });
 
-    await sendEmail(client, {
-      from: "test@hogsend.com",
-      to: "user@example.com",
-      subject: "Test",
-      react: dummyElement(),
+    await sendEmail({
+      client,
+      options: {
+        from: "test@hogsend.com",
+        to: "user@example.com",
+        subject: "Test",
+        react: dummyElement(),
+      },
     });
 
     expect(sendFn).toHaveBeenCalledWith(
@@ -72,16 +78,16 @@ describe("sendEmail", () => {
     });
 
     await expect(
-      sendEmail(
+      sendEmail({
         client,
-        {
+        options: {
           from: "test@hogsend.com",
           to: "user@example.com",
           subject: "Test",
           react: dummyElement(),
         },
-        { maxRetries: 0 },
-      ),
+        retryOptions: { maxRetries: 0 },
+      }),
     ).rejects.toThrow(EmailSendError);
   });
 
@@ -99,16 +105,16 @@ describe("sendEmail", () => {
     });
     const client = mockResendClient({ sendFn });
 
-    const result = await sendEmail(
+    const result = await sendEmail({
       client,
-      {
+      options: {
         from: "test@hogsend.com",
         to: "user@example.com",
         subject: "Test",
         react: dummyElement(),
       },
-      { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 50 },
-    );
+      retryOptions: { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 50 },
+    });
 
     expect(result.id).toBe("resend_success");
     expect(sendFn).toHaveBeenCalledTimes(3);
@@ -122,16 +128,16 @@ describe("sendEmail", () => {
     const client = mockResendClient({ sendFn });
 
     await expect(
-      sendEmail(
+      sendEmail({
         client,
-        {
+        options: {
           from: "test@hogsend.com",
           to: "user@example.com",
           subject: "Test",
           react: dummyElement(),
         },
-        { maxRetries: 3, baseDelayMs: 10 },
-      ),
+        retryOptions: { maxRetries: 3, baseDelayMs: 10 },
+      }),
     ).rejects.toThrow(EmailSendError);
 
     expect(sendFn).toHaveBeenCalledTimes(1);
@@ -141,26 +147,29 @@ describe("sendEmail", () => {
 describe("sendBatchEmails", () => {
   it("returns empty array for empty input", async () => {
     const client = mockResendClient();
-    const result = await sendBatchEmails(client, []);
+    const result = await sendBatchEmails({ client, emails: [] });
     expect(result).toEqual([]);
   });
 
   it("sends a batch and returns ids", async () => {
     const client = mockResendClient();
-    const result = await sendBatchEmails(client, [
-      {
-        from: "a@hogsend.com",
-        to: "b@example.com",
-        subject: "A",
-        react: dummyElement(),
-      },
-      {
-        from: "a@hogsend.com",
-        to: "c@example.com",
-        subject: "B",
-        react: dummyElement(),
-      },
-    ]);
+    const result = await sendBatchEmails({
+      client,
+      emails: [
+        {
+          from: "a@hogsend.com",
+          to: "b@example.com",
+          subject: "A",
+          react: dummyElement(),
+        },
+        {
+          from: "a@hogsend.com",
+          to: "c@example.com",
+          subject: "B",
+          react: dummyElement(),
+        },
+      ],
+    });
     expect(result).toEqual([{ id: "batch_1" }, { id: "batch_2" }]);
   });
 
@@ -178,7 +187,7 @@ describe("sendBatchEmails", () => {
       react: dummyElement(),
     }));
 
-    await sendBatchEmails(client, emails);
+    await sendBatchEmails({ client, emails });
 
     expect(batchFn).toHaveBeenCalledTimes(2);
     const firstCallArgs = batchFn.mock.calls[0]?.[0] as unknown[];

@@ -4,11 +4,13 @@ const CACHE_PREFIX = "posthog:person:";
 const DEFAULT_TTL = 300;
 const FETCH_TIMEOUT_MS = 10_000;
 
-export async function getPersonProperties(
-  config: PersonPropertiesConfig,
-  distinctId: string,
-  cache?: PersonPropertiesCache,
-): Promise<Record<string, unknown>> {
+export async function getPersonProperties(opts: {
+  config: PersonPropertiesConfig;
+  distinctId: string;
+  cache?: PersonPropertiesCache;
+}): Promise<Record<string, unknown>> {
+  const { config, distinctId, cache } = opts;
+
   if (cache) {
     try {
       const cached = await cache.redis.get(`${CACHE_PREFIX}${distinctId}`);

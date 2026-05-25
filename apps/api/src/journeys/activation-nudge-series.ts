@@ -1,5 +1,5 @@
 import { days } from "@hogsend/core";
-import { sendJourneyEmail } from "../lib/journey-email.js";
+import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -23,9 +23,12 @@ export const activationNudgeSeries = defineJourney({
       withinHours: 48,
     });
     if (!hasUsedFeature) {
-      await sendJourneyEmail(user, {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
         template: Templates.ACTIVATION_NUDGE_SERIES,
         subject: "You haven't tried the key feature yet",
+        journeyName: user.journeyName,
       });
     }
 
@@ -37,9 +40,12 @@ export const activationNudgeSeries = defineJourney({
       withinHours: 72,
     });
     if (!hasCompletedSetup) {
-      await sendJourneyEmail(user, {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
         template: Templates.ACTIVATION_QUICKSTART,
         subject: "Need help getting set up?",
+        journeyName: user.journeyName,
       });
     }
 
@@ -50,17 +56,23 @@ export const activationNudgeSeries = defineJourney({
       event: Events.VALUE_DELIVERED,
     });
     if (hasFirstValue) {
-      await sendJourneyEmail(user, {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
         template: Templates.ACTIVATION_FEATURE_HIGHLIGHT,
         subject: "Nice work — here's what to try next",
+        journeyName: user.journeyName,
       });
     }
 
     await ctx.sleep({ duration: days(2), label: "community" });
 
-    await sendJourneyEmail(user, {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
       template: Templates.ACTIVATION_COMMUNITY_ALT,
       subject: "Join the community",
+      journeyName: user.journeyName,
     });
   },
 });

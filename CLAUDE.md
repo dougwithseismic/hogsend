@@ -98,7 +98,7 @@ Journeys use a code-first `defineJourney()` pattern — each journey is its own 
   - `ctx.checkpoint(label)` — updates `currentNodeId` in journeyStates for observability
   - `ctx.event.check({ userId, event, withinHours? })` — queries userEvents via condition engine; returns `{ found, count }`
   - `ctx.event.fire({ userId, event, properties? })` — inserts userEvent, pushes to Hatchet, updates checkpoint
-- **Service integrations are standalone imports**, not on the context. Email: `sendJourneyEmail()` from `src/lib/journey-email.ts`. PostHog: `getPostHog()` from `src/lib/posthog.ts`
+- **Service integrations are standalone imports**, not on the context. Email: `sendEmail()` from `src/lib/email.ts`. PostHog: `getPostHog()` from `src/lib/posthog.ts`. All functions follow single-object-in, result-object-out pattern
 - **Duration helpers** — `days()`, `hours()`, `minutes()` from `@hogsend/core` replace magic duration strings
 - **Constants** — `Events` and `Templates` in `src/journeys/constants/` replace magic string literals with `as const` typed values
 - **Journey registry** — `JourneyRegistry` class (from `@hogsend/core`) indexes journeys by ID and by trigger event. `ENABLED_JOURNEYS` env var (comma-separated IDs or `*` for all) controls which journeys are loaded

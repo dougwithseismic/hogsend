@@ -1,5 +1,5 @@
 import { Resend } from "resend";
 
-export function createResendClient(apiKey: string): Resend {
-  return new Resend(apiKey);
+export function createResendClient(opts: { apiKey: string }): Resend {
+  return new Resend(opts.apiKey);
 }

@@ -46,7 +46,7 @@ const WEBHOOK_TO_STATUS: Partial<Record<WebhookEventType, string>> = {
 };
 
 export function createEmailService(config: EmailServiceConfig): EmailService {
-  const client = createResendClient(config.apiKey);
+  const client = createResendClient({ apiKey: config.apiKey });
   const db = config.db as Database | undefined;
   const retryDefaults = config.retryOptions;
 
@@ -61,9 +61,11 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
       const from = resolveFrom(options.from);
 
       if (db) {
-        return sendTrackedEmail(
-          { db, client, retryOptions: retryDefaults },
-          {
+        return sendTrackedEmail({
+          db,
+          client,
+          retryOptions: retryDefaults,
+          options: {
             templateKey: options.template,
             props: options.props,
             from,
@@ -76,16 +78,16 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
             replyTo: options.replyTo,
             skipPreferenceCheck: options.skipPreferenceCheck,
           },
-        );
+        });
       }
 
-      const { element, subject: defaultSubject } = getTemplate(
-        options.template,
-        options.props,
-      );
-      const result = await sendEmail(
+      const { element, subject: defaultSubject } = getTemplate({
+        key: options.template,
+        props: options.props,
+      });
+      const result = await sendEmail({
         client,
-        {
+        options: {
           from,
           to: options.to,
           subject: options.subject ?? defaultSubject,
@@ -94,8 +96,8 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
           headers: options.headers,
           replyTo: options.replyTo,
         },
-        retryDefaults,
-      );
+        retryOptions: retryDefaults,
+      });
 
       return {
         emailSendId: "",
@@ -105,11 +107,11 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
     },
 
     async sendRaw(options: SendEmailOptions): Promise<SendResult> {
-      return sendEmail(
+      return sendEmail({
         client,
-        { ...options, from: resolveFrom(options.from) },
-        retryDefaults,
-      );
+        options: { ...options, from: resolveFrom(options.from) },
+        retryOptions: retryDefaults,
+      });
     },
 
     async sendBatch(options: {
@@ -119,17 +121,21 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
         ...e,
         from: resolveFrom(e.from),
       }));
-      const results = await sendBatchEmails(client, emails, retryDefaults);
+      const results = await sendBatchEmails({
+        client,
+        emails,
+        retryOptions: retryDefaults,
+      });
       return { results };
     },
 
     async render<K extends TemplateName>(
       options: EmailServiceRenderOptions<K>,
     ): Promise<EmailServiceRenderResult> {
-      const { element, subject, category } = getTemplate(
-        options.template,
-        options.props,
-      );
+      const { element, subject, category } = getTemplate({
+        key: options.template,
+        props: options.props,
+      });
 
       const [html, text] = await Promise.all([
         renderToHtml(element),
@@ -150,35 +156,38 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
 
       const userHandlers: WebhookHandlerMap = config.webhookHandlers ?? {};
 
-      const handler = createWebhookHandler(config.webhookSecret, {
-        "email.sent": async (event) => {
-          await updateEmailStatus(event.type, event.data.email_id);
-          await userHandlers["email.sent"]?.(event);
-        },
-        "email.delivered": async (event) => {
-          await updateEmailStatus(event.type, event.data.email_id);
-          await userHandlers["email.delivered"]?.(event);
-        },
-        "email.opened": async (event) => {
-          await updateEmailStatus(event.type, event.data.email_id);
-          await userHandlers["email.opened"]?.(event);
-        },
-        "email.clicked": async (event) => {
-          await updateEmailStatus(event.type, event.data.email_id);
-          await userHandlers["email.clicked"]?.(event);
-        },
-        "email.bounced": async (event) => {
-          await updateEmailStatus(event.type, event.data.email_id);
-          await handleBounce(event.data.to);
-          await userHandlers["email.bounced"]?.(event);
-        },
-        "email.complained": async (event) => {
-          await updateEmailStatus(event.type, event.data.email_id);
-          await handleComplaint(event.data.to);
-          await userHandlers["email.complained"]?.(event);
-        },
-        "email.delivery_delayed": async (event) => {
-          await userHandlers["email.delivery_delayed"]?.(event);
+      const handler = createWebhookHandler({
+        signingSecret: config.webhookSecret,
+        handlers: {
+          "email.sent": async (event) => {
+            await updateEmailStatus(event.type, event.data.email_id);
+            await userHandlers["email.sent"]?.(event);
+          },
+          "email.delivered": async (event) => {
+            await updateEmailStatus(event.type, event.data.email_id);
+            await userHandlers["email.delivered"]?.(event);
+          },
+          "email.opened": async (event) => {
+            await updateEmailStatus(event.type, event.data.email_id);
+            await userHandlers["email.opened"]?.(event);
+          },
+          "email.clicked": async (event) => {
+            await updateEmailStatus(event.type, event.data.email_id);
+            await userHandlers["email.clicked"]?.(event);
+          },
+          "email.bounced": async (event) => {
+            await updateEmailStatus(event.type, event.data.email_id);
+            await handleBounce(event.data.to);
+            await userHandlers["email.bounced"]?.(event);
+          },
+          "email.complained": async (event) => {
+            await updateEmailStatus(event.type, event.data.email_id);
+            await handleComplaint(event.data.to);
+            await userHandlers["email.complained"]?.(event);
+          },
+          "email.delivery_delayed": async (event) => {
+            await userHandlers["email.delivery_delayed"]?.(event);
+          },
         },
       });
 

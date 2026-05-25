@@ -28,4 +28,5 @@ export interface JourneyUser {
   properties: Record<string, string | number | boolean | null>;
   stateId: string;
   journeyId: string;
+  journeyName: string;
 }

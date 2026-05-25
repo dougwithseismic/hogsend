@@ -59,7 +59,8 @@ export async function ingestEvent(opts: {
       eventName: event.event,
       properties: event.properties,
     }),
-    upsertContact(db, {
+    upsertContact({
+      db,
       externalId: event.userId,
       email: event.userEmail || undefined,
       properties: event.properties,
@@ -105,7 +106,10 @@ async function checkExits(
     const shouldExit = journey.exitOn.some((exitCondition) => {
       if (exitCondition.event !== event.eventName) return false;
       if (!exitCondition.where?.length) return true;
-      return evaluateTriggerConditions(exitCondition.where, event.properties);
+      return evaluateTriggerConditions({
+        conditions: exitCondition.where,
+        properties: event.properties,
+      });
     });
 
     if (shouldExit) {

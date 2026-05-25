@@ -6,18 +6,14 @@ import type {
   WebhookHandlerMap,
 } from "./types.js";
 
-export interface WebhookVerifyOptions {
+export function verifyWebhook(opts: {
+  payload: string;
+  headers: Record<string, string>;
   signingSecret: string;
-}
-
-export function verifyWebhook(
-  payload: string,
-  headers: Record<string, string>,
-  options: WebhookVerifyOptions,
-): WebhookEvent {
-  const svixId = headers["svix-id"];
-  const svixTimestamp = headers["svix-timestamp"];
-  const svixSignature = headers["svix-signature"];
+}): WebhookEvent {
+  const svixId = opts.headers["svix-id"];
+  const svixTimestamp = opts.headers["svix-timestamp"];
+  const svixSignature = opts.headers["svix-signature"];
 
   if (!svixId || !svixTimestamp || !svixSignature) {
     throw new WebhookVerificationError(
@@ -26,8 +22,8 @@ export function verifyWebhook(
   }
 
   try {
-    const wh = new Webhook(options.signingSecret);
-    const event = wh.verify(payload, {
+    const wh = new Webhook(opts.signingSecret);
+    const event = wh.verify(opts.payload, {
       "svix-id": svixId,
       "svix-timestamp": svixTimestamp,
       "svix-signature": svixSignature,
@@ -41,16 +37,20 @@ export function verifyWebhook(
   }
 }
 
-export function createWebhookHandler(
-  signingSecret: string,
-  handlers: WebhookHandlerMap,
-) {
+export function createWebhookHandler(opts: {
+  signingSecret: string;
+  handlers: WebhookHandlerMap;
+}) {
   return async (
     payload: string,
     headers: Record<string, string>,
   ): Promise<{ type: WebhookEventType; handled: boolean }> => {
-    const event = verifyWebhook(payload, headers, { signingSecret });
-    const handler = handlers[event.type] as
+    const event = verifyWebhook({
+      payload,
+      headers,
+      signingSecret: opts.signingSecret,
+    });
+    const handler = opts.handlers[event.type] as
       | ((event: WebhookEvent) => void | Promise<void>)
       | undefined;
 

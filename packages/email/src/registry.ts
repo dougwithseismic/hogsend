@@ -121,11 +121,12 @@ const defaultRegistry: TemplateRegistry = {
   },
 };
 
-export function getTemplate<K extends TemplateName>(
-  key: K,
-  props: TemplateMap[K],
-  registry: TemplateRegistry = defaultRegistry,
-): { element: ReactElement; subject: string; category?: string } {
+export function getTemplate<K extends TemplateName>(opts: {
+  key: K;
+  props: TemplateMap[K];
+  registry?: TemplateRegistry;
+}): { element: ReactElement; subject: string; category?: string } {
+  const { key, props, registry = defaultRegistry } = opts;
   const definition = registry[key] as TemplateDefinition<TemplateMap[K]>;
 
   return {
@@ -135,18 +136,20 @@ export function getTemplate<K extends TemplateName>(
   };
 }
 
-export function getTemplateDefinition<K extends TemplateName>(
-  key: K,
-  registry: TemplateRegistry = defaultRegistry,
-): TemplateDefinition<TemplateMap[K]> {
+export function getTemplateDefinition<K extends TemplateName>(opts: {
+  key: K;
+  registry?: TemplateRegistry;
+}): TemplateDefinition<TemplateMap[K]> {
+  const { key, registry = defaultRegistry } = opts;
   return registry[key] as TemplateDefinition<TemplateMap[K]>;
 }
 
-export function getPreviewText<K extends TemplateName>(
-  key: K,
-  props: TemplateMap[K],
-  registry: TemplateRegistry = defaultRegistry,
-): string | undefined {
+export function getPreviewText<K extends TemplateName>(opts: {
+  key: K;
+  props: TemplateMap[K];
+  registry?: TemplateRegistry;
+}): string | undefined {
+  const { key, props, registry = defaultRegistry } = opts;
   const definition = registry[key] as TemplateDefinition<TemplateMap[K]>;
   return definition.preview?.(props);
 }

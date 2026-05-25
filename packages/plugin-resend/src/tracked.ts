@@ -18,10 +18,9 @@ interface TrackedEmailDeps {
 }
 
 export async function sendTrackedEmail<K extends TemplateName>(
-  deps: TrackedEmailDeps,
-  options: SendTrackedEmailOptions<K>,
+  opts: TrackedEmailDeps & { options: SendTrackedEmailOptions<K> },
 ): Promise<TrackedSendResult> {
-  const { db, client, retryOptions } = deps;
+  const { db, client, retryOptions, options } = opts;
 
   if (!options.skipPreferenceCheck) {
     const suppression = await checkSuppression(
@@ -62,7 +61,7 @@ export async function sendTrackedEmail<K extends TemplateName>(
     element,
     subject: defaultSubject,
     category,
-  } = getTemplate(options.templateKey, options.props);
+  } = getTemplate({ key: options.templateKey, props: options.props });
 
   const subject = options.subject ?? defaultSubject;
 
@@ -84,9 +83,9 @@ export async function sendTrackedEmail<K extends TemplateName>(
   const emailSendId = insertedRow.id;
 
   try {
-    const result = await sendEmail(
+    const result = await sendEmail({
       client,
-      {
+      options: {
         from: options.from,
         to: options.to,
         subject,
@@ -96,7 +95,7 @@ export async function sendTrackedEmail<K extends TemplateName>(
         replyTo: options.replyTo,
       },
       retryOptions,
-    );
+    });
 
     await db
       .update(emailSends)

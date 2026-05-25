@@ -91,11 +91,12 @@ async function withRetry<T>(
   );
 }
 
-export async function sendEmail(
-  client: Resend,
-  options: SendEmailOptions,
-  retryOptions?: RetryOptions,
-): Promise<SendResult> {
+export async function sendEmail(args: {
+  client: Resend;
+  options: SendEmailOptions;
+  retryOptions?: RetryOptions;
+}): Promise<SendResult> {
+  const { client, options, retryOptions } = args;
   const opts = { ...DEFAULT_RETRY_OPTIONS, ...retryOptions };
 
   return withRetry(async () => {
@@ -138,11 +139,12 @@ export async function sendEmail(
   }, opts);
 }
 
-export async function sendBatchEmails(
-  client: Resend,
-  emails: BatchEmailItem[],
-  retryOptions?: RetryOptions,
-): Promise<SendResult[]> {
+export async function sendBatchEmails(args: {
+  client: Resend;
+  emails: BatchEmailItem[];
+  retryOptions?: RetryOptions;
+}): Promise<SendResult[]> {
+  const { client, emails, retryOptions } = args;
   if (emails.length === 0) return [];
 
   const chunks: BatchEmailItem[][] = [];

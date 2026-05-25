@@ -3,10 +3,11 @@ import { and, eq, gte, sql } from "drizzle-orm";
 import type { EventCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
-export async function evaluateEventCondition(
-  condition: EventCondition,
-  ctx: ConditionContext,
-): Promise<boolean> {
+export async function evaluateEventCondition(opts: {
+  condition: EventCondition;
+  ctx: ConditionContext;
+}): Promise<boolean> {
+  const { condition, ctx } = opts;
   const [result] = await ctx.db
     .select({ count: sql<number>`count(*)` })
     .from(userEvents)

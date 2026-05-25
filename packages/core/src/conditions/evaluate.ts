@@ -11,19 +11,21 @@ export interface ConditionContext {
   journeyContext: Record<string, unknown>;
 }
 
-export async function evaluateCondition(
-  condition: ConditionEval,
-  ctx: ConditionContext,
-): Promise<boolean> {
+export async function evaluateCondition(opts: {
+  condition: ConditionEval;
+  ctx: ConditionContext;
+}): Promise<boolean> {
+  const { condition, ctx } = opts;
+
   switch (condition.type) {
     case "property":
-      return evaluatePropertyCondition(condition, ctx);
+      return evaluatePropertyCondition({ condition, ctx });
     case "event":
-      return evaluateEventCondition(condition, ctx);
+      return evaluateEventCondition({ condition, ctx });
     case "email_engagement":
-      return evaluateEmailEngagementCondition(condition, ctx);
+      return evaluateEmailEngagementCondition({ condition, ctx });
     case "composite":
-      return evaluateCompositeCondition(condition, ctx);
+      return evaluateCompositeCondition({ condition, ctx });
     default:
       return false;
   }

@@ -1,10 +1,11 @@
 import type { PropertyCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
-export async function evaluatePropertyCondition(
-  condition: PropertyCondition,
-  ctx: ConditionContext,
-): Promise<boolean> {
+export async function evaluatePropertyCondition(opts: {
+  condition: PropertyCondition;
+  ctx: ConditionContext;
+}): Promise<boolean> {
+  const { condition, ctx } = opts;
   let value: unknown;
 
   if (condition.source === "context") {

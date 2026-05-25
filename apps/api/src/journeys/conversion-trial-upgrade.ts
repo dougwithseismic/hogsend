@@ -1,5 +1,5 @@
 import { days } from "@hogsend/core";
-import { sendJourneyEmail } from "../lib/journey-email.js";
+import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -25,9 +25,12 @@ export const conversionTrialUpgrade = defineJourney({
       event: Events.USAGE_MILESTONE_REACHED,
     });
     if (hasUsageMilestone) {
-      await sendJourneyEmail(user, {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
         template: Templates.CONVERSION_USAGE_MILESTONE,
         subject: "You're on a roll — here's what Pro unlocks",
+        journeyName: user.journeyName,
       });
     }
 
@@ -38,24 +41,33 @@ export const conversionTrialUpgrade = defineJourney({
       event: Events.PAID_FEATURE_ATTEMPTED,
     });
     if (hasPaidFeatureAttempt) {
-      await sendJourneyEmail(user, {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
         template: Templates.CONVERSION_USAGE_MILESTONE,
         subject: "You just hit a limit — upgrade to keep going",
+        journeyName: user.journeyName,
       });
     }
 
     await ctx.sleep({ duration: days(3), label: "trial-ending" });
 
-    await sendJourneyEmail(user, {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Your trial ends in 3 days — don't lose your progress",
+      journeyName: user.journeyName,
     });
 
     await ctx.sleep({ duration: days(2), label: "trial-final" });
 
-    await sendJourneyEmail(user, {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Last day of your trial",
+      journeyName: user.journeyName,
       props: { daysLeft: 1 },
     });
 
@@ -66,9 +78,12 @@ export const conversionTrialUpgrade = defineJourney({
       event: Events.SUBSCRIPTION_CREATED,
     });
     if (!hasSubscription) {
-      await sendJourneyEmail(user, {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "We'd love to have you back — here's 20% off",
+        journeyName: user.journeyName,
       });
     }
   },

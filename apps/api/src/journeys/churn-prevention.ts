@@ -1,5 +1,5 @@
 import { days } from "@hogsend/core";
-import { sendJourneyEmail } from "../lib/journey-email.js";
+import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -20,9 +20,12 @@ export const churnPrevention = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await sendJourneyEmail(user, {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
     });
 
     await ctx.sleep({ duration: days(1), label: "first-retry" });
@@ -36,9 +39,12 @@ export const churnPrevention = defineJourney({
       return;
     }
 
-    await sendJourneyEmail(user, {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Reminder: please update your payment method",
+      journeyName: user.journeyName,
       props: { gracePeriodDays: 2 },
     });
 
@@ -50,9 +56,12 @@ export const churnPrevention = defineJourney({
       withinHours: 72,
     });
     if (!hasResolved) {
-      await sendJourneyEmail(user, {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
         template: Templates.CHURN_PAYMENT_FAILED,
         subject: "Final notice: your account will be downgraded tomorrow",
+        journeyName: user.journeyName,
         props: { gracePeriodDays: 1 },
       });
     }

@@ -1,4 +1,3 @@
-import type { JourneyUser } from "@hogsend/core/types";
 import {
   generateUnsubscribeUrl,
   JourneyNotificationEmail,
@@ -7,35 +6,33 @@ import {
 import { createElement } from "react";
 import { sendEmailTask } from "../workflows/send-email.js";
 
-export interface JourneyEmailOptions {
+export async function sendEmail(opts: {
+  to: string;
+  userId: string;
   template: string;
   subject: string;
+  journeyName?: string;
   props?: Record<string, unknown>;
-}
-
-export async function sendJourneyEmail(
-  user: JourneyUser,
-  options: JourneyEmailOptions,
-): Promise<{ emailId: string; sentAt: string }> {
+}): Promise<{ emailId: string; sentAt: string }> {
   let unsubscribeUrl: string | undefined;
   if (process.env.API_PUBLIC_URL && process.env.BETTER_AUTH_SECRET) {
     unsubscribeUrl = generateUnsubscribeUrl({
       baseUrl: process.env.API_PUBLIC_URL,
       secret: process.env.BETTER_AUTH_SECRET,
-      externalId: user.id,
-      email: user.email,
+      externalId: opts.userId,
+      email: opts.to,
     });
   }
 
   const element = createElement(JourneyNotificationEmail, {
     name:
-      (options.props?.firstName as string) ??
-      (options.props?.name as string) ??
-      user.email.split("@")[0] ??
+      (opts.props?.firstName as string) ??
+      (opts.props?.name as string) ??
+      opts.to.split("@")[0] ??
       "there",
-    journeyName: user.journeyId,
-    eventName: options.template,
-    body: options.subject,
+    journeyName: opts.journeyName ?? opts.template,
+    eventName: opts.template,
+    body: opts.subject,
     unsubscribeUrl,
   });
   const html = await renderToHtml(element);
@@ -47,13 +44,13 @@ export async function sendJourneyEmail(
   }
 
   const result = await sendEmailTask.run({
-    to: user.email,
-    subject: options.subject,
+    to: opts.to,
+    subject: opts.subject,
     html,
     tags: [
-      { name: "journeyId", value: user.journeyId },
-      { name: "templateKey", value: options.template },
-      { name: "userId", value: user.id },
+      { name: "journeyId", value: opts.journeyName ?? opts.template },
+      { name: "templateKey", value: opts.template },
+      { name: "userId", value: opts.userId },
     ],
     headers,
   });

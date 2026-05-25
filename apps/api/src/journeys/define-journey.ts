@@ -18,7 +18,7 @@ let _db: Database | undefined;
 
 function getDb(): Database {
   if (!_db) {
-    const { db } = createDatabase(process.env.DATABASE_URL ?? "");
+    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
     _db = db;
   }
   return _db;
@@ -61,7 +61,12 @@ export function defineJourney(options: {
       }
 
       if (meta.trigger.where?.length) {
-        if (!evaluateTriggerConditions(meta.trigger.where, properties)) {
+        if (
+          !evaluateTriggerConditions({
+            conditions: meta.trigger.where,
+            properties,
+          })
+        ) {
           return { status: "skipped", reason: "trigger_conditions_not_met" };
         }
       }
@@ -75,7 +80,7 @@ export function defineJourney(options: {
         return { status: "skipped", reason: entryAllowed.reason };
       }
 
-      const prefs = await checkEmailPreferences(db, userId);
+      const prefs = await checkEmailPreferences({ db, userId });
       if (prefs.unsubscribed) {
         return { status: "skipped", reason: "user_unsubscribed" };
       }
@@ -105,6 +110,7 @@ export function defineJourney(options: {
         properties,
         stateId,
         journeyId: meta.id,
+        journeyName: meta.name,
       };
 
       const ctx = createJourneyContext({
@@ -113,7 +119,6 @@ export function defineJourney(options: {
         hatchetCtx,
         stateId,
         journeyId: meta.id,
-        userId,
         journeyContext: { ...properties },
       });
 

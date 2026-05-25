@@ -11,7 +11,6 @@ interface JourneyContextConfig {
   hatchetCtx: { sleepFor: (duration: DurationObject) => Promise<unknown> };
   stateId: string;
   journeyId: string;
-  userId: string;
   journeyContext: Record<string, unknown>;
 }
 
@@ -59,15 +58,15 @@ export function createJourneyContext(
 
     event: {
       async check({ userId: targetUserId, event, withinHours }) {
-        const found = await evaluateCondition(
-          {
+        const found = await evaluateCondition({
+          condition: {
             type: "event",
             eventName: event,
             check: "exists",
             withinHours,
           },
-          { db, userId: targetUserId, journeyContext },
-        );
+          ctx: { db, userId: targetUserId, journeyContext },
+        });
         return { found, count: found ? 1 : 0 };
       },
 

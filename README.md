@@ -50,7 +50,7 @@ API calls ─────────┘                          │
                                     │  ctx.event.fire()     │
                                     │                       │
                                     │  + direct imports:    │
-                                    │  sendJourneyEmail()   │
+                                    │  sendEmail()          │
                                     │  posthog plugin       │
                                     └──────────┬───────────┘
                                                │
@@ -75,7 +75,7 @@ Journeys use `defineJourney()` — you declare metadata (trigger, entry limits, 
 import { days } from "@hogsend/core";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
-import { sendJourneyEmail } from "../lib/journey-email.js";
+import { sendEmail } from "../lib/email.js";
 
 export const activationWelcome = defineJourney({
   meta: {
@@ -89,7 +89,7 @@ export const activationWelcome = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await sendJourneyEmail(user, {
+    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
       template: Templates.ACTIVATION_WELCOME,
       subject: "Welcome — let's get you set up",
     });
@@ -102,12 +102,12 @@ export const activationWelcome = defineJourney({
     });
 
     if (hasUsedFeature) {
-      await sendJourneyEmail(user, {
+      await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
         template: Templates.ACTIVATION_ADVANCED,
         subject: "Nice work — here's what to try next",
       });
     } else {
-      await sendJourneyEmail(user, {
+      await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
         template: Templates.ACTIVATION_NUDGE,
         subject: "You haven't tried the key feature yet",
       });
@@ -115,7 +115,7 @@ export const activationWelcome = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "pre-community" });
 
-    await sendJourneyEmail(user, {
+    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
       template: Templates.ACTIVATION_COMMUNITY,
       subject: "Join the community",
     });
@@ -146,7 +146,7 @@ export const churnPrevention = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await sendJourneyEmail(user, {
+    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Your payment didn't go through",
     });
@@ -160,7 +160,7 @@ export const churnPrevention = defineJourney({
     });
     if (hasRetried) return;
 
-    await sendJourneyEmail(user, {
+    await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Reminder: please update your payment method",
       props: { gracePeriodDays: 2 },
@@ -174,7 +174,7 @@ export const churnPrevention = defineJourney({
       withinHours: 72,
     });
     if (!hasResolved) {
-      await sendJourneyEmail(user, {
+      await sendEmail({ to: user.email, userId: user.id, journeyName: user.journeyName,
         template: Templates.CHURN_PAYMENT_FAILED,
         subject: "Final notice: your account will be downgraded tomorrow",
         props: { gracePeriodDays: 1 },
@@ -201,7 +201,7 @@ The context only provides durable execution primitives. Everything else is a dir
 
 | Import | What it does |
 |--------|-------------|
-| `sendJourneyEmail(user, { template, subject, props? })` | Render + send email via Resend (from `../lib/journey-email.js`) |
+| `sendEmail({ to, userId, template, subject, ... })` | Render + send email via Resend (from `../lib/email.js`) |
 | `getPostHog()?.getPersonProperties(userId)` | Fetch PostHog person properties (from `../lib/posthog.js`) |
 
 Event payload properties are available on `user.properties`.

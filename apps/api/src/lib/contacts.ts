@@ -10,7 +10,8 @@ export function contactWhereClause(id: string) {
     : eq(contacts.externalId, id);
 }
 
-export async function resolveContact(db: Database, id: string) {
+export async function resolveContact(opts: { db: Database; id: string }) {
+  const { db, id } = opts;
   const rows = await db
     .select()
     .from(contacts)
@@ -33,15 +34,13 @@ export function serializePrefs(row: typeof emailPreferences.$inferSelect) {
   };
 }
 
-export async function upsertContact(
-  db: Database,
-  data: {
-    externalId: string;
-    email?: string;
-    properties?: Record<string, unknown>;
-  },
-): Promise<void> {
-  const { externalId, email, properties } = data;
+export async function upsertContact(opts: {
+  db: Database;
+  externalId: string;
+  email?: string;
+  properties?: Record<string, unknown>;
+}): Promise<void> {
+  const { db, externalId, email, properties } = opts;
 
   await db
     .insert(contacts)
