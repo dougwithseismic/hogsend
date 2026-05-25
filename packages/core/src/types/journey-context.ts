@@ -14,11 +14,12 @@ export interface SleepResult {
 export interface EventCheckOptions {
   userId: string;
   event: string;
-  withinHours?: number;
+  within?: DurationObject;
 }
 
 export interface EventCheckResult {
   found: boolean;
+  count: number;
 }
 
 export interface EventFireOptions {
@@ -39,6 +40,10 @@ export interface JourneyContext {
   event: {
     check(opts: EventCheckOptions): Promise<EventCheckResult>;
     fire(opts: EventFireOptions): Promise<EventFireResult>;
+  };
+
+  guard: {
+    isSubscribed(): Promise<boolean>;
   };
 }
 

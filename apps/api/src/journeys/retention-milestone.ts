@@ -10,7 +10,7 @@ export const retentionMilestone = defineJourney({
     enabled: true,
     trigger: { event: Events.MILESTONE_REACHED },
     entryLimit: "unlimited",
-    suppressHours: 24,
+    suppress: days(1),
     exitOn: [{ event: Events.USER_DELETED }],
   },
 

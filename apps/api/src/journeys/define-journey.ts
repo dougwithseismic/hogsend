@@ -119,6 +119,7 @@ export function defineJourney(options: {
         hatchetCtx,
         stateId,
         journeyId: meta.id,
+        userId,
         journeyContext: { ...properties },
       });
 

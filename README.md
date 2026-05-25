@@ -194,7 +194,8 @@ The `ctx` object passed to every journey's `run` function. Every method takes an
 |--------|-------------|---------|
 | `ctx.sleep({ duration: days(2), label? })` | Durable sleep — survives deploys, persists state to DB | `{ sleptAt, resumedAt }` |
 | `ctx.checkpoint("label")` | Update the journey state label (for observability) | `void` |
-| `ctx.event.check({ userId, event, withinHours? })` | Check if a user has a specific event in the local store | `{ found, count }` |
+| `ctx.event.check({ userId, event, within? })` | Check if a user has a specific event in the local store | `{ found, count }` |
+| `ctx.guard.isSubscribed()` | Check if user is still subscribed (useful after long sleeps) | `boolean` |
 | `ctx.event.fire({ userId, event, properties? })` | Insert event locally + push to Hatchet | `{ eventKey, firedAt }` |
 
 The context only provides durable execution primitives. Everything else is a direct import:

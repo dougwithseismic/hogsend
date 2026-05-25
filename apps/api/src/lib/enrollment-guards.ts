@@ -1,3 +1,4 @@
+import { durationToMs, hours } from "@hogsend/core";
 import type { JourneyMeta, PropertyCondition } from "@hogsend/core/types";
 import { type Database, emailPreferences, journeyStates } from "@hogsend/db";
 import { and, eq } from "drizzle-orm";
@@ -67,7 +68,7 @@ export async function checkEntryLimit(opts: {
   }
 
   if (journey.entryLimit === "once_per_period") {
-    const periodMs = (journey.entryPeriodHours ?? 24) * 60 * 60 * 1000;
+    const periodMs = durationToMs(journey.entryPeriod ?? hours(24));
     const cutoff = new Date(Date.now() - periodMs);
 
     const existing = await db.query.journeyStates.findFirst({

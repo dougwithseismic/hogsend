@@ -10,7 +10,7 @@ export const feedbackNps = defineJourney({
     enabled: true,
     trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
-    suppressHours: 24,
+    suppress: days(1),
     exitOn: [{ event: Events.USER_DELETED }, { event: Events.NPS_SUBMITTED }],
   },
 
@@ -30,7 +30,7 @@ export const feedbackNps = defineJourney({
     const { found: hasSubmitted } = await ctx.event.check({
       userId: user.id,
       event: Events.NPS_SUBMITTED,
-      withinHours: 72,
+      within: days(3),
     });
 
     if (!hasSubmitted) {
@@ -48,7 +48,7 @@ export const feedbackNps = defineJourney({
     const { found: hasSubmittedDay60 } = await ctx.event.check({
       userId: user.id,
       event: Events.NPS_SUBMITTED,
-      withinHours: 1104,
+      within: days(46),
     });
     if (!hasSubmittedDay60) {
       await sendEmail({

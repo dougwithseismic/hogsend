@@ -10,8 +10,8 @@ export const conversionAbandonedCheckout = defineJourney({
     enabled: true,
     trigger: { event: Events.CHECKOUT_ABANDONED },
     entryLimit: "once_per_period",
-    entryPeriodHours: 72,
-    suppressHours: 4,
+    entryPeriod: days(3),
+    suppress: hours(4),
     exitOn: [
       { event: Events.SUBSCRIPTION_CREATED },
       { event: Events.CHECKOUT_COMPLETED },
@@ -24,7 +24,7 @@ export const conversionAbandonedCheckout = defineJourney({
     const { found: hasCompleted } = await ctx.event.check({
       userId: user.id,
       event: Events.CHECKOUT_COMPLETED,
-      withinHours: 2,
+      within: hours(2),
     });
     if (hasCompleted) {
       return;
@@ -44,7 +44,7 @@ export const conversionAbandonedCheckout = defineJourney({
     const { found: hasCompletedLater } = await ctx.event.check({
       userId: user.id,
       event: Events.CHECKOUT_COMPLETED,
-      withinHours: 26,
+      within: hours(26),
     });
     if (!hasCompletedLater) {
       await sendEmail({

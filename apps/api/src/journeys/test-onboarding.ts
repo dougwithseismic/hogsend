@@ -1,3 +1,4 @@
+import { hours } from "@hogsend/core";
 import { Events } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -8,7 +9,7 @@ export const testOnboarding = defineJourney({
     enabled: true,
     trigger: { event: Events.TEST_SIGNUP },
     entryLimit: "unlimited",
-    suppressHours: 0,
+    suppress: hours(0),
   },
 
   run: async (user, ctx) => {

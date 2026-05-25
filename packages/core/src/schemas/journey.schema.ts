@@ -24,7 +24,13 @@ export const eventConditionSchema = z.object({
   check: z.enum(["exists", "not_exists", "count"]),
   operator: z.enum(["gt", "gte", "lt", "lte", "eq"]).optional(),
   value: z.number().optional(),
-  withinHours: z.number().positive().optional(),
+  within: z
+    .object({
+      hours: z.number().optional(),
+      minutes: z.number().optional(),
+      seconds: z.number().optional(),
+    })
+    .optional(),
 });
 
 export const emailEngagementConditionSchema = z.object({
@@ -58,7 +64,13 @@ export const journeyMetaSchema = z.object({
   }),
 
   entryLimit: z.enum(["once", "once_per_period", "unlimited"]),
-  entryPeriodHours: z.number().positive().optional(),
+  entryPeriod: z
+    .object({
+      hours: z.number().optional(),
+      minutes: z.number().optional(),
+      seconds: z.number().optional(),
+    })
+    .optional(),
 
   exitOn: z
     .array(
@@ -69,5 +81,9 @@ export const journeyMetaSchema = z.object({
     )
     .optional(),
 
-  suppressHours: z.number().min(0),
+  suppress: z.object({
+    hours: z.number().optional(),
+    minutes: z.number().optional(),
+    seconds: z.number().optional(),
+  }),
 });

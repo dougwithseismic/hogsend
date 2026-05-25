@@ -1,9 +1,10 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { DurationObject } from "@hogsend/core";
-import { evaluateCondition } from "@hogsend/core";
+import { evaluateEventCondition } from "@hogsend/core";
 import type { JourneyContext } from "@hogsend/core/types";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { eq } from "drizzle-orm";
+import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 
 interface JourneyContextConfig {
   db: Database;
@@ -11,14 +12,22 @@ interface JourneyContextConfig {
   hatchetCtx: { sleepFor: (duration: DurationObject) => Promise<unknown> };
   stateId: string;
   journeyId: string;
+  userId: string;
   journeyContext: Record<string, unknown>;
 }
 
 export function createJourneyContext(
   config: JourneyContextConfig,
 ): JourneyContext {
-  const { db, hatchet, hatchetCtx, stateId, journeyId, journeyContext } =
-    config;
+  const {
+    db,
+    hatchet,
+    hatchetCtx,
+    stateId,
+    journeyId,
+    userId,
+    journeyContext,
+  } = config;
 
   async function updateCheckpoint(label: string): Promise<void> {
     await db
@@ -57,17 +66,17 @@ export function createJourneyContext(
     },
 
     event: {
-      async check({ userId: targetUserId, event, withinHours }) {
-        const found = await evaluateCondition({
+      async check({ userId: targetUserId, event, within }) {
+        const result = await evaluateEventCondition({
           condition: {
             type: "event",
             eventName: event,
             check: "exists",
-            withinHours,
+            within,
           },
           ctx: { db, userId: targetUserId, journeyContext },
         });
-        return { found };
+        return { found: result.matched, count: result.count };
       },
 
       async fire({ userId: targetUserId, event, properties = {} }) {
@@ -87,6 +96,13 @@ export function createJourneyContext(
         });
 
         return { eventKey, firedAt: new Date().toISOString() };
+      },
+    },
+
+    guard: {
+      async isSubscribed() {
+        const prefs = await checkEmailPreferences({ db, userId });
+        return !prefs.unsubscribed;
       },
     },
   };

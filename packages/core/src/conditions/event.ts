@@ -1,12 +1,13 @@
 import { userEvents } from "@hogsend/db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
+import { durationToMs } from "../duration.js";
 import type { EventCondition } from "../types/index.js";
 import type { ConditionContext } from "./evaluate.js";
 
 export async function evaluateEventCondition(opts: {
   condition: EventCondition;
   ctx: ConditionContext;
-}): Promise<boolean> {
+}): Promise<{ matched: boolean; count: number }> {
   const { condition, ctx } = opts;
   const [result] = await ctx.db
     .select({ count: sql<number>`count(*)` })
@@ -15,10 +16,10 @@ export async function evaluateEventCondition(opts: {
       and(
         eq(userEvents.userId, ctx.userId),
         eq(userEvents.event, condition.eventName),
-        condition.withinHours
+        condition.within
           ? gte(
               userEvents.occurredAt,
-              new Date(Date.now() - condition.withinHours * 60 * 60 * 1000),
+              new Date(Date.now() - durationToMs(condition.within)),
             )
           : undefined,
       ),
@@ -26,30 +27,43 @@ export async function evaluateEventCondition(opts: {
 
   const count = Number(result?.count ?? 0);
 
+  let matched: boolean;
   switch (condition.check) {
     case "exists":
-      return count > 0;
+      matched = count > 0;
+      break;
     case "not_exists":
-      return count === 0;
+      matched = count === 0;
+      break;
     case "count": {
-      if (!condition.operator || condition.value === undefined)
-        return count > 0;
-      switch (condition.operator) {
-        case "gt":
-          return count > condition.value;
-        case "gte":
-          return count >= condition.value;
-        case "lt":
-          return count < condition.value;
-        case "lte":
-          return count <= condition.value;
-        case "eq":
-          return count === condition.value;
-        default:
-          return false;
+      if (!condition.operator || condition.value === undefined) {
+        matched = count > 0;
+      } else {
+        switch (condition.operator) {
+          case "gt":
+            matched = count > condition.value;
+            break;
+          case "gte":
+            matched = count >= condition.value;
+            break;
+          case "lt":
+            matched = count < condition.value;
+            break;
+          case "lte":
+            matched = count <= condition.value;
+            break;
+          case "eq":
+            matched = count === condition.value;
+            break;
+          default:
+            matched = false;
+        }
       }
+      break;
     }
     default:
-      return false;
+      matched = false;
   }
+
+  return { matched, count };
 }

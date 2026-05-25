@@ -1,4 +1,4 @@
-import { days } from "@hogsend/core";
+import { days, hours } from "@hogsend/core";
 import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
@@ -10,7 +10,7 @@ export const activationWelcome = defineJourney({
     enabled: true,
     trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
-    suppressHours: 12,
+    suppress: hours(12),
     exitOn: [{ event: Events.USER_DELETED }],
   },
 

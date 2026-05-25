@@ -10,8 +10,8 @@ export const reactivationDormancy = defineJourney({
     enabled: true,
     trigger: { event: Events.USER_DORMANCY_DETECTED },
     entryLimit: "once_per_period",
-    entryPeriodHours: 1440,
-    suppressHours: 48,
+    entryPeriod: days(60),
+    suppress: days(2),
     exitOn: [
       { event: Events.USER_DELETED },
       { event: Events.SESSION_COMPLETED },

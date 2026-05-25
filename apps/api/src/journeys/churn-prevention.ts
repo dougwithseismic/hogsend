@@ -1,4 +1,4 @@
-import { days } from "@hogsend/core";
+import { days, hours } from "@hogsend/core";
 import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
@@ -10,8 +10,8 @@ export const churnPrevention = defineJourney({
     enabled: true,
     trigger: { event: Events.PAYMENT_FAILED },
     entryLimit: "once_per_period",
-    entryPeriodHours: 168,
-    suppressHours: 4,
+    entryPeriod: days(7),
+    suppress: hours(4),
     exitOn: [
       { event: Events.PAYMENT_SUCCEEDED },
       { event: Events.SUBSCRIPTION_CANCELLED },
@@ -33,7 +33,7 @@ export const churnPrevention = defineJourney({
     const { found: hasRetried } = await ctx.event.check({
       userId: user.id,
       event: Events.PAYMENT_SUCCEEDED,
-      withinHours: 24,
+      within: days(1),
     });
     if (hasRetried) {
       return;
@@ -53,7 +53,7 @@ export const churnPrevention = defineJourney({
     const { found: hasResolved } = await ctx.event.check({
       userId: user.id,
       event: Events.PAYMENT_SUCCEEDED,
-      withinHours: 72,
+      within: days(3),
     });
     if (!hasResolved) {
       await sendEmail({

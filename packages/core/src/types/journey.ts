@@ -1,3 +1,4 @@
+import type { DurationObject } from "../duration.js";
 import type { PropertyCondition } from "./conditions.js";
 
 export interface JourneyMeta {
@@ -12,14 +13,14 @@ export interface JourneyMeta {
   };
 
   entryLimit: "once" | "once_per_period" | "unlimited";
-  entryPeriodHours?: number;
+  entryPeriod?: DurationObject;
 
   exitOn?: Array<{
     event: string;
     where?: PropertyCondition[];
   }>;
 
-  suppressHours: number;
+  suppress: DurationObject;
 }
 
 export interface JourneyUser {

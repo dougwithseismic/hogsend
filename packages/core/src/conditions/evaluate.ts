@@ -20,8 +20,10 @@ export async function evaluateCondition(opts: {
   switch (condition.type) {
     case "property":
       return evaluatePropertyCondition({ condition, ctx });
-    case "event":
-      return evaluateEventCondition({ condition, ctx });
+    case "event": {
+      const result = await evaluateEventCondition({ condition, ctx });
+      return result.matched;
+    }
     case "email_engagement":
       return evaluateEmailEngagementCondition({ condition, ctx });
     case "composite":

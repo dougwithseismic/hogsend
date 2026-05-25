@@ -1,4 +1,4 @@
-import { hours } from "@hogsend/core";
+import { days, hours } from "@hogsend/core";
 import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
@@ -10,8 +10,8 @@ export const referralInvite = defineJourney({
     enabled: true,
     trigger: { event: Events.MILESTONE_REACHED },
     entryLimit: "once_per_period",
-    entryPeriodHours: 168,
-    suppressHours: 48,
+    entryPeriod: days(7),
+    suppress: days(2),
     exitOn: [{ event: Events.USER_DELETED }],
   },
 
@@ -21,7 +21,7 @@ export const referralInvite = defineJourney({
     const { found: isActive30d } = await ctx.event.check({
       userId: user.id,
       event: Events.SESSION_COMPLETED,
-      withinHours: 720,
+      within: days(30),
     });
     if (!isActive30d) {
       return;

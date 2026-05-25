@@ -10,7 +10,7 @@ export const conversionTrialUpgrade = defineJourney({
     enabled: true,
     trigger: { event: Events.TRIAL_STARTED },
     entryLimit: "once",
-    suppressHours: 24,
+    suppress: days(1),
     exitOn: [
       { event: Events.SUBSCRIPTION_CREATED },
       { event: Events.USER_DELETED },

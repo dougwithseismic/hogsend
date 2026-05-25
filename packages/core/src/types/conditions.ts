@@ -15,13 +15,15 @@ export interface PropertyCondition {
   value?: string | number | boolean;
 }
 
+import type { DurationObject } from "../duration.js";
+
 export interface EventCondition {
   type: "event";
   eventName: string;
   check: "exists" | "not_exists" | "count";
   operator?: "gt" | "gte" | "lt" | "lte" | "eq";
   value?: number;
-  withinHours?: number;
+  within?: DurationObject;
 }
 
 export interface EmailEngagementCondition {

@@ -1,4 +1,4 @@
-import { days } from "@hogsend/core";
+import { days, hours } from "@hogsend/core";
 import { sendEmail } from "../lib/email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
@@ -10,7 +10,7 @@ export const activationNudgeSeries = defineJourney({
     enabled: true,
     trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
-    suppressHours: 12,
+    suppress: hours(12),
     exitOn: [{ event: Events.USER_DELETED }, { event: Events.USER_ACTIVATED }],
   },
 
@@ -20,7 +20,7 @@ export const activationNudgeSeries = defineJourney({
     const { found: hasUsedFeature } = await ctx.event.check({
       userId: user.id,
       event: Events.FEATURE_USED,
-      withinHours: 48,
+      within: days(2),
     });
     if (!hasUsedFeature) {
       await sendEmail({
@@ -37,7 +37,7 @@ export const activationNudgeSeries = defineJourney({
     const { found: hasCompletedSetup } = await ctx.event.check({
       userId: user.id,
       event: Events.SETUP_COMPLETED,
-      withinHours: 72,
+      within: days(3),
     });
     if (!hasCompletedSetup) {
       await sendEmail({

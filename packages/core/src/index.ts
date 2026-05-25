@@ -1,10 +1,12 @@
 export {
   type ConditionContext,
   evaluateCondition,
+  evaluateEventCondition,
 } from "./conditions/index.js";
 export {
   type DurationObject,
   days,
+  durationToMs,
   hours,
   minutes,
 } from "./duration.js";
