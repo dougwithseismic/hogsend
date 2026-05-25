@@ -67,3 +67,25 @@ type UpdatePreferencesInput struct {
 	Suppressed      *bool           `json:"suppressed,omitempty"`
 	Categories      map[string]bool `json:"categories,omitempty"`
 }
+
+type IngestEventInput struct {
+	Event      string                 `json:"event"`
+	UserID     string                 `json:"userId"`
+	UserEmail  string                 `json:"userEmail,omitempty"`
+	Properties map[string]interface{} `json:"properties,omitempty"`
+}
+
+type EventItem struct {
+	ID         string                 `json:"id"`
+	UserID     string                 `json:"userId"`
+	Event      string                 `json:"event"`
+	Properties map[string]interface{} `json:"properties"`
+	OccurredAt string                 `json:"occurredAt"`
+}
+
+type ListEventsResponse struct {
+	Events []EventItem `json:"events"`
+	Total  int         `json:"total"`
+	Limit  int         `json:"limit"`
+	Offset int         `json:"offset"`
+}

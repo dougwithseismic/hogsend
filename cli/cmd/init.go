@@ -8,13 +8,17 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/gosimple/slug"
+	"github.com/hogsend/cli/internal/api"
 	"github.com/hogsend/cli/internal/config"
+	"github.com/hogsend/cli/internal/health"
+	"github.com/hogsend/cli/internal/posthog"
 	"github.com/hogsend/cli/internal/railway"
 	"github.com/hogsend/cli/internal/tui"
 	"github.com/spf13/cobra"
 )
+
+var forceInit bool
 
 var availableJourneys = []string{
 	"activation-welcome",
@@ -29,39 +33,51 @@ var availableJourneys = []string{
 	"test-onboarding",
 }
 
+var journeyEventMap = map[string][]string{
+	"activation-welcome":           {"user_signed_up"},
+	"activation-nudge-series":      {"user_signed_up"},
+	"conversion-trial-upgrade":     {"trial_started"},
+	"conversion-abandoned-checkout": {"checkout_abandoned"},
+	"retention-milestone":          {"milestone_reached"},
+	"referral-invite":              {"subscription_created"},
+	"feedback-nps":                 {"subscription_created"},
+	"reactivation-dormancy":        {"user_activated"},
+	"churn-prevention":             {"subscription_cancelled", "payment_failed"},
+	"test-onboarding":              {"test_signup"},
+}
+
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Set up a new Hogsend deployment on Railway",
-	Long:  "Interactive wizard that provisions a Railway project with all services (Postgres, Redis, Hatchet, API, Worker), sets environment variables, and deploys.",
-	RunE:  runInit,
+	Short: "Configure a Hogsend deployment after Railway template deploy",
+	Long: `Connect to an existing Railway project (created via the deploy template),
+set environment variables, create a PostHog webhook destination, and verify
+the full pipeline with a test event.
+
+Deploy the template first: https://railway.com/deploy/LxSCyR`,
+	RunE: runInit,
+}
+
+func init() {
+	initCmd.Flags().BoolVar(&forceInit, "force", false, "Re-initialize even if .hogsend.yaml exists")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	if config.Exists() {
+	if config.Exists() && !forceInit {
 		cfg, err := config.Load()
 		if err == nil && cfg != nil {
-			return fmt.Errorf("this project is already initialized as %q (slug: %s). Run 'hogsend destroy' first to re-initialize", cfg.Name, cfg.Slug)
+			return fmt.Errorf("already initialized as %q (slug: %s). Use --force to reconfigure or 'hogsend destroy' to start fresh", cfg.Name, cfg.Slug)
 		}
 	}
 
 	fmt.Println(tui.Banner.Render("HOGSEND INIT"))
-	fmt.Println(tui.Subtitle.Render("Set up a new Hogsend deployment on Railway"))
+	fmt.Println(tui.Subtitle.Render("Configure your Hogsend deployment"))
 	fmt.Println()
 
-	var (
-		clientName    string
-		posthogKey    string
-		posthogHost   string
-		resendKey     string
-		resendFrom    string
-		autoSecret    bool
-		authSecret    string
-		railwayToken  string
-		githubRepo    string
-		enabledJourneys []string
-	)
+	// ── Stage 1: Collect ──────────────────────────────────────────────
 
-	form := huh.NewForm(
+	var clientName, railwayToken string
+
+	if err := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Project name").
@@ -73,8 +89,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 					}
 					return nil
 				}),
-		),
-		huh.NewGroup(
 			huh.NewInput().
 				Title("Railway API token").
 				Description("Generate at railway.com/account/tokens").
@@ -86,41 +100,234 @@ func runInit(cmd *cobra.Command, args []string) error {
 					}
 					return nil
 				}),
-			huh.NewInput().
-				Title("GitHub repo").
-				Description("Source repo for services (e.g. 'your-org/hogsend')").
-				Value(&githubRepo).
-				Placeholder("your-org/hogsend").
-				Validate(func(s string) error {
-					if !strings.Contains(s, "/") {
-						return fmt.Errorf("use format: owner/repo")
-					}
-					return nil
-				}),
 		),
+	).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+		return err
+	}
+
+	railwayClient := railway.NewClient(railwayToken)
+
+	var email string
+	if err := tui.RunWithSpinner("Authenticating with Railway...", func() error {
+		e, err := railwayClient.WhoAmI()
+		if err != nil {
+			return fmt.Errorf("invalid Railway token: %w", err)
+		}
+		email = e
+		return nil
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("  Authenticated as %s\n\n", tui.Value.Render(email))
+
+	var railwayProjects []railway.Project
+	if err := tui.RunWithSpinner("Fetching Railway projects...", func() error {
+		p, err := railwayClient.ListProjects()
+		if err != nil {
+			return err
+		}
+		railwayProjects = p
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if len(railwayProjects) == 0 {
+		return fmt.Errorf("no Railway projects found. Deploy the template first: https://railway.com/deploy/LxSCyR")
+	}
+
+	projectOptions := make([]huh.Option[string], len(railwayProjects))
+	for i, p := range railwayProjects {
+		projectOptions[i] = huh.NewOption(p.Name, p.ID)
+	}
+
+	var selectedProjectID string
+	if err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Select your Hogsend Railway project").
+				Description("Choose the project created by the deploy template").
+				Options(projectOptions...).
+				Value(&selectedProjectID),
+		),
+	).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+		return err
+	}
+
+	var selectedProjectName string
+	for _, p := range railwayProjects {
+		if p.ID == selectedProjectID {
+			selectedProjectName = p.Name
+			break
+		}
+	}
+
+	var (
+		services    []railway.Service
+		envs        []railway.Environment
+		apiService  *railway.Service
+		workerSvc   *railway.Service
+	)
+
+	if err := tui.RunWithSpinner("Discovering services...", func() error {
+		s, err := railwayClient.GetServices(selectedProjectID)
+		if err != nil {
+			return err
+		}
+		services = s
+
+		e, err := railwayClient.GetEnvironments(selectedProjectID)
+		if err != nil {
+			return err
+		}
+		if len(e) == 0 {
+			return fmt.Errorf("no environments found in project")
+		}
+		envs = e
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	envID := envs[0].ID
+
+	for i := range services {
+		name := strings.ToLower(services[i].Name)
+		if strings.Contains(name, "api") && !strings.Contains(name, "hatchet") {
+			apiService = &services[i]
+		}
+		if strings.Contains(name, "worker") {
+			workerSvc = &services[i]
+		}
+	}
+
+	if apiService == nil {
+		return fmt.Errorf("could not find API service in project %q. Expected a service containing 'api' in its name", selectedProjectName)
+	}
+	if workerSvc == nil {
+		return fmt.Errorf("could not find Worker service in project %q. Expected a service containing 'worker' in its name", selectedProjectName)
+	}
+
+	fmt.Printf("  Found: %s (API), %s (Worker)\n\n", tui.Value.Render(apiService.Name), tui.Value.Render(workerSvc.Name))
+
+	var apiDomain string
+	if err := tui.RunWithSpinner("Finding API domain...", func() error {
+		domains, err := railwayClient.GetServiceDomains(selectedProjectID, envID, apiService.ID)
+		if err != nil {
+			return err
+		}
+		if len(domains) > 0 {
+			apiDomain = domains[0].Domain
+			return nil
+		}
+		d, err := railwayClient.GenerateServiceDomain(apiService.ID, envID)
+		if err != nil {
+			return fmt.Errorf("generate domain: %w", err)
+		}
+		apiDomain = d.Domain
+		return nil
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("  API domain: %s\n\n", tui.Value.Render(apiDomain))
+
+	var posthogKey, posthogRegion, posthogHost string
+
+	if err := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
-				Title("PostHog project API key").
+				Title("PostHog personal API key").
+				Description("Generate at PostHog > Settings > Personal API Keys (starts with phx_)").
 				Value(&posthogKey).
-				EchoMode(huh.EchoModePassword),
-			huh.NewInput().
-				Title("PostHog host").
-				Value(&posthogHost).
-				Placeholder("https://us.i.posthog.com"),
-		),
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Resend API key").
-				Value(&resendKey).
 				EchoMode(huh.EchoModePassword).
 				Validate(func(s string) error {
 					if strings.TrimSpace(s) == "" {
-						return fmt.Errorf("Resend API key is required")
+						return fmt.Errorf("PostHog personal API key is required")
+					}
+					if !strings.HasPrefix(strings.TrimSpace(s), "phx_") {
+						return fmt.Errorf("must start with 'phx_' — this is a personal API key, not the project key")
 					}
 					return nil
 				}),
+			huh.NewSelect[string]().
+				Title("PostHog region").
+				Options(
+					huh.NewOption("US (us.i.posthog.com)", "https://us.i.posthog.com"),
+					huh.NewOption("EU (eu.i.posthog.com)", "https://eu.i.posthog.com"),
+					huh.NewOption("US (app.posthog.com)", "https://app.posthog.com"),
+					huh.NewOption("Self-hosted (custom URL)", "custom"),
+				).
+				Value(&posthogRegion),
+		),
+	).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+		return err
+	}
+
+	if posthogRegion == "custom" {
+		if err := huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("PostHog host URL").
+					Placeholder("https://posthog.yourcompany.com").
+					Value(&posthogHost).
+					Validate(func(s string) error {
+						if !strings.HasPrefix(s, "https://") {
+							return fmt.Errorf("must start with https://")
+						}
+						return nil
+					}),
+			),
+		).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
+			return err
+		}
+	} else {
+		posthogHost = posthogRegion
+	}
+
+	posthogKey = strings.TrimSpace(posthogKey)
+	phClient, err := posthog.NewClient(posthogKey, posthogHost)
+	if err != nil {
+		return err
+	}
+
+	var phProjects []posthog.Project
+	if err := tui.RunWithSpinner("Fetching PostHog projects...", func() error {
+		p, err := phClient.ListProjects()
+		if err != nil {
+			return err
+		}
+		phProjects = p
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	if len(phProjects) == 0 {
+		return fmt.Errorf("no PostHog projects found. Check your personal API key has the right scopes")
+	}
+
+	phProjectOptions := make([]huh.Option[int], len(phProjects))
+	for i, p := range phProjects {
+		phProjectOptions[i] = huh.NewOption(p.Name, p.ID)
+	}
+
+	var (
+		selectedPHProjectID int
+		resendFrom          string
+		enabledJourneys     []string
+	)
+
+	if err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[int]().
+				Title("Which PostHog project should send events to Hogsend?").
+				Options(phProjectOptions...).
+				Value(&selectedPHProjectID),
+		),
+		huh.NewGroup(
 			huh.NewInput().
-				Title("Resend from email").
+				Title("Resend 'from' email").
+				Description("The sender address for lifecycle emails").
 				Value(&resendFrom).
 				Placeholder("noreply@yourdomain.com").
 				Validate(func(s string) error {
@@ -131,48 +338,21 @@ func runInit(cmd *cobra.Command, args []string) error {
 				}),
 		),
 		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Auto-generate auth secret?").
-				Description("A 64-character random secret for Better Auth").
-				Value(&autoSecret),
-		),
-		huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title("Which journeys to enable?").
 				Description("Select journeys for this deployment").
 				Options(journeyOptions()...).
 				Value(&enabledJourneys),
 		),
-	).WithTheme(huh.ThemeCatppuccin())
-
-	if err := form.Run(); err != nil {
+	).WithTheme(huh.ThemeCatppuccin()).Run(); err != nil {
 		return err
 	}
 
-	if posthogHost == "" {
-		posthogHost = "https://us.i.posthog.com"
-	}
-
-	if autoSecret {
-		authSecret = generateSecret(64)
-	} else {
-		secretForm := huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().
-					Title("Auth secret").
-					Description("Minimum 32 characters").
-					Value(&authSecret).
-					EchoMode(huh.EchoModePassword).
-					Validate(func(s string) error {
-						if len(s) < 32 {
-							return fmt.Errorf("minimum 32 characters")
-						}
-						return nil
-					}),
-			),
-		).WithTheme(huh.ThemeCatppuccin())
-		if err := secretForm.Run(); err != nil {
-			return err
+	var selectedPHProject posthog.Project
+	for _, p := range phProjects {
+		if p.ID == selectedPHProjectID {
+			selectedPHProject = p
+			break
 		}
 	}
 
@@ -182,137 +362,199 @@ func runInit(cmd *cobra.Command, args []string) error {
 		journeyFilter = strings.Join(enabledJourneys, ",")
 	}
 
+	// ── Stage 2: Provision ────────────────────────────────────────────
+
 	fmt.Println()
-	fmt.Println(tui.Title.Render("Provisioning on Railway..."))
+	fmt.Println(tui.Title.Render("Provisioning..."))
 
-	client := railway.NewClient(railwayToken)
+	authSecret := generateSecret(64)
+	webhookSecret := generateSecret(32)
+	adminAPIKey := generateSecret(32)
 
-	email, err := client.WhoAmI()
-	if err != nil {
-		return fmt.Errorf("invalid Railway token: %w", err)
-	}
-	fmt.Printf("  Authenticated as %s\n\n", tui.Value.Render(email))
-
-	var project *railway.Project
-	if err := tui.RunWithSpinner("Creating Railway project...", func() error {
-		p, err := client.CreateProject(fmt.Sprintf("hogsend-%s", clientSlug))
-		if err != nil {
-			return err
-		}
-		project = p
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	envs, err := client.GetEnvironments(project.ID)
-	if err != nil {
-		return fmt.Errorf("get environments: %w", err)
-	}
-	if len(envs) == 0 {
-		return fmt.Errorf("no environments found in project")
-	}
-	envID := envs[0].ID
-
-	var apiService, workerService *railway.Service
-
-	if err := tui.RunWithSpinner("Creating API service...", func() error {
-		svc, err := client.CreateService(project.ID, "hogsend-api")
-		if err != nil {
-			return err
-		}
-		apiService = svc
-		if err := client.ConnectServiceToRepo(apiService.ID, githubRepo, "main"); err != nil {
-			return fmt.Errorf("connect repo: %w", err)
-		}
-		return client.SetServiceConfigFile(apiService.ID, envID, "railway.toml")
-	}); err != nil {
-		return err
-	}
-
-	if err := tui.RunWithSpinner("Creating Worker service...", func() error {
-		svc, err := client.CreateService(project.ID, "hogsend-worker")
-		if err != nil {
-			return err
-		}
-		workerService = svc
-		if err := client.ConnectServiceToRepo(workerService.ID, githubRepo, "main"); err != nil {
-			return fmt.Errorf("connect repo: %w", err)
-		}
-		return client.SetServiceConfigFile(workerService.ID, envID, "railway.worker.toml")
-	}); err != nil {
-		return err
-	}
-
-	var apiDomain string
-	if err := tui.RunWithSpinner("Generating API domain...", func() error {
-		domain, err := client.GenerateServiceDomain(apiService.ID, envID)
-		if err != nil {
-			return err
-		}
-		apiDomain = domain.Domain
-		return nil
-	}); err != nil {
-		return err
-	}
+	baseURL := apiURL(apiDomain)
 
 	apiVars := map[string]string{
 		"NODE_ENV":              "production",
 		"PORT":                  "3002",
 		"LOG_LEVEL":             "info",
 		"BETTER_AUTH_SECRET":    authSecret,
-		"BETTER_AUTH_URL":       fmt.Sprintf("https://%s", apiDomain),
-		"RESEND_API_KEY":        resendKey,
+		"BETTER_AUTH_URL":       baseURL,
+		"API_PUBLIC_URL":        baseURL,
+		"POSTHOG_API_KEY":       selectedPHProject.APIToken,
+		"POSTHOG_HOST":          posthogHost,
+		"POSTHOG_WEBHOOK_SECRET": webhookSecret,
+		"ADMIN_API_KEY":         adminAPIKey,
 		"RESEND_FROM_EMAIL":     resendFrom,
 		"ENABLED_JOURNEYS":      journeyFilter,
 	}
-	if posthogKey != "" {
-		apiVars["POSTHOG_API_KEY"] = posthogKey
-		apiVars["POSTHOG_HOST"] = posthogHost
-	}
 
 	workerVars := map[string]string{
-		"NODE_ENV":           "production",
-		"LOG_LEVEL":          "info",
-		"RESEND_API_KEY":     resendKey,
-		"RESEND_FROM_EMAIL":  resendFrom,
-		"ENABLED_JOURNEYS":   journeyFilter,
+		"NODE_ENV":          "production",
+		"LOG_LEVEL":         "info",
+		"RESEND_FROM_EMAIL": resendFrom,
+		"ENABLED_JOURNEYS":  journeyFilter,
+		"POSTHOG_API_KEY":   selectedPHProject.APIToken,
+		"POSTHOG_HOST":      posthogHost,
 	}
 
-	if err := tui.RunWithSpinner("Setting environment variables...", func() error {
-		if err := client.UpsertVariables(project.ID, envID, apiService.ID, apiVars); err != nil {
-			return fmt.Errorf("API vars: %w", err)
-		}
-		return client.UpsertVariables(project.ID, envID, workerService.ID, workerVars)
+	if err := tui.RunWithSpinner("Configuring API service...", func() error {
+		return railwayClient.UpsertVariables(selectedProjectID, envID, apiService.ID, apiVars)
 	}); err != nil {
-		return err
+		return fmt.Errorf("set API vars: %w", err)
 	}
+
+	if err := tui.RunWithSpinner("Configuring Worker service...", func() error {
+		return railwayClient.UpsertVariables(selectedProjectID, envID, workerSvc.ID, workerVars)
+	}); err != nil {
+		return fmt.Errorf("set Worker vars: %w", err)
+	}
+
+	webhookEvents := collectWebhookEvents(enabledJourneys)
+
+	var hogFunc *posthog.HogFunction
+	if err := tui.RunWithSpinner("Creating PostHog webhook destination...", func() error {
+		webhookURL := fmt.Sprintf("%s/v1/webhooks/posthog", baseURL)
+		hf, err := phClient.CreateWebhookDestination(selectedPHProjectID, webhookURL, webhookSecret, webhookEvents)
+		if err != nil {
+			return err
+		}
+		hogFunc = hf
+		return nil
+	}); err != nil {
+		return fmt.Errorf("PostHog webhook: %w", err)
+	}
+
+	if err := tui.RunWithSpinner("Redeploying API...", func() error {
+		return railwayClient.RedeployService(apiService.ID, envID)
+	}); err != nil {
+		return fmt.Errorf("API redeploy: %w", err)
+	}
+
+	if err := tui.RunWithSpinner("Redeploying Worker...", func() error {
+		return railwayClient.RedeployService(workerSvc.ID, envID)
+	}); err != nil {
+		return fmt.Errorf("Worker redeploy: %w", err)
+	}
+
+	// ── Stage 3: Verify ───────────────────────────────────────────────
+
+	fmt.Println()
+	fmt.Println(tui.Title.Render("Verifying deployment..."))
+
+	if err := tui.RunWithSpinner("Waiting for API to become healthy (up to 3 min)...", func() error {
+		_, err := health.WaitForHealthy(baseURL, 3*time.Minute)
+		return err
+	}); err != nil {
+		fmt.Printf("\n  %s API did not become healthy in time.\n", tui.WarningBadge.Render("Warning:"))
+		fmt.Printf("  Check the Railway dashboard: https://railway.com/project/%s\n", selectedProjectID)
+		fmt.Println("  The configuration is saved — run 'hogsend status' to check later.")
+	} else {
+		if err := runTestEvent(baseURL, adminAPIKey); err != nil {
+			fmt.Printf("\n  %s Test event failed: %s\n", tui.WarningBadge.Render("Warning:"), err)
+			fmt.Println("  The deployment is configured — events may need a moment to process.")
+		}
+	}
+
+	// ── Save config ───────────────────────────────────────────────────
 
 	cfg := &config.Config{
 		Name:      clientName,
 		Slug:      clientSlug,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		Railway: config.RailwayConfig{
-			ProjectID:     project.ID,
+			ProjectID:     selectedProjectID,
 			EnvironmentID: envID,
 			Services: config.ServiceIDs{
 				API:    apiService.ID,
-				Worker: workerService.ID,
+				Worker: workerSvc.ID,
 			},
 			Domain: apiDomain,
 			Token:  railwayToken,
 		},
+		PostHog: config.PostHogConfig{
+			ProjectID:      selectedPHProjectID,
+			ProjectAPIKey:  selectedPHProject.APIToken,
+			PersonalAPIKey: posthogKey,
+			Host:           posthogHost,
+			WebhookDestID:  hogFunc.ID,
+		},
 		Journeys: config.JourneysConfig{
 			Enabled: enabledJourneys,
 		},
+		APIKey: adminAPIKey,
 	}
 
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 
-	printSuccessCard(cfg)
+	printInitSuccess(cfg)
 	return nil
+}
+
+func runTestEvent(baseURL, apiKey string) error {
+	client := api.NewClient(baseURL, apiKey)
+	testID := fmt.Sprintf("init-%d-%s", time.Now().Unix(), generateSecret(8))
+
+	if err := tui.RunWithSpinner("Sending test event...", func() error {
+		return ingestTestEvent(baseURL, "hogsend:init_test", testID)
+	}); err != nil {
+		return err
+	}
+
+	if err := tui.RunWithSpinner("Verifying event pipeline...", func() error {
+		for attempt := 0; attempt < 3; attempt++ {
+			time.Sleep(2 * time.Second)
+			result, err := client.ListEvents(5, "hogsend:init_test")
+			if err != nil {
+				continue
+			}
+			if len(result.Events) > 0 {
+				return nil
+			}
+		}
+		return fmt.Errorf("event not found after 3 attempts")
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func collectWebhookEvents(journeys []string) []string {
+	seen := make(map[string]bool)
+	var events []string
+
+	targets := journeys
+	if len(targets) == 0 {
+		targets = availableJourneys
+	}
+
+	for _, j := range targets {
+		if evts, ok := journeyEventMap[j]; ok {
+			for _, e := range evts {
+				if !seen[e] {
+					seen[e] = true
+					events = append(events, e)
+				}
+			}
+		}
+	}
+
+	if len(events) == 0 {
+		events = []string{
+			"user_signed_up",
+			"user_activated",
+			"trial_started",
+			"subscription_created",
+			"subscription_cancelled",
+			"payment_failed",
+			"payment_succeeded",
+			"feature_used",
+		}
+	}
+
+	return events
 }
 
 func journeyOptions() []huh.Option[string] {
@@ -331,8 +573,8 @@ func generateSecret(length int) string {
 	return hex.EncodeToString(b)
 }
 
-func printSuccessCard(cfg *config.Config) {
-	apiURL := fmt.Sprintf("https://%s", cfg.Railway.Domain)
+func printInitSuccess(cfg *config.Config) {
+	apiURL := apiURL(cfg.Railway.Domain)
 
 	content := fmt.Sprintf(
 		"%s %s\n\n"+
@@ -340,27 +582,26 @@ func printSuccessCard(cfg *config.Config) {
 			"%s  %s\n"+
 			"%s  %s\n\n"+
 			"%s  %s\n"+
+			"%s  %s\n"+
 			"%s  %s\n\n"+
-			"%s\n"+
-			"  1. Add Postgres and Redis services in the Railway dashboard\n"+
-			"  2. Add Hatchet-Lite service (Docker image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest)\n"+
-			"  3. Wire DATABASE_URL and REDIS_URL to API + Worker\n"+
-			"  4. Generate a Hatchet API token and set HATCHET_CLIENT_TOKEN\n"+
-			"  5. Configure PostHog webhook to POST to the webhook URL",
+			"%s",
 		tui.SuccessBadge.Render("SUCCESS"),
-		lipgloss.NewStyle().Bold(true).Render(cfg.Name+" deployed"),
+		"Hogsend is live",
 		tui.Label.Render("API:"),
 		tui.Value.Render(apiURL),
 		tui.Label.Render("Webhook:"),
 		tui.Value.Render(apiURL+"/v1/webhooks/posthog"),
-		tui.Label.Render("Slug:"),
-		tui.Value.Render(cfg.Slug),
-		tui.Label.Render("Project:"),
+		tui.Label.Render("PostHog:"),
+		tui.Value.Render(fmt.Sprintf("project #%d → webhook destination created", cfg.PostHog.ProjectID)),
+		tui.Label.Render("Railway:"),
 		tui.Value.Render("https://railway.com/project/"+cfg.Railway.ProjectID),
 		tui.Label.Render("Config:"),
 		tui.Value.Render(".hogsend.yaml"),
-		tui.Label.Render("Next steps:"),
+		tui.Label.Render("Admin key:"),
+		tui.Value.Render("saved in .hogsend.yaml (use with 'hogsend contacts', 'hogsend test')"),
+		tui.Label.Render("Try it:")+" hogsend test",
 	)
 
+	fmt.Println()
 	fmt.Println(tui.Card.Render(content))
 }

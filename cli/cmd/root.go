@@ -25,4 +25,5 @@ func init() {
 	rootCmd.AddCommand(journeysCmd)
 	rootCmd.AddCommand(destroyCmd)
 	rootCmd.AddCommand(contactsCmd)
+	rootCmd.AddCommand(testCmd)
 }

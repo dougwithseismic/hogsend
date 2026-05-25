@@ -179,6 +179,29 @@ func (c *Client) UpdatePreferences(contactID string, input UpdatePreferencesInpu
 	return &result, nil
 }
 
+func (c *Client) ListEvents(limit int, event string) (*ListEventsResponse, error) {
+	params := url.Values{}
+	params.Set("limit", fmt.Sprintf("%d", limit))
+	if event != "" {
+		params.Set("event", event)
+	}
+
+	data, status, err := c.do("GET", "/v1/admin/events?"+params.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if status != 200 {
+		return nil, parseError(data, status)
+	}
+
+	var result ListEventsResponse
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+	return &result, nil
+}
+
 func parseError(data []byte, status int) error {
 	var errResp ErrorResponse
 	if err := json.Unmarshal(data, &errResp); err == nil && errResp.Error != "" {

@@ -260,6 +260,112 @@ func (c *Client) GetDeployments(projectID, serviceID, environmentID string) ([]D
 	return deps, nil
 }
 
+func (c *Client) ListProjects() ([]Project, error) {
+	data, err := c.do(`
+		query {
+			projects {
+				edges {
+					node {
+						id
+						name
+					}
+				}
+			}
+		}
+	`, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Projects struct {
+			Edges []struct {
+				Node Project `json:"node"`
+			} `json:"edges"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("decode projects: %w", err)
+	}
+
+	projects := make([]Project, len(result.Projects.Edges))
+	for i, edge := range result.Projects.Edges {
+		projects[i] = edge.Node
+	}
+	return projects, nil
+}
+
+func (c *Client) GetServices(projectID string) ([]Service, error) {
+	data, err := c.do(`
+		query($projectId: String!) {
+			project(id: $projectId) {
+				services {
+					edges {
+						node {
+							id
+							name
+						}
+					}
+				}
+			}
+		}
+	`, map[string]any{
+		"projectId": projectID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Project struct {
+			Services struct {
+				Edges []struct {
+					Node Service `json:"node"`
+				} `json:"edges"`
+			} `json:"services"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("decode services: %w", err)
+	}
+
+	services := make([]Service, len(result.Project.Services.Edges))
+	for i, edge := range result.Project.Services.Edges {
+		services[i] = edge.Node
+	}
+	return services, nil
+}
+
+func (c *Client) GetServiceDomains(projectID, environmentID, serviceID string) ([]ServiceDomain, error) {
+	data, err := c.do(`
+		query($projectId: String!, $environmentId: String!, $serviceId: String!) {
+			domains(projectId: $projectId, environmentId: $environmentId, serviceId: $serviceId) {
+				serviceDomains {
+					domain
+				}
+			}
+		}
+	`, map[string]any{
+		"projectId":     projectID,
+		"environmentId": environmentID,
+		"serviceId":     serviceID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result struct {
+		Domains struct {
+			ServiceDomains []ServiceDomain `json:"serviceDomains"`
+		} `json:"domains"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("decode domains: %w", err)
+	}
+
+	return result.Domains.ServiceDomains, nil
+}
+
 func (c *Client) WhoAmI() (string, error) {
 	data, err := c.do(`query { me { email } }`, nil)
 	if err != nil {

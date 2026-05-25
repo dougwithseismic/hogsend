@@ -15,8 +15,17 @@ type Config struct {
 	Slug      string         `yaml:"slug"`
 	CreatedAt string         `yaml:"created_at"`
 	Railway   RailwayConfig  `yaml:"railway"`
+	PostHog   PostHogConfig  `yaml:"posthog,omitempty"`
 	Journeys  JourneysConfig `yaml:"journeys"`
 	APIKey    string         `yaml:"api_key,omitempty"`
+}
+
+type PostHogConfig struct {
+	ProjectID      int    `yaml:"project_id"`
+	ProjectAPIKey  string `yaml:"project_api_key"`
+	PersonalAPIKey string `yaml:"personal_api_key,omitempty"`
+	Host           string `yaml:"host"`
+	WebhookDestID  string `yaml:"webhook_destination_id,omitempty"`
 }
 
 type RailwayConfig struct {
