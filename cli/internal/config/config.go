@@ -16,6 +16,7 @@ type Config struct {
 	CreatedAt string         `yaml:"created_at"`
 	Railway   RailwayConfig  `yaml:"railway"`
 	Journeys  JourneysConfig `yaml:"journeys"`
+	APIKey    string         `yaml:"api_key,omitempty"`
 }
 
 type RailwayConfig struct {
