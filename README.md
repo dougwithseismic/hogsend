@@ -1,62 +1,225 @@
 # Hogsend
 
-Code-first lifecycle engine for teams on PostHog + Resend. Journeys are typed TypeScript objects, not YAML, not drag-and-drop canvases. Self-hostable. Open source.
+The pipe between PostHog events and the lifecycle emails you were about to hand-roll anyway.
 
-Fills the gap between "PostHog webhooks firing into a Hono handler" and "paying $500/mo for Customer.io."
+PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys are async TypeScript functions, not YAML configs or drag-and-drop canvases. You write them like application code because they are application code.
+
+Open source. Self-hostable. Built for small teams (1–10 eng) shipping product-led SaaS who picked PostHog and Resend and now need behavioral sequences without buying a third platform.
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
 
 ---
 
-## Why Hogsend
+## What You Can Build
 
-- **Agentic-native.** Journeys are typed `.ts` files. An AI agent can create, modify, and reason about them. No proprietary format, no visual-only builder.
-- **PostHog-native.** Bi-directional event sync. Events flow in from PostHog webhooks, engagement data flows back. Build cohorts based on email engagement alongside product metrics.
-- **Self-hostable.** Postgres + Redis + one Node process. Deploy to Railway in 5 minutes. Your data stays yours.
+Anything where a user does something in your product and you want to respond over time with emails, events, or webhooks. Some examples:
+
+- **Welcome sequences** that branch based on whether the user actually used the product — skip the "here's how to get started" email if they already did
+- **Trial-to-paid conversion** that watches for usage milestones, sends different emails depending on engagement, and follows up with a winback offer if they don't convert
+- **Payment failure recovery** — escalating reminders that stop the moment the payment goes through (via `exitOn`)
+- **Dormancy reactivation** — detect inactive users via events, run a win-back series, track if they come back
+- **NPS / feedback collection** timed after key moments (subscription renewal, milestone reached)
+- **Referral prompts** sent to highly active users after they hit an achievement
+- **Abandoned checkout recovery** — start a sequence when checkout begins, exit when it completes
+- **Achievement celebrations** that fire events back to PostHog so you can build cohorts around engagement
+- **Webhook-based integrations** — update a CRM, ping Slack, call any external API as part of a journey
+- **Cross-journey orchestration** — one journey enrolls a user in another, chaining sequences without duplicating logic
+
+Each of these is a single TypeScript file using `defineJourney()`. The `run` function reads like the logic actually is — if/else, loops, early returns, real code. No visual canvas, no proprietary DSL.
 
 ---
 
-## Architecture
+## How It Works
+
+Events arrive (from PostHog webhooks, your app, wherever). Hogsend matches them to journeys. Each journey is a durable async function — it can send emails, sleep for days, check if a user did something, branch, fire events back to PostHog, call webhooks, or enroll users in other journeys. Hatchet handles the durable execution so sleeps survive deploys and crashes.
 
 ```
-                         Event Sources
-  PostHog webhooks ──┐
-  Internal events ───┤──> Hono Ingestion (/v1/ingest)
-  API calls ─────────┘         |
-                               v
-                        Journey Engine
-           ┌─────────────┐  ┌──────────────┐
-           │  Enrollment  │  │   Hatchet    │
-           │  (match      │  │  (durable    │
-           │   trigger,   │  │   workflow   │
-           │   check      │  │   execution, │
-           │   limits,    │  │   sleeps,    │
-           │   kick off   │  │   retries,   │
-           │   workflow)  │  │   dashboard) │
-           └──────┬──────┘  └──────┬───────┘
-                  └────────────────┤
-                                   v
-                            Action Router
-                               |
-          ┌────────────┬───────┴──────┬──────────────┐
-          v            v              v              v
-     Resend       PostHog        Webhook        Enroll
-     Email        Event          (HTTP)         Another
-     Send         Push                          Journey
+PostHog webhooks ──┐
+Your app events ───┤──▶ /v1/ingest ──▶ Hatchet routes to matching journeys
+API calls ─────────┘                          │
+                                              ▼
+                                    ┌─────────────────┐
+                                    │  defineJourney() │
+                                    │  async run fn    │
+                                    │                  │
+                                    │  sendEmail       │
+                                    │  sleepFor        │
+                                    │  hasEvent        │
+                                    │  checkProperty   │
+                                    │  fireEvent       │
+                                    │  webhook         │
+                                    │  enrollJourney   │
+                                    └────────┬────────┘
+                                             │
+                    ┌────────────┬────────────┼────────────┬──────────┐
+                    ▼            ▼            ▼            ▼          ▼
+                 Resend      PostHog      Webhooks     Enroll     Sleep &
+                 (email)     (event       (HTTP)       another    resume
+                             push-back)                journey    later
 ```
 
-| Concern | Tool |
-|---------|------|
-| Runtime | Hono on Node.js |
-| Workflow orchestration | Hatchet (durable execution, sleeps, retries) |
-| Database | TimescaleDB (Postgres 18) |
-| ORM | Drizzle |
-| Job queue / cache | Redis |
-| Event source | PostHog (webhooks + API) |
-| Email delivery | Resend |
-| Email templates | React Email |
-| Journey definitions | TypeScript (typed objects) |
-| Deploy | Railway or self-hosted Docker |
+Events pushed back to PostHog mean you can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, no separate tool.
+
+---
+
+## Writing Journeys
+
+Journeys use `defineJourney()` — you declare metadata (trigger, entry limits, exit conditions) and write an async `run` function that receives the user and a context object with typed helpers.
+
+### Example: Welcome Series
+
+```typescript
+import { defineJourney } from "./define-journey.js";
+
+export const activationWelcome = defineJourney({
+  meta: {
+    id: "activation-welcome",
+    name: "Activation — Welcome Series",
+    enabled: true,
+    trigger: { event: "user.created" },
+    entryLimit: "once",
+    suppressHours: 12,
+    exitOn: [{ event: "user.deleted" }],
+  },
+
+  run: async (user, ctx) => {
+    await ctx.sendEmail(user, {
+      template: "activation/welcome",
+      subject: "Welcome — let's get you set up",
+    });
+
+    await ctx.sleepFor("48h", "wait:post_welcome");
+
+    const hasUsedFeature = await ctx.hasEvent(user.id, "feature.used");
+
+    if (hasUsedFeature) {
+      await ctx.sendEmail(user, {
+        template: "activation/advanced",
+        subject: "Nice work — here's what to try next",
+      });
+    } else {
+      await ctx.sendEmail(user, {
+        template: "activation/nudge",
+        subject: "You haven't tried the key feature yet",
+      });
+    }
+
+    await ctx.sleepFor("48h", "wait:pre_community");
+
+    await ctx.sendEmail(user, {
+      template: "activation/community",
+      subject: "Join the community",
+    });
+  },
+});
+```
+
+That's a real journey. It sleeps for days, checks behavioral events, branches, and sends different emails based on what the user actually did. The `run` function is a durable execution — Hatchet persists state across sleeps, so it survives deploys and restarts.
+
+### Example: Churn Prevention
+
+```typescript
+export const churnPrevention = defineJourney({
+  meta: {
+    id: "churn-prevention",
+    name: "Churn — Payment Recovery & Prevention",
+    enabled: true,
+    trigger: { event: "payment.failed" },
+    entryLimit: "once_per_period",
+    entryPeriodHours: 168,
+    suppressHours: 4,
+    exitOn: [
+      { event: "payment.succeeded" },
+      { event: "subscription.cancelled" },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    await ctx.sendEmail(user, {
+      template: "churn-payment-failed",
+      subject: "Your payment didn't go through",
+    });
+
+    await ctx.sleepFor("24h", "wait:first-retry");
+
+    const hasRetried = await ctx.hasEvent(user.id, "payment.succeeded", {
+      withinHours: 24,
+    });
+    if (hasRetried) return;
+
+    await ctx.sendEmail(user, {
+      template: "churn-payment-failed",
+      subject: "Reminder: please update your payment method",
+    });
+
+    await ctx.sleepFor("48h", "wait:final-notice");
+
+    const hasResolved = await ctx.hasEvent(user.id, "payment.succeeded", {
+      withinHours: 72,
+    });
+    if (!hasResolved) {
+      await ctx.sendEmail(user, {
+        template: "churn-payment-failed",
+        subject: "Final notice: your account will be downgraded tomorrow",
+      });
+    }
+  },
+});
+```
+
+Notice `exitOn` — if a `payment.succeeded` event arrives at any point during the journey, Hatchet exits it immediately. No wasted emails.
+
+### Context API
+
+The `ctx` object passed to every journey's `run` function:
+
+| Method | What it does |
+|--------|-------------|
+| `ctx.sendEmail(user, { template, subject, props? })` | Render a React Email template, send via Resend, track delivery |
+| `ctx.sleepFor("48h", "label")` | Durable sleep — survives deploys, persists state to DB |
+| `ctx.hasEvent(userId, "event.name", { withinHours? })` | Check if a user has a specific event in the local store |
+| `ctx.checkProperty(source, property, operator, value?)` | Check a PostHog person property or journey context value |
+| `ctx.checkEmailEngagement(templateKey, "opened"\|"clicked")` | Check if a user opened/clicked a specific email |
+| `ctx.fireEvent(userId, "event.name", properties?)` | Insert event locally + push to PostHog |
+| `ctx.webhook(url, { method?, headers?, body? })` | POST/PUT to an external URL |
+| `ctx.enrollJourney(userId, userEmail, journeyId)` | Enroll a user in another journey |
+| `ctx.checkpoint("label")` | Update the journey state label (for observability) |
+
+### Journey Metadata
+
+| Field | Type | What it controls |
+|-------|------|-----------------|
+| `id` | `string` | Unique identifier, used in Hatchet task name (`journey-<id>`) |
+| `trigger.event` | `string` | The event that enrolls users (e.g. `"user.created"`, `"payment.failed"`) |
+| `trigger.where` | `PropertyCondition[]` | Optional conditions that must also match on the event properties |
+| `entryLimit` | `"once" \| "once_per_period" \| "unlimited"` | How often a user can enter |
+| `entryPeriodHours` | `number` | Minimum hours between entries (when `once_per_period`) |
+| `suppressHours` | `number` | Minimum hours between emails within this journey |
+| `exitOn` | `Array<{ event, where? }>` | Events that immediately exit the user from the journey |
+| `enabled` | `boolean` | Toggle without removing code |
+
+### Adding a Journey
+
+1. Create `apps/api/src/journeys/your-journey.ts` using `defineJourney()`
+2. Import it in `apps/api/src/journeys/index.ts` and add to `allJourneys`
+3. Deploy — the worker picks it up automatically
+
+### Included Journeys
+
+The repo ships with 10 production-ready journeys covering common lifecycle stages:
+
+| Journey | Trigger | What it does |
+|---------|---------|-------------|
+| `activation-welcome` | `user.created` | Welcome series with feature-adoption branching |
+| `activation-nudge-series` | `user.created` | Multi-touch onboarding nudges for inactive users |
+| `conversion-trial-upgrade` | `trial.started` | Trial-to-paid conversion with usage-based sends |
+| `conversion-abandoned-checkout` | `checkout.started` | Cart recovery sequence |
+| `retention-milestone` | `milestone.reached` | Achievement celebrations + weekly digests |
+| `referral-invite` | `milestone.reached` | Post-achievement referral prompts for active users |
+| `feedback-nps` | `subscription.renewed` | NPS survey collection |
+| `reactivation-dormancy` | `user.dormant` | Win-back sequence for inactive users |
+| `churn-prevention` | `payment.failed` | Payment failure recovery escalation |
+| `test-onboarding` | `test.onboarding` | Test journey for development |
 
 ---
 
@@ -65,42 +228,38 @@ Fills the gap between "PostHog webhooks firing into a Hono handler" and "paying 
 ### Deploy to Railway
 
 1. Click the deploy button above
-2. Set your `RESEND_API_KEY` and `RESEND_FROM_EMAIL`
+2. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`
 3. Open the Hatchet dashboard (deployed as a service), generate an API token under Settings > API Tokens
 4. Set `HATCHET_CLIENT_TOKEN` on the API and Worker services
-5. Both services will redeploy and connect
+5. Both services redeploy and connect
 
 ### Install the CLI
 
 ```bash
-# curl (macOS, Linux, WSL)
 curl -fsSL https://raw.githubusercontent.com/dougwithseismic/hogsend/main/install.sh | bash
-
-# or download from GitHub Releases
-# https://github.com/dougwithseismic/hogsend/releases
 ```
 
-Then set up a new deployment:
+Then:
 
 ```bash
-hogsend init      # interactive Railway provisioning wizard
-hogsend status    # verify everything is healthy
+hogsend init      # Interactive Railway provisioning wizard
+hogsend status    # Verify everything is healthy
 ```
 
-### Self-hosted (Docker Compose)
+### Local Development
 
 ```bash
-git clone https://github.com/hogsend/hogsend.git
+git clone https://github.com/dougwithseismic/hogsend.git
 cd hogsend
-pnpm setup          # checks Docker, starts containers, installs deps, creates .env
-pnpm dev            # starts API on port 3002
+pnpm setup          # Checks Docker, starts containers, installs deps, creates .env
+pnpm dev            # Starts API on port 3002
 ```
 
 In a separate terminal:
 
 ```bash
 cd apps/api
-hatchet worker dev  # starts Hatchet worker with hot-reload
+hatchet worker dev  # Starts worker with hot-reload
 ```
 
 Hatchet dashboard: `http://localhost:8888` (login: `admin@example.com` / `Admin123!!`)
@@ -122,127 +281,82 @@ pnpm --filter @hogsend/db db:studio     # Open Drizzle Studio
 
 ---
 
-## Writing Journeys
+## Architecture
 
-Journeys are TypeScript files in `apps/api/src/journeys/`. Each exports a typed `JourneyDefinition` object.
+### Event Flow
 
-### Example: Activation Welcome Series
+1. **Ingest** — events arrive at `/v1/ingest` (PostHog webhooks, direct API calls) and get stored in the local event table
+2. **Route** — the ingest endpoint pushes events to Hatchet, which routes them to every journey whose `trigger.event` matches
+3. **Guard** — inside each journey's durable task, enrollment guards check entry limits, trigger conditions, and email preferences before running
+4. **Execute** — the journey's `run` function executes with full access to the context API (send, sleep, check, branch, etc.)
+5. **Track** — every email send, event fire, and state transition is logged. Email engagement events push back to PostHog.
 
-```typescript
-import type { JourneyDefinition } from "@hogsend/core/types";
+### Stack
 
-export const activationWelcome: JourneyDefinition = {
-  id: "activation-welcome",
-  name: "Activation — Welcome Series",
-  enabled: true,
+| Concern | Tool |
+|---------|------|
+| HTTP API | Hono on Node.js |
+| Durable execution | Hatchet (sleeps, retries, event routing) |
+| Database | TimescaleDB (Postgres 18) via Drizzle ORM |
+| Cache / queues | Redis |
+| Email delivery | Resend |
+| Email templates | React Email |
+| Journey definitions | TypeScript (`defineJourney()`) |
+| CLI | Go (cobra) |
+| Deploy | Railway or Docker Compose |
 
-  trigger: { event: "user.created" },   // enroll when this event fires
-  entryLimit: "once",                    // each user enters once
-  suppressHours: 12,                     // min hours between emails
-  exitOn: [{ event: "user.deleted" }],   // exit immediately on this event
+### Monorepo Layout
 
-  entryNode: "send_welcome",
-
-  nodes: {
-    send_welcome: {
-      type: "action",
-      id: "send_welcome",
-      action: {
-        type: "send_email",
-        templateKey: "activation/welcome",
-        subject: "Welcome — let's get you set up",
-      },
-      next: "wait_48h",
-    },
-
-    wait_48h: {
-      type: "wait",
-      id: "wait_48h",
-      hours: 48,
-      next: "check_engagement",
-    },
-
-    check_engagement: {
-      type: "condition",
-      id: "check_engagement",
-      eval: {
-        type: "event",
-        eventName: "feature.used",
-        check: "exists",
-      },
-      onTrue: "send_advanced",    // they used it -> tips email
-      onFalse: "send_nudge",      // they didn't -> nudge email
-    },
-
-    send_advanced: {
-      type: "action",
-      id: "send_advanced",
-      action: { type: "send_email", templateKey: "activation/advanced", subject: "Nice work — here's what to try next" },
-      next: "wait_48h_2",
-    },
-
-    send_nudge: {
-      type: "action",
-      id: "send_nudge",
-      action: { type: "send_email", templateKey: "activation/nudge", subject: "You haven't tried the key feature yet" },
-      next: "wait_48h_2",
-    },
-
-    wait_48h_2: { type: "wait", id: "wait_48h_2", hours: 48, next: "send_community" },
-
-    send_community: {
-      type: "action",
-      id: "send_community",
-      action: { type: "send_email", templateKey: "activation/community", subject: "Join the community" },
-      next: null,  // journey complete
-    },
-  },
-};
+```
+apps/
+  api/                  Hono REST API + Hatchet worker (two entry points)
+cli/                    Go CLI (init, deploy, status, journeys, contacts)
+packages/
+  core/                 Journey types, Zod schemas, condition engine, registry
+  db/                   Drizzle ORM schema and migrations
+  email/                Resend client, React Email templates, webhook handling
+  typescript-config/    Shared tsconfig bases
 ```
 
-### Node Types
+### Two Processes, One Codebase
 
-| Type | Fields | Behavior |
-|------|--------|----------|
-| `action` | `action`, `next` | Execute an action, advance to `next` (or complete if `null`) |
-| `wait` | `hours`, `next` | Sleep durably via Hatchet, then advance |
-| `condition` | `eval`, `onTrue`, `onFalse` | Evaluate a condition, branch accordingly |
+The API and worker are separate processes that share the same code:
 
-### Action Types
+- **API** (`src/index.ts`) — serves HTTP, pushes events to Hatchet
+- **Worker** (`src/worker.ts`) — long-running process that executes journey tasks and background workflows
 
-| Type | What it does |
-|------|-------------|
-| `send_email` | Render React Email template, send via Resend |
-| `fire_event` | Insert into local event store + push to PostHog |
-| `webhook` | POST/PUT to an external URL |
-| `enroll_journey` | Enroll the user in another journey |
-
-### Condition Types
-
-| Type | What it checks |
-|------|---------------|
-| `event` | Has a specific event been recorded? How many times? Within a time window? |
-| `property` | Check a PostHog person property or journey context value |
-| `email_engagement` | Has the user opened/clicked a specific email? |
-| `composite` | AND/OR combinations of other conditions |
-
-### Adding a Journey
-
-1. Create `apps/api/src/journeys/your-journey.ts` exporting a `JourneyDefinition`
-2. Import and register it in `apps/api/src/journeys/index.ts`
-3. Deploy
+In production these scale independently. In development, `pnpm dev` runs the API and `hatchet worker dev` runs the worker with hot-reload.
 
 ---
 
-## API Endpoints
+## API
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/v1/ingest` | Ingest events from PostHog webhooks or direct API calls |
-| POST | `/v1/webhooks/posthog` | PostHog webhook receiver (signature verified) |
+| POST | `/v1/ingest` | Ingest events (PostHog webhooks or direct) |
 | GET | `/v1/health` | Health check |
-| GET | `/docs` | Scalar API reference (dev only) |
+| GET | `/v1/email/unsubscribe/:token` | Unsubscribe page |
+| POST | `/v1/email/unsubscribe/:token` | One-click unsubscribe (RFC 8058) |
+| GET | `/v1/email/preferences/:token` | Email preference center |
+| POST | `/v1/webhooks/resend` | Resend delivery webhooks (bounce, complaint, etc.) |
+| POST | `/v1/webhooks/sources` | Webhook source receiver |
+| * | `/v1/admin/*` | Admin routes (contacts, preferences) |
+| GET | `/docs` | Scalar API docs (dev only) |
 | GET | `/openapi.json` | OpenAPI spec (dev only) |
+
+---
+
+## CLI
+
+```bash
+hogsend init        # Provision Railway project, services, and env vars
+hogsend setup       # Local dev — Docker, deps, .env
+hogsend status      # Health check for the deployment
+hogsend deploy      # Trigger Railway deploy for API + Worker
+hogsend journeys    # Enable/disable journeys via ENABLED_JOURNEYS
+hogsend contacts    # Manage contacts
+hogsend destroy     # Tear down Railway project (with confirmation)
+```
 
 ---
 
@@ -250,53 +364,30 @@ export const activationWelcome: JourneyDefinition = {
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
-| `BETTER_AUTH_SECRET` | Yes | - | Auth secret (min 32 characters) |
-| `RESEND_API_KEY` | Yes | - | Resend API key for email delivery |
-| `NODE_ENV` | No | `development` | `development`, `production`, or `test` |
+| `DATABASE_URL` | Yes | — | PostgreSQL connection string |
+| `BETTER_AUTH_SECRET` | Yes | — | Auth secret (min 32 chars) |
+| `RESEND_API_KEY` | Yes | — | Resend API key |
+| `NODE_ENV` | No | `development` | `development`, `production`, `test` |
 | `PORT` | No | `3002` | HTTP server port |
 | `LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `http`, `debug` |
 | `REDIS_URL` | No | `redis://localhost:6379` | Redis connection string |
-| `BETTER_AUTH_URL` | No | `http://localhost:3002` | Auth base URL |
-| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Sender email address |
-| `HATCHET_CLIENT_TOKEN` | No | - | Hatchet API token for workflow execution |
-| `POSTHOG_WEBHOOK_SECRET` | No | - | Shared secret for verifying PostHog webhooks |
-| `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs to load, or `*` for all |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Sender address |
+| `HATCHET_CLIENT_TOKEN` | No | — | Hatchet API token |
+| `POSTHOG_WEBHOOK_SECRET` | No | — | Secret for verifying PostHog webhooks |
+| `API_PUBLIC_URL` | No | — | Public URL for unsubscribe links |
+| `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs, or `*` for all |
 
 ---
 
-## CLI Reference
+## Infrastructure
 
-```bash
-hogsend init        # Interactive wizard — provisions Railway project, all services, env vars
-hogsend setup       # Local dev — Docker, deps, .env, .hogsend.yaml
-hogsend status      # Health check for this deployment
-hogsend deploy      # Trigger Railway deploy for API + Worker
-hogsend journeys    # Enable/disable journeys via ENABLED_JOURNEYS env var
-hogsend destroy     # Tear down the Railway project (with confirmation)
-```
+Local development runs via Docker Compose:
 
-### Releasing
+- **TimescaleDB** (Postgres 18) on port 5434
+- **Redis 8** on port 6380
+- **Hatchet-Lite** — dashboard at `localhost:8888`, gRPC at `localhost:7077`
 
-```bash
-cd cli
-git tag v0.1.0
-make release        # goreleaser builds all platforms, creates GitHub Release
-```
-
----
-
-## Monorepo Layout
-
-```
-apps/
-  api/                  Hono REST API + Hatchet worker
-packages/
-  core/                 Journey types, schemas, condition engine, registry
-  db/                   Drizzle ORM schema and migrations
-  email/                Resend client, React Email templates
-  typescript-config/    Shared tsconfig bases
-```
+Production runs on Railway with two services (API + Worker), Postgres, Redis, and Hatchet-Lite. Push to `main` auto-deploys.
 
 ---
 
