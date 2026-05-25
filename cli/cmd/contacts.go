@@ -427,7 +427,8 @@ func runContactsUnsub(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Println(tui.SuccessBadge.Render(strings.Title(action + "d")))
+	label := action + "d"
+	fmt.Println(tui.SuccessBadge.Render(strings.ToUpper(label[:1]) + label[1:]))
 	return nil
 }
 

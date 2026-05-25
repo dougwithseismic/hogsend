@@ -1,10 +1,8 @@
-import { contacts, type Database, emailPreferences } from "@hogsend/db";
+import { emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { resolveContact } from "../../lib/contacts.js";
 
 const preferencesResponseSchema = z.object({
   id: z.string(),
@@ -74,6 +72,14 @@ const updatePrefsRoute = createRoute({
       },
       description: "Preferences updated",
     },
+    400: {
+      content: {
+        "application/json": {
+          schema: z.object({ error: z.string() }),
+        },
+      },
+      description: "Bad request",
+    },
     404: {
       content: {
         "application/json": {
@@ -84,15 +90,6 @@ const updatePrefsRoute = createRoute({
     },
   },
 });
-
-async function resolveContact(db: Database, contactId: string) {
-  const where = UUID_REGEX.test(contactId)
-    ? eq(contacts.id, contactId)
-    : eq(contacts.externalId, contactId);
-
-  const rows = await db.select().from(contacts).where(where).limit(1);
-  return rows[0] ?? null;
-}
 
 function serializePrefs(row: typeof emailPreferences.$inferSelect) {
   return {
@@ -141,11 +138,15 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
+    if (!contact.email) {
+      return c.json({ error: "Contact has no email address" }, 400);
+    }
+
     const [upserted] = await db
       .insert(emailPreferences)
       .values({
         userId: contact.externalId,
-        email: contact.email ?? "",
+        email: contact.email,
         unsubscribedAll: body.unsubscribedAll ?? false,
         suppressed: body.suppressed ?? false,
         categories: body.categories ?? {},

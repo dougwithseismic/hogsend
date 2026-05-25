@@ -8,6 +8,7 @@ import {
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { htmlPage } from "../../lib/html.js";
 
 const unsubscribeRoute = createRoute({
   method: "get",
@@ -31,25 +32,6 @@ const unsubscribeRoute = createRoute({
   },
 });
 
-function htmlPage(title: string, body: string): string {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 480px; margin: 80px auto; padding: 0 20px; color: #1a1a1a; }
-    h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
-    p { color: #555; line-height: 1.6; }
-    a { color: #2563eb; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-  </style>
-</head>
-<body>${body}</body>
-</html>`;
-}
-
 export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
   unsubscribeRoute,
   async (c) => {
@@ -72,6 +54,16 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
     }
 
     const { externalId, email, category, action } = payload;
+
+    if (category && !/^[a-z0-9_-]+$/i.test(category)) {
+      return c.html(
+        htmlPage(
+          "Invalid Link",
+          "<h1>Invalid category</h1><p>This link is malformed.</p>",
+        ),
+        400,
+      );
+    }
 
     if (action === "resubscribe") {
       if (category) {

@@ -9,7 +9,7 @@ export const requireApiKey = createMiddleware<AppEnv>(async (c, next) => {
   }
 
   const header = c.req.header("authorization");
-  const provided = header?.replace("Bearer ", "");
+  const provided = header?.startsWith("Bearer ") ? header.slice(7) : undefined;
 
   if (!provided || provided !== env.ADMIN_API_KEY) {
     return c.json({ error: "Unauthorized" }, 401);

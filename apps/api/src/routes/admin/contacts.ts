@@ -2,6 +2,7 @@ import { contacts, emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { contactWhereClause } from "../../lib/contacts.js";
 
 const contactSchema = z.object({
   id: z.string(),
@@ -190,15 +191,6 @@ const deleteRoute = createRoute({
   },
 });
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function findContactWhere(id: string) {
-  return UUID_REGEX.test(id)
-    ? eq(contacts.id, id)
-    : eq(contacts.externalId, id);
-}
-
 function serializeContact(row: typeof contacts.$inferSelect) {
   return {
     ...row,
@@ -250,7 +242,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const row = await db
       .select()
       .from(contacts)
-      .where(findContactWhere(id))
+      .where(contactWhereClause(id))
       .limit(1);
 
     if (row.length === 0) {
@@ -322,7 +314,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const existing = await db
       .select()
       .from(contacts)
-      .where(findContactWhere(id))
+      .where(contactWhereClause(id))
       .limit(1);
 
     if (existing.length === 0) {
@@ -358,7 +350,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const existing = await db
       .select()
       .from(contacts)
-      .where(findContactWhere(id))
+      .where(contactWhereClause(id))
       .limit(1);
 
     if (existing.length === 0) {

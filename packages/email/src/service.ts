@@ -1,6 +1,6 @@
 import type { Database } from "@hogsend/db";
 import { emailPreferences, emailSends } from "@hogsend/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Resend } from "resend";
 import { getTemplate } from "./registry.js";
 import { renderToHtml, renderToPlainText } from "./render.js";
@@ -192,31 +192,16 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
     const email = toAddresses[0];
     if (!email) return;
 
-    const rows = await db
-      .select()
-      .from(emailPreferences)
-      .where(eq(emailPreferences.email, email))
-      .limit(1);
-
-    if (rows.length === 0) return;
-
-    const prefs = rows[0];
-    if (!prefs) return;
-
-    const newBounceCount = prefs.bounceCount + 1;
-    const shouldSuppress = newBounceCount >= bounceThreshold;
-
     await db
       .update(emailPreferences)
       .set({
-        bounceCount: newBounceCount,
+        bounceCount: sql`${emailPreferences.bounceCount} + 1`,
         lastBounceAt: new Date(),
-        ...(shouldSuppress
-          ? { suppressed: true, suppressedAt: new Date() }
-          : {}),
+        suppressed: sql`CASE WHEN ${emailPreferences.bounceCount} + 1 >= ${bounceThreshold} THEN true ELSE ${emailPreferences.suppressed} END`,
+        suppressedAt: sql`CASE WHEN ${emailPreferences.bounceCount} + 1 >= ${bounceThreshold} THEN NOW() ELSE ${emailPreferences.suppressedAt} END`,
         updatedAt: new Date(),
       })
-      .where(eq(emailPreferences.id, prefs.id));
+      .where(eq(emailPreferences.email, email));
   }
 
   async function handleComplaint(toAddresses: string[]): Promise<void> {

@@ -1,5 +1,23 @@
 import { contacts, type Database } from "@hogsend/db";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function contactWhereClause(id: string) {
+  return UUID_REGEX.test(id)
+    ? eq(contacts.id, id)
+    : eq(contacts.externalId, id);
+}
+
+export async function resolveContact(db: Database, id: string) {
+  const rows = await db
+    .select()
+    .from(contacts)
+    .where(contactWhereClause(id))
+    .limit(1);
+  return rows[0] ?? null;
+}
 
 export async function upsertContact(
   db: Database,
