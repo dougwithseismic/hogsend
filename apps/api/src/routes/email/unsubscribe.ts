@@ -81,15 +81,18 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
 
     let payload: UnsubscribeTokenPayload;
     try {
-      payload = validateUnsubscribeToken(token, env.BETTER_AUTH_SECRET);
+      payload = validateUnsubscribeToken({
+        token,
+        secret: env.BETTER_AUTH_SECRET,
+      });
     } catch (err) {
       const message =
         err instanceof InvalidTokenError ? err.message : "Invalid token";
       return c.html(
-        htmlPage(
-          "Invalid Link",
-          `<h1>This link is no longer valid</h1><p>${message}. Please check your email for a newer link.</p>`,
-        ),
+        htmlPage({
+          title: "Invalid Link",
+          body: `<h1>This link is no longer valid</h1><p>${message}. Please check your email for a newer link.</p>`,
+        }),
         400,
       );
     }
@@ -98,10 +101,10 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
 
     if (category && !/^[a-z0-9_-]+$/i.test(category)) {
       return c.html(
-        htmlPage(
-          "Invalid Link",
-          "<h1>Invalid category</h1><p>This link is malformed.</p>",
-        ),
+        htmlPage({
+          title: "Invalid Link",
+          body: "<h1>Invalid category</h1><p>This link is malformed.</p>",
+        }),
         400,
       );
     }
@@ -121,10 +124,10 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
       );
 
       return c.html(
-        htmlPage(
-          "Resubscribed",
-          `<h1>You're back!</h1><p>You've been resubscribed${category ? ` to <strong>${category}</strong> emails` : ""}.</p>`,
-        ),
+        htmlPage({
+          title: "Resubscribed",
+          body: `<h1>You're back!</h1><p>You've been resubscribed${category ? ` to <strong>${category}</strong> emails` : ""}.</p>`,
+        }),
         200,
       );
     }
@@ -146,12 +149,12 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
     });
 
     return c.html(
-      htmlPage(
-        "Unsubscribed",
-        `<h1>You've been unsubscribed</h1>
+      htmlPage({
+        title: "Unsubscribed",
+        body: `<h1>You've been unsubscribed</h1>
         <p>You won't receive ${category ? `<strong>${category}</strong>` : "any more"} emails from us.</p>
         <p><a href="${preferenceCenterUrl}">Manage your email preferences</a></p>`,
-      ),
+      }),
       200,
     );
   },

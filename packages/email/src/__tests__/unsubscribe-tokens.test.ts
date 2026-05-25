@@ -20,7 +20,7 @@ describe("unsubscribe tokens", () => {
       action: "unsubscribe",
     });
 
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.externalId).toBe("user-123");
     expect(payload.email).toBe("user@example.com");
     expect(payload.action).toBe("unsubscribe");
@@ -37,7 +37,7 @@ describe("unsubscribe tokens", () => {
       action: "unsubscribe",
     });
 
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.category).toBe("journey");
     expect(payload.action).toBe("unsubscribe");
   });
@@ -51,7 +51,7 @@ describe("unsubscribe tokens", () => {
       action: "resubscribe",
     });
 
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.action).toBe("resubscribe");
     expect(payload.category).toBe("journey");
   });
@@ -64,7 +64,7 @@ describe("unsubscribe tokens", () => {
       action: "manage",
     });
 
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.action).toBe("manage");
   });
 
@@ -77,10 +77,10 @@ describe("unsubscribe tokens", () => {
       expiresInSeconds: -1,
     });
 
-    expect(() => validateUnsubscribeToken(token, SECRET)).toThrow(
+    expect(() => validateUnsubscribeToken({ token, secret: SECRET })).toThrow(
       InvalidTokenError,
     );
-    expect(() => validateUnsubscribeToken(token, SECRET)).toThrow(
+    expect(() => validateUnsubscribeToken({ token, secret: SECRET })).toThrow(
       "Token has expired",
     );
   });
@@ -104,7 +104,10 @@ describe("unsubscribe tokens", () => {
     ).toString("base64url");
 
     expect(() =>
-      validateUnsubscribeToken(`${tamperedPayload}.${signature}`, SECRET),
+      validateUnsubscribeToken({
+        token: `${tamperedPayload}.${signature}`,
+        secret: SECRET,
+      }),
     ).toThrow(InvalidTokenError);
   });
 
@@ -120,7 +123,10 @@ describe("unsubscribe tokens", () => {
     const badSig = Buffer.from("not-a-valid-signature").toString("base64url");
 
     expect(() =>
-      validateUnsubscribeToken(`${payload}.${badSig}`, SECRET),
+      validateUnsubscribeToken({
+        token: `${payload}.${badSig}`,
+        secret: SECRET,
+      }),
     ).toThrow(InvalidTokenError);
   });
 
@@ -133,17 +139,20 @@ describe("unsubscribe tokens", () => {
     });
 
     expect(() =>
-      validateUnsubscribeToken(token, "wrong-secret-also-32-characters-long"),
+      validateUnsubscribeToken({
+        token,
+        secret: "wrong-secret-also-32-characters-long",
+      }),
     ).toThrow(InvalidTokenError);
   });
 
   it("rejects a malformed token without a dot", () => {
-    expect(() => validateUnsubscribeToken("nodot", SECRET)).toThrow(
-      InvalidTokenError,
-    );
-    expect(() => validateUnsubscribeToken("nodot", SECRET)).toThrow(
-      "Malformed token",
-    );
+    expect(() =>
+      validateUnsubscribeToken({ token: "nodot", secret: SECRET }),
+    ).toThrow(InvalidTokenError);
+    expect(() =>
+      validateUnsubscribeToken({ token: "nodot", secret: SECRET }),
+    ).toThrow("Malformed token");
   });
 
   it("uses 30-day default expiry", () => {
@@ -154,7 +163,7 @@ describe("unsubscribe tokens", () => {
       action: "unsubscribe",
     });
 
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     const expectedExp = Math.floor(Date.now() / 1000) + 30 * 24 * 3600;
     expect(Math.abs(payload.exp - expectedExp)).toBeLessThan(5);
   });
@@ -177,7 +186,7 @@ describe("unsubscribe URLs", () => {
 
     const parsed = new URL(url);
     const token = parsed.searchParams.get("token") as string;
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.action).toBe("unsubscribe");
     expect(payload.externalId).toBe("user-123");
   });
@@ -193,7 +202,7 @@ describe("unsubscribe URLs", () => {
 
     const parsed = new URL(url);
     const token = parsed.searchParams.get("token") as string;
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.category).toBe("journey");
   });
 
@@ -211,7 +220,7 @@ describe("unsubscribe URLs", () => {
 
     const parsed = new URL(url);
     const token = parsed.searchParams.get("token") as string;
-    const payload = validateUnsubscribeToken(token, SECRET);
+    const payload = validateUnsubscribeToken({ token, secret: SECRET });
     expect(payload.action).toBe("manage");
   });
 });

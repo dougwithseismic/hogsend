@@ -67,10 +67,11 @@ export function generateUnsubscribeToken(options: TokenOptions): string {
   return `${encodedPayload}.${signature}`;
 }
 
-export function validateUnsubscribeToken(
-  token: string,
-  secret: string,
-): UnsubscribeTokenPayload {
+export function validateUnsubscribeToken(opts: {
+  token: string;
+  secret: string;
+}): UnsubscribeTokenPayload {
+  const { token, secret } = opts;
   const parts = token.split(".");
   if (parts.length !== 2) {
     throw new InvalidTokenError("Malformed token");

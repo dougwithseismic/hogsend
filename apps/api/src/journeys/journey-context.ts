@@ -67,7 +67,7 @@ export function createJourneyContext(
           },
           ctx: { db, userId: targetUserId, journeyContext },
         });
-        return { found, count: found ? 1 : 0 };
+        return { found };
       },
 
       async fire({ userId: targetUserId, event, properties = {} }) {

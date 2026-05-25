@@ -1,4 +1,5 @@
-export function htmlPage(title: string, body: string): string {
+export function htmlPage(opts: { title: string; body: string }): string {
+  const { title, body } = opts;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>

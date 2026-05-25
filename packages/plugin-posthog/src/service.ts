@@ -37,7 +37,13 @@ export function createPostHogService(
       captureEvent({ client, ...opts });
     },
 
-    async isFeatureEnabled(distinctId: string, flag: string) {
+    async isFeatureEnabled({
+      distinctId,
+      flag,
+    }: {
+      distinctId: string;
+      flag: string;
+    }) {
       const result = await client.isFeatureEnabled(flag, distinctId);
       return result ?? false;
     },

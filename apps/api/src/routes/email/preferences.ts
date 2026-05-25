@@ -44,15 +44,18 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
 
     let payload: UnsubscribeTokenPayload;
     try {
-      payload = validateUnsubscribeToken(token, env.BETTER_AUTH_SECRET);
+      payload = validateUnsubscribeToken({
+        token,
+        secret: env.BETTER_AUTH_SECRET,
+      });
     } catch (err) {
       const message =
         err instanceof InvalidTokenError ? err.message : "Invalid token";
       return c.html(
-        htmlPage(
-          "Invalid Link",
-          `<h1>This link is no longer valid</h1><p>${message}. Please check your email for a newer link.</p>`,
-        ),
+        htmlPage({
+          title: "Invalid Link",
+          body: `<h1>This link is no longer valid</h1><p>${message}. Please check your email for a newer link.</p>`,
+        }),
         400,
       );
     }
@@ -120,9 +123,9 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
       : makeActionUrl("unsubscribe");
 
     return c.html(
-      htmlPage(
-        "Email Preferences",
-        `<h1>Email Preferences</h1>
+      htmlPage({
+        title: "Email Preferences",
+        body: `<h1>Email Preferences</h1>
         <p>Manage which emails you receive at <strong>${email}</strong>.</p>
         ${categoryRows}
         <div class="global-row">
@@ -134,7 +137,7 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
             <a href="${globalActionUrl}">${globalActionLabel}</a>
           </div>
         </div>`,
-      ),
+      }),
       200,
     );
   },

@@ -32,7 +32,8 @@ export interface Container {
 export function createContainer(): Container {
   const logger = createLogger(env.LOG_LEVEL);
   const { db, client } = createDatabase({ url: env.DATABASE_URL });
-  const auth = createAuth(db, {
+  const auth = createAuth({
+    db,
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
   });

@@ -19,7 +19,6 @@ export interface EventCheckOptions {
 
 export interface EventCheckResult {
   found: boolean;
-  count: number;
 }
 
 export interface EventFireOptions {

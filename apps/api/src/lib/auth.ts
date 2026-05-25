@@ -4,14 +4,16 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins/organization";
 
-export function createAuth(
-  db: Database,
-  config: { secret: string; baseURL: string },
-) {
+export function createAuth(opts: {
+  db: Database;
+  secret: string;
+  baseURL: string;
+}) {
+  const { db, secret, baseURL } = opts;
   return betterAuth({
     basePath: "/api/auth",
-    secret: config.secret,
-    baseURL: config.baseURL,
+    secret,
+    baseURL,
     database: drizzleAdapter(db, {
       provider: "pg",
       schema,

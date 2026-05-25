@@ -12,7 +12,10 @@ export interface PostHogService {
 
   captureEvent(opts: CaptureOptions): void;
 
-  isFeatureEnabled(distinctId: string, flag: string): Promise<boolean>;
+  isFeatureEnabled(opts: {
+    distinctId: string;
+    flag: string;
+  }): Promise<boolean>;
 
   shutdown(): Promise<void>;
 }
