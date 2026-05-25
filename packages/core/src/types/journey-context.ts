@@ -40,7 +40,7 @@ export interface JourneyHistoryResult {
 }
 
 export interface EmailHistoryOptions {
-  userId: string;
+  email: string;
   template: string;
 }
 

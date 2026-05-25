@@ -4,7 +4,7 @@ import { evaluateEventCondition } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import type { JourneyContext } from "@hogsend/core/types";
 import { type Database, emailSends, journeyStates } from "@hogsend/db";
-import { and, count, desc, eq, max } from "drizzle-orm";
+import { and, count, eq, max } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { ingestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
@@ -110,27 +110,30 @@ export function createJourneyContext(
       },
 
       async journey({ userId: targetUserId, journeyId: targetJourneyId }) {
-        const states = await db
-          .select()
+        const [result] = await db
+          .select({
+            entryCount: count(),
+            lastCompletedAt: max(journeyStates.completedAt),
+          })
           .from(journeyStates)
           .where(
             and(
               eq(journeyStates.userId, targetUserId),
               eq(journeyStates.journeyId, targetJourneyId),
             ),
-          )
-          .orderBy(desc(journeyStates.createdAt));
-
-        const completedState = states.find((s) => s.status === "completed");
+          );
 
         return {
-          completed: !!completedState,
-          lastCompletedAt: completedState?.completedAt?.toISOString() ?? null,
-          entryCount: states.length,
+          completed: result?.lastCompletedAt !== null,
+          lastCompletedAt:
+            result?.lastCompletedAt instanceof Date
+              ? result.lastCompletedAt.toISOString()
+              : null,
+          entryCount: result?.entryCount ?? 0,
         };
       },
 
-      async email({ userId: targetUserId, template }) {
+      async email({ email: targetEmail, template }) {
         const [result] = await db
           .select({
             count: count(),
@@ -139,7 +142,7 @@ export function createJourneyContext(
           .from(emailSends)
           .where(
             and(
-              eq(emailSends.toEmail, targetUserId),
+              eq(emailSends.toEmail, targetEmail),
               eq(emailSends.templateKey, template),
             ),
           );
