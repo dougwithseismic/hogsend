@@ -20,7 +20,7 @@ export const conversionTrialUpgrade = defineJourney({
   run: async (user, ctx) => {
     await ctx.sleep({ duration: days(3), label: "usage-milestone" });
 
-    const { found: hasUsageMilestone } = await ctx.event.check({
+    const { found: hasUsageMilestone } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.USAGE_MILESTONE_REACHED,
     });
@@ -36,7 +36,7 @@ export const conversionTrialUpgrade = defineJourney({
 
     await ctx.sleep({ duration: days(4), label: "trial-midpoint" });
 
-    const { found: hasPaidFeatureAttempt } = await ctx.event.check({
+    const { found: hasPaidFeatureAttempt } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.PAID_FEATURE_ATTEMPTED,
     });
@@ -73,7 +73,7 @@ export const conversionTrialUpgrade = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "post-expiry" });
 
-    const { found: hasSubscription } = await ctx.event.check({
+    const { found: hasSubscription } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.SUBSCRIPTION_CREATED,
     });

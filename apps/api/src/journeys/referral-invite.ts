@@ -18,7 +18,7 @@ export const referralInvite = defineJourney({
   run: async (user, ctx) => {
     await ctx.sleep({ duration: hours(2), label: "post-achievement" });
 
-    const { found: isActive30d } = await ctx.event.check({
+    const { found: isActive30d } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.SESSION_COMPLETED,
       within: days(30),

@@ -1,10 +1,11 @@
-import { getJourneyTasks } from "./journeys/index.js";
+import { createJourneyRegistry, getJourneyTasks } from "./journeys/index.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getPostHog } from "./lib/posthog.js";
 import { getRedisIfConnected } from "./lib/redis.js";
 import { sendEmailTask } from "./workflows/send-email.js";
 
 async function main() {
+  createJourneyRegistry(process.env.ENABLED_JOURNEYS);
   const journeyTasks = getJourneyTasks(process.env.ENABLED_JOURNEYS);
 
   const worker = await hatchet.worker("hogsend-worker", {

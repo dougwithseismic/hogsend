@@ -1,5 +1,4 @@
 import type { DurationObject } from "../duration.js";
-import type { JourneyUser } from "./journey.js";
 
 export interface SleepOptions {
   duration: DurationObject;
@@ -11,43 +10,63 @@ export interface SleepResult {
   resumedAt: string;
 }
 
-export interface EventCheckOptions {
+export interface TriggerOptions {
+  event: string;
+  userId: string;
+  userEmail?: string;
+  properties?: Record<string, unknown>;
+}
+
+export interface HasEventOptions {
   userId: string;
   event: string;
   within?: DurationObject;
 }
 
-export interface EventCheckResult {
+export interface HasEventResult {
   found: boolean;
   count: number;
 }
 
-export interface EventFireOptions {
+export interface JourneyHistoryOptions {
   userId: string;
-  event: string;
-  properties?: Record<string, unknown>;
+  journeyId: string;
 }
 
-export interface EventFireResult {
-  eventKey: string;
-  firedAt: string;
+export interface JourneyHistoryResult {
+  completed: boolean;
+  lastCompletedAt: string | null;
+  entryCount: number;
+}
+
+export interface EmailHistoryOptions {
+  userId: string;
+  template: string;
+}
+
+export interface EmailHistoryResult {
+  sent: boolean;
+  lastSentAt: string | null;
+  count: number;
 }
 
 export interface JourneyContext {
   sleep(opts: SleepOptions): Promise<SleepResult>;
   checkpoint(label: string): Promise<void>;
-
-  event: {
-    check(opts: EventCheckOptions): Promise<EventCheckResult>;
-    fire(opts: EventFireOptions): Promise<EventFireResult>;
-  };
+  trigger(opts: TriggerOptions): Promise<void>;
 
   guard: {
     isSubscribed(): Promise<boolean>;
   };
+
+  history: {
+    hasEvent(opts: HasEventOptions): Promise<HasEventResult>;
+    journey(opts: JourneyHistoryOptions): Promise<JourneyHistoryResult>;
+    email(opts: EmailHistoryOptions): Promise<EmailHistoryResult>;
+  };
 }
 
 export type JourneyRunFn = (
-  user: JourneyUser,
+  user: import("./journey.js").JourneyUser,
   ctx: JourneyContext,
 ) => Promise<void>;

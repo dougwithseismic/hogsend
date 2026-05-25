@@ -21,7 +21,7 @@ export const conversionAbandonedCheckout = defineJourney({
   run: async (user, ctx) => {
     await ctx.sleep({ duration: hours(2), label: "initial-followup" });
 
-    const { found: hasCompleted } = await ctx.event.check({
+    const { found: hasCompleted } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.CHECKOUT_COMPLETED,
       within: hours(2),
@@ -41,7 +41,7 @@ export const conversionAbandonedCheckout = defineJourney({
 
     await ctx.sleep({ duration: days(1), label: "second-followup" });
 
-    const { found: hasCompletedLater } = await ctx.event.check({
+    const { found: hasCompletedLater } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.CHECKOUT_COMPLETED,
       within: hours(26),

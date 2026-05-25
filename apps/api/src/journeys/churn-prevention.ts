@@ -30,7 +30,7 @@ export const churnPrevention = defineJourney({
 
     await ctx.sleep({ duration: days(1), label: "first-retry" });
 
-    const { found: hasRetried } = await ctx.event.check({
+    const { found: hasRetried } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.PAYMENT_SUCCEEDED,
       within: days(1),
@@ -50,7 +50,7 @@ export const churnPrevention = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "final-notice" });
 
-    const { found: hasResolved } = await ctx.event.check({
+    const { found: hasResolved } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.PAYMENT_SUCCEEDED,
       within: days(3),

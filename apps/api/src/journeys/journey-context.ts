@@ -1,18 +1,23 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { DurationObject } from "@hogsend/core";
 import { evaluateEventCondition } from "@hogsend/core";
+import type { JourneyRegistry } from "@hogsend/core/registry";
 import type { JourneyContext } from "@hogsend/core/types";
-import { type Database, journeyStates, userEvents } from "@hogsend/db";
-import { eq } from "drizzle-orm";
+import { type Database, emailSends, journeyStates } from "@hogsend/db";
+import { and, count, desc, eq, max } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
+import { ingestEvent } from "../lib/ingestion.js";
+import type { Logger } from "../lib/logger.js";
 
 interface JourneyContextConfig {
   db: Database;
   hatchet: HatchetClient;
   hatchetCtx: { sleepFor: (duration: DurationObject) => Promise<unknown> };
+  registry: JourneyRegistry;
+  logger: Logger;
   stateId: string;
-  journeyId: string;
   userId: string;
+  userEmail: string;
   journeyContext: Record<string, unknown>;
 }
 
@@ -23,18 +28,13 @@ export function createJourneyContext(
     db,
     hatchet,
     hatchetCtx,
+    registry,
+    logger,
     stateId,
-    journeyId,
     userId,
+    userEmail,
     journeyContext,
   } = config;
-
-  async function updateCheckpoint(label: string): Promise<void> {
-    await db
-      .update(journeyStates)
-      .set({ currentNodeId: label, updatedAt: new Date() })
-      .where(eq(journeyStates.id, stateId));
-  }
 
   return {
     async sleep({ duration, label }) {
@@ -62,11 +62,41 @@ export function createJourneyContext(
     },
 
     async checkpoint(label) {
-      await updateCheckpoint(label);
+      await db
+        .update(journeyStates)
+        .set({ currentNodeId: label, updatedAt: new Date() })
+        .where(eq(journeyStates.id, stateId));
     },
 
-    event: {
-      async check({ userId: targetUserId, event, within }) {
+    async trigger({
+      event,
+      userId: targetUserId,
+      userEmail: targetEmail,
+      properties,
+    }) {
+      await ingestEvent({
+        db,
+        registry,
+        hatchet,
+        logger,
+        event: {
+          event,
+          userId: targetUserId,
+          userEmail: targetEmail ?? userEmail,
+          properties: properties ?? {},
+        },
+      });
+    },
+
+    guard: {
+      async isSubscribed() {
+        const prefs = await checkEmailPreferences({ db, userId });
+        return !prefs.unsubscribed;
+      },
+    },
+
+    history: {
+      async hasEvent({ userId: targetUserId, event, within }) {
         const result = await evaluateEventCondition({
           condition: {
             type: "event",
@@ -79,30 +109,50 @@ export function createJourneyContext(
         return { found: result.matched, count: result.count };
       },
 
-      async fire({ userId: targetUserId, event, properties = {} }) {
-        await updateCheckpoint(`event:${event}`);
+      async journey({ userId: targetUserId, journeyId: targetJourneyId }) {
+        const states = await db
+          .select()
+          .from(journeyStates)
+          .where(
+            and(
+              eq(journeyStates.userId, targetUserId),
+              eq(journeyStates.journeyId, targetJourneyId),
+            ),
+          )
+          .orderBy(desc(journeyStates.createdAt));
 
-        await db.insert(userEvents).values({
-          userId: targetUserId,
-          event,
-          properties,
-        });
+        const completedState = states.find((s) => s.status === "completed");
 
-        const eventKey = `user:${event}`;
-        await hatchet.events.push(eventKey, {
-          userId: targetUserId,
-          journeyId,
-          properties,
-        });
-
-        return { eventKey, firedAt: new Date().toISOString() };
+        return {
+          completed: !!completedState,
+          lastCompletedAt: completedState?.completedAt?.toISOString() ?? null,
+          entryCount: states.length,
+        };
       },
-    },
 
-    guard: {
-      async isSubscribed() {
-        const prefs = await checkEmailPreferences({ db, userId });
-        return !prefs.unsubscribed;
+      async email({ userId: targetUserId, template }) {
+        const [result] = await db
+          .select({
+            count: count(),
+            lastSentAt: max(emailSends.sentAt),
+          })
+          .from(emailSends)
+          .where(
+            and(
+              eq(emailSends.toEmail, targetUserId),
+              eq(emailSends.templateKey, template),
+            ),
+          );
+
+        const total = result?.count ?? 0;
+        return {
+          sent: total > 0,
+          lastSentAt:
+            result?.lastSentAt instanceof Date
+              ? result.lastSentAt.toISOString()
+              : null,
+          count: total,
+        };
       },
     },
   };

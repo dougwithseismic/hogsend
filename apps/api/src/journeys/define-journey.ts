@@ -12,9 +12,12 @@ import {
   evaluateTriggerConditions,
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
+import { createLogger, type Logger } from "../lib/logger.js";
 import { createJourneyContext } from "./journey-context.js";
+import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
 let _db: Database | undefined;
+let _logger: Logger | undefined;
 
 function getDb(): Database {
   if (!_db) {
@@ -22,6 +25,13 @@ function getDb(): Database {
     _db = db;
   }
   return _db;
+}
+
+function getLogger(): Logger {
+  if (!_logger) {
+    _logger = createLogger(process.env.LOG_LEVEL ?? "info");
+  }
+  return _logger;
 }
 
 interface EventPayloadInput {
@@ -117,9 +127,11 @@ export function defineJourney(options: {
         db,
         hatchet,
         hatchetCtx,
+        registry: getJourneyRegistrySingleton(),
+        logger: getLogger(),
         stateId,
-        journeyId: meta.id,
         userId,
+        userEmail,
         journeyContext: { ...properties },
       });
 

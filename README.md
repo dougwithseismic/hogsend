@@ -50,8 +50,9 @@ API calls ─────────┘                          │
                                     │                       │
                                     │  ctx.sleep()          │
                                     │  ctx.checkpoint()     │
-                                    │  ctx.event.check()    │
-                                    │  ctx.event.fire()     │
+                                    │  ctx.trigger()        │
+                                    │  ctx.history.*        │
+                                    │  ctx.guard.*          │
                                     │                       │
                                     │  + direct imports:    │
                                     │  sendEmail()          │
@@ -198,9 +199,11 @@ The `ctx` object passed to every journey's `run` function. Every method takes an
 |--------|-------------|---------|
 | `ctx.sleep({ duration: days(2), label? })` | Durable sleep — survives deploys, persists state to DB | `{ sleptAt, resumedAt }` |
 | `ctx.checkpoint("label")` | Update the journey state label (for observability) | `void` |
-| `ctx.event.check({ userId, event, within? })` | Check if a user has a specific event in the local store | `{ found, count }` |
+| `ctx.trigger({ event, userId, properties? })` | Push event through full ingest pipeline (stores, routes to Hatchet, processes exitOn) | `void` |
 | `ctx.guard.isSubscribed()` | Check if user is still subscribed (useful after long sleeps) | `boolean` |
-| `ctx.event.fire({ userId, event, properties? })` | Insert event locally + push to Hatchet | `{ eventKey, firedAt }` |
+| `ctx.history.hasEvent({ userId, event, within? })` | Check if a user has a specific event | `{ found, count }` |
+| `ctx.history.journey({ userId, journeyId })` | Check if user completed a journey before | `{ completed, lastCompletedAt, entryCount }` |
+| `ctx.history.email({ userId, template })` | Check when user last received a specific email | `{ sent, lastSentAt, count }` |
 
 The context only provides durable execution primitives. Everything else is a direct import:
 

@@ -27,7 +27,7 @@ export const feedbackNps = defineJourney({
 
     await ctx.sleep({ duration: days(3), label: "nps-reminder" });
 
-    const { found: hasSubmitted } = await ctx.event.check({
+    const { found: hasSubmitted } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.NPS_SUBMITTED,
       within: days(3),
@@ -45,7 +45,7 @@ export const feedbackNps = defineJourney({
 
     await ctx.sleep({ duration: days(46), label: "day-60" });
 
-    const { found: hasSubmittedDay60 } = await ctx.event.check({
+    const { found: hasSubmittedDay60 } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.NPS_SUBMITTED,
       within: days(46),

@@ -25,7 +25,7 @@ export const activationWelcome = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "post-welcome" });
 
-    const { found: hasUsedFeature } = await ctx.event.check({
+    const { found: hasUsedFeature } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.FEATURE_USED,
     });

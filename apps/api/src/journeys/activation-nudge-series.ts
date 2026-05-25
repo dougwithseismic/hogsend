@@ -17,7 +17,7 @@ export const activationNudgeSeries = defineJourney({
   run: async (user, ctx) => {
     await ctx.sleep({ duration: days(2), label: "initial-nudge" });
 
-    const { found: hasUsedFeature } = await ctx.event.check({
+    const { found: hasUsedFeature } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.FEATURE_USED,
       within: days(2),
@@ -34,7 +34,7 @@ export const activationNudgeSeries = defineJourney({
 
     await ctx.sleep({ duration: days(1), label: "setup-check" });
 
-    const { found: hasCompletedSetup } = await ctx.event.check({
+    const { found: hasCompletedSetup } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.SETUP_COMPLETED,
       within: days(3),
@@ -51,7 +51,7 @@ export const activationNudgeSeries = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "first-value" });
 
-    const { found: hasFirstValue } = await ctx.event.check({
+    const { found: hasFirstValue } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.VALUE_DELIVERED,
     });

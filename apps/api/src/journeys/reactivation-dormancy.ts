@@ -71,9 +71,9 @@ export const reactivationDormancy = defineJourney({
       journeyName: user.journeyName,
     });
 
-    await ctx.event.fire({
-      userId: user.id,
+    await ctx.trigger({
       event: Events.USER_SUPPRESSED,
+      userId: user.id,
       properties: {
         reason: "dormancy_sequence_completed",
         suppressedAt: new Date().toISOString(),

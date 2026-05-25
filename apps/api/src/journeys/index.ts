@@ -8,6 +8,7 @@ import type { DefinedJourney } from "./define-journey.js";
 import { feedbackNps } from "./feedback-nps.js";
 import { reactivationDormancy } from "./reactivation-dormancy.js";
 import { referralInvite } from "./referral-invite.js";
+import { setJourneyRegistry } from "./registry-singleton.js";
 import { retentionMilestone } from "./retention-milestone.js";
 import { testOnboarding } from "./test-onboarding.js";
 
@@ -44,6 +45,7 @@ export function createJourneyRegistry(enabledFilter?: string): JourneyRegistry {
     }
   }
 
+  setJourneyRegistry(registry);
   return registry;
 }
 
