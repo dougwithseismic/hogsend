@@ -12,8 +12,6 @@ import {
   evaluateTriggerConditions,
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
-import { getPostHog } from "../lib/posthog.js";
-import { sendEmailTask } from "../workflows/send-email.js";
 import { createJourneyContext } from "./journey-context.js";
 
 let _db: Database | undefined;
@@ -109,31 +107,14 @@ export function defineJourney(options: {
         journeyId: meta.id,
       };
 
-      const unsubscribeConfig =
-        process.env.API_PUBLIC_URL && process.env.BETTER_AUTH_SECRET
-          ? {
-              baseUrl: process.env.API_PUBLIC_URL,
-              secret: process.env.BETTER_AUTH_SECRET,
-            }
-          : undefined;
-
-      const posthog = getPostHog();
-
       const ctx = createJourneyContext({
         db,
         hatchet,
         hatchetCtx,
-        sendEmailTask,
         stateId,
         journeyId: meta.id,
-        journeyName: meta.name,
         userId,
-        userEmail,
         journeyContext: { ...properties },
-        unsubscribeConfig,
-        getPostHogProperties: posthog
-          ? (uid: string) => posthog.getPersonProperties(uid)
-          : undefined,
       });
 
       try {

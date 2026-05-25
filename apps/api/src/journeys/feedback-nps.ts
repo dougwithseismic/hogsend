@@ -1,4 +1,5 @@
 import { days } from "@hogsend/core";
+import { sendJourneyEmail } from "../lib/journey-email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -16,7 +17,7 @@ export const feedbackNps = defineJourney({
   run: async (user, ctx) => {
     await ctx.sleep({ duration: days(14), label: "day-14" });
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.FEEDBACK_NPS_SURVEY,
       subject: "Quick question — how are we doing?",
     });
@@ -30,7 +31,7 @@ export const feedbackNps = defineJourney({
     });
 
     if (!hasSubmitted) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.FEEDBACK_NPS_SURVEY,
         subject: "We'd still love your feedback (10 seconds)",
       });
@@ -44,7 +45,7 @@ export const feedbackNps = defineJourney({
       withinHours: 1104,
     });
     if (!hasSubmittedDay60) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.FEEDBACK_NPS_SURVEY,
         subject: "How's it going? Quick check-in",
       });

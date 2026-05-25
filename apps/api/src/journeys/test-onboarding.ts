@@ -18,12 +18,7 @@ export const testOnboarding = defineJourney({
       properties: { step: "welcome" },
     });
 
-    const { matched: isPro } = await ctx.property.check({
-      source: "context",
-      property: "plan",
-      operator: "eq",
-      value: "pro",
-    });
+    const isPro = user.properties.plan === "pro";
 
     if (isPro) {
       await ctx.event.fire({

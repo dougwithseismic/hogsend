@@ -1,4 +1,5 @@
 import { days } from "@hogsend/core";
+import { sendJourneyEmail } from "../lib/journey-email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -24,7 +25,7 @@ export const conversionTrialUpgrade = defineJourney({
       event: Events.USAGE_MILESTONE_REACHED,
     });
     if (hasUsageMilestone) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.CONVERSION_USAGE_MILESTONE,
         subject: "You're on a roll — here's what Pro unlocks",
       });
@@ -37,7 +38,7 @@ export const conversionTrialUpgrade = defineJourney({
       event: Events.PAID_FEATURE_ATTEMPTED,
     });
     if (hasPaidFeatureAttempt) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.CONVERSION_USAGE_MILESTONE,
         subject: "You just hit a limit — upgrade to keep going",
       });
@@ -45,14 +46,14 @@ export const conversionTrialUpgrade = defineJourney({
 
     await ctx.sleep({ duration: days(3), label: "trial-ending" });
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Your trial ends in 3 days — don't lose your progress",
     });
 
     await ctx.sleep({ duration: days(2), label: "trial-final" });
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Last day of your trial",
       props: { daysLeft: 1 },
@@ -65,7 +66,7 @@ export const conversionTrialUpgrade = defineJourney({
       event: Events.SUBSCRIPTION_CREATED,
     });
     if (!hasSubscription) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "We'd love to have you back — here's 20% off",
       });

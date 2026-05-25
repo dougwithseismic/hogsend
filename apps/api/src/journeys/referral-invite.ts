@@ -1,4 +1,5 @@
 import { hours } from "@hogsend/core";
+import { sendJourneyEmail } from "../lib/journey-email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -26,7 +27,7 @@ export const referralInvite = defineJourney({
       return;
     }
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.RETENTION_ACHIEVEMENT,
       subject: "Share the love — invite a friend",
       props: { ctaText: "Invite a Friend" },

@@ -1,4 +1,5 @@
 import { days, hours } from "@hogsend/core";
+import { sendJourneyEmail } from "../lib/journey-email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -29,7 +30,7 @@ export const conversionAbandonedCheckout = defineJourney({
       return;
     }
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Need help with anything?",
       props: { daysLeft: 0 },
@@ -43,7 +44,7 @@ export const conversionAbandonedCheckout = defineJourney({
       withinHours: 26,
     });
     if (!hasCompletedLater) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "Still thinking it over? Here's a little incentive",
       });

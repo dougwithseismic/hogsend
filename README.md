@@ -44,20 +44,21 @@ API calls ─────────┘                          │
                                     │  defineJourney()      │
                                     │  async run fn         │
                                     │                       │
-                                    │  ctx.email.send()     │
                                     │  ctx.sleep()          │
+                                    │  ctx.checkpoint()     │
                                     │  ctx.event.check()    │
                                     │  ctx.event.fire()     │
-                                    │  ctx.property.check() │
-                                    │  ctx.webhook.send()   │
-                                    │  ctx.journey.enroll() │
+                                    │                       │
+                                    │  + direct imports:    │
+                                    │  sendJourneyEmail()   │
+                                    │  posthog plugin       │
                                     └──────────┬───────────┘
                                                │
-                    ┌────────────┬──────────────┼────────────┬──────────┐
-                    ▼            ▼              ▼            ▼          ▼
-                 Resend      PostHog        Webhooks     Enroll     Sleep &
-                 (email)     (event         (HTTP)       another    resume
-                             push-back)                  journey    later
+                    ┌────────────┬──────────────┼────────────┐
+                    ▼            ▼              ▼            ▼
+                 Resend      PostHog        Webhooks     Sleep &
+                 (email)     (person        (fetch)      resume
+                             properties)                 later
 ```
 
 Events pushed back to PostHog mean you can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, no separate tool.
@@ -74,6 +75,7 @@ Journeys use `defineJourney()` — you declare metadata (trigger, entry limits, 
 import { days } from "@hogsend/core";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
+import { sendJourneyEmail } from "../lib/journey-email.js";
 
 export const activationWelcome = defineJourney({
   meta: {
@@ -87,7 +89,7 @@ export const activationWelcome = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.ACTIVATION_WELCOME,
       subject: "Welcome — let's get you set up",
     });
@@ -100,12 +102,12 @@ export const activationWelcome = defineJourney({
     });
 
     if (hasUsedFeature) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.ACTIVATION_ADVANCED,
         subject: "Nice work — here's what to try next",
       });
     } else {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.ACTIVATION_NUDGE,
         subject: "You haven't tried the key feature yet",
       });
@@ -113,7 +115,7 @@ export const activationWelcome = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "pre-community" });
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.ACTIVATION_COMMUNITY,
       subject: "Join the community",
     });
@@ -144,7 +146,7 @@ export const churnPrevention = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Your payment didn't go through",
     });
@@ -158,7 +160,7 @@ export const churnPrevention = defineJourney({
     });
     if (hasRetried) return;
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Reminder: please update your payment method",
       props: { gracePeriodDays: 2 },
@@ -172,7 +174,7 @@ export const churnPrevention = defineJourney({
       withinHours: 72,
     });
     if (!hasResolved) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.CHURN_PAYMENT_FAILED,
         subject: "Final notice: your account will be downgraded tomorrow",
         props: { gracePeriodDays: 1 },
@@ -190,15 +192,19 @@ The `ctx` object passed to every journey's `run` function. Every method takes an
 
 | Method | What it does | Returns |
 |--------|-------------|---------|
-| `ctx.email.send(user, { template, subject, props? })` | Render a React Email template, send via Resend, track delivery | `{ emailId, sentAt }` |
-| `ctx.email.checkEngagement({ templateKey, check })` | Check if a user opened/clicked a specific email | `{ matched, check }` |
 | `ctx.sleep({ duration: days(2), label? })` | Durable sleep — survives deploys, persists state to DB | `{ sleptAt, resumedAt }` |
+| `ctx.checkpoint("label")` | Update the journey state label (for observability) | `void` |
 | `ctx.event.check({ userId, event, withinHours? })` | Check if a user has a specific event in the local store | `{ found, count }` |
 | `ctx.event.fire({ userId, event, properties? })` | Insert event locally + push to Hatchet | `{ eventKey, firedAt }` |
-| `ctx.property.check({ source, property, operator, value? })` | Check a PostHog person property or journey context value | `{ matched, actualValue? }` |
-| `ctx.webhook.send({ url, method?, headers?, body? })` | POST/PUT to an external URL | `{ statusCode }` |
-| `ctx.journey.enroll({ userId, userEmail, journeyId })` | Enroll a user in another journey | `{ enrolledAt }` |
-| `ctx.checkpoint("label")` | Update the journey state label (for observability) | `void` |
+
+The context only provides durable execution primitives. Everything else is a direct import:
+
+| Import | What it does |
+|--------|-------------|
+| `sendJourneyEmail(user, { template, subject, props? })` | Render + send email via Resend (from `../lib/journey-email.js`) |
+| `getPostHog()?.getPersonProperties(userId)` | Fetch PostHog person properties (from `../lib/posthog.js`) |
+
+Event payload properties are available on `user.properties`.
 
 Duration helpers from `@hogsend/core`: `days(n)`, `hours(n)`, `minutes(n)` — type-safe, human-readable, no magic strings.
 
@@ -253,14 +259,20 @@ The repo ships with 10 production-ready journeys covering common lifecycle stage
 
 ### Install the CLI
 
+The fastest way to go from zero to a running Hogsend deployment. The CLI handles Railway provisioning, environment variables, service creation, and health checks — so you don't have to wire it up manually. One command to provision, one command to verify.
+
 ```bash
+# macOS, Linux, WSL
 curl -fsSL https://raw.githubusercontent.com/dougwithseismic/hogsend/main/install.sh | bash
+
+# or download a binary directly from GitHub Releases
+# https://github.com/dougwithseismic/hogsend/releases
 ```
 
-Then:
+Then spin up a full deployment:
 
 ```bash
-hogsend init      # Interactive Railway provisioning wizard
+hogsend init      # Interactive Railway provisioning wizard — sets up API, worker, Hatchet, Postgres, Redis
 hogsend status    # Verify everything is healthy
 ```
 

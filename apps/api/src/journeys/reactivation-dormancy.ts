@@ -1,4 +1,5 @@
 import { days } from "@hogsend/core";
+import { sendJourneyEmail } from "../lib/journey-email.js";
 import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
@@ -19,7 +20,7 @@ export const reactivationDormancy = defineJourney({
   },
 
   run: async (user, ctx) => {
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.REACTIVATION_CHECKIN,
       subject: "We haven't seen you in a while",
       props: { daysSinceActive: 14 },
@@ -27,7 +28,7 @@ export const reactivationDormancy = defineJourney({
 
     await ctx.sleep({ duration: days(7), label: "day-21" });
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.REACTIVATION_CHECKIN,
       subject: "Your data is still here — pick up where you left off",
       props: { daysSinceActive: 21 },
@@ -35,19 +36,14 @@ export const reactivationDormancy = defineJourney({
 
     await ctx.sleep({ duration: days(9), label: "day-30" });
 
-    const { matched: isPaid } = await ctx.property.check({
-      source: "context",
-      property: "plan",
-      operator: "eq",
-      value: "paid",
-    });
+    const isPaid = user.properties.plan === "paid";
     if (isPaid) {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "We'd hate to see you go — here's an option",
       });
     } else {
-      await ctx.email.send(user, {
+      await sendJourneyEmail(user, {
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "See what you've been missing",
       });
@@ -55,7 +51,7 @@ export const reactivationDormancy = defineJourney({
 
     await ctx.sleep({ duration: days(15), label: "day-45" });
 
-    await ctx.email.send(user, {
+    await sendJourneyEmail(user, {
       template: Templates.REACTIVATION_FINAL_NUDGE,
       subject: "One last note from us",
     });
