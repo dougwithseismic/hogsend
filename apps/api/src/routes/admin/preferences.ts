@@ -2,7 +2,7 @@ import { emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { resolveContact } from "../../lib/contacts.js";
+import { resolveContact, serializePrefs } from "../../lib/contacts.js";
 
 const preferencesResponseSchema = z.object({
   id: z.string(),
@@ -90,20 +90,6 @@ const updatePrefsRoute = createRoute({
     },
   },
 });
-
-function serializePrefs(row: typeof emailPreferences.$inferSelect) {
-  return {
-    id: row.id,
-    userId: row.userId,
-    email: row.email,
-    unsubscribedAll: row.unsubscribedAll,
-    suppressed: row.suppressed,
-    bounceCount: row.bounceCount,
-    categories: (row.categories ?? {}) as Record<string, boolean>,
-    suppressedAt: row.suppressedAt?.toISOString() ?? null,
-    lastBounceAt: row.lastBounceAt?.toISOString() ?? null,
-  };
-}
 
 export const preferencesRouter = new OpenAPIHono<AppEnv>()
   .openapi(getPrefsRoute, async (c) => {

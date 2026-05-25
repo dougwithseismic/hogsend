@@ -1,3 +1,4 @@
+import type { Database } from "@hogsend/db";
 import { emailPreferences } from "@hogsend/db";
 import type { UnsubscribeTokenPayload } from "@hogsend/email";
 import {
@@ -31,6 +32,46 @@ const unsubscribeRoute = createRoute({
     },
   },
 });
+
+async function upsertPreference(
+  db: Database,
+  externalId: string,
+  email: string,
+  update: {
+    unsubscribedAll?: boolean;
+    categoryKey?: string;
+    categoryValue?: boolean;
+  },
+) {
+  const setClause: Record<string, unknown> = { updatedAt: new Date() };
+
+  if (update.unsubscribedAll !== undefined) {
+    setClause.unsubscribedAll = update.unsubscribedAll;
+  }
+  if (update.categoryKey !== undefined) {
+    const jsonValue = update.categoryValue ? "true" : "false";
+    setClause.categories = sql`jsonb_set(COALESCE(${emailPreferences.categories}, '{}'::jsonb), ${`{${update.categoryKey}}`}, ${jsonValue}::jsonb)`;
+  }
+
+  await db
+    .insert(emailPreferences)
+    .values({
+      userId: externalId,
+      email,
+      ...(update.unsubscribedAll !== undefined
+        ? { unsubscribedAll: update.unsubscribedAll }
+        : {}),
+      ...(update.categoryKey !== undefined
+        ? {
+            categories: { [update.categoryKey]: update.categoryValue ?? false },
+          }
+        : {}),
+    })
+    .onConflictDoUpdate({
+      target: [emailPreferences.userId, emailPreferences.email],
+      set: setClause,
+    });
+}
 
 export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
   unsubscribeRoute,
@@ -66,38 +107,18 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
     }
 
     if (action === "resubscribe") {
-      if (category) {
-        await db
-          .insert(emailPreferences)
-          .values({
-            userId: externalId,
-            email,
-            categories: { [category]: true },
-          })
-          .onConflictDoUpdate({
-            target: [emailPreferences.userId, emailPreferences.email],
-            set: {
-              categories: sql`jsonb_set(COALESCE(${emailPreferences.categories}, '{}'::jsonb), ${`{${category}}`}, 'true')`,
+      await upsertPreference(
+        db,
+        externalId,
+        email,
+        category
+          ? {
+              categoryKey: category,
+              categoryValue: true,
               unsubscribedAll: false,
-              updatedAt: new Date(),
-            },
-          });
-      } else {
-        await db
-          .insert(emailPreferences)
-          .values({
-            userId: externalId,
-            email,
-            unsubscribedAll: false,
-          })
-          .onConflictDoUpdate({
-            target: [emailPreferences.userId, emailPreferences.email],
-            set: {
-              unsubscribedAll: false,
-              updatedAt: new Date(),
-            },
-          });
-      }
+            }
+          : { unsubscribedAll: false },
+      );
 
       return c.html(
         htmlPage(
@@ -108,37 +129,14 @@ export const unsubscribeRouter = new OpenAPIHono<AppEnv>().openapi(
       );
     }
 
-    if (category) {
-      await db
-        .insert(emailPreferences)
-        .values({
-          userId: externalId,
-          email,
-          categories: { [category]: false },
-        })
-        .onConflictDoUpdate({
-          target: [emailPreferences.userId, emailPreferences.email],
-          set: {
-            categories: sql`jsonb_set(COALESCE(${emailPreferences.categories}, '{}'::jsonb), ${`{${category}}`}, 'false')`,
-            updatedAt: new Date(),
-          },
-        });
-    } else {
-      await db
-        .insert(emailPreferences)
-        .values({
-          userId: externalId,
-          email,
-          unsubscribedAll: true,
-        })
-        .onConflictDoUpdate({
-          target: [emailPreferences.userId, emailPreferences.email],
-          set: {
-            unsubscribedAll: true,
-            updatedAt: new Date(),
-          },
-        });
-    }
+    await upsertPreference(
+      db,
+      externalId,
+      email,
+      category
+        ? { categoryKey: category, categoryValue: false }
+        : { unsubscribedAll: true },
+    );
 
     const preferenceCenterUrl = generatePreferenceCenterUrl({
       baseUrl: env.API_PUBLIC_URL,

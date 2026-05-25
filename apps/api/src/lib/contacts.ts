@@ -1,4 +1,4 @@
-import { contacts, type Database } from "@hogsend/db";
+import { contacts, type Database, type emailPreferences } from "@hogsend/db";
 import { eq, sql } from "drizzle-orm";
 
 const UUID_REGEX =
@@ -17,6 +17,20 @@ export async function resolveContact(db: Database, id: string) {
     .where(contactWhereClause(id))
     .limit(1);
   return rows[0] ?? null;
+}
+
+export function serializePrefs(row: typeof emailPreferences.$inferSelect) {
+  return {
+    id: row.id,
+    userId: row.userId,
+    email: row.email,
+    unsubscribedAll: row.unsubscribedAll,
+    suppressed: row.suppressed,
+    bounceCount: row.bounceCount,
+    categories: (row.categories ?? {}) as Record<string, boolean>,
+    suppressedAt: row.suppressedAt?.toISOString() ?? null,
+    lastBounceAt: row.lastBounceAt?.toISOString() ?? null,
+  };
 }
 
 export async function upsertContact(

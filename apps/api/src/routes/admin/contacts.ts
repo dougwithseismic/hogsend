@@ -2,7 +2,7 @@ import { contacts, emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { count, desc, eq, ilike, or, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { contactWhereClause } from "../../lib/contacts.js";
+import { resolveContact, serializePrefs } from "../../lib/contacts.js";
 
 const contactSchema = z.object({
   id: z.string(),
@@ -239,17 +239,10 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { id } = c.req.valid("param");
 
-    const row = await db
-      .select()
-      .from(contacts)
-      .where(contactWhereClause(id))
-      .limit(1);
-
-    if (row.length === 0) {
+    const contact = await resolveContact(db, id);
+    if (!contact) {
       return c.json({ error: "Contact not found" }, 404);
     }
-
-    const contact = row[0] as typeof contacts.$inferSelect;
 
     const prefRows = await db
       .select()
@@ -257,17 +250,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       .where(eq(emailPreferences.userId, contact.externalId))
       .limit(1);
 
-    const prefs = prefRows[0]
-      ? {
-          id: prefRows[0].id,
-          userId: prefRows[0].userId,
-          email: prefRows[0].email,
-          unsubscribedAll: prefRows[0].unsubscribedAll,
-          suppressed: prefRows[0].suppressed,
-          bounceCount: prefRows[0].bounceCount,
-          categories: (prefRows[0].categories ?? {}) as Record<string, boolean>,
-        }
-      : null;
+    const prefs = prefRows[0] ? serializePrefs(prefRows[0]) : null;
 
     return c.json(
       { contact: serializeContact(contact), preferences: prefs },
@@ -311,17 +294,10 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const existing = await db
-      .select()
-      .from(contacts)
-      .where(contactWhereClause(id))
-      .limit(1);
-
-    if (existing.length === 0) {
+    const current = await resolveContact(db, id);
+    if (!current) {
       return c.json({ error: "Contact not found" }, 404);
     }
-
-    const current = existing[0] as typeof contacts.$inferSelect;
 
     const [updated] = await db
       .update(contacts)
@@ -347,17 +323,10 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { id } = c.req.valid("param");
 
-    const existing = await db
-      .select()
-      .from(contacts)
-      .where(contactWhereClause(id))
-      .limit(1);
-
-    if (existing.length === 0) {
+    const contact = await resolveContact(db, id);
+    if (!contact) {
       return c.json({ error: "Contact not found" }, 404);
     }
-
-    const contact = existing[0] as typeof contacts.$inferSelect;
 
     await db
       .delete(emailPreferences)
