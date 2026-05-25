@@ -85,12 +85,14 @@ Journeys use a code-first `defineJourney()` pattern — each journey is its own 
 - **`defineJourney({ meta, run })`** in `src/journeys/define-journey.ts` — accepts declarative metadata (trigger, entryLimit, exitOn) and a `run` function that receives `(user: JourneyUser, ctx: JourneyContext)`
 - **Event-driven triggers** — each journey declares `onEvents: [trigger.event]` on its Hatchet durable task; when the ingest endpoint pushes an event, Hatchet routes it to matching journeys automatically
 - **Enrollment guards** — entry limits, trigger conditions, and email preferences are checked inside the task (via `src/lib/enrollment-guards.ts`) before the journey runs; ineligible events return early without creating state
-- **`JourneyContext`** (`src/journeys/journey-context.ts`) provides typed helpers: `sendEmail`, `hasEvent`, `checkProperty`, `checkEmailEngagement`, `fireEvent`, `webhook`, `enrollJourney`, `sleepFor`, `checkpoint`
-- **`@hogsend/core`** provides types (`JourneyMeta`, `JourneyUser`, `JourneyContext`, `HatchetEventPayload`), Zod schema (`journeyMetaSchema`), condition evaluation, and the `JourneyRegistry`
+- **`JourneyContext`** (`src/journeys/journey-context.ts`) provides a namespaced context API: `ctx.email.send()`, `ctx.event.check()`, `ctx.event.fire()`, `ctx.property.check()`, `ctx.email.checkEngagement()`, `ctx.webhook.send()`, `ctx.journey.enroll()`, `ctx.sleep()`, `ctx.checkpoint()`. All methods take options objects and return result objects.
+- **Duration helpers** — `days()`, `hours()`, `minutes()` from `@hogsend/core` replace magic duration strings
+- **Constants** — `Events` and `Templates` objects in `src/journeys/constants/` replace magic string literals with `as const` typed values
+- **`@hogsend/core`** provides types (`JourneyMeta`, `JourneyUser`, `JourneyContext`, `DurationObject`), Zod schema (`journeyMetaSchema`), condition evaluation, duration helpers, and the `JourneyRegistry`
 - **Ingest endpoint** (`/v1/ingest`) stores events, pushes to Hatchet (`hatchet.events.push()`), and processes exit conditions — enrollment is handled asynchronously by the journey tasks
 - Each journey registers as a Hatchet task named `journey-<id>` (e.g. `journey-activation-welcome`)
 
-When adding a new journey: create a file in `src/journeys/`, call `defineJourney()` with meta + run function, import it in `src/journeys/index.ts` and add to the `allJourneys` array. The worker and registry pick it up automatically.
+When adding a new journey: add event/template constants to `src/journeys/constants/`, create a file in `src/journeys/` using `defineJourney()` with duration helpers and constant imports, import it in `src/journeys/index.ts` and add to the `allJourneys` array. The worker and registry pick it up automatically.
 
 ### Testing
 

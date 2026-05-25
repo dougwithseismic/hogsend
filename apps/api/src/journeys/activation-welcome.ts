@@ -1,3 +1,5 @@
+import { days } from "@hogsend/core";
+import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
 export const activationWelcome = defineJourney({
@@ -5,38 +7,41 @@ export const activationWelcome = defineJourney({
     id: "activation-welcome",
     name: "Activation — Welcome Series",
     enabled: true,
-    trigger: { event: "user.created" },
+    trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
     suppressHours: 12,
-    exitOn: [{ event: "user.deleted" }],
+    exitOn: [{ event: Events.USER_DELETED }],
   },
 
   run: async (user, ctx) => {
-    await ctx.sendEmail(user, {
-      template: "activation/welcome",
+    await ctx.email.send(user, {
+      template: Templates.ACTIVATION_WELCOME,
       subject: "Welcome to Hogsend — let's get you set up",
     });
 
-    await ctx.sleepFor("48h", "wait:post_welcome");
+    await ctx.sleep({ duration: days(2), label: "post-welcome" });
 
-    const hasUsedFeature = await ctx.hasEvent(user.id, "feature.used");
+    const { found: hasUsedFeature } = await ctx.event.check({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+    });
 
     if (hasUsedFeature) {
-      await ctx.sendEmail(user, {
-        template: "activation/advanced",
+      await ctx.email.send(user, {
+        template: Templates.ACTIVATION_ADVANCED,
         subject: "Nice work — here's what to try next",
       });
     } else {
-      await ctx.sendEmail(user, {
-        template: "activation/nudge",
+      await ctx.email.send(user, {
+        template: Templates.ACTIVATION_NUDGE,
         subject: "You haven't tried the key feature yet",
       });
     }
 
-    await ctx.sleepFor("48h", "wait:pre_community");
+    await ctx.sleep({ duration: days(2), label: "pre-community" });
 
-    await ctx.sendEmail(user, {
-      template: "activation/community",
+    await ctx.email.send(user, {
+      template: Templates.ACTIVATION_COMMUNITY,
       subject: "Join the community",
     });
   },

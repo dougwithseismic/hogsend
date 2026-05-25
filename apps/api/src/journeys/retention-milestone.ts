@@ -1,3 +1,5 @@
+import { days } from "@hogsend/core";
+import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
 export const retentionMilestone = defineJourney({
@@ -5,22 +7,22 @@ export const retentionMilestone = defineJourney({
     id: "retention-milestone",
     name: "Retention — Milestone Celebration",
     enabled: true,
-    trigger: { event: "milestone.reached" },
+    trigger: { event: Events.MILESTONE_REACHED },
     entryLimit: "unlimited",
     suppressHours: 24,
-    exitOn: [{ event: "user.deleted" }],
+    exitOn: [{ event: Events.USER_DELETED }],
   },
 
   run: async (user, ctx) => {
-    await ctx.sendEmail(user, {
-      template: "retention-achievement",
+    await ctx.email.send(user, {
+      template: Templates.RETENTION_ACHIEVEMENT,
       subject: "Congratulations on your achievement!",
     });
 
-    await ctx.sleepFor("24h", "wait:post-milestone");
+    await ctx.sleep({ duration: days(1), label: "post-milestone" });
 
-    await ctx.sendEmail(user, {
-      template: "activation-community",
+    await ctx.email.send(user, {
+      template: Templates.ACTIVATION_COMMUNITY_ALT,
       subject: "Share your achievement with the community",
     });
   },

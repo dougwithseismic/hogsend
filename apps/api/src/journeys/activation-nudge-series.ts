@@ -1,3 +1,5 @@
+import { days } from "@hogsend/core";
+import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
 export const activationNudgeSeries = defineJourney({
@@ -5,51 +7,58 @@ export const activationNudgeSeries = defineJourney({
     id: "activation-nudge-series",
     name: "Activation — Behavioral Nudges",
     enabled: true,
-    trigger: { event: "user.created" },
+    trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
     suppressHours: 12,
-    exitOn: [{ event: "user.deleted" }, { event: "user.activated" }],
+    exitOn: [{ event: Events.USER_DELETED }, { event: Events.USER_ACTIVATED }],
   },
 
   run: async (user, ctx) => {
-    await ctx.sleepFor("48h", "wait:initial-nudge");
+    await ctx.sleep({ duration: days(2), label: "initial-nudge" });
 
-    const hasUsedFeature = await ctx.hasEvent(user.id, "feature.used", {
+    const { found: hasUsedFeature } = await ctx.event.check({
+      userId: user.id,
+      event: Events.FEATURE_USED,
       withinHours: 48,
     });
     if (!hasUsedFeature) {
-      await ctx.sendEmail(user, {
-        template: "activation-nudge",
+      await ctx.email.send(user, {
+        template: Templates.ACTIVATION_NUDGE_SERIES,
         subject: "You haven't tried the key feature yet",
       });
     }
 
-    await ctx.sleepFor("24h", "wait:setup-check");
+    await ctx.sleep({ duration: days(1), label: "setup-check" });
 
-    const hasCompletedSetup = await ctx.hasEvent(user.id, "setup.completed", {
+    const { found: hasCompletedSetup } = await ctx.event.check({
+      userId: user.id,
+      event: Events.SETUP_COMPLETED,
       withinHours: 72,
     });
     if (!hasCompletedSetup) {
-      await ctx.sendEmail(user, {
-        template: "activation-quickstart",
+      await ctx.email.send(user, {
+        template: Templates.ACTIVATION_QUICKSTART,
         subject: "Need help getting set up?",
       });
     }
 
-    await ctx.sleepFor("48h", "wait:first-value");
+    await ctx.sleep({ duration: days(2), label: "first-value" });
 
-    const hasFirstValue = await ctx.hasEvent(user.id, "value.delivered");
+    const { found: hasFirstValue } = await ctx.event.check({
+      userId: user.id,
+      event: Events.VALUE_DELIVERED,
+    });
     if (hasFirstValue) {
-      await ctx.sendEmail(user, {
-        template: "activation-feature-highlight",
+      await ctx.email.send(user, {
+        template: Templates.ACTIVATION_FEATURE_HIGHLIGHT,
         subject: "Nice work — here's what to try next",
       });
     }
 
-    await ctx.sleepFor("48h", "wait:community");
+    await ctx.sleep({ duration: days(2), label: "community" });
 
-    await ctx.sendEmail(user, {
-      template: "activation-community",
+    await ctx.email.send(user, {
+      template: Templates.ACTIVATION_COMMUNITY_ALT,
       subject: "Join the community",
     });
   },

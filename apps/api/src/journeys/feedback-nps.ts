@@ -1,3 +1,5 @@
+import { days } from "@hogsend/core";
+import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
 export const feedbackNps = defineJourney({
@@ -5,41 +7,45 @@ export const feedbackNps = defineJourney({
     id: "feedback-nps",
     name: "Feedback — NPS Survey",
     enabled: true,
-    trigger: { event: "user.created" },
+    trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
     suppressHours: 24,
-    exitOn: [{ event: "user.deleted" }, { event: "nps.submitted" }],
+    exitOn: [{ event: Events.USER_DELETED }, { event: Events.NPS_SUBMITTED }],
   },
 
   run: async (user, ctx) => {
-    await ctx.sleepFor("336h", "wait:day-14");
+    await ctx.sleep({ duration: days(14), label: "day-14" });
 
-    await ctx.sendEmail(user, {
-      template: "feedback-nps-survey",
+    await ctx.email.send(user, {
+      template: Templates.FEEDBACK_NPS_SURVEY,
       subject: "Quick question — how are we doing?",
     });
 
-    await ctx.sleepFor("72h", "wait:nps-reminder");
+    await ctx.sleep({ duration: days(3), label: "nps-reminder" });
 
-    const hasSubmitted = await ctx.hasEvent(user.id, "nps.submitted", {
+    const { found: hasSubmitted } = await ctx.event.check({
+      userId: user.id,
+      event: Events.NPS_SUBMITTED,
       withinHours: 72,
     });
 
     if (!hasSubmitted) {
-      await ctx.sendEmail(user, {
-        template: "feedback-nps-survey",
+      await ctx.email.send(user, {
+        template: Templates.FEEDBACK_NPS_SURVEY,
         subject: "We'd still love your feedback (10 seconds)",
       });
     }
 
-    await ctx.sleepFor("1104h", "wait:day-60");
+    await ctx.sleep({ duration: days(46), label: "day-60" });
 
-    const hasSubmittedDay60 = await ctx.hasEvent(user.id, "nps.submitted", {
+    const { found: hasSubmittedDay60 } = await ctx.event.check({
+      userId: user.id,
+      event: Events.NPS_SUBMITTED,
       withinHours: 1104,
     });
     if (!hasSubmittedDay60) {
-      await ctx.sendEmail(user, {
-        template: "feedback-nps-survey",
+      await ctx.email.send(user, {
+        template: Templates.FEEDBACK_NPS_SURVEY,
         subject: "How's it going? Quick check-in",
       });
     }

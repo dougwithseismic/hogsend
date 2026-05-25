@@ -18,6 +18,14 @@ import (
 
 var availableJourneys = []string{
 	"activation-welcome",
+	"activation-nudge-series",
+	"conversion-trial-upgrade",
+	"conversion-abandoned-checkout",
+	"retention-milestone",
+	"referral-invite",
+	"feedback-nps",
+	"reactivation-dormancy",
+	"churn-prevention",
 	"test-onboarding",
 }
 

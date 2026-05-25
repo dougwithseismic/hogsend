@@ -1,3 +1,4 @@
+import { Events } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
 export const testOnboarding = defineJourney({
@@ -5,26 +6,43 @@ export const testOnboarding = defineJourney({
     id: "test-onboarding",
     name: "Test — Onboarding Flow",
     enabled: true,
-    trigger: { event: "test.signup" },
+    trigger: { event: Events.TEST_SIGNUP },
     entryLimit: "unlimited",
     suppressHours: 0,
   },
 
   run: async (user, ctx) => {
-    await ctx.fireEvent(user.id, "journey.welcome_fired", { step: "welcome" });
+    await ctx.event.fire({
+      userId: user.id,
+      event: Events.JOURNEY_WELCOME_FIRED,
+      properties: { step: "welcome" },
+    });
 
-    const isPro = await ctx.checkProperty("context", "plan", "eq", "pro");
+    const { matched: isPro } = await ctx.property.check({
+      source: "context",
+      property: "plan",
+      operator: "eq",
+      value: "pro",
+    });
 
     if (isPro) {
-      await ctx.fireEvent(user.id, "journey.pro_path", {
-        step: "pro_branch",
+      await ctx.event.fire({
+        userId: user.id,
+        event: Events.JOURNEY_PRO_PATH,
+        properties: { step: "pro_branch" },
       });
     } else {
-      await ctx.fireEvent(user.id, "journey.free_path", {
-        step: "free_branch",
+      await ctx.event.fire({
+        userId: user.id,
+        event: Events.JOURNEY_FREE_PATH,
+        properties: { step: "free_branch" },
       });
     }
 
-    await ctx.fireEvent(user.id, "journey.completed", { step: "done" });
+    await ctx.event.fire({
+      userId: user.id,
+      event: Events.JOURNEY_COMPLETED,
+      properties: { step: "done" },
+    });
   },
 });
