@@ -1,5 +1,7 @@
 # Hogsend
 
+> **Work in progress.** This is a no-fuss, self-hosted lifecycle marketing platform for scrappy startups that want full lifecycle email on top of PostHog and Resend — yesterday. Use it to move fast and test ideas before going full send into Customer.io, Brevo, etc.
+
 The pipe between PostHog events and the lifecycle emails you were about to hand-roll anyway.
 
 PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys are async TypeScript functions, not YAML configs or drag-and-drop canvases. You write them like application code because they are application code.
@@ -38,24 +40,24 @@ PostHog webhooks ──┐
 Your app events ───┤──▶ /v1/ingest ──▶ Hatchet routes to matching journeys
 API calls ─────────┘                          │
                                               ▼
-                                    ┌─────────────────┐
-                                    │  defineJourney() │
-                                    │  async run fn    │
-                                    │                  │
-                                    │  sendEmail       │
-                                    │  sleepFor        │
-                                    │  hasEvent        │
-                                    │  checkProperty   │
-                                    │  fireEvent       │
-                                    │  webhook         │
-                                    │  enrollJourney   │
-                                    └────────┬────────┘
-                                             │
-                    ┌────────────┬────────────┼────────────┬──────────┐
-                    ▼            ▼            ▼            ▼          ▼
-                 Resend      PostHog      Webhooks     Enroll     Sleep &
-                 (email)     (event       (HTTP)       another    resume
-                             push-back)                journey    later
+                                    ┌──────────────────────┐
+                                    │  defineJourney()      │
+                                    │  async run fn         │
+                                    │                       │
+                                    │  ctx.email.send()     │
+                                    │  ctx.sleep()          │
+                                    │  ctx.event.check()    │
+                                    │  ctx.event.fire()     │
+                                    │  ctx.property.check() │
+                                    │  ctx.webhook.send()   │
+                                    │  ctx.journey.enroll() │
+                                    └──────────┬───────────┘
+                                               │
+                    ┌────────────┬──────────────┼────────────┬──────────┐
+                    ▼            ▼              ▼            ▼          ▼
+                 Resend      PostHog        Webhooks     Enroll     Sleep &
+                 (email)     (event         (HTTP)       another    resume
+                             push-back)                  journey    later
 ```
 
 Events pushed back to PostHog mean you can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, no separate tool.
@@ -69,6 +71,8 @@ Journeys use `defineJourney()` — you declare metadata (trigger, entry limits, 
 ### Example: Welcome Series
 
 ```typescript
+import { days } from "@hogsend/core";
+import { Events, Templates } from "./constants/index.js";
 import { defineJourney } from "./define-journey.js";
 
 export const activationWelcome = defineJourney({
@@ -76,38 +80,41 @@ export const activationWelcome = defineJourney({
     id: "activation-welcome",
     name: "Activation — Welcome Series",
     enabled: true,
-    trigger: { event: "user.created" },
+    trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
     suppressHours: 12,
-    exitOn: [{ event: "user.deleted" }],
+    exitOn: [{ event: Events.USER_DELETED }],
   },
 
   run: async (user, ctx) => {
-    await ctx.sendEmail(user, {
-      template: "activation/welcome",
+    await ctx.email.send(user, {
+      template: Templates.ACTIVATION_WELCOME,
       subject: "Welcome — let's get you set up",
     });
 
-    await ctx.sleepFor("48h", "wait:post_welcome");
+    await ctx.sleep({ duration: days(2), label: "post-welcome" });
 
-    const hasUsedFeature = await ctx.hasEvent(user.id, "feature.used");
+    const { found: hasUsedFeature } = await ctx.event.check({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+    });
 
     if (hasUsedFeature) {
-      await ctx.sendEmail(user, {
-        template: "activation/advanced",
+      await ctx.email.send(user, {
+        template: Templates.ACTIVATION_ADVANCED,
         subject: "Nice work — here's what to try next",
       });
     } else {
-      await ctx.sendEmail(user, {
-        template: "activation/nudge",
+      await ctx.email.send(user, {
+        template: Templates.ACTIVATION_NUDGE,
         subject: "You haven't tried the key feature yet",
       });
     }
 
-    await ctx.sleepFor("48h", "wait:pre_community");
+    await ctx.sleep({ duration: days(2), label: "pre-community" });
 
-    await ctx.sendEmail(user, {
-      template: "activation/community",
+    await ctx.email.send(user, {
+      template: Templates.ACTIVATION_COMMUNITY,
       subject: "Join the community",
     });
   },
@@ -115,6 +122,8 @@ export const activationWelcome = defineJourney({
 ```
 
 That's a real journey. It sleeps for days, checks behavioral events, branches, and sends different emails based on what the user actually did. The `run` function is a durable execution — Hatchet persists state across sleeps, so it survives deploys and restarts.
+
+Duration helpers (`days()`, `hours()`, `minutes()`) replace magic strings. Constants (`Events`, `Templates`) replace magic event/template names. Every context method uses object params and returns a result object.
 
 ### Example: Churn Prevention
 
@@ -124,43 +133,49 @@ export const churnPrevention = defineJourney({
     id: "churn-prevention",
     name: "Churn — Payment Recovery & Prevention",
     enabled: true,
-    trigger: { event: "payment.failed" },
+    trigger: { event: Events.PAYMENT_FAILED },
     entryLimit: "once_per_period",
     entryPeriodHours: 168,
     suppressHours: 4,
     exitOn: [
-      { event: "payment.succeeded" },
-      { event: "subscription.cancelled" },
+      { event: Events.PAYMENT_SUCCEEDED },
+      { event: Events.SUBSCRIPTION_CANCELLED },
     ],
   },
 
   run: async (user, ctx) => {
-    await ctx.sendEmail(user, {
-      template: "churn-payment-failed",
+    await ctx.email.send(user, {
+      template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Your payment didn't go through",
     });
 
-    await ctx.sleepFor("24h", "wait:first-retry");
+    await ctx.sleep({ duration: days(1), label: "first-retry" });
 
-    const hasRetried = await ctx.hasEvent(user.id, "payment.succeeded", {
+    const { found: hasRetried } = await ctx.event.check({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
       withinHours: 24,
     });
     if (hasRetried) return;
 
-    await ctx.sendEmail(user, {
-      template: "churn-payment-failed",
+    await ctx.email.send(user, {
+      template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Reminder: please update your payment method",
+      props: { gracePeriodDays: 2 },
     });
 
-    await ctx.sleepFor("48h", "wait:final-notice");
+    await ctx.sleep({ duration: days(2), label: "final-notice" });
 
-    const hasResolved = await ctx.hasEvent(user.id, "payment.succeeded", {
+    const { found: hasResolved } = await ctx.event.check({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
       withinHours: 72,
     });
     if (!hasResolved) {
-      await ctx.sendEmail(user, {
-        template: "churn-payment-failed",
+      await ctx.email.send(user, {
+        template: Templates.CHURN_PAYMENT_FAILED,
         subject: "Final notice: your account will be downgraded tomorrow",
+        props: { gracePeriodDays: 1 },
       });
     }
   },
@@ -171,19 +186,21 @@ Notice `exitOn` — if a `payment.succeeded` event arrives at any point during t
 
 ### Context API
 
-The `ctx` object passed to every journey's `run` function:
+The `ctx` object passed to every journey's `run` function. Every method takes an options object and returns a result object.
 
-| Method | What it does |
-|--------|-------------|
-| `ctx.sendEmail(user, { template, subject, props? })` | Render a React Email template, send via Resend, track delivery |
-| `ctx.sleepFor("48h", "label")` | Durable sleep — survives deploys, persists state to DB |
-| `ctx.hasEvent(userId, "event.name", { withinHours? })` | Check if a user has a specific event in the local store |
-| `ctx.checkProperty(source, property, operator, value?)` | Check a PostHog person property or journey context value |
-| `ctx.checkEmailEngagement(templateKey, "opened"\|"clicked")` | Check if a user opened/clicked a specific email |
-| `ctx.fireEvent(userId, "event.name", properties?)` | Insert event locally + push to PostHog |
-| `ctx.webhook(url, { method?, headers?, body? })` | POST/PUT to an external URL |
-| `ctx.enrollJourney(userId, userEmail, journeyId)` | Enroll a user in another journey |
-| `ctx.checkpoint("label")` | Update the journey state label (for observability) |
+| Method | What it does | Returns |
+|--------|-------------|---------|
+| `ctx.email.send(user, { template, subject, props? })` | Render a React Email template, send via Resend, track delivery | `{ emailId, sentAt }` |
+| `ctx.email.checkEngagement({ templateKey, check })` | Check if a user opened/clicked a specific email | `{ matched, check }` |
+| `ctx.sleep({ duration: days(2), label? })` | Durable sleep — survives deploys, persists state to DB | `{ sleptAt, resumedAt }` |
+| `ctx.event.check({ userId, event, withinHours? })` | Check if a user has a specific event in the local store | `{ found, count }` |
+| `ctx.event.fire({ userId, event, properties? })` | Insert event locally + push to Hatchet | `{ eventKey, firedAt }` |
+| `ctx.property.check({ source, property, operator, value? })` | Check a PostHog person property or journey context value | `{ matched, actualValue? }` |
+| `ctx.webhook.send({ url, method?, headers?, body? })` | POST/PUT to an external URL | `{ statusCode }` |
+| `ctx.journey.enroll({ userId, userEmail, journeyId })` | Enroll a user in another journey | `{ enrolledAt }` |
+| `ctx.checkpoint("label")` | Update the journey state label (for observability) | `void` |
+
+Duration helpers from `@hogsend/core`: `days(n)`, `hours(n)`, `minutes(n)` — type-safe, human-readable, no magic strings.
 
 ### Journey Metadata
 
@@ -200,9 +217,10 @@ The `ctx` object passed to every journey's `run` function:
 
 ### Adding a Journey
 
-1. Create `apps/api/src/journeys/your-journey.ts` using `defineJourney()`
-2. Import it in `apps/api/src/journeys/index.ts` and add to `allJourneys`
-3. Deploy — the worker picks it up automatically
+1. Add any new event/template names to `apps/api/src/journeys/constants/`
+2. Create `apps/api/src/journeys/your-journey.ts` using `defineJourney()` with `days()`/`hours()` helpers and constant imports
+3. Import it in `apps/api/src/journeys/index.ts` and add to `allJourneys`
+4. Deploy — the worker picks it up automatically
 
 ### Included Journeys
 
@@ -213,13 +231,13 @@ The repo ships with 10 production-ready journeys covering common lifecycle stage
 | `activation-welcome` | `user.created` | Welcome series with feature-adoption branching |
 | `activation-nudge-series` | `user.created` | Multi-touch onboarding nudges for inactive users |
 | `conversion-trial-upgrade` | `trial.started` | Trial-to-paid conversion with usage-based sends |
-| `conversion-abandoned-checkout` | `checkout.started` | Cart recovery sequence |
-| `retention-milestone` | `milestone.reached` | Achievement celebrations + weekly digests |
+| `conversion-abandoned-checkout` | `checkout.abandoned` | Cart recovery sequence |
+| `retention-milestone` | `milestone.reached` | Achievement celebrations |
 | `referral-invite` | `milestone.reached` | Post-achievement referral prompts for active users |
-| `feedback-nps` | `subscription.renewed` | NPS survey collection |
-| `reactivation-dormancy` | `user.dormant` | Win-back sequence for inactive users |
+| `feedback-nps` | `user.created` | NPS survey collection (14-day + 60-day) |
+| `reactivation-dormancy` | `user.dormancy_detected` | Win-back sequence for inactive users |
 | `churn-prevention` | `payment.failed` | Payment failure recovery escalation |
-| `test-onboarding` | `test.onboarding` | Test journey for development |
+| `test-onboarding` | `test.signup` | Test journey for development |
 
 ---
 
@@ -391,6 +409,12 @@ Production runs on Railway with two services (API + Worker), Postgres, Redis, an
 
 ---
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, code style, and how to submit changes.
+
+---
+
 ## License
 
-MIT
+[Elastic License 2.0 (ELv2)](LICENSE) — you can use, modify, and self-host freely. The two things you can't do: offer it as a managed service to third parties, or remove license key functionality. See the [LICENSE](LICENSE) file for the full terms.
