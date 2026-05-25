@@ -18,6 +18,7 @@
     "@hogsend/core": "workspace:^",
     "@hogsend/db": "workspace:^",
     "@hogsend/email": "workspace:^",
+    "@hogsend/plugin-resend": "workspace:^",
     "@hono/node-server": "^2.0.4",
     "@hono/zod-openapi": "^1.4.0",
     "@scalar/hono-api-reference": "^0.10.19",

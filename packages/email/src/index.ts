@@ -16,8 +16,6 @@ export { default as RetentionAchievementEmail } from "../emails/retention-achiev
 export { default as RetentionWeeklyDigestEmail } from "../emails/retention-weekly-digest.js";
 export { default as WelcomeEmail } from "../emails/welcome.js";
 
-// Client
-export { createResendClient } from "./client.js";
 // Template registry
 export {
   createRegistry,
@@ -27,40 +25,22 @@ export {
   getTemplateDefinition,
   getTemplateNames,
 } from "./registry.js";
+
 // Rendering
 export { renderToHtml, renderToPlainText } from "./render.js";
-// Sending (with retry + auto-chunking)
-export { sendBatchEmails, sendEmail } from "./send.js";
 
-// Service (high-level DX)
-export { createEmailService } from "./service.js";
-// Tracked email (DB integration)
-export { sendTrackedEmail } from "./tracked.js";
 // Types
 export type {
   ActivationCommunityEmailProps,
   ActivationFeatureHighlightEmailProps,
   ActivationNudgeEmailProps,
   ActivationQuickstartEmailProps,
-  BatchEmailItem,
   ChurnPaymentFailedEmailProps,
   ConversionTrialExpiringEmailProps,
   ConversionUsageMilestoneEmailProps,
   ConversionWinbackOfferEmailProps,
-  EmailBouncedEvent,
-  EmailClickedEvent,
-  EmailComplainedEvent,
-  EmailDeliveredEvent,
-  EmailDeliveryDelayedEvent,
-  EmailOpenedEvent,
-  EmailSentEvent,
-  EmailService,
-  EmailServiceConfig,
   EmailServiceRenderOptions,
   EmailServiceRenderResult,
-  EmailServiceSendOptions,
-  EmailServiceWebhookOptions,
-  EmailServiceWebhookResult,
   FeedbackNpsSurveyEmailProps,
   JourneyNotificationEmailProps,
   PasswordResetEmailProps,
@@ -69,45 +49,36 @@ export type {
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
   RetryOptions,
-  SendEmailOptions,
-  SendResult,
-  SendTrackedEmailOptions,
   TemplateDefinition,
   TemplateMap,
   TemplateName,
   TemplateRegistry,
-  TrackedSendResult,
-  WebhookEvent,
-  WebhookEventType,
-  WebhookHandlerMap,
   WelcomeEmailProps,
 } from "./types.js";
-// Error classes
+
+// Runtime values & error classes
 export {
+  DEFAULT_RETRY_OPTIONS,
   EmailSendError,
   EmailSuppressionError,
   WebhookVerificationError,
 } from "./types.js";
+
+// Unsubscribe tokens
 export type {
   TokenAction,
   TokenOptions,
   UnsubscribeTokenPayload,
 } from "./unsubscribe-tokens.js";
-// Unsubscribe tokens
 export {
   generateUnsubscribeToken,
   InvalidTokenError,
   validateUnsubscribeToken,
 } from "./unsubscribe-tokens.js";
-export type { UnsubscribeUrlOptions } from "./unsubscribe-url.js";
+
 // Unsubscribe URLs
+export type { UnsubscribeUrlOptions } from "./unsubscribe-url.js";
 export {
   generatePreferenceCenterUrl,
   generateUnsubscribeUrl,
 } from "./unsubscribe-url.js";
-// Webhooks
-export {
-  createWebhookHandler,
-  parseWebhookEvent,
-  verifyWebhook,
-} from "./webhooks.js";

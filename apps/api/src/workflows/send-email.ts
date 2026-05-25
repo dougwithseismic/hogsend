@@ -1,5 +1,5 @@
 import { NonRetryableError } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import { createResendClient } from "@hogsend/email";
+import { createResendClient } from "@hogsend/plugin-resend";
 import { hatchet } from "../lib/hatchet.js";
 
 const resend = createResendClient(process.env.RESEND_API_KEY ?? "");

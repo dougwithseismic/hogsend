@@ -1,6 +1,6 @@
+import { WebhookVerificationError } from "@hogsend/email";
 import { describe, expect, it } from "vitest";
 import type { EmailSentEvent } from "../types.js";
-import { WebhookVerificationError } from "../types.js";
 import { createWebhookHandler, parseWebhookEvent } from "../webhooks.js";
 
 function makeSentEvent(): EmailSentEvent {

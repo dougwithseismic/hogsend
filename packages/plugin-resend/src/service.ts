@@ -1,23 +1,24 @@
 import type { Database } from "@hogsend/db";
 import { emailPreferences, emailSends } from "@hogsend/db";
+import type {
+  EmailServiceRenderOptions,
+  EmailServiceRenderResult,
+  TemplateName,
+} from "@hogsend/email";
+import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
 import { eq, sql } from "drizzle-orm";
-import { Resend } from "resend";
-import { getTemplate } from "./registry.js";
-import { renderToHtml, renderToPlainText } from "./render.js";
+import { createResendClient } from "./client.js";
 import { sendBatchEmails, sendEmail } from "./send.js";
 import { sendTrackedEmail } from "./tracked.js";
 import type {
   BatchEmailItem,
   EmailService,
   EmailServiceConfig,
-  EmailServiceRenderOptions,
-  EmailServiceRenderResult,
   EmailServiceSendOptions,
   EmailServiceWebhookOptions,
   EmailServiceWebhookResult,
   SendEmailOptions,
   SendResult,
-  TemplateName,
   TrackedSendResult,
   WebhookEventType,
   WebhookHandlerMap,
@@ -45,7 +46,7 @@ const WEBHOOK_TO_STATUS: Partial<Record<WebhookEventType, string>> = {
 };
 
 export function createEmailService(config: EmailServiceConfig): EmailService {
-  const client = new Resend(config.apiKey);
+  const client = createResendClient(config.apiKey);
   const db = config.db as Database | undefined;
   const retryDefaults = config.retryOptions;
 

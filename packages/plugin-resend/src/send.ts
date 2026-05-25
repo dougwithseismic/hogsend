@@ -1,12 +1,10 @@
-import type { Resend } from "resend";
 import {
-  type BatchEmailItem,
   DEFAULT_RETRY_OPTIONS,
   EmailSendError,
   type RetryOptions,
-  type SendEmailOptions,
-  type SendResult,
-} from "./types.js";
+} from "@hogsend/email";
+import type { Resend } from "resend";
+import type { BatchEmailItem, SendEmailOptions, SendResult } from "./types.js";
 
 const BATCH_CHUNK_SIZE = 100;
 

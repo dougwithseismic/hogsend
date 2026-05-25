@@ -1,8 +1,8 @@
+import { EmailSendError } from "@hogsend/email";
 import { createElement } from "react";
 import type { Resend } from "resend";
 import { describe, expect, it, vi } from "vitest";
 import { sendBatchEmails, sendEmail } from "../send.js";
-import { EmailSendError } from "../types.js";
 
 function mockResendClient(overrides?: {
   sendFn?: () => Promise<unknown>;

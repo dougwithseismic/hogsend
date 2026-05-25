@@ -1,16 +1,15 @@
 import type { Database } from "@hogsend/db";
 import { emailPreferences, emailSends } from "@hogsend/db";
-import { eq } from "drizzle-orm";
-import type { Resend } from "resend";
-import { getTemplate } from "./registry.js";
-import { sendEmail } from "./send.js";
 import type {
   EmailSuppressionError,
   RetryOptions,
-  SendTrackedEmailOptions,
   TemplateName,
-  TrackedSendResult,
-} from "./types.js";
+} from "@hogsend/email";
+import { getTemplate } from "@hogsend/email";
+import { eq } from "drizzle-orm";
+import type { Resend } from "resend";
+import { sendEmail } from "./send.js";
+import type { SendTrackedEmailOptions, TrackedSendResult } from "./types.js";
 
 interface TrackedEmailDeps {
   db: Database;

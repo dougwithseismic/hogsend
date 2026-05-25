@@ -9,5 +9,13 @@ export default defineConfig({
   clean: true,
   splitting: false,
   sourcemap: true,
-  external: ["react", "react-dom", "react-email"],
+  external: [
+    "react",
+    "react-dom",
+    "resend",
+    "svix",
+    "@hogsend/db",
+    "@hogsend/email",
+    "drizzle-orm",
+  ],
 });

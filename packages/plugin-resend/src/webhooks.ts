@@ -1,9 +1,9 @@
+import { WebhookVerificationError } from "@hogsend/email";
 import { Webhook } from "svix";
-import {
-  type WebhookEvent,
-  type WebhookEventType,
-  type WebhookHandlerMap,
-  WebhookVerificationError,
+import type {
+  WebhookEvent,
+  WebhookEventType,
+  WebhookHandlerMap,
 } from "./types.js";
 
 export interface WebhookVerifyOptions {

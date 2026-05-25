@@ -9,7 +9,7 @@ import {
   createEmailService,
   createResendClient,
   type EmailService,
-} from "@hogsend/email";
+} from "@hogsend/plugin-resend";
 import type { Resend } from "resend";
 import { env } from "./env.js";
 import { createJourneyRegistry } from "./journeys/index.js";

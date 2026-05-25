@@ -41,6 +41,9 @@ importers:
       '@hogsend/email':
         specifier: workspace:^
         version: link:../../packages/email
+      '@hogsend/plugin-resend':
+        specifier: workspace:^
+        version: link:../../packages/plugin-resend
       '@hono/node-server':
         specifier: ^2.0.4
         version: 2.0.4(hono@4.12.22)
@@ -136,17 +139,7 @@ importers:
         version: 4.22.3
 
   packages/email:
-    dependencies:
-      resend:
-        specifier: ^6.12.3
-        version: 6.12.3(@react-email/render@2.0.8(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
-      svix:
-        specifier: ^1.94.0
-        version: 1.94.0
     devDependencies:
-      '@hogsend/db':
-        specifier: workspace:^
-        version: link:../db
       '@react-email/ui':
         specifier: ^6.3.2
         version: 6.3.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -162,9 +155,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.0.0
         version: 19.2.3(@types/react@19.2.15)
-      drizzle-orm:
-        specifier: ^0.45.2
-        version: 0.45.2(kysely@0.28.17)(postgres@3.4.9)
       react:
         specifier: ^19.0.0
         version: 19.2.6
@@ -174,6 +164,46 @@ importers:
       react-email:
         specifier: ^6.3.2
         version: 6.3.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.3)(typescript@5.9.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.7(@types/node@22.15.3)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.22.3)(yaml@2.9.0))
+
+  packages/plugin-resend:
+    dependencies:
+      '@hogsend/email':
+        specifier: workspace:*
+        version: link:../email
+      resend:
+        specifier: ^6.12.3
+        version: 6.12.3(@react-email/render@2.0.8(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
+      svix:
+        specifier: ^1.94.0
+        version: 1.94.0
+    devDependencies:
+      '@hogsend/db':
+        specifier: workspace:^
+        version: link:../db
+      '@repo/typescript-config':
+        specifier: workspace:^
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.15.3
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.15
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(kysely@0.28.17)(postgres@3.4.9)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.6
       tsup:
         specifier: ^8.0.0
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.3)(typescript@5.9.2)(yaml@2.9.0)
