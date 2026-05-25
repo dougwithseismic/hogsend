@@ -4,6 +4,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -14,6 +15,7 @@ export const userEvents = pgTable(
     userId: text("user_id").notNull(),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),
+    idempotencyKey: text("idempotency_key"),
     occurredAt: timestamp("occurred_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -27,5 +29,6 @@ export const userEvents = pgTable(
       table.event,
       table.occurredAt,
     ),
+    uniqueIndex("user_events_idempotency_key_idx").on(table.idempotencyKey),
   ],
 );

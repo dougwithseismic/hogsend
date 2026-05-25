@@ -7,15 +7,18 @@ const container = createContainer();
 const app = createApp(container);
 
 describe("GET /v1/health", () => {
-  it("returns healthy status", async () => {
+  it("returns health status with components", async () => {
     const res = await app.request("/v1/health");
     expect(res.status).toBe(200);
 
     const body = await res.json();
-    expect(body.status).toBe("healthy");
+    expect(["healthy", "degraded"]).toContain(body.status);
     expect(body.version).toBe(API_VERSION);
     expect(body.uptime).toBeTypeOf("number");
     expect(body.timestamp).toBeTruthy();
+    expect(body.components).toBeDefined();
+    expect(body.components.database).toBeDefined();
+    expect(body.components.redis).toBeDefined();
   });
 
   it("includes request-id header", async () => {

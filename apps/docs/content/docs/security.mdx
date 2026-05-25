@@ -1,0 +1,228 @@
+---
+title: "Auth, Audit & Security"
+description: "Multi-key API authentication, scoped permissions, audit logging, soft delete, and rate limiting."
+---
+
+Hogsend provides layered security for your lifecycle automation. This page covers API key management, permission scoping, audit trails, data safety, and request rate limiting.
+
+## API Authentication
+
+All `/v1/admin/*` endpoints require a bearer token. Hogsend supports two authentication modes that can be used simultaneously.
+
+### Legacy Key
+
+Set the `ADMIN_API_KEY` environment variable to enable a static key with full admin access:
+
+```bash
+# .env
+ADMIN_API_KEY=your-secret-admin-key
+```
+
+```bash
+curl -H "Authorization: Bearer your-secret-admin-key" \
+  http://localhost:3002/v1/admin/contacts
+```
+
+This is the simplest setup and suitable for single-operator environments. The legacy key always has full admin access.
+
+### Database-Backed Keys
+
+For multi-user or programmatic access, create scoped API keys via the API:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys \
+  -H "Authorization: Bearer your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CI Pipeline",
+    "scopes": ["read"],
+    "expiresAt": "2025-06-01T00:00:00.000Z"
+  }'
+```
+
+```json
+{
+  "id": "key-uuid",
+  "name": "CI Pipeline",
+  "key": "hsk_abc123def456ghi789...",
+  "keyPrefix": "hsk_abc1",
+  "scopes": ["read"],
+  "expiresAt": "2025-06-01T00:00:00.000Z",
+  "createdAt": "2025-01-15T10:30:00.000Z"
+}
+```
+
+The `key` field is the raw API key. Save it immediately -- it is SHA-256 hashed before storage and cannot be retrieved again.
+
+## Key Scoping
+
+Database-backed keys support three scope levels:
+
+| Scope | Access |
+|---|---|
+| `read` | GET endpoints only (list contacts, view metrics, browse events) |
+| `journey-admin` | Read access plus journey management (enable/disable, enroll, cancel) |
+| `full-admin` | All operations including key management, imports, and configuration |
+
+Scope enforcement is checked on every request. A `read`-scoped key attempting a POST request will receive `403 Forbidden`.
+
+### Recommended Key Strategy
+
+| Use Case | Scope | Expiry |
+|---|---|---|
+| Dashboard / monitoring | `read` | No expiry |
+| CI/CD pipeline | `read` | 90 days |
+| Journey management tool | `journey-admin` | No expiry |
+| Admin scripts / automation | `full-admin` | 30 days |
+| One-time data migration | `full-admin` | 24 hours |
+
+## Key Lifecycle
+
+### Create
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys \
+  -H "Authorization: Bearer your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Monitoring Dashboard", "scopes": ["read"] }'
+```
+
+### List
+
+```bash
+curl -H "Authorization: Bearer your-admin-key" \
+  "http://localhost:3002/v1/admin/api-keys"
+```
+
+Revoked keys are hidden by default. Add `?includeRevoked=true` to see them.
+
+### Revoke
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/api-keys/key-uuid \
+  -H "Authorization: Bearer your-admin-key"
+```
+
+Revocation is immediate. The key is removed from the in-memory cache and cannot be used again.
+
+### Auth Cache
+
+Active keys are cached in memory for 60 seconds to avoid hitting the database on every request. This means:
+
+- A newly created key works immediately (cache miss triggers DB lookup)
+- A revoked key may still work for up to 60 seconds (until the cache entry expires)
+- No external cache infrastructure (Redis) is required for auth
+
+## Audit Logging
+
+Every admin mutation (POST, PUT, PATCH, DELETE) is automatically recorded in the audit log. No configuration needed -- the audit logger middleware captures:
+
+| Field | Description |
+|---|---|
+| `actor` | The key name or "legacy" for the env-var key |
+| `actorKeyId` | The API key UUID (null for legacy key) |
+| `action` | What was done: `create`, `update`, `delete`, `revoke`, `enroll`, `cancel`, `import`, `export`, `replay`, `resend` |
+| `resource` | What was affected: `contact`, `journey`, `api-key`, `alert-rule`, `email`, `event`, `dlq` |
+| `resourceId` | The target resource's identifier |
+| `detail` | Additional context (e.g., the externalId of a created contact) |
+| `ipAddress` | The client's IP address |
+
+### Querying Audit Logs
+
+```bash
+# All mutations in the last week
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?from=2025-01-08T00:00:00Z"
+
+# Contact deletions by a specific key
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?resource=contact&action=delete&actor=CI%20Pipeline"
+
+# All actions by the legacy key
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?actor=legacy"
+```
+
+```json
+{
+  "logs": [
+    {
+      "id": "log-uuid",
+      "actor": "CI Pipeline",
+      "actorKeyId": "key-uuid",
+      "action": "create",
+      "resource": "contact",
+      "resourceId": "contact-uuid",
+      "detail": { "externalId": "user_abc123" },
+      "ipAddress": "192.168.1.1",
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+## Soft Delete
+
+When you delete a contact via `DELETE /v1/admin/contacts/{id}`, the record is not permanently removed. Instead, a `deletedAt` timestamp is set on the row.
+
+Soft-deleted contacts:
+
+- Are excluded from all list queries and search results
+- Cannot be enrolled in journeys
+- Will not receive any emails
+- Have their email preferences and journey states preserved
+
+This approach protects against accidental data loss and maintains referential integrity with historical email and journey records.
+
+## Rate Limiting
+
+All API endpoints are protected by a sliding-window rate limiter:
+
+| Setting | Value |
+|---|---|
+| Window | 1 minute |
+| Max requests | 100 per API key |
+| Backend | Redis (primary) with in-memory fallback |
+| Header | `X-RateLimit-Remaining` |
+
+When the limit is exceeded, the API returns:
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 32
+```
+
+```json
+{ "error": "Rate limit exceeded" }
+```
+
+### Rate Limit Behavior
+
+- Each API key (or IP for unauthenticated endpoints) has its own counter
+- The window slides continuously -- no fixed reset times
+- Redis is the primary backend for distributed counting across multiple API instances
+- If Redis is unavailable, an in-memory counter is used as fallback (per-instance only)
+- The `Retry-After` header indicates seconds until the next request will be accepted
+
+### Best Practices
+
+- **Batch operations** -- use bulk endpoints (`/import`, `/enroll/batch`, `/replay`) instead of individual calls
+- **Cache responses** -- metrics and list endpoints return stable data for short periods
+- **Use webhooks** -- subscribe to Resend webhooks instead of polling email status
+- **Exponential backoff** -- on 429 responses, back off exponentially rather than retrying immediately
+
+## Security Checklist
+
+When deploying Hogsend to production:
+
+1. **Set a strong `ADMIN_API_KEY`** -- at least 32 random characters
+2. **Set a strong `BETTER_AUTH_SECRET`** -- used for session signing
+3. **Use HTTPS** -- all API keys are transmitted in headers; never use HTTP in production
+4. **Create scoped keys** -- avoid sharing the legacy key; create read-only keys for monitoring
+5. **Set key expiry dates** -- especially for CI/CD and one-time migration keys
+6. **Monitor audit logs** -- periodically review for unexpected mutations
+7. **Configure Resend webhook verification** -- set `RESEND_WEBHOOK_SECRET` to validate webhook payloads
+8. **Review rate limit settings** -- 100 req/min is suitable for most teams but can be adjusted via environment configuration

@@ -1,0 +1,442 @@
+---
+title: "Contact Management"
+description: "Managing contacts, imports, exports, and preferences"
+---
+
+Contacts are the people in your system. Every event you ingest, every journey enrollment, and every email send is tied to a contact record. This page covers day-to-day contact management -- from searching and inspecting to bulk operations and preference management.
+
+## How Contacts Work
+
+A contact is identified by its `externalId` -- your system's user identifier. When an event arrives via the ingest endpoint or a webhook source, Hogsend automatically upserts a contact record using the `userId` from the event payload.
+
+This means contacts are typically created automatically as events flow in. You only need to create contacts manually when you are pre-loading data (e.g., importing from another tool) or when you want to set properties before any events arrive.
+
+Each contact has:
+
+- `externalId` -- your user identifier (immutable after creation)
+- `email` -- email address (used for journey emails and unsubscribe management)
+- `properties` -- a JSON object of arbitrary key-value pairs (plan, company, role, etc.)
+- `firstSeenAt` / `lastSeenAt` -- auto-updated timestamps tracking activity
+- `deletedAt` -- set when soft-deleted, null otherwise
+
+## Listing and Searching Contacts
+
+```bash
+# List contacts (default: 50, ordered by lastSeenAt desc)
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts
+```
+
+```bash
+# Search by email domain
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts?search=acme.com&limit=25"
+```
+
+```bash
+# Search by externalId
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts?search=user_abc123"
+```
+
+The `search` parameter matches against both `email` and `externalId` (case-insensitive). Pagination uses `limit` (1-100, default 50) and `offset`.
+
+```json
+{
+  "contacts": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "externalId": "user_abc123",
+      "email": "user@acme.com",
+      "properties": { "plan": "pro", "company": "Acme Corp" },
+      "firstSeenAt": "2025-01-10T08:00:00.000Z",
+      "lastSeenAt": "2025-01-15T10:30:00.000Z",
+      "createdAt": "2025-01-10T08:00:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+## Viewing a Contact Profile
+
+Fetch a single contact by UUID or `externalId`. The response includes the contact's email preferences.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123
+```
+
+```json
+{
+  "contact": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "externalId": "user_abc123",
+    "email": "user@acme.com",
+    "properties": { "plan": "pro", "company": "Acme Corp" },
+    "firstSeenAt": "2025-01-10T08:00:00.000Z",
+    "lastSeenAt": "2025-01-15T10:30:00.000Z"
+  },
+  "preferences": {
+    "id": "pref-uuid",
+    "userId": "user_abc123",
+    "email": "user@acme.com",
+    "unsubscribedAll": false,
+    "suppressed": false,
+    "bounceCount": 0,
+    "categories": { "journey": true }
+  }
+}
+```
+
+The `preferences` field is `null` if no preference record exists for the contact (i.e., they have never been sent an email or interacted with the preference center).
+
+## Creating a Contact
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/contacts \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "externalId": "user_new_001",
+    "email": "newuser@example.com",
+    "properties": { "plan": "trial", "source": "manual" }
+  }'
+```
+
+The `externalId` must be unique. If a contact with the same `externalId` already exists, you get a `409 Conflict`.
+
+## Updating a Contact
+
+Properties are **merged**, not replaced. If a contact has `{ "plan": "pro", "company": "Acme" }` and you send `{ "plan": "enterprise" }`, the result is `{ "plan": "enterprise", "company": "Acme" }`.
+
+```bash
+curl -X PATCH http://localhost:3002/v1/admin/contacts/user_abc123 \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "updated@acme.com",
+    "properties": { "plan": "enterprise" }
+  }'
+```
+
+## Bulk Import
+
+Import contacts from CSV or JSON format. Imports run asynchronously via Hatchet, so the API returns immediately with a job ID.
+
+### CSV Format
+
+CSV imports expect a header row. The `externalId` column is required, `email` is optional, and all other columns are stored as contact properties:
+
+```
+externalId,email,plan,company
+user_001,alice@acme.com,pro,Acme Corp
+user_002,bob@example.com,free,
+user_003,,enterprise,BigCo
+```
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/contacts/import \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "csv",
+    "data": "externalId,email,plan,company\nuser_001,alice@acme.com,pro,Acme Corp\nuser_002,bob@example.com,free,",
+    "fileName": "q1-migration.csv"
+  }'
+```
+
+### JSON Format
+
+JSON imports accept a stringified array of contact objects:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/contacts/import \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "json",
+    "data": "[{\"externalId\":\"user_001\",\"email\":\"alice@acme.com\",\"properties\":{\"plan\":\"pro\"}}]"
+  }'
+```
+
+### Tracking Import Progress
+
+The import endpoint returns a `jobId`. Poll it to track progress:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/import/job-uuid
+```
+
+```json
+{
+  "id": "job-uuid",
+  "status": "completed",
+  "totalRows": 500,
+  "processedRows": 498,
+  "failedRows": 2,
+  "errors": [
+    { "row": 42, "error": "Invalid email format" },
+    { "row": 315, "error": "Duplicate externalId" }
+  ]
+}
+```
+
+Job status values: `pending` (queued), `processing` (in progress), `completed`, `failed` (job-level error).
+
+Import behavior:
+- **Upsert semantics** -- existing contacts with the same `externalId` have their properties merged
+- **Per-row validation** -- invalid rows are skipped, valid rows are still processed
+- **No journeys triggered** -- imports create/update contacts only; they do not fire events or trigger journeys
+
+## Bulk Export
+
+Export contacts as CSV or JSON. The response streams directly -- no job queue needed.
+
+```bash
+# Export as CSV (up to 5000 contacts)
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/export?format=csv&limit=5000" \
+  -o contacts.csv
+
+# Export as JSON, filtered by email domain
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/export?format=json&search=acme.com"
+```
+
+| Parameter | Default | Description |
+|---|---|---|
+| `format` | `json` | `csv` or `json` |
+| `search` | -- | Filter by email or externalId |
+| `limit` | `10000` | Max rows (up to 10,000) |
+
+CSV exports include a `Content-Disposition: attachment` header for browser downloads.
+
+## Soft Delete
+
+When you delete a contact, the record is not permanently removed. Instead, a `deletedAt` timestamp is set.
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/contacts/user_abc123 \
+  -H "Authorization: Bearer your-api-key"
+```
+
+```json
+{ "deleted": true }
+```
+
+Soft-deleted contacts:
+- Are excluded from all list queries and search results
+- Cannot be enrolled in new journeys
+- Will not receive any emails
+- Have their email preferences and journey states preserved
+- Still appear in historical data (email send records, completed journeys, etc.)
+
+This protects against accidental data loss. If you need to restore a contact, you will need to update the database directly -- there is no un-delete API endpoint.
+
+## Email Preferences
+
+Every contact can have email preferences that control whether they receive emails. Preferences are created automatically when a contact interacts with the unsubscribe link or preference center, and can be managed manually via the admin API.
+
+### Viewing Preferences
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123/preferences
+```
+
+```json
+{
+  "preferences": {
+    "id": "pref-uuid",
+    "userId": "user_abc123",
+    "email": "user@acme.com",
+    "unsubscribedAll": false,
+    "suppressed": false,
+    "bounceCount": 0,
+    "categories": { "journey": true },
+    "suppressedAt": null,
+    "lastBounceAt": null
+  }
+}
+```
+
+Key fields:
+
+| Field | Meaning |
+|---|---|
+| `unsubscribedAll` | The user has globally unsubscribed. No emails will be sent. |
+| `suppressed` | Delivery is suppressed, usually due to excessive bounces. |
+| `bounceCount` | Number of hard bounces recorded. Suppression triggers at 3 bounces by default. |
+| `categories` | Per-category subscription status. `true` = subscribed. |
+
+### Updating Preferences
+
+Use `PUT` to create or update preferences (upsert semantics):
+
+```bash
+# Re-subscribe a user who unsubscribed
+curl -X PUT http://localhost:3002/v1/admin/contacts/user_abc123/preferences \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "unsubscribedAll": false }'
+```
+
+```bash
+# Suppress a user (e.g., confirmed invalid address)
+curl -X PUT http://localhost:3002/v1/admin/contacts/user_abc123/preferences \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "suppressed": true }'
+```
+
+```bash
+# Update category preferences
+curl -X PUT http://localhost:3002/v1/admin/contacts/user_abc123/preferences \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "categories": { "journey": true, "marketing": false } }'
+```
+
+The contact must have an email address. If they don't, the request returns `400`.
+
+### How Preferences Affect Journeys
+
+During journey enrollment, the entry guard checks:
+
+1. Is the user globally unsubscribed? (`unsubscribedAll: true` -> skip)
+2. Is the user suppressed? (`suppressed: true` -> skip)
+
+Long-running journeys can also check mid-journey using `ctx.guard.isSubscribed()`. If a user unsubscribes while a journey is running, the journey can detect this after a sleep step and stop sending further emails.
+
+## Contact Timeline
+
+The timeline provides a chronological view of everything that has happened for a contact -- events received, journey state changes, and emails sent.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/user_abc123/timeline?limit=20"
+```
+
+```json
+{
+  "timeline": [
+    {
+      "type": "event",
+      "timestamp": "2025-01-15T10:30:00.000Z",
+      "data": {
+        "id": "event-uuid",
+        "event": "user:signed_up",
+        "properties": { "plan": "pro" }
+      }
+    },
+    {
+      "type": "journey",
+      "timestamp": "2025-01-15T10:30:01.000Z",
+      "data": {
+        "id": "state-uuid",
+        "journeyId": "activation-welcome",
+        "status": "completed",
+        "currentNodeId": "done",
+        "completedAt": "2025-01-16T10:30:00.000Z",
+        "exitedAt": null
+      }
+    },
+    {
+      "type": "email",
+      "timestamp": "2025-01-15T10:30:02.000Z",
+      "data": {
+        "id": "email-uuid",
+        "templateKey": "activation/welcome",
+        "subject": "Welcome to Hogsend",
+        "status": "delivered",
+        "toEmail": "user@acme.com",
+        "sentAt": "2025-01-15T10:30:02.000Z",
+        "deliveredAt": "2025-01-15T10:30:07.000Z",
+        "openedAt": null
+      }
+    }
+  ],
+  "total": 3,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+Filter by entry type to focus on what you need:
+
+```bash
+# Only email activity
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/user_abc123/timeline?type=email"
+
+# Only journey state changes
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/user_abc123/timeline?type=journey"
+
+# Only events
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/user_abc123/timeline?type=event"
+```
+
+The timeline is the single best tool for debugging a user's experience. If someone reports they did not receive an email, check their timeline to see whether the event arrived, whether the journey started, and what happened to the email.
+
+## Common Workflows
+
+### Investigating a Missing Email
+
+A user says they did not receive their welcome email. Here is how to trace the issue:
+
+```bash
+# 1. Check if the contact exists and has the right email
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123
+
+# 2. Check their preferences (are they unsubscribed or suppressed?)
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123/preferences
+
+# 3. Check their timeline for the signup event and journey enrollment
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/user_abc123/timeline?limit=50"
+
+# 4. If the email was sent, check its delivery status
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?toEmail=user@acme.com&templateKey=activation/welcome"
+```
+
+### Cleaning Up After a Bad Import
+
+If an import introduced bad data:
+
+```bash
+# 1. Check the import job for errors
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/import/job-uuid
+
+# 2. Search for the affected contacts
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts?search=bad-domain.com"
+
+# 3. Soft-delete contacts that should not exist
+curl -X DELETE http://localhost:3002/v1/admin/contacts/bad_user_001 \
+  -H "Authorization: Bearer your-api-key"
+```
+
+### Re-subscribing a Suppressed User
+
+If a user's email was bouncing but they have since fixed their mailbox:
+
+```bash
+# Clear suppression and reset bounce count
+curl -X PUT http://localhost:3002/v1/admin/contacts/user_abc123/preferences \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "suppressed": false, "unsubscribedAll": false }'
+```
+
+For the full endpoint specification, see the [API Reference](/docs/api-reference). For bulk import/export details, see [Bulk Operations](/docs/bulk-operations).

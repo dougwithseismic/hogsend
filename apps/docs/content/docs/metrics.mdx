@@ -1,0 +1,201 @@
+---
+title: "Metrics & Analytics"
+description: "Real-time system metrics, journey performance tracking, email deliverability trends, and event volume analysis."
+---
+
+Hogsend provides a comprehensive metrics API that gives you real-time visibility into your lifecycle automation. All metrics are computed via SQL aggregates on demand -- no pre-computation, no background jobs, no stale data.
+
+## Overview Dashboard
+
+The `GET /v1/admin/metrics/overview` endpoint returns a high-level summary of your entire system in a single call.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/overview
+```
+
+```json
+{
+  "totalContacts": 1250,
+  "activeJourneys": 8,
+  "emailsSent24h": 340,
+  "emailsSent7d": 2100,
+  "emailsSent30d": 8500,
+  "bounceRate30d": 0.012,
+  "unsubscribeRate": 0.034
+}
+```
+
+This is designed to power a dashboard home screen. The response includes:
+
+- **Contact count** -- total non-deleted contacts in the system
+- **Active journeys** -- journeys with at least one user in active or waiting state
+- **Email volume** -- send counts at three time horizons (24h, 7d, 30d)
+- **Bounce rate** -- 30-day hard bounce rate as a ratio (0.012 = 1.2%)
+- **Unsubscribe rate** -- percentage of contacts who have globally unsubscribed
+
+## Journey Performance
+
+### All Journeys
+
+The `GET /v1/admin/metrics/journeys` endpoint returns per-journey enrollment and completion metrics.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/journeys
+```
+
+```json
+{
+  "journeys": [
+    {
+      "journeyId": "activation-welcome",
+      "name": "Activation -- Welcome Series",
+      "enrolled": 500,
+      "completed": 340,
+      "failed": 12,
+      "exited": 45,
+      "active": 103,
+      "completionRate": 0.68,
+      "avgDurationSecs": 86400
+    }
+  ]
+}
+```
+
+Key metrics per journey:
+
+| Metric | Description |
+|---|---|
+| `enrolled` | Total users who entered the journey |
+| `completed` | Users who finished the full journey |
+| `failed` | Users whose journey errored out |
+| `exited` | Users who left via exit conditions or manual cancellation |
+| `active` | Users currently in the journey (active + waiting) |
+| `completionRate` | Ratio of completed to total enrolled (0-1) |
+| `avgDurationSecs` | Average seconds from entry to completion |
+
+### Single Journey Funnel
+
+The `GET /v1/admin/metrics/journeys/{id}` endpoint shows funnel progression for a specific journey, tracking how users move from enrollment through email engagement to completion.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/journeys/activation-welcome
+```
+
+```json
+{
+  "enrolled": 500,
+  "emailSent": 480,
+  "emailOpened": 320,
+  "emailClicked": 150,
+  "completed": 340,
+  "failed": 12,
+  "exited": 45
+}
+```
+
+This funnel view helps identify drop-off points. In the example above, 96% of enrolled users received an email, 67% opened it, and 31% clicked through.
+
+## Email Metrics
+
+### Per-Template Performance
+
+The `GET /v1/admin/metrics/emails` endpoint breaks down email performance by template.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/emails
+```
+
+```json
+{
+  "emails": [
+    {
+      "templateKey": "activation/welcome",
+      "sent": 480,
+      "delivered": 475,
+      "opened": 320,
+      "clicked": 150,
+      "bounced": 5,
+      "deliveryRate": 0.99,
+      "openRate": 0.67,
+      "clickRate": 0.31
+    }
+  ]
+}
+```
+
+Use this to compare template performance side-by-side and identify templates that need attention (low open rates, high bounce rates, etc.).
+
+### Deliverability Trends
+
+The `GET /v1/admin/metrics/emails/deliverability` endpoint tracks deliverability over time, which is critical for maintaining sender reputation.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/emails/deliverability?period=day&from=2025-01-01T00:00:00Z&to=2025-01-31T00:00:00Z"
+```
+
+```json
+{
+  "deliverability": [
+    {
+      "date": "2025-01-15",
+      "total": 120,
+      "delivered": 118,
+      "bounced": 1,
+      "complained": 1,
+      "deliveryRate": 0.983
+    },
+    {
+      "date": "2025-01-16",
+      "total": 95,
+      "delivered": 94,
+      "bounced": 1,
+      "complained": 0,
+      "deliveryRate": 0.989
+    }
+  ]
+}
+```
+
+Available periods: `day`, `week`, `month`. Use the `from` and `to` query parameters to scope the time range.
+
+Watch for:
+- **Delivery rate drops** -- may indicate DNS/SPF/DKIM issues or blacklisting
+- **Bounce spikes** -- could mean stale contact data or a bad import
+- **Complaint increases** -- review email content and sending frequency
+
+## Event Volume
+
+The `GET /v1/admin/metrics/events` endpoint shows event volume grouped by event name and time period.
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/events?granularity=day&from=2025-01-01T00:00:00Z"
+```
+
+```json
+{
+  "events": [
+    { "event": "user:signed_up", "date": "2025-01-15", "count": 42 },
+    { "event": "user:activated", "date": "2025-01-15", "count": 28 },
+    { "event": "user:signed_up", "date": "2025-01-16", "count": 38 },
+    { "event": "user:activated", "date": "2025-01-16", "count": 31 }
+  ]
+}
+```
+
+Available granularities: `hour`, `day`, `week`. This helps you understand event patterns, spot anomalies, and verify that your event pipeline is working correctly after deploying new integrations.
+
+## How Metrics Work
+
+All metrics endpoints compute results in real-time using SQL aggregates against the primary database. This approach:
+
+- **Always returns fresh data** -- no caching lag or stale dashboards
+- **Requires zero infrastructure** -- no separate analytics database, no ETL pipelines
+- **Scales to typical SaaS volumes** -- thousands of contacts, tens of thousands of emails per month
+
+At extremely high volumes (millions of events/month), you may want to add read replicas or materialized views, but for most teams this approach is more than sufficient.

@@ -1,5 +1,5 @@
 import { contacts, type Database, type emailPreferences } from "@hogsend/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -15,7 +15,7 @@ export async function resolveContact(opts: { db: Database; id: string }) {
   const rows = await db
     .select()
     .from(contacts)
-    .where(contactWhereClause(id))
+    .where(and(contactWhereClause(id), isNull(contacts.deletedAt)))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -32,6 +32,13 @@ export function serializePrefs(row: typeof emailPreferences.$inferSelect) {
     suppressedAt: row.suppressedAt?.toISOString() ?? null,
     lastBounceAt: row.lastBounceAt?.toISOString() ?? null,
   };
+}
+
+export function contactSearchFilter(search: string) {
+  return or(
+    ilike(contacts.email, `%${search}%`),
+    ilike(contacts.externalId, `%${search}%`),
+  );
 }
 
 export async function upsertContact(opts: {

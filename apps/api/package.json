@@ -27,15 +27,17 @@
     "better-auth": "^1.6.11",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.22",
+    "ioredis": "^5.10.1",
+    "papaparse": "^5.5.3",
     "react": "^19.2.6",
     "resend": "^6.12.3",
     "winston": "^3.19.0",
-    "ioredis": "^5.10.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.15",
     "tsup": "^8.5.1",
     "tsx": "^4.22.3",

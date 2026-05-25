@@ -1,6 +1,6 @@
 import { journeyLogs, journeyStates } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
 const stateSchema = z.object({
@@ -29,7 +29,7 @@ const logSchema = z.object({
   createdAt: z.string(),
 });
 
-const errorSchema = z.object({ error: z.string() });
+import { errorSchema } from "../../lib/schemas.js";
 
 function serializeState(row: typeof journeyStates.$inferSelect) {
   return {
@@ -90,7 +90,9 @@ export const journeyLogsRouter = new OpenAPIHono<AppEnv>().openapi(
       db
         .select()
         .from(journeyStates)
-        .where(eq(journeyStates.id, stateId))
+        .where(
+          and(eq(journeyStates.id, stateId), isNull(journeyStates.deletedAt)),
+        )
         .limit(1),
       db
         .select()

@@ -7,6 +7,7 @@ const ingestRequestSchema = z.object({
   userId: z.string().min(1),
   userEmail: z.string().email().optional(),
   properties: z.record(z.string(), z.unknown()).optional(),
+  idempotencyKey: z.string().optional(),
   timestamp: z.string().datetime().optional(),
 });
 
@@ -61,6 +62,7 @@ export const ingestRouter = new OpenAPIHono<AppEnv>().openapi(
         userId: body.userId,
         userEmail: body.userEmail ?? "",
         properties: body.properties ?? {},
+        idempotencyKey: body.idempotencyKey,
       },
     });
 

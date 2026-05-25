@@ -1,0 +1,517 @@
+---
+title: "Monitoring & Alerting"
+description: "Health checks, alert rules, and incident response"
+---
+
+Hogsend includes built-in monitoring, alerting, and failure recovery. This page covers how to set up health checks, create alert rules, manage the dead letter queue, and use audit logs for incident investigation.
+
+## Health Check
+
+The health endpoint reports the status of each infrastructure component:
+
+```bash
+curl http://localhost:3002/v1/health
+```
+
+```json
+{
+  "status": "healthy",
+  "uptime": 86400.123,
+  "timestamp": "2026-05-25T10:30:00.000Z",
+  "version": "0.0.1",
+  "components": {
+    "database": { "status": "up", "latencyMs": 2 },
+    "redis": { "status": "up", "latencyMs": 1 }
+  }
+}
+```
+
+No authentication required -- this endpoint is public so infrastructure tools can call it.
+
+### Status Values
+
+| Status | Meaning |
+|---|---|
+| `healthy` | All components operational |
+| `degraded` | One or more components are down, but the API is still serving requests |
+
+Each component reports `up` or `down` and its latency in milliseconds. If any component is down, the overall status becomes `degraded` but the API continues to serve requests that do not depend on the failed component.
+
+### What to Monitor
+
+Set up an external uptime monitor (Pingdom, Better Uptime, etc.) pointed at your health endpoint. Watch for:
+
+- **Status flip to `degraded`** -- investigate which component is down
+- **Database latency above 50ms** -- may indicate connection pool exhaustion or query performance issues
+- **Redis going down** -- rate limiting falls back to in-memory (per-instance only), PostHog property caching stops working. Email delivery and journeys continue to function.
+
+The health endpoint is configured as Railway's health check in `railway.toml`, so Railway will restart the service automatically if it becomes unresponsive.
+
+## System Metrics
+
+The overview endpoint gives you a high-level snapshot:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/overview
+```
+
+```json
+{
+  "totalContacts": 1250,
+  "activeJourneys": 8,
+  "emailsSent24h": 340,
+  "emailsSent7d": 2100,
+  "emailsSent30d": 8500,
+  "bounceRate30d": 0.012,
+  "unsubscribeRate": 0.034
+}
+```
+
+Check this daily to spot trends:
+
+| Metric | Normal | Investigate |
+|---|---|---|
+| `bounceRate30d` | {'<'}0.02 (2%) | {'>'}0.03 (3%) |
+| `unsubscribeRate` | {'<'}0.05 (5%) | {'>'}0.10 (10%) |
+| `emailsSent24h` | Consistent day-to-day | Sudden spikes or drops |
+| `activeJourneys` | Stable or growing | Sudden drop (journeys disabled?) |
+
+For deeper metrics on journeys, emails, and events, see [Metrics & Analytics](/docs/metrics).
+
+## Event Volume
+
+Track event inflow to verify your pipeline is working and spot anomalies:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/events?granularity=hour&from=2026-05-25T00:00:00Z"
+```
+
+```json
+{
+  "events": [
+    { "event": "user:signed_up", "date": "2026-05-25T08:00:00Z", "count": 15 },
+    { "event": "user:signed_up", "date": "2026-05-25T09:00:00Z", "count": 22 },
+    { "event": "user:activated", "date": "2026-05-25T08:00:00Z", "count": 8 }
+  ]
+}
+```
+
+Useful patterns:
+- **Zero events for an expected type** -- your webhook source or ingest integration may be broken
+- **Event volume spike** -- could indicate a bulk import, a marketing campaign launch, or a bug causing duplicate events
+- **Events arriving but no journey enrollments** -- check if journeys are enabled and trigger conditions match
+
+## Alert Rules
+
+Alert rules define conditions that trigger notifications. Each rule monitors a specific metric, fires when a threshold is crossed, and sends a notification through your chosen channel.
+
+### Creating Alert Rules
+
+```bash
+# Alert when bounce rate exceeds 3%
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Bounce rate warning",
+    "type": "bounce_rate_exceeded",
+    "threshold": 0.03,
+    "channel": "slack",
+    "channelConfig": { "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx" },
+    "cooldownMinutes": 120
+  }'
+```
+
+```bash
+# Alert when delivery rate drops below 95%
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Low delivery rate",
+    "type": "delivery_issue",
+    "threshold": 0.95,
+    "channel": "webhook",
+    "channelConfig": { "url": "https://your-app.com/webhooks/alerts" },
+    "cooldownMinutes": 60
+  }'
+```
+
+```bash
+# Alert on journey failure spikes (>10 failures per hour)
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Journey failures spiking",
+    "type": "journey_failure_spike",
+    "threshold": 10,
+    "channel": "email",
+    "channelConfig": { "to": "ops@yourcompany.com" },
+    "cooldownMinutes": 30
+  }'
+```
+
+### Alert Types
+
+| Type | What it monitors | Threshold meaning |
+|---|---|---|
+| `bounce_rate_exceeded` | 30-day bounce rate | Fires when rate exceeds this value (e.g., 0.05 = 5%) |
+| `journey_failure_spike` | Journey failures per hour | Fires when hourly count exceeds this number |
+| `delivery_issue` | Email delivery rate | Fires when rate drops below this value (e.g., 0.95 = 95%) |
+| `high_complaint_rate` | Spam complaint rate | Fires when rate exceeds this value |
+
+### Notification Channels
+
+**Slack** -- send to a channel via incoming webhook:
+
+```json
+{
+  "channel": "slack",
+  "channelConfig": {
+    "webhookUrl": "https://hooks.slack.com/services/T.../B.../xxx",
+    "channel": "#ops-alerts"
+  }
+}
+```
+
+The `channel` field in config is optional -- if omitted, the message goes to the webhook's default channel.
+
+**Webhook** -- POST the alert payload to any URL:
+
+```json
+{
+  "channel": "webhook",
+  "channelConfig": { "url": "https://your-app.com/webhooks/alerts" }
+}
+```
+
+**Email** -- send via Resend using your configured sender:
+
+```json
+{
+  "channel": "email",
+  "channelConfig": { "to": "ops@yourcompany.com" }
+}
+```
+
+### Cooldown and Deduplication
+
+The `cooldownMinutes` setting prevents alert fatigue. After a rule fires, it will not fire again until the cooldown period elapses. Set this based on how quickly you can respond:
+
+| Scenario | Recommended cooldown |
+|---|---|
+| Critical alerts (delivery failures) | 30 minutes |
+| Warning alerts (bounce rate trending up) | 2 hours |
+| Informational alerts (high event volume) | 4-6 hours |
+
+### Managing Rules
+
+```bash
+# List all rules
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/alerts/rules
+
+# Update a rule (change threshold and cooldown)
+curl -X PATCH http://localhost:3002/v1/admin/alerts/rules/rule-uuid \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "threshold": 0.02, "cooldownMinutes": 60 }'
+
+# Delete a rule
+curl -X DELETE http://localhost:3002/v1/admin/alerts/rules/rule-uuid \
+  -H "Authorization: Bearer your-api-key"
+```
+
+## Alert History
+
+Review past alert triggers to verify notifications are working and thresholds are tuned:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/alerts/history?limit=20"
+```
+
+```json
+{
+  "alerts": [
+    {
+      "id": "alert-uuid",
+      "ruleId": "rule-uuid",
+      "ruleName": "Bounce rate warning",
+      "type": "bounce_rate_exceeded",
+      "currentValue": 0.042,
+      "threshold": 0.03,
+      "channel": "slack",
+      "delivered": true,
+      "triggeredAt": "2026-05-25T08:00:00.000Z"
+    }
+  ],
+  "total": 5,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `currentValue` | The metric value when the alert fired |
+| `threshold` | The configured threshold |
+| `delivered` | Whether the notification was successfully sent |
+
+If `delivered: false`, the notification channel is misconfigured. Check that the webhook URL is reachable, the Slack webhook is valid, or the email address is correct.
+
+Filter by rule to see how often a specific rule is firing:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/alerts/history?ruleId=rule-uuid"
+```
+
+If a rule fires constantly, either the threshold is too sensitive or you have a real problem that needs attention.
+
+## Dead Letter Queue
+
+When a task fails after all retry attempts, it is moved to the dead letter queue (DLQ) instead of being silently dropped. The DLQ is your last line of defense against data loss.
+
+### What Goes in the DLQ
+
+| Source | Common causes |
+|---|---|
+| `email` | Resend API errors, template rendering failures, rate limits |
+| `journey` | Journey code errors that exhausted Hatchet retries |
+| `webhook` | Outbound alert webhook delivery failures |
+
+### Inspecting the DLQ
+
+```bash
+# All pending entries
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/dlq?status=pending"
+
+# Only failed emails
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/dlq?source=email&status=pending"
+
+# Only failed journeys
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/dlq?source=journey&status=pending"
+```
+
+```json
+{
+  "entries": [
+    {
+      "id": "dlq-uuid",
+      "source": "email",
+      "sourceId": "email-uuid",
+      "payload": {
+        "templateKey": "activation/welcome",
+        "toEmail": "user@acme.com"
+      },
+      "error": "Resend API timeout after 3 retries",
+      "retryCount": 3,
+      "status": "pending",
+      "retriedAt": null,
+      "createdAt": "2026-05-25T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Retrying a Failed Task
+
+If the underlying issue is resolved (Resend is back up, a bug was fixed), retry the task:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/dlq/dlq-uuid/retry \
+  -H "Authorization: Bearer your-api-key"
+```
+
+```json
+{
+  "id": "dlq-uuid",
+  "status": "retried",
+  "retriedAt": "2026-05-25T11:00:00.000Z"
+}
+```
+
+The task is re-queued through its original pipeline. If it fails again, it returns to the DLQ with an incremented `retryCount`.
+
+### Discarding an Entry
+
+If a failure is not worth retrying (recipient unsubscribed, event is no longer relevant):
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/dlq/dlq-uuid \
+  -H "Authorization: Bearer your-api-key"
+```
+
+Discarded entries remain in the DLQ with `status: "discarded"` for audit purposes.
+
+### DLQ Best Practices
+
+- **Review the DLQ weekly** -- look for recurring patterns that indicate systemic issues
+- **Retry in batches after outages** -- if Resend was down for an hour, retry all pending email entries once it recovers
+- **Discard stale entries** -- an email from 2 weeks ago for a time-sensitive offer is not worth retrying
+- **Alert on DLQ growth** -- if the pending count is growing, something is broken upstream
+
+## Audit Logs
+
+Every admin mutation (POST, PUT, PATCH, DELETE) is automatically recorded. No configuration needed.
+
+### What Gets Logged
+
+| Field | Description |
+|---|---|
+| `actor` | The API key name, or "legacy" for the env-var key |
+| `actorKeyId` | API key UUID (null for legacy key) |
+| `action` | `create`, `update`, `delete`, `revoke`, `enroll`, `cancel`, `import`, `export`, `replay`, `resend` |
+| `resource` | `contact`, `journey`, `api-key`, `alert-rule`, `email`, `event`, `dlq` |
+| `resourceId` | The target resource's identifier |
+| `detail` | Additional context (e.g., the externalId of a created contact) |
+| `ipAddress` | Client IP address |
+
+### Searching Audit Logs
+
+```bash
+# All mutations in the last 24 hours
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?from=2026-05-24T10:30:00Z"
+
+# Who deleted contacts recently?
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?resource=contact&action=delete"
+
+# What did the CI Pipeline key do?
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?actor=CI%20Pipeline"
+
+# All key management actions
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?resource=api-key"
+```
+
+```json
+{
+  "logs": [
+    {
+      "id": "log-uuid",
+      "actor": "CI Pipeline",
+      "actorKeyId": "key-uuid",
+      "action": "create",
+      "resource": "contact",
+      "resourceId": "contact-uuid",
+      "detail": { "externalId": "user_abc123" },
+      "ipAddress": "192.168.1.1",
+      "createdAt": "2026-05-25T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Using Audit Logs for Incident Response
+
+When investigating an issue, the audit log answers "who did what, when":
+
+1. **A journey was unexpectedly disabled** -- search for `resource=journey&action=update` to find who toggled it
+2. **Contacts were deleted** -- search for `resource=contact&action=delete` with a time range
+3. **An API key was compromised** -- search for the key's actor name across all actions to see what it was used for, then revoke it
+4. **A bulk import went wrong** -- search for `resource=contact&action=import` to find the import job details
+
+## Recommended Production Setup
+
+A solid monitoring setup for a typical Hogsend deployment:
+
+### 1. External Uptime Monitor
+
+Point an external uptime service at `https://api.hogsend.com/v1/health`. Check every 60 seconds. Alert your on-call channel if it goes down.
+
+### 2. Core Alert Rules
+
+Create these four alert rules as a baseline:
+
+```bash
+# Bounce rate > 3%
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Bounce rate warning",
+    "type": "bounce_rate_exceeded",
+    "threshold": 0.03,
+    "channel": "slack",
+    "channelConfig": { "webhookUrl": "https://hooks.slack.com/services/..." },
+    "cooldownMinutes": 120
+  }'
+
+# Delivery rate < 95%
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Low delivery rate",
+    "type": "delivery_issue",
+    "threshold": 0.95,
+    "channel": "slack",
+    "channelConfig": { "webhookUrl": "https://hooks.slack.com/services/..." },
+    "cooldownMinutes": 60
+  }'
+
+# Journey failures > 10/hour
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Journey failure spike",
+    "type": "journey_failure_spike",
+    "threshold": 10,
+    "channel": "slack",
+    "channelConfig": { "webhookUrl": "https://hooks.slack.com/services/..." },
+    "cooldownMinutes": 30
+  }'
+
+# Complaint rate > 0.1%
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "High complaint rate",
+    "type": "high_complaint_rate",
+    "threshold": 0.001,
+    "channel": "slack",
+    "channelConfig": { "webhookUrl": "https://hooks.slack.com/services/..." },
+    "cooldownMinutes": 240
+  }'
+```
+
+### 3. Weekly Checks
+
+Build these into your weekly ops routine:
+
+- **Review the DLQ** -- retry or discard pending entries
+- **Check alert history** -- verify alerts are firing and being delivered
+- **Review audit logs** -- look for unexpected mutations
+- **Check deliverability trends** -- catch gradual degradation before it becomes a problem
+- **Review API key usage** -- revoke stale keys that have not been used
+
+### 4. Incident Response Checklist
+
+When something goes wrong:
+
+1. **Check health** -- `GET /v1/health` -- is the database or Redis down?
+2. **Check metrics overview** -- `GET /v1/admin/metrics/overview` -- are the numbers off?
+3. **Check the DLQ** -- `GET /v1/admin/dlq?status=pending` -- are tasks piling up?
+4. **Check alert history** -- `GET /v1/admin/alerts/history` -- when did the problem start?
+5. **Check audit logs** -- `GET /v1/admin/audit-logs` -- did someone change something?
+6. **Check Hatchet dashboard** -- `localhost:8888` -- are worker processes running?
+
+For the full endpoint specification, see the [API Reference](/docs/api-reference). For more on alerting setup, see [Alerting & Monitoring](/docs/alerting).

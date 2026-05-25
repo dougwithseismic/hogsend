@@ -1,0 +1,11 @@
+{
+  "title": "Admin Guide",
+  "pages": [
+    "index",
+    "authentication",
+    "contacts",
+    "journeys",
+    "emails",
+    "monitoring"
+  ]
+}

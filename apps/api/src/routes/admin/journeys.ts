@@ -5,7 +5,7 @@ import {
   journeyStates,
 } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 
@@ -76,6 +76,7 @@ async function fetchState(db: Database, journeyId: string, stateId: string) {
       and(
         eq(journeyStates.id, stateId),
         eq(journeyStates.journeyId, journeyId),
+        isNull(journeyStates.deletedAt),
       ),
     )
     .limit(1)
@@ -381,7 +382,12 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
               count: count(),
             })
             .from(journeyStates)
-            .where(inArray(journeyStates.journeyId, journeyIds))
+            .where(
+              and(
+                inArray(journeyStates.journeyId, journeyIds),
+                isNull(journeyStates.deletedAt),
+              ),
+            )
             .groupBy(journeyStates.journeyId, journeyStates.status)
         : Promise.resolve([]),
     ]);
@@ -439,12 +445,16 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
           count: count(),
         })
         .from(journeyStates)
-        .where(eq(journeyStates.journeyId, id))
+        .where(
+          and(eq(journeyStates.journeyId, id), isNull(journeyStates.deletedAt)),
+        )
         .groupBy(journeyStates.status),
       db
         .select()
         .from(journeyStates)
-        .where(eq(journeyStates.journeyId, id))
+        .where(
+          and(eq(journeyStates.journeyId, id), isNull(journeyStates.deletedAt)),
+        )
         .orderBy(desc(journeyStates.updatedAt))
         .limit(10),
     ]);
@@ -525,7 +535,10 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Journey not found" }, 404);
     }
 
-    const conditions = [eq(journeyStates.journeyId, id)];
+    const conditions = [
+      eq(journeyStates.journeyId, id),
+      isNull(journeyStates.deletedAt),
+    ];
     if (status) {
       conditions.push(eq(journeyStates.status, status));
     }

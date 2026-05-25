@@ -43,6 +43,13 @@
       "when": 1779722442726,
       "tag": "0005_groovy_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779731629096,
+      "tag": "0006_groovy_charles_xavier",
+      "breakpoints": true
     }
   ]
 }

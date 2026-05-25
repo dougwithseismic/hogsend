@@ -7,6 +7,7 @@ import { secureHeaders } from "hono/secure-headers";
 import type { Container } from "./container.js";
 import { API_VERSION } from "./env.js";
 import type { Auth } from "./lib/auth.js";
+import type { ApiKeyContext } from "./middleware/api-key.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
@@ -19,6 +20,7 @@ export type AppEnv = {
     requestId: string;
     user: NonNullable<AuthSession>["user"] | null;
     session: NonNullable<AuthSession>["session"] | null;
+    apiKey: ApiKeyContext | undefined;
   };
 };
 

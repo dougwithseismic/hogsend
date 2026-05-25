@@ -2,7 +2,7 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { upsertContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
 
@@ -11,6 +11,7 @@ export interface IngestEvent {
   userId: string;
   userEmail: string;
   properties: Record<string, unknown>;
+  idempotencyKey?: string;
 }
 
 export interface ExitResult {
@@ -32,11 +33,31 @@ export async function ingestEvent(opts: {
   event: IngestEvent;
 }): Promise<IngestResult> {
   const { db, registry, hatchet, logger, event } = opts;
-  await db.insert(userEvents).values({
-    userId: event.userId,
-    event: event.event,
-    properties: event.properties,
-  });
+
+  if (event.idempotencyKey) {
+    const result = await db
+      .insert(userEvents)
+      .values({
+        userId: event.userId,
+        event: event.event,
+        properties: event.properties,
+        idempotencyKey: event.idempotencyKey,
+      })
+      .onConflictDoNothing({
+        target: userEvents.idempotencyKey,
+      })
+      .returning({ id: userEvents.id });
+
+    if (result.length === 0) {
+      return { stored: false, exits: [] };
+    }
+  } else {
+    await db.insert(userEvents).values({
+      userId: event.userId,
+      event: event.event,
+      properties: event.properties,
+    });
+  }
 
   const serializableProperties = Object.fromEntries(
     Object.entries(event.properties).filter(
@@ -96,6 +117,7 @@ async function checkExits(
     where: and(
       eq(journeyStates.userId, event.userId),
       inArray(journeyStates.status, ["active", "waiting"]),
+      isNull(journeyStates.deletedAt),
     ),
   });
 

@@ -71,6 +71,9 @@ importers:
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
+      papaparse:
+        specifier: ^5.5.3
+        version: 5.5.3
       react:
         specifier: ^19.2.6
         version: 19.2.6
@@ -90,6 +93,9 @@ importers:
       '@types/node':
         specifier: ^22.15.3
         version: 22.15.3
+      '@types/papaparse':
+        specifier: ^5.5.2
+        version: 5.5.2
       '@types/react':
         specifier: ^19.2.15
         version: 19.2.15
@@ -2401,6 +2407,9 @@ packages:
   '@types/node@25.9.1':
     resolution: {integrity: sha512-xfrlY7UD5rMJk3ZVJP8BNzS28J36YJg+xp+LPXV1TdWxr8uMH5A860QNxYDGQe/ylDSgjxE52Q9VnO7p75tJxg==}
 
+  '@types/papaparse@5.5.2':
+    resolution: {integrity: sha512-gFnFp/JMzLHCwRf7tQHrNnfhN4eYBVYYI897CGX4MY1tzY9l2aLkVyx2IlKZ/SAqDbB3I1AOZW5gTMGGsqWliA==}
+
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
 
@@ -3985,6 +3994,9 @@ packages:
 
   openapi3-ts@4.5.0:
     resolution: {integrity: sha512-jaL+HgTq2Gj5jRcfdutgRGLosCy/hT8sQf6VOy+P+g36cZOjI1iukdPnijC+4CmeRzg/jEllJUboEic2FhxhtQ==}
+
+  papaparse@5.5.3:
+    resolution: {integrity: sha512-5QvjGxYVjxO59MGU2lHVYpRWBBtKHnlIAcSe1uNFCkkptUh63NFRj0FJQm7nR67puEruUci/ZkjmEFrjCAyP4A==}
 
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
@@ -6392,6 +6404,10 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  '@types/papaparse@5.5.2':
+    dependencies:
+      '@types/node': 25.9.1
+
   '@types/qs@6.15.1': {}
 
   '@types/react-dom@19.2.3(@types/react@19.2.15)':
@@ -8178,6 +8194,8 @@ snapshots:
   openapi3-ts@4.5.0:
     dependencies:
       yaml: 2.9.0
+
+  papaparse@5.5.3: {}
 
   parent-module@1.0.1:
     dependencies:

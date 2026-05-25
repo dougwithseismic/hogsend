@@ -1,0 +1,516 @@
+---
+title: "Journey Operations"
+description: "Monitoring, controlling, and debugging journeys"
+---
+
+Journeys are the core of Hogsend -- they define how users move through your lifecycle automation. As an operator, you need to monitor their health, control which ones are running, debug failures, and occasionally intervene manually. This page covers all of that.
+
+## Viewing All Journeys
+
+List every registered journey with its current status and live state counts:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/journeys
+```
+
+```json
+{
+  "journeys": [
+    {
+      "id": "activation-welcome",
+      "name": "Activation -- Welcome Series",
+      "description": "Sends a welcome email series on signup",
+      "enabled": true,
+      "trigger": { "event": "user:created" },
+      "entryLimit": "once",
+      "counts": {
+        "active": 12,
+        "waiting": 5,
+        "completed": 340,
+        "failed": 2,
+        "exited": 15
+      }
+    }
+  ],
+  "total": 3,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Filter by enabled status to see only active or disabled journeys:
+
+```bash
+# Only enabled journeys
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys?enabled=true"
+
+# Only disabled journeys
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys?enabled=false"
+```
+
+## Understanding Journey Metrics
+
+The metrics endpoint provides deeper analytics than the journey list:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/journeys
+```
+
+```json
+{
+  "journeys": [
+    {
+      "journeyId": "activation-welcome",
+      "name": "Activation -- Welcome Series",
+      "enrolled": 500,
+      "completed": 340,
+      "failed": 12,
+      "exited": 45,
+      "active": 103,
+      "completionRate": 0.68,
+      "avgDurationSecs": 86400
+    }
+  ]
+}
+```
+
+| Metric | What it tells you |
+|---|---|
+| `enrolled` | Total users who entered (ever) |
+| `completed` | Users who finished the entire journey |
+| `failed` | Users whose journey errored out |
+| `exited` | Users who left via exit conditions or manual cancellation |
+| `active` | Users currently in the journey (active + waiting) |
+| `completionRate` | Completed / enrolled ratio -- aim for 0.8+ |
+| `avgDurationSecs` | Average time from entry to completion |
+
+### Reading the Numbers
+
+A healthy journey looks like this:
+- **High completion rate** (>80%) -- most users finish
+- **Low failure count** -- failures should be rare and investigated
+- **Exit count matches expectations** -- exits happen when a user does the target action before the journey finishes (e.g., they activate before the reminder email)
+- **Active count is proportional to volume** -- a large active count relative to enrollment means the journey has long sleep steps
+
+Red flags:
+- **Completion rate below 50%** -- users are dropping off or exiting early. Check exit conditions and email engagement.
+- **Rising failure count** -- indicates bugs in journey code or downstream service issues (Resend API, PostHog)
+- **Active count growing without completions** -- journey might be stuck on a sleep or checkpoint
+
+## Journey Funnel
+
+For a single journey, the funnel view shows how users progress through stages:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/journeys/activation-welcome
+```
+
+```json
+{
+  "enrolled": 500,
+  "emailSent": 480,
+  "emailOpened": 320,
+  "emailClicked": 150,
+  "completed": 340,
+  "failed": 12,
+  "exited": 45
+}
+```
+
+Reading this funnel:
+- 500 enrolled, 480 sent (96%) -- 20 users were filtered by entry guards or unsubscribed before the first email
+- 320 opened (67% of sent) -- good open rate, but room for improvement in subject lines
+- 150 clicked (47% of opens) -- healthy click-through
+- 340 completed (68% of enrolled) -- some users exited early or failed
+
+The biggest drop-off between stages tells you where to focus optimization.
+
+## Enabling and Disabling Journeys
+
+You can toggle a journey on or off at runtime without redeploying:
+
+```bash
+# Disable a journey
+curl -X PATCH http://localhost:3002/v1/admin/journeys/activation-welcome \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "enabled": false }'
+```
+
+```json
+{
+  "journey": {
+    "id": "activation-welcome",
+    "name": "Activation -- Welcome Series",
+    "enabled": false,
+    "updatedAt": "2026-01-15T10:30:00.000Z"
+  }
+}
+```
+
+```bash
+# Re-enable it
+curl -X PATCH http://localhost:3002/v1/admin/journeys/activation-welcome \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "enabled": true }'
+```
+
+Important behavior:
+- **Disabling stops new enrollments** -- events that would trigger this journey are ignored
+- **In-flight instances are not affected** -- users already in the journey continue to completion
+- **The toggle persists in the database** -- it survives restarts and redeploys
+- **The database override takes precedence** -- even if the journey code sets `enabled: true`, the admin toggle wins
+
+Use this to:
+- Pause a journey while you investigate an issue
+- Disable a seasonal journey until the next campaign
+- Stop enrollment during maintenance windows
+
+## Viewing Journey Instances
+
+A journey instance (or "state") represents a single user's enrollment in a journey. List instances for a journey with optional filters:
+
+```bash
+# All instances for a journey
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states"
+
+# Only active instances
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states?status=active"
+
+# Only failed instances
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states?status=failed"
+
+# Instances for a specific user
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states?userId=user_abc123"
+```
+
+```json
+{
+  "states": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "user_abc123",
+      "userEmail": "user@acme.com",
+      "journeyId": "activation-welcome",
+      "currentNodeId": "post-welcome",
+      "status": "waiting",
+      "hatchetRunId": "run-uuid",
+      "context": { "plan": "pro" },
+      "errorMessage": null,
+      "entryCount": 1,
+      "completedAt": null,
+      "exitedAt": null,
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Status Values
+
+| Status | Meaning |
+|---|---|
+| `active` | Currently executing a step |
+| `waiting` | Paused on a `ctx.sleep()` call |
+| `completed` | Finished the full journey successfully |
+| `failed` | Errored out -- check `errorMessage` |
+| `exited` | Left early via exit conditions or manual cancellation |
+
+## Inspecting a Single Instance
+
+Get the full detail of a journey instance including its execution log:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome/states/550e8400-e29b-41d4-a716-446655440000
+```
+
+```json
+{
+  "state": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "user_abc123",
+    "userEmail": "user@acme.com",
+    "journeyId": "activation-welcome",
+    "currentNodeId": "post-welcome",
+    "status": "completed",
+    "hatchetRunId": "run-uuid",
+    "context": { "plan": "pro" },
+    "errorMessage": null,
+    "entryCount": 1,
+    "completedAt": "2025-01-16T10:30:00.000Z"
+  },
+  "logs": [
+    {
+      "id": "log-1",
+      "fromNodeId": null,
+      "toNodeId": "start",
+      "action": "entered",
+      "detail": null,
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "log-2",
+      "fromNodeId": "start",
+      "toNodeId": "post-welcome",
+      "action": "email_sent",
+      "detail": { "template": "activation/welcome" },
+      "createdAt": "2025-01-15T10:30:01.000Z"
+    },
+    {
+      "id": "log-3",
+      "fromNodeId": "post-welcome",
+      "toNodeId": "done",
+      "action": "completed",
+      "detail": null,
+      "createdAt": "2025-01-16T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+The log sequence shows exactly what happened at each step. Read it from top to bottom:
+
+1. User entered the journey at "start"
+2. An email was sent (template: `activation/welcome`), moving to "post-welcome"
+3. Journey completed, moving to "done"
+
+You can also get the log directly by state ID, which is useful when you have the state ID but not the journey ID:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/journey-logs/550e8400-e29b-41d4-a716-446655440000
+```
+
+## Cancelling Journey Instances
+
+Cancel a stuck or unwanted journey instance:
+
+```bash
+curl -X DELETE \
+  http://localhost:3002/v1/admin/journeys/activation-welcome/states/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer your-api-key"
+```
+
+```json
+{
+  "state": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "exited",
+    "exitedAt": "2026-01-15T10:30:00.000Z"
+  },
+  "hatchetCancelled": true
+}
+```
+
+Cancellation does two things:
+1. Sets the journey state to `exited` in the database
+2. Sends a cancel signal to the Hatchet task run
+
+The `hatchetCancelled` field indicates whether the Hatchet run was successfully cancelled. It is `false` if the run had already finished or Hatchet was unreachable -- in those cases the state is still marked as exited.
+
+You cannot cancel an instance that is already in a terminal status (`completed`, `failed`, or `exited`). Attempting to do so returns `409 Conflict`.
+
+## Manual Enrollment
+
+### Single User
+
+Enroll a user in a journey by dispatching the journey's trigger event through the standard ingestion pipeline:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user_abc123",
+    "userEmail": "user@acme.com",
+    "properties": { "source": "admin_enroll" }
+  }'
+```
+
+```json
+{
+  "enrolled": true,
+  "event": "user:created",
+  "userId": "user_abc123"
+}
+```
+
+The `202 Accepted` response means the trigger event was dispatched. Enrollment is asynchronous -- the user still goes through all entry guards (entry limits, subscription checks, trigger conditions). They may be rejected if they have already completed the journey, are unsubscribed, or do not match the trigger conditions.
+
+### Batch Enrollment
+
+Enroll up to 500 users at once:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll/batch \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "users": [
+      { "userId": "user_001", "userEmail": "alice@acme.com", "properties": { "source": "migration" } },
+      { "userId": "user_002", "userEmail": "bob@acme.com" },
+      { "userId": "user_003", "userEmail": "carol@acme.com" }
+    ]
+  }'
+```
+
+```json
+{
+  "enrolled": 2,
+  "skipped": 1,
+  "results": [
+    { "userId": "user_001", "enrolled": true },
+    { "userId": "user_002", "enrolled": true },
+    { "userId": "user_003", "enrolled": false }
+  ]
+}
+```
+
+Each user is processed through the full ingestion pipeline with all entry guards applied. Users who fail guards are reported as `enrolled: false`.
+
+## Event Replay
+
+Re-process historical events through the ingestion pipeline. This is useful when:
+
+- You deployed a new journey and want to backfill users who already triggered the event
+- A bug caused events to be stored but not routed to Hatchet
+- You need to re-evaluate exit conditions after fixing journey logic
+
+```bash
+# Replay all signup events from January
+curl -X POST http://localhost:3002/v1/admin/events/replay \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": {
+      "event": "user:signed_up",
+      "from": "2025-01-01T00:00:00Z",
+      "to": "2025-01-31T00:00:00Z"
+    },
+    "limit": 500
+  }'
+```
+
+```json
+{
+  "replayed": 498,
+  "errors": [
+    { "eventId": "event-uuid-3", "error": "Event not found" }
+  ]
+}
+```
+
+Replayed events go through the full pipeline, including entry guards. Users with `entryLimit: "once"` who already completed the journey will not be re-enrolled.
+
+For more on replay, see [Bulk Operations](/docs/bulk-operations).
+
+## Debugging Journeys
+
+### Why Didn't a User Get Enrolled?
+
+When a user should have been enrolled but was not, trace the issue step by step:
+
+```bash
+# 1. Did the trigger event arrive?
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/events?userId=user_abc123&event=user:signed_up"
+```
+
+If no events are returned, the event was never ingested. Check your event source (webhook configuration, ingest API call).
+
+```bash
+# 2. Is the journey enabled?
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome
+```
+
+If `enabled: false`, the journey is not accepting enrollments.
+
+```bash
+# 3. Is the user subscribed?
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123/preferences
+```
+
+If `unsubscribedAll: true` or `suppressed: true`, the entry guard rejected them.
+
+```bash
+# 4. Has the user already been enrolled (entry limit)?
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states?userId=user_abc123"
+```
+
+If there is a completed or active state, and the journey has `entryLimit: "once"`, the user cannot re-enter.
+
+```bash
+# 5. Did the trigger conditions match?
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome
+```
+
+Check the `trigger.where` conditions against the event properties. If the journey requires `plan == "pro"` but the event had `plan: "free"`, the condition failed.
+
+### Why Did a Journey Fail?
+
+```bash
+# 1. Find the failed instance
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states?status=failed"
+
+# 2. Inspect the error
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome/states/state-uuid
+```
+
+The `errorMessage` field contains the error. The log trail shows where the journey was when it failed. Common causes:
+
+| Error pattern | Likely cause |
+|---|---|
+| Resend API error | Email delivery service issue. Check Resend status page. |
+| Template not found | The template key in the journey code does not match a registered template. |
+| PostHog API timeout | PostHog property fetch failed. Check PostHog connectivity. |
+| Database connection error | Database overload or connection pool exhaustion. |
+
+```bash
+# 3. Check the DLQ for related failures
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/dlq?source=journey&status=pending"
+```
+
+### Journey is Stuck in "waiting" Forever
+
+If a journey instance has been in `waiting` status for much longer than the expected sleep duration:
+
+1. The Hatchet run may have been interrupted (e.g., worker restart during a durable sleep)
+2. Check the Hatchet dashboard at `localhost:8888` for the run status
+3. If the Hatchet run is gone, cancel the instance and manually re-enroll the user
+
+```bash
+# Cancel the stuck instance
+curl -X DELETE \
+  http://localhost:3002/v1/admin/journeys/activation-welcome/states/stuck-state-uuid \
+  -H "Authorization: Bearer your-api-key"
+
+# Re-enroll the user
+curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": "user_abc123", "userEmail": "user@acme.com" }'
+```
+
+For the full endpoint specification, see the [API Reference](/docs/api-reference).

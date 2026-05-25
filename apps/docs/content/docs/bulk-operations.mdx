@@ -1,0 +1,274 @@
+---
+title: "Bulk Operations"
+description: "Contact import/export, event replay, email resend, batch enrollment, and event deduplication."
+---
+
+Hogsend provides bulk operation endpoints for managing contacts and events at scale. These are designed for operational workflows like data migrations, recovery from failures, and batch user management.
+
+## Contact Import
+
+Import contacts in bulk from CSV or JSON. Imports run asynchronously via Hatchet so they do not block the API.
+
+### Starting an Import
+
+```bash
+# CSV import
+curl -X POST http://localhost:3002/v1/admin/contacts/import \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "csv",
+    "data": "externalId,email,plan\nuser_001,a@example.com,pro\nuser_002,b@example.com,free",
+    "fileName": "jan-2025-migration.csv"
+  }'
+```
+
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "pending"
+}
+```
+
+For JSON imports, pass an array of contact objects as a string:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/contacts/import \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "json",
+    "data": "[{\"externalId\":\"user_001\",\"email\":\"a@example.com\",\"properties\":{\"plan\":\"pro\"}}]"
+  }'
+```
+
+### Checking Import Status
+
+Poll the import job to see progress:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/import/550e8400-e29b-41d4-a716-446655440000
+```
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "completed",
+  "totalRows": 500,
+  "processedRows": 498,
+  "failedRows": 2,
+  "errors": [
+    { "row": 42, "error": "Invalid email format" },
+    { "row": 315, "error": "Duplicate externalId" }
+  ]
+}
+```
+
+Import statuses: `pending` (queued), `processing` (in progress), `completed` (done), `failed` (job-level error).
+
+### Import Behavior
+
+- **Upsert semantics** -- if a contact with the same `externalId` already exists, their properties are merged
+- **Validation per row** -- invalid rows are skipped, valid rows are still processed
+- **Properties from CSV** -- columns beyond `externalId` and `email` are stored as contact properties
+
+### CSV Format
+
+CSV imports expect a header row. The `externalId` column is required, `email` is optional, and any other columns become properties:
+
+```
+externalId,email,plan,company
+user_001,a@example.com,pro,Acme Corp
+user_002,b@example.com,free,
+user_003,,enterprise,BigCo
+```
+
+## Contact Export
+
+Export contacts as CSV or JSON. The response streams directly -- no job queue needed.
+
+```bash
+# Export as CSV
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/export?format=csv&limit=5000" \
+  -o contacts.csv
+
+# Export as JSON with search filter
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/export?format=json&search=example.com"
+```
+
+| Param | Default | Description |
+|---|---|---|
+| `format` | `json` | `csv` or `json` |
+| `search` | -- | Filter by email or externalId |
+| `limit` | `10000` | Max rows (up to 10000) |
+
+CSV exports include a `Content-Disposition: attachment` header for browser downloads.
+
+## Event Replay
+
+Re-process historical events through the ingestion pipeline. This is useful when:
+
+- You added a new journey and want to backfill users who already triggered its event
+- A bug caused events to be stored but not routed to Hatchet
+- You need to re-evaluate exit conditions after fixing journey logic
+
+### Replay by Event IDs
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/events/replay \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventIds": ["event-uuid-1", "event-uuid-2", "event-uuid-3"],
+    "limit": 100
+  }'
+```
+
+### Replay by Filter
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/events/replay \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": {
+      "event": "user:signed_up",
+      "from": "2025-01-01T00:00:00Z",
+      "to": "2025-01-15T00:00:00Z"
+    },
+    "limit": 500
+  }'
+```
+
+```json
+{
+  "replayed": 498,
+  "errors": [
+    { "eventId": "event-uuid-3", "error": "Event not found" }
+  ]
+}
+```
+
+Filter options: `event` (name), `userId`, `from`, `to`. You must provide either `eventIds` or `filter`.
+
+Replayed events go through the full pipeline: Hatchet routing, journey entry guards, and exit condition checks. Entry guards (like `entryLimit: "once"`) still apply, so users who already completed a journey will not be re-enrolled.
+
+## Email Resend
+
+Retry a failed or bounced email delivery.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/emails/email-uuid/resend \
+  -H "Authorization: Bearer your-api-key"
+```
+
+```json
+{
+  "emailId": "email-uuid",
+  "status": "queued"
+}
+```
+
+Only emails in `failed` or `bounced` status can be resent. The email must also have a `templateKey` so it can be re-rendered. Attempting to resend an email in any other status returns `409`.
+
+## Batch Enrollment
+
+Enroll multiple users into a journey in a single call. Each user goes through the standard ingestion pipeline with all entry guards applied (entry limits, subscription checks, trigger conditions).
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll/batch \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "users": [
+      { "userId": "user_001", "userEmail": "a@example.com", "properties": { "source": "migration" } },
+      { "userId": "user_002", "userEmail": "b@example.com" },
+      { "userId": "user_003", "userEmail": "c@example.com" }
+    ]
+  }'
+```
+
+```json
+{
+  "enrolled": 2,
+  "skipped": 1,
+  "results": [
+    { "userId": "user_001", "enrolled": true },
+    { "userId": "user_002", "enrolled": true },
+    { "userId": "user_003", "enrolled": false }
+  ]
+}
+```
+
+Maximum 500 users per batch. Users who fail entry guards (already enrolled, unsubscribed, etc.) are reported as `enrolled: false` in the results.
+
+## Event Deduplication
+
+The ingest endpoint supports idempotency keys to prevent duplicate event processing. Pass an `idempotencyKey` in the request body:
+
+```bash
+curl -X POST http://localhost:3002/v1/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "user:signed_up",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "idempotencyKey": "signup_user_abc123_2025-01-15"
+  }'
+```
+
+If the same `idempotencyKey` has been seen before, the event is silently dropped:
+
+```json
+{
+  "stored": false,
+  "exits": []
+}
+```
+
+This is useful when:
+- Your event source may send duplicate webhooks (PostHog, Stripe, etc.)
+- You are replaying events and want to avoid double-processing
+- Network retries might cause the same event to be sent twice
+
+Idempotency keys are stored alongside the event record and checked before any processing occurs. A deduplicated event does not trigger journeys, update contacts, or evaluate exit conditions.
+
+## Example Workflow: Data Migration
+
+A typical migration from another tool involves these steps:
+
+1. **Export contacts** from the old system as CSV
+2. **Import contacts** into Hogsend via the import endpoint
+3. **Monitor import progress** by polling the job status
+4. **Replay relevant events** to enroll contacts in appropriate journeys
+5. **Check metrics** to verify enrollment counts match expectations
+
+```bash
+# Step 1: Import contacts
+IMPORT=$(curl -s -X POST http://localhost:3002/v1/admin/contacts/import \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "format": "csv", "data": "...", "fileName": "migration.csv" }')
+
+JOB_ID=$(echo $IMPORT | jq -r '.jobId')
+
+# Step 2: Check progress
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/import/$JOB_ID
+
+# Step 3: Replay signup events for new journey
+curl -X POST http://localhost:3002/v1/admin/events/replay \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": { "event": "user:signed_up" },
+    "limit": 1000
+  }'
+
+# Step 4: Verify
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/overview
+```

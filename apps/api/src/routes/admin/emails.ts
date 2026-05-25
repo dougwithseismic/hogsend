@@ -6,7 +6,7 @@ import {
   trackedLinks,
 } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
 const emailSchema = z.object({
@@ -52,7 +52,7 @@ const journeyContextSchema = z
   })
   .nullable();
 
-const errorSchema = z.object({ error: z.string() });
+import { errorSchema } from "../../lib/schemas.js";
 
 function serializeEmail(row: typeof emailSends.$inferSelect) {
   return {
@@ -247,7 +247,12 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
               currentNodeId: journeyStates.currentNodeId,
             })
             .from(journeyStates)
-            .where(eq(journeyStates.id, row.journeyStateId))
+            .where(
+              and(
+                eq(journeyStates.id, row.journeyStateId),
+                isNull(journeyStates.deletedAt),
+              ),
+            )
             .limit(1)
             .then((rows) => rows[0] ?? null)
         : Promise.resolve(null),

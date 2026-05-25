@@ -1,6 +1,6 @@
 import { emailSends, journeyStates, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { resolveContact } from "../../lib/contacts.js";
 
@@ -10,7 +10,7 @@ const timelineEntrySchema = z.object({
   data: z.record(z.string(), z.unknown()),
 });
 
-const errorSchema = z.object({ error: z.string() });
+import { errorSchema } from "../../lib/schemas.js";
 
 const listRoute = createRoute({
   method: "get",
@@ -90,7 +90,12 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
         ? db
             .select()
             .from(journeyStates)
-            .where(eq(journeyStates.userId, externalId))
+            .where(
+              and(
+                eq(journeyStates.userId, externalId),
+                isNull(journeyStates.deletedAt),
+              ),
+            )
             .orderBy(desc(journeyStates.createdAt))
             .limit(fetchLimit)
         : Promise.resolve([]),
@@ -113,7 +118,12 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
               journeyStates,
               eq(emailSends.journeyStateId, journeyStates.id),
             )
-            .where(eq(journeyStates.userId, externalId))
+            .where(
+              and(
+                eq(journeyStates.userId, externalId),
+                isNull(journeyStates.deletedAt),
+              ),
+            )
             .orderBy(desc(emailSends.createdAt))
             .limit(fetchLimit)
         : Promise.resolve([]),
@@ -128,7 +138,12 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
         ? db
             .select({ count: count() })
             .from(journeyStates)
-            .where(eq(journeyStates.userId, externalId))
+            .where(
+              and(
+                eq(journeyStates.userId, externalId),
+                isNull(journeyStates.deletedAt),
+              ),
+            )
             .then((r) => r[0]?.count ?? 0)
         : Promise.resolve(0),
       shouldFetch("email")
@@ -139,7 +154,12 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
               journeyStates,
               eq(emailSends.journeyStateId, journeyStates.id),
             )
-            .where(eq(journeyStates.userId, externalId))
+            .where(
+              and(
+                eq(journeyStates.userId, externalId),
+                isNull(journeyStates.deletedAt),
+              ),
+            )
             .then((r) => r[0]?.count ?? 0)
         : Promise.resolve(0),
     ]);

@@ -26,6 +26,7 @@ export const journeyStates = pgTable(
     entryCount: integer("entry_count").notNull().default(1),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     exitedAt: timestamp("exited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [

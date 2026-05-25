@@ -1,4 +1,8 @@
 import { relations } from "drizzle-orm";
+import { alertHistory } from "./alert-history.js";
+import { alertRules } from "./alert-rules.js";
+import { apiKeys } from "./api-keys.js";
+import { auditLogs } from "./audit-logs.js";
 import {
   account,
   invitation,
@@ -8,14 +12,35 @@ import {
   user,
 } from "./auth.js";
 import { contacts } from "./contacts.js";
+import { deadLetterQueue } from "./dead-letter-queue.js";
 import { emailPreferences } from "./email-preferences.js";
 import { emailSends } from "./email-sends.js";
+import { importJobs } from "./import-jobs.js";
 import { journeyConfigs } from "./journey-configs.js";
 import { journeyLogs } from "./journey-logs.js";
 import { journeyStates } from "./journey-states.js";
 import { linkClicks } from "./link-clicks.js";
 import { trackedLinks } from "./tracked-links.js";
 import { userEvents } from "./user-events.js";
+
+export const alertRulesRelations = relations(alertRules, ({ many }) => ({
+  history: many(alertHistory),
+}));
+
+export const alertHistoryRelations = relations(alertHistory, ({ one }) => ({
+  rule: one(alertRules, {
+    fields: [alertHistory.alertRuleId],
+    references: [alertRules.id],
+  }),
+}));
+
+export const apiKeysRelations = relations(apiKeys, () => ({}));
+
+export const auditLogsRelations = relations(auditLogs, () => ({}));
+
+export const deadLetterQueueRelations = relations(deadLetterQueue, () => ({}));
+
+export const importJobsRelations = relations(importJobs, () => ({}));
 
 export const journeyConfigsRelations = relations(journeyConfigs, () => ({}));
 

@@ -1,8 +1,12 @@
 import { contacts, emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { count, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { resolveContact, serializePrefs } from "../../lib/contacts.js";
+import {
+  contactSearchFilter,
+  resolveContact,
+  serializePrefs,
+} from "../../lib/contacts.js";
 
 const contactSchema = z.object({
   id: z.string(),
@@ -193,7 +197,9 @@ const deleteRoute = createRoute({
 
 function serializeContact(row: typeof contacts.$inferSelect) {
   return {
-    ...row,
+    id: row.id,
+    externalId: row.externalId,
+    email: row.email,
     properties: (row.properties ?? {}) as Record<string, unknown>,
     firstSeenAt: row.firstSeenAt.toISOString(),
     lastSeenAt: row.lastSeenAt.toISOString(),
@@ -207,12 +213,11 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { limit, offset, search } = c.req.valid("query");
 
-    const where = search
-      ? or(
-          ilike(contacts.email, `%${search}%`),
-          ilike(contacts.externalId, `%${search}%`),
-        )
-      : undefined;
+    const searchFilter = search ? contactSearchFilter(search) : undefined;
+
+    const where = searchFilter
+      ? and(searchFilter, isNull(contacts.deletedAt))
+      : isNull(contacts.deletedAt);
 
     const [rows, totalRows] = await Promise.all([
       db
@@ -329,10 +334,9 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     }
 
     await db
-      .delete(emailPreferences)
-      .where(eq(emailPreferences.userId, contact.externalId));
-
-    await db.delete(contacts).where(eq(contacts.id, contact.id));
+      .update(contacts)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(contacts.id, contact.id));
 
     return c.json({ deleted: true }, 200);
   });

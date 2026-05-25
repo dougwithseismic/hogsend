@@ -23,6 +23,7 @@ export const contacts = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [index("contacts_email_idx").on(table.email)],
