@@ -37,5 +37,9 @@ export const journeyStates = pgTable(
     index("journey_states_status_idx").on(table.status),
     index("journey_states_hatchet_run_idx").on(table.hatchetRunId),
     index("journey_states_user_id_idx").on(table.userId),
+    index("journey_states_journey_id_status_idx").on(
+      table.journeyId,
+      table.status,
+    ),
   ],
 );

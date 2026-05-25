@@ -4,7 +4,7 @@ import type {
   JourneyRunFn,
   JourneyUser,
 } from "@hogsend/core/types";
-import { journeyStates } from "@hogsend/db";
+import { journeyConfigs, journeyStates } from "@hogsend/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../lib/db.js";
 import {
@@ -53,6 +53,13 @@ export function defineJourney(options: {
 
       if (!meta.enabled) {
         return { status: "skipped", reason: "journey_disabled" };
+      }
+
+      const configOverride = await db.query.journeyConfigs.findFirst({
+        where: eq(journeyConfigs.journeyId, meta.id),
+      });
+      if (configOverride && !configOverride.enabled) {
+        return { status: "skipped", reason: "journey_disabled_by_admin" };
       }
 
       if (meta.trigger.where?.length) {

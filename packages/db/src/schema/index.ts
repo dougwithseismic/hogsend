@@ -3,6 +3,7 @@ export * from "./contacts.js";
 export * from "./email-preferences.js";
 export * from "./email-sends.js";
 export * from "./enums.js";
+export * from "./journey-configs.js";
 export * from "./journey-logs.js";
 export * from "./journey-states.js";
 export * from "./link-clicks.js";

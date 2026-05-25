@@ -1,0 +1,1120 @@
+---
+title: API Reference
+description: REST API endpoints for event ingestion, contact management, and email preferences.
+---
+
+Hogsend exposes a REST API built on [Hono](https://hono.dev) with [Zod OpenAPI](https://github.com/honojs/middleware/tree/main/packages/zod-openapi) for request/response validation. All endpoints are versioned under `/v1`.
+
+## Base URL
+
+```
+http://localhost:3002   # local development
+https://api.hogsend.com # production
+```
+
+## Interactive Docs
+
+In non-production environments, the API serves an auto-generated OpenAPI spec and an interactive [Scalar](https://scalar.com) UI:
+
+| Path | Description |
+|---|---|
+| `GET /openapi.json` | OpenAPI 3.1 spec (JSON) |
+| `GET /docs` | Scalar API reference UI |
+
+These endpoints are disabled when `NODE_ENV=production`.
+
+## Authentication
+
+Hogsend uses two authentication mechanisms depending on the endpoint:
+
+### Better Auth (session-based)
+
+Dashboard and user-facing endpoints use [Better Auth](https://www.better-auth.com/) with email/password authentication. Auth routes are mounted at `/api/auth/*` and support:
+
+- Email and password sign-up/sign-in (min 8, max 128 characters)
+- Session-based auth with 7-day expiry (refreshed daily)
+- Organization plugin (up to 5 orgs, 100 members each)
+
+### Admin API Key (bearer token)
+
+All `/v1/admin/*` endpoints require a bearer token matching the `ADMIN_API_KEY` environment variable:
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/contacts
+```
+
+If `ADMIN_API_KEY` is not configured, admin endpoints return `503 Service Unavailable`.
+
+## Middleware Stack
+
+Every request passes through the following middleware in order:
+
+1. **Container injection** — Sets the DI container on the Hono context
+2. **Secure headers** — Adds security-related HTTP headers
+3. **CORS** — Cross-origin resource sharing (permissive by default)
+4. **Compression** — gzip/brotli response compression
+5. **Request ID** — Generates a unique `X-Request-Id` header
+6. **Request logger** — Logs method, path, status, and duration
+7. **Error handler** — Catches thrown errors, returns JSON `{ error }` with appropriate status codes
+
+## Error Responses
+
+All errors follow this shape:
+
+```json
+{
+  "error": "Human-readable error message"
+}
+```
+
+- `400` — Validation error (Zod schema mismatch)
+- `401` — Missing or invalid authentication
+- `404` — Resource not found
+- `409` — Conflict (e.g., duplicate `externalId`)
+- `500` — Internal server error (message is generic in production)
+- `503` — Service not configured
+
+---
+
+## Health
+
+### `GET /v1/health`
+
+Returns service health status. Used by Railway health checks and monitoring.
+
+**Response `200`**
+
+```json
+{
+  "status": "healthy",
+  "uptime": 12345.678,
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "version": "0.0.1"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | `"healthy" \| "degraded"` | Current service status |
+| `uptime` | `number` | Process uptime in seconds |
+| `timestamp` | `string` | ISO 8601 timestamp |
+| `version` | `string` | API version |
+
+```bash
+curl http://localhost:3002/v1/health
+```
+
+---
+
+## Ingestion
+
+### `POST /v1/ingest`
+
+Receives events from direct API calls. Stores the event in `userEvents`, pushes it to Hatchet for journey routing, processes exit conditions on active journeys, and upserts the contact record.
+
+**Request Body**
+
+```json
+{
+  "event": "user:signed_up",
+  "userId": "user_abc123",
+  "userEmail": "user@example.com",
+  "properties": {
+    "plan": "pro",
+    "source": "website"
+  },
+  "timestamp": "2025-01-15T10:30:00.000Z"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `event` | `string` | Yes | Event name (min 1 char) |
+| `userId` | `string` | Yes | External user identifier (min 1 char) |
+| `userEmail` | `string` | No | User email address (validated format) |
+| `properties` | `Record<string, unknown>` | No | Arbitrary event properties |
+| `timestamp` | `string` | No | ISO 8601 datetime (defaults to now) |
+
+**Response `202`**
+
+```json
+{
+  "stored": true,
+  "exits": [
+    {
+      "journeyId": "onboarding-welcome",
+      "stateId": "550e8400-e29b-41d4-a716-446655440000",
+      "exited": false
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `stored` | `boolean` | Whether the event was persisted |
+| `exits` | `ExitResult[]` | Exit condition evaluation results for active journeys |
+| `exits[].journeyId` | `string` | Journey that was checked |
+| `exits[].stateId` | `string` | Journey state ID |
+| `exits[].exited` | `boolean` | Whether the user exited this journey |
+
+```bash
+curl -X POST http://localhost:3002/v1/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "user:signed_up",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "properties": { "plan": "pro" }
+  }'
+```
+
+---
+
+## Admin — Contacts
+
+All admin endpoints require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/contacts`
+
+List contacts with optional search and pagination. Results are ordered by `lastSeenAt` descending.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `search` | `string` | — | Search by email or externalId (case-insensitive) |
+
+**Response `200`**
+
+```json
+{
+  "contacts": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "externalId": "user_abc123",
+      "email": "user@example.com",
+      "properties": { "plan": "pro" },
+      "firstSeenAt": "2025-01-10T08:00:00.000Z",
+      "lastSeenAt": "2025-01-15T10:30:00.000Z",
+      "createdAt": "2025-01-10T08:00:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/contacts?limit=10&search=example.com"
+```
+
+### `GET /v1/admin/contacts/{id}`
+
+Get a single contact by internal UUID or `externalId`, along with their email preferences.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Response `200`**
+
+```json
+{
+  "contact": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "externalId": "user_abc123",
+    "email": "user@example.com",
+    "properties": { "plan": "pro" },
+    "firstSeenAt": "2025-01-10T08:00:00.000Z",
+    "lastSeenAt": "2025-01-15T10:30:00.000Z",
+    "createdAt": "2025-01-10T08:00:00.000Z",
+    "updatedAt": "2025-01-15T10:30:00.000Z"
+  },
+  "preferences": {
+    "id": "pref-uuid",
+    "userId": "user_abc123",
+    "email": "user@example.com",
+    "unsubscribedAll": false,
+    "suppressed": false,
+    "bounceCount": 0,
+    "categories": { "journey": true }
+  }
+}
+```
+
+The `preferences` field is `null` if no preference record exists for the contact.
+
+**Response `404`**
+
+```json
+{ "error": "Contact not found" }
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123
+```
+
+### `POST /v1/admin/contacts`
+
+Create a new contact.
+
+**Request Body**
+
+```json
+{
+  "externalId": "user_abc123",
+  "email": "user@example.com",
+  "properties": { "plan": "pro", "company": "Acme" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `externalId` | `string` | Yes | Your system's user identifier (min 1 char) |
+| `email` | `string` | No | Email address (validated format) |
+| `properties` | `Record<string, unknown>` | No | Arbitrary contact properties |
+
+**Response `201`**
+
+```json
+{
+  "contact": { ... }
+}
+```
+
+**Response `409`**
+
+```json
+{ "error": "Contact with this externalId already exists" }
+```
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/contacts \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "externalId": "user_abc123",
+    "email": "user@example.com",
+    "properties": { "plan": "pro" }
+  }'
+```
+
+### `PATCH /v1/admin/contacts/{id}`
+
+Update an existing contact. Properties are **merged** (deep merge via `jsonb ||`) rather than replaced.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Request Body**
+
+```json
+{
+  "email": "newemail@example.com",
+  "properties": { "plan": "enterprise" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | `string` | No | Updated email address |
+| `properties` | `Record<string, unknown>` | No | Properties to merge into existing |
+
+**Response `200`** — Updated contact object.
+
+**Response `404`** — Contact not found.
+
+```bash
+curl -X PATCH http://localhost:3002/v1/admin/contacts/user_abc123 \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "properties": { "plan": "enterprise" } }'
+```
+
+### `DELETE /v1/admin/contacts/{id}`
+
+Delete a contact and their associated email preferences.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Response `200`**
+
+```json
+{ "deleted": true }
+```
+
+**Response `404`** — Contact not found.
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/contacts/user_abc123 \
+  -H "Authorization: Bearer your-admin-api-key"
+```
+
+---
+
+## Admin — Email Preferences
+
+These endpoints manage email preferences for a specific contact. They are mounted under the admin contacts router and require the same `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/contacts/{contactId}/preferences`
+
+Get email preferences for a contact.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `contactId` | `string` | Contact UUID or `externalId` |
+
+**Response `200`**
+
+```json
+{
+  "preferences": {
+    "id": "pref-uuid",
+    "userId": "user_abc123",
+    "email": "user@example.com",
+    "unsubscribedAll": false,
+    "suppressed": false,
+    "bounceCount": 0,
+    "categories": { "journey": true },
+    "suppressedAt": null,
+    "lastBounceAt": null
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Preference record UUID |
+| `userId` | `string` | The contact's `externalId` |
+| `email` | `string` | Email address |
+| `unsubscribedAll` | `boolean` | Global unsubscribe flag |
+| `suppressed` | `boolean` | Whether delivery is suppressed (e.g., due to bounces) |
+| `bounceCount` | `number` | Total hard bounces recorded |
+| `categories` | `Record<string, boolean>` | Per-category subscription status |
+| `suppressedAt` | `string \| null` | ISO timestamp when suppression started |
+| `lastBounceAt` | `string \| null` | ISO timestamp of most recent bounce |
+
+**Response `404`** — Contact not found, or no preferences exist.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123/preferences
+```
+
+### `PUT /v1/admin/contacts/{contactId}/preferences`
+
+Create or update email preferences for a contact. Uses upsert semantics — if no preference record exists, one is created. The contact must have an email address on file.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `contactId` | `string` | Contact UUID or `externalId` |
+
+**Request Body**
+
+```json
+{
+  "unsubscribedAll": false,
+  "suppressed": false,
+  "categories": { "journey": true, "marketing": false }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `unsubscribedAll` | `boolean` | No | Set global unsubscribe |
+| `suppressed` | `boolean` | No | Set delivery suppression |
+| `categories` | `Record<string, boolean>` | No | Set per-category preferences |
+
+**Response `200`** — Updated preferences object.
+
+**Response `400`**
+
+```json
+{ "error": "Contact has no email address" }
+```
+
+**Response `404`** — Contact not found.
+
+```bash
+curl -X PUT http://localhost:3002/v1/admin/contacts/user_abc123/preferences \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "unsubscribedAll": false,
+    "categories": { "journey": true }
+  }'
+```
+
+---
+
+## Admin — Journeys
+
+Journey admin endpoints let you see which journeys are registered, inspect their state, enable/disable them at runtime, cancel stuck instances, and manually enroll users. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/journeys`
+
+List all registered journeys with their enabled status and live state counts.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `enabled` | `"true" \| "false"` | — | Filter by enabled status |
+
+**Response `200`**
+
+```json
+{
+  "journeys": [
+    {
+      "id": "activation-welcome",
+      "name": "Activation — Welcome Series",
+      "description": "Sends a welcome email series on signup",
+      "enabled": true,
+      "trigger": { "event": "user:created" },
+      "entryLimit": "once",
+      "counts": {
+        "active": 12,
+        "waiting": 5,
+        "completed": 340,
+        "failed": 2,
+        "exited": 15
+      }
+    }
+  ],
+  "total": 10,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+The `enabled` field reflects the effective state — if an admin has toggled a journey via PATCH, that override takes precedence over the code-level default.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/journeys?enabled=true"
+```
+
+### `GET /v1/admin/journeys/{id}`
+
+Get full journey detail including trigger conditions, exit conditions, suppress duration, state counts, and the 10 most recent journey instances.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID (e.g., `activation-welcome`) |
+
+**Response `200`**
+
+```json
+{
+  "journey": {
+    "id": "activation-welcome",
+    "name": "Activation — Welcome Series",
+    "enabled": true,
+    "trigger": {
+      "event": "user:created",
+      "where": [{ "type": "property", "property": "plan", "operator": "eq", "value": "pro" }]
+    },
+    "entryLimit": "once",
+    "exitOn": [{ "event": "user:deleted" }],
+    "suppress": { "hours": 12 },
+    "counts": { "active": 12, "waiting": 5, "completed": 340, "failed": 2, "exited": 15 },
+    "recentStates": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "userId": "user_abc123",
+        "userEmail": "user@example.com",
+        "journeyId": "activation-welcome",
+        "currentNodeId": "post-welcome",
+        "status": "waiting",
+        "hatchetRunId": "run-uuid",
+        "context": { "plan": "pro" },
+        "errorMessage": null,
+        "entryCount": 1,
+        "completedAt": null,
+        "exitedAt": null,
+        "createdAt": "2025-01-15T10:30:00.000Z",
+        "updatedAt": "2025-01-15T10:30:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+**Response `404`** — Journey not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome
+```
+
+### `PATCH /v1/admin/journeys/{id}`
+
+Enable or disable a journey at runtime. This persists to the database and takes effect on the next trigger — no redeploy needed. In-flight journey instances are not affected.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Request Body**
+
+```json
+{ "enabled": false }
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | Yes | Whether the journey should accept new enrollments |
+
+**Response `200`**
+
+```json
+{
+  "journey": {
+    "id": "activation-welcome",
+    "name": "Activation — Welcome Series",
+    "enabled": false,
+    "updatedAt": "2025-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Response `404`** — Journey not found.
+
+```bash
+curl -X PATCH http://localhost:3002/v1/admin/journeys/activation-welcome \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "enabled": false }'
+```
+
+### `GET /v1/admin/journeys/{id}/states`
+
+List journey instances (enrollments) with optional filters. Results are ordered by `createdAt` descending.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `status` | `string` | — | Filter by status: `active`, `waiting`, `completed`, `failed`, `exited` |
+| `userId` | `string` | — | Filter by user ID |
+
+**Response `200`**
+
+```json
+{
+  "states": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "user_abc123",
+      "userEmail": "user@example.com",
+      "journeyId": "activation-welcome",
+      "currentNodeId": "post-welcome",
+      "status": "waiting",
+      "hatchetRunId": "run-uuid",
+      "context": { "plan": "pro" },
+      "errorMessage": null,
+      "entryCount": 1,
+      "completedAt": null,
+      "exitedAt": null,
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Response `404`** — Journey not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states?status=active"
+```
+
+### `GET /v1/admin/journeys/{id}/states/{stateId}`
+
+Get a single journey instance with its full log trail.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+| `stateId` | `string` | Journey state UUID |
+
+**Response `200`**
+
+```json
+{
+  "state": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "journeyId": "activation-welcome",
+    "currentNodeId": "post-welcome",
+    "status": "waiting",
+    "hatchetRunId": "run-uuid",
+    "context": { "plan": "pro" },
+    "errorMessage": null,
+    "entryCount": 1,
+    "completedAt": null,
+    "exitedAt": null,
+    "createdAt": "2025-01-15T10:30:00.000Z",
+    "updatedAt": "2025-01-15T10:30:00.000Z"
+  },
+  "logs": [
+    {
+      "id": "log-uuid-1",
+      "fromNodeId": null,
+      "toNodeId": "start",
+      "action": "entered",
+      "detail": null,
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "log-uuid-2",
+      "fromNodeId": "start",
+      "toNodeId": "post-welcome",
+      "action": "email_sent",
+      "detail": { "template": "activation/welcome" },
+      "createdAt": "2025-01-15T10:30:01.000Z"
+    }
+  ]
+}
+```
+
+**Response `404`** — State not found or journey ID mismatch.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome/states/550e8400-e29b-41d4-a716-446655440000
+```
+
+### `DELETE /v1/admin/journeys/{id}/states/{stateId}`
+
+Cancel a running journey instance. Sets the status to `exited` and attempts to cancel the corresponding Hatchet task run.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+| `stateId` | `string` | Journey state UUID |
+
+**Response `200`**
+
+```json
+{
+  "state": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "exited",
+    "exitedAt": "2025-01-15T10:30:00.000Z"
+  },
+  "hatchetCancelled": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `hatchetCancelled` | `boolean` | Whether the Hatchet run was successfully cancelled. `false` if the run had already finished or Hatchet was unreachable. |
+
+**Response `404`** — State not found.
+
+**Response `409`** — State is already in a terminal status (`completed`, `failed`, or `exited`).
+
+```json
+{ "error": "Cannot cancel journey in 'completed' status" }
+```
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/journeys/activation-welcome/states/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer your-admin-api-key"
+```
+
+### `POST /v1/admin/journeys/{id}/enroll`
+
+Manually enroll a user in a journey by dispatching the journey's trigger event through the standard ingestion pipeline. The event is processed the same way as any other event — it goes through Hatchet routing, entry guards (limits, preferences), and exit condition checks.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Request Body**
+
+```json
+{
+  "userId": "user_abc123",
+  "userEmail": "user@example.com",
+  "properties": { "source": "admin_enroll" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userId` | `string` | Yes | User's external identifier |
+| `userEmail` | `string` | Yes | User's email address |
+| `properties` | `Record<string, unknown>` | No | Additional event properties |
+
+**Response `202`**
+
+```json
+{
+  "enrolled": true,
+  "event": "user:created",
+  "userId": "user_abc123"
+}
+```
+
+The `202 Accepted` status indicates the trigger event has been dispatched. Enrollment is asynchronous — the user may still be rejected by entry guards (e.g., already enrolled, unsubscribed, entry limit reached).
+
+**Response `404`** — Journey not found.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "properties": { "source": "admin_enroll" }
+  }'
+```
+
+---
+
+## Email — Unsubscribe and Preferences
+
+These public endpoints handle email unsubscription and the preference center. They are token-authenticated (no API key needed) — each link contains a signed JWT that identifies the user and action.
+
+### `GET /v1/email/unsubscribe`
+
+Process an unsubscribe or resubscribe action. Returns an HTML confirmation page. Typically accessed by clicking a link in an email footer.
+
+**Query Parameters**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `token` | `string` | Yes | Signed JWT containing user identity, action, and optional category |
+
+The token payload includes:
+
+| Field | Description |
+|---|---|
+| `externalId` | The user's external identifier |
+| `email` | The email address |
+| `action` | `"unsubscribe"` or `"resubscribe"` |
+| `category` | Optional category ID (e.g., `"journey"`) |
+
+**Response `200`** — HTML confirmation page.
+
+**Response `400`** — HTML error page (invalid or expired token).
+
+**Behavior:**
+
+- **Unsubscribe with category** — Sets `categories.{category}: false` in preferences
+- **Unsubscribe without category** — Sets `unsubscribedAll: true`
+- **Resubscribe with category** — Sets `categories.{category}: true` and `unsubscribedAll: false`
+- **Resubscribe without category** — Sets `unsubscribedAll: false`
+
+The unsubscribe confirmation page includes a link to the preference center.
+
+### `GET /v1/email/preferences`
+
+Renders an HTML preference center where users can manage their email subscriptions per category and globally. Also accessed via a signed token.
+
+**Query Parameters**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `token` | `string` | Yes | Signed JWT identifying the user |
+
+**Response `200`** — HTML preference center with toggle links for each email category and a global unsubscribe/resubscribe option.
+
+**Response `400`** — HTML error page (invalid or expired token).
+
+The preference center currently includes one category:
+
+| Category ID | Label |
+|---|---|
+| `journey` | Journey & lifecycle emails |
+
+Each category shows its current status (Subscribed/Unsubscribed) with a link to toggle it.
+
+---
+
+## Webhooks
+
+### `POST /v1/webhooks/resend`
+
+Receives webhook events from Resend (email delivery status updates). Handles signature verification internally via the `EmailService`.
+
+**Request Body** — Raw Resend webhook payload (`Record<string, unknown>`).
+
+**Headers** — Resend includes signature headers for verification against `RESEND_WEBHOOK_SECRET`.
+
+**Response `200`**
+
+```json
+{ "ok": true }
+```
+
+**Response `401`**
+
+```json
+{ "error": "Email service not configured" }
+```
+
+or
+
+```json
+{ "error": "Webhook verification failed" }
+```
+
+This endpoint processes email events like `email.delivered`, `email.bounced`, `email.complained`, etc. The `EmailService` tracks bounces and updates suppression status when the bounce threshold (default: 3) is reached.
+
+### `POST /v1/webhooks/{sourceId}`
+
+Generic webhook ingestion endpoint. Each registered webhook source has its own `sourceId` and transforms incoming payloads into Hogsend events.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `sourceId` | `string` | Registered webhook source identifier |
+
+**Authentication** — Each source defines its own auth header. The value is matched against the corresponding environment variable.
+
+**Available Sources**
+
+#### PostHog (`sourceId: posthog`)
+
+Receives events from PostHog webhook destinations and workflow batch triggers.
+
+**Auth header:** `X-PostHog-Webhook-Secret` (matched against `POSTHOG_WEBHOOK_SECRET` env var)
+
+**Request Body**
+
+```json
+{
+  "event": {
+    "uuid": "event-uuid",
+    "event": "user:signed_up",
+    "distinct_id": "user_abc123",
+    "timestamp": "2025-01-15T10:30:00.000Z",
+    "properties": { "plan": "pro" }
+  },
+  "person": {
+    "id": "person-uuid",
+    "properties": {
+      "email": "user@example.com"
+    }
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `event.event` | `string` | Yes | PostHog event name |
+| `event.distinct_id` | `string` | Yes | PostHog distinct ID (maps to `userId`) |
+| `event.uuid` | `string` | No | PostHog event UUID (stored as `_posthogEventId` property) |
+| `event.timestamp` | `string` | No | Event timestamp |
+| `event.properties` | `Record<string, unknown>` | No | Event properties |
+| `person.properties.email` | `string` | No | User email (maps to `userEmail`) |
+
+**Response `200`**
+
+```json
+{
+  "ok": true,
+  "event": "user:signed_up",
+  "userId": "user_abc123",
+  "exits": []
+}
+```
+
+If the source's `transform` function returns `null`, the event is skipped:
+
+```json
+{ "ok": true, "skipped": true }
+```
+
+**Response `401`** — Invalid webhook secret.
+
+**Response `404`** — Unknown source ID.
+
+**Response `400`** — Payload failed schema validation.
+
+```bash
+curl -X POST http://localhost:3002/v1/webhooks/posthog \
+  -H "Content-Type: application/json" \
+  -H "X-PostHog-Webhook-Secret: your-posthog-secret" \
+  -d '{
+    "event": {
+      "event": "user:signed_up",
+      "distinct_id": "user_abc123",
+      "properties": { "plan": "pro" }
+    },
+    "person": {
+      "properties": { "email": "user@example.com" }
+    }
+  }'
+```
+
+---
+
+## DI Container Pattern
+
+The API uses a dependency-injection container that is created once at startup and set on every request context. Handlers access it via `c.get("container")`.
+
+```ts
+// Container interface
+interface Container {
+  env: typeof env;          // Validated environment variables
+  logger: Logger;           // Structured logger (winston)
+  db: Database;             // Drizzle ORM instance
+  dbClient: DatabaseClient; // Raw pg client
+  auth: Auth;               // Better Auth instance
+  email: Resend;            // Resend client
+  emailService: EmailService | null; // Email service (requires RESEND_WEBHOOK_SECRET)
+  registry: JourneyRegistry;        // Journey registry
+  hatchet: HatchetClient;           // Hatchet task orchestration client
+}
+```
+
+In route handlers, destructure what you need:
+
+```ts
+app.openapi(myRoute, async (c) => {
+  const { db, logger, hatchet } = c.get("container");
+  // ...
+});
+```
+
+The `AppEnv` type defines what is available on the Hono context:
+
+```ts
+type AppEnv = {
+  Variables: {
+    container: Container;
+    requestId: string;
+    user: User | null;      // Set by auth middleware
+    session: Session | null; // Set by auth middleware
+  };
+};
+```
+
+---
+
+## Adding a Webhook Source
+
+To add a new webhook source that transforms external payloads into Hogsend events:
+
+```ts
+// src/webhook-sources/my-source.ts
+import { defineWebhookSource } from "./define-webhook-source.js";
+import { z } from "zod";
+
+const payloadSchema = z.object({
+  action: z.string(),
+  user_id: z.string(),
+  user_email: z.string().optional(),
+});
+
+export const mySource = defineWebhookSource({
+  meta: {
+    id: "my-source",
+    name: "My Source",
+    description: "Receives events from My Source",
+  },
+  auth: {
+    header: "x-my-source-secret",
+    envKey: "MY_SOURCE_WEBHOOK_SECRET",
+    type: "match",
+  },
+  schema: payloadSchema,
+  async transform(payload) {
+    return {
+      event: `my_source:${payload.action}`,
+      userId: payload.user_id,
+      userEmail: payload.user_email ?? "",
+      properties: {},
+    };
+  },
+});
+```
+
+Then register it in `src/webhook-sources/index.ts`:
+
+```ts
+import { mySource } from "./my-source.js";
+
+const allSources: DefinedWebhookSource[] = [posthogSource, mySource];
+```
+
+The source is now available at `POST /v1/webhooks/my-source`.
+
+---
+
+## Environment Variables
+
+The API validates all environment variables at startup using `@t3-oss/env-core` with Zod schemas. The server will not start if required variables are missing.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `NODE_ENV` | No | `development` | `development`, `production`, or `test` |
+| `PORT` | No | `3002` | HTTP server port |
+| `LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `http`, `debug` |
+| `DATABASE_URL` | Yes | — | TimescaleDB/Postgres connection string |
+| `REDIS_URL` | No | `redis://localhost:6379` | Redis connection for PostHog property cache |
+| `BETTER_AUTH_SECRET` | Yes | — | Session signing secret |
+| `BETTER_AUTH_URL` | No | `http://localhost:3002` | Auth base URL |
+| `RESEND_API_KEY` | Yes | — | Resend API key |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Default sender email |
+| `RESEND_WEBHOOK_SECRET` | No | — | Enables Resend webhook verification and `EmailService` |
+| `HATCHET_CLIENT_TOKEN` | No | — | Hatchet authentication token |
+| `POSTHOG_API_KEY` | No | — | PostHog project API key |
+| `POSTHOG_HOST` | No | — | PostHog instance URL |
+| `POSTHOG_WEBHOOK_SECRET` | No | — | PostHog webhook source authentication |
+| `ADMIN_API_KEY` | No | — | Bearer token for admin endpoints |
+| `API_PUBLIC_URL` | No | `http://localhost:3002` | Public URL for generating links (unsubscribe, preferences) |
+| `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs or `*` for all |

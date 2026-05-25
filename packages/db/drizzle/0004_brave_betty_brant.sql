@@ -1,0 +1,1 @@
+CREATE INDEX "journey_states_journey_id_status_idx" ON "journey_states" USING btree ("journey_id","status");

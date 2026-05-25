@@ -10,11 +10,14 @@ import {
 import { contacts } from "./contacts.js";
 import { emailPreferences } from "./email-preferences.js";
 import { emailSends } from "./email-sends.js";
+import { journeyConfigs } from "./journey-configs.js";
 import { journeyLogs } from "./journey-logs.js";
 import { journeyStates } from "./journey-states.js";
 import { linkClicks } from "./link-clicks.js";
 import { trackedLinks } from "./tracked-links.js";
 import { userEvents } from "./user-events.js";
+
+export const journeyConfigsRelations = relations(journeyConfigs, () => ({}));
 
 export const contactsRelations = relations(contacts, ({ many }) => ({
   emailPreferences: many(emailPreferences),
