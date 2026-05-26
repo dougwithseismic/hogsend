@@ -7,33 +7,7 @@ description: PostHog events flow in, lifecycle emails go out, engagement data fl
 
 Hogsend sits between PostHog and Resend. Events come in from PostHog, journeys react with emails via Resend, and engagement data flows back to PostHog. It's a closed loop — your product analytics and lifecycle email live in the same event stream.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                       PostHog                           │
-│                                                         │
-│  user_signed_up ──┐              ┌── email.opened       │
-│  feature_used ────┤   webhook    │   email.clicked      │
-│  payment_failed ──┤─────────────▶│   email.unsubscribed │
-│  [any event] ─────┘              │   journey.completed  │
-│                                  └──────────────────────│
-└──────────┬──────────────────────────────▲───────────────┘
-           │                              │
-           │ events in                    │ engagement back
-           ▼                              │
-┌──────────────────────────────────────────────────────────┐
-│                       Hogsend                            │
-│                                                          │
-│  ┌─────────┐   ┌──────────┐   ┌───────────┐             │
-│  │ Ingest  │──▶│ Hatchet  │──▶│ Journeys  │──┐          │
-│  │ Pipeline│   │ Routing  │   │ (durable) │  │          │
-│  └─────────┘   └──────────┘   └───────────┘  │          │
-│       │                                       ▼          │
-│       │    ┌──────────┐              ┌──────────┐        │
-│       └───▶│ Contacts │              │  Resend  │        │
-│            │ (upsert) │              │  (email) │        │
-│            └──────────┘              └──────────┘        │
-└──────────────────────────────────────────────────────────┘
-```
+![PostHog Lifecycle Email Flow — events flow in, lifecycle emails go out, engagement data flows back](/images/hogsend-lifecycle.png)
 
 ## What happens when a PostHog event arrives
 

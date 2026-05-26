@@ -12,6 +12,8 @@ PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit
 
 Open source. Self-hostable. Built for small teams (1–10 eng) shipping product-led SaaS who picked PostHog and Resend and now need behavioral sequences without buying a third platform.
 
+**[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs)** | **[API Reference](https://docs.hogsend.com/docs/api-reference)**
+
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
 
 ---
@@ -39,38 +41,17 @@ Each of these is a single TypeScript file using `defineJourney()`. The `run` fun
 
 Events arrive (from PostHog webhooks, your app, wherever). Hogsend matches them to journeys. Each journey is a durable async function — it can send emails, sleep for days, check if a user did something, branch, fire events back to PostHog, call webhooks, or enroll users in other journeys. Hatchet handles the durable execution so sleeps survive deploys and crashes.
 
-```
-PostHog webhooks ──┐
-Your app events ───┤──▶ /v1/ingest ──▶ Hatchet routes to matching journeys
-API calls ─────────┘                          │
-                                              ▼
-                                    ┌──────────────────────┐
-                                    │  defineJourney()      │
-                                    │  async run fn         │
-                                    │                       │
-                                    │  ctx.sleep()          │
-                                    │  ctx.checkpoint()     │
-                                    │  ctx.trigger()        │
-                                    │  ctx.history.*        │
-                                    │  ctx.guard.*          │
-                                    │                       │
-                                    │  + direct imports:    │
-                                    │  sendEmail()          │
-                                    │  posthog plugin       │
-                                    └──────────┬───────────┘
-                                               │
-                    ┌────────────┬──────────────┼────────────┐
-                    ▼            ▼              ▼            ▼
-                 Resend      PostHog        Webhooks     Sleep &
-                 (email)     (person        (fetch)      resume
-                             properties)                 later
-```
+<p align="center">
+  <img src="hogsend-lifecycle.png" alt="PostHog Lifecycle Email Flow — events flow in, lifecycle emails go out, engagement data flows back" width="100%" />
+</p>
 
 Events pushed back to PostHog mean you can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, no separate tool.
 
 ---
 
 ## Writing Journeys
+
+> Full journey documentation: **[docs.hogsend.com/docs/journeys](https://docs.hogsend.com/docs/journeys)**
 
 Journeys use `defineJourney()` — you declare metadata (trigger, entry limits, exit conditions) and write an async `run` function that receives the user and a context object with typed helpers.
 
@@ -278,6 +259,8 @@ The repo ships with 10 production-ready journeys covering common lifecycle stage
 
 ## Quick Start
 
+> Full setup guide with environment configuration: **[docs.hogsend.com/docs/installation](https://docs.hogsend.com/docs/installation)**
+
 ### Deploy to Railway
 
 1. Click the deploy button above
@@ -393,6 +376,8 @@ In production these scale independently. In development, `pnpm dev` runs the API
 
 ## API
 
+> Full API reference: **[docs.hogsend.com/docs/api-reference](https://docs.hogsend.com/docs/api-reference)**
+
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/v1/ingest` | Ingest events (PostHog webhooks or direct) |
@@ -423,6 +408,8 @@ hogsend destroy     # Tear down Railway project (with confirmation)
 ---
 
 ## Environment Variables
+
+> Full deployment guide with infrastructure setup: **[docs.hogsend.com/docs/deployment](https://docs.hogsend.com/docs/deployment)**
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
