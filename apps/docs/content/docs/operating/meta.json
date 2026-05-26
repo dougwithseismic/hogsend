@@ -1,0 +1,15 @@
+{
+  "title": "Operating",
+  "pages": [
+    "index",
+    "deployment",
+    "authentication",
+    "contacts",
+    "journeys",
+    "emails",
+    "monitoring",
+    "metrics",
+    "bulk-operations",
+    "troubleshooting"
+  ]
+}

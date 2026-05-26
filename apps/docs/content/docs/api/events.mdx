@@ -1,0 +1,140 @@
+---
+title: Events API
+description: Browse and inspect ingested events, and replay events through the ingestion pipeline.
+---
+
+Browse and inspect ingested events. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+## Events
+
+### `GET /v1/admin/events`
+
+List events with optional filters. Results are ordered by `occurredAt` descending.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `userId` | `string` | -- | Filter by user ID |
+| `event` | `string` | -- | Filter by event name |
+| `from` | `string` | -- | ISO 8601 datetime lower bound |
+| `to` | `string` | -- | ISO 8601 datetime upper bound |
+
+**Response `200`**
+
+```json
+{
+  "events": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "user_abc123",
+      "event": "user:signed_up",
+      "properties": { "plan": "pro", "source": "website" },
+      "occurredAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/events?event=user:signed_up&from=2025-01-01T00:00:00Z"
+```
+
+### `GET /v1/admin/events/{id}`
+
+Get a single event with its full properties.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Event UUID |
+
+**Response `200`**
+
+```json
+{
+  "event": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "user_abc123",
+    "event": "user:signed_up",
+    "properties": { "plan": "pro", "source": "website" },
+    "occurredAt": "2025-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Response `404`** -- Event not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/events/550e8400-e29b-41d4-a716-446655440000
+```
+
+---
+
+## Event Replay
+
+### `POST /v1/admin/events/replay`
+
+Replay events through the ingestion pipeline. Useful for re-triggering journeys after fixing bugs or adding new journey definitions.
+
+**Request Body**
+
+```json
+{
+  "eventIds": ["event-uuid-1", "event-uuid-2"],
+  "limit": 100
+}
+```
+
+Or filter-based replay:
+
+```json
+{
+  "filter": {
+    "event": "user:signed_up",
+    "userId": "user_abc123",
+    "from": "2025-01-01T00:00:00Z",
+    "to": "2025-01-15T00:00:00Z"
+  },
+  "limit": 500
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `eventIds` | `string[]` | No | Specific event UUIDs to replay |
+| `filter` | `object` | No | Filter criteria (at least one of `eventIds` or `filter` required) |
+| `filter.event` | `string` | No | Event name filter |
+| `filter.userId` | `string` | No | User ID filter |
+| `filter.from` | `string` | No | ISO 8601 lower bound |
+| `filter.to` | `string` | No | ISO 8601 upper bound |
+| `limit` | `number` | No | Max events to replay |
+
+**Response `200`**
+
+```json
+{
+  "replayed": 98,
+  "errors": [
+    { "eventId": "event-uuid-3", "error": "Event not found" }
+  ]
+}
+```
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/events/replay \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "filter": { "event": "user:signed_up" },
+    "limit": 100
+  }'
+```

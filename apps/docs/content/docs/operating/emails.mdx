@@ -1,0 +1,366 @@
+---
+title: "Email Operations"
+description: "Track every email from queue to delivery — monitor opens, clicks, bounces, and troubleshoot issues"
+---
+
+Every email Hogsend sends through Resend is tracked in the database — from initial queue through delivery, opens, clicks, bounces, and complaints. This page covers how to monitor email delivery, investigate issues, and maintain healthy deliverability.
+
+## Email Send History
+
+List email sends with optional filters:
+
+```bash
+# All emails, most recent first
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/emails
+
+# Emails to a specific recipient
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?toEmail=user@acme.com"
+
+# Emails using a specific template
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?templateKey=activation/welcome"
+
+# Failed emails in the last week
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?status=failed&from=2026-05-18T00:00:00Z"
+
+# Bounced emails
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?status=bounced"
+```
+
+```json
+{
+  "emails": [
+    {
+      "id": "email-uuid",
+      "journeyStateId": "state-uuid",
+      "templateKey": "activation/welcome",
+      "resendId": "resend-id",
+      "fromEmail": "noreply@hogsend.com",
+      "toEmail": "user@acme.com",
+      "subject": "Welcome to Hogsend",
+      "category": "journey",
+      "status": "delivered",
+      "sentAt": "2025-01-15T10:30:00.000Z",
+      "deliveredAt": "2025-01-15T10:30:05.000Z",
+      "openedAt": "2025-01-15T11:00:00.000Z",
+      "clickedAt": null,
+      "bouncedAt": null,
+      "complainedAt": null,
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T11:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### Email Status Lifecycle
+
+An email moves through these statuses as delivery progresses:
+
+```
+queued -> rendered -> sent -> delivered -> opened -> clicked
+                        \-> bounced
+                        \-> complained
+                \-> failed
+```
+
+| Status | Meaning |
+|---|---|
+| `queued` | Email task created, waiting for worker to pick it up |
+| `rendered` | Template rendered successfully, ready to send |
+| `sent` | Handed off to Resend for delivery |
+| `delivered` | Resend confirmed the email reached the recipient's mail server |
+| `opened` | Recipient opened the email (tracked via pixel) |
+| `clicked` | Recipient clicked a tracked link |
+| `bounced` | Email bounced (hard bounce -- invalid address, mailbox does not exist) |
+| `complained` | Recipient marked the email as spam |
+| `failed` | Template rendering or Resend API call failed |
+
+Open and click tracking depends on the recipient's email client -- some clients block tracking pixels or pre-fetch links, so these numbers are lower bounds.
+
+## Email Detail View
+
+Get the full detail for a single email, including tracked link clicks and the journey context:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/emails/email-uuid
+```
+
+```json
+{
+  "email": {
+    "id": "email-uuid",
+    "journeyStateId": "state-uuid",
+    "templateKey": "activation/welcome",
+    "resendId": "resend-id",
+    "fromEmail": "noreply@hogsend.com",
+    "toEmail": "user@acme.com",
+    "subject": "Welcome to Hogsend",
+    "category": "journey",
+    "status": "delivered",
+    "sentAt": "2025-01-15T10:30:00.000Z",
+    "deliveredAt": "2025-01-15T10:30:05.000Z",
+    "openedAt": "2025-01-15T11:00:00.000Z",
+    "clickedAt": null,
+    "bouncedAt": null,
+    "complainedAt": null
+  },
+  "trackedLinks": [
+    {
+      "id": "link-uuid",
+      "originalUrl": "https://example.com/docs",
+      "clickCount": 3,
+      "clicks": [
+        {
+          "id": "click-uuid",
+          "clickedAt": "2025-01-15T11:05:00.000Z",
+          "ipAddress": "192.168.1.1",
+          "userAgent": "Mozilla/5.0..."
+        }
+      ]
+    }
+  ],
+  "journeyContext": {
+    "journeyId": "activation-welcome",
+    "userId": "user_abc123",
+    "status": "completed",
+    "currentNodeId": "done"
+  }
+}
+```
+
+The `journeyContext` field is `null` if the email was not sent from a journey. The `trackedLinks` array shows every link that was tracked in the email, with individual click records including timestamps, IP addresses, and user agents.
+
+### Understanding the Delivery Timeline
+
+For a delivered email, read the timestamps to understand the delivery path:
+
+| Timestamp | What happened |
+|---|---|
+| `createdAt` | Email send record created in the database |
+| `sentAt` | Email handed to Resend API |
+| `deliveredAt` | Resend confirmed delivery to recipient's mail server |
+| `openedAt` | Recipient opened the email |
+| `clickedAt` | Recipient clicked a tracked link |
+
+The gap between `sentAt` and `deliveredAt` is the delivery latency. This is typically under 10 seconds. If you see consistently large gaps, check your Resend sender reputation and DNS configuration.
+
+## Email Metrics by Template
+
+See how each template is performing:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/emails
+```
+
+```json
+{
+  "emails": [
+    {
+      "templateKey": "activation/welcome",
+      "sent": 480,
+      "delivered": 475,
+      "opened": 320,
+      "clicked": 150,
+      "bounced": 5,
+      "deliveryRate": 0.99,
+      "openRate": 0.67,
+      "clickRate": 0.31
+    },
+    {
+      "templateKey": "activation/getting-started",
+      "sent": 300,
+      "delivered": 298,
+      "opened": 150,
+      "clicked": 45,
+      "bounced": 2,
+      "deliveryRate": 0.99,
+      "openRate": 0.50,
+      "clickRate": 0.15
+    }
+  ]
+}
+```
+
+### Benchmarks
+
+Use these as rough guidelines for SaaS lifecycle emails:
+
+| Metric | Good | Needs attention | Investigate |
+|---|---|---|---|
+| Delivery rate | {'>'}98% | 95-98% | {'<'}95% |
+| Open rate | {'>'}50% | 30-50% | {'<'}30% |
+| Click rate | {'>'}15% | 5-15% | {'<'}5% |
+| Bounce rate | {'<'}1% | 1-3% | {'>'}3% |
+
+Low open rates usually indicate subject line or timing issues. Low click rates suggest the email content or CTA is not compelling. High bounce rates point to stale contact data.
+
+## Deliverability Trends
+
+Track deliverability over time to spot degradation early:
+
+```bash
+# Daily deliverability for the last 30 days
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/emails/deliverability?period=day&from=2026-04-25T00:00:00Z"
+
+# Weekly trends
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/emails/deliverability?period=week&from=2026-01-01T00:00:00Z"
+
+# Monthly overview
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/emails/deliverability?period=month&from=2025-01-01T00:00:00Z"
+```
+
+```json
+{
+  "deliverability": [
+    {
+      "date": "2026-05-24",
+      "total": 120,
+      "delivered": 118,
+      "bounced": 1,
+      "complained": 1,
+      "deliveryRate": 0.983
+    },
+    {
+      "date": "2026-05-25",
+      "total": 95,
+      "delivered": 94,
+      "bounced": 1,
+      "complained": 0,
+      "deliveryRate": 0.989
+    }
+  ]
+}
+```
+
+Watch for:
+- **Delivery rate dropping below 95%** -- may indicate DNS/SPF/DKIM issues, blacklisting, or sudden contact quality problems
+- **Bounce spikes** -- could mean a bad batch import or stale data
+- **Complaint increases** -- review email frequency and content. Complaints above 0.1% are a sender reputation risk.
+
+## Resending Failed Emails
+
+If an email failed due to a transient issue (Resend API timeout, temporary rendering error), you can retry it:
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/emails/email-uuid/resend \
+  -H "Authorization: Bearer your-api-key"
+```
+
+```json
+{
+  "emailId": "email-uuid",
+  "status": "queued"
+}
+```
+
+Only emails in `failed` or `bounced` status can be resent. The email must have a `templateKey` so it can be re-rendered with the original data. Attempting to resend an email in any other status returns `409 Conflict`.
+
+Before resending a bounced email, check whether the recipient's address is actually valid. Resending to an invalid address will bounce again and further damage your sender reputation.
+
+## Bounce Tracking and Suppression
+
+Hogsend automatically tracks hard bounces via Resend webhooks. When a bounce is received:
+
+1. The email record's status is updated to `bounced` with a `bouncedAt` timestamp
+2. The contact's `bounceCount` is incremented in their email preferences
+3. If `bounceCount` reaches the threshold (default: 3), the contact is **suppressed** (`suppressed: true`)
+
+Suppressed contacts:
+- Will not receive any emails from any journey
+- Will not pass the subscription check in entry guards
+- Remain in the system (not deleted) with all historical data intact
+
+### Checking Suppressed Contacts
+
+```bash
+# View a contact's bounce status
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123/preferences
+```
+
+If `suppressed: true` and `bounceCount >= 3`, the contact was auto-suppressed due to bounces.
+
+### Un-suppressing a Contact
+
+If a user confirms their email is valid (e.g., they contact support), you can un-suppress them:
+
+```bash
+curl -X PUT http://localhost:3002/v1/admin/contacts/user_abc123/preferences \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "suppressed": false }'
+```
+
+Note that this does not reset the bounce count. If the email bounces again, the contact will be re-suppressed immediately. To also reset the bounce count, you will need to update the database directly.
+
+## Troubleshooting
+
+### High Bounce Rates
+
+If your bounce rate exceeds 3%:
+
+1. **Check recent imports** -- a bad import with stale email addresses is the most common cause
+
+```bash
+# Find recently imported contacts that bounced
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?status=bounced&from=2026-05-20T00:00:00Z"
+```
+
+2. **Review the deliverability trend** -- was it a sudden spike or gradual increase?
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/emails/deliverability?period=day&from=2026-05-01T00:00:00Z"
+```
+
+3. **Check DNS configuration** -- verify SPF, DKIM, and DMARC records for your sending domain are correct in Resend
+
+4. **Review contact sources** -- if bounces are concentrated in contacts from a specific source, that source may need validation
+
+### Emails Not Being Delivered
+
+If emails show `sent` status but never move to `delivered`:
+
+1. **Check the Resend dashboard** -- the email may be queued on Resend's side
+2. **Check the recipient's spam folder** -- the email may have been delivered but classified as spam
+3. **Verify Resend webhooks are working** -- the `delivered` status comes from Resend webhook events. If the webhook is misconfigured, Hogsend will not know about delivery
+
+```bash
+# Check the health endpoint -- if Redis is down, webhook processing may be affected
+curl http://localhost:3002/v1/health
+```
+
+### Email Shows "failed" Status
+
+Check the DLQ for the failure details:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/dlq?source=email&status=pending"
+```
+
+Common failure causes:
+
+| Error | Resolution |
+|---|---|
+| Resend API timeout | Transient -- retry via `/resend` endpoint |
+| Template rendering error | Bug in the email template code. Fix and redeploy. |
+| Invalid email address | Contact has a malformed email. Update the contact. |
+| Resend API key invalid | Check the `RESEND_API_KEY` environment variable |
+| Rate limited by Resend | Reduce sending volume or contact Resend for higher limits |
+
+For the full endpoint specification, see the [API Reference](/docs/api). For per-template metrics and trends, see [Metrics & Analytics](/docs/operating/metrics).

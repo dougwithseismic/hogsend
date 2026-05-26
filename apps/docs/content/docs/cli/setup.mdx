@@ -1,0 +1,79 @@
+---
+title: hogsend setup
+description: Set up the local development environment with Docker, dependencies, and config.
+---
+
+## Usage
+
+```bash
+hogsend setup
+```
+
+Prepares your local machine for Hogsend development. Checks prerequisites, starts infrastructure containers, installs dependencies, and creates config files.
+
+## What it does
+
+The setup command runs through these steps in order:
+
+### 1. Prerequisite checks
+
+Verifies that the following tools are installed and available on your PATH:
+
+- **docker** -- needed for infrastructure containers
+- **pnpm** -- the monorepo package manager
+- **node** -- runtime (Node 22 required)
+
+Also checks that the Docker daemon is running. If any check fails, the command exits with a clear error message.
+
+### 2. Start containers
+
+Runs `docker compose up -d --wait --wait-timeout 60` to start:
+
+- **TimescaleDB** (Postgres 18) on port 5434
+- **Redis 8** on port 6380
+- **Hatchet-Lite** with dashboard on port 8888
+
+### 3. Create `.env`
+
+If `apps/api/.env` does not exist, copies it from `apps/api/.env.example`. If the file already exists, this step is skipped.
+
+### 4. Install dependencies
+
+Runs `pnpm install` to install all workspace dependencies.
+
+### 5. Write `.hogsend.yaml`
+
+If `.hogsend.yaml` does not exist, creates a local development config:
+
+```yaml
+name: Local Development
+slug: local
+railway:
+  domain: localhost:3002
+journeys:
+  enabled:
+    - "*"
+```
+
+If the file already exists, this step is skipped.
+
+## Output
+
+On completion, prints a card with the next steps:
+
+```
+pnpm dev              Start the API
+hatchet worker dev    Start the worker (separate terminal)
+hogsend status        Check health
+
+Hatchet dashboard:    http://localhost:8888
+API:                  http://localhost:3002
+```
+
+## Prerequisites
+
+| Tool | Purpose |
+|---|---|
+| Docker Desktop | Runs Postgres, Redis, and Hatchet containers |
+| pnpm | Installs monorepo dependencies |
+| Node 22 | Runtime for the API and worker |

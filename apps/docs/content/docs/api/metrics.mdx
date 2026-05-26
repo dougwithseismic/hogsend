@@ -1,0 +1,259 @@
+---
+title: Metrics API
+description: System overview, journey performance, email metrics, deliverability trends, and event volume analytics.
+---
+
+Metrics endpoints provide real-time analytics computed via SQL aggregates. No pre-computation or background jobs are needed at typical scale. All require the `Authorization: Bearer <api-key>` header.
+
+## Overview
+
+### `GET /v1/admin/metrics/overview`
+
+System-wide summary metrics across contacts, journeys, and emails.
+
+**Response `200`**
+
+```json
+{
+  "totalContacts": 1250,
+  "activeJourneys": 8,
+  "emailsSent24h": 340,
+  "emailsSent7d": 2100,
+  "emailsSent30d": 8500,
+  "bounceRate30d": 0.012,
+  "unsubscribeRate": 0.034
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `totalContacts` | `number` | Total non-deleted contacts |
+| `activeJourneys` | `number` | Journeys with at least one active/waiting state |
+| `emailsSent24h` | `number` | Emails sent in the last 24 hours |
+| `emailsSent7d` | `number` | Emails sent in the last 7 days |
+| `emailsSent30d` | `number` | Emails sent in the last 30 days |
+| `bounceRate30d` | `number` | Bounce rate over last 30 days (0-1) |
+| `unsubscribeRate` | `number` | Global unsubscribe rate (0-1) |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/overview
+```
+
+---
+
+## Journey Performance
+
+### `GET /v1/admin/metrics/journeys`
+
+Per-journey performance metrics across all registered journeys.
+
+**Response `200`**
+
+```json
+{
+  "journeys": [
+    {
+      "journeyId": "activation-welcome",
+      "name": "Activation -- Welcome Series",
+      "enrolled": 500,
+      "completed": 340,
+      "failed": 12,
+      "exited": 45,
+      "active": 103,
+      "completionRate": 0.68,
+      "avgDurationSecs": 86400
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `journeyId` | `string` | Journey identifier |
+| `name` | `string` | Journey display name |
+| `enrolled` | `number` | Total enrollments |
+| `completed` | `number` | Successfully completed |
+| `failed` | `number` | Failed with error |
+| `exited` | `number` | Exited via exit conditions or cancellation |
+| `active` | `number` | Currently active or waiting |
+| `completionRate` | `number` | Completion ratio (0-1) |
+| `avgDurationSecs` | `number` | Average time from entry to completion in seconds |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/journeys
+```
+
+### `GET /v1/admin/metrics/journeys/{id}`
+
+Funnel metrics for a single journey showing progression through stages.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Response `200`**
+
+```json
+{
+  "enrolled": 500,
+  "emailSent": 480,
+  "emailOpened": 320,
+  "emailClicked": 150,
+  "completed": 340,
+  "failed": 12,
+  "exited": 45
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `enrolled` | `number` | Total enrollments |
+| `emailSent` | `number` | Emails sent within this journey |
+| `emailOpened` | `number` | Emails opened |
+| `emailClicked` | `number` | Emails with at least one click |
+| `completed` | `number` | Completed the journey |
+| `failed` | `number` | Failed with error |
+| `exited` | `number` | Exited early |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/journeys/activation-welcome
+```
+
+---
+
+## Email Metrics
+
+### `GET /v1/admin/metrics/emails`
+
+Per-template email performance metrics.
+
+**Response `200`**
+
+```json
+{
+  "emails": [
+    {
+      "templateKey": "activation/welcome",
+      "sent": 480,
+      "delivered": 475,
+      "opened": 320,
+      "clicked": 150,
+      "bounced": 5,
+      "deliveryRate": 0.99,
+      "openRate": 0.67,
+      "clickRate": 0.31
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `templateKey` | `string` | Email template identifier |
+| `sent` | `number` | Total sends |
+| `delivered` | `number` | Successfully delivered |
+| `opened` | `number` | Unique opens |
+| `clicked` | `number` | Unique clicks |
+| `bounced` | `number` | Hard bounces |
+| `deliveryRate` | `number` | Delivery ratio (0-1) |
+| `openRate` | `number` | Open ratio (0-1) |
+| `clickRate` | `number` | Click ratio (0-1) |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/emails
+```
+
+### `GET /v1/admin/metrics/emails/deliverability`
+
+Deliverability trends over time, grouped by period.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `period` | `string` | `day` | Grouping period: `day`, `week`, or `month` |
+| `from` | `string` | -- | ISO 8601 datetime lower bound |
+| `to` | `string` | -- | ISO 8601 datetime upper bound |
+
+**Response `200`**
+
+```json
+{
+  "deliverability": [
+    {
+      "date": "2025-01-15",
+      "total": 120,
+      "delivered": 118,
+      "bounced": 1,
+      "complained": 1,
+      "deliveryRate": 0.983
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `date` | `string` | Period start date |
+| `total` | `number` | Total emails sent in period |
+| `delivered` | `number` | Successfully delivered |
+| `bounced` | `number` | Hard bounces |
+| `complained` | `number` | Spam complaints |
+| `deliveryRate` | `number` | Delivery ratio for the period (0-1) |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/emails/deliverability?period=day&from=2025-01-01T00:00:00Z"
+```
+
+---
+
+## Event Volume
+
+### `GET /v1/admin/metrics/events`
+
+Event volume by name over time, grouped by granularity.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `granularity` | `string` | `day` | Grouping: `hour`, `day`, or `week` |
+| `from` | `string` | -- | ISO 8601 datetime lower bound |
+| `to` | `string` | -- | ISO 8601 datetime upper bound |
+
+**Response `200`**
+
+```json
+{
+  "events": [
+    {
+      "event": "user:signed_up",
+      "date": "2025-01-15",
+      "count": 42
+    },
+    {
+      "event": "user:activated",
+      "date": "2025-01-15",
+      "count": 28
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `event` | `string` | Event name |
+| `date` | `string` | Period start date/hour |
+| `count` | `number` | Number of events in period |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/events?granularity=day&from=2025-01-01T00:00:00Z"
+```

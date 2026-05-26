@@ -1,0 +1,71 @@
+---
+title: CLI Reference
+description: Install and use the Hogsend CLI to deploy, configure, and manage lifecycle engine instances from your terminal.
+---
+
+## Overview
+
+The Hogsend CLI is a per-project setup and management tool. It connects to your Railway deployment, configures PostHog webhooks, manages contacts, and lets you test the full event pipeline without leaving your terminal.
+
+## Installation
+
+Download the latest release for your platform:
+
+### macOS (Apple Silicon)
+
+```bash
+curl -fsSL https://github.com/hogsend/cli/releases/latest/download/hogsend-darwin-arm64.tar.gz \
+  | tar xz -C /usr/local/bin
+```
+
+### macOS (Intel)
+
+```bash
+curl -fsSL https://github.com/hogsend/cli/releases/latest/download/hogsend-darwin-amd64.tar.gz \
+  | tar xz -C /usr/local/bin
+```
+
+### Linux (arm64)
+
+```bash
+curl -fsSL https://github.com/hogsend/cli/releases/latest/download/hogsend-linux-arm64.tar.gz \
+  | tar xz -C /usr/local/bin
+```
+
+### Linux (amd64)
+
+```bash
+curl -fsSL https://github.com/hogsend/cli/releases/latest/download/hogsend-linux-amd64.tar.gz \
+  | tar xz -C /usr/local/bin
+```
+
+Verify the installation:
+
+```bash
+hogsend --version
+```
+
+## Commands
+
+| Command | Description |
+|---|---|
+| [`hogsend init`](/docs/cli/init) | Configure a deployment after Railway template deploy |
+| [`hogsend setup`](/docs/cli/setup) | Set up the local development environment |
+| [`hogsend status`](/docs/cli/status) | Check health of the current deployment |
+| [`hogsend deploy`](/docs/cli/deploy) | Trigger a Railway redeploy for API + Worker |
+| [`hogsend test`](/docs/cli/test) | Send a test event and verify the pipeline |
+| [`hogsend journeys`](/docs/cli/journeys) | Manage which journeys are active |
+| [`hogsend contacts`](/docs/cli/contacts) | List, create, update, and delete contacts |
+| [`hogsend destroy`](/docs/cli/destroy) | Tear down the Railway project |
+
+## Configuration
+
+All commands read from `.hogsend.yaml` in the current directory. This file is created by `hogsend init` (for production deployments) or `hogsend setup` (for local development) and stores:
+
+- Project name and slug
+- Railway project ID, environment ID, service IDs, domain, and API token
+- PostHog project ID, API keys, host, and webhook destination ID
+- Enabled journeys list
+- Admin API key
+
+The file contains secrets (Railway token, PostHog keys, admin API key). Add `.hogsend.yaml` to your `.gitignore`.

@@ -2,17 +2,13 @@
   "title": "Documentation",
   "pages": [
     "index",
-    "installation",
-    "journeys",
-    "events",
-    "email",
-    "conditions",
-    "admin",
-    "metrics",
-    "bulk-operations",
-    "security",
-    "alerting",
-    "deployment",
-    "api-reference"
+    "getting-started",
+    "concepts",
+    "guides",
+    "cli",
+    "operating",
+    "api",
+    "---",
+    "about"
   ]
 }

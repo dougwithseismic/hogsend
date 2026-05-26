@@ -1,0 +1,64 @@
+---
+title: hogsend test
+description: Send a test event through the ingest pipeline and verify it was stored.
+---
+
+## Usage
+
+```bash
+hogsend test
+```
+
+Fires a synthetic `hogsend:test` event to the ingest endpoint and verifies it was stored by querying the admin API. This is the fastest way to confirm the full pipeline -- ingest, storage, and admin query -- is working.
+
+## What it does
+
+1. Loads the API URL and admin API key from `.hogsend.yaml`
+2. Generates a unique test ID (format: `test-<unix_timestamp>-<random_hex>`)
+3. Sends a `POST /v1/ingest` request with:
+   - `event`: `"hogsend:test"`
+   - `userId`: `"hogsend-cli-test"`
+   - `userEmail`: `"test@hogsend.com"`
+   - `properties`: `{ source: "cli", testId: "<generated>", timestamp: "<iso8601>" }`
+4. Queries the admin events API up to 3 times at 2-second intervals, looking for an event matching the test ID
+5. Prints a PASS or WARN result card
+
+## Output
+
+### PASS -- event was stored
+
+```
+HOGSEND TEST
+
+  Sending test event...       done
+  Verifying event arrived...  done
+
+  PASS  Pipeline is working
+
+  Event:      hogsend:test
+  Test ID:    test-1716681234-a1b2c3d4
+  Stored at:  2025-05-25T12:00:34Z
+  Roundtrip:  1.234s
+```
+
+### WARN -- event accepted but not found
+
+```
+  WARN  Event was accepted but not found in storage
+
+  This can happen if:
+    - The database is still initializing
+    - The Hatchet worker hasn't processed it yet
+    - The ADMIN_API_KEY doesn't match
+
+  API:      https://hogsend-api.up.railway.app
+  Railway:  https://railway.com/project/abc-123
+```
+
+A WARN result does not necessarily mean something is broken. After a fresh deploy, it can take a few seconds for the database and worker to finish initializing. Wait a moment and run `hogsend test` again.
+
+## Requirements
+
+- `.hogsend.yaml` must exist with a valid `api_key`
+- The API must be reachable at the configured domain
+- The `ADMIN_API_KEY` on the server must match the key in `.hogsend.yaml`

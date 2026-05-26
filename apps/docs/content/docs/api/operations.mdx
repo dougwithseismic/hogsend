@@ -1,0 +1,689 @@
+---
+title: Operations API
+description: Bulk import/export, batch enrollment, API key management, audit logs, alert rules, and dead letter queue.
+---
+
+## Bulk Operations
+
+Endpoints for bulk data operations. All require the `Authorization: Bearer <api-key>` header.
+
+### `POST /v1/admin/contacts/import`
+
+Bulk import contacts from CSV or JSON. The import runs asynchronously via Hatchet.
+
+**Request Body**
+
+```json
+{
+  "format": "csv",
+  "data": "externalId,email,plan\nuser_001,a@example.com,pro\nuser_002,b@example.com,free",
+  "fileName": "import-jan-2025.csv"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `format` | `"csv" \| "json"` | Yes | Data format |
+| `data` | `string` | Yes | Raw CSV or JSON string |
+| `fileName` | `string` | No | Descriptive name for the import job |
+
+**Response `202`**
+
+```json
+{
+  "jobId": "job-uuid",
+  "status": "pending"
+}
+```
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/contacts/import \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "format": "json",
+    "data": "[{\"externalId\":\"user_001\",\"email\":\"a@example.com\"}]"
+  }'
+```
+
+### `GET /v1/admin/contacts/import/{jobId}`
+
+Check the status of an import job.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `jobId` | `string` | Import job UUID |
+
+**Response `200`**
+
+```json
+{
+  "id": "job-uuid",
+  "status": "completed",
+  "totalRows": 500,
+  "processedRows": 498,
+  "failedRows": 2,
+  "errors": [
+    { "row": 42, "error": "Invalid email format" },
+    { "row": 315, "error": "Duplicate externalId" }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Job UUID |
+| `status` | `string` | `pending`, `processing`, `completed`, or `failed` |
+| `totalRows` | `number` | Total rows in the import |
+| `processedRows` | `number` | Successfully processed rows |
+| `failedRows` | `number` | Rows that failed validation |
+| `errors` | `array` | Per-row error details |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts/import/job-uuid
+```
+
+### `GET /v1/admin/contacts/export`
+
+Export contacts as JSON or CSV. Results stream directly in the response.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `format` | `string` | `json` | Export format: `csv` or `json` |
+| `search` | `string` | -- | Filter by email or externalId |
+| `limit` | `number` | `10000` | Max rows to export (up to 10000) |
+
+**Response `200`** -- JSON array or CSV with `Content-Disposition: attachment` header.
+
+```bash
+# Export as CSV
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/export?format=csv&limit=5000" \
+  -o contacts.csv
+
+# Export as JSON
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/contacts/export?format=json&search=example.com"
+```
+
+### `POST /v1/admin/journeys/{id}/enroll/batch`
+
+Batch enroll multiple users into a journey. Each user is processed through the standard ingestion pipeline with all entry guards applied.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Request Body**
+
+```json
+{
+  "users": [
+    { "userId": "user_001", "userEmail": "a@example.com", "properties": { "plan": "pro" } },
+    { "userId": "user_002", "userEmail": "b@example.com" },
+    { "userId": "user_003", "userEmail": "c@example.com" }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `users` | `array` | Yes | Users to enroll (max 500) |
+| `users[].userId` | `string` | Yes | External user identifier |
+| `users[].userEmail` | `string` | Yes | User email address |
+| `users[].properties` | `Record<string, unknown>` | No | Additional event properties |
+
+**Response `200`**
+
+```json
+{
+  "enrolled": 2,
+  "skipped": 1,
+  "results": [
+    { "userId": "user_001", "enrolled": true },
+    { "userId": "user_002", "enrolled": true },
+    { "userId": "user_003", "enrolled": false }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `enrolled` | `number` | Count of users successfully dispatched |
+| `skipped` | `number` | Count of users skipped (already enrolled, unsubscribed, etc.) |
+| `results` | `array` | Per-user enrollment result |
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll/batch \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "users": [
+      { "userId": "user_001", "userEmail": "a@example.com" },
+      { "userId": "user_002", "userEmail": "b@example.com" }
+    ]
+  }'
+```
+
+---
+
+## API Keys
+
+Manage database-backed API keys with scoped permissions. All require the `Authorization: Bearer <api-key>` header with `full-admin` scope.
+
+### `GET /v1/admin/api-keys`
+
+List API keys. Revoked keys are excluded by default.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page |
+| `offset` | `number` | `0` | Pagination offset |
+| `includeRevoked` | `boolean` | `false` | Include revoked keys |
+
+**Response `200`**
+
+```json
+{
+  "keys": [
+    {
+      "id": "key-uuid",
+      "name": "CI Pipeline",
+      "keyPrefix": "hsk_abc1",
+      "scopes": ["read"],
+      "expiresAt": "2025-06-01T00:00:00.000Z",
+      "revokedAt": null,
+      "lastUsedAt": "2025-01-15T10:30:00.000Z",
+      "createdAt": "2025-01-01T00:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/api-keys?includeRevoked=true"
+```
+
+### `POST /v1/admin/api-keys`
+
+Create a new API key. The raw key is only returned in this response and cannot be retrieved again.
+
+**Request Body**
+
+```json
+{
+  "name": "CI Pipeline",
+  "scopes": ["read"],
+  "expiresAt": "2025-06-01T00:00:00.000Z"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Human-readable key name |
+| `scopes` | `string[]` | Yes | Permission scopes: `read`, `journey-admin`, `full-admin` |
+| `expiresAt` | `string` | No | ISO 8601 expiry datetime |
+
+**Response `201`**
+
+```json
+{
+  "id": "key-uuid",
+  "name": "CI Pipeline",
+  "key": "hsk_abc123def456ghi789...",
+  "keyPrefix": "hsk_abc1",
+  "scopes": ["read"],
+  "expiresAt": "2025-06-01T00:00:00.000Z",
+  "createdAt": "2025-01-15T10:30:00.000Z"
+}
+```
+
+The `key` field contains the full API key. Store it securely -- it is SHA-256 hashed before storage and cannot be retrieved again.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CI Pipeline",
+    "scopes": ["read"],
+    "expiresAt": "2025-06-01T00:00:00.000Z"
+  }'
+```
+
+### `DELETE /v1/admin/api-keys/{id}`
+
+Revoke an API key. The key is immediately invalidated and removed from the auth cache.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | API key UUID |
+
+**Response `200`**
+
+```json
+{ "revoked": true }
+```
+
+**Response `404`** -- Key not found.
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/api-keys/key-uuid \
+  -H "Authorization: Bearer your-api-key"
+```
+
+---
+
+## Audit Logs
+
+Query the audit trail of all admin mutations. Every POST, PUT, PATCH, and DELETE request to admin endpoints is automatically recorded. Requires the `Authorization: Bearer <api-key>` header.
+
+### `GET /v1/admin/audit-logs`
+
+List audit log entries with optional filters.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page |
+| `offset` | `number` | `0` | Pagination offset |
+| `actor` | `string` | -- | Filter by actor (key name or "legacy") |
+| `resource` | `string` | -- | Filter by resource type (e.g., `contact`, `journey`, `api-key`) |
+| `action` | `string` | -- | Filter by action (e.g., `create`, `update`, `delete`) |
+| `from` | `string` | -- | ISO 8601 datetime lower bound |
+| `to` | `string` | -- | ISO 8601 datetime upper bound |
+
+**Response `200`**
+
+```json
+{
+  "logs": [
+    {
+      "id": "log-uuid",
+      "actor": "CI Pipeline",
+      "actorKeyId": "key-uuid",
+      "action": "create",
+      "resource": "contact",
+      "resourceId": "contact-uuid",
+      "detail": { "externalId": "user_abc123" },
+      "ipAddress": "192.168.1.1",
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Log entry UUID |
+| `actor` | `string` | Key name or "legacy" for env-var key |
+| `actorKeyId` | `string \| null` | API key UUID (null for legacy key) |
+| `action` | `string` | Action performed: `create`, `update`, `delete`, `revoke`, `enroll`, `cancel`, `import`, `export`, `replay`, `resend` |
+| `resource` | `string` | Resource type: `contact`, `journey`, `api-key`, `alert-rule`, `email`, `event`, `dlq` |
+| `resourceId` | `string \| null` | Target resource identifier |
+| `detail` | `object \| null` | Additional context about the action |
+| `ipAddress` | `string` | Client IP address |
+| `createdAt` | `string` | ISO 8601 timestamp |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/audit-logs?resource=contact&action=delete&from=2025-01-01T00:00:00Z"
+```
+
+---
+
+## Alerts
+
+Configure alert rules to be notified when metrics cross thresholds. All require the `Authorization: Bearer <api-key>` header.
+
+### `GET /v1/admin/alerts/rules`
+
+List all alert rules.
+
+**Response `200`**
+
+```json
+{
+  "rules": [
+    {
+      "id": "rule-uuid",
+      "name": "High bounce rate",
+      "type": "bounce_rate_exceeded",
+      "threshold": 0.05,
+      "channel": "webhook",
+      "channelConfig": { "url": "https://hooks.slack.com/..." },
+      "cooldownMinutes": 60,
+      "enabled": true,
+      "lastTriggeredAt": "2025-01-14T08:00:00.000Z",
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/alerts/rules
+```
+
+### `POST /v1/admin/alerts/rules`
+
+Create a new alert rule.
+
+**Request Body**
+
+```json
+{
+  "name": "High bounce rate",
+  "type": "bounce_rate_exceeded",
+  "threshold": 0.05,
+  "channel": "webhook",
+  "channelConfig": { "url": "https://hooks.slack.com/services/..." },
+  "cooldownMinutes": 60
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Human-readable rule name |
+| `type` | `string` | Yes | Alert type (see below) |
+| `threshold` | `number` | Yes | Numeric threshold that triggers the alert |
+| `channel` | `string` | Yes | Notification channel: `webhook`, `slack`, or `email` |
+| `channelConfig` | `object` | Yes | Channel-specific configuration |
+| `cooldownMinutes` | `number` | No | Minimum minutes between alerts (default: 60) |
+
+**Alert Types**
+
+| Type | Threshold meaning |
+|---|---|
+| `bounce_rate_exceeded` | Bounce rate exceeds this ratio (e.g., 0.05 = 5%) |
+| `journey_failure_spike` | Number of journey failures in the last hour |
+| `delivery_issue` | Delivery rate drops below this ratio |
+| `high_complaint_rate` | Complaint rate exceeds this ratio |
+
+**Channel Config**
+
+| Channel | Config fields |
+|---|---|
+| `webhook` | `{ url: string }` |
+| `slack` | `{ webhookUrl: string, channel?: string }` |
+| `email` | `{ to: string }` |
+
+**Response `201`** -- Created alert rule.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/alerts/rules \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "High bounce rate",
+    "type": "bounce_rate_exceeded",
+    "threshold": 0.05,
+    "channel": "slack",
+    "channelConfig": { "webhookUrl": "https://hooks.slack.com/services/..." },
+    "cooldownMinutes": 60
+  }'
+```
+
+### `PATCH /v1/admin/alerts/rules/{id}`
+
+Update an alert rule. Any field can be updated.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Alert rule UUID |
+
+**Request Body** -- Same fields as POST, all optional.
+
+**Response `200`** -- Updated alert rule.
+
+**Response `404`** -- Rule not found.
+
+```bash
+curl -X PATCH http://localhost:3002/v1/admin/alerts/rules/rule-uuid \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "threshold": 0.03, "cooldownMinutes": 120 }'
+```
+
+### `DELETE /v1/admin/alerts/rules/{id}`
+
+Delete an alert rule.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Alert rule UUID |
+
+**Response `200`**
+
+```json
+{ "deleted": true }
+```
+
+**Response `404`** -- Rule not found.
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/alerts/rules/rule-uuid \
+  -H "Authorization: Bearer your-api-key"
+```
+
+### `GET /v1/admin/alerts/history`
+
+List past alert triggers.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page |
+| `offset` | `number` | `0` | Pagination offset |
+| `ruleId` | `string` | -- | Filter by rule UUID |
+
+**Response `200`**
+
+```json
+{
+  "alerts": [
+    {
+      "id": "alert-uuid",
+      "ruleId": "rule-uuid",
+      "ruleName": "High bounce rate",
+      "type": "bounce_rate_exceeded",
+      "currentValue": 0.062,
+      "threshold": 0.05,
+      "channel": "slack",
+      "delivered": true,
+      "triggeredAt": "2025-01-15T08:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/alerts/history?limit=10"
+```
+
+---
+
+## Dead Letter Queue
+
+Inspect and manage failed tasks that have been moved to the dead letter queue. All require the `Authorization: Bearer <api-key>` header.
+
+### `GET /v1/admin/dlq`
+
+List DLQ entries with optional filters.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page |
+| `offset` | `number` | `0` | Pagination offset |
+| `source` | `string` | -- | Filter by source (e.g., `email`, `journey`, `webhook`) |
+| `status` | `string` | -- | Filter by status: `pending`, `retried`, `discarded` |
+
+**Response `200`**
+
+```json
+{
+  "entries": [
+    {
+      "id": "dlq-uuid",
+      "source": "email",
+      "sourceId": "email-uuid",
+      "payload": { "templateKey": "activation/welcome", "toEmail": "user@example.com" },
+      "error": "Resend API timeout after 3 retries",
+      "retryCount": 3,
+      "status": "pending",
+      "retriedAt": null,
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | DLQ entry UUID |
+| `source` | `string` | Origin of the failed task |
+| `sourceId` | `string \| null` | Related resource ID |
+| `payload` | `object` | Original task payload |
+| `error` | `string` | Error message from the last attempt |
+| `retryCount` | `number` | Number of retry attempts |
+| `status` | `string` | `pending`, `retried`, or `discarded` |
+| `retriedAt` | `string \| null` | ISO timestamp of last retry |
+| `createdAt` | `string` | ISO timestamp when the entry was created |
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/dlq?status=pending&source=email"
+```
+
+### `POST /v1/admin/dlq/{id}/retry`
+
+Mark a DLQ entry for retry. The task will be re-queued through its original pipeline.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | DLQ entry UUID |
+
+**Response `200`**
+
+```json
+{
+  "id": "dlq-uuid",
+  "status": "retried",
+  "retriedAt": "2025-01-15T11:00:00.000Z"
+}
+```
+
+**Response `404`** -- Entry not found.
+
+**Response `409`** -- Entry already retried or discarded.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/dlq/dlq-uuid/retry \
+  -H "Authorization: Bearer your-api-key"
+```
+
+### `DELETE /v1/admin/dlq/{id}`
+
+Discard a DLQ entry. The task will not be retried.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | DLQ entry UUID |
+
+**Response `200`**
+
+```json
+{
+  "id": "dlq-uuid",
+  "status": "discarded"
+}
+```
+
+**Response `404`** -- Entry not found.
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/dlq/dlq-uuid \
+  -H "Authorization: Bearer your-api-key"
+```
+
+---
+
+## DI Container Pattern
+
+The API uses a dependency-injection container that is created once at startup and set on every request context. Handlers access it via `c.get("container")`.
+
+```ts
+// Container interface
+interface Container {
+  env: typeof env;          // Validated environment variables
+  logger: Logger;           // Structured logger (winston)
+  db: Database;             // Drizzle ORM instance
+  dbClient: DatabaseClient; // Raw pg client
+  auth: Auth;               // Better Auth instance
+  email: Resend;            // Resend client
+  emailService: EmailService | null; // Email service (requires RESEND_WEBHOOK_SECRET)
+  registry: JourneyRegistry;        // Journey registry
+  hatchet: HatchetClient;           // Hatchet task orchestration client
+}
+```
+
+In route handlers, destructure what you need:
+
+```ts
+app.openapi(myRoute, async (c) => {
+  const { db, logger, hatchet } = c.get("container");
+  // ...
+});
+```
+
+The `AppEnv` type defines what is available on the Hono context:
+
+```ts
+type AppEnv = {
+  Variables: {
+    container: Container;
+    requestId: string;
+    user: User | null;      // Set by auth middleware
+    session: Session | null; // Set by auth middleware
+  };
+};
+```

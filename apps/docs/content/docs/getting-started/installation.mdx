@@ -1,0 +1,137 @@
+---
+title: Installation
+description: From zero to first lifecycle email in under 5 minutes. Deploy the template, run the CLI, done.
+---
+
+## Prerequisites
+
+- **Railway** account — [sign up here](https://railway.com)
+- **PostHog** account with a **personal API key** — generate one at PostHog > Settings > Personal API Keys (starts with `phx_`)
+- **Resend** account — [sign up free](https://resend.com), grab your API key
+
+## Deploy to Railway (1 click)
+
+Click the button below to deploy the full Hogsend stack on Railway:
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
+
+The template provisions everything:
+- **hogsend-api** — the HTTP API
+- **hogsend-worker** — Hatchet worker for durable journey execution
+- **Hatchet-Lite** — workflow orchestration engine
+- **Postgres 18** — event store, journey state, contacts
+- **Postgres 16** — Hatchet's internal database
+- **Redis 8** — PostHog property caching
+
+You'll be asked for two values during deploy:
+
+| Variable | Where to find it |
+|---|---|
+| `RESEND_API_KEY` | [Resend dashboard](https://resend.com/api-keys) → API Keys |
+| `HATCHET_CLIENT_TOKEN` | The Hatchet-Lite service generates this — check its logs after deploy, or use the default token from the Hatchet dashboard at `localhost:8888` |
+
+Railway auto-wires `DATABASE_URL` and `REDIS_URL` between services. Wait for the deploy to complete (~3 minutes).
+
+## Configure with the CLI
+
+Install the Hogsend CLI:
+
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/withseismic/hogsend/releases/latest/download/hogsend_darwin_arm64.tar.gz | tar xz
+sudo mv hogsend /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/withseismic/hogsend/releases/latest/download/hogsend_darwin_amd64.tar.gz | tar xz
+sudo mv hogsend /usr/local/bin/
+
+# Linux (amd64)
+curl -L https://github.com/withseismic/hogsend/releases/latest/download/hogsend_linux_amd64.tar.gz | tar xz
+sudo mv hogsend /usr/local/bin/
+```
+
+Then run the interactive setup:
+
+```bash
+hogsend init
+```
+
+The CLI will:
+1. Connect to your Railway project and discover your services
+2. Connect to PostHog and list your projects
+3. Generate all secrets (`BETTER_AUTH_SECRET`, `POSTHOG_WEBHOOK_SECRET`, `ADMIN_API_KEY`)
+4. Set environment variables on your API and Worker services
+5. Create a PostHog webhook destination with the right URL, headers, and event matchers
+6. Redeploy your services
+7. Wait for the API to become healthy
+8. Fire a test event and verify the full pipeline works
+
+You'll need:
+- A **Railway API token** — generate at [railway.com/account/tokens](https://railway.com/account/tokens)
+- Your **PostHog personal API key** — the `phx_` key from PostHog > Settings > Personal API Keys
+
+Everything else is automatic.
+
+## Verify
+
+```bash
+# Check deployment health
+hogsend status
+
+# Fire a test event through the full pipeline
+hogsend test
+```
+
+The `test` command sends a synthetic event to `/v1/ingest/`, waits for it to be stored, and confirms the pipeline is working end-to-end.
+
+## Write your first journey
+
+You're ready. Head to [Journeys](/docs/guides/journeys) to define your first lifecycle flow, or explore the [example journeys](https://github.com/withseismic/hogsend/tree/main/apps/api/src/journeys) that ship with the repo.
+
+---
+
+## Local development (for contributors)
+
+If you want to develop Hogsend locally instead of deploying to Railway:
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/withseismic/hogsend.git
+cd hogsend
+pnpm install
+```
+
+### 2. Start infrastructure
+
+```bash
+docker compose up -d
+```
+
+This boots TimescaleDB (port 5434), Redis (port 6380), and Hatchet-Lite (dashboard at `localhost:8888`).
+
+### 3. Configure environment
+
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
+Fill in `BETTER_AUTH_SECRET` (run `openssl rand -hex 32`), `RESEND_API_KEY`, `POSTHOG_API_KEY`, and `POSTHOG_HOST`.
+
+### 4. Run migrations and start
+
+```bash
+cd packages/db && pnpm db:migrate && cd ../..
+
+# Terminal 1: API server
+pnpm dev
+
+# Terminal 2: Hatchet worker
+cd apps/api && hatchet worker dev
+```
+
+Or use the CLI shortcut:
+
+```bash
+hogsend setup   # checks prereqs, starts Docker, installs deps, creates .env
+```

@@ -1,0 +1,167 @@
+---
+title: Configuration
+description: Complete reference for every Hogsend environment variable -- what it does, whether it's required, and which service needs it.
+---
+
+Hogsend is configured entirely through environment variables. Both the API and worker services read from the same set of variables. In Railway, these are set once in the project environment and shared across services.
+
+For local development, copy the `.env.example` file:
+
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
+## Variable Reference
+
+### Core
+
+These control the runtime behavior of the API server.
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `NODE_ENV` | No | `development` | API, Worker | Set to `production` in deployed environments. Disables `/docs` and `/openapi.json` endpoints. |
+| `PORT` | No | `3002` | API | HTTP port for the API server. Railway sets this automatically. |
+| `LOG_LEVEL` | No | `info` | API, Worker | Logging verbosity. One of: `error`, `warn`, `info`, `http`, `debug`. Use `debug` locally, `info` or `warn` in production. |
+| `DATABASE_URL` | **Yes** | -- | API, Worker | PostgreSQL connection string. Format: `postgresql://user:pass@host:port/dbname`. Railway auto-wires this when you link a Postgres instance. |
+
+### Authentication
+
+Hogsend uses [Better Auth](https://www.better-auth.com/) for session management and admin authentication.
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `BETTER_AUTH_SECRET` | **Yes** | -- | API | Secret key for session encryption. Must be at least 32 characters. Generate with `openssl rand -hex 32`. |
+| `BETTER_AUTH_URL` | No | `http://localhost:3002` | API | Public URL for auth callbacks. Set this to your production API URL (e.g., `https://api.hogsend.com`). |
+
+### PostHog
+
+These configure the connection to your PostHog instance for event ingestion and person property fetching.
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `POSTHOG_API_KEY` | No | -- | Worker | PostHog project API key for fetching person properties. Used by the Redis-cached property lookup in journey execution. Without this, journeys cannot access PostHog person properties. |
+| `POSTHOG_HOST` | No | -- | Worker | PostHog instance URL. For PostHog Cloud: `https://app.posthog.com`. For self-hosted: your instance URL. Required if `POSTHOG_API_KEY` is set. |
+| `POSTHOG_WEBHOOK_SECRET` | No | -- | API | Shared secret for verifying incoming PostHog webhook payloads. Set this to a random string and use the same value in your PostHog webhook destination headers as `x-posthog-webhook-secret`. Without this, webhook payloads are accepted without verification. |
+
+<Callout type="warn">
+  Without `POSTHOG_WEBHOOK_SECRET`, any request to `/v1/webhooks/posthog` with valid JSON will be accepted. Always set this in production.
+</Callout>
+
+### Resend
+
+Email delivery through [Resend](https://resend.com).
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `RESEND_API_KEY` | **Yes** | -- | Worker | Resend API key for sending emails. Get this from the [Resend dashboard](https://resend.com/api-keys). Starts with `re_`. |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Worker | Default sender email address. Must be from a domain verified in your Resend account. If you are using the default, verify `hogsend.com` in Resend first. |
+| `RESEND_WEBHOOK_SECRET` | No | -- | API | Signing secret for verifying Resend webhook payloads. Set this to enable delivery tracking (delivered, opened, clicked, bounced, complained). Get it from Resend > Webhooks. Starts with `whsec_`. |
+
+<Callout type="info">
+  Without `RESEND_WEBHOOK_SECRET`, Hogsend can still send emails but will not receive delivery status updates. Emails will stay in `sent` status and never progress to `delivered`, `opened`, etc.
+</Callout>
+
+### Hatchet
+
+[Hatchet](https://hatchet.run) handles durable task execution -- journey orchestration, email sends, and background jobs.
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `HATCHET_CLIENT_TOKEN` | No | -- | API, Worker | API token for connecting to the Hatchet engine. Generate this from the Hatchet dashboard. Without this, the API cannot push events to Hatchet and the worker cannot register tasks. |
+| `HATCHET_CLIENT_HOST_PORT` | No | -- | API, Worker | Hatchet gRPC endpoint. For local development with Docker Compose: `localhost:7077`. On Railway, use the internal network address of the Hatchet-Lite service. |
+| `HATCHET_CLIENT_TLS_STRATEGY` | No | -- | API, Worker | TLS strategy for the Hatchet gRPC connection. Set to `none` for local development and internal Railway networking. Set to `tls` if connecting over the public internet. |
+
+### API
+
+Public-facing URL configuration and admin access.
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `API_PUBLIC_URL` | No | `http://localhost:3002` | API, Worker | Public-facing URL of the API. Used to generate unsubscribe links in emails. Must be the URL that end users can reach (e.g., `https://api.hogsend.com`). |
+| `ADMIN_API_KEY` | No | -- | API | API key for authenticating requests to `/v1/admin/*` endpoints and CLI access. Set this to a strong random string. Without this, admin endpoints are inaccessible. |
+
+<Callout type="warn">
+  `ADMIN_API_KEY` is required for all admin operations -- viewing contacts, managing journeys, checking metrics, and CLI commands. Generate a strong key: `openssl rand -hex 32`.
+</Callout>
+
+### Features
+
+Control which journeys are loaded at startup.
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `ENABLED_JOURNEYS` | No | `*` | Worker | Controls which journeys the worker registers with Hatchet. Set to `*` to enable all journeys, or a comma-separated list of journey IDs (e.g., `activation-welcome,trial-nudge`). Journeys not in this list are not registered and cannot be triggered. |
+
+### Infrastructure
+
+| Variable | Required | Default | Services | Description |
+|---|---|---|---|---|
+| `REDIS_URL` | No | `redis://localhost:6379` | Worker | Redis connection string. Used for caching PostHog person properties to avoid hitting the PostHog API on every journey enrollment. Railway auto-wires this when you link a Redis instance. |
+
+## Railway auto-wired variables
+
+When you deploy using the Railway template, these variables are set automatically by linking services:
+
+- `DATABASE_URL` -- from the linked Postgres instance
+- `REDIS_URL` -- from the linked Redis instance
+- `PORT` -- set by Railway for the API service
+
+You still need to set manually:
+- `RESEND_API_KEY` -- entered during template deploy
+- `HATCHET_CLIENT_TOKEN` -- from the Hatchet-Lite dashboard after deploy
+- Everything else is configured by `hogsend init`
+
+## Generating secrets
+
+Several variables require random secrets. Use OpenSSL to generate them:
+
+```bash
+# BETTER_AUTH_SECRET (32-byte hex string)
+openssl rand -hex 32
+
+# ADMIN_API_KEY
+openssl rand -hex 32
+
+# POSTHOG_WEBHOOK_SECRET
+openssl rand -hex 16
+```
+
+Or let the CLI handle it -- `hogsend init` generates all secrets automatically and sets them on your Railway services.
+
+## Validating configuration
+
+The API validates required environment variables at startup using `@t3-oss/env-core`. If a required variable is missing or malformed, the API will fail to start with a clear error message indicating which variable is invalid.
+
+```bash
+# Check that the API starts successfully
+curl http://localhost:3002/v1/health
+```
+
+If the health check fails, check the API logs for environment validation errors.
+
+## Environment-specific recommendations
+
+### Local development
+
+```bash
+NODE_ENV=development
+PORT=3002
+LOG_LEVEL=debug
+DATABASE_URL=postgresql://growthhog:growthhog@localhost:5434/growthhog
+REDIS_URL=redis://localhost:6380
+HATCHET_CLIENT_HOST_PORT=localhost:7077
+HATCHET_CLIENT_TLS_STRATEGY=none
+```
+
+### Production (Railway)
+
+```bash
+NODE_ENV=production
+LOG_LEVEL=info
+API_PUBLIC_URL=https://api.yourdomain.com
+BETTER_AUTH_URL=https://api.yourdomain.com
+RESEND_FROM_EMAIL=noreply@yourdomain.com
+ENABLED_JOURNEYS=*
+```
+
+`DATABASE_URL`, `REDIS_URL`, and `PORT` are set automatically by Railway.

@@ -1,0 +1,274 @@
+---
+title: Deployment
+description: Deploy Hogsend to Railway — self-hosted, your data stays yours. API and worker scale independently.
+---
+
+## Architecture overview
+
+Hogsend is self-hosted — deploy it to [Railway](https://railway.app) (recommended) or anywhere that runs Node.js and Postgres. Your PostHog events, contact data, and journey state stay on your infrastructure.
+
+It runs as two separate services from a single monorepo:
+
+- **hogsend-api** — Hono HTTP server handling REST endpoints, PostHog/Stripe webhook ingestion, and auth
+- **hogsend-worker** — Hatchet worker executing durable tasks (email sends, journey orchestration)
+
+Both services share the same codebase and build output but run different entry points. This separation lets you scale the API and worker independently based on load.
+
+Supporting infrastructure:
+
+| Service | Purpose | Production |
+|---|---|---|
+| **TimescaleDB** (Postgres 18) | Primary database | Railway managed Postgres or dedicated instance |
+| **Redis** | PostHog property caching | Railway managed Redis |
+| **Hatchet-Lite** | Workflow orchestration engine | Self-hosted on Railway (Docker image) |
+
+## Railway Configuration
+
+### API Service (`railway.toml`)
+
+The API service handles HTTP traffic and runs database migrations before each deploy:
+
+```toml
+[build]
+buildCommand = "pnpm --filter @hogsend/api build"
+watchPatterns = [
+  "apps/api/**",
+  "packages/db/**",
+  "packages/typescript-config/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "railway.toml"
+]
+
+[deploy]
+preDeployCommand = "pnpm --filter @hogsend/db db:migrate"
+startCommand = "pnpm --filter @hogsend/api start"
+healthcheckPath = "/v1/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+```
+
+Key details:
+
+- **`preDeployCommand`** runs Drizzle migrations before the new version receives traffic, ensuring the database schema is always in sync
+- **`healthcheckPath`** points to `/v1/health` with a 120-second timeout, giving the API time to connect to Postgres and Hatchet on startup
+- **`startCommand`** runs `node dist/index.js` via the `start` script, which boots the Hono HTTP server on the configured `PORT`
+- **`watchPatterns`** trigger rebuilds when API code, database schemas, or dependency lock files change
+
+### Worker Service (`railway.worker.toml`)
+
+The worker service runs Hatchet task execution with no HTTP port:
+
+```toml
+[build]
+buildCommand = "pnpm --filter @hogsend/api build"
+watchPatterns = [
+  "apps/api/**",
+  "packages/**",
+  "pnpm-lock.yaml",
+  "railway.worker.toml"
+]
+
+[deploy]
+startCommand = "pnpm --filter @hogsend/api worker"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+```
+
+Key details:
+
+- **No health check** — the worker has no HTTP server, so Railway skips health checking. It relies on the restart policy to recover from crashes
+- **No `preDeployCommand`** — migrations are handled by the API service. Running them in both services would cause race conditions
+- **Higher retry count** (5 vs 3) — the worker should be more aggressive about recovering since it processes durable tasks
+- **Broader `watchPatterns`** — watches all packages since the worker imports from `@hogsend/core`, `@hogsend/plugin-posthog`, `@hogsend/plugin-resend`, and `@hogsend/email`
+- **`startCommand`** runs `node dist/worker.js` via the `worker` script, which registers all enabled journey tasks with Hatchet and begins polling for work
+
+### Multi-Service Setup
+
+Both services deploy from the same GitHub repository. In Railway, create two services pointing to the same repo and assign each one its respective config file:
+
+1. Create a service for the API and set its config to `railway.toml`
+2. Create a second service for the worker and set its config to `railway.worker.toml`
+
+Both services share the same Railway environment variables. When you push to `main`, Railway builds and deploys both services in parallel.
+
+## Environment Variables
+
+Set these variables in your Railway project environment. All variables are shared across both the API and worker services.
+
+### Required
+
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | TimescaleDB / Postgres connection string |
+| `BETTER_AUTH_SECRET` | Secret key for Better Auth session encryption |
+| `RESEND_API_KEY` | Resend API key for email delivery |
+
+### Optional (with defaults)
+
+| Variable | Default | Description |
+|---|---|---|
+| `NODE_ENV` | `development` | Set to `production` in Railway |
+| `PORT` | `3002` | HTTP port for the API (Railway sets this automatically) |
+| `LOG_LEVEL` | `info` | Logging verbosity: `error`, `warn`, `info`, `http`, `debug` |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string for PostHog property caching |
+| `BETTER_AUTH_URL` | `http://localhost:3002` | Public URL for auth callbacks |
+| `RESEND_FROM_EMAIL` | `noreply@hogsend.com` | Default sender email address |
+| `API_PUBLIC_URL` | `http://localhost:3002` | Public-facing API URL (used for unsubscribe links) |
+| `ENABLED_JOURNEYS` | `*` | Comma-separated journey IDs, or `*` to enable all |
+
+### Optional (no defaults)
+
+| Variable | Description |
+|---|---|
+| `HATCHET_CLIENT_TOKEN` | Token for connecting to the Hatchet engine |
+| `POSTHOG_API_KEY` | PostHog project API key for person property fetching |
+| `POSTHOG_HOST` | PostHog instance URL (e.g. `https://app.posthog.com`) |
+| `POSTHOG_WEBHOOK_SECRET` | Secret for verifying PostHog webhook payloads |
+| `RESEND_WEBHOOK_SECRET` | Secret for verifying Resend webhook payloads |
+| `ADMIN_API_KEY` | API key for admin endpoints (contacts, preferences) |
+
+<Callout type="warn">
+  Set `NODE_ENV=production` in Railway to disable the `/docs` and `/openapi.json` endpoints. These are only available in development.
+</Callout>
+
+## Infrastructure Services
+
+### Hatchet-Lite on Railway
+
+Hatchet-Lite is the workflow orchestration engine that both the API and worker connect to. Deploy it as a separate Railway service using the Docker image:
+
+```
+ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+```
+
+Hatchet-Lite needs its own Postgres instance (separate from Hogsend's database). Configure it with these environment variables:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Connection string to Hatchet's Postgres instance |
+| `SERVER_URL` | Public URL of the Hatchet service |
+| `SERVER_AUTH_COOKIE_DOMAIN` | Domain for auth cookies |
+| `SERVER_DEFAULT_ENGINE_VERSION` | `V1` |
+| `SERVER_GRPC_BIND_ADDRESS` | `0.0.0.0` |
+| `SERVER_GRPC_PORT` | `7077` |
+| `SERVER_GRPC_BROADCAST_ADDRESS` | Internal Railway address for gRPC |
+| `SERVER_MSGQUEUE_KIND` | `postgres` |
+
+Once Hatchet-Lite is running, generate an API token from its dashboard and set it as `HATCHET_CLIENT_TOKEN` in the Hogsend service variables.
+
+### TimescaleDB
+
+Railway's managed Postgres works out of the box. Railway provides the `DATABASE_URL` variable automatically when you provision a Postgres instance and link it to your services.
+
+For production workloads, TimescaleDB (Postgres 18 with time-series extensions) is recommended. You can use a dedicated TimescaleDB Cloud instance or Railway's managed Postgres if you don't need hypertable features.
+
+### Redis
+
+Provision a Redis instance on Railway and link it to both services. The `REDIS_URL` variable is set automatically. Redis is used for caching PostHog person properties to avoid hitting the PostHog API on every journey enrollment.
+
+## DNS and Cloudflare
+
+Hogsend uses Cloudflare for DNS management on the `hogsend.com` domain:
+
+1. In Railway, generate a domain for the API service (or use a custom domain)
+2. In Cloudflare, create a CNAME record pointing `api.hogsend.com` to the Railway-provided domain
+3. Set `API_PUBLIC_URL` to `https://api.hogsend.com` in Railway environment variables
+4. Set `BETTER_AUTH_URL` to `https://api.hogsend.com` for auth callback URLs
+
+The worker service does not need a public domain since it has no HTTP endpoints.
+
+## GitHub Auto-Deploy
+
+Railway auto-deploys both services when you push to `main`:
+
+1. Connect your Railway project to the GitHub repository
+2. Both services detect changes via their `watchPatterns` and build independently
+3. The API service runs migrations via `preDeployCommand` before swapping traffic
+4. The worker service restarts with the new code
+
+The build step (`pnpm --filter @hogsend/api build`) uses tsup to bundle all `@hogsend/*` workspace packages via `noExternal`. npm dependencies resolve from `node_modules` at runtime.
+
+## Scaling Considerations
+
+**API service:**
+- Stateless HTTP server, scale horizontally with multiple replicas
+- Each replica runs its own Hono server and connects to Postgres directly
+- Railway handles load balancing across replicas automatically
+- The 30-second request timeout and 72-second keep-alive are configured in `src/index.ts`
+
+**Worker service:**
+- Each worker replica polls Hatchet for available tasks
+- Hatchet distributes tasks across workers automatically (no duplicate execution)
+- Scale workers based on task queue depth and journey throughput
+- Workers handle graceful shutdown on `SIGTERM` / `SIGINT`, stopping the Hatchet poller, flushing PostHog, and closing Redis connections
+
+**Hatchet-Lite:**
+- Single-instance deployment (Hatchet-Lite is not designed for horizontal scaling)
+- For high-throughput production workloads, consider upgrading to Hatchet Cloud
+
+## Local Development with Docker Compose
+
+For local development, the `docker-compose.yml` at the project root starts all infrastructure services:
+
+```bash
+docker compose up -d
+```
+
+This provisions:
+
+| Service | Port | Description |
+|---|---|---|
+| **TimescaleDB** | `5434` | Postgres 18 with TimescaleDB extension (user/pass/db: `growthhog`) |
+| **Redis** | `6380` | Redis 8 Alpine for property caching |
+| **Hatchet-Lite** | `8888` (HTTP), `7077` (gRPC) | Workflow engine with dashboard |
+| **Hatchet Postgres** | Internal only | Dedicated Postgres 15 for Hatchet's internal state |
+
+All services include health checks and persistent volumes. The default Hatchet-Lite login is `admin@example.com` / `Admin123!!`.
+
+### Running the API and Worker Locally
+
+After starting infrastructure, run the API and worker in separate terminals:
+
+```bash
+# Terminal 1: API server (port 3002)
+pnpm dev
+
+# Terminal 2: Hatchet worker with hot-reload
+cd apps/api && hatchet worker dev
+```
+
+The `hatchet worker dev` command uses the `hatchet.yaml` configuration to watch for file changes and automatically reload the worker:
+
+```yaml
+dev:
+  runCmd: "pnpm tsx --env-file=.env src/worker.ts"
+  files:
+    - "src/**/*.ts"
+    - "!**/node_modules/**"
+  reload: true
+```
+
+Alternatively, you can run the worker without the Hatchet CLI:
+
+```bash
+cd apps/api && pnpm worker:dev
+```
+
+## Deployment Checklist
+
+Before your first production deploy:
+
+- [ ] Provision TimescaleDB/Postgres, Redis, and Hatchet-Lite on Railway
+- [ ] Deploy Hatchet-Lite and generate an API token
+- [ ] Set all required environment variables (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`)
+- [ ] Set `HATCHET_CLIENT_TOKEN` from the Hatchet-Lite dashboard
+- [ ] Set `NODE_ENV=production`
+- [ ] Configure `API_PUBLIC_URL` and `BETTER_AUTH_URL` with your production domain
+- [ ] Set up Cloudflare DNS with a CNAME pointing to Railway
+- [ ] Connect the GitHub repo to Railway for auto-deploy
+- [ ] Verify the `/v1/health` endpoint returns successfully after first deploy
+- [ ] Configure `POSTHOG_API_KEY` and `POSTHOG_HOST` for event ingestion
+- [ ] Set webhook secrets (`POSTHOG_WEBHOOK_SECRET`, `RESEND_WEBHOOK_SECRET`) for payload verification
+- [ ] Set `ADMIN_API_KEY` for admin endpoint access

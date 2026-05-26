@@ -1,0 +1,280 @@
+---
+title: Ingestion & Webhooks
+description: Event ingestion endpoint, Resend webhook handler, generic webhook sources, and health check.
+---
+
+## Health
+
+### `GET /v1/health`
+
+Returns service health status. Used by Railway health checks and monitoring.
+
+**Response `200`**
+
+```json
+{
+  "status": "healthy",
+  "uptime": 12345.678,
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "version": "0.0.1",
+  "components": {
+    "database": { "status": "up", "latencyMs": 1 },
+    "redis": { "status": "up", "latencyMs": 1 }
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | `"healthy" \| "degraded"` | Current service status. `degraded` if any component is down |
+| `uptime` | `number` | Process uptime in seconds |
+| `timestamp` | `string` | ISO 8601 timestamp |
+| `version` | `string` | API version |
+| `components` | `object` | Per-component health status |
+| `components.database` | `object` | Database health |
+| `components.database.status` | `"up" \| "down"` | Database connectivity status |
+| `components.database.latencyMs` | `number` | Database ping latency in milliseconds |
+| `components.redis` | `object` | Redis health |
+| `components.redis.status` | `"up" \| "down"` | Redis connectivity status |
+| `components.redis.latencyMs` | `number` | Redis ping latency in milliseconds |
+
+```bash
+curl http://localhost:3002/v1/health
+```
+
+---
+
+## Ingestion
+
+### `POST /v1/ingest`
+
+Receives events from direct API calls. Stores the event in `userEvents`, pushes it to Hatchet for journey routing, processes exit conditions on active journeys, and upserts the contact record.
+
+**Request Body**
+
+```json
+{
+  "event": "user:signed_up",
+  "userId": "user_abc123",
+  "userEmail": "user@example.com",
+  "properties": {
+    "plan": "pro",
+    "source": "website"
+  },
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "idempotencyKey": "evt_abc123_signup_2025"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `event` | `string` | Yes | Event name (min 1 char) |
+| `userId` | `string` | Yes | External user identifier (min 1 char) |
+| `userEmail` | `string` | No | User email address (validated format) |
+| `properties` | `Record<string, unknown>` | No | Arbitrary event properties |
+| `timestamp` | `string` | No | ISO 8601 datetime (defaults to now) |
+| `idempotencyKey` | `string` | No | Unique key for deduplication. If a duplicate key is sent, the event is silently dropped and `stored: false` is returned |
+
+**Response `202`**
+
+```json
+{
+  "stored": true,
+  "exits": [
+    {
+      "journeyId": "onboarding-welcome",
+      "stateId": "550e8400-e29b-41d4-a716-446655440000",
+      "exited": false
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `stored` | `boolean` | Whether the event was persisted. Returns `false` when a duplicate `idempotencyKey` is detected |
+| `exits` | `ExitResult[]` | Exit condition evaluation results for active journeys |
+| `exits[].journeyId` | `string` | Journey that was checked |
+| `exits[].stateId` | `string` | Journey state ID |
+| `exits[].exited` | `boolean` | Whether the user exited this journey |
+
+```bash
+curl -X POST http://localhost:3002/v1/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "user:signed_up",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "properties": { "plan": "pro" }
+  }'
+```
+
+---
+
+## Webhooks
+
+### `POST /v1/webhooks/resend`
+
+Receives webhook events from Resend (email delivery status updates). Handles signature verification internally via the `EmailService`.
+
+**Request Body** -- Raw Resend webhook payload (`Record<string, unknown>`).
+
+**Headers** -- Resend includes signature headers for verification against `RESEND_WEBHOOK_SECRET`.
+
+**Response `200`**
+
+```json
+{ "ok": true }
+```
+
+**Response `401`**
+
+```json
+{ "error": "Email service not configured" }
+```
+
+or
+
+```json
+{ "error": "Webhook verification failed" }
+```
+
+This endpoint processes email events like `email.delivered`, `email.bounced`, `email.complained`, etc. The `EmailService` tracks bounces and updates suppression status when the bounce threshold (default: 3) is reached.
+
+### `POST /v1/webhooks/{sourceId}`
+
+Generic webhook ingestion endpoint. Each registered webhook source has its own `sourceId` and transforms incoming payloads into Hogsend events.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `sourceId` | `string` | Registered webhook source identifier |
+
+**Authentication** -- Each source defines its own auth header. The value is matched against the corresponding environment variable.
+
+**Available Sources**
+
+#### PostHog (`sourceId: posthog`)
+
+Receives events from PostHog webhook destinations and workflow batch triggers.
+
+**Auth header:** `X-PostHog-Webhook-Secret` (matched against `POSTHOG_WEBHOOK_SECRET` env var)
+
+**Request Body**
+
+```json
+{
+  "event": {
+    "uuid": "event-uuid",
+    "event": "user:signed_up",
+    "distinct_id": "user_abc123",
+    "timestamp": "2025-01-15T10:30:00.000Z",
+    "properties": { "plan": "pro" }
+  },
+  "person": {
+    "id": "person-uuid",
+    "properties": {
+      "email": "user@example.com"
+    }
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `event.event` | `string` | Yes | PostHog event name |
+| `event.distinct_id` | `string` | Yes | PostHog distinct ID (maps to `userId`) |
+| `event.uuid` | `string` | No | PostHog event UUID (stored as `_posthogEventId` property) |
+| `event.timestamp` | `string` | No | Event timestamp |
+| `event.properties` | `Record<string, unknown>` | No | Event properties |
+| `person.properties.email` | `string` | No | User email (maps to `userEmail`) |
+
+**Response `200`**
+
+```json
+{
+  "ok": true,
+  "event": "user:signed_up",
+  "userId": "user_abc123",
+  "exits": []
+}
+```
+
+If the source's `transform` function returns `null`, the event is skipped:
+
+```json
+{ "ok": true, "skipped": true }
+```
+
+**Response `401`** -- Invalid webhook secret.
+
+**Response `404`** -- Unknown source ID.
+
+**Response `400`** -- Payload failed schema validation.
+
+```bash
+curl -X POST http://localhost:3002/v1/webhooks/posthog \
+  -H "Content-Type: application/json" \
+  -H "X-PostHog-Webhook-Secret: your-posthog-secret" \
+  -d '{
+    "event": {
+      "event": "user:signed_up",
+      "distinct_id": "user_abc123",
+      "properties": { "plan": "pro" }
+    },
+    "person": {
+      "properties": { "email": "user@example.com" }
+    }
+  }'
+```
+
+---
+
+## Adding a Webhook Source
+
+To add a new webhook source that transforms external payloads into Hogsend events:
+
+```ts
+// src/webhook-sources/my-source.ts
+import { defineWebhookSource } from "./define-webhook-source.js";
+import { z } from "zod";
+
+const payloadSchema = z.object({
+  action: z.string(),
+  user_id: z.string(),
+  user_email: z.string().optional(),
+});
+
+export const mySource = defineWebhookSource({
+  meta: {
+    id: "my-source",
+    name: "My Source",
+    description: "Receives events from My Source",
+  },
+  auth: {
+    header: "x-my-source-secret",
+    envKey: "MY_SOURCE_WEBHOOK_SECRET",
+    type: "match",
+  },
+  schema: payloadSchema,
+  async transform(payload) {
+    return {
+      event: `my_source:${payload.action}`,
+      userId: payload.user_id,
+      userEmail: payload.user_email ?? "",
+      properties: {},
+    };
+  },
+});
+```
+
+Then register it in `src/webhook-sources/index.ts`:
+
+```ts
+import { mySource } from "./my-source.js";
+
+const allSources: DefinedWebhookSource[] = [posthogSource, mySource];
+```
+
+The source is now available at `POST /v1/webhooks/my-source`.

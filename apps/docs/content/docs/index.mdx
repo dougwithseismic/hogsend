@@ -1,0 +1,96 @@
+---
+title: Introduction
+description: The lifecycle automation layer PostHog doesn't have yet. Get your first lifecycle emails running in under 10 minutes.
+---
+
+## What is Hogsend?
+
+Hogsend is the **lifecycle email automation that PostHog teams actually need**. It's an opinionated, code-first platform that connects to your PostHog events and sends the right emails at the right time — welcome sequences, trial nudges, churn recovery, payment failures — all defined as TypeScript, not drag-and-drop canvases.
+
+If you're a PostHog team that's been putting off lifecycle emails because Customer.io is overkill and building it yourself is a rabbit hole — this is the thing you'd build anyway. We just built it first.
+
+### Why Hogsend exists
+
+PostHog is incredible at product analytics. But when you want to *act* on what you see — send a nudge when someone drops off onboarding, recover a failed payment, re-engage a dormant user — you're on your own. Hogsend bridges that gap.
+
+Think of it as a **gateway drug into lifecycle automation**. Start here, get scrappy, ship emails that move the needle. When you outgrow it — or when PostHog ships their own marketing automation — you'll have a clean event model and proven journeys to migrate.
+
+### PostHog-first, not PostHog-only
+
+Hogsend is built for PostHog, but it's not locked to it. Stripe webhooks, custom API calls, any system that can send an HTTP request can feed events into Hogsend. All examples in these docs lead with PostHog because that's the primary use case, with Stripe as the common secondary source.
+
+**Emails go through [Resend](https://resend.com)** — fast, developer-friendly, great deliverability. Push notifications and Slack are on the roadmap.
+
+## How it works
+
+1. **PostHog events flow in** — Set up a PostHog webhook (takes 2 minutes) and your events land in Hogsend automatically
+2. **Journeys react** — TypeScript functions that trigger on events, send emails, wait, branch, and adapt based on what the user does
+3. **Emails go out via Resend** — React Email templates with bounce tracking, unsubscribe management, and deliverability monitoring built in
+
+## Quick example
+
+A PostHog `user_signed_up` event triggers this journey. It sends a welcome email, waits a day, checks if the user tried the core feature, and nudges them if not:
+
+```ts
+import { days } from "@hogsend/core";
+import { sendEmail } from "../lib/email.js";
+import { defineJourney } from "./define-journey.js";
+
+export const onboarding = defineJourney({
+  meta: {
+    id: "onboarding-welcome",
+    name: "Onboarding — Welcome Series",
+    enabled: true,
+    trigger: { event: "user_signed_up" },
+    entryLimit: "once",
+    suppress: days(1),
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "activation/welcome",
+      subject: "Welcome — let's get you set up",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(1), label: "post-welcome" });
+
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: "feature_used",
+    });
+
+    if (!found) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: "activation/nudge",
+        subject: "You haven't tried the key feature yet",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+No YAML. No state machines. No visual canvas. Just TypeScript with `if`, `await`, and loops — running as durable tasks that survive restarts and deploys.
+
+## What you get
+
+- **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep(days(3))` literally pauses for three days and picks up exactly where it left off.
+- **PostHog webhook source** — Built-in. Point your PostHog webhook at Hogsend and events flow through automatically.
+- **Resend email delivery** — React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center.
+- **Composable conditions** — Property checks, event history, email engagement, AND/OR composition. Use them for enrollment guards, exit conditions, and mid-journey branching.
+- **Admin API** — Contacts, journey control, email metrics, alerting, audit logs. Everything you need to operate without a UI.
+- **Self-hosted** — Deploy to Railway (or anywhere that runs Node.js + Postgres). Your data stays yours.
+
+## Next steps
+
+<Cards>
+  <Card title="Getting Started" href="/docs/getting-started" />
+  <Card title="How It Works" href="/docs/concepts/how-it-works" />
+  <Card title="CLI Reference" href="/docs/cli" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+</Cards>

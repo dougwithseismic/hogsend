@@ -1,0 +1,311 @@
+---
+title: Troubleshooting
+description: Common issues with Hogsend and how to fix them -- events, journeys, emails, Hatchet, database, Redis, and CLI problems.
+---
+
+This page covers the most common issues you will run into when operating Hogsend, organized by symptom. Each section describes what you see, why it happens, and how to fix it.
+
+## Events not arriving
+
+You are sending events from PostHog but nothing shows up in Hogsend.
+
+### Webhook URL is wrong
+
+**Symptom:** PostHog's History tab shows delivery failures (4xx or 5xx errors).
+
+**Fix:** Verify the webhook URL in PostHog > Data > Destinations. It must be:
+
+```
+https://your-hogsend-api.com/v1/webhooks/posthog
+```
+
+Common mistakes:
+- Missing the `/v1/webhooks/posthog` path
+- Using `http://` instead of `https://`
+- Using `localhost` -- PostHog's servers cannot reach your local machine
+
+### Webhook secret mismatch
+
+**Symptom:** PostHog's History tab shows `401 Unauthorized` responses.
+
+**Fix:** The `x-posthog-webhook-secret` header in your PostHog destination must exactly match the `POSTHOG_WEBHOOK_SECRET` environment variable on your Hogsend API service. Check both values:
+
+```bash
+# Check what Hogsend expects
+# (look at the POSTHOG_WEBHOOK_SECRET env var in Railway or .env)
+
+# Then compare with the header value in PostHog > Data > Destinations > your destination > Headers
+```
+
+If you used `hogsend init`, the CLI set both values. If they got out of sync (e.g., you regenerated secrets), update both sides to match.
+
+### No event matchers configured
+
+**Symptom:** PostHog shows thousands of deliveries but they are all `$pageview`, `$autocapture`, or other internal events. Your journey events are not being sent.
+
+**Fix:** Add event matchers in the PostHog destination. Without matchers, PostHog sends every event. Add a matcher for each event your journeys care about (e.g., `user_signed_up`, `trial_started`). See [PostHog Setup](/docs/getting-started/posthog-setup#step-4-add-event-matchers-critical) for the full walkthrough.
+
+### API is not reachable
+
+**Symptom:** PostHog's History tab shows connection timeouts or DNS errors.
+
+**Fix:**
+1. Check that the API is running: `curl https://your-hogsend-api.com/v1/health`
+2. If using Railway, check the service status in the Railway dashboard
+3. If you just deployed, wait for the health check to pass (~2 minutes)
+4. Check that your DNS (Cloudflare CNAME) points to the correct Railway domain
+
+## Events arrive but journeys don't trigger
+
+Events are stored in Hogsend (visible via the admin API) but no journey instances are created.
+
+### Event name mismatch
+
+**Symptom:** The event is stored but no journey picks it up.
+
+**Fix:** The event name must exactly match the `trigger.event` in your journey definition. Event names are case-sensitive.
+
+```bash
+# Check what event name was stored
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/events?limit=5"
+
+# Check what event the journey expects
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/journeys/your-journey-id"
+```
+
+Common mismatches: `user_signed_up` vs `user:signed_up`, `userSignedUp` vs `user_signed_up`. PostHog sends the exact event name as captured in your app.
+
+### Journey is not enabled
+
+**Symptom:** The event name matches but no enrollment happens.
+
+**Fix:** Check two things:
+
+1. **Runtime toggle** -- the journey may have been disabled via the admin API:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/journeys/your-journey-id"
+```
+
+If `enabled: false`, re-enable it:
+
+```bash
+curl -X PATCH "https://your-hogsend-api.com/v1/admin/journeys/your-journey-id" \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "enabled": true }'
+```
+
+2. **ENABLED_JOURNEYS env var** -- the journey must be in the `ENABLED_JOURNEYS` list. If set to `*`, all journeys are enabled. Otherwise, it must be a comma-separated list that includes the journey ID.
+
+### Entry limit reached
+
+**Symptom:** The user was enrolled before and the journey has `entryLimit: "once"`.
+
+**Fix:** Check the user's journey history:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/journeys/your-journey-id/states?userId=user_abc123"
+```
+
+If there is an existing `completed` or `active` state and the journey has `entryLimit: "once"`, the user cannot re-enter. To re-enroll, either cancel the existing instance or change the journey's entry limit.
+
+### Trigger conditions don't match
+
+**Symptom:** The event arrives, the journey is enabled, but the `trigger.where` conditions filter it out.
+
+**Fix:** Check the journey's trigger conditions and compare against the event properties:
+
+```bash
+# See the journey's trigger conditions
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/journeys/your-journey-id"
+
+# See the event properties
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/events?userId=user_abc123&event=user_signed_up"
+```
+
+If the journey requires `plan == "pro"` but the event has `plan: "free"`, the condition fails silently.
+
+### User is unsubscribed or suppressed
+
+**Symptom:** Everything matches but the entry guard rejects the user.
+
+**Fix:** Check the user's subscription status:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/contacts/user_abc123/preferences"
+```
+
+If `unsubscribedAll: true` or `suppressed: true`, the user will not be enrolled. See [Email Operations](/docs/operating/emails#bounce-tracking-and-suppression) for how to un-suppress a contact.
+
+## Emails not sending
+
+Journeys are running but emails are not being delivered.
+
+### Invalid Resend API key
+
+**Symptom:** Emails fail immediately with a Resend API error. Email status is `failed`.
+
+**Fix:** Verify `RESEND_API_KEY` is set correctly and starts with `re_`. Check the [Resend dashboard](https://resend.com/api-keys) to confirm the key is active and has not been revoked.
+
+### Sending domain not verified
+
+**Symptom:** Resend returns a domain verification error. Emails fail with status `failed`.
+
+**Fix:** The domain in `RESEND_FROM_EMAIL` must be verified in your Resend account. Go to [Resend > Domains](https://resend.com/domains) and add your sending domain. Follow Resend's instructions to add the required DNS records (SPF, DKIM, DMARC).
+
+If you are using the default `noreply@hogsend.com`, you need to verify `hogsend.com` in Resend, which is only possible if you control that domain.
+
+### Bounce suppression
+
+**Symptom:** Emails are not sent to specific contacts. Other contacts receive emails normally.
+
+**Fix:** The contact may be suppressed due to previous bounces. Check their preferences:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://your-hogsend-api.com/v1/admin/contacts/user_abc123/preferences"
+```
+
+If `suppressed: true` and `bounceCount >= 3`, the contact was auto-suppressed. See [Email Operations](/docs/operating/emails#un-suppressing-a-contact) for how to un-suppress them.
+
+### Resend webhooks not configured
+
+**Symptom:** Emails show `sent` status but never progress to `delivered`, `opened`, or `clicked`.
+
+**Fix:** This means Resend webhook events are not reaching Hogsend. Set up a webhook endpoint in [Resend > Webhooks](https://resend.com/webhooks):
+
+- **URL:** `https://your-hogsend-api.com/v1/webhooks/resend`
+- **Events:** `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, `email.complained`
+- **Signing secret:** Set this as `RESEND_WEBHOOK_SECRET` in your Hogsend environment
+
+## Hatchet connection failures
+
+The API or worker cannot connect to the Hatchet engine.
+
+### Invalid or missing token
+
+**Symptom:** API logs show "failed to connect to Hatchet" or gRPC authentication errors. The worker fails to start.
+
+**Fix:**
+1. Check that `HATCHET_CLIENT_TOKEN` is set in your environment
+2. Verify the token is valid -- generate a new one from the Hatchet dashboard
+3. For local development, the Hatchet-Lite dashboard is at `localhost:8888` (login: `admin@example.com` / `Admin123!!`)
+4. For Railway, open the Hatchet-Lite service URL and generate a token from the dashboard
+
+### Wrong gRPC endpoint
+
+**Symptom:** Connection timeouts when the API or worker tries to reach Hatchet.
+
+**Fix:** Check `HATCHET_CLIENT_HOST_PORT`:
+- **Local development:** `localhost:7077`
+- **Railway:** Use the internal network address of the Hatchet-Lite service (not the public URL). Format: `hatchet-lite.railway.internal:7077`
+
+Also check `HATCHET_CLIENT_TLS_STRATEGY`:
+- **Local / Railway internal networking:** `none`
+- **Public internet:** `tls`
+
+### Hatchet-Lite is not running
+
+**Symptom:** Connection refused errors.
+
+**Fix:**
+- **Local:** Run `docker compose up -d` and check that the Hatchet-Lite container is healthy: `docker compose ps`
+- **Railway:** Check the Hatchet-Lite service in the Railway dashboard. If it crashed, check its logs for database connection issues -- Hatchet-Lite needs its own Postgres instance
+
+## Database issues
+
+### Migration failures
+
+**Symptom:** The API fails to deploy on Railway with a migration error in `preDeployCommand`.
+
+**Fix:**
+1. Check the deploy logs in Railway for the specific migration error
+2. If a migration failed partway through, you may need to manually fix the database state
+3. Verify that `DATABASE_URL` points to the correct Postgres instance
+4. Check that the Postgres instance is running and accepting connections
+
+```bash
+# Test the connection locally
+psql $DATABASE_URL -c "SELECT 1"
+```
+
+### Connection pool exhaustion
+
+**Symptom:** Database connection errors under load. Queries timeout or return "too many connections".
+
+**Fix:**
+1. Check the number of active connections: `SELECT count(*) FROM pg_stat_activity;`
+2. Railway's managed Postgres has connection limits based on your plan
+3. Consider using a connection pooler (e.g., PgBouncer) for high-throughput deployments
+4. Check for long-running transactions that hold connections open
+
+## Redis connection
+
+**Symptom:** Worker logs show Redis connection errors. PostHog property caching is not working.
+
+**Fix:**
+1. Verify `REDIS_URL` is set and the Redis instance is running
+2. **Local:** Check Docker: `docker compose ps` -- Redis should be on port 6380
+3. **Railway:** Check the Redis service status and that it is linked to both API and worker services
+4. Redis is used for caching, not critical state. If Redis is down, the worker will fall back to fetching properties directly from PostHog (slower but functional)
+
+## Health check failing
+
+**Symptom:** Railway shows the API service as unhealthy. The service keeps restarting.
+
+**Fix:** Hit the health endpoint directly to see what is failing:
+
+```bash
+curl -v https://your-hogsend-api.com/v1/health
+```
+
+The health check verifies database connectivity. Common causes of failure:
+
+| Cause | Fix |
+|---|---|
+| `DATABASE_URL` not set | Add the variable in Railway and link the Postgres instance |
+| Postgres is still starting | Wait 1-2 minutes after initial deploy. The health check timeout is 120 seconds. |
+| Migrations failed | Check deploy logs for migration errors |
+| Port conflict | Ensure `PORT` is not hardcoded -- Railway sets it automatically |
+
+## CLI issues
+
+### Token invalid
+
+**Symptom:** `hogsend init` or `hogsend status` returns an authentication error.
+
+**Fix:**
+1. **Railway token:** Generate a new one at [railway.com/account/tokens](https://railway.com/account/tokens). Tokens can expire or be revoked.
+2. **PostHog personal API key:** Generate at PostHog > Settings > Personal API Keys. Must start with `phx_`. Project API keys (starting with `phc_`) will not work for the CLI.
+
+### Project not found
+
+**Symptom:** `hogsend init` cannot find your Railway project.
+
+**Fix:**
+1. Make sure the Railway project exists and the template deploy completed successfully
+2. Check that your Railway token has access to the project (team tokens are scoped per team)
+3. If you have multiple Railway projects, the CLI will prompt you to select one
+
+### Services not discovered
+
+**Symptom:** `hogsend init` finds the project but cannot find the API or worker services.
+
+**Fix:** The CLI looks for services named `hogsend-api` and `hogsend-worker`. If you renamed them in Railway, the CLI will not find them automatically. Either rename them back or use the CLI's interactive selection to pick the correct services.
+
+## Getting more help
+
+If you are stuck on an issue not covered here:
+
+1. **Check the API logs** in Railway (or your local terminal) -- most errors include enough context to diagnose the problem
+2. **Check the Hatchet dashboard** (`localhost:8888` locally, or the Hatchet-Lite service URL on Railway) for workflow run details and failure reasons
+3. **Use the admin API** to inspect events, journey states, and email sends -- see [Monitoring](/docs/operating/monitoring) for the full set of endpoints
+4. **Open an issue** on [GitHub](https://github.com/withseismic/hogsend/issues) with the error message and relevant logs

@@ -1,0 +1,196 @@
+---
+title: "Admin Guide"
+description: "Operating your Hogsend instance — contacts, journeys, email delivery, and monitoring"
+---
+
+This guide is for operators — the people keeping Hogsend running, managing contacts, debugging journeys, and maintaining email deliverability. If you're writing journey code, start with the [Journeys](/docs/guides/journeys) page. If you need raw endpoint definitions, see the [API Reference](/docs/api).
+
+## What the Admin API Gives You
+
+The admin API (`/v1/admin/*`) is the operations control plane for your Hogsend instance. Through it you can:
+
+- **Manage contacts** -- create, update, search, import/export, and view full activity timelines
+- **Operate journeys** -- enable/disable without redeploying, inspect running instances, cancel stuck runs, manually enroll users
+- **Track email delivery** -- browse send history, inspect delivery timelines, resend failed emails, monitor deliverability trends
+- **Monitor system health** -- check component status, review real-time metrics, track event volume
+- **Set up alerts** -- define threshold-based rules that notify you via Slack, webhook, or email when things go wrong
+- **Audit everything** -- every admin mutation is automatically logged with actor, action, resource, and IP address
+
+## Architecture at a Glance
+
+Hogsend runs as two processes from the same codebase:
+
+```
+                      +-------------------+
+  HTTP requests  ---> |    API Process    | ---> Database (TimescaleDB)
+                      |  (Hono on :3002)  | ---> Redis (caching)
+                      +-------------------+
+                             |
+                     events pushed to
+                             |
+                             v
+                      +-------------------+
+                      |  Hatchet Engine   | <--- task orchestration
+                      +-------------------+
+                             |
+                      +-------------------+
+                      |  Worker Process   | ---> Resend (email delivery)
+                      |  (Hatchet tasks)  | ---> PostHog (event capture)
+                      +-------------------+
+```
+
+- The **API process** handles HTTP requests, authenticates admin keys, processes event ingestion, and pushes tasks to Hatchet.
+- The **Worker process** executes durable tasks -- journey runs, email sends, bulk imports. It picks up work from the Hatchet queue and runs it reliably.
+- **Hatchet** is the task orchestration engine that routes events to matching journeys, manages retries, and provides durable execution guarantees.
+- **TimescaleDB** stores contacts, events, journey states, email records, audit logs, and all other persistent data.
+- **Redis** is used for PostHog property caching and rate limiting.
+
+Both processes share the same database, so admin API queries always reflect the latest state.
+
+## Getting Started
+
+### 1. Get an API key
+
+If you have the `ADMIN_API_KEY` environment variable set, you can use that immediately:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  http://localhost:3002/v1/health
+```
+
+For production, create a scoped database-backed key (see [Authentication](/docs/operating/authentication)):
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Ops Dashboard", "scopes": ["read"] }'
+```
+
+### 2. Check system health
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/health
+```
+
+A healthy response looks like:
+
+```json
+{
+  "status": "healthy",
+  "uptime": 12345.678,
+  "components": {
+    "database": { "status": "up", "latencyMs": 1 },
+    "redis": { "status": "up", "latencyMs": 1 }
+  }
+}
+```
+
+### 3. View your journeys
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/journeys
+```
+
+### 4. Check the overview metrics
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/metrics/overview
+```
+
+## Endpoint Quick Reference
+
+All endpoints are prefixed with `/v1/admin` unless noted. Authentication is via `Authorization: Bearer <api-key>`.
+
+### Health & Metrics
+
+| Endpoint | Method | Scope | Description |
+|---|---|---|---|
+| `/v1/health` | GET | None | Component health status |
+| `/metrics/overview` | GET | `read` | System-wide summary |
+| `/metrics/journeys` | GET | `read` | Per-journey performance |
+| `/metrics/journeys/{id}` | GET | `read` | Single journey funnel |
+| `/metrics/emails` | GET | `read` | Per-template email stats |
+| `/metrics/emails/deliverability` | GET | `read` | Deliverability trends |
+| `/metrics/events` | GET | `read` | Event volume by name/time |
+
+### Contacts
+
+| Endpoint | Method | Scope | Description |
+|---|---|---|---|
+| `/contacts` | GET | `read` | List and search contacts |
+| `/contacts/{id}` | GET | `read` | Get contact with preferences |
+| `/contacts` | POST | `full-admin` | Create a contact |
+| `/contacts/{id}` | PATCH | `full-admin` | Update a contact |
+| `/contacts/{id}` | DELETE | `full-admin` | Soft-delete a contact |
+| `/contacts/{id}/preferences` | GET | `read` | Get email preferences |
+| `/contacts/{id}/preferences` | PUT | `full-admin` | Update email preferences |
+| `/contacts/{id}/timeline` | GET | `read` | Full activity timeline |
+| `/contacts/import` | POST | `full-admin` | Bulk import (CSV/JSON) |
+| `/contacts/import/{jobId}` | GET | `read` | Check import status |
+| `/contacts/export` | GET | `read` | Export contacts |
+
+### Journeys
+
+| Endpoint | Method | Scope | Description |
+|---|---|---|---|
+| `/journeys` | GET | `read` | List journeys with counts |
+| `/journeys/{id}` | GET | `read` | Journey detail + recent states |
+| `/journeys/{id}` | PATCH | `journey-admin` | Enable/disable a journey |
+| `/journeys/{id}/states` | GET | `read` | List journey instances |
+| `/journeys/{id}/states/{stateId}` | GET | `read` | Instance detail + logs |
+| `/journeys/{id}/states/{stateId}` | DELETE | `journey-admin` | Cancel a running instance |
+| `/journeys/{id}/enroll` | POST | `journey-admin` | Enroll a single user |
+| `/journeys/{id}/enroll/batch` | POST | `journey-admin` | Batch enroll (max 500) |
+
+### Emails
+
+| Endpoint | Method | Scope | Description |
+|---|---|---|---|
+| `/emails` | GET | `read` | List email sends |
+| `/emails/{id}` | GET | `read` | Email detail + tracked links |
+| `/emails/{id}/resend` | POST | `full-admin` | Retry a failed email |
+
+### Events
+
+| Endpoint | Method | Scope | Description |
+|---|---|---|---|
+| `/events` | GET | `read` | List events |
+| `/events/{id}` | GET | `read` | Event detail |
+| `/events/replay` | POST | `full-admin` | Replay events |
+
+### API Keys
+
+| Endpoint | Method | Scope | Description |
+|---|---|---|---|
+| `/api-keys` | GET | `full-admin` | List keys |
+| `/api-keys` | POST | `full-admin` | Create a key |
+| `/api-keys/{id}` | DELETE | `full-admin` | Revoke a key |
+
+### Alerts & Monitoring
+
+| Endpoint | Method | Scope | Description |
+|---|---|---|---|
+| `/alerts/rules` | GET | `read` | List alert rules |
+| `/alerts/rules` | POST | `full-admin` | Create a rule |
+| `/alerts/rules/{id}` | PATCH | `full-admin` | Update a rule |
+| `/alerts/rules/{id}` | DELETE | `full-admin` | Delete a rule |
+| `/alerts/history` | GET | `read` | Past alert triggers |
+| `/dlq` | GET | `read` | Dead letter queue |
+| `/dlq/{id}/retry` | POST | `full-admin` | Retry a DLQ entry |
+| `/dlq/{id}` | DELETE | `full-admin` | Discard a DLQ entry |
+| `/audit-logs` | GET | `read` | Audit trail |
+| `/journey-logs/{stateId}` | GET | `read` | Journey execution logs |
+
+## Next Steps
+
+<Cards>
+  <Card title="Authentication" href="/docs/admin/authentication" />
+  <Card title="Contact Management" href="/docs/admin/contacts" />
+  <Card title="Journey Operations" href="/docs/admin/journeys" />
+  <Card title="Email Operations" href="/docs/admin/emails" />
+  <Card title="Monitoring & Alerting" href="/docs/admin/monitoring" />
+</Cards>

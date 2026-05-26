@@ -1,0 +1,13 @@
+{
+  "title": "API Reference",
+  "pages": [
+    "index",
+    "ingestion",
+    "contacts",
+    "journeys",
+    "emails",
+    "events",
+    "metrics",
+    "operations"
+  ]
+}

@@ -1,0 +1,60 @@
+---
+title: hogsend destroy
+description: Permanently delete the Railway project and remove local configuration.
+---
+
+## Usage
+
+```bash
+hogsend destroy
+```
+
+Tears down the entire Railway project associated with this deployment. This is irreversible.
+
+## What it does
+
+1. Loads the project configuration from `.hogsend.yaml`
+2. Displays a warning with the project name, Railway project ID, and domain
+3. Prompts you to type the project **slug** to confirm deletion
+4. Deletes the Railway project via the Railway API -- this removes all services, databases, volumes, and data
+5. Removes the local `.hogsend.yaml` file
+
+## What gets deleted
+
+Everything in the Railway project is permanently destroyed:
+
+- **API service** -- the Hono REST API and all deployment history
+- **Worker service** -- the Hatchet worker process
+- **Hatchet-Lite** -- the workflow engine and all task history
+- **Postgres database** -- all contacts, events, journey states, email sends, and migrations
+- **Redis instance** -- the PostHog property cache
+- **Environment variables** -- all secrets and configuration
+- **Domains** -- any generated or custom domains
+
+None of this can be recovered after deletion.
+
+## Confirmation
+
+You must type the exact project slug to proceed. The slug is shown in the prompt and matches the `slug` field in `.hogsend.yaml`. If the input does not match, the command aborts.
+
+```
+HOGSEND DESTROY
+
+  WARNING: This will permanently delete the Railway project
+  Project: ACME Corp (abc-123-def)
+  Domain:  hogsend-api.up.railway.app
+
+? Type 'acme-corp' to confirm deletion: acme-corp
+
+  Deleting Railway project...  done
+
+  Destroyed  ACME Corp has been deleted
+```
+
+## When to use it
+
+- Decommissioning a client deployment
+- Starting over from scratch (deploy the template again, then `hogsend init`)
+- Cleaning up a test project
+
+If you just want to reconfigure an existing deployment, use `hogsend init --force` instead.

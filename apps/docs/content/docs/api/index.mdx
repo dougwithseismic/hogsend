@@ -1,0 +1,130 @@
+---
+title: API Reference
+description: Complete REST API -- event ingestion, PostHog/Stripe webhooks, contacts, journeys, email delivery, metrics, and admin operations.
+---
+
+Hogsend exposes a REST API built on [Hono](https://hono.dev) with [Zod OpenAPI](https://github.com/honojs/middleware/tree/main/packages/zod-openapi) for request/response validation. All endpoints are versioned under `/v1`.
+
+## Base URL
+
+```
+http://localhost:3002   # local development
+https://api.hogsend.com # production
+```
+
+## Interactive Docs
+
+In non-production environments, the API serves an auto-generated OpenAPI spec and an interactive [Scalar](https://scalar.com) UI:
+
+| Path | Description |
+|---|---|
+| `GET /openapi.json` | OpenAPI 3.1 spec (JSON) |
+| `GET /docs` | Scalar API reference UI |
+
+These endpoints are disabled when `NODE_ENV=production`.
+
+## Authentication
+
+Hogsend uses two authentication mechanisms depending on the endpoint:
+
+### Better Auth (session-based)
+
+Dashboard and user-facing endpoints use [Better Auth](https://www.better-auth.com/) with email/password authentication. Auth routes are mounted at `/api/auth/*` and support:
+
+- Email and password sign-up/sign-in (min 8, max 128 characters)
+- Session-based auth with 7-day expiry (refreshed daily)
+- Organization plugin (up to 5 orgs, 100 members each)
+
+### Admin API Keys (bearer token)
+
+All `/v1/admin/*` endpoints require a bearer token. Hogsend supports two auth modes:
+
+1. **Legacy key** -- A static key from the `ADMIN_API_KEY` environment variable (full admin access)
+2. **Database-backed keys** -- Generated via `POST /v1/admin/api-keys` with scoped permissions
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  http://localhost:3002/v1/admin/contacts
+```
+
+Keys are SHA-256 hashed before storage -- the raw key is only shown once at creation time. Keys support three scope levels:
+
+| Scope | Access |
+|---|---|
+| `read` | GET endpoints only |
+| `journey-admin` | Read + journey management |
+| `full-admin` | All operations |
+
+Keys can be revoked and have optional expiry dates. Active keys are cached in memory for 60 seconds.
+
+If neither `ADMIN_API_KEY` nor any database-backed keys are configured, admin endpoints return `503 Service Unavailable`.
+
+## Middleware Stack
+
+Every request passes through the following middleware in order:
+
+1. **Container injection** -- Sets the DI container on the Hono context
+2. **Secure headers** -- Adds security-related HTTP headers
+3. **CORS** -- Cross-origin resource sharing (permissive by default)
+4. **Compression** -- gzip/brotli response compression
+5. **Request ID** -- Generates a unique `X-Request-Id` header
+6. **Request logger** -- Logs method, path, status, and duration
+7. **Error handler** -- Catches thrown errors, returns JSON `{ error }` with appropriate status codes
+8. **Rate limiter** -- Sliding window (100 req/min per key) with Redis backend and in-memory fallback
+9. **Audit logger** -- Records all admin mutations (POST/PUT/PATCH/DELETE) with actor, action, resource, and IP
+
+## Error Responses
+
+All errors follow this shape:
+
+```json
+{
+  "error": "Human-readable error message"
+}
+```
+
+- `400` -- Validation error (Zod schema mismatch)
+- `401` -- Missing or invalid authentication
+- `404` -- Resource not found
+- `409` -- Conflict (e.g., duplicate `externalId`)
+- `429` -- Rate limit exceeded
+- `500` -- Internal server error (message is generic in production)
+- `503` -- Service not configured
+
+## Environment Variables
+
+The API validates all environment variables at startup using `@t3-oss/env-core` with Zod schemas. The server will not start if required variables are missing.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `NODE_ENV` | No | `development` | `development`, `production`, or `test` |
+| `PORT` | No | `3002` | HTTP server port |
+| `LOG_LEVEL` | No | `info` | `error`, `warn`, `info`, `http`, `debug` |
+| `DATABASE_URL` | Yes | -- | TimescaleDB/Postgres connection string |
+| `REDIS_URL` | No | `redis://localhost:6379` | Redis connection for PostHog property cache |
+| `BETTER_AUTH_SECRET` | Yes | -- | Session signing secret |
+| `BETTER_AUTH_URL` | No | `http://localhost:3002` | Auth base URL |
+| `RESEND_API_KEY` | Yes | -- | Resend API key |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Default sender email |
+| `RESEND_WEBHOOK_SECRET` | No | -- | Enables Resend webhook verification and `EmailService` |
+| `HATCHET_CLIENT_TOKEN` | No | -- | Hatchet authentication token |
+| `POSTHOG_API_KEY` | No | -- | PostHog project API key |
+| `POSTHOG_HOST` | No | -- | PostHog instance URL |
+| `POSTHOG_WEBHOOK_SECRET` | No | -- | PostHog webhook source authentication |
+| `ADMIN_API_KEY` | No | -- | Bearer token for admin endpoints |
+| `API_PUBLIC_URL` | No | `http://localhost:3002` | Public URL for generating links (unsubscribe, preferences) |
+| `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs or `*` for all |
+
+---
+
+## API Sub-pages
+
+| Page | Description |
+|---|---|
+| [Ingestion & Webhooks](/docs/api/ingestion) | Event ingestion, Resend webhooks, generic webhook sources, health endpoint |
+| [Contacts API](/docs/api/contacts) | Contact CRUD, email preferences, contact timeline |
+| [Journeys API](/docs/api/journeys) | Journey listing, detail, enable/disable, instances, enrollment, journey logs |
+| [Emails API](/docs/api/emails) | Email send history, delivery details, unsubscribe and preference center |
+| [Events API](/docs/api/events) | Event browsing, detail, and replay |
+| [Metrics API](/docs/api/metrics) | System overview, journey performance, email metrics, event volume |
+| [Operations API](/docs/api/operations) | Bulk import/export, batch enrollment, API keys, audit logs, alerts, DLQ |

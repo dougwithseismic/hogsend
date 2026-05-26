@@ -1,0 +1,50 @@
+---
+title: Getting Started
+description: Everything you need to go from zero to running lifecycle journeys with Hogsend. Pick a setup path and follow it through.
+---
+
+Hogsend is a self-hosted lifecycle orchestration engine for teams using PostHog and Resend. You define journeys in TypeScript, connect them to PostHog events, and Hogsend handles the durable execution -- email sequences, timing, branching, and exit conditions.
+
+This section walks you through setup. There are three paths depending on how you want to run Hogsend.
+
+## Choose your setup path
+
+### Railway template deploy (recommended)
+
+The fastest way to get running. One click deploys the full stack -- API, worker, Hatchet, Postgres, Redis -- on Railway. Then the CLI configures everything: secrets, PostHog webhook, Resend, and verifies the pipeline end-to-end.
+
+**Time: ~10 minutes.** Follow the [Installation](/docs/getting-started/installation) guide.
+
+### Local development
+
+For contributors or teams who want to run Hogsend locally before deploying. Uses Docker Compose for infrastructure and runs the API and worker on your machine.
+
+**Time: ~15 minutes.** Start with [Installation](/docs/getting-started/installation#local-development-for-contributors), then [PostHog Setup](/docs/getting-started/posthog-setup).
+
+### Manual setup
+
+For teams deploying to infrastructure other than Railway. You provision Postgres, Redis, and Hatchet yourself, set environment variables manually, and configure the PostHog webhook by hand.
+
+**Time: ~30 minutes.** Read [Configuration](/docs/getting-started/configuration) for the full variable reference, [Deployment](/docs/operating/deployment) for architecture details, and [PostHog Setup](/docs/getting-started/posthog-setup) for webhook configuration.
+
+## Prerequisites
+
+Before you start, you need accounts with these services:
+
+- [ ] **Railway** account -- [sign up here](https://railway.com). Free tier works for getting started. Only needed if using the template deploy path.
+- [ ] **PostHog** account with a **personal API key** -- generate one at PostHog > Settings > Personal API Keys. The key starts with `phx_`. This is required for the CLI to create the webhook destination automatically.
+- [ ] **Resend** account -- [sign up free](https://resend.com). Grab your API key from the [Resend dashboard](https://resend.com/api-keys). You need this for email delivery.
+
+If you are deploying locally, you also need:
+
+- [ ] **Docker** installed and running -- for TimescaleDB, Redis, and Hatchet-Lite
+- [ ] **Node.js 22** -- pinned via `.node-version` in the repo
+- [ ] **pnpm** -- the monorepo uses pnpm workspaces
+
+## What's next
+
+| Page | What it covers |
+|---|---|
+| [Installation](/docs/getting-started/installation) | Deploy the template, install the CLI, verify the pipeline |
+| [PostHog Setup](/docs/getting-started/posthog-setup) | Connect PostHog events to Hogsend via webhook destinations |
+| [Configuration](/docs/getting-started/configuration) | Every environment variable, what it does, and which service needs it |

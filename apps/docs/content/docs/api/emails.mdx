@@ -1,0 +1,216 @@
+---
+title: Emails API
+description: Email send history, delivery details, tracked links, unsubscribe handling, and the preference center.
+---
+
+## Admin -- Email Sends
+
+Browse email send history and inspect delivery details. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/emails`
+
+List email sends with optional filters. Results are ordered by `createdAt` descending.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `toEmail` | `string` | -- | Filter by recipient email |
+| `templateKey` | `string` | -- | Filter by template key |
+| `status` | `string` | -- | Filter by status: `queued`, `rendered`, `sent`, `delivered`, `opened`, `clicked`, `bounced`, `complained`, `failed` |
+| `from` | `string` | -- | ISO 8601 datetime lower bound |
+| `to` | `string` | -- | ISO 8601 datetime upper bound |
+
+**Response `200`**
+
+```json
+{
+  "emails": [
+    {
+      "id": "email-uuid",
+      "journeyStateId": "state-uuid",
+      "templateKey": "activation/welcome",
+      "resendId": "resend-id",
+      "fromEmail": "noreply@hogsend.com",
+      "toEmail": "user@example.com",
+      "subject": "Welcome to Hogsend",
+      "category": "journey",
+      "status": "delivered",
+      "sentAt": "2025-01-15T10:30:00.000Z",
+      "deliveredAt": "2025-01-15T10:30:05.000Z",
+      "openedAt": "2025-01-15T11:00:00.000Z",
+      "clickedAt": null,
+      "bouncedAt": null,
+      "complainedAt": null,
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T11:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/emails?status=delivered&toEmail=user@example.com"
+```
+
+### `GET /v1/admin/emails/{id}`
+
+Get a single email with its delivery timeline, tracked link clicks, and journey context.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Email send UUID |
+
+**Response `200`**
+
+```json
+{
+  "email": {
+    "id": "email-uuid",
+    "journeyStateId": "state-uuid",
+    "templateKey": "activation/welcome",
+    "resendId": "resend-id",
+    "fromEmail": "noreply@hogsend.com",
+    "toEmail": "user@example.com",
+    "subject": "Welcome to Hogsend",
+    "category": "journey",
+    "status": "delivered",
+    "sentAt": "2025-01-15T10:30:00.000Z",
+    "deliveredAt": "2025-01-15T10:30:05.000Z",
+    "openedAt": "2025-01-15T11:00:00.000Z",
+    "clickedAt": null,
+    "bouncedAt": null,
+    "complainedAt": null,
+    "createdAt": "2025-01-15T10:30:00.000Z",
+    "updatedAt": "2025-01-15T11:00:00.000Z"
+  },
+  "trackedLinks": [
+    {
+      "id": "link-uuid",
+      "originalUrl": "https://example.com/docs",
+      "clickCount": 3,
+      "clicks": [
+        {
+          "id": "click-uuid",
+          "clickedAt": "2025-01-15T11:05:00.000Z",
+          "ipAddress": "192.168.1.1",
+          "userAgent": "Mozilla/5.0..."
+        }
+      ]
+    }
+  ],
+  "journeyContext": {
+    "journeyId": "activation-welcome",
+    "userId": "user_abc123",
+    "status": "completed",
+    "currentNodeId": "done"
+  }
+}
+```
+
+The `journeyContext` field is `null` if the email was not sent from a journey. The `trackedLinks` array is empty if no links were tracked.
+
+**Response `404`** -- Email not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/emails/email-uuid
+```
+
+### `POST /v1/admin/emails/{id}/resend`
+
+Retry a failed or bounced email send.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Email send UUID |
+
+**Response `202`**
+
+```json
+{
+  "emailId": "email-uuid",
+  "status": "queued"
+}
+```
+
+**Response `409`** -- The email is not in a `failed` or `bounced` status, or its `templateKey` is missing.
+
+```json
+{ "error": "Email is not in a retriable status" }
+```
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/emails/email-uuid/resend \
+  -H "Authorization: Bearer your-api-key"
+```
+
+---
+
+## Unsubscribe and Preferences
+
+These public endpoints handle email unsubscription and the preference center. They are token-authenticated (no API key needed) -- each link contains a signed JWT that identifies the user and action.
+
+### `GET /v1/email/unsubscribe`
+
+Process an unsubscribe or resubscribe action. Returns an HTML confirmation page. Typically accessed by clicking a link in an email footer.
+
+**Query Parameters**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `token` | `string` | Yes | Signed JWT containing user identity, action, and optional category |
+
+The token payload includes:
+
+| Field | Description |
+|---|---|
+| `externalId` | The user's external identifier |
+| `email` | The email address |
+| `action` | `"unsubscribe"` or `"resubscribe"` |
+| `category` | Optional category ID (e.g., `"journey"`) |
+
+**Response `200`** -- HTML confirmation page.
+
+**Response `400`** -- HTML error page (invalid or expired token).
+
+**Behavior:**
+
+- **Unsubscribe with category** -- Sets `categories.{category}: false` in preferences
+- **Unsubscribe without category** -- Sets `unsubscribedAll: true`
+- **Resubscribe with category** -- Sets `categories.{category}: true` and `unsubscribedAll: false`
+- **Resubscribe without category** -- Sets `unsubscribedAll: false`
+
+The unsubscribe confirmation page includes a link to the preference center.
+
+### `GET /v1/email/preferences`
+
+Renders an HTML preference center where users can manage their email subscriptions per category and globally. Also accessed via a signed token.
+
+**Query Parameters**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `token` | `string` | Yes | Signed JWT identifying the user |
+
+**Response `200`** -- HTML preference center with toggle links for each email category and a global unsubscribe/resubscribe option.
+
+**Response `400`** -- HTML error page (invalid or expired token).
+
+The preference center currently includes one category:
+
+| Category ID | Label |
+|---|---|
+| `journey` | Journey & lifecycle emails |
+
+Each category shows its current status (Subscribed/Unsubscribed) with a link to toggle it.

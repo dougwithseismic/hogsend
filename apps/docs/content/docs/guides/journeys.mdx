@@ -1,0 +1,654 @@
+---
+title: Journeys
+description: React to PostHog events with durable TypeScript flows — welcome sequences, trial nudges, churn recovery, and more.
+---
+
+Journeys are where Hogsend turns your PostHog events into action. A user signs up? Send a welcome sequence. They haven't used the core feature after 3 days? Nudge them. Their payment fails? Start a recovery flow. A Stripe subscription cancels? Trigger a win-back campaign.
+
+Each journey is a durable TypeScript function — no drag-and-drop canvas, no YAML state machines. You write it like regular code, and [Hatchet](https://hatchet.run) makes it durable. Your `await ctx.sleep(days(3))` call literally pauses execution for three days and resumes exactly where it left off, surviving restarts and deploys.
+
+## Quick example
+
+```ts
+import { days, hours } from "@hogsend/core";
+import { sendEmail } from "../lib/email.js";
+import { Events, Templates } from "./constants/index.js";
+import { defineJourney } from "./define-journey.js";
+
+export const activationWelcome = defineJourney({
+  meta: {
+    id: "activation-welcome",
+    name: "Activation — Welcome Series",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: Templates.ACTIVATION_WELCOME,
+      subject: "Welcome to Hogsend — let's get you set up",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(2), label: "post-welcome" });
+
+    const { found: hasUsedFeature } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+    });
+
+    if (hasUsedFeature) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: Templates.ACTIVATION_ADVANCED,
+        subject: "Nice work — here's what to try next",
+        journeyName: user.journeyName,
+      });
+    } else {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: Templates.ACTIVATION_NUDGE,
+        subject: "You haven't tried the key feature yet",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+No drag-and-drop canvas, no YAML state machine. Just TypeScript with `if`, `await`, and loops.
+
+## `defineJourney()`
+
+Every journey is created with `defineJourney()`. It takes two things: metadata describing _when_ and _how_ the journey runs, and a `run` function containing the actual logic.
+
+```ts
+import { defineJourney } from "./define-journey.js";
+
+export const myJourney = defineJourney({
+  meta: { /* JourneyMeta */ },
+  run: async (user, ctx) => { /* your logic */ },
+});
+```
+
+`defineJourney()` returns a `DefinedJourney` containing the resolved `meta` and a Hatchet durable `task`. You export this from your journey file and register it in `src/journeys/index.ts`.
+
+## `JourneyMeta`
+
+The `meta` object controls enrollment, triggering, and exit behavior.
+
+```ts
+interface JourneyMeta {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+
+  trigger: {
+    event: string;
+    where?: PropertyCondition[];
+  };
+
+  entryLimit: "once" | "once_per_period" | "unlimited";
+  entryPeriod?: DurationObject;
+
+  exitOn?: Array<{
+    event: string;
+    where?: PropertyCondition[];
+  }>;
+
+  suppress: DurationObject;
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Unique identifier. Used in the database, registry, and `ENABLED_JOURNEYS` filter. |
+| `name` | `string` | Human-readable name for logs and observability. |
+| `description` | `string?` | Optional longer description. |
+| `enabled` | `boolean` | Set to `false` to disable without removing code. Checked at runtime before enrollment. |
+| `trigger.event` | `string` | The event name that starts this journey. Hatchet routes matching events automatically. |
+| `trigger.where` | `PropertyCondition[]?` | Optional property conditions the event must satisfy. All conditions must pass (AND logic). |
+| `entryLimit` | `"once" \| "once_per_period" \| "unlimited"` | Controls how many times a user can enter. |
+| `entryPeriod` | `DurationObject?` | Required when `entryLimit` is `"once_per_period"`. The cooldown window. |
+| `exitOn` | `Array<{ event, where? }>?` | Events that immediately terminate the journey for a user. Evaluated by the ingestion pipeline on every incoming event. |
+| `suppress` | `DurationObject` | Minimum time between sends within this journey. Prevents email flooding. |
+
+### Entry limits
+
+- **`"once"`** -- the user can only ever enter this journey one time, regardless of how many matching events fire.
+- **`"once_per_period"`** -- the user can re-enter after `entryPeriod` has elapsed since their last entry. Useful for recurring flows like churn recovery.
+- **`"unlimited"`** -- no restrictions. Every matching event creates a new journey run.
+
+```ts
+// User can re-enter churn recovery every 7 days
+meta: {
+  entryLimit: "once_per_period",
+  entryPeriod: days(7),
+  // ...
+}
+```
+
+### Trigger conditions
+
+Add `where` to filter which events actually start the journey. All conditions use AND logic.
+
+```ts
+trigger: {
+  event: Events.SUBSCRIPTION_CANCELLED,
+  where: [
+    {
+      type: "property",
+      property: "plan",
+      operator: "eq",
+      value: "pro",
+    },
+  ],
+}
+```
+
+The `PropertyCondition` type supports these operators:
+
+| Operator | Description |
+|---|---|
+| `eq` | Equals |
+| `neq` | Not equals |
+| `gt`, `gte` | Greater than (or equal) |
+| `lt`, `lte` | Less than (or equal) |
+| `exists` | Property is present and non-null |
+| `not_exists` | Property is absent or null |
+| `contains` | String includes substring |
+
+### Exit conditions
+
+`exitOn` lets you define events that should immediately end the journey for a user. The ingestion pipeline checks these on every incoming event against all active journeys for that user.
+
+```ts
+exitOn: [
+  { event: Events.PAYMENT_SUCCEEDED },
+  { event: Events.SUBSCRIPTION_CANCELLED },
+  { event: Events.USER_DELETED },
+],
+```
+
+You can also add `where` conditions to exit rules, so the journey only exits when a matching event has specific properties.
+
+## The `run` function
+
+The `run` function receives two arguments:
+
+```ts
+run: async (user: JourneyUser, ctx: JourneyContext) => {
+  // your journey logic
+}
+```
+
+### `JourneyUser`
+
+Contains the enrolled user's data, available throughout the journey.
+
+```ts
+interface JourneyUser {
+  id: string;
+  email: string;
+  properties: Record<string, string | number | boolean | null>;
+  stateId: string;
+  journeyId: string;
+  journeyName: string;
+}
+```
+
+`properties` comes from the event payload that triggered the journey. `stateId` is the unique identifier for this particular journey run.
+
+### `JourneyContext`
+
+The context object provides durable execution primitives. It does not include service integrations like email or PostHog -- those are standalone imports, keeping the context focused on orchestration.
+
+## `ctx.sleep()`
+
+Pause execution for a duration. This is a _durable_ sleep backed by Hatchet -- the process can restart and the journey resumes exactly where it left off.
+
+```ts
+sleep(opts: {
+  duration: DurationObject;
+  label?: string;
+}): Promise<{ sleptAt: string; resumedAt: string }>
+```
+
+While sleeping, the journey state is set to `"waiting"`. When it resumes, it flips back to `"active"`. The optional `label` is recorded as the `currentNodeId` in the database for observability.
+
+```ts
+await ctx.sleep({ duration: days(2), label: "post-welcome" });
+await ctx.sleep({ duration: hours(4), label: "cooldown" });
+await ctx.sleep({ duration: minutes(30), label: "short-wait" });
+```
+
+## `ctx.checkpoint()`
+
+Update the `currentNodeId` in the journey state without sleeping. Useful for tracking progress through a journey.
+
+```ts
+checkpoint(label: string): Promise<void>
+```
+
+```ts
+await ctx.checkpoint("branch:paid-path");
+// ... continue execution
+```
+
+## `ctx.trigger()`
+
+Fire an event from within a journey. The event goes through the full ingestion pipeline, which means it can trigger other journeys, update contact records, and evaluate exit conditions.
+
+```ts
+trigger(opts: {
+  event: string;
+  userId: string;
+  userEmail?: string;
+  properties?: Record<string, unknown>;
+}): Promise<void>
+```
+
+```ts
+await ctx.trigger({
+  event: Events.USER_SUPPRESSED,
+  userId: user.id,
+  properties: {
+    reason: "dormancy_sequence_completed",
+    suppressedAt: new Date().toISOString(),
+  },
+});
+```
+
+## `ctx.guard`
+
+Mid-journey guard checks.
+
+### `ctx.guard.isSubscribed()`
+
+Check if the user is still subscribed to emails. Returns `false` if the user has globally unsubscribed.
+
+```ts
+const subscribed = await ctx.guard.isSubscribed();
+if (!subscribed) return; // exit journey early
+```
+
+## `ctx.history`
+
+Query historical data to make decisions mid-journey.
+
+### `ctx.history.hasEvent()`
+
+Check whether a specific event exists for a user, optionally within a time window.
+
+```ts
+hasEvent(opts: {
+  userId: string;
+  event: string;
+  within?: DurationObject;
+}): Promise<{ found: boolean; count: number }>
+```
+
+```ts
+// Has the user used a feature at all?
+const { found } = await ctx.history.hasEvent({
+  userId: user.id,
+  event: Events.FEATURE_USED,
+});
+
+// Has the user used a feature in the last 2 days?
+const { found, count } = await ctx.history.hasEvent({
+  userId: user.id,
+  event: Events.FEATURE_USED,
+  within: days(2),
+});
+```
+
+### `ctx.history.journey()`
+
+Check whether a user has previously entered or completed a specific journey.
+
+```ts
+journey(opts: {
+  userId: string;
+  journeyId: string;
+}): Promise<{
+  completed: boolean;
+  lastCompletedAt: string | null;
+  entryCount: number;
+}>
+```
+
+```ts
+const { completed, entryCount } = await ctx.history.journey({
+  userId: user.id,
+  journeyId: "activation-welcome",
+});
+
+if (!completed) {
+  // user never finished onboarding
+}
+```
+
+### `ctx.history.email()`
+
+Check whether a specific email template has been sent to an address.
+
+```ts
+email(opts: {
+  email: string;
+  template: string;
+}): Promise<{
+  sent: boolean;
+  lastSentAt: string | null;
+  count: number;
+}>
+```
+
+```ts
+const { sent, count } = await ctx.history.email({
+  email: user.email,
+  template: Templates.ACTIVATION_WELCOME,
+});
+
+if (sent) {
+  // skip duplicate send
+}
+```
+
+## Duration helpers
+
+Hogsend provides three duration helper functions from `@hogsend/core`. They return a `DurationObject` used by `ctx.sleep()`, `entryPeriod`, `suppress`, and `ctx.history.hasEvent()`.
+
+```ts
+import { days, hours, minutes } from "@hogsend/core";
+
+days(3)      // { hours: 72 }
+hours(12)    // { hours: 12 }
+minutes(30)  // { minutes: 30 }
+```
+
+The `DurationObject` type:
+
+```ts
+interface DurationObject {
+  readonly hours?: number;
+  readonly minutes?: number;
+  readonly seconds?: number;
+}
+```
+
+Use these everywhere instead of magic strings or raw numbers:
+
+```ts
+suppress: hours(12),
+entryPeriod: days(7),
+await ctx.sleep({ duration: days(2) });
+await ctx.history.hasEvent({ userId, event, within: days(3) });
+```
+
+## Constants
+
+Define event names and template keys as typed constants instead of magic strings. This gives you autocomplete, typo protection, and a single source of truth.
+
+### Events
+
+```ts
+// src/journeys/constants/events.ts
+export const Events = {
+  USER_CREATED: "user.created",
+  USER_DELETED: "user.deleted",
+  USER_ACTIVATED: "user.activated",
+  FEATURE_USED: "feature.used",
+  SETUP_COMPLETED: "setup.completed",
+  TRIAL_STARTED: "trial.started",
+  PAYMENT_FAILED: "payment.failed",
+  PAYMENT_SUCCEEDED: "payment.succeeded",
+  SUBSCRIPTION_CREATED: "subscription.created",
+  SUBSCRIPTION_CANCELLED: "subscription.cancelled",
+  // ... more events
+} as const;
+
+export type EventName = (typeof Events)[keyof typeof Events];
+```
+
+### Templates
+
+```ts
+// src/journeys/constants/templates.ts
+export const Templates = {
+  ACTIVATION_WELCOME: "activation/welcome",
+  ACTIVATION_ADVANCED: "activation/advanced",
+  ACTIVATION_NUDGE: "activation/nudge",
+  CONVERSION_TRIAL_EXPIRING: "conversion-trial-expiring",
+  CHURN_PAYMENT_FAILED: "churn-payment-failed",
+  REACTIVATION_CHECKIN: "reactivation-checkin",
+  FEEDBACK_NPS_SURVEY: "feedback-nps-survey",
+  // ... more templates
+} as const;
+
+export type TemplateName = (typeof Templates)[keyof typeof Templates];
+```
+
+Import both in your journey files:
+
+```ts
+import { Events, Templates } from "./constants/index.js";
+```
+
+## Enrollment guards
+
+Before a journey's `run` function executes, Hogsend checks a series of guards in order. If any guard fails, the journey returns `{ status: "skipped", reason }` without creating state.
+
+| Order | Guard | Reason on skip |
+|---|---|---|
+| 1 | `meta.enabled` is `true` | `"journey_disabled"` |
+| 2 | `trigger.where` conditions pass (if defined) | `"trigger_conditions_not_met"` |
+| 3 | `entryLimit` allows entry | `"already_entered_once"` or `"period_not_elapsed"` |
+| 4 | User has not globally unsubscribed | `"user_unsubscribed"` |
+| 5 | No active/waiting run exists for this user + journey | `"already_active"` |
+
+These guards are automatic -- you don't need to implement them in your `run` function.
+
+## Journey state lifecycle
+
+Each journey run creates a row in the `journeyStates` table that tracks its progress:
+
+```
+start -> active -> waiting (during sleep) -> active (after sleep) -> completed
+                                                                  -> failed (on error)
+```
+
+- **`active`** -- the `run` function is executing.
+- **`waiting`** -- paused inside a `ctx.sleep()` call.
+- **`completed`** -- the `run` function returned successfully. A `journey:completed` event is fired.
+- **`failed`** -- the `run` function threw an error. A `journey:failed` event is fired and the error message is stored.
+
+The `currentNodeId` field (updated by `ctx.checkpoint()` and `ctx.sleep()` labels) shows where the user currently is in the journey.
+
+## Journey registry
+
+Journeys are registered and filtered through the `JourneyRegistry` class. The `ENABLED_JOURNEYS` environment variable controls which journeys are loaded into the worker:
+
+```bash
+# Enable specific journeys by ID
+ENABLED_JOURNEYS=activation-welcome,churn-prevention
+
+# Enable all journeys (default)
+ENABLED_JOURNEYS=*
+```
+
+## Adding a new journey
+
+### 1. Add constants
+
+Add any new event names to `src/journeys/constants/events.ts` and template keys to `src/journeys/constants/templates.ts`.
+
+### 2. Create the journey file
+
+Create a new file in `src/journeys/`:
+
+```ts
+// src/journeys/conversion-abandoned-checkout.ts
+import { days, hours } from "@hogsend/core";
+import { sendEmail } from "../lib/email.js";
+import { Events, Templates } from "./constants/index.js";
+import { defineJourney } from "./define-journey.js";
+
+export const conversionAbandonedCheckout = defineJourney({
+  meta: {
+    id: "conversion-abandoned-checkout",
+    name: "Conversion — Abandoned Checkout",
+    enabled: true,
+    trigger: { event: Events.CHECKOUT_ABANDONED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(4),
+    exitOn: [
+      { event: Events.CHECKOUT_COMPLETED },
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    // Immediate nudge
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: Templates.CONVERSION_WINBACK_OFFER,
+      subject: "You left something behind",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(1), label: "day-1-followup" });
+
+    // Check if they came back
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.CHECKOUT_COMPLETED,
+      within: days(1),
+    });
+
+    if (!found) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: Templates.CONVERSION_WINBACK_OFFER,
+        subject: "Still interested? Here's 10% off",
+        journeyName: user.journeyName,
+        props: { discountPercent: 10 },
+      });
+    }
+  },
+});
+```
+
+### 3. Register the journey
+
+Import and add to the `allJourneys` array in `src/journeys/index.ts`:
+
+```ts
+import { conversionAbandonedCheckout } from "./conversion-abandoned-checkout.js";
+
+const allJourneys: DefinedJourney[] = [
+  // ...existing journeys
+  conversionAbandonedCheckout,
+];
+```
+
+The journey will automatically receive matching events from Hatchet and appear in the registry.
+
+## Full example: churn prevention
+
+Here is a complete, real journey that handles payment failure recovery with escalating urgency:
+
+```ts
+import { days, hours } from "@hogsend/core";
+import { sendEmail } from "../lib/email.js";
+import { Events, Templates } from "./constants/index.js";
+import { defineJourney } from "./define-journey.js";
+
+export const churnPrevention = defineJourney({
+  meta: {
+    id: "churn-prevention",
+    name: "Churn — Payment Recovery & Prevention",
+    enabled: true,
+    trigger: { event: Events.PAYMENT_FAILED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(4),
+    exitOn: [
+      { event: Events.PAYMENT_SUCCEEDED },
+      { event: Events.SUBSCRIPTION_CANCELLED },
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    // Immediate: let them know
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(1), label: "first-retry" });
+
+    // Day 1: check if they fixed it
+    const { found: hasRetried } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
+      within: days(1),
+    });
+    if (hasRetried) return;
+
+    // Day 1: gentle reminder
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Reminder: please update your payment method",
+      journeyName: user.journeyName,
+      props: { gracePeriodDays: 2 },
+    });
+
+    await ctx.sleep({ duration: days(2), label: "final-notice" });
+
+    // Day 3: final warning
+    const { found: hasResolved } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
+      within: days(3),
+    });
+    if (!hasResolved) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: Templates.CHURN_PAYMENT_FAILED,
+        subject: "Final notice: your account will be downgraded tomorrow",
+        journeyName: user.journeyName,
+        props: { gracePeriodDays: 1 },
+      });
+    }
+  },
+});
+```
+
+Key patterns to notice:
+
+- **`entryLimit: "once_per_period"`** with `entryPeriod: days(7)` prevents spamming users whose payments keep failing.
+- **`exitOn`** includes `PAYMENT_SUCCEEDED` so the journey stops immediately when the user fixes their payment, even mid-sleep.
+- **Early returns** with `if (hasRetried) return;` let you exit the journey when the goal is already met.
+- **`ctx.history.hasEvent()` with `within`** checks recent activity instead of all-time history.
+- **`props`** on `sendEmail` pass dynamic data to email templates.

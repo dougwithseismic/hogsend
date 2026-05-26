@@ -1,0 +1,84 @@
+---
+title: Philosophy
+description: Built to be extended, tweaked, and driven by AI agents or humans. Get to revenue faster, then make it yours.
+---
+
+## Get it done. Don't be afraid to tweak.
+
+Hogsend is not a platform you configure through a UI and hope it does what you want. It's a codebase you own, with building blocks designed to get you to the happy path — more revenue, more activated users, better upsells — as fast as possible.
+
+The mantra is simple: **get it done, then tweak.**
+
+Ship the welcome sequence today. See if it moves activation. Adjust the timing tomorrow. Add a branch next week. You're not waiting on a vendor to add a feature or fighting a drag-and-drop canvas to express a conditional. It's your TypeScript. Change it.
+
+## Built to be extended
+
+Hogsend gives you the building blocks:
+
+- **Event ingestion** with webhook sources and a REST API
+- **Durable journey execution** with sleep, branch, and guard primitives
+- **Email delivery** with templates, tracking, and unsubscribe management
+- **Contact state** with properties, preferences, and activity history
+- **A condition engine** for enrollment guards, exit rules, and mid-journey decisions
+
+What you build on top is up to you. The architecture is intentionally composable — journeys are standalone files, webhook sources are standalone files, templates are standalone components. Add what you need, delete what you don't.
+
+### By you
+
+Every journey is a TypeScript file. Every template is a React component. Every webhook source is a function. There's no proprietary DSL, no locked-in configuration format, no "export your data" problem. You can:
+
+- Add new event sources (your CRM, your billing system, your support tool)
+- Write journeys with any logic you can express in TypeScript — loops, external API calls, feature flag checks, A/B tests
+- Build custom notification channels (Slack, push notifications, in-app messages) alongside email
+- Extend the admin API with your own endpoints
+- Swap out Resend for another provider if you outgrow it
+
+### By an AI agent
+
+Hogsend's code-first architecture is intentionally LLM-friendly. Journeys follow a consistent pattern (`defineJourney()` + metadata + `run` function). Templates follow a consistent pattern (React component + registry entry). Webhook sources follow a consistent pattern (`defineWebhookSource()` + transform function).
+
+This means an AI agent — Claude, Cursor, Copilot, whatever you use — can:
+
+- **Generate new journeys** from a description ("write a journey that nudges users who signed up but haven't invited a teammate after 3 days")
+- **Modify existing journeys** based on performance data ("the day-2 nudge isn't converting — try day-1 instead and add a discount code")
+- **Create email templates** from a brief ("write a friendly reminder email for users whose trial expires in 3 days")
+- **Add webhook sources** from API docs ("integrate Stripe webhooks so payment events trigger churn recovery")
+
+The patterns are deliberate. Every journey has the same shape. Every template has the same registration flow. An agent that's seen one can write the next.
+
+## You're not tied into anything
+
+At the end of the day, Hogsend is:
+
+- **A Node.js app** running on your infrastructure
+- **A Postgres database** with your contact and event data
+- **TypeScript files** in your repo
+- **React components** for your email templates
+
+There's no vendor lock-in, no proprietary data format, no "please contact sales to export." If you decide tomorrow that Customer.io is the right call, you can query your Postgres database, export your contacts, and take your journey logic with you. The event model is PostHog's event model — it works everywhere.
+
+## Opinionated where it matters
+
+Hogsend makes choices so you don't have to:
+
+- **PostHog for events** — the webhook source is built-in, person properties are fetched automatically, engagement flows back
+- **Resend for email** — fast delivery, developer-friendly API, great deliverability defaults
+- **Hatchet for durability** — sleeps that survive deploys, automatic retries, event routing
+- **Railway for hosting** — one-click deploy template, auto-deploy from GitHub, scales independently
+- **Code over config** — TypeScript journeys, not YAML. React templates, not a template editor.
+
+These opinions get you to a working lifecycle email setup in 10 minutes. You can swap any of them out — but you probably won't need to until you've outgrown what this stack can do, which is quite a lot.
+
+## The happy path
+
+Hogsend is built for a specific outcome: **you ship lifecycle marketing that generates revenue, and you do it this week, not next quarter.**
+
+The typical path:
+
+1. **Day 1** — Set up Hogsend, connect PostHog, deploy the included welcome journey
+2. **Week 1** — Add payment failure recovery and trial-expiring nudges. Watch open rates.
+3. **Week 2** — Tune timing based on data. Add a dormancy reactivation flow.
+4. **Month 1** — You have 4-5 journeys running, measurably improving activation and reducing churn
+5. **Month 3+** — Decide if you need more (push notifications, SMS, advanced segmentation) and either extend Hogsend or migrate to a bigger platform with clean data
+
+The point isn't to be the last lifecycle tool you ever use. It's to be the one that gets you from "we should really be sending lifecycle emails" to "we are, and they're working" in the shortest possible time.
