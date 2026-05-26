@@ -24,6 +24,9 @@ export const Events = {
 
   TRIAL_STARTED: "trial.started",
 
+  EMAIL_OPENED: "email.opened",
+  EMAIL_LINK_CLICKED: "email.link_clicked",
+
   JOURNEY_WELCOME_FIRED: "journey.welcome_fired",
   JOURNEY_PRO_PATH: "journey.pro_path",
   JOURNEY_FREE_PATH: "journey.free_path",

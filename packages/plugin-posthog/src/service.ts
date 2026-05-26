@@ -37,6 +37,14 @@ export function createPostHogService(
       captureEvent({ client, ...opts });
     },
 
+    identify(distinctId: string, properties: Record<string, unknown>) {
+      client.capture({
+        distinctId,
+        event: "$set",
+        properties: { $set: properties },
+      });
+    },
+
     async isFeatureEnabled({
       distinctId,
       flag,

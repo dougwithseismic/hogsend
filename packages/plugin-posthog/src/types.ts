@@ -12,6 +12,8 @@ export interface PostHogService {
 
   captureEvent(opts: CaptureOptions): void;
 
+  identify(distinctId: string, properties: Record<string, unknown>): void;
+
   isFeatureEnabled(opts: {
     distinctId: string;
     flag: string;

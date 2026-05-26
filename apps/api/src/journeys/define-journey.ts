@@ -14,6 +14,7 @@ import {
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
+import { getPostHog } from "../lib/posthog.js";
 import { createJourneyContext } from "./journey-context.js";
 import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
@@ -132,6 +133,7 @@ export function defineJourney(options: {
         hatchetCtx,
         registry: getJourneyRegistrySingleton(),
         logger,
+        posthog: getPostHog(),
         stateId,
         userId,
         userEmail,

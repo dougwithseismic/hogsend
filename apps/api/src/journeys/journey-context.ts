@@ -4,6 +4,7 @@ import { evaluateEventCondition } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import type { JourneyContext } from "@hogsend/core/types";
 import { type Database, emailSends, journeyStates } from "@hogsend/db";
+import type { PostHogService } from "@hogsend/plugin-posthog";
 import { and, count, eq, max } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { ingestEvent } from "../lib/ingestion.js";
@@ -15,6 +16,7 @@ interface JourneyContextConfig {
   hatchetCtx: { sleepFor: (duration: DurationObject) => Promise<unknown> };
   registry: JourneyRegistry;
   logger: Logger;
+  posthog?: PostHogService;
   stateId: string;
   userId: string;
   userEmail: string;
@@ -30,6 +32,7 @@ export function createJourneyContext(
     hatchetCtx,
     registry,
     logger,
+    posthog,
     stateId,
     userId,
     userEmail,
@@ -86,6 +89,10 @@ export function createJourneyContext(
           properties: properties ?? {},
         },
       });
+    },
+
+    identify(properties) {
+      posthog?.identify(userId, properties);
     },
 
     guard: {
@@ -156,6 +163,16 @@ export function createJourneyContext(
               : null,
           count: total,
         };
+      },
+    },
+
+    posthog: {
+      capture({ event, properties }) {
+        posthog?.captureEvent({
+          distinctId: userId,
+          event,
+          properties,
+        });
       },
     },
   };

@@ -2,6 +2,7 @@ import { emailSends } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { pushTrackingEvent } from "../../lib/tracking-events.js";
 
 const TRANSPARENT_GIF = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
@@ -36,6 +37,26 @@ export const openRouter = new OpenAPIHono<AppEnv>().openapi(
         updatedAt: new Date(),
       })
       .where(and(eq(emailSends.id, id), isNull(emailSends.openedAt)));
+
+    const { hatchet, registry, logger } = c.get("container");
+    const posthog = c.get("container").env.POSTHOG_API_KEY
+      ? (await import("../../lib/posthog.js")).getPostHog()
+      : undefined;
+
+    pushTrackingEvent({
+      db,
+      hatchet,
+      registry,
+      logger,
+      posthog,
+      event: "email.opened",
+      emailSendId: id,
+    }).catch((err) => {
+      logger.warn("Failed to push open tracking event", {
+        emailSendId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     return c.body(TRANSPARENT_GIF, 200, {
       "Content-Type": "image/gif",
