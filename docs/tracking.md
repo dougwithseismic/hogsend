@@ -100,12 +100,144 @@ These URLs are never rewritten:
 - **Preference links** — URLs containing `/v1/email/preferences`
 - **Non-HTTP** — `mailto:`, `tel:`, etc. (regex only matches `https?://`)
 
+## Event Loop — PostHog + Journey Integration
+
+Tracking endpoints don't just write to the DB — they push events through the full ingest pipeline. This means:
+
+1. **PostHog gets the events** — opens and clicks appear on the person timeline in PostHog, enabling cohort building and analytics
+2. **Journeys can react** — journey code can check `ctx.history.hasEvent({ event: "email.opened" })` to branch based on engagement
+3. **Exit conditions work** — if a journey has `exitOn: [{ event: "email.link_clicked" }]`, clicking a link can exit the user from a journey
+
+### Events Pushed
+
+| Endpoint | Event | Properties |
+|----------|-------|------------|
+| Click (`/v1/t/c/:id`) | `email.link_clicked` | `emailSendId`, `templateKey`, `linkUrl`, `linkId` |
+| Open (`/v1/t/o/:id`) | `email.opened` | `emailSendId`, `templateKey` |
+
+Events are fire-and-forget — the redirect/GIF returns immediately, event processing happens async. Uses `resolveEmailSendContext()` which does a single `emailSends LEFT JOIN journeyStates` query to get the userId and templateKey.
+
+### How It Flows
+
+```
+Email client clicks link
+       ↓
+GET /v1/t/c/:id
+       ↓
+Record click (link_clicks, clickCount, clickedAt)  ← DB writes
+       ↓
+Return 302 redirect  ← response sent immediately
+       ↓  (fire-and-forget)
+resolveEmailSendContext()  ← single JOIN query
+       ↓
+posthog.captureEvent()  ← sends to PostHog (buffered, sync)
+       ↓
+ingestEvent()  ← stores in userEvents, pushes to Hatchet,
+                  checks exit conditions, upserts contact
+```
+
+## Journey Context — PostHog Integration
+
+Journey code has direct access to PostHog through the context object:
+
+### `ctx.identify(properties)`
+
+Set person properties on PostHog for the current journey user. PostHog is the source of truth for person properties — this does NOT write to the local DB.
+
+```typescript
+run: async (user, ctx) => {
+  ctx.identify({ onboarding_step: "completed", plan: "pro" });
+}
+```
+
+No-op when `POSTHOG_API_KEY` is not configured.
+
+### `ctx.posthog.capture({ event, properties? })`
+
+Fire a custom PostHog event for the current user. Useful for journey-specific analytics that don't need to go through the ingest pipeline.
+
+```typescript
+run: async (user, ctx) => {
+  ctx.posthog.capture({
+    event: "journey.activation_complete",
+    properties: { duration_days: 7 },
+  });
+}
+```
+
+No-op when `POSTHOG_API_KEY` is not configured.
+
+### `ctx.trigger()` vs `ctx.posthog.capture()`
+
+| Method | Where it goes | Use case |
+|--------|--------------|----------|
+| `ctx.trigger()` | Internal ingest pipeline (Hatchet + event store + exit conditions) | Cross-journey triggers, internal events |
+| `ctx.posthog.capture()` | PostHog only | Analytics, person timeline events |
+
+Use `ctx.trigger()` when other journeys need to react to the event. Use `ctx.posthog.capture()` for pure analytics.
+
+## Using Tracking Events in Journeys
+
+```typescript
+import { Events } from "../constants/events.js";
+import { days } from "@hogsend/core";
+
+const journey = defineJourney({
+  meta: {
+    id: "activation-welcome",
+    name: "Activation Welcome",
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: { type: "once" },
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "welcome",
+      subject: "Welcome!",
+    });
+
+    await ctx.sleep({ duration: days(2), label: "wait-for-open" });
+
+    // Check if they opened the welcome email
+    const { found: opened } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.EMAIL_OPENED,
+      within: days(2),
+    });
+
+    if (!opened) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: "reminder",
+        subject: "Did you see our welcome email?",
+      });
+    }
+
+    // Check if they clicked any link
+    const { found: clicked } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.EMAIL_LINK_CLICKED,
+      within: days(3),
+    });
+
+    if (clicked) {
+      ctx.identify({ activated: true });
+      ctx.posthog.capture({ event: "journey.user_activated" });
+    }
+  },
+});
+```
+
 ## Architecture Notes
 
 - **Deduplication**: If the same URL appears multiple times in an email, only one `tracked_links` row is created. All occurrences share the same tracking ID.
 - **Idempotent opens/clicks**: `openedAt` and `clickedAt` on `emailSends` use `WHERE ... IS NULL` guards — they're set once and never overwritten.
 - **Non-blocking**: tracking DB writes happen in parallel and don't delay the redirect/pixel response.
 - **DI pattern**: `prepareTrackedHtml` is injected into `createEmailService()` from the API container to avoid circular dependencies between `@hogsend/plugin-resend` and the API package.
+- **PostHog in Container**: The PostHog service is initialized once at startup in `container.ts` and available as `container.posthog`. Tracking endpoints and journey context both use it from the container.
+- **Graceful degradation**: All PostHog operations are no-ops when `POSTHOG_API_KEY` is not set. Tracking still works (DB writes + ingest events), just without PostHog sync.
 
 ## Querying Tracking Data
 

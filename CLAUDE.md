@@ -97,10 +97,12 @@ Journeys use a code-first `defineJourney()` pattern — each journey is its own 
   - `ctx.sleep({ duration, label? })` — Hatchet durable sleep; sets state to "waiting", resumes to "active"; returns `{ sleptAt, resumedAt }`
   - `ctx.checkpoint(label)` — updates `currentNodeId` in journeyStates for observability
   - `ctx.trigger({ event, userId, properties? })` — pushes event through the full ingest pipeline (stores, routes to Hatchet, processes exitOn). Enables cross-journey triggers
+  - `ctx.identify(properties)` — sets person properties on PostHog for the current user (no-op without `POSTHOG_API_KEY`)
   - `ctx.guard.isSubscribed()` — checks if user is still subscribed (useful after long sleeps)
   - `ctx.history.hasEvent({ userId, event, within? })` — check if event occurred, returns `{ found, count }`
   - `ctx.history.journey({ userId, journeyId })` — check journey completion history, returns `{ completed, lastCompletedAt, entryCount }`
   - `ctx.history.email({ email, template })` — check email send history, returns `{ sent, lastSentAt, count }`
+  - `ctx.posthog.capture({ event, properties? })` — fire a custom PostHog event for the current user (no-op without `POSTHOG_API_KEY`)
 - **Service integrations are standalone imports**, not on the context. Email: `sendEmail()` from `src/lib/email.ts`. PostHog: `getPostHog()` from `src/lib/posthog.ts`. All functions follow single-object-in, result-object-out pattern
 - **Duration helpers** — `days()`, `hours()`, `minutes()` from `@hogsend/core` replace magic duration strings
 - **Constants** — `Events` and `Templates` in `src/journeys/constants/` replace magic string literals with `as const` typed values
@@ -123,9 +125,10 @@ When adding a new webhook source: create a file in `src/webhook-sources/` using 
 First-party link click and email open tracking. Outgoing email HTML is rewritten before reaching Resend:
 
 - `src/lib/tracking.ts` — `prepareTrackedHtml()` calls `rewriteLinks()` (extracts URLs, bulk-inserts `tracked_links`, single-pass regex replace with redirect URLs) then `injectOpenPixel()` (appends 1x1 GIF `<img>` before `</body>`). Skips unsubscribe/preference links
-- `src/routes/tracking/click.ts` — `GET /v1/t/c/:id` records `link_clicks` row, increments `clickCount`, sets `emailSends.clickedAt` (first click only via `WHERE clickedAt IS NULL`), 302 redirects to original URL
-- `src/routes/tracking/open.ts` — `GET /v1/t/o/:id` sets `emailSends.openedAt` (first open only), returns 1x1 transparent GIF with `no-store` cache headers
-- Tracking is wired into the email pipeline via DI: `prepareTrackedHtml` is injected into `createEmailService()` in `src/container.ts`, using `API_PUBLIC_URL` as the tracking domain
+- `src/routes/tracking/click.ts` — `GET /v1/t/c/:id` records `link_clicks` row, increments `clickCount`, sets `emailSends.clickedAt` (first click only via `WHERE clickedAt IS NULL`), 302 redirects to original URL, then fire-and-forget pushes `email.link_clicked` event through ingest + PostHog
+- `src/routes/tracking/open.ts` — `GET /v1/t/o/:id` sets `emailSends.openedAt` (first open only), returns 1x1 transparent GIF with `no-store` cache headers, then fire-and-forget pushes `email.opened` event through ingest + PostHog
+- `src/lib/tracking-events.ts` — `resolveEmailSendContext()` (single LEFT JOIN to get userId/templateKey from emailSends + journeyStates) and `pushTrackingEvent()` (fires PostHog capture + ingestEvent for a tracking event)
+- Tracking is wired into the email pipeline via DI: `prepareTrackedHtml` is injected into `createEmailService()` in `src/container.ts`, using `API_PUBLIC_URL` as the tracking domain. PostHog is initialized in the container and passed to tracking endpoints
 - DB tables: `tracked_links` (one row per unique URL per email), `link_clicks` (one row per click, with IP + user agent)
 
 Full documentation: `docs/tracking.md`
