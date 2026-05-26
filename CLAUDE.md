@@ -64,7 +64,7 @@ The API uses a dependency-injection container pattern:
 - `src/env.ts` — `@t3-oss/env-core` validates env vars at startup (DATABASE_URL, BETTER_AUTH_SECRET, RESEND_API_KEY required)
 - `src/container.ts` — `createContainer()` builds the DI container: `{ env, logger, db, dbClient, auth, email, emailService, registry, hatchet }`. Container is set on every request via Hono middleware and accessed with `c.get("container")` in handlers
 - `src/app.ts` — `createApp(container)` creates the OpenAPIHono app with middleware stack (secureHeaders, CORS, compress, requestId, request logging, error handler). Auth is mounted at `/api/auth/*` via Better Auth handler. OpenAPI docs/Scalar UI available at `/openapi.json` and `/docs` in non-production
-- `src/routes/index.ts` — `registerRoutes(app)` mounts all v1 sub-routers: health, ingest, email (unsubscribe/preferences), admin (contacts/preferences), webhooks (resend/sources)
+- `src/routes/index.ts` — `registerRoutes(app)` mounts all v1 sub-routers: health, ingest, email (unsubscribe/preferences), admin (contacts/preferences), tracking (click/open), webhooks (resend/sources)
 - Routes use `createRoute()` + `OpenAPIHono.openapi()` with Zod schemas for request/response validation
 
 `AppEnv` type defines Hono context variables: `{ container, requestId, user, session }`.
@@ -117,6 +117,18 @@ When adding a new webhook source: create a file in `src/webhook-sources/` using 
 ### Ingestion pipeline
 
 `ingestEvent()` in `src/lib/ingestion.ts` is the central event processing function used by both the ingest endpoint and webhook sources. It: (1) stores the event in `userEvents`, (2) pushes to Hatchet (which routes to matching journey tasks), (3) checks exit conditions on active journeys for the user, (4) upserts the contact record. Exit conditions are evaluated by matching event name against `exitOn` rules in journey metadata and applying property conditions.
+
+### Email tracking (link clicks + opens)
+
+First-party link click and email open tracking. Outgoing email HTML is rewritten before reaching Resend:
+
+- `src/lib/tracking.ts` — `prepareTrackedHtml()` calls `rewriteLinks()` (extracts URLs, bulk-inserts `tracked_links`, single-pass regex replace with redirect URLs) then `injectOpenPixel()` (appends 1x1 GIF `<img>` before `</body>`). Skips unsubscribe/preference links
+- `src/routes/tracking/click.ts` — `GET /v1/t/c/:id` records `link_clicks` row, increments `clickCount`, sets `emailSends.clickedAt` (first click only via `WHERE clickedAt IS NULL`), 302 redirects to original URL
+- `src/routes/tracking/open.ts` — `GET /v1/t/o/:id` sets `emailSends.openedAt` (first open only), returns 1x1 transparent GIF with `no-store` cache headers
+- Tracking is wired into the email pipeline via DI: `prepareTrackedHtml` is injected into `createEmailService()` in `src/container.ts`, using `API_PUBLIC_URL` as the tracking domain
+- DB tables: `tracked_links` (one row per unique URL per email), `link_clicks` (one row per click, with IP + user agent)
+
+Full documentation: `docs/tracking.md`
 
 ### Condition evaluation engine
 
