@@ -5,24 +5,25 @@ description: Lifecycle emails via Resend — React Email templates, bounce track
 
 Hogsend sends emails through [Resend](https://resend.com) — fast delivery, great developer experience, solid deliverability. You write templates as React components, Hogsend handles everything else: rendering, delivery with retries, bounce tracking, automatic suppression, unsubscribe management, and a preference center.
 
-The email system has three layers: a **template package** (`@hogsend/email`) with React Email components and a type-safe registry, a **Resend plugin** (`@hogsend/plugin-resend`) that handles delivery with retries, tracking, and webhook processing, and an **API layer** that ties them together with a durable Hatchet task, unsubscribe endpoints, and a preference center.
+The email system has three layers: a **template package** (`@hogsend/email`) with React Email components and a type-safe registry, a **Resend plugin** (`@hogsend/plugin-resend`) that handles delivery with retries, tracking, and webhook processing, and an **API layer** that ties them together with tracked sends, first-party link/open tracking, unsubscribe endpoints, and a preference center.
 
 ## Sending email from journeys
 
-Inside a journey, use the standalone `sendEmail` function from `src/lib/email.ts`. It renders a template, generates an unsubscribe URL, sets `List-Unsubscribe` headers, and dispatches the email through the durable `sendEmailTask` Hatchet workflow.
+Inside a journey, use the standalone `sendEmail` function from `src/lib/email.ts`. It goes through the tracked email pipeline — every email automatically gets an `emailSends` DB row, link rewriting for click tracking, and an open tracking pixel.
 
 ```ts
 import { sendEmail } from "../lib/email.js";
 
 await sendEmail({
-  to: "user@example.com",
-  userId: "usr_abc123",
-  template: "activation-nudge",
+  to: user.email,
+  userId: user.id,
+  journeyStateId: user.stateId,
+  template: Templates.ACTIVATION_NUDGE,
   subject: "You haven't tried the key feature yet",
-  journeyName: "onboarding",
+  journeyName: user.journeyName,
   props: { firstName: "Alice" },
 });
-// => { emailId: string; sentAt: string }
+// => { emailSendId: string; sentAt: string }
 ```
 
 The function signature:
@@ -34,45 +35,27 @@ async function sendEmail(opts: {
   template: string;
   subject: string;
   journeyName?: string;
+  journeyStateId?: string;
   props?: Record<string, unknown>;
-}): Promise<{ emailId: string; sentAt: string }>
+}): Promise<{ emailSendId: string; sentAt: string }>
 ```
 
 Under the hood, `sendEmail` does the following:
 
 1. Generates a signed unsubscribe URL using `generateUnsubscribeUrl` (requires `API_PUBLIC_URL` and `BETTER_AUTH_SECRET` env vars).
-2. Creates a React element from `JourneyNotificationEmail` with the resolved `name`, `journeyName`, and `unsubscribeUrl`.
-3. Renders the element to HTML via `renderToHtml`.
-4. Sets `List-Unsubscribe` and `List-Unsubscribe-Post` headers for one-click unsubscribe compliance.
-5. Dispatches to the `sendEmailTask` Hatchet task with tags for `journeyId`, `templateKey`, and `userId`.
+2. Sets `List-Unsubscribe` and `List-Unsubscribe-Post` headers for one-click unsubscribe compliance.
+3. Calls `emailService.send()` which creates an `emailSends` DB row, renders the template to HTML, rewrites all links for click tracking, injects an open tracking pixel, checks suppression/unsubscribe status, and sends via Resend with automatic retries.
+4. Returns the `emailSendId` (the DB record ID) and send timestamp.
 
-## The send-email Hatchet task
+The `journeyStateId` links the email to the journey, which enables the tracking system to resolve clicks and opens back to the correct user and push events like `email.opened` and `email.link_clicked` through the ingest pipeline. Always pass `user.stateId` from journey code.
 
-All email delivery goes through a durable Hatchet task defined in `src/workflows/send-email.ts`. This gives you automatic retries with exponential backoff, execution timeouts, and visibility in the Hatchet dashboard.
+## Tracking
 
-```ts
-export const sendEmailTask = hatchet.task({
-  name: "send-email",
-  retries: 3,
-  executionTimeout: "30s",
-  backoff: { factor: 2, maxSeconds: 30 },
-  fn: async (input: {
-    to: string;
-    subject: string;
-    html: string;
-    from?: string;
-    replyTo?: string;
-    tags?: Array<{ name: string; value: string }>;
-    headers?: Record<string, string>;
-  }) => {
-    // Sends via Resend, returns { emailId: string }
-  },
-});
-```
+Every email sent through `sendEmail()` gets first-party link tracking and open tracking automatically. See the [Tracking API reference](/docs/api/tracking) for full details on how it works, the events it pushes, and how to use tracking data in journeys.
 
-The task classifies errors as retryable or non-retryable. Validation errors, invalid API keys, and missing fields throw a `NonRetryableError` that stops retries immediately. Rate limits and server errors are retried up to 3 times.
+## Delivery and retries
 
-Non-retryable error codes: `validation_error`, `missing_required_field`, `invalid_api_key`, `not_found`, `restricted_api_key`.
+Email delivery uses the `@hogsend/plugin-resend` package which includes automatic retries with exponential backoff. Errors are classified as retryable or non-retryable. Rate limits (429), server errors (5xx), timeouts, and connection resets are retried up to 3 times. Client errors (4xx) like validation errors and invalid API keys fail immediately.
 
 ## React Email templates
 

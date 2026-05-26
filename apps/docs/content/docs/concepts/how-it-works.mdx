@@ -42,11 +42,11 @@ The journey sends a welcome email, sleeps for 2 days (durably — survives deplo
 
 ### 5. Emails go out via Resend
 
-When the journey calls `sendEmail()`, Hogsend renders a React Email template, generates a signed unsubscribe URL, sets `List-Unsubscribe` headers, and dispatches the email through a durable Hatchet task to Resend. The task retries automatically on transient failures.
+When the journey calls `sendEmail()`, Hogsend renders a React Email template, rewrites all links for first-party click tracking, injects an open tracking pixel, generates a signed unsubscribe URL, and sends via Resend with automatic retries. Every email creates a tracked `emailSends` DB row linked to the journey state.
 
 ### 6. Engagement flows back to PostHog
 
-When the user opens the email or clicks a link, Resend fires a webhook back to Hogsend. Hogsend updates the email record (opened, clicked, bounced) and pushes the engagement event back to PostHog as a person property and event.
+When the user opens the email or clicks a tracked link, Hogsend's tracking endpoints record the engagement, push `email.opened` and `email.link_clicked` events through the ingest pipeline, and sync to PostHog. Journeys can branch on these events (`ctx.history.hasEvent({ event: "email.opened" })`), and journey code can set PostHog person properties via `ctx.identify()`.
 
 Now in PostHog you can:
 - Build cohorts like "users who opened the welcome email but haven't used feature X"

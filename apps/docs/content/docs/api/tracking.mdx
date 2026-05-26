@@ -156,7 +156,7 @@ One row per click event. Append-only — never updated or deleted.
 
 ## Link Rewriting
 
-Links are rewritten in the `sendTrackedEmail` pipeline (the default path when `emailService.send()` is used with a database).
+Links are rewritten automatically for every email sent through `sendEmail()`. The rewriting happens inside the tracked email pipeline before the HTML reaches Resend.
 
 ### What gets rewritten
 
