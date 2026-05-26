@@ -40,10 +40,6 @@ export const resendWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
   async (c) => {
     const { emailService, logger } = c.get("container");
 
-    if (!emailService) {
-      return c.json({ error: "Email service not configured" }, 401);
-    }
-
     const rawBody = await c.req.text();
     const headers: Record<string, string> = {};
     for (const [key, value] of c.req.raw.headers.entries()) {

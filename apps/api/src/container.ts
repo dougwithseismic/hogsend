@@ -15,6 +15,7 @@ import type { Resend } from "resend";
 import { env } from "./env.js";
 import { createJourneyRegistry } from "./journeys/index.js";
 import { type Auth, createAuth } from "./lib/auth.js";
+import { setEmailService } from "./lib/email.js";
 import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { getPostHog } from "./lib/posthog.js";
@@ -27,7 +28,7 @@ export interface Container {
   dbClient: DatabaseClient;
   auth: Auth;
   email: Resend;
-  emailService: EmailService | null;
+  emailService: EmailService;
   posthog?: PostHogService;
   registry: JourneyRegistry;
   hatchet: HatchetClient;
@@ -44,19 +45,19 @@ export function createContainer(): Container {
   const email = createResendClient({ apiKey: env.RESEND_API_KEY });
   const registry = createJourneyRegistry(env.ENABLED_JOURNEYS);
 
-  const emailService = env.RESEND_WEBHOOK_SECRET
-    ? createEmailService(
-        {
-          apiKey: env.RESEND_API_KEY,
-          defaultFrom: env.RESEND_FROM_EMAIL,
-          db,
-          webhookSecret: env.RESEND_WEBHOOK_SECRET,
-          bounceThreshold: 3,
-          baseUrl: env.API_PUBLIC_URL,
-        },
-        { prepareTrackedHtml },
-      )
-    : null;
+  const emailService = createEmailService(
+    {
+      apiKey: env.RESEND_API_KEY,
+      defaultFrom: env.RESEND_FROM_EMAIL,
+      db,
+      webhookSecret: env.RESEND_WEBHOOK_SECRET,
+      bounceThreshold: 3,
+      baseUrl: env.API_PUBLIC_URL,
+    },
+    { prepareTrackedHtml },
+  );
+
+  setEmailService(emailService);
 
   const posthog = getPostHog();
 

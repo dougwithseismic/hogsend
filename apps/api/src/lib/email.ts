@@ -1,29 +1,19 @@
 import { generateUnsubscribeUrl, type TemplateName } from "@hogsend/email";
 import type { EmailService } from "@hogsend/plugin-resend";
-import { createEmailService } from "@hogsend/plugin-resend";
-import { getDb } from "./db.js";
-import { prepareTrackedHtml } from "./tracking.js";
 
-let _emailService: EmailService | undefined;
+let _service: EmailService | null = null;
 
-function getEmailService(): EmailService {
-  if (!_emailService) {
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) throw new Error("RESEND_API_KEY is required");
+export function setEmailService(service: EmailService): void {
+  _service = service;
+}
 
-    _emailService = createEmailService(
-      {
-        apiKey,
-        defaultFrom:
-          process.env.RESEND_FROM_EMAIL ?? "Hogsend <noreply@hogsend.com>",
-        db: getDb(),
-        webhookSecret: process.env.RESEND_WEBHOOK_SECRET,
-        baseUrl: process.env.API_PUBLIC_URL ?? "http://localhost:3002",
-      },
-      { prepareTrackedHtml },
+function getService(): EmailService {
+  if (!_service) {
+    throw new Error(
+      "Email service not initialized. Call setEmailService() at startup.",
     );
   }
-  return _emailService;
+  return _service;
 }
 
 export interface SendEmailOptions {
@@ -44,7 +34,7 @@ export interface SendEmailResult {
 export async function sendEmail(
   opts: SendEmailOptions,
 ): Promise<SendEmailResult> {
-  const service = getEmailService();
+  const service = getService();
 
   let unsubscribeUrl: string | undefined;
   if (process.env.API_PUBLIC_URL && process.env.BETTER_AUTH_SECRET) {
@@ -65,6 +55,7 @@ export async function sendEmail(
   const result = await service.send({
     template: opts.template as TemplateName,
     props: {
+      ...opts.props,
       name:
         (opts.props?.firstName as string) ??
         (opts.props?.name as string) ??
@@ -74,7 +65,6 @@ export async function sendEmail(
       eventName: opts.template,
       body: opts.subject,
       unsubscribeUrl,
-      ...opts.props,
     },
     to: opts.to,
     subject: opts.subject,
