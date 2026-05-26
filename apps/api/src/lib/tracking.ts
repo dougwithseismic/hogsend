@@ -19,8 +19,7 @@ export async function rewriteLinks(opts: {
 
   const uniqueUrls = new Set<string>();
 
-  const re = new RegExp(HREF_RE.source, HREF_RE.flags);
-  for (const match of html.matchAll(re)) {
+  for (const match of html.matchAll(HREF_RE)) {
     const url = match[1];
     if (url && !shouldSkipUrl(url)) {
       uniqueUrls.add(url);
@@ -40,14 +39,11 @@ export async function rewriteLinks(opts: {
     urlToId.set(row.originalUrl, row.id);
   }
 
-  let result = html;
-  for (const [url, linkId] of urlToId) {
-    const original = `href="${url}"`;
-    const replacement = `href="${baseUrl}/v1/t/c/${linkId}"`;
-    result = result.replaceAll(original, replacement);
-  }
-
-  return result;
+  return html.replace(HREF_RE, (full, url: string) => {
+    if (shouldSkipUrl(url)) return full;
+    const linkId = urlToId.get(url);
+    return linkId ? `href="${baseUrl}/v1/t/c/${linkId}"` : full;
+  });
 }
 
 export function injectOpenPixel(opts: {

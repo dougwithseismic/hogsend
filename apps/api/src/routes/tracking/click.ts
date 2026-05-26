@@ -1,6 +1,6 @@
 import { emailSends, linkClicks, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
 const clickRoute = createRoute({
@@ -62,10 +62,15 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
       db
         .update(emailSends)
         .set({
-          clickedAt: sql`COALESCE(${emailSends.clickedAt}, NOW())`,
+          clickedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(emailSends.id, link.emailSendId)),
+        .where(
+          and(
+            eq(emailSends.id, link.emailSendId),
+            isNull(emailSends.clickedAt),
+          ),
+        ),
     ]);
 
     return c.redirect(link.originalUrl, 302);

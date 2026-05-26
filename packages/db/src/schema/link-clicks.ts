@@ -14,5 +14,8 @@ export const linkClicks = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [index("link_clicks_tracked_link_id_idx").on(table.trackedLinkId)],
+  (table) => [
+    index("link_clicks_tracked_link_id_idx").on(table.trackedLinkId),
+    index("link_clicks_clicked_at_idx").on(table.clickedAt),
+  ],
 );

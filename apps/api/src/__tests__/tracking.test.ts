@@ -48,7 +48,7 @@ beforeAll(async () => {
     })
     .returning({ id: emailSends.id });
 
-  testEmailSendId = rows[0]?.id;
+  testEmailSendId = rows[0]?.id ?? "";
 });
 
 afterAll(async () => {
@@ -148,7 +148,7 @@ describe("GET /v1/t/c/:id — click tracking", () => {
       })
       .returning({ id: trackedLinks.id });
 
-    trackedLinkId = rows[0]?.id;
+    trackedLinkId = rows[0]?.id ?? "";
   });
 
   it("redirects to original URL and records click", async () => {

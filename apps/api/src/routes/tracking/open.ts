@@ -1,6 +1,6 @@
 import { emailSends } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
 const TRANSPARENT_GIF = Buffer.from(
@@ -32,10 +32,10 @@ export const openRouter = new OpenAPIHono<AppEnv>().openapi(
     await db
       .update(emailSends)
       .set({
-        openedAt: sql`COALESCE(${emailSends.openedAt}, NOW())`,
+        openedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(emailSends.id, id));
+      .where(and(eq(emailSends.id, id), isNull(emailSends.openedAt)));
 
     return c.body(TRANSPARENT_GIF, 200, {
       "Content-Type": "image/gif",
