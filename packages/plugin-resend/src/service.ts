@@ -9,6 +9,7 @@ import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
 import { eq, sql } from "drizzle-orm";
 import { createResendClient } from "./client.js";
 import { sendBatchEmails, sendEmail } from "./send.js";
+import type { PrepareTrackedHtmlFn } from "./tracked.js";
 import { sendTrackedEmail } from "./tracked.js";
 import type {
   BatchEmailItem,
@@ -45,7 +46,10 @@ const WEBHOOK_TO_STATUS: Partial<Record<WebhookEventType, string>> = {
   "email.complained": "complained",
 };
 
-export function createEmailService(config: EmailServiceConfig): EmailService {
+export function createEmailService(
+  config: EmailServiceConfig,
+  deps?: { prepareTrackedHtml?: PrepareTrackedHtmlFn },
+): EmailService {
   const client = createResendClient({ apiKey: config.apiKey });
   const db = config.db as Database | undefined;
   const retryDefaults = config.retryOptions;
@@ -65,6 +69,7 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
           db,
           client,
           retryOptions: retryDefaults,
+          prepareTrackedHtml: deps?.prepareTrackedHtml,
           options: {
             templateKey: options.template,
             props: options.props,
@@ -77,6 +82,7 @@ export function createEmailService(config: EmailServiceConfig): EmailService {
             headers: options.headers,
             replyTo: options.replyTo,
             skipPreferenceCheck: options.skipPreferenceCheck,
+            baseUrl: config.baseUrl,
           },
         });
       }

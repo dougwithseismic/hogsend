@@ -6,7 +6,7 @@ export { sendBatchEmails, sendEmail } from "./send.js";
 
 // Service (high-level DX)
 export { createEmailService } from "./service.js";
-
+export type { PrepareTrackedHtmlFn } from "./tracked.js";
 // Tracked email (DB integration)
 export { sendTrackedEmail } from "./tracked.js";
 // Types

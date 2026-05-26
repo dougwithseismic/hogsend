@@ -15,7 +15,8 @@ export interface SendEmailOptions {
   from: string;
   to: string | string[];
   subject: string;
-  react: ReactElement;
+  react?: ReactElement;
+  html?: string;
   replyTo?: string | string[];
   cc?: string | string[];
   bcc?: string | string[];
@@ -58,6 +59,7 @@ export interface SendTrackedEmailOptions<
   headers?: Record<string, string>;
   replyTo?: string | string[];
   skipPreferenceCheck?: boolean;
+  baseUrl?: string;
 }
 
 export interface TrackedSendResult {
@@ -152,6 +154,7 @@ export interface EmailServiceConfig {
   webhookHandlers?: WebhookHandlerMap;
   retryOptions?: RetryOptions;
   bounceThreshold?: number;
+  baseUrl?: string;
 }
 
 export interface EmailServiceSendOptions<

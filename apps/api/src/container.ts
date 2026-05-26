@@ -16,6 +16,7 @@ import { createJourneyRegistry } from "./journeys/index.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
+import { prepareTrackedHtml } from "./lib/tracking.js";
 
 export interface Container {
   env: typeof env;
@@ -41,13 +42,17 @@ export function createContainer(): Container {
   const registry = createJourneyRegistry(env.ENABLED_JOURNEYS);
 
   const emailService = env.RESEND_WEBHOOK_SECRET
-    ? createEmailService({
-        apiKey: env.RESEND_API_KEY,
-        defaultFrom: env.RESEND_FROM_EMAIL,
-        db,
-        webhookSecret: env.RESEND_WEBHOOK_SECRET,
-        bounceThreshold: 3,
-      })
+    ? createEmailService(
+        {
+          apiKey: env.RESEND_API_KEY,
+          defaultFrom: env.RESEND_FROM_EMAIL,
+          db,
+          webhookSecret: env.RESEND_WEBHOOK_SECRET,
+          bounceThreshold: 3,
+          baseUrl: env.API_PUBLIC_URL,
+        },
+        { prepareTrackedHtml },
+      )
     : null;
 
   logger.info(`Journey registry loaded: ${registry.count()} journeys`);

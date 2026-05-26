@@ -5,22 +5,30 @@ import type {
   RetryOptions,
   TemplateName,
 } from "@hogsend/email";
-import { getTemplate } from "@hogsend/email";
+import { getTemplate, renderToHtml } from "@hogsend/email";
 import { eq } from "drizzle-orm";
 import type { Resend } from "resend";
 import { sendEmail } from "./send.js";
 import type { SendTrackedEmailOptions, TrackedSendResult } from "./types.js";
 
+export type PrepareTrackedHtmlFn = (opts: {
+  html: string;
+  emailSendId: string;
+  baseUrl: string;
+  db: Database;
+}) => Promise<string>;
+
 interface TrackedEmailDeps {
   db: Database;
   client: Resend;
   retryOptions?: RetryOptions;
+  prepareTrackedHtml?: PrepareTrackedHtmlFn;
 }
 
 export async function sendTrackedEmail<K extends TemplateName>(
   opts: TrackedEmailDeps & { options: SendTrackedEmailOptions<K> },
 ): Promise<TrackedSendResult> {
-  const { db, client, retryOptions, options } = opts;
+  const { db, client, retryOptions, prepareTrackedHtml, options } = opts;
 
   if (!options.skipPreferenceCheck) {
     const suppression = await checkSuppression(
@@ -83,13 +91,24 @@ export async function sendTrackedEmail<K extends TemplateName>(
   const emailSendId = insertedRow.id;
 
   try {
+    let html: string | undefined;
+    if (options.baseUrl && prepareTrackedHtml) {
+      const rawHtml = await renderToHtml(element);
+      html = await prepareTrackedHtml({
+        html: rawHtml,
+        emailSendId,
+        baseUrl: options.baseUrl,
+        db,
+      });
+    }
+
     const result = await sendEmail({
       client,
       options: {
         from: options.from,
         to: options.to,
         subject,
-        react: element,
+        ...(html ? { html } : { react: element }),
         tags: options.tags,
         headers: options.headers,
         replyTo: options.replyTo,

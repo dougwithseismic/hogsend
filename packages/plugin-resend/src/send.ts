@@ -104,7 +104,7 @@ export async function sendEmail(args: {
       from: options.from,
       to: normalizeRecipients(options.to),
       subject: options.subject,
-      react: options.react,
+      ...(options.html ? { html: options.html } : { react: options.react }),
       replyTo: options.replyTo,
       cc: options.cc,
       bcc: options.bcc,
