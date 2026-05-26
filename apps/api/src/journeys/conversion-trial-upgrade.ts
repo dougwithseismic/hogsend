@@ -28,6 +28,7 @@ export const conversionTrialUpgrade = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.CONVERSION_USAGE_MILESTONE,
         subject: "You're on a roll — here's what Pro unlocks",
         journeyName: user.journeyName,
@@ -44,6 +45,7 @@ export const conversionTrialUpgrade = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.CONVERSION_USAGE_MILESTONE,
         subject: "You just hit a limit — upgrade to keep going",
         journeyName: user.journeyName,
@@ -55,6 +57,7 @@ export const conversionTrialUpgrade = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Your trial ends in 3 days — don't lose your progress",
       journeyName: user.journeyName,
@@ -65,6 +68,7 @@ export const conversionTrialUpgrade = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Last day of your trial",
       journeyName: user.journeyName,
@@ -81,6 +85,7 @@ export const conversionTrialUpgrade = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "We'd love to have you back — here's 20% off",
         journeyName: user.journeyName,

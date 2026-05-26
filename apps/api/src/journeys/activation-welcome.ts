@@ -18,6 +18,7 @@ export const activationWelcome = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.ACTIVATION_WELCOME,
       subject: "Welcome to Hogsend — let's get you set up",
       journeyName: user.journeyName,
@@ -34,6 +35,7 @@ export const activationWelcome = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.ACTIVATION_ADVANCED,
         subject: "Nice work — here's what to try next",
         journeyName: user.journeyName,
@@ -42,6 +44,7 @@ export const activationWelcome = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.ACTIVATION_NUDGE,
         subject: "You haven't tried the key feature yet",
         journeyName: user.journeyName,
@@ -53,6 +56,7 @@ export const activationWelcome = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.ACTIVATION_COMMUNITY,
       subject: "Join the community",
       journeyName: user.journeyName,

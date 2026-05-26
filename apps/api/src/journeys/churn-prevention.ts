@@ -23,6 +23,7 @@ export const churnPrevention = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Your payment didn't go through",
       journeyName: user.journeyName,
@@ -42,6 +43,7 @@ export const churnPrevention = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.CHURN_PAYMENT_FAILED,
       subject: "Reminder: please update your payment method",
       journeyName: user.journeyName,
@@ -59,6 +61,7 @@ export const churnPrevention = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.CHURN_PAYMENT_FAILED,
         subject: "Final notice: your account will be downgraded tomorrow",
         journeyName: user.journeyName,

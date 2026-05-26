@@ -26,6 +26,7 @@ export const activationNudgeSeries = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.ACTIVATION_NUDGE_SERIES,
         subject: "You haven't tried the key feature yet",
         journeyName: user.journeyName,
@@ -43,6 +44,7 @@ export const activationNudgeSeries = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.ACTIVATION_QUICKSTART,
         subject: "Need help getting set up?",
         journeyName: user.journeyName,
@@ -59,6 +61,7 @@ export const activationNudgeSeries = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.ACTIVATION_FEATURE_HIGHLIGHT,
         subject: "Nice work — here's what to try next",
         journeyName: user.journeyName,
@@ -70,6 +73,7 @@ export const activationNudgeSeries = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.ACTIVATION_COMMUNITY_ALT,
       subject: "Join the community",
       journeyName: user.journeyName,

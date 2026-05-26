@@ -33,6 +33,7 @@ export const conversionAbandonedCheckout = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.CONVERSION_TRIAL_EXPIRING,
       subject: "Need help with anything?",
       journeyName: user.journeyName,
@@ -50,6 +51,7 @@ export const conversionAbandonedCheckout = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "Still thinking it over? Here's a little incentive",
         journeyName: user.journeyName,

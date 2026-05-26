@@ -23,6 +23,7 @@ export const reactivationDormancy = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.REACTIVATION_CHECKIN,
       subject: "We haven't seen you in a while",
       journeyName: user.journeyName,
@@ -34,6 +35,7 @@ export const reactivationDormancy = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.REACTIVATION_CHECKIN,
       subject: "Your data is still here — pick up where you left off",
       journeyName: user.journeyName,
@@ -47,6 +49,7 @@ export const reactivationDormancy = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "We'd hate to see you go — here's an option",
         journeyName: user.journeyName,
@@ -55,6 +58,7 @@ export const reactivationDormancy = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.CONVERSION_WINBACK_OFFER,
         subject: "See what you've been missing",
         journeyName: user.journeyName,
@@ -66,6 +70,7 @@ export const reactivationDormancy = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.REACTIVATION_FINAL_NUDGE,
       subject: "One last note from us",
       journeyName: user.journeyName,

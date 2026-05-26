@@ -30,6 +30,7 @@ export const referralInvite = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.RETENTION_ACHIEVEMENT,
       subject: "Share the love — invite a friend",
       journeyName: user.journeyName,

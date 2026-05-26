@@ -20,6 +20,7 @@ export const feedbackNps = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.FEEDBACK_NPS_SURVEY,
       subject: "Quick question — how are we doing?",
       journeyName: user.journeyName,
@@ -37,6 +38,7 @@ export const feedbackNps = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.FEEDBACK_NPS_SURVEY,
         subject: "We'd still love your feedback (10 seconds)",
         journeyName: user.journeyName,
@@ -54,6 +56,7 @@ export const feedbackNps = defineJourney({
       await sendEmail({
         to: user.email,
         userId: user.id,
+        journeyStateId: user.stateId,
         template: Templates.FEEDBACK_NPS_SURVEY,
         subject: "How's it going? Quick check-in",
         journeyName: user.journeyName,

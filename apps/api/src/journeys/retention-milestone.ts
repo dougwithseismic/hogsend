@@ -18,6 +18,7 @@ export const retentionMilestone = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.RETENTION_ACHIEVEMENT,
       subject: "Congratulations on your achievement!",
       journeyName: user.journeyName,
@@ -28,6 +29,7 @@ export const retentionMilestone = defineJourney({
     await sendEmail({
       to: user.email,
       userId: user.id,
+      journeyStateId: user.stateId,
       template: Templates.ACTIVATION_COMMUNITY_ALT,
       subject: "Share your achievement with the community",
       journeyName: user.journeyName,
