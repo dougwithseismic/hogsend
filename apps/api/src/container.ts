@@ -5,6 +5,7 @@ import {
   type Database,
   type DatabaseClient,
 } from "@hogsend/db";
+import type { PostHogService } from "@hogsend/plugin-posthog";
 import {
   createEmailService,
   createResendClient,
@@ -16,6 +17,7 @@ import { createJourneyRegistry } from "./journeys/index.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
+import { getPostHog } from "./lib/posthog.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
 
 export interface Container {
@@ -26,6 +28,7 @@ export interface Container {
   auth: Auth;
   email: Resend;
   emailService: EmailService | null;
+  posthog?: PostHogService;
   registry: JourneyRegistry;
   hatchet: HatchetClient;
 }
@@ -55,6 +58,8 @@ export function createContainer(): Container {
       )
     : null;
 
+  const posthog = getPostHog();
+
   logger.info(`Journey registry loaded: ${registry.count()} journeys`);
 
   return {
@@ -65,6 +70,7 @@ export function createContainer(): Container {
     auth,
     email,
     emailService,
+    posthog,
     registry,
     hatchet,
   };

@@ -20,39 +20,21 @@ export async function resolveEmailSendContext(
     .select({
       toEmail: emailSends.toEmail,
       templateKey: emailSends.templateKey,
-      journeyStateId: emailSends.journeyStateId,
+      userId: journeyStates.userId,
+      userEmail: journeyStates.userEmail,
     })
     .from(emailSends)
+    .leftJoin(journeyStates, eq(emailSends.journeyStateId, journeyStates.id))
     .where(eq(emailSends.id, emailSendId))
     .limit(1);
 
-  const send = rows[0];
-  if (!send) return null;
-
-  if (send.journeyStateId) {
-    const stateRows = await db
-      .select({
-        userId: journeyStates.userId,
-        userEmail: journeyStates.userEmail,
-      })
-      .from(journeyStates)
-      .where(eq(journeyStates.id, send.journeyStateId))
-      .limit(1);
-
-    const state = stateRows[0];
-    if (state) {
-      return {
-        userId: state.userId,
-        userEmail: state.userEmail,
-        templateKey: send.templateKey,
-      };
-    }
-  }
+  const row = rows[0];
+  if (!row) return null;
 
   return {
-    userId: send.toEmail,
-    userEmail: send.toEmail,
-    templateKey: send.templateKey,
+    userId: row.userId ?? row.toEmail,
+    userEmail: row.userEmail ?? row.toEmail,
+    templateKey: row.templateKey,
   };
 }
 
@@ -81,6 +63,12 @@ export async function pushTrackingEvent(
     ...opts.properties,
   };
 
+  posthog?.captureEvent({
+    distinctId: ctx.userId,
+    event,
+    properties,
+  });
+
   await ingestEvent({
     db,
     registry,
@@ -92,11 +80,5 @@ export async function pushTrackingEvent(
       userEmail: ctx.userEmail,
       properties,
     },
-  });
-
-  posthog?.captureEvent({
-    distinctId: ctx.userId,
-    event,
-    properties,
   });
 }

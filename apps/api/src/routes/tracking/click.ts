@@ -2,6 +2,7 @@ import { emailSends, linkClicks, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { Events } from "../../journeys/constants/events.js";
 import { pushTrackingEvent } from "../../lib/tracking-events.js";
 
 const clickRoute = createRoute({
@@ -74,10 +75,7 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
         ),
     ]);
 
-    const { hatchet, registry, logger } = c.get("container");
-    const posthog = c.get("container").env.POSTHOG_API_KEY
-      ? (await import("../../lib/posthog.js")).getPostHog()
-      : undefined;
+    const { hatchet, registry, logger, posthog } = c.get("container");
 
     pushTrackingEvent({
       db,
@@ -85,7 +83,7 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
       registry,
       logger,
       posthog,
-      event: "email.link_clicked",
+      event: Events.EMAIL_LINK_CLICKED,
       emailSendId: link.emailSendId,
       properties: { linkUrl: link.originalUrl, linkId: link.id },
     }).catch((err) => {
