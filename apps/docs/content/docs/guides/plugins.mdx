@@ -1,0 +1,336 @@
+---
+title: Creating Plugins
+description: Build self-contained packages that integrate any external service into Hogsend journeys. Slack, Twilio, CRMs -- the pattern is the same.
+---
+
+A Hogsend plugin is a self-contained TypeScript package that integrates an external service. Hogsend ships with two plugins -- `@hogsend/plugin-posthog` for event capture and person properties, and `@hogsend/plugin-resend` for email delivery. You can create your own for any service using the same pattern.
+
+Plugins are regular pnpm workspace packages. They export typed functions and services that you import directly into journeys. There's no plugin registration system, no lifecycle hooks, no abstract base classes. A plugin is just well-organized code with a consistent structure.
+
+## Plugin anatomy
+
+Every plugin follows the same file structure:
+
+```
+packages/plugin-{name}/
+  src/
+    client.ts       # Low-level API client
+    service.ts      # High-level service with caching, retries, convenience methods
+    types.ts        # TypeScript interfaces for config, options, and results
+    index.ts        # Barrel exports
+  package.json
+  tsconfig.json
+```
+
+### `client.ts` -- the API wrapper
+
+The client creates and configures the external service's SDK or HTTP client. Keep it thin -- just initialization and configuration.
+
+```ts
+// packages/plugin-slack/src/client.ts
+import { WebClient } from "@slack/web-api";
+
+export function createSlackClient(opts: { token: string }): WebClient {
+  return new WebClient(opts.token);
+}
+```
+
+### `types.ts` -- typed config and interfaces
+
+Define the service configuration, the high-level service interface, and any option/result types your functions need. This file is the contract that consumers depend on.
+
+```ts
+// packages/plugin-slack/src/types.ts
+export interface SlackServiceConfig {
+  token: string;
+  defaultChannel?: string;
+}
+
+export interface SlackService {
+  sendMessage(opts: SendMessageOptions): Promise<SendMessageResult>;
+  shutdown(): Promise<void>;
+}
+
+export interface SendMessageOptions {
+  channel: string;
+  text: string;
+  blocks?: unknown[];
+  threadTs?: string;
+}
+
+export interface SendMessageResult {
+  ts: string;
+  channel: string;
+}
+```
+
+### `service.ts` -- the high-level API
+
+The service wraps the client with the functionality your journeys actually need. This is where you add error handling, retries, caching, and convenience methods. The service factory takes a config object and returns the service interface.
+
+```ts
+// packages/plugin-slack/src/service.ts
+import { createSlackClient } from "./client.js";
+import type {
+  SendMessageOptions,
+  SendMessageResult,
+  SlackService,
+  SlackServiceConfig,
+} from "./types.js";
+
+export function createSlackService(config: SlackServiceConfig): SlackService {
+  const client = createSlackClient({ token: config.token });
+  const defaultChannel = config.defaultChannel;
+
+  return {
+    async sendMessage(opts: SendMessageOptions): Promise<SendMessageResult> {
+      const channel = opts.channel ?? defaultChannel;
+      if (!channel) {
+        throw new Error(
+          "No channel provided and no defaultChannel configured",
+        );
+      }
+
+      const result = await client.chat.postMessage({
+        channel,
+        text: opts.text,
+        blocks: opts.blocks,
+        thread_ts: opts.threadTs,
+      });
+
+      return {
+        ts: result.ts!,
+        channel: result.channel!,
+      };
+    },
+
+    async shutdown() {
+      // Slack WebClient doesn't need explicit cleanup,
+      // but include this for consistency with other plugins.
+    },
+  };
+}
+```
+
+### `index.ts` -- barrel exports
+
+Export everything consumers need. Keep it flat -- one import path for the whole plugin.
+
+```ts
+// packages/plugin-slack/src/index.ts
+export { createSlackClient } from "./client.js";
+export { createSlackService } from "./service.js";
+export type {
+  SendMessageOptions,
+  SendMessageResult,
+  SlackService,
+  SlackServiceConfig,
+} from "./types.js";
+```
+
+## Setting up the package
+
+### `package.json`
+
+Follow the existing plugin naming convention: `@hogsend/plugin-{name}`.
+
+```json
+{
+  "name": "@hogsend/plugin-slack",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest watch"
+  },
+  "dependencies": {
+    "@slack/web-api": "^7.0.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:^",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.7"
+  }
+}
+```
+
+Key details:
+
+- **No build step.** The `exports` field points directly at `.ts` source. Consumers (the API app and worker) bundle plugins via tsup's `noExternal` option, so TypeScript source is resolved at build time.
+- **`private: true`** -- workspace packages aren't published to npm.
+- **Peer dependencies are optional.** If your plugin can optionally use Redis for caching (like `@hogsend/plugin-posthog` does), declare it as an optional peer dependency.
+
+### `tsconfig.json`
+
+Extend the shared config:
+
+```json
+{
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}
+```
+
+### Install dependencies
+
+```bash
+# From the repo root
+pnpm add @slack/web-api --filter @hogsend/plugin-slack
+```
+
+## Using plugins in journeys
+
+Plugins are standalone imports. They are not part of the journey context -- `ctx` is reserved for durable execution primitives (`sleep`, `checkpoint`, `trigger`, `guard`, `history`). Service integrations are imported directly.
+
+```ts
+import { days } from "@hogsend/core";
+import { sendEmail } from "../lib/email.js";
+import { createSlackService } from "@hogsend/plugin-slack";
+import { Events, Templates } from "./constants/index.js";
+import { defineJourney } from "./define-journey.js";
+
+// Initialize the service (or pull from your DI container)
+const slack = createSlackService({
+  token: process.env.SLACK_BOT_TOKEN!,
+  defaultChannel: "#lifecycle-alerts",
+});
+
+export const churnAlertJourney = defineJourney({
+  meta: {
+    id: "churn-alert",
+    name: "Churn — Alert Team on High-Value Churn Risk",
+    enabled: true,
+    trigger: { event: Events.PAYMENT_FAILED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: days(1),
+    exitOn: [{ event: Events.PAYMENT_SUCCEEDED }],
+  },
+
+  run: async (user, ctx) => {
+    // Notify the team immediately
+    await slack.sendMessage({
+      channel: "#churn-alerts",
+      text: `Payment failed for ${user.email} — starting recovery flow.`,
+    });
+
+    // Send the recovery email
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(2), label: "escalation-check" });
+
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
+      within: days(2),
+    });
+
+    if (!found) {
+      await slack.sendMessage({
+        channel: "#churn-alerts",
+        text: `Payment still failing for ${user.email} after 2 days. Manual follow-up needed.`,
+      });
+    }
+  },
+});
+```
+
+The pattern is the same as `sendEmail` -- a function call, not a context method. This keeps the journey context focused on orchestration and avoids coupling plugins to the core framework.
+
+## Plugin conventions
+
+### Package naming
+
+Always `@hogsend/plugin-{service-name}`. Lowercase, hyphenated. Examples: `@hogsend/plugin-slack`, `@hogsend/plugin-twilio`, `@hogsend/plugin-hubspot`.
+
+### Environment variables
+
+Use the pattern `SERVICE_API_KEY` or `SERVICE_TOKEN`. Document required env vars in your plugin's types file and check for them at service creation time, not at import time.
+
+```ts
+// Good: fail at service creation
+export function createSlackService(config: SlackServiceConfig): SlackService {
+  if (!config.token) {
+    throw new Error("SlackServiceConfig.token is required");
+  }
+  // ...
+}
+
+// Bad: fail at import time with top-level env access
+const token = process.env.SLACK_BOT_TOKEN!; // throws if missing, even in tests
+```
+
+### Error handling
+
+Throw descriptive errors. Don't swallow failures silently -- let the journey's error handling (which marks the run as "failed" and fires a `journey:failed` event) capture the problem.
+
+```ts
+async sendMessage(opts: SendMessageOptions): Promise<SendMessageResult> {
+  try {
+    const result = await client.chat.postMessage({ ... });
+    return { ts: result.ts!, channel: result.channel! };
+  } catch (error) {
+    throw new Error(
+      `Slack sendMessage failed for channel ${opts.channel}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+```
+
+### Caching (optional)
+
+If your plugin fetches data that doesn't change frequently (like PostHog person properties), add optional Redis caching. Follow the `@hogsend/plugin-posthog` pattern: accept an optional `redis` instance in the config, declare `ioredis` as an optional peer dependency, and use a sensible TTL default.
+
+```ts
+export interface MyServiceConfig {
+  apiKey: string;
+  redis?: Redis;          // optional caching
+  cacheTtlSeconds?: number; // default: 300
+}
+```
+
+### Shutdown
+
+If your plugin's SDK requires cleanup (closing connections, flushing buffers), expose a `shutdown()` method on the service and call it during graceful shutdown in the worker process. The PostHog plugin does this to flush pending events.
+
+### Testing
+
+Write tests for your service logic. Mock the external API client -- don't make real API calls in tests. The existing plugin tests in `packages/plugin-resend/src/__tests__/` show the pattern.
+
+```ts
+import { describe, expect, it, vi } from "vitest";
+
+describe("createSlackService", () => {
+  it("sends a message to the specified channel", async () => {
+    // Mock the Slack WebClient
+    const mockPostMessage = vi.fn().mockResolvedValue({
+      ts: "1234567890.123456",
+      channel: "C123",
+    });
+
+    // ... test your service logic
+  });
+});
+```
+
+## What plugins are not
+
+Plugins don't have access to the journey context, the database, or the DI container. They're standalone packages that wrap external APIs. If you need database access (e.g., to track Slack message history), handle that in the journey or in a shared library in `apps/api/src/lib/`, not in the plugin itself.
+
+Plugins also don't register themselves anywhere. There's no plugin manifest, no auto-discovery, no lifecycle hooks. You import what you need, where you need it. This keeps the system simple and explicit.
