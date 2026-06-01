@@ -44,6 +44,40 @@ Each is a single TypeScript file using `defineJourney()`. The repo ships with [1
 
 ---
 
+## Example Emails
+
+Hogsend dogfoods itself. The example templates in [`apps/api/src/emails/`](apps/api/src/emails/) are real lifecycle emails _about_ Hogsend — built with [React Email](https://react.email) + Tailwind, sent through journeys defined in code. They're yours to edit, rebrand, or delete. Here's the set as it ships:
+
+<table>
+  <tr>
+    <td width="33%" valign="top"><b>Setup guide</b><br/><sub><code>activation-quickstart</code></sub><br/><img src="apps/docs/public/images/emails/activation-quickstart.png" alt="Setup guide email — get your first journey live" width="100%"/></td>
+    <td width="33%" valign="top"><b>No events yet</b><br/><sub><code>activation-nudge</code></sub><br/><img src="apps/docs/public/images/emails/activation-nudge.png" alt="Activation nudge email — we haven't seen any events yet" width="100%"/></td>
+    <td width="33%" valign="top"><b>Journeys as code</b><br/><sub><code>activation-feature-highlight</code></sub><br/><img src="apps/docs/public/images/emails/activation-feature-highlight.png" alt="Feature highlight email — journeys are just TypeScript" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top"><b>What others build</b><br/><sub><code>activation-community</code></sub><br/><img src="apps/docs/public/images/emails/activation-community.png" alt="Community email — see what other teams ship" width="100%"/></td>
+    <td width="33%" valign="top"><b>Usage milestone</b><br/><sub><code>conversion-usage-milestone</code></sub><br/><img src="apps/docs/public/images/emails/conversion-usage-milestone.png" alt="Usage milestone email — 100 emails sent" width="100%"/></td>
+    <td width="33%" valign="top"><b>Trial ending</b><br/><sub><code>conversion-trial-expiring</code></sub><br/><img src="apps/docs/public/images/emails/conversion-trial-expiring.png" alt="Trial expiring email — your trial ends in 3 days" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top"><b>Win-back offer</b><br/><sub><code>conversion-winback-offer</code></sub><br/><img src="apps/docs/public/images/emails/conversion-winback-offer.png" alt="Win-back offer email — 20% off" width="100%"/></td>
+    <td width="33%" valign="top"><b>Milestone unlocked</b><br/><sub><code>retention-achievement</code></sub><br/><img src="apps/docs/public/images/emails/retention-achievement.png" alt="Achievement email — 10,000 emails delivered" width="100%"/></td>
+    <td width="33%" valign="top"><b>Weekly digest</b><br/><sub><code>retention-weekly-digest</code></sub><br/><img src="apps/docs/public/images/emails/retention-weekly-digest.png" alt="Weekly digest email — your Hogsend week" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top"><b>Dormancy check-in</b><br/><sub><code>reactivation-checkin</code></sub><br/><img src="apps/docs/public/images/emails/reactivation-checkin.png" alt="Reactivation check-in email — your project's gone quiet" width="100%"/></td>
+    <td width="33%" valign="top"><b>Final nudge</b><br/><sub><code>reactivation-final-nudge</code></sub><br/><img src="apps/docs/public/images/emails/reactivation-final-nudge.png" alt="Final nudge email — we'll leave it here" width="100%"/></td>
+    <td width="33%" valign="top"><b>NPS survey</b><br/><sub><code>feedback-nps-survey</code></sub><br/><img src="apps/docs/public/images/emails/feedback-nps-survey.png" alt="NPS survey email — how are we doing" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top"><b>Payment failed</b><br/><sub><code>churn-payment-failed</code></sub><br/><img src="apps/docs/public/images/emails/churn-payment-failed.png" alt="Payment failed email — we couldn't process your payment" width="100%"/></td>
+    <td width="33%"></td>
+    <td width="33%"></td>
+  </tr>
+</table>
+
+---
+
 ## Quick Example
 
 A `user_signed_up` event triggers this journey. It sends a welcome email, waits two days, checks if the user tried the core feature, and nudges them if not:
