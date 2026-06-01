@@ -411,3 +411,30 @@ compose/init layer so the engine stays tenant-agnostic.
   only.
 - **No reliance on auto-minting the Hatchet token.** The manual acquire-a-token step is
   the contract; auto-mint is a best-effort convenience.
+
+---
+
+## 8. Deploy safety — the CI gate (implemented)
+
+Builds are deterministic (the Dockerfile, not railpack) and every change is gated
+by CI (`.github/workflows/ci.yml`), so "it works" is verified, not hoped:
+
+- **quality** — `pnpm lint` + `pnpm check-types`
+- **test** — `pnpm test` against a TimescaleDB service with migrations applied
+- **migrations** — schema-drift, fresh-apply, idempotency, client track, and
+  upgrade-from-previous-release-with-data
+- **preflight** — `bash scripts/preflight-deploy.sh`: builds the production image
+  exactly as Railway does and **boots api / worker / migrate**, asserting clean
+  startup. This is the gate that catches the runtime-packaging class lint/types/
+  tests cannot (tsup `noExternal` gaps → `ERR_MODULE_NOT_FOUND`; `pnpm`-as-start →
+  `EACCES`; winston File transport → `mkdir /app/logs` `EACCES`).
+
+Run the same gate locally before pushing anything runtime/build/deps-related:
+`pnpm preflight`.
+
+**One manual step to fully gate deploys (Railway dashboard, once per service):**
+enable **Wait for CI** on `hogsend-api` and `hogsend-worker`
+(Service → Settings → Deploy → "Wait for CI" / Check Suites). Railway then holds
+each deploy until the GitHub CI checks (incl. preflight) pass — so a red build
+never reaches prod, even on a direct push to `main`. Not settable via the
+`railway` CLI; it's a one-time toggle.
