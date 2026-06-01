@@ -2,7 +2,20 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { DurationObject } from "@hogsend/core";
 import { evaluateEventCondition } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import type { JourneyContext } from "@hogsend/core/types";
+import {
+  resolveAfter,
+  resolveNextLocalTime,
+  resolveNextWeekday,
+  resolveTomorrow,
+  type SendWindow,
+} from "@hogsend/core/schedule";
+import type {
+  IfPast,
+  JourneyContext,
+  TimeOfDayBuilder,
+  Weekday,
+  WhenBuilder,
+} from "@hogsend/core/types";
 import { type Database, emailSends, journeyStates } from "@hogsend/db";
 import type { PostHogService } from "@hogsend/plugin-posthog";
 import { and, count, eq, max } from "drizzle-orm";
@@ -13,7 +26,11 @@ import type { Logger } from "../lib/logger.js";
 interface JourneyContextConfig {
   db: Database;
   hatchet: HatchetClient;
-  hatchetCtx: { sleepFor: (duration: DurationObject) => Promise<unknown> };
+  hatchetCtx: {
+    // Hatchet's real `sleepFor` accepts a number (milliseconds) in addition to
+    // duration strings/objects; we use the number-ms form for `sleepUntil`.
+    sleepFor: (duration: DurationObject | number) => Promise<unknown>;
+  };
   registry: JourneyRegistry;
   logger: Logger;
   posthog?: PostHogService;
@@ -21,6 +38,58 @@ interface JourneyContextConfig {
   userId: string;
   userEmail: string;
   journeyContext: Record<string, unknown>;
+  /** The user's resolved IANA timezone, bound into `ctx.when`. */
+  resolvedTimezone: string;
+  /** The client default send window, auto-applied by `ctx.when`. */
+  defaultSendWindow?: SendWindow;
+}
+
+/**
+ * Build the timezone-bound fluent scheduler. A thin wrapper over the pure core
+ * resolvers: it injects the user's resolved tz, the real current instant, and
+ * the (optionally overridden) send window, returning absolute `Date`s.
+ */
+function createWhenBuilder(opts: {
+  timezone: string;
+  window?: SendWindow;
+  ifPast: IfPast;
+}): WhenBuilder {
+  const baseOpts = () => ({
+    timezone: opts.timezone,
+    now: new Date(),
+    window: opts.window,
+    ifPast: opts.ifPast,
+  });
+
+  const timeBuilder = (resolve: (time: string) => Date): TimeOfDayBuilder => ({
+    at: (time) => resolve(time),
+  });
+
+  return {
+    next(weekday: Weekday) {
+      return timeBuilder((time) =>
+        resolveNextWeekday(weekday, time, baseOpts()),
+      );
+    },
+    nextLocal(time: string) {
+      return resolveNextLocalTime(time, baseOpts());
+    },
+    tomorrow() {
+      return timeBuilder((time) => resolveTomorrow(time, baseOpts()));
+    },
+    in(duration: DurationObject) {
+      return timeBuilder((time) => resolveAfter(duration, time, baseOpts()));
+    },
+    tz(timezone: string) {
+      return createWhenBuilder({ ...opts, timezone });
+    },
+    window(start: string, end: string) {
+      return createWhenBuilder({ ...opts, window: { start, end } });
+    },
+    ifPast(strategy: IfPast) {
+      return createWhenBuilder({ ...opts, ifPast: strategy });
+    },
+  };
 }
 
 export function createJourneyContext(
@@ -37,31 +106,63 @@ export function createJourneyContext(
     userId,
     userEmail,
     journeyContext,
+    resolvedTimezone,
+    defaultSendWindow,
   } = config;
 
+  // Shared wait lifecycle: mark the state "waiting", durably sleep, mark it
+  // "active" again. `sleep` passes a DurationObject; `sleepUntil` passes a
+  // precomputed ms delay — Hatchet's `sleepFor` accepts both.
+  const performSleep = async (
+    durationOrMs: DurationObject | number,
+    nodeId: string,
+  ): Promise<{ sleptAt: string; resumedAt: string }> => {
+    const sleptAt = new Date().toISOString();
+
+    await db
+      .update(journeyStates)
+      .set({ status: "waiting", currentNodeId: nodeId, updatedAt: new Date() })
+      .where(eq(journeyStates.id, stateId));
+
+    await hatchetCtx.sleepFor(durationOrMs);
+
+    const resumedAt = new Date().toISOString();
+
+    await db
+      .update(journeyStates)
+      .set({ status: "active", updatedAt: new Date() })
+      .where(eq(journeyStates.id, stateId));
+
+    return { sleptAt, resumedAt };
+  };
+
   return {
+    when: createWhenBuilder({
+      timezone: resolvedTimezone,
+      window: defaultSendWindow,
+      ifPast: "next",
+    }),
+
     async sleep({ duration, label }) {
-      const sleptAt = new Date().toISOString();
+      return performSleep(
+        duration,
+        label ?? `wait:${JSON.stringify(duration)}`,
+      );
+    },
 
-      await db
-        .update(journeyStates)
-        .set({
-          status: "waiting",
-          currentNodeId: label ?? `wait:${JSON.stringify(duration)}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(journeyStates.id, stateId));
+    async sleepUntil(at, opts) {
+      const target = at instanceof Date ? at.getTime() : new Date(at).getTime();
+      if (Number.isNaN(target)) {
+        throw new TypeError("sleepUntil: invalid date");
+      }
 
-      await hatchetCtx.sleepFor(duration);
-
-      const resumedAt = new Date().toISOString();
-
-      await db
-        .update(journeyStates)
-        .set({ status: "active", updatedAt: new Date() })
-        .where(eq(journeyStates.id, stateId));
-
-      return { sleptAt, resumedAt };
+      // Compute the wake delay ONCE. Durability comes from Hatchet preserving
+      // the deadline across replays/restarts; a past instant gives ms = 0.
+      const ms = Math.max(0, target - Date.now());
+      return performSleep(
+        ms,
+        opts?.label ?? `wait-until:${new Date(target).toISOString()}`,
+      );
     },
 
     async checkpoint(label) {

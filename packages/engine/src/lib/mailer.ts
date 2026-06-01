@@ -82,6 +82,8 @@ export function createTrackedMailer(
           registry,
           retryOptions: retryDefaults,
           prepareTrackedHtml: deps.prepareTrackedHtml,
+          frequencyCap: config.frequencyCap,
+          logger: config.logger,
           options: {
             templateKey: options.template,
             props: options.props,

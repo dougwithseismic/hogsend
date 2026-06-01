@@ -1,3 +1,4 @@
+import type { DurationObject } from "@hogsend/core";
 import type {
   EmailServiceRenderOptions,
   EmailServiceRenderResult,
@@ -13,6 +14,7 @@ import type {
   WebhookEventType,
   WebhookHandlerMap,
 } from "@hogsend/plugin-resend";
+import type { Logger } from "./logger.js";
 
 export type {
   BatchEmailItem,
@@ -44,7 +46,28 @@ export interface SendTrackedEmailOptions<
 export interface TrackedSendResult {
   emailSendId: string;
   resendId: string;
-  status: "sent" | "suppressed" | "unsubscribed";
+  status: "sent" | "suppressed" | "unsubscribed" | "skipped";
+  /** Present only when `status === "skipped"` by the frequency cap. */
+  reason?: "frequency_capped";
+}
+
+// ---------------------------------------------------------------------------
+// Frequency capping (client default config)
+// ---------------------------------------------------------------------------
+
+export interface FrequencyCapWindow {
+  count: number;
+  window: DurationObject;
+}
+
+export interface FrequencyCapConfig {
+  /** Global send count allowed within `window` per recipient. */
+  count: number;
+  window: DurationObject;
+  /** Per-category overrides (count + window, filtered by that category). */
+  byCategory?: Record<string, FrequencyCapWindow>;
+  /** Categories exempt from capping. Defaults to ["transactional"]. */
+  exemptCategories?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +89,14 @@ export interface EmailServiceConfig {
   retryOptions?: RetryOptions;
   bounceThreshold?: number;
   baseUrl?: string;
+  /**
+   * Optional per-client frequency cap. When set, sends are counted per
+   * recipient within the window and skipped (no provider call, no `sent` row)
+   * once the cap is reached. Opt-in: undefined ⇒ no capping.
+   */
+  frequencyCap?: FrequencyCapConfig;
+  /** Optional structured logger; used e.g. to record frequency-cap skips. */
+  logger?: Logger;
 }
 
 export interface EmailServiceSendOptions<

@@ -10,9 +10,12 @@ import { getTemplate, renderToHtml } from "@hogsend/email";
 import type { EmailProvider } from "@hogsend/plugin-resend";
 import { eq } from "drizzle-orm";
 import type {
+  FrequencyCapConfig,
   SendTrackedEmailOptions,
   TrackedSendResult,
 } from "./email-service-types.js";
+import { isFrequencyCapped } from "./frequency-cap.js";
+import type { Logger } from "./logger.js";
 
 export type PrepareTrackedHtmlFn = (opts: {
   html: string;
@@ -28,12 +31,24 @@ interface TrackedEmailDeps {
   registry: TemplateRegistry;
   retryOptions?: RetryOptions;
   prepareTrackedHtml?: PrepareTrackedHtmlFn;
+  /** Optional per-client frequency cap; undefined disables capping. */
+  frequencyCap?: FrequencyCapConfig;
+  /** Optional structured logger for operational events (e.g. cap skips). */
+  logger?: Logger;
 }
 
 export async function sendTrackedEmail<K extends TemplateName>(
   opts: TrackedEmailDeps & { options: SendTrackedEmailOptions<K> },
 ): Promise<TrackedSendResult> {
-  const { db, provider, registry, prepareTrackedHtml, options } = opts;
+  const {
+    db,
+    provider,
+    registry,
+    prepareTrackedHtml,
+    frequencyCap,
+    logger,
+    options,
+  } = opts;
 
   if (!options.skipPreferenceCheck) {
     const suppression = await checkSuppression(
@@ -67,6 +82,30 @@ export async function sendTrackedEmail<K extends TemplateName>(
             ? "unsubscribed"
             : "suppressed",
       };
+    }
+
+    // Frequency cap — consulted only for non-system sends (system mail sets
+    // skipPreferenceCheck and bypasses both suppression and the cap). On a cap
+    // hit: no provider call, no row inserted, no throw — the journey continues.
+    if (frequencyCap) {
+      const capped = await isFrequencyCapped({
+        db,
+        to: options.to,
+        category: options.category,
+        config: frequencyCap,
+      });
+      if (capped) {
+        logger?.info("send skipped: frequency_capped", {
+          to: options.to,
+          category: options.category,
+        });
+        return {
+          emailSendId: "",
+          resendId: "",
+          status: "skipped",
+          reason: "frequency_capped",
+        };
+      }
     }
   }
 

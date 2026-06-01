@@ -23,6 +23,7 @@ export {
   createHogsendClient,
   type HogsendClient,
   type HogsendClientOptions,
+  type HogsendDefaults,
 } from "./container.js";
 // --- Env ---
 export { API_VERSION, env } from "./env.js";
@@ -65,11 +66,14 @@ export type {
   EmailServiceSendOptions,
   EmailServiceWebhookOptions,
   EmailServiceWebhookResult,
+  FrequencyCapConfig,
+  FrequencyCapWindow,
   SendTrackedEmailOptions,
   TrackedSendResult,
 } from "./lib/email-service-types.js";
 // --- Enrollment guards ---
 export { checkEmailPreferences } from "./lib/enrollment-guards.js";
+export { isFrequencyCapped } from "./lib/frequency-cap.js";
 export { hatchet } from "./lib/hatchet.js";
 // --- Ingestion pipeline ---
 export {
@@ -82,6 +86,13 @@ export { createLogger, type Logger } from "./lib/logger.js";
 export { createTrackedMailer } from "./lib/mailer.js";
 export { getPostHog } from "./lib/posthog.js";
 export { getRedisIfConnected } from "./lib/redis.js";
+export {
+  type ResolveTimezoneInput,
+  type ResolveTimezoneResult,
+  resolveTimezone,
+  resolveTimezoneWithSource,
+  type TimezoneSource,
+} from "./lib/timezone.js";
 export {
   type PrepareTrackedHtmlFn,
   sendTrackedEmail,

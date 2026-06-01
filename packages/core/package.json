@@ -16,6 +16,7 @@
     "./types": "./src/types/index.ts",
     "./registry": "./src/registry/index.ts",
     "./conditions": "./src/conditions/index.ts",
+    "./schedule": "./src/schedule/index.ts",
     "./schemas": "./src/schemas/index.ts"
   },
   "files": [
@@ -26,15 +27,20 @@
     "access": "public"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@hogsend/db": "workspace:^",
+    "@js-temporal/polyfill": "^0.5.1",
     "drizzle-orm": "^0.45.2",
+    "iana-db-timezones": "^0.3.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/node": "latest"
+    "@types/node": "latest",
+    "vitest": "^4.1.8"
   }
 }

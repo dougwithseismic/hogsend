@@ -5,7 +5,7 @@ import type {
   JourneyRunFn,
   JourneyUser,
 } from "@hogsend/core/types";
-import { journeyConfigs, journeyStates } from "@hogsend/db";
+import { contacts, journeyConfigs, journeyStates } from "@hogsend/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../lib/db.js";
 import {
@@ -15,6 +15,8 @@ import {
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
 import { getPostHog } from "../lib/posthog.js";
+import { resolveTimezoneWithSource } from "../lib/timezone.js";
+import { getClientScheduleDefaults } from "./client-defaults-singleton.js";
 import { createJourneyContext } from "./journey-context.js";
 import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
@@ -127,17 +129,58 @@ export function defineJourney(options: {
         journeyName: meta.name,
       };
 
+      const posthog = getPostHog();
+      const scheduleDefaults = getClientScheduleDefaults();
+
+      // Resolve the user's timezone via the precedence chain (explicit is N/A
+      // at enrollment; PostHog person props → contacts row → client default →
+      // UTC). Best-effort: failures fall through to the client default tz.
+      // Independent I/O — fetch the contact row and PostHog person props
+      // concurrently. PostHog failures fall through to undefined.
+      const [contact, posthogProperties] = await Promise.all([
+        db.query.contacts.findFirst({
+          where: eq(contacts.externalId, userId),
+        }),
+        posthog?.getPersonProperties(userId).catch(() => undefined),
+      ]);
+
+      const tz = resolveTimezoneWithSource({
+        posthogProperties,
+        contactTimezone: contact?.timezone ?? null,
+        contactProperties: contact?.properties ?? null,
+        defaultTimezone: scheduleDefaults.timezone,
+        logger,
+      });
+
+      // Opportunistic cache write: when the tz came from a PostHog source and
+      // the contacts.timezone column is empty, persist it (fire-and-forget;
+      // PostHog/JSONB remain authoritative so nothing blocks on the column).
+      if (
+        (tz.source === "posthog_timezone" || tz.source === "posthog_geoip") &&
+        contact &&
+        !contact.timezone
+      ) {
+        db.update(contacts)
+          .set({ timezone: tz.timezone, updatedAt: new Date() })
+          .where(eq(contacts.id, contact.id))
+          .catch(() => {
+            // best-effort cache write; never block the journey
+          });
+      }
+
       const ctx = createJourneyContext({
         db,
         hatchet,
         hatchetCtx,
         registry: getJourneyRegistrySingleton(),
         logger,
-        posthog: getPostHog(),
+        posthog,
         stateId,
         userId,
         userEmail,
         journeyContext: { ...properties },
+        resolvedTimezone: tz.timezone,
+        defaultSendWindow: scheduleDefaults.sendWindow,
       });
 
       try {

@@ -1,5 +1,7 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import type { TimeZone } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
+import type { SendWindow } from "@hogsend/core/schedule";
 import {
   createDatabase,
   type Database,
@@ -15,16 +17,29 @@ import {
 } from "@hogsend/plugin-resend";
 import type { Resend } from "resend";
 import { env } from "./env.js";
+import { setClientScheduleDefaults } from "./journeys/client-defaults-singleton.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
 import { buildJourneyRegistry } from "./journeys/registry.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { setEmailService } from "./lib/email.js";
-import type { EmailService } from "./lib/email-service-types.js";
+import type {
+  EmailService,
+  FrequencyCapConfig,
+} from "./lib/email-service-types.js";
 import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
 import { getPostHog } from "./lib/posthog.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
+
+export interface HogsendDefaults {
+  /** Global fallback IANA timezone for scheduling. Defaults to "UTC". */
+  timezone: TimeZone;
+  /** Default quiet-hours / send window auto-applied by `ctx.when`. */
+  sendWindow?: SendWindow;
+  /** Optional per-recipient frequency cap enforced in the mailer. */
+  frequencyCap?: FrequencyCapConfig;
+}
 
 export interface HogsendClient {
   env: typeof env;
@@ -44,6 +59,12 @@ export interface HogsendClient {
    * track. The CLIENT track never gates boot (client-owned); engine does.
    */
   clientJournal: JournalShape;
+  /**
+   * Resolved scheduling + frequency-cap defaults. `timezone` always has a value
+   * ("UTC" when unset). Read by the journey context (tz/window) and the mailer
+   * (frequency cap).
+   */
+  defaults: HogsendDefaults;
 }
 
 export interface HogsendClientOptions {
@@ -90,6 +111,22 @@ export interface HogsendClientOptions {
    */
   clientJournal?: JournalShape;
   /**
+   * Declarative scheduling + delivery defaults.
+   *
+   * - `timezone` — global fallback IANA tz (e.g. "UTC"), the terminal step of
+   *   the per-user tz resolution chain.
+   * - `sendWindow` — quiet-hours window ("HH:mm".."HH:mm") auto-applied by
+   *   `ctx.when` so scheduled instants land inside the window. Enforced ONLY at
+   *   the scheduling layer; immediate transactional sends bypass it.
+   * - `frequencyCap` — per-recipient send cap enforced in the mailer choke
+   *   point. Opt-in; "transactional" is exempt by default.
+   */
+  defaults?: {
+    timezone?: TimeZone;
+    sendWindow?: SendWindow;
+    frequencyCap?: FrequencyCapConfig;
+  };
+  /**
    * Genuinely advanced / test-only seams. You probably don't need these —
    * prefer the first-class `email` / `analytics` args above.
    * `mailer` replaces the engine-built {@link EmailService} wholesale (used by
@@ -133,6 +170,19 @@ export function createHogsendClient(
       webhookSecret: env.RESEND_WEBHOOK_SECRET,
     });
 
+  const defaults: HogsendDefaults = {
+    timezone: opts.defaults?.timezone ?? "UTC",
+    sendWindow: opts.defaults?.sendWindow,
+    frequencyCap: opts.defaults?.frequencyCap,
+  };
+
+  // Expose the scheduling slice to the module-level journey task, which has no
+  // client reference of its own.
+  setClientScheduleDefaults({
+    timezone: defaults.timezone,
+    sendWindow: defaults.sendWindow,
+  });
+
   const emailService =
     opts.overrides?.mailer ??
     createTrackedMailer(
@@ -143,6 +193,8 @@ export function createHogsendClient(
         webhookSecret: env.RESEND_WEBHOOK_SECRET,
         bounceThreshold: 3,
         baseUrl: env.API_PUBLIC_URL,
+        frequencyCap: defaults.frequencyCap,
+        logger,
       },
       {
         provider,
@@ -168,5 +220,6 @@ export function createHogsendClient(
     registry,
     hatchet: opts.overrides?.hatchet ?? hatchet,
     clientJournal: opts.clientJournal ?? { entries: [] },
+    defaults,
   };
 }

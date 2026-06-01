@@ -30,5 +30,11 @@ export const emailSends = pgTable(
     index("email_sends_status_idx").on(table.status),
     index("email_sends_created_at_idx").on(table.createdAt),
     index("email_sends_journey_state_id_idx").on(table.journeyStateId),
+    // Serves the frequency-cap COUNT (recipient + recency, optionally category).
+    index("email_sends_freq_cap_idx").on(
+      table.toEmail,
+      table.createdAt,
+      table.category,
+    ),
   ],
 );
