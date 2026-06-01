@@ -1,4 +1,10 @@
+# Pin RAILPACK explicitly. A root /Dockerfile exists for the API service, and
+# Railway's builder auto-detection prefers a root Dockerfile when present — so
+# without this the docs service silently builds the API image (pruned to
+# apps/api + packages/db), then `pnpm --filter @hogsend/docs start` matches no
+# package -> "No projects matched the filters in /app" and the healthcheck fails.
 [build]
+builder = "RAILPACK"
 buildCommand = "pnpm --filter @hogsend/docs build"
 watchPatterns = ["apps/docs/**", "pnpm-lock.yaml", "railway.docs.toml"]
 
