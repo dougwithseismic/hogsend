@@ -1,6 +1,6 @@
 import { stdin, stdout } from "node:process";
-import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
+import { cancel, confirm, isCancel, select, text } from "@clack/prompts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -27,10 +27,22 @@ Options:
   --no-git                   Skip git init + initial commit
   --use-tarballs <dir>       TEST-ONLY: resolve @hogsend/* from local tarballs
   -h, --help                 Show this help
+
+Run with no app name in a terminal for an interactive setup.
 `.trim();
+
+const APP_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 
 function isPackageManager(value: string): value is PackageManager {
   return (VALID_PMS as string[]).includes(value);
+}
+
+function validateAppName(name: string | undefined): string | undefined {
+  if (!name) return "Project name is required.";
+  if (!APP_NAME_RE.test(name)) {
+    return 'Use lowercase letters, digits, "-", "_", "." (start alphanumeric).';
+  }
+  return undefined;
 }
 
 interface RawArgs {
@@ -60,10 +72,22 @@ function parse(argv: string[]): RawArgs {
   });
 }
 
+/** Abort cleanly on Ctrl-C / Esc from any clack prompt. */
+function bail<T>(value: T | symbol): T {
+  if (isCancel(value)) {
+    cancel("Scaffolding cancelled — nothing was created.");
+    process.exit(0);
+  }
+  return value as T;
+}
+
 /**
- * Resolve CLI options from argv, prompting for any missing required values when
- * attached to a TTY. Throws on invalid input or when required values are missing
- * in a non-interactive context.
+ * Resolve CLI options. Flags always win; in an interactive terminal, any value
+ * not supplied by a flag is prompted for with a clack flow. In a non-interactive
+ * context (CI, piped) every required value must come from flags/positionals.
+ *
+ * NOTE: the clack `intro()` is emitted by the caller (index.ts) before this runs,
+ * so these prompts render under the same session rail.
  */
 export async function resolveOptions(argv: string[]): Promise<CliOptions> {
   const { values, positionals } = parse(argv);
@@ -73,9 +97,8 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     process.exit(0);
   }
 
-  let appName = positionals[0];
-  let packageManager: PackageManager = "pnpm";
-
+  // Package manager from flag (validated up front).
+  let packageManager: PackageManager | undefined;
   if (values.pm !== undefined) {
     if (!isPackageManager(values.pm)) {
       throw new Error(
@@ -85,45 +108,70 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     packageManager = values.pm;
   }
 
-  if (!appName) {
-    if (!stdin.isTTY) {
-      throw new Error(`Missing app name.\n\n${USAGE}`);
-    }
-    const rl = createInterface({ input: stdin, output: stdout });
-    try {
-      appName = (await rl.question("Project name: ")).trim();
-      if (values.pm === undefined) {
-        const answer = (await rl.question("Package manager [pnpm]: ")).trim();
-        if (answer) {
-          if (!isPackageManager(answer)) {
-            throw new Error(
-              `Invalid package manager "${answer}". Expected one of: ${VALID_PMS.join(", ")}.`,
-            );
-          }
-          packageManager = answer;
-        }
-      }
-    } finally {
-      rl.close();
-    }
+  let appName = positionals[0];
+  const interactive = Boolean(stdin.isTTY);
+
+  // Non-interactive (CI / piped): everything must come from flags. No prompts.
+  if (!interactive) {
+    if (!appName) throw new Error(`Missing app name.\n\n${USAGE}`);
+    const err = validateAppName(appName);
+    if (err) throw new Error(`Invalid app name "${appName}". ${err}`);
+    return {
+      appName,
+      packageManager: packageManager ?? "pnpm",
+      install: !values["no-install"],
+      git: !values["no-git"],
+      useTarballs: values["use-tarballs"],
+    };
   }
 
-  if (!appName) {
-    throw new Error(`App name is required.\n\n${USAGE}`);
-  }
-
-  // Keep names filesystem- and npm-friendly.
-  if (!/^[a-z0-9][a-z0-9._-]*$/.test(appName)) {
-    throw new Error(
-      `Invalid app name "${appName}". Use lowercase letters, digits, "-", "_", ".".`,
+  // Interactive: prompt for whatever a flag/positional didn't provide.
+  if (appName) {
+    const err = validateAppName(appName);
+    if (err) throw new Error(`Invalid app name "${appName}". ${err}`);
+  } else {
+    appName = bail(
+      await text({
+        message: "Project name?",
+        placeholder: "acme-lifecycle",
+        validate: validateAppName,
+      }),
     );
   }
+
+  if (packageManager === undefined) {
+    packageManager = bail(
+      await select({
+        message: "Package manager?",
+        initialValue: "pnpm" as PackageManager,
+        options: VALID_PMS.map((pm) => ({ value: pm, label: pm })),
+      }),
+    );
+  }
+
+  const install = values["no-install"]
+    ? false
+    : bail(
+        await confirm({
+          message: "Install dependencies now?",
+          initialValue: true,
+        }),
+      );
+
+  const git = values["no-git"]
+    ? false
+    : bail(
+        await confirm({
+          message: "Initialize a git repo?",
+          initialValue: true,
+        }),
+      );
 
   return {
     appName,
     packageManager,
-    install: !values["no-install"],
-    git: !values["no-git"],
+    install,
+    git,
     useTarballs: values["use-tarballs"],
   };
 }
