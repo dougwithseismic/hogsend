@@ -12,6 +12,7 @@ export default defineConfig({
     "@hogsend/core",
     "@hogsend/db",
     "@hogsend/email",
+    "@hogsend/engine",
     "@hogsend/plugin-posthog",
     "@hogsend/plugin-resend",
   ],
