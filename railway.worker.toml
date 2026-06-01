@@ -1,5 +1,7 @@
 [build]
-buildCommand = "pnpm --filter @hogsend/api build"
+# Same Dockerfile as the API service — one image, run as the worker (see below).
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 # Watch the whole monorepo source so engine/shared-package changes trigger a
 # redeploy. @hogsend/api bundles all of packages/** via tsup noExternal, so any
 # package edit is a real input for the worker too. Override in the dashboard if
@@ -7,6 +9,7 @@ buildCommand = "pnpm --filter @hogsend/api build"
 watchPatterns = ["apps/api/**", "packages/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
 
 [deploy]
-startCommand = "pnpm --filter @hogsend/api worker"
+# Run mode = worker (node directly, not pnpm — see railway.toml / Dockerfile).
+startCommand = "node apps/api/dist/worker.js"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5

@@ -11,6 +11,7 @@
     "check-types": "turbo run check-types",
     "setup": "bash scripts/setup.sh",
     "gen:secret": "openssl rand -base64 32",
+    "preflight": "bash scripts/preflight-deploy.sh",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",

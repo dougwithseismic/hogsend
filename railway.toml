@@ -1,5 +1,10 @@
 [build]
-buildCommand = "pnpm --filter @hogsend/api build"
+# Build from the repo Dockerfile (deterministic: local `docker build` == this
+# build), not railpack/nixpacks auto-detection. railpack 0.24 + corepack pnpm
+# drift previously broke a build that "worked yesterday" — a pinned Dockerfile
+# removes that whole class of surprise.
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 # Watch the whole monorepo source so engine/shared-package changes trigger a
 # redeploy. The previous list only covered apps/api + packages/db, so edits to
 # packages/engine (the entire API runtime), packages/core, packages/email, and
@@ -13,8 +18,11 @@ watchPatterns = ["apps/api/**", "packages/**", "package.json", "pnpm-lock.yaml",
 # client shim (db:migrate:client) skips gracefully when CLIENT_MIGRATIONS_FOLDER
 # is unset/absent/empty, so this same command works for this dogfood repo (no
 # client migrations) and for scaffolded client repos (which set the env var).
-preDeployCommand = "pnpm --filter @hogsend/db db:migrate && pnpm --filter @hogsend/db db:migrate:client"
-startCommand = "pnpm --filter @hogsend/api start"
+# Run via tsx directly (NOT pnpm) — the lean runner image has tsx + packages/db
+# but running pnpm at runtime triggers corepack + a deps-status check that writes
+# to the read-only /app as the non-root user (EACCES). See Dockerfile header.
+preDeployCommand = "tsx packages/db/src/migrate.ts && tsx packages/db/src/migrate-client.ts"
+startCommand = "node apps/api/dist/index.js"
 healthcheckPath = "/v1/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
