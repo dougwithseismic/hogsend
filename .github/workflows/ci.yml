@@ -17,9 +17,9 @@ jobs:
     name: Lint & types
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -54,9 +54,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://growthhog:growthhog@localhost:5434/growthhog
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -85,11 +85,11 @@ jobs:
       PGURL: postgres://postgres:postgres@localhost:5432
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/hogsend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # full history for the upgrade-from-previous test
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -176,6 +176,6 @@ jobs:
     # winston File transport (mkdir /app/logs). The runner has Docker; the script
     # needs neither Node nor pnpm on the host (the build runs inside the image).
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build prod image and boot api/worker/migrate
         run: bash scripts/preflight-deploy.sh
