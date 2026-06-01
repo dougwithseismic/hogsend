@@ -1,0 +1,127 @@
+---
+title: Conversions, Pixels & Ad Platforms
+description: Forward server-side conversion events from Hogsend to Meta, Google, TikTok, LinkedIn, and Reddit — using PostHog's Destinations pipeline. With a walkthrough.
+---
+
+## The short version
+
+You **don't** wire ad-platform conversion APIs into Hogsend. You let **PostHog** do it.
+
+Hogsend's job is to decide *when a conversion happened* and fire a clean, well-named event. PostHog's **Destinations** pipeline (its CDP) is the part that forwards that event server-side to Meta's Conversions API, Google Ads, TikTok Events API, LinkedIn, Reddit, and more — with the SHA-256 hashing, click-id reconstruction, deduplication, retries, and rate-limit handling all maintained by PostHog.
+
+<Callout type="info">
+  This is the **outbound** mirror of [PostHog Webhook Setup](/docs/getting-started/posthog-setup). That guide forwards PostHog events *into* Hogsend to trigger journeys. This one forwards events *out* of PostHog to ad platforms. Same pipeline, opposite direction.
+</Callout>
+
+## Why PostHog, not a Hogsend plugin
+
+It's tempting to build a `defineDestination()` that POSTs to Meta's CAPI from the engine. We deliberately don't, because the hard part of conversion tracking is **identity**, and PostHog is structurally better positioned to solve it:
+
+- **Click-ids live in the browser.** Meta's `fbc`/`fbp`, Google's `gclid`, TikTok's `ttclid`, Reddit's `rdt_cid`, LinkedIn's `li_fat_id` — these are set when someone clicks an ad and land on your site. PostHog's browser SDK captures them automatically as person properties (`$initial_fbclid`, `gclid`, …). A server-side engine like Hogsend never sees them.
+- **PostHog does the hashing and reconstruction for you.** In the destination config, the user-data fields come pre-filled — e.g. `{sha256Hex(lower(person.properties.email))}` and an `fbc` value rebuilt from `fbclid`/`$initial_fbclid`. You don't write hashing code.
+- **It's maintained against five moving API targets.** Conversion APIs change constantly. That's PostHog's problem to keep current, not yours.
+
+Rebuilding this inside the engine would be a maintenance treadmill that produces *worse* match quality. So the engine stays focused on orchestration, and PostHog is the data plane.
+
+<Callout type="warn">
+  These destinations are currently marked **Experimental** in PostHog. They work well for most cases, but PostHog notes there may be edge cases without official support. Validate with each platform's test/debug tooling before trusting the numbers (see each platform page).
+</Callout>
+
+## How identity survives a server-side conversion
+
+A fair question: if Hogsend fires a conversion **server-side** (e.g. `subscription_created` from a journey), how does it get matched to an ad click that happened in the browser weeks earlier?
+
+Because the ad destinations read their identifiers from **`person.properties`**, not from the event. PostHog maintains person properties across *every* event for that `distinct_id` — client and server. So as long as the person was seen in the browser at least once (which set `$initial_fbclid`, `gclid`, etc.) and was identified with an `email`, a later server-side conversion event still resolves the hashed email and click-id from the stored person profile.
+
+```
+Ad click (browser)         →  PostHog person gets $initial_fbclid, gclid, email
+        … days later …
+Conversion (Hogsend journey) →  ctx.posthog.capture({ event: "subscription_created" })
+                             →  PostHog Destination reads person.properties → forwards to Meta/Google/…
+```
+
+**Practical implication:** make sure two things are true in PostHog *before* relying on this:
+
+1. Your website runs the PostHog browser snippet so click-ids get captured on landing.
+2. People are `identify()`-ed with their `email` early (typically on signup), so the hashed-email matcher is populated.
+
+Event-level fields like `$current_url` and `$raw_user_agent` won't be present on purely server-side events — that's fine, they're best-effort. The high-value matchers (hashed email + click-id) come from the person profile.
+
+## Firing the conversion event from Hogsend
+
+Inside any journey, fire the event you want forwarded:
+
+```ts
+// in a journey's run()
+await ctx.posthog.capture({
+  event: "purchase",
+  properties: { price: 49, currency: "USD" },
+});
+```
+
+That lands in PostHog for the current user's `distinct_id`. Any ad destination whose event matcher includes `purchase` then forwards it. You can also fire conversions directly from your app's PostHog browser SDK — those carry the richest browser context and are ideal for top-of-funnel events like `Lead`.
+
+<Callout type="info">
+  Conversion events are often best captured **client-side** in your app (where browser context is richest), and lifecycle/back-office conversions (renewals, upgrades detected server-side, offline events) captured from Hogsend journeys. Use whichever source actually knows the conversion happened.
+</Callout>
+
+## The setup, end to end (Meta as the example)
+
+Every ad destination follows the same flow. Here's adding **Meta Ads Conversions**:
+
+![Adding the Meta Ads Conversions destination in PostHog](/images/posthog-meta-ads-conversions-setup.gif)
+
+### Step 1: Open Data → Destinations
+
+In PostHog, go to **Data** in the left sidebar → **Destinations**. Scroll to **Create a new destination**.
+
+### Step 2: Search for the platform
+
+Type the platform name (e.g. `Meta`, or `ads` to see them all). You'll find **Meta Ads Conversions**, **Google Ads Conversions**, **TikTok Ads Conversions**, **LinkedIn Ads Conversions**, **Reddit Conversions API**, and **Snapchat Ads Conversions**. Click **+ Create**.
+
+### Step 3: Add credentials
+
+Each destination needs platform credentials (an access token / API key and an account or pixel ID). The config form links straight to the platform's docs for obtaining them. See the per-platform pages below for exactly what to get and where.
+
+### Step 4: Map the event (mostly pre-filled)
+
+PostHog pre-fills the field mappings. For Meta that's:
+
+| Field | Default mapping | What it does |
+|---|---|---|
+| **Event name** | `{event.event}` | Your PostHog event name → platform event |
+| **Event ID** | `{event.uuid}` | The dedup key (matches the browser pixel) |
+| **Event time** | `{toInt(toUnixTimestamp(event.timestamp))}` | When it happened (Unix seconds, GMT) |
+| **User data → em** | `{sha256Hex(lower(person.properties.email))}` | Hashed email (matching) |
+| **User data → fbc** | rebuilt from `fbclid` / `$initial_fbclid` | The click-id (matching) |
+| **Custom data** | `price`, `currency` | Conversion value for ROAS |
+
+You usually only change the **event matchers** (which events to forward) and the **value/currency** properties. The hashing and click-id logic is done for you.
+
+### Step 5: Add event matchers
+
+Under **Match events and actions**, click **+ Add event matcher** and pick the specific conversion events to forward (e.g. `purchase`, `subscription_created`, `Lead`). **Don't forward everything** — you only want real conversions reaching ad platforms, not `$pageview`.
+
+### Step 6: Create & enable
+
+Toggle **Filter out internal and test users** on for production, then click **Create & enable**. Test with the platform's debug tool (Meta Test Events, TikTok Test Event Code, etc.) before relying on reported conversions.
+
+## Deduplication (read this once, applies everywhere)
+
+If you fire the **same** conversion both client-side (the platform's browser pixel) and server-side (via PostHog), each platform de-dupes them using a shared event id — but only if both sides send the **same** id:
+
+- **Meta** matches on `event_id` (within ~48h).
+- **TikTok**, **LinkedIn**, **Reddit** use the same event-id model.
+- **Google** de-dupes on the order/transaction id (or relies on gclid).
+
+PostHog defaults the server-side id to `{event.uuid}`. To actually de-dupe against your browser pixel, the pixel must send that **same** id. If you only fire conversions through PostHog (no separate browser pixel), there's nothing to de-dupe and you can ignore this.
+
+## Per-platform setup
+
+<Cards>
+  <Card title="Meta (Facebook / Instagram)" href="/docs/conversions/meta-ads" />
+  <Card title="Google Ads" href="/docs/conversions/google-ads" />
+  <Card title="TikTok" href="/docs/conversions/tiktok" />
+  <Card title="LinkedIn" href="/docs/conversions/linkedin" />
+  <Card title="Reddit" href="/docs/conversions/reddit" />
+</Cards>

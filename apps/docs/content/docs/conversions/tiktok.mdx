@@ -1,0 +1,52 @@
+---
+title: TikTok
+description: Forward server-side conversions to the TikTok Events API via PostHog's TikTok Ads Conversions destination.
+---
+
+TikTok's **Events API** receives conversions server-side, matched by hashed PII and TikTok's `ttclid` click-id. PostHog's **TikTok Ads Conversions** destination feeds it.
+
+<Callout type="info">
+  Read [the overview](/docs/conversions) first for shared identity & dedup behaviour. This page is TikTok-specific.
+</Callout>
+
+## What you need
+
+| Credential | Where to get it |
+|---|---|
+| **Access Token** | TikTok **Events Manager** → your pixel → **Settings** → **Events API** → **Generate Access Token**. Copy it immediately. |
+| **Pixel Code** (Event Source ID) | Events Manager → your pixel → **Settings**. Match the pixel your site already uses. |
+
+## How matching works
+
+PostHog pre-fills the user-data mapping with hashed identifiers and the click-id:
+
+- **Hashed email / phone** — `sha256Hex(lower(...))` from the person profile.
+- **`external_id`** — your stable user id, hashed.
+- **`ttclid`** — TikTok's click-id, captured by the PostHog browser snippet (`ttclid` / `$initial_ttclid`).
+- **`ttp`** — the TikTok browser cookie, when present.
+
+The richest matching needs `ttclid` captured on the ad landing and `email` set via `identify()` — see the [identity prerequisites](/docs/conversions#how-identity-survives-a-server-side-conversion).
+
+## Recommended events
+
+Map your PostHog events to TikTok standard events where possible:
+
+| Your PostHog event | TikTok standard event |
+|---|---|
+| `purchase` | `CompletePayment` |
+| `user_signed_up` | `CompleteRegistration` |
+| `lead_captured` | `SubmitForm` / `Contact` |
+| `add_to_cart` | `AddToCart` |
+
+Include `value` + `currency` properties for ROAS optimization.
+
+## Deduplication & testing
+
+- **Dedup:** the server `event_id` (`{event.uuid}`) must match the browser pixel's event id so TikTok counts the conversion once.
+- **Testing:** set a **Test Event Code** in the destination; matching events appear in the **Test Events** tab of your pixel in TikTok Ads Manager. Remove it before going live.
+
+<Callout type="warn">
+  Only forward conversions for users who've consented to ad tracking, especially in the EU. Gate the event at capture time or via the destination's event matcher.
+</Callout>
+
+TikTok reference: [About Events API](https://ads.tiktok.com/help/article/events-api).

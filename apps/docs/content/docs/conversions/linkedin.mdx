@@ -1,0 +1,44 @@
+---
+title: LinkedIn
+description: Forward server-side conversions to the LinkedIn Conversions API via PostHog's LinkedIn Ads Conversions destination — ideal for B2B.
+---
+
+LinkedIn's **Conversions API** is the strongest fit for B2B lifecycle events (demo booked, qualified lead, paid plan) because matching leans on **hashed work email**, which a lifecycle engine reliably has. PostHog's **LinkedIn Ads Conversions** destination feeds it.
+
+<Callout type="info">
+  Read [the overview](/docs/conversions) first for shared identity & dedup behaviour. This page is LinkedIn-specific.
+</Callout>
+
+## What you need
+
+| Credential | Where to get it |
+|---|---|
+| **Access Token** | A LinkedIn **Marketing API** OAuth token for your ad account. |
+| **Conversion Rule URN** | Create a conversion in **Campaign Manager → Analyze → Conversion tracking**, then use its URN. Each conversion event is reported against this rule. |
+
+## How matching works
+
+LinkedIn matches on **user identifiers**, with the two recommended being:
+
+- **`SHA256_EMAIL`** — hashed, lowercased email. PostHog hashes it for you. This is your primary matcher for B2B.
+- **`LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID`** (`li_fat_id`) — LinkedIn's click-id, captured browser-side when present.
+
+You can also send `firstName`, `lastName`, `companyName`, and `title` to improve offline matching. Send email **and** `li_fat_id` together when you have both.
+
+<Callout type="info">
+  In practice, server-side B2B conversions match mostly on hashed email — `li_fat_id` is often absent on back-office events. That's fine; LinkedIn email matching is solid. Just make sure people are `identify()`-ed with their email.
+</Callout>
+
+## Deduplication
+
+LinkedIn de-dupes events from the **Insight Tag** and the Conversions API by `eventId`. If both arrive for the same account with the same id, LinkedIn **keeps the Insight Tag event** and discards the API one — so use the same id on both sides if you run both.
+
+## Gotchas
+
+<Callout type="warn">
+  - **OAuth tokens expire** (~60 days). Re-authorize the destination before the token lapses, or conversions silently stop.
+  - The **conversion rule must exist** in Campaign Manager first.
+  - LinkedIn enforces a minimum match threshold — very low-volume conversions may not report.
+</Callout>
+
+LinkedIn reference: [Conversions API](https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversions-api).

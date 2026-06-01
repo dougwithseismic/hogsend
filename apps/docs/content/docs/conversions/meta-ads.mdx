@@ -1,0 +1,72 @@
+---
+title: Meta (Facebook & Instagram)
+description: Forward server-side conversions to the Meta Conversions API via PostHog's Meta Ads Conversions destination.
+---
+
+Meta's **Conversions API (CAPI)** receives conversions server-side so you keep attribution even when the browser Pixel is blocked by ad blockers, iOS, or cookie restrictions. PostHog's **Meta Ads Conversions** destination is the easiest way to feed it.
+
+<Callout type="info">
+  New here? Read [the overview](/docs/conversions) first — it covers how identity and deduplication work across all platforms. This page is Meta-specific.
+</Callout>
+
+## What you need
+
+| Credential | Where to get it |
+|---|---|
+| **Access Token** | Meta **Events Manager** → your dataset/pixel → **Settings** → **Conversions API** → **Generate access token**. Copy it immediately (it's shown once). |
+| **Pixel ID** (Dataset ID) | Events Manager → your dataset → **Settings**. Use the **same** Pixel ID your browser Pixel uses so server + browser events reconcile. |
+
+Full token guide: [developers.facebook.com/docs/marketing-api/conversions-api/get-started](https://developers.facebook.com/docs/marketing-api/conversions-api/get-started)
+
+## Create the destination
+
+In PostHog: **Data → Destinations → Create a new destination**, search **Meta**, pick **Meta Ads Conversions**, click **+ Create**. Paste the Access Token and Pixel ID, add your event matchers, then **Create & enable**.
+
+## What PostHog maps automatically
+
+You don't write any hashing or click-id logic — the form arrives pre-filled:
+
+| Meta field | PostHog default | Purpose |
+|---|---|---|
+| `event_name` | `{event.event}` | Map to a Meta standard event (see below) |
+| `event_id` | `{event.uuid}` | Deduplication key vs. the browser Pixel |
+| `event_time` | `{toInt(toUnixTimestamp(event.timestamp))}` | Unix seconds, GMT |
+| `action_source` | `Website` | Where the conversion happened |
+| `user_data.em` | `{sha256Hex(lower(person.properties.email))}` | Hashed email — top matcher |
+| `user_data.fn` / `ln` | `{sha256Hex(lower(person.properties.first_name))}` … | Hashed name |
+| `user_data.fbc` | rebuilt from `fbclid` / `$initial_fbclid` | The ad click-id — top matcher |
+| `user_data.client_user_agent` | `{event.properties.$raw_user_agent}` | Browser UA (best-effort) |
+| `custom_data.price` / `currency` | `{event.properties.price}` / `USD` | Conversion value for ROAS |
+
+## Mapping to Meta standard events
+
+Meta optimizes best against its **standard event** names. Set the **Event name** field to map your PostHog event, e.g.:
+
+| Your PostHog event | Meta standard event |
+|---|---|
+| `purchase` | `Purchase` |
+| `subscription_created` | `Subscribe` |
+| `trial_started` | `StartTrial` |
+| `user_signed_up` | `CompleteRegistration` |
+| `lead_captured` | `Lead` |
+
+Custom events also work, but standard events unlock more optimization options.
+
+## Match quality (EMQ)
+
+Meta scores **Event Match Quality** 0–10. Aim for **6+**. The two highest-impact matchers are hashed `email` and `fbc` — both come from the person profile, so:
+
+- Run the PostHog browser snippet so `$initial_fbclid` is captured on ad landings.
+- `identify()` users with `email` early.
+
+## Testing
+
+Events Manager → your dataset → **Test Events**. Add the **Test Event Code** to the destination config (PostHog exposes a field for it), fire a conversion, and confirm it shows up. Remove the test code before going live.
+
+<Callout type="warn">
+  Meta requires a verified Business and a dataset/pixel in good standing. In the EU, only forward conversions for users who've consented to ad tracking — gate the `ctx.posthog.capture` call (or the event matcher) on your consent flag.
+</Callout>
+
+## Deduplication
+
+If you **also** run Meta's browser Pixel, make it send the **same** `event_id` as the server event so Meta counts each conversion once (within ~48h). If PostHog is your only source for that conversion, there's nothing to dedupe.

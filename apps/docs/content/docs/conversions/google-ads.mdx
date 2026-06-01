@@ -1,0 +1,46 @@
+---
+title: Google Ads
+description: Send server-side conversions to Google Ads via PostHog's Google Ads Conversions destination, matching on gclid or hashed email (enhanced conversions).
+---
+
+Google has several server-side conversion paths. For a lifecycle engine, the one that matters is **uploading conversions to Google Ads** — matched either by **click-id (`gclid`)** or, when the click-id is missing, by **hashed first-party data** (Google's *Enhanced Conversions for Leads*). PostHog's **Google Ads Conversions** destination handles this.
+
+<Callout type="info">
+  Read [the overview](/docs/conversions) first for how identity and dedup work across platforms. This page is Google-specific.
+</Callout>
+
+<Callout type="info">
+  **Google Ads Conversions ≠ GA4.** This destination feeds **Google Ads** (for bidding/optimization). If you instead want product analytics in **GA4**, that's a separate Measurement Protocol destination and a different use case. For ad optimization, you want Google Ads Conversions.
+</Callout>
+
+## What you need
+
+| Credential | Where to get it |
+|---|---|
+| **Google Ads connection** | Authorize PostHog's destination against your Google account (OAuth). Google's developer token is managed by PostHog's integration. |
+| **Customer ID** | Your Google Ads account ID (the `123-456-7890` in the top-right of Google Ads). |
+| **Conversion Action ID** | Create a conversion action in Google Ads (**Goals → Conversions → + New**, type *Import → other data sources*). PostHog sends conversions against this action. |
+
+## How matching works
+
+Google matches an uploaded conversion to an ad click using, in order of strength:
+
+1. **`gclid`** (or `gbraid` / `wbraid` for app/iOS) — captured by the PostHog browser snippet as `gclid` / `$initial_gclid` on the person.
+2. **Enhanced Conversions for Leads** — hashed `email` (and optionally phone/name) when no click-id is available. PostHog hashes these for you with `sha256Hex(lower(...))`.
+
+Sending **both** when you have them maximizes match rate. This is why the [identity prerequisites](/docs/conversions#how-identity-survives-a-server-side-conversion) matter: capture `gclid` in the browser, and `identify()` with `email` early.
+
+## Recommended events
+
+Forward genuine business conversions — `purchase`, `subscription_created`, `trial_started`, `qualified_lead`. Set the conversion **value** and **currency** from event properties so Google can optimize for value, not just count.
+
+## Gotchas
+
+<Callout type="warn">
+  - The **conversion action must already exist** in Google Ads before the destination can attribute to it.
+  - **Attribution windows** apply — a conversion uploaded long after the click may fall outside the window and not attribute.
+  - Google's auth is the heaviest of the ad platforms (OAuth + a real Ads account with a conversion action). Budget more setup time than Meta/TikTok.
+  - In the EU, respect **Consent Mode** — only upload conversions for consented users.
+</Callout>
+
+Google's reference: [Enhanced conversions for leads](https://support.google.com/google-ads/answer/15713840) · [Upload via the API](https://developers.google.com/google-ads/api/docs/conversions/upload-offline).

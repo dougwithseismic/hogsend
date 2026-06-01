@@ -1,0 +1,45 @@
+---
+title: Reddit
+description: Forward server-side conversions to the Reddit Conversions API via PostHog's Reddit Conversions API destination.
+---
+
+Reddit's **Conversions API (CAPI)** receives conversions server-side, matched by hashed email and Reddit's `rdt_cid` click-id. PostHog offers two Reddit destinations:
+
+- **Reddit Conversions API** — server-side, no cookies. **Use this** for forwarding conversions.
+- **Reddit Pixel** — browser-side; sets third-party cookies. Only if you want the client-side pixel managed through PostHog.
+
+<Callout type="info">
+  Read [the overview](/docs/conversions) first for shared identity & dedup behaviour. This page is Reddit-specific.
+</Callout>
+
+## What you need
+
+| Credential | Where to get it |
+|---|---|
+| **Conversion Access Token** | Reddit Ads → **Events Manager** → generate a conversion access token. It's a non-expiring key (no OAuth refresh — nice). |
+| **Account ID / Pixel ID** | Your Reddit Ads account identifier. |
+
+## How matching works
+
+PostHog pre-fills the mapping with:
+
+- **Hashed email** — SHA-256, lowercased and trimmed, from the person profile.
+- **`external_id`** — your stable user id.
+- **`click_id`** — Reddit's click-id, captured browser-side from the `rdt_cid` URL parameter on ad landings.
+- **`ip_address`** and **`user_agent`** — best-effort, when available.
+
+See the [identity prerequisites](/docs/conversions#how-identity-survives-a-server-side-conversion) — capture `rdt_cid` in the browser and `identify()` with `email`.
+
+## Recommended events
+
+Forward real conversions — `purchase`, `user_signed_up`, `lead_captured`, `subscription_created` — with `value` + `currency` where it applies.
+
+## Deduplication
+
+Reddit de-dupes on **`conversion_id`** (PostHog defaults it to the event UUID). If you also run the Reddit Pixel client-side, send the same id on both so each conversion counts once.
+
+<Callout type="warn">
+  Only forward conversions for users who've consented to ad tracking. The Conversions API endpoint is `ads-api.reddit.com/api/v2/conversions/events/{account_id}` — PostHog calls it for you; you don't build the request.
+</Callout>
+
+Reddit reference: [Send conversion events with the API](https://business.reddithelp.com/s/article/send-conversion-events-with-the-API).
