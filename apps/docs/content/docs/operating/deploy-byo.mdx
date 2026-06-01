@@ -11,7 +11,7 @@ If you already run a container platform — Kubernetes, Nomad, ECS, a fleet of V
 |---|---|
 | **Postgres** (TimescaleDB recommended) | A connection string in `DATABASE_URL`. The primary datastore. |
 | **Redis** | A connection string in `REDIS_URL`. PostHog property caching. |
-| **A Hatchet engine** | A token + gRPC endpoint — Hatchet Cloud, your own `hatchet-lite`, or any Hatchet you run. See [Step 1: Acquire a Hatchet](/docs/getting-started/hatchet). |
+| **A Hatchet engine** | A token + gRPC endpoint — Hatchet Cloud, your own `hatchet-lite`, or any Hatchet you run. See [Get a Hatchet token](/docs/getting-started/hatchet). |
 
 ## The image and its three run modes
 
@@ -45,7 +45,7 @@ Inject the [full annotated contract](/docs/getting-started/configuration) as env
 DATABASE_URL=postgresql://USER:PASS@HOST:PORT/DB
 BETTER_AUTH_SECRET=<openssl rand -base64 32>
 RESEND_API_KEY=re_…
-HATCHET_CLIENT_TOKEN=<from your Hatchet — Step 1>
+HATCHET_CLIENT_TOKEN=<from your Hatchet>
 
 # Hatchet endpoint + transport (match your engine).
 HATCHET_CLIENT_HOST_PORT=<your-hatchet-host:7077>
@@ -75,7 +75,7 @@ Nothing in the engine bakes in single-tenancy. The DI container (`createHogsendC
 ## Next steps
 
 <Cards>
-  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
   <Card title="Deploy with Docker (default)" href="/docs/operating/deploy-docker" />
   <Card title="Configuration reference" href="/docs/getting-started/configuration" />
   <Card title="Monitoring & Alerting" href="/docs/operating/monitoring" />

@@ -11,10 +11,6 @@ This connects your PostHog instance to a **running** Hogsend API. Make sure you'
   PostHog's servers must be able to reach your API over the internet. A locally-running app on `http://localhost:3002` is **not** reachable by PostHog Cloud — deploy first (see [Deployment](/docs/operating/deployment)), or use a tunnel (ngrok, Cloudflare Tunnel) to expose your local API while testing.
 </Callout>
 
-<Callout type="info">
-  If you deployed via the Railway template and ran the Go `hogsend init` CLI, it already created this webhook destination for you (URL, auth header, and event matchers). This guide is the manual equivalent — read it to understand or customize what `init` set up. (`hogsend init` is the Go deployment CLI, distinct from `create-hogsend`, which scaffolds your app.)
-</Callout>
-
 ## Overview
 
 This guide connects your PostHog instance to Hogsend using PostHog's **Destinations** pipeline. Once set up, the PostHog events you select automatically flow into Hogsend and trigger your lifecycle journeys.

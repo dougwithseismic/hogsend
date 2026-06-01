@@ -1,98 +1,58 @@
 ---
 title: CLI Reference
-description: Install and use the Go hogsend CLI to deploy, configure, and operate lifecycle engine instances on Railway from your terminal.
+description: Install and use @hogsend/cli — the agent-native companion for inspecting and operating a running Hogsend instance from your terminal.
 ---
 
 ## Overview
 
-This is the **Go `hogsend` CLI** — the operator and Railway-deployment tool. It connects to a Railway deployment created from the Hogsend deploy template, configures PostHog webhooks, manages contacts, and lets you test the full event pipeline without leaving your terminal.
+`@hogsend/cli` is the **agent-native Hogsend CLI**. It talks to a running instance's admin API to inspect journeys, contacts, events, and metrics, probe health, and handle a few local-project chores (onboarding, skills, eject, patch). Every command accepts `--json` so agents and scripts get structured output.
 
-<Callout type="info">
-There are **two distinct CLIs that both use the `hogsend` bin name** — do not confuse them:
-
-- **Go `hogsend` CLI** (this reference) — the operator/admin and Railway CLI: `init`, `setup`, `status`, `deploy`, `journeys`, `destroy`, `test`, `contacts`.
-- **Node `@hogsend/cli`** — exposes **only `hogsend eject`**, part of the editability ladder. It is documented in [Upgrading & Customizing](/docs/operating/upgrading), not here.
-
-This page never documents `eject`. The eject docs never document `init`/`setup`/`deploy`/…
-</Callout>
-
-<Callout type="warn">
-**This CLI does not create your project.** A Hogsend app is created by scaffolding with the Node tooling:
-
-```bash
-pnpm dlx create-hogsend@latest my-app
-```
-
-The packages are not published to npm yet (all at `0.0.1`; the publish pipeline is in place but has not run). Today they are consumed from this monorepo, and the scaffold verification harness resolves them from local `pnpm pack` tarballs. The npm install path is available imminently. See [Getting started](/docs/getting-started/installation).
-
-The Go `hogsend init` command **configures an existing Railway deploy** — it is not a project scaffolder. See [`hogsend init`](/docs/cli/init).
-</Callout>
+It is **not** a project scaffolder and not a deployment tool — you create an app with [`create-hogsend`](/docs/getting-started/installation) and deploy it however you like.
 
 ## Installation
 
-Releases are published to GitHub at **`github.com/dougwithseismic/hogsend/releases`** (built with GoReleaser). Archives are named `hogsend_<version>_<os>_<arch>.tar.gz` and contain a single `hogsend` binary.
-
-Download the archive for your platform from the [latest release](https://github.com/dougwithseismic/hogsend/releases/latest), unpack it, and put `hogsend` on your `PATH`. For example (replace `<version>` with the release tag):
-
-### macOS (Apple Silicon)
+Install it from npm, globally or per-project:
 
 ```bash
-curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_darwin_arm64.tar.gz \
-  | tar xz -C /usr/local/bin hogsend
+pnpm add -g @hogsend/cli      # global `hogsend` bin
+# or run without installing:
+pnpm dlx @hogsend/cli doctor
 ```
 
-### macOS (Intel)
-
-```bash
-curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_darwin_amd64.tar.gz \
-  | tar xz -C /usr/local/bin hogsend
-```
-
-### Linux (arm64)
-
-```bash
-curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_linux_arm64.tar.gz \
-  | tar xz -C /usr/local/bin hogsend
-```
-
-### Linux (amd64)
-
-```bash
-curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_linux_amd64.tar.gz \
-  | tar xz -C /usr/local/bin hogsend
-```
-
-Windows builds ship as `.zip` archives (`hogsend_<version>_windows_amd64.zip`).
-
-Verify the installation:
+Verify:
 
 ```bash
 hogsend --version
 ```
 
+## Connecting to an instance
+
+The data commands (`doctor`, `journeys`, `contacts`, `stats`, `events`) call a running instance's API. Point the CLI at it with global flags or environment variables:
+
+| Global flag | Env var | Default |
+|---|---|---|
+| `--url <baseUrl>` | `HOGSEND_API_URL` | `http://localhost:3002` |
+| `--admin-key <key>` | `HOGSEND_ADMIN_KEY` / `ADMIN_API_KEY` | — |
+| `--json` | — | off (human output) |
+
+`doctor` reads the unauthenticated health route, so it needs no admin key. The other data commands wrap `/v1/admin/*` and require one.
+
 ## Commands
 
 | Command | Description |
 |---|---|
-| [`hogsend init`](/docs/cli/init) | Configure an existing Railway-template deploy (env vars, PostHog webhook, verify) |
-| [`hogsend setup`](/docs/cli/setup) | Set up the **engine monorepo** for local development (engine contributors) |
-| [`hogsend status`](/docs/cli/status) | Check health of the current deployment |
-| [`hogsend deploy`](/docs/cli/deploy) | Trigger a Railway redeploy for API + Worker |
-| [`hogsend test`](/docs/cli/test) | Send a test event and verify the pipeline |
-| [`hogsend journeys`](/docs/cli/journeys) | Manage the `ENABLED_JOURNEYS` filter on Railway |
-| [`hogsend contacts`](/docs/cli/contacts) | List, inspect, create, update, and delete contacts |
-| [`hogsend destroy`](/docs/cli/destroy) | Tear down the Railway project |
+| [`hogsend doctor`](/docs/cli/doctor) | Probe a running instance's health (`GET /v1/health`) |
+| [`hogsend journeys`](/docs/cli/journeys) | List, inspect, enable, and disable journeys |
+| [`hogsend contacts`](/docs/cli/contacts) | List, inspect, and trace contact activity |
+| [`hogsend stats`](/docs/cli/stats) | System-wide overview metrics |
+| [`hogsend events`](/docs/cli/events) | Stream a single user's event history |
+| [`hogsend setup`](/docs/cli/setup) | Local onboarding for a scaffolded app |
+| [`hogsend skills`](/docs/cli/skills) | Install bundled Claude Code skills into `.claude/skills` |
+| [`hogsend eject`](/docs/cli/eject) | Vendor a `@hogsend/*` package into `vendor/<name>` |
+| [`hogsend patch`](/docs/cli/patch) | Patch a package via pnpm's native patch flow |
 
-Only two commands take flags: `init` accepts `--force`, and `contacts list` accepts `--search`/`-s`. The `contacts get/update/delete/unsub/prefs` subcommands each take a single positional `<id>`. `status`, `deploy`, `journeys`, `destroy`, and `test` take no flags.
+Run `hogsend <command> --help` for command-specific options, or `hogsend` with no arguments for the root help.
 
-## Configuration
+## Output for agents
 
-All commands except `setup` read from `.hogsend.yaml` in the current directory. This file is created by `hogsend init` (for a Railway deployment) or `hogsend setup` (for monorepo local development) and stores:
-
-- Project name and slug
-- Railway project ID, environment ID, service IDs, domain, and API token
-- PostHog project ID, API keys, host, and webhook destination ID
-- Enabled journeys list
-- Admin API key
-
-The file contains secrets (Railway token, PostHog keys, admin API key). Add `.hogsend.yaml` to your `.gitignore`.
+Pass `--json` to any command to get a single machine-readable JSON document on stdout and nothing else. Exit codes are meaningful — `doctor`, for example, exits non-zero when an instance is unreachable, degraded, or has pending migrations — so you can branch on them in scripts.

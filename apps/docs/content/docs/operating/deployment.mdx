@@ -17,7 +17,7 @@ Every deploy target is the **same image plus the same validated env contract** �
 
 Two prerequisites, in order:
 
-1. **[Acquire a Hatchet](/docs/getting-started/hatchet)** — Hogsend's one hard dependency. Get a token from Hatchet Cloud, a self-hosted `hatchet-lite`, or your own engine, and set the three `HATCHET_CLIENT_*` vars. There is **no auto-mint** — bring your own token. This is **Step 1**.
+1. **[Get a Hatchet token](/docs/getting-started/hatchet)** — Hogsend's one hard dependency. Get a token from a self-hosted `hatchet-lite`, Hatchet Cloud, or your own engine, and set the three `HATCHET_CLIENT_*` vars.
 2. **A real `BETTER_AUTH_SECRET`** — generate one with `pnpm gen:secret` (`openssl rand -base64 32`). `pnpm setup` does this for you locally; never ship the placeholder.
 
 The complete, annotated env contract is in [`.env.example`](https://github.com/dougwithseismic/hogsend/blob/main/apps/api/.env.example) — one file projected from the validated schema in `packages/engine/src/env.ts`, with every var tagged `[required]` / `[default: x]` / `[optional]`. See [Configuration](/docs/getting-started/configuration) for the per-variable reference.
@@ -80,7 +80,7 @@ To bypass the engine guard in an emergency: `SKIP_SCHEMA_CHECK=true`.
   <Card title="Deploy with Docker" href="/docs/operating/deploy-docker" />
   <Card title="Deploy on Railway" href="/docs/operating/deploy-railway" />
   <Card title="Bring your own" href="/docs/operating/deploy-byo" />
-  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
   <Card title="Configuration reference" href="/docs/getting-started/configuration" />
   <Card title="Upgrading & Customizing" href="/docs/operating/upgrading" />
 </Cards>

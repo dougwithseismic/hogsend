@@ -8,7 +8,7 @@ Self-hosting with Docker is the **default deploy path**. One [`docker-compose.pr
 ## Prerequisites
 
 - **Docker** with Compose v2 (`docker compose`, not `docker-compose`).
-- **A Hatchet token** — see below; this is [Step 1](/docs/getting-started/hatchet).
+- **A Hatchet token** — see [Get a Hatchet token](/docs/getting-started/hatchet).
 - **A real `BETTER_AUTH_SECRET`** — `pnpm gen:secret` (`openssl rand -base64 32`).
 - **A `RESEND_API_KEY`** — from the [Resend dashboard](https://resend.com/api-keys).
 
@@ -26,7 +26,7 @@ The compose file wires all three up for you.
 
 ## The bring-up sequence
 
-Because the app needs a Hatchet token to boot but the token can only be minted after the engine is running, bring-up is **ordered**: infra → token → app. There is no auto-mint.
+Because the app needs a Hatchet token to boot but the token can only be minted after the engine is running, bring-up is **ordered**: infra → token → app.
 
 ```bash
 # 0. Fill in .env. At minimum the required vars must be set:
@@ -44,7 +44,7 @@ docker compose -f docker-compose.prod.yml up -d hatchet-lite
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-See [Acquire a Hatchet](/docs/getting-started/hatchet) for the Cloud and bring-your-own alternatives — paste a Hatchet Cloud token instead and set `HATCHET_CLIENT_TLS_STRATEGY=tls`.
+See [Get a Hatchet token](/docs/getting-started/hatchet) for the Cloud and bring-your-own alternatives — paste a Hatchet Cloud token instead and set `HATCHET_CLIENT_TLS_STRATEGY=tls`.
 
 ## How ordering is enforced
 
@@ -125,7 +125,7 @@ docker compose -f docker-compose.prod.yml up -d --scale worker=3
 ## Next steps
 
 <Cards>
-  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
   <Card title="Configuration reference" href="/docs/getting-started/configuration" />
   <Card title="Monitoring & Alerting" href="/docs/operating/monitoring" />
   <Card title="Upgrading & Customizing" href="/docs/operating/upgrading" />

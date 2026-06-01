@@ -5,10 +5,6 @@ description: "Upgrade the engine with pnpm up, run both migration tracks, and re
 
 Your scaffolded app **pins `@hogsend/engine`** (and the other `@hogsend/*` packages) to a single version line. The framework is upstream code you consume; your **content** — journeys, email templates, webhook sources, custom routes, config, and your own migrations — is yours. Upgrading the framework is `pnpm up` plus migrations, never a git merge of a fork.
 
-<Callout type="info">
-  The `@hogsend/*` packages publish from the changesets pipeline and are landing on npm imminently. Until then they resolve from this monorepo (the harness uses local `pnpm pack` tarballs). The upgrade commands below are the intended path either way.
-</Callout>
-
 ## Upgrading the engine
 
 ```bash
@@ -99,7 +95,7 @@ Commit **both** the `.patch` file and the `pnpm.patchedDependencies` block added
 
 ### Eject (you fork that one package)
 
-When you must rewrite internals — or a patch will not stop conflicting — eject the package with the Node `@hogsend/cli` (not the Go `hogsend` deployment CLI documented under [CLI](/docs/cli)):
+When you must rewrite internals — or a patch will not stop conflicting — eject the package with [`hogsend eject`](/docs/cli/eject):
 
 ```bash
 pnpm hogsend eject @hogsend/engine        # or: pnpm dlx @hogsend/cli eject @hogsend/engine

@@ -13,7 +13,7 @@ Hogsend sits between PostHog and Resend. Events come in from PostHog, journeys r
 
 Before tracing the runtime loop, it helps to know how the codebase is split — because it shapes everything else.
 
-Hogsend is a **versioned engine you consume as a package**, not a monorepo you fork. There are two halves:
+Hogsend is split into two halves — the engine you install, and the content you write:
 
 - **The engine** — the framework, shipped as [`@hogsend/engine`](https://hogsend.com) (plus the other `@hogsend/*` packages). It owns the ingestion pipeline, journey runtime, email delivery, tracking, the HTTP API, and the worker loop. You upgrade it with `pnpm up`; you don't edit it.
 - **Your content** — the journeys, email templates, webhook sources, custom routes, config, and your own database migrations. This lives in your repo and is **injected into** the engine's factories. The engine never imports your content.
@@ -41,10 +41,6 @@ await worker.start();
 ```
 
 That's the whole picture: you author content as plain TypeScript, collect it into arrays, and hand those arrays to `createHogsendClient` / `createApp` / `createWorker`. The [Concepts overview](/docs/concepts/philosophy) and [Upgrading & Customizing](/docs/operating/upgrading) docs go deeper on the boundary and the Extend → Patch → Eject ladder.
-
-<Callout type="info">
-  The `@hogsend/*` packages are not on npm yet (everything is at `0.0.1` and the publish pipeline is staged but hasn't run). Today they're consumed from this monorepo; `pnpm dlx create-hogsend@latest` is the intended install path once published — available imminently.
-</Callout>
 
 ## What happens when a PostHog event arrives
 

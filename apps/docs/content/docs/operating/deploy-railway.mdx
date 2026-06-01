@@ -98,7 +98,7 @@ Deploy as a separate Railway service from the Docker image `ghcr.io/hatchet-dev/
 | `SERVER_GRPC_BROADCAST_ADDRESS` | Internal Railway address for gRPC |
 | `SERVER_MSGQUEUE_KIND` | `postgres` |
 
-Once it is running, **mint an API token from its dashboard** and set it as `HATCHET_CLIENT_TOKEN` in both Hogsend services — this is [Step 1](/docs/getting-started/hatchet), the same bring-your-own-token contract as every other target. There is no auto-mint.
+Once it is running, **mint an API token from its dashboard** and set it as `HATCHET_CLIENT_TOKEN` in both Hogsend services. See [Get a Hatchet token](/docs/getting-started/hatchet).
 
 ### Postgres & Redis
 
@@ -118,7 +118,7 @@ The worker needs no public domain.
 
 ## Deployment checklist
 
-- [ ] [Acquire a Hatchet token](/docs/getting-started/hatchet) and deploy Hatchet-Lite
+- [ ] [Get a Hatchet token](/docs/getting-started/hatchet) and deploy Hatchet-Lite
 - [ ] Provision Postgres and Redis, link them to both services
 - [ ] Set required env (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `HATCHET_CLIENT_*`)
 - [ ] Set `NODE_ENV=production`, `API_PUBLIC_URL`, `BETTER_AUTH_URL`
@@ -130,7 +130,7 @@ The worker needs no public domain.
 ## Next steps
 
 <Cards>
-  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
   <Card title="Deploy with Docker (default)" href="/docs/operating/deploy-docker" />
   <Card title="Configuration reference" href="/docs/getting-started/configuration" />
   <Card title="Monitoring & Alerting" href="/docs/operating/monitoring" />

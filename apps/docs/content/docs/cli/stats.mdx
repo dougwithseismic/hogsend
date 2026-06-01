@@ -1,0 +1,40 @@
+---
+title: hogsend stats
+description: Show system-wide overview metrics from a running Hogsend instance — contacts, active journeys, recent email volume, and bounce/unsubscribe rates.
+---
+
+`hogsend stats` shows system-wide overview metrics from a running Hogsend instance. It wraps `GET /v1/admin/metrics/overview`.
+
+```bash
+hogsend stats [--json]
+```
+
+## Fields
+
+| Field | Description |
+|---|---|
+| `totalContacts` | Live (non-deleted) contacts. |
+| `activeJourneys` | Journey states currently active or waiting. |
+| `emailsSent24h` | Emails sent in the last 24 hours. |
+| `emailsSent7d` | Emails sent in the last 7 days. |
+| `emailsSent30d` | Emails sent in the last 30 days. |
+| `bounceRate30d` | Bounced / sent over the last 30 days (`0..1`). |
+| `unsubscribeRate` | Unsubscribed / total preferences (`0..1`). |
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--url <baseUrl>` | API base URL (default `HOGSEND_API_URL` or `http://localhost:3002`). |
+| `--admin-key <key>` | Admin bearer key (default `HOGSEND_ADMIN_KEY` / `ADMIN_API_KEY`). |
+| `--json` | Emit machine-readable JSON only. |
+| `-h, --help` | Show this help. |
+
+The `--url`, `--admin-key`, and `--json` flags are the shared global flags handled by the router. See the [CLI Reference](/docs/cli) for full connection details.
+
+## Examples
+
+```bash
+hogsend stats
+hogsend stats --json
+```

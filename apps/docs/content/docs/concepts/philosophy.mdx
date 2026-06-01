@@ -30,9 +30,9 @@ const container = createHogsendClient({ journeys });
 const app = createApp(container, { webhookSources });
 ```
 
-Because you register journeys and sources in **your own** files — not by editing a shared engine index — there is no merge surface. Upgrading the framework is `pnpm up "@hogsend/*"` plus a migration run, **never a git merge of a fork**.
+Because you register journeys and sources in **your own** files — not by editing a shared engine index — there is no merge surface. Upgrading the framework is `pnpm up "@hogsend/*"` plus a migration run.
 
-## You scaffold; you don't fork
+## You scaffold a fresh app
 
 You start a project with:
 
@@ -41,10 +41,6 @@ pnpm dlx create-hogsend@latest my-app
 ```
 
 This emits a thin app that pins `@hogsend/engine`, contains only content, and has the two entry files (`src/index.ts`, `src/worker.ts`) already wired. The starter journeys, the PostHog webhook source, and your `Events`/`Templates` constants are copied in as **editable starter content** — they're yours from minute one, not locked inside the engine.
-
-<Callout type="info">
-  The `@hogsend/*` packages aren't published to npm yet (everything is at `0.0.1`; the publish pipeline is staged but hasn't run). `pnpm dlx create-hogsend@latest` is the intended install path — available imminently. Today the packages are consumed from this monorepo.
-</Callout>
 
 ## Built to be extended — through injection points
 
@@ -86,7 +82,7 @@ Most of the time you'll only ever **Extend** — and that's the design goal. But
 
 - **Extend** — use the public injection points above. Zero upgrade cost; clean `pnpm up` forever. This is the default and covers the overwhelming majority of needs.
 - **Patch** — `pnpm patch @hogsend/engine` for a small, line-local fix held as a committed `.patch`. It re-applies on every install and fails loudly if an upgrade moves the patched lines.
-- **Eject** — `hogsend eject <package>` (the Node `@hogsend/cli`, distinct from the Go `hogsend` deployment CLI) copies one package into `vendor/` and rewrites just that dependency to a local file link. You maintain a fork of **that one package**; everything else still `pnpm up`s.
+- **Eject** — `hogsend eject <package>` copies one package into `vendor/` and rewrites just that dependency to a local file link. You maintain a fork of **that one package**; everything else still `pnpm up`s.
 
 The full how-to — exact commands, the patch lifecycle, what `eject` copies and how to un-eject — lives in [Upgrading & Customizing](/docs/operating/upgrading). Reach for the smallest rung that does the job.
 

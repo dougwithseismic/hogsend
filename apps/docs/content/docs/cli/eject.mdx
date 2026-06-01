@@ -1,0 +1,33 @@
+---
+title: hogsend eject
+description: Vendor a @hogsend/* package's source into vendor/<name> and rewrite the consumer dependency to a local file: reference.
+---
+
+Copy a `@hogsend/*` package's source into `vendor/<name>` and rewrite the consumer dependency to `file:./vendor/<name>`. Every other dependency keeps upgrading.
+
+```bash
+hogsend eject <package> [--force] [--cwd <dir>]
+```
+
+Eject is the last rung of the **Extend → Patch → Eject** editability ladder — reach for it only when you need to own a package's source outright. See [Upgrading & Customizing](/docs/operating/upgrading) for the full ladder.
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--force` | Overwrite an existing `vendor/<name>`. |
+| `--cwd <dir>` | Consumer repo root (defaults to the current directory). |
+| `-h, --help` | Show this help. |
+
+## Examples
+
+```bash
+hogsend eject @hogsend/email
+hogsend eject @hogsend/email --force
+```
+
+After ejecting, install so the new local dependency is linked:
+
+```bash
+pnpm install
+```

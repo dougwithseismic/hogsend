@@ -1,0 +1,38 @@
+---
+title: hogsend events
+description: Stream the event history for a single user, newest first — with optional event-name, time-range, and pagination filters.
+---
+
+`hogsend events` streams the event history for a single user, newest first. It wraps `GET /v1/admin/events?userId=<userId>`.
+
+```bash
+hogsend events <userId> [options]
+```
+
+## Arguments
+
+| Argument | Description |
+|---|---|
+| `<userId>` | The user (distinct) id to fetch events for. **Required.** |
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--event <name>` | Filter to a single event name. |
+| `--from <iso>` | Only events at/after this ISO-8601 timestamp. |
+| `--to <iso>` | Only events at/before this ISO-8601 timestamp. |
+| `--limit <n>` | Max events to return (1–100, default 50). |
+| `--offset <n>` | Pagination offset (default 0). |
+| `--json` | Emit machine-readable JSON only. |
+| `-h, --help` | Show this help. |
+
+The `--url`, `--admin-key`, and `--json` flags are the shared global flags handled by the router. See the [CLI Reference](/docs/cli) for full connection details.
+
+## Examples
+
+```bash
+hogsend events user_123
+hogsend events user_123 --event signup --limit 10
+hogsend events user_123 --from 2026-01-01T00:00:00Z --json
+```

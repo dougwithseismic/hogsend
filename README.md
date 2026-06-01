@@ -12,11 +12,9 @@ PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit
 
 Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog and Resend and now need behavioral sequences without buying a third platform.
 
-> ⚠️ **Breaking changes are incoming** — by all means get excited and read the docs, but hold off for a day or two before building on the current setup. It'll be worth it!
-
 **[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
 
-Self-host with Docker (the default), or one-click on Railway. Same image, same env contract — [pick a target](https://docs.hogsend.com/docs/operating/deployment).
+Everything ships on npm: scaffold an app with `pnpm dlx create-hogsend@latest`, self-host with Docker, or one-click on Railway.
 
 ---
 
@@ -28,7 +26,7 @@ Events flow in from PostHog, journeys react with emails via Resend, engagement d
   <img src="hogsend-lifecycle.png" alt="PostHog Lifecycle Email Flow" width="100%" />
 </p>
 
-> Deep dive: **[How It Works](apps/docs/content/docs/concepts/how-it-works.mdx)** | **[Why PostHog?](apps/docs/content/docs/concepts/why-posthog.mdx)** | **[Why Hatchet?](apps/docs/content/docs/concepts/why-hatchet.mdx)** | **[Philosophy](apps/docs/content/docs/concepts/philosophy.mdx)**
+> Deep dive: **[How It Works](https://docs.hogsend.com/docs/concepts/how-it-works)** | **[Why PostHog?](https://docs.hogsend.com/docs/concepts/why-posthog)** | **[Why Hatchet?](https://docs.hogsend.com/docs/concepts/why-hatchet)** | **[Philosophy](https://docs.hogsend.com/docs/concepts/philosophy)**
 
 ---
 
@@ -51,10 +49,8 @@ Each is a single TypeScript file using `defineJourney()`. The repo ships with [1
 A `user_signed_up` event triggers this journey. It sends a welcome email, waits two days, checks if the user tried the core feature, and nudges them if not:
 
 ```typescript
-import { days } from "@hogsend/core";
-import { sendEmail } from "../lib/email.js";
+import { days, defineJourney, sendEmail } from "@hogsend/engine";
 import { Events, Templates } from "./constants/index.js";
-import { defineJourney } from "./define-journey.js";
 
 export const activationWelcome = defineJourney({
   meta: {
@@ -97,73 +93,62 @@ export const activationWelcome = defineJourney({
 
 That `ctx.sleep(days(2))` literally pauses for two days and picks up exactly where it left off — durable execution via [Hatchet](https://hatchet.run) that survives deploys and restarts.
 
-> Full guide: **[Journeys](apps/docs/content/docs/guides/journeys.mdx)** | **[Events](apps/docs/content/docs/guides/events.mdx)** | **[Email](apps/docs/content/docs/guides/email.mdx)** | **[Conditions](apps/docs/content/docs/guides/conditions.mdx)**
+> Full guide: **[Journeys](https://docs.hogsend.com/docs/guides/journeys)** | **[Events](https://docs.hogsend.com/docs/guides/events)** | **[Email](https://docs.hogsend.com/docs/guides/email)** | **[Conditions](https://docs.hogsend.com/docs/guides/conditions)**
 
 ---
 
 ## Get Started
 
-### Step 1 — acquire a Hatchet
-
-Hogsend's one prerequisite is a [Hatchet](https://hatchet.run) token — it's what makes `ctx.sleep(days(2))` survive deploys. There is **no auto-mint**: you bring the token. Get one from [Hatchet Cloud](https://cloud.onhatchet.run) (paste a token), the self-hosted `hatchet-lite` dashboard (mint it at `:8888`), or your own engine, then set the three `HATCHET_CLIENT_*` vars.
-
-> Full guide: **[Acquire a Hatchet](apps/docs/content/docs/getting-started/hatchet.mdx)**
-
-### Self-host with Docker (the default)
-
-The full stack — Postgres, Redis, hatchet-lite, plus the migrate/api/worker run modes off one image — comes up from `docker-compose.prod.yml`. Bring up the engine first, mint a token, then start the app:
+Scaffold a fresh app with `create-hogsend`. It generates a thin app that pins `@hogsend/engine` and holds your content — journeys, email templates, webhook sources — then installs everything from npm:
 
 ```bash
-cp .env.example .env                                          # set BETTER_AUTH_SECRET, RESEND_API_KEY
-docker compose -f docker-compose.prod.yml up -d hatchet-lite  # 1. engine first
-# 2. mint a token at http://localhost:8888 → paste into .env as HATCHET_CLIENT_TOKEN
-docker compose -f docker-compose.prod.yml up -d --build       # 3. full stack
+pnpm dlx create-hogsend@latest my-app
+cd my-app
+
+cp .env.example .env        # set BETTER_AUTH_SECRET, RESEND_API_KEY, HATCHET_CLIENT_TOKEN
+docker compose up -d        # Postgres, Redis, Hatchet-Lite
+pnpm db:migrate             # engine track, then your client track
+pnpm dev                    # API on http://localhost:3002
+pnpm worker:dev             # Hatchet worker, in a second terminal
 ```
 
-> Full guide: **[Deploy with Docker](apps/docs/content/docs/operating/deploy-docker.mdx)**
+Fire a `user_signed_up` event and watch the journey run. Upgrade the framework with `pnpm up "@hogsend/*"` — never a fork or a merge.
 
-### One-click on Railway (one paved option)
+> Full guide: **[Installation](https://docs.hogsend.com/docs/getting-started/installation)** | **[Configuration](https://docs.hogsend.com/docs/getting-started/configuration)** | **[PostHog Setup](https://docs.hogsend.com/docs/getting-started/posthog-setup)**
+
+### The Hatchet token
+
+Journeys are durable, which is what lets `ctx.sleep(days(2))` pause for two days and survive deploys. That durability is backed by [Hatchet](https://hatchet.run), so you need a `HATCHET_CLIENT_TOKEN`. The local `docker compose` runs `hatchet-lite` for you — mint a token from its dashboard at [`localhost:8888`](http://localhost:8888), or use [Hatchet Cloud](https://cloud.onhatchet.run) if you'd rather not run it yourself.
+
+> Full guide: **[Hatchet setup](https://docs.hogsend.com/docs/getting-started/hatchet)**
+
+### Deploy
+
+Same app, deployed your way. One-click on Railway, or self-host the full stack anywhere that runs Node.js + Postgres:
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
 
-Railway is a managed on-ramp — same image, same env contract, just less to run yourself. The `hogsend` CLI discovers your Railway project, generates secrets, creates a PostHog webhook destination, and fires a test event:
-
-```bash
-curl -L https://github.com/dougwithseismic/hogsend/releases/latest/download/hogsend_darwin_arm64.tar.gz | tar xz
-sudo mv hogsend /usr/local/bin/
-hogsend init && hogsend test
-```
-
-> Full guide: **[Deploy on Railway](apps/docs/content/docs/operating/deploy-railway.mdx)**
-
-### Local Development
-
-```bash
-git clone https://github.com/dougwithseismic/hogsend.git && cd hogsend
-pnpm setup        # Docker, deps, .env (generates BETTER_AUTH_SECRET)
-pnpm dev          # API on :3002
-# separate terminal:
-cd apps/api && hatchet worker dev
-```
-
-> Full guide: **[Installation](apps/docs/content/docs/getting-started/installation.mdx)** | **[Configuration](apps/docs/content/docs/getting-started/configuration.mdx)** | **[PostHog Setup](apps/docs/content/docs/getting-started/posthog-setup.mdx)**
+> Full guide: **[Deploy on Railway](https://docs.hogsend.com/docs/operating/deploy-railway)** | **[Deploy with Docker](https://docs.hogsend.com/docs/operating/deploy-docker)**
 
 ---
 
 ## CLI
 
+`@hogsend/cli` is the agent-native companion — install it with `pnpm add -g @hogsend/cli`, or run any command through `pnpm dlx @hogsend/cli`. It talks to a running instance's admin API; pass `--json` for machine-readable output.
+
 ```bash
-hogsend init        # Connect Railway project, configure PostHog webhook, verify pipeline
-hogsend setup       # Local dev — Docker, deps, .env
-hogsend status      # Health check
-hogsend deploy      # Trigger Railway redeploy
-hogsend test        # Fire test event, verify it arrives
-hogsend journeys    # Enable/disable journeys
-hogsend contacts    # Manage contacts (list, create, update, delete, prefs)
-hogsend destroy     # Tear down Railway project
+hogsend doctor      # Probe a running instance's health
+hogsend journeys    # List, inspect, enable, and disable journeys
+hogsend contacts    # List, inspect, and trace contact activity
+hogsend stats       # System-wide overview metrics
+hogsend events      # Stream a single user's event history
+hogsend setup       # Local onboarding — docker compose up, gen secret, db:migrate
+hogsend skills      # Install bundled Claude Code skills into .claude/skills
+hogsend eject       # Vendor a @hogsend/* package into vendor/<name>
+hogsend patch       # Patch a package via pnpm's native patch flow
 ```
 
-> Full reference: **[CLI Reference](apps/docs/content/docs/cli/index.mdx)**
+> Full reference: **[CLI Reference](https://docs.hogsend.com/docs/cli)**
 
 ---
 
@@ -178,10 +163,10 @@ hogsend destroy     # Tear down Railway project
 | Email delivery | Resend (`@hogsend/plugin-resend`) |
 | Product analytics | PostHog (`@hogsend/plugin-posthog`) |
 | Email templates | React Email |
-| CLI | Go (cobra + charmbracelet) |
-| Deploy | Docker Compose (default), Railway, or bring-your-own |
+| CLI | TypeScript on Node (`@hogsend/cli`) |
+| Deploy | Railway (one-click), Docker Compose, or bring-your-own |
 
-Plugins are standalone packages — create your own for Slack, Twilio, or any service. See **[Creating Plugins](apps/docs/content/docs/guides/plugins.mdx)**.
+Plugins are standalone packages — create your own for Slack, Twilio, or any service. See **[Creating Plugins](https://docs.hogsend.com/docs/guides/plugins)**.
 
 ---
 

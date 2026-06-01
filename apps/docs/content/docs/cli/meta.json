@@ -2,13 +2,14 @@
   "title": "CLI Reference",
   "pages": [
     "index",
-    "init",
-    "setup",
-    "status",
-    "deploy",
-    "test",
+    "doctor",
     "journeys",
     "contacts",
-    "destroy"
+    "stats",
+    "events",
+    "setup",
+    "skills",
+    "eject",
+    "patch"
   ]
 }

@@ -49,11 +49,11 @@ Email delivery through [Resend](https://resend.com).
 
 ### Hatchet
 
-[Hatchet](https://hatchet.run) handles durable task execution — journey orchestration, email sends, and background jobs. Acquiring a token is **[Step 1](/docs/getting-started/hatchet)**; there is no auto-mint. These three values are the entire connection contract.
+[Hatchet](https://hatchet.run) handles durable task execution — journey orchestration, email sends, and background jobs. You'll need a token before first boot — see [Get a Hatchet token](/docs/getting-started/hatchet). These three values are the whole connection.
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `HATCHET_CLIENT_TOKEN` | **Yes** | — | API, Worker | Bearer JWT for connecting to the Hatchet engine. The SDK hard-throws if empty. Copy from the Hatchet dashboard (`localhost:8888` locally) or paste a Hatchet Cloud token. See [Acquire a Hatchet](/docs/getting-started/hatchet). |
+| `HATCHET_CLIENT_TOKEN` | **Yes** | — | API, Worker | Bearer JWT for connecting to the Hatchet engine. The SDK hard-throws if empty. Copy from the Hatchet dashboard (`localhost:8888` locally) or paste a Hatchet Cloud token. See [Get a Hatchet token](/docs/getting-started/hatchet). |
 | `HATCHET_CLIENT_HOST_PORT` | No | `localhost:7077` | API, Worker | Hatchet gRPC endpoint. In-compose: `hatchet-lite:7077`. On Railway, the internal address of the Hatchet-Lite service. |
 | `HATCHET_CLIENT_TLS_STRATEGY` | No | `tls` | API, Worker | TLS strategy for the gRPC connection: `none` \| `tls` \| `mtls`. **Secure by default.** Override to `none` for local and internal-network hatchet-lite; keep `tls` for Hatchet Cloud and the public internet. |
 | `HATCHET_CLIENT_NAMESPACE` | No | _(empty)_ | API, Worker | Optional per-tenant isolation namespace on a shared engine. Default-empty; documented so it stays part of the contract. |
@@ -79,10 +79,10 @@ Public URL configuration and admin access.
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
 | `API_PUBLIC_URL` | No | `http://localhost:3002` | API, Worker | Public-facing API URL. Used to generate unsubscribe and click/open tracking links in emails. Must be reachable by end users (e.g. `https://api.yourdomain.com`). |
-| `ADMIN_API_KEY` | No | — | API | API key for `/v1/admin/*` endpoints and the Go `hogsend` admin CLI. Without it, admin endpoints are inaccessible. |
+| `ADMIN_API_KEY` | No | — | API | API key for `/v1/admin/*` endpoints and the `hogsend` CLI's admin commands. Without it, admin endpoints are inaccessible. |
 
 <Callout type="warn">
-  `ADMIN_API_KEY` gates all admin operations — viewing contacts, managing journeys, metrics, and the Go CLI's `contacts`/`journeys` commands. Generate a strong key: `openssl rand -hex 32`.
+  `ADMIN_API_KEY` gates all admin operations — viewing contacts, managing journeys, metrics, and the CLI's `contacts` / `journeys` commands. Generate a strong key: `openssl rand -hex 32`.
 </Callout>
 
 ### Features

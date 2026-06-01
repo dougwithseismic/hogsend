@@ -1,127 +1,46 @@
 ---
 title: hogsend contacts
-description: List, inspect, create, update, and delete contacts and their email preferences.
+description: List, inspect, and trace contact activity on a running Hogsend instance via the admin API.
 ---
 
-## Usage
+Inspect contacts via the running app's admin API (`/v1/admin/contacts`).
 
 ```bash
-hogsend contacts <subcommand> [args] [flags]
+hogsend contacts <subcommand> [options]
 ```
 
-Manage contacts through the admin API. All subcommands require a valid `api_key` in `.hogsend.yaml`.
+The global `--url`, `--admin-key`, and `--json` flags apply — see the [CLI Reference](/docs/cli) overview for connection details.
 
 ## Subcommands
 
-### list
+| Subcommand | What it does |
+|---|---|
+| `list` | List contacts, newest activity first. |
+| `get <id>` | Get one contact (by `id` or `externalId`) plus preferences. |
+| `timeline <id>` | Merged event / email / journey activity for a contact. |
 
-List all contacts with a formatted table.
+## Options
 
-```bash
-hogsend contacts list [--search <query>]
-```
+`list`:
 
-| Flag | Short | Description |
-|---|---|---|
-| `--search` | `-s` | Filter by email or external ID |
+| Option | Description |
+|---|---|
+| `--search <q>` | Filter by email / `externalId` substring. |
+| `--limit <n>` | Page size (1–100, default 50). |
+| `--offset <n>` | Page offset (default 0). |
 
-Displays up to 50 contacts per page with external ID, email, last seen date, and property count.
+`timeline`:
 
-### get
-
-Show full details for a single contact.
-
-```bash
-hogsend contacts get <id>
-```
-
-Displays the contact's internal ID, external ID, email, first/last seen timestamps, properties (as formatted JSON), and email preferences (unsubscribe status, suppression state, bounce count, category subscriptions).
-
-### create
-
-Create a new contact via an interactive form.
-
-```bash
-hogsend contacts create
-```
-
-The form prompts for:
-
-- **External ID** (required) -- the unique identifier, typically the PostHog `distinct_id`
-- **Email** (optional) -- the contact's email address
-- **Properties** (optional) -- a JSON object of arbitrary properties
-
-### update
-
-Update an existing contact via an interactive form.
-
-```bash
-hogsend contacts update <id>
-```
-
-Fetches the current contact first, then prompts for:
-
-- **Email** -- leave blank to keep the current value
-- **Properties** -- a JSON object that will be merged with existing properties
-
-### delete
-
-Permanently delete a contact and all associated email preferences.
-
-```bash
-hogsend contacts delete <id>
-```
-
-Shows the contact's external ID and email, then asks for confirmation before deleting.
-
-### unsub
-
-Toggle the global unsubscribe flag for a contact.
-
-```bash
-hogsend contacts unsub <id>
-```
-
-Fetches the current subscription state and offers to flip it. If the contact is currently subscribed, this unsubscribes them (and vice versa). Uses the preferences API under the hood.
-
-### prefs
-
-View email preferences for a contact.
-
-```bash
-hogsend contacts prefs <id>
-```
-
-Displays:
-
-- **Global unsubscribe** status
-- **Suppressed** status (set automatically on hard bounces)
-- **Bounce count**
-- **Category subscriptions** (if any categories are configured)
-
-If no preferences exist, the contact is fully subscribed by default.
+| Option | Description |
+|---|---|
+| `--type <t>` | Restrict to one of `event`, `journey`, or `email`. |
+| `--limit <n>` | Page size (1–100, default 50). |
+| `--offset <n>` | Page offset (default 0). |
 
 ## Examples
 
 ```bash
-# Search for a contact by email
-hogsend contacts list --search alice@example.com
-
-# View full details
-hogsend contacts get user_abc123
-
-# Create a contact
-hogsend contacts create
-
-# Update email address
-hogsend contacts update user_abc123
-
-# Unsubscribe a contact
-hogsend contacts unsub user_abc123
-
-# Check preferences
-hogsend contacts prefs user_abc123
-
-# Delete a contact
-hogsend contacts delete user_abc123
+hogsend contacts list --search acme@ --json
+hogsend contacts get user_123
+hogsend contacts timeline user_123 --type email --json
 ```

@@ -1,0 +1,34 @@
+---
+title: hogsend skills
+description: Manage the Claude Code skills bundled with @hogsend/cli — list them and copy them into your project's .claude/skills directory.
+---
+
+Manage the Claude Code skills bundled with `@hogsend/cli`. Bundled skills teach agents how to drive the hogsend CLI; `add` copies them into your project's `./.claude/skills/<name>/` so Claude Code can discover them.
+
+```bash
+hogsend skills <subcommand> [options]
+```
+
+## Subcommands
+
+| Subcommand | Description |
+|---|---|
+| `list` | List bundled skills and whether each is installed. |
+| `add [name] [--force]` | Copy a bundled skill into `./.claude/skills/<name>/`. Omit `name` for an interactive multiselect (human), or copy all bundled skills (`--json` / non-interactive). |
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--force` | Overwrite an already-installed skill. |
+| `--json` | Emit machine-readable JSON only (implies non-interactive). |
+| `-h, --help` | Show this help. |
+
+## Examples
+
+```bash
+hogsend skills list
+hogsend skills list --json
+hogsend skills add
+hogsend skills add hogsend-cli --force
+```

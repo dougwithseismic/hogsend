@@ -1,0 +1,46 @@
+---
+title: hogsend doctor
+description: Probe a running Hogsend instance via GET /v1/health and report component status, schema state, and an overall verdict — no admin key required.
+---
+
+`hogsend doctor` probes a running Hogsend instance via `GET /v1/health` and reports its health: component status (`database`, `redis`), the two-track schema state (engine + client), and an overall verdict.
+
+```bash
+hogsend doctor [--url <baseUrl>] [--admin-key <key>] [--json]
+```
+
+The health route is unauthenticated, so `doctor` works **without an admin key**.
+
+## Verdict
+
+`doctor` resolves the instance to one of four verdicts:
+
+| Verdict | Meaning |
+|---|---|
+| `ok` | Service healthy, all components up, schema in sync |
+| `degraded` | Reachable but a component (`database`/`redis`) is down |
+| `migration_pending` | Reachable but a schema track is behind (pending migrations) |
+| `unreachable` | The instance could not be reached at all |
+
+### Exit codes
+
+`doctor` exits `0` when the verdict is `ok`, and `1` when it is `unreachable`, `degraded`, or `migration_pending` — so you can branch on it in scripts and CI.
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--url <baseUrl>` | Target instance (default `HOGSEND_API_URL` / `.env` / `:3002`). |
+| `--admin-key <key>` | Unused by `doctor` (health is unauthenticated). |
+| `--json` | Emit machine-readable JSON only. |
+| `-h, --help` | Show this help. |
+
+The `--url`, `--admin-key`, and `--json` flags are the shared global flags handled by the router. See the [CLI Reference](/docs/cli) for full connection details. Note that `doctor` ignores `--admin-key` because the health route requires no authentication.
+
+## Examples
+
+```bash
+hogsend doctor
+hogsend doctor --url https://api.example.com
+hogsend doctor --json
+```

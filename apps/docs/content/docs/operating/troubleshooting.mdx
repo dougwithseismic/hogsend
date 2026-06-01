@@ -37,7 +37,7 @@ Common mistakes:
 # Then compare with the header value in PostHog > Data > Destinations > your destination > Headers
 ```
 
-If you used the Go `hogsend init` deployment CLI (see [CLI](/docs/cli)), it set both values when it created the PostHog webhook. If they got out of sync (e.g., you regenerated secrets), update both sides to match.
+The secret must match on both sides — the `POSTHOG_WEBHOOK_SECRET` your app verifies against and the header value PostHog sends. If they got out of sync (e.g., you regenerated secrets), update both sides to match.
 
 ### No event matchers configured
 
@@ -294,30 +294,22 @@ The health check verifies database connectivity **and** that both migration trac
 
 ## CLI issues
 
-These cover the Go `hogsend` deployment/admin CLI (see [CLI](/docs/cli)) — `init` configures an existing Railway-template deploy, it does not scaffold a project (project creation is `pnpm dlx create-hogsend`). This is distinct from the Node `@hogsend/cli` `eject` tool covered in [Upgrading & Customizing](/docs/operating/upgrading).
+These cover the [`@hogsend/cli`](/docs/cli) tool. The data commands (`doctor`, `journeys`, `contacts`, `stats`, `events`) talk to a running instance's API.
 
-### Token invalid
+### Instance unreachable
 
-**Symptom:** `hogsend init` or `hogsend status` returns an authentication error.
-
-**Fix:**
-1. **Railway token:** Generate a new one at [railway.com/account/tokens](https://railway.com/account/tokens). Tokens can expire or be revoked.
-2. **PostHog personal API key:** Generate at PostHog > Settings > Personal API Keys. Must start with `phx_`. Project API keys (starting with `phc_`) will not work for the CLI.
-
-### Project not found
-
-**Symptom:** `hogsend init` cannot find your Railway project.
+**Symptom:** `hogsend doctor` reports `unreachable`, or a command errors with a connection refused / timeout.
 
 **Fix:**
-1. Make sure the Railway project exists and the template deploy completed successfully
-2. Check that your Railway token has access to the project (team tokens are scoped per team)
-3. If you have multiple Railway projects, the CLI will prompt you to select one
+1. Confirm the instance is actually running and listening.
+2. Point the CLI at the right base URL — set `--url <baseUrl>` or `HOGSEND_API_URL` (defaults to `http://localhost:3002`).
+3. If it's a remote deploy, make sure the URL is reachable from where you're running the CLI (public domain, not an internal host).
 
-### Services not discovered
+### Authentication error
 
-**Symptom:** `hogsend init` finds the project but cannot find the API or worker services.
+**Symptom:** an admin command (`journeys`, `contacts`, `stats`, `events`) returns a 401/403.
 
-**Fix:** The CLI looks for services named `hogsend-api` and `hogsend-worker`. If you renamed them in Railway, the CLI will not find them automatically. Either rename them back or use the CLI's interactive selection to pick the correct services.
+**Fix:** these commands hit `/v1/admin/*`, which is gated by `ADMIN_API_KEY` on the server. Pass a matching key with `--admin-key <key>` or set `HOGSEND_ADMIN_KEY` / `ADMIN_API_KEY` in your environment. (`doctor` reads the unauthenticated health route, so it works without a key.)
 
 ## Getting more help
 

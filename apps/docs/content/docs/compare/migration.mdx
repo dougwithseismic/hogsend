@@ -18,10 +18,6 @@ cd my-app
 
 This emits a thin app that owns **content only** -- your journeys, email templates, webhook sources, custom routes, config, and your own database migrations -- and pins `@hogsend/engine` (plus the other `@hogsend/*` packages) to a single version line. Everything you migrate goes into this app's `src/`. The framework itself stays a dependency you upgrade with `pnpm up "@hogsend/*"`.
 
-<Callout type="info">
-The `@hogsend/*` packages are not on npm yet (everything is at `0.0.1` while the publish pipeline finishes) -- they're landing imminently. Until then they're consumed from this monorepo, and the scaffold's verification harness resolves them from local `pnpm pack` tarballs. The commands here are the intended, final shape. See [Getting Started](/docs/getting-started) for the current local-dev path.
-</Callout>
-
 Once the app boots, the migration is three concrete tasks: bring your contacts over, translate your journeys, and rebuild your templates.
 
 ## What migrates

@@ -5,10 +5,6 @@ description: Scaffold a fresh Hogsend app, run it locally against Docker, and fi
 
 You install Hogsend by **scaffolding a fresh app** that consumes the versioned `@hogsend/engine` package. You do not clone or fork a monorepo — your repo owns content (journeys, templates, webhook sources, routes, your own migrations) and pins the engine.
 
-<Callout type="info">
-  The `@hogsend/*` packages are publishing to npm imminently (currently `0.0.1`). `pnpm dlx create-hogsend@latest` is the intended install path. Until the registry publish lands, the packages resolve from this monorepo's local tarballs (the scaffold's TEST-ONLY `--use-tarballs <dir>` flag).
-</Callout>
-
 ## 1. Scaffold the app
 
 ```bash

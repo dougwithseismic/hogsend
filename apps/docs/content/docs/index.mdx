@@ -1,6 +1,6 @@
 ---
 title: Introduction
-description: The lifecycle automation layer PostHog doesn't have yet — a versioned engine you install, not a monorepo you fork. Scaffold an app and ship your first lifecycle emails in minutes.
+description: The lifecycle automation layer PostHog doesn't have yet. Scaffold an app, define journeys in TypeScript, and ship your first lifecycle emails in minutes.
 ---
 
 ## What is Hogsend?
@@ -9,16 +9,12 @@ Hogsend is the **lifecycle email automation that PostHog teams actually need**. 
 
 If you're a PostHog team that's been putting off lifecycle emails because Customer.io is overkill and building it yourself is a rabbit hole — this is the thing you'd build anyway. We just built it first.
 
-<Callout type="info">
-  The `@hogsend/*` packages are publishing imminently (currently versioned at `0.0.1`). The architecture and install path on this page are how Hogsend works going forward; until the registry push lands, the packages are consumed from this monorepo (the verification harness resolves them from local `pnpm pack` tarballs). See [Getting Started](/docs/getting-started) for the current local-dev path.
-</Callout>
+### Install the engine, own your content
 
-### A versioned engine, not a fork
+Hogsend ships as an npm package — `@hogsend/engine` — that your app installs like any other framework. You scaffold a fresh app that pins the engine and owns only your *content*: journeys, email templates, webhook sources, custom routes, config, and your own database migrations.
 
-Hogsend ships as a **versioned package — `@hogsend/engine`** — that your app consumes, the same way you'd consume any framework. You don't clone or fork a monorepo. You **scaffold a fresh app** that pins the engine and owns only your *content*: journeys, email templates, webhook sources, custom routes, config, and your own database migrations.
-
-- **The engine** (`@hogsend/engine` + the other `@hogsend/*` packages) is upstream. You consume it and upgrade it with `pnpm up "@hogsend/*"` — never a git merge. You don't edit it; you [Extend, Patch, or Eject](/docs/operating/upgrading) instead.
-- **Your content** lives in your scaffolded repo and is **injected into** the engine's factories (`createHogsendClient`, `createApp`, `createWorker`). The engine never imports your content.
+- **The engine** (`@hogsend/engine` plus the other `@hogsend/*` packages) is the framework. Upgrade it with `pnpm up "@hogsend/*"`; when you need to go further than config, you [Extend, Patch, or Eject](/docs/operating/upgrading).
+- **Your content** lives in your repo and is injected into the engine's factories (`createHogsendClient`, `createApp`, `createWorker`). The engine never imports your content.
 
 ### Why Hogsend exists
 
@@ -106,7 +102,7 @@ You register this journey by adding it to the `journeys` array your app exports 
 
 ## What you get
 
-- **A versioned engine** — `@hogsend/engine` is the committed, semver-stable API surface. Upgrade with `pnpm up "@hogsend/*"` and run migrations; never merge a fork.
+- **A versioned engine** — `@hogsend/engine` is a semver-stable API surface. Upgrade with `pnpm up "@hogsend/*"` and run migrations.
 - **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep({ duration: days(3) })` literally pauses for three days and picks up exactly where it left off.
 - **PostHog webhook source** — Point your PostHog webhook at your app and events flow through automatically.
 - **Resend email delivery** — React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center.

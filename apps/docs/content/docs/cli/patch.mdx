@@ -1,0 +1,35 @@
+---
+title: hogsend patch
+description: Patch a @hogsend/* package in place using pnpm's native patch flow — extract, edit, and commit a persistent patch.
+---
+
+A thin wrapper over pnpm's native patch flow. Runs `pnpm patch <package>`, which extracts the package into a temp dir and prints the path to edit. After editing, commit the patch with the command pnpm prints (`pnpm patch-commit <dir>`).
+
+```bash
+hogsend patch <package> [--cwd <dir>]
+```
+
+Patch is the middle rung of the **Extend → Patch → Eject** editability ladder — use it for small, surgical changes to a package without owning its full source. See [Upgrading & Customizing](/docs/operating/upgrading) for the full ladder.
+
+<Callout type="info">
+This does **not** replace `scripts/patch-check.sh` (the patch re-apply contract).
+</Callout>
+
+## The patch flow
+
+1. Run `hogsend patch <package>` — this calls `pnpm patch <package>`, which extracts the package into a temp directory and prints that path.
+2. Edit the files in the printed temp directory.
+3. Commit the patch with the command pnpm prints: `pnpm patch-commit <dir>`. pnpm records the diff and re-applies it on every install.
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--cwd <dir>` | Project root to run pnpm in (defaults to the current directory). |
+| `-h, --help` | Show this help. |
+
+## Examples
+
+```bash
+hogsend patch @hogsend/engine
+```

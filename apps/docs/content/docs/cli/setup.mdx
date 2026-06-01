@@ -1,100 +1,26 @@
 ---
 title: hogsend setup
-description: Set up the Hogsend engine monorepo for local development. Engine-contributor tooling — not the client app workflow.
+description: Interactive local onboarding for a scaffolded Hogsend app — bring up infra, create .env, generate a secret, and run migrations.
 ---
 
-## Usage
+Interactive local onboarding for a scaffolded Hogsend app. It mirrors the "next steps" `create-hogsend` prints after scaffolding, running them for you:
+
+1. `docker compose up -d` — Postgres, Redis, and Hatchet-Lite
+2. `cp .env.example .env` (if `.env` is missing)
+3. Generate a `BETTER_AUTH_SECRET` (if it's still the placeholder)
+4. `pnpm db:migrate` — the engine track, then your client track
 
 ```bash
-hogsend setup
+hogsend setup [--cwd <dir>] [--yes] [--json]
 ```
 
-<Callout type="warn">
-`hogsend setup` is **monorepo tooling for engine contributors**. It assumes you are inside a clone of the Hogsend engine monorepo — it runs a root `pnpm install` and copies `apps/api/.env.example` to `apps/api/.env`.
+## Options
 
-**If you are building a Hogsend app, you do not run this.** Scaffold your app and use its own scripts:
-
-```bash
-pnpm dlx create-hogsend@latest my-app
-cp .env.example .env       # in your app root, not apps/api/.env
-docker compose up -d       # Timescale :5434, Redis :6380, Hatchet-Lite :8888/:7077
-pnpm db:migrate            # engine track then client track
-pnpm dev                   # HTTP API on http://localhost:3002
-pnpm worker:dev            # Hatchet worker, second terminal
-```
-
-See [Getting started](/docs/getting-started/installation) for the client local-dev loop.
-</Callout>
-
-Prepares a clone of the engine monorepo for development: checks prerequisites, starts infrastructure containers, installs dependencies, and writes a local `.hogsend.yaml`.
-
-## What it does
-
-The setup command runs through these steps in order.
-
-### 1. Prerequisite checks
-
-Verifies these tools are installed and on your `PATH`:
-
-- **docker** — needed for infrastructure containers
-- **pnpm** — the monorepo package manager
-- **node** — runtime (Node 22 required)
-
-It also checks that the Docker daemon is running. If any check fails, the command exits with a clear error message.
-
-### 2. Start containers
-
-Runs `docker compose up -d --wait --wait-timeout 60` to start:
-
-- **TimescaleDB** (Postgres 18) on port 5434
-- **Redis 8** on port 6380
-- **Hatchet-Lite** with dashboard on port 8888 (gRPC on 7077)
-
-### 3. Create `apps/api/.env`
-
-If `apps/api/.env` does not exist, it is copied from `apps/api/.env.example`. If it already exists, this step is skipped.
-
-<Callout type="info">
-This path (`apps/api/.env`) is specific to the **monorepo**. A scaffolded app keeps its env file at its own repo root (`.env`), copied from the app's `.env.example`.
-</Callout>
-
-### 4. Install dependencies
-
-Runs `pnpm install` at the monorepo root.
-
-### 5. Write `.hogsend.yaml`
-
-If `.hogsend.yaml` does not exist, it writes a local development config:
-
-```yaml
-name: Local Development
-slug: local
-railway:
-  domain: localhost:3002
-journeys:
-  enabled:
-    - "*"
-```
-
-If the file already exists, this step is skipped.
-
-## Output
-
-On completion, it prints a card with the next steps for monorepo development:
-
-```
-pnpm dev              Start the API
-hatchet worker dev    Start the worker (separate terminal)
-hogsend status        Check health
-
-Hatchet dashboard:    http://localhost:8888
-API:                  http://localhost:3002
-```
-
-## Prerequisites
-
-| Tool | Purpose |
+| Option | Description |
 |---|---|
-| Docker Desktop | Runs Postgres, Redis, and Hatchet containers |
-| pnpm | Installs monorepo dependencies |
-| Node 22 | Runtime for the API and worker |
+| `--cwd <dir>` | Project root to run in (defaults to the current directory). |
+| `--yes`, `-y` | Skip confirmation prompts (assume yes). Implied by `--json`. |
+| `--json` | Run non-interactively and emit a single JSON result document. |
+| `-h, --help` | Show this help. |
+
+Run [`hogsend doctor`](/docs/cli/doctor) afterwards to verify the instance is healthy.
