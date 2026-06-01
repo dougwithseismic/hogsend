@@ -9,9 +9,10 @@
 #     from the registry before the build.
 #   - preDeployCommand runs the ENGINE track first, then the CLIENT track. Order
 #     is load-bearing (engine owns the base schema; client migrations are
-#     additive on top). Each track uses a distinct advisory lock so the chained
-#     commands never self-deadlock (engine lock 4812007 in @hogsend/db; the
-#     client track must use a different key — see runbook §"Two advisory locks").
+#     additive on top). Both tracks share ONE advisory lock (4812007 in
+#     @hogsend/db) and run as separate, sequential processes — each acquires the
+#     lock, migrates, then releases it before the next track starts, so the
+#     chained commands serialize correctly and never self-deadlock.
 #   - The client repo sets CLIENT_MIGRATIONS_FOLDER (service env var) to its
 #     own migrations/ dir; db:migrate:client skips gracefully when unset/empty,
 #     so this command is correct for both this dogfood and scaffolded repos.

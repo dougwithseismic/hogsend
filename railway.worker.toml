@@ -1,6 +1,10 @@
 [build]
 buildCommand = "pnpm --filter @hogsend/api build"
-watchPatterns = ["apps/api/**", "packages/**", "pnpm-lock.yaml", "railway.worker.toml"]
+# Watch the whole monorepo source so engine/shared-package changes trigger a
+# redeploy. @hogsend/api bundles all of packages/** via tsup noExternal, so any
+# package edit is a real input for the worker too. Override in the dashboard if
+# you need a narrower scope.
+watchPatterns = ["apps/api/**", "packages/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
 
 [deploy]
 startCommand = "pnpm --filter @hogsend/api worker"

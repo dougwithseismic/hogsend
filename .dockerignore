@@ -1,0 +1,66 @@
+# Keep the build context lean so it doesn't balloon (the repo ships ~4MB banner
+# PNGs) and so cache doesn't bust on every unrelated edit. The Dockerfile copies
+# the lockfile + manifests for `pnpm fetch`, then full source for the build; deps
+# and build outputs are produced inside the image, never copied from the host.
+
+# Dependencies — reinstalled in-image from the pnpm store.
+node_modules
+**/node_modules
+.pnp
+.pnp.js
+
+# Build outputs — rebuilt by tsup in the build stage.
+dist
+**/dist
+.next
+**/.next
+out
+**/out
+build
+
+# Turbo / tooling caches.
+.turbo
+**/.turbo
+coverage
+**/coverage
+
+# VCS + CI metadata.
+.git
+.github
+.changeset
+
+# Local env files — never bake secrets into the image.
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Tests are not needed in the runtime image.
+**/__tests__
+**/*.test.ts
+
+# The root Go CLI dir is not a pnpm workspace member — drop it entirely.
+cli
+
+# Reference docs (the deployment plan etc.) are not needed in any build stage.
+docs
+
+# The docs site IS a pnpm workspace member, so its package.json must stay for
+# `pnpm install --frozen-lockfile` to validate the workspace. Drop only its
+# (large) content; the manifest is re-included so the lockfile still resolves.
+apps/docs
+!apps/docs/package.json
+
+# Heavy static assets (the ~4MB banner PNGs) and misc local files.
+*.png
+*.pem
+*.log
+.DS_Store
+pgdata/
+backups/
+.hogsend.yaml
+
+# Docker artifacts themselves.
+Dockerfile
+.dockerignore
+docker-compose*.yml

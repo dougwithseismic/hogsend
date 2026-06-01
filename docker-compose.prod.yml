@@ -1,0 +1,216 @@
+# =============================================================================
+# Hogsend — production self-host stack (the DEFAULT deploy narrative)
+# =============================================================================
+# The FULL stack on one box: the infra (timescale postgres, redis,
+# hatchet-postgres, hatchet-lite) PLUS the three app run-modes off the single
+# image built from the repo-root Dockerfile — a one-shot `migrate`, the `api`,
+# and the `worker`. Same image, three commands.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# This file is the IN-COMPOSE port regime: services reach each other by their
+# in-network names on their INTERNAL ports (postgres:5432, redis:6379,
+# hatchet-lite:7077) — NOT the host-mapped ports the dev `docker-compose.yml`
+# publishes. Do not mix the two regimes.
+#
+# ---------------------------------------------------------------------------
+# STEP 1 — acquire a Hatchet token (bring-your-own; there is NO auto-mint).
+# ---------------------------------------------------------------------------
+# Bring up the infra first, then obtain HATCHET_CLIENT_TOKEN and set it in your
+# .env before starting api/worker:
+#
+#   docker compose -f docker-compose.prod.yml up -d hatchet-lite
+#   # then open the dashboard, log in, mint a token:
+#   #   http://${HATCHET_HOST:-localhost}:8888  (admin@example.com / Admin123!!)
+#   #   → Settings → API Tokens → create → copy the JWT
+#   # paste it into .env as HATCHET_CLIENT_TOKEN, then:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Or paste a Hatchet Cloud token instead (set HATCHET_CLIENT_TLS_STRATEGY=tls
+# and point HATCHET_CLIENT_HOST_PORT at the Cloud gRPC address). See
+# docs/deployment-plan.md §3 for the three acquire paths and the security notes
+# (rotate the default admin creds; the minted JWT embeds the broadcast address,
+# so a localhost token is non-portable to a real domain).
+#
+# ---------------------------------------------------------------------------
+# ENV — everything is sourced from a .env file the operator fills (see
+# .env.example). The defaults below are sensible IN-COMPOSE values and stay
+# overridable: anything `${VAR:-default}` can be set in .env to override.
+# ---------------------------------------------------------------------------
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: ${DATABASE_URL:-postgresql://growthhog:growthhog@postgres:5432/growthhog}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env (pnpm gen:secret)}
+  BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3002}
+  RESEND_API_KEY: ${RESEND_API_KEY:?set RESEND_API_KEY in .env}
+  RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-noreply@hogsend.com}
+  RESEND_WEBHOOK_SECRET: ${RESEND_WEBHOOK_SECRET:-}
+  # Hatchet contract — bring-your-own token (no auto-mint). hatchet-lite on the
+  # internal network speaks insecure gRPC, hence tls_strategy=none. For Hatchet
+  # Cloud override HOST_PORT to the Cloud address and TLS_STRATEGY to tls.
+  HATCHET_CLIENT_TOKEN: ${HATCHET_CLIENT_TOKEN:?set HATCHET_CLIENT_TOKEN in .env (acquire from the hatchet-lite dashboard or Hatchet Cloud)}
+  HATCHET_CLIENT_HOST_PORT: ${HATCHET_CLIENT_HOST_PORT:-hatchet-lite:7077}
+  HATCHET_CLIENT_TLS_STRATEGY: ${HATCHET_CLIENT_TLS_STRATEGY:-none}
+  HATCHET_CLIENT_NAMESPACE: ${HATCHET_CLIENT_NAMESPACE:-}
+  POSTHOG_API_KEY: ${POSTHOG_API_KEY:-}
+  POSTHOG_HOST: ${POSTHOG_HOST:-}
+  POSTHOG_WEBHOOK_SECRET: ${POSTHOG_WEBHOOK_SECRET:-}
+  ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+  API_PUBLIC_URL: ${API_PUBLIC_URL:-http://localhost:3002}
+  ENABLED_JOURNEYS: ${ENABLED_JOURNEYS:-*}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+services:
+  # --- Infra -----------------------------------------------------------------
+  postgres:
+    image: timescale/timescaledb:latest-pg18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-growthhog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-growthhog}
+      POSTGRES_DB: ${POSTGRES_DB:-growthhog}
+    volumes:
+      - pgdata:/home/postgres/pgdata/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-growthhog}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  hatchet-postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hatchet
+      POSTGRES_PASSWORD: hatchet
+      POSTGRES_DB: hatchet
+    volumes:
+      - hatchetpgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hatchet"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  hatchet-lite:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    restart: unless-stopped
+    depends_on:
+      hatchet-postgres:
+        condition: service_healthy
+    ports:
+      # Dashboard (mint tokens here) + gRPC. On a VPS, set HATCHET_HOST to the
+      # public host so the dashboard URL, cookie domain, and the broadcast
+      # address the minted token embeds all match the address clients dial.
+      - "8888:8888"
+      - "7077:7077"
+    environment:
+      DATABASE_URL: postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable
+      SERVER_URL: http://${HATCHET_HOST:-localhost}:8888
+      SERVER_AUTH_COOKIE_DOMAIN: ${HATCHET_HOST:-localhost}
+      SERVER_AUTH_COOKIE_INSECURE: "true"
+      SERVER_AUTH_SET_EMAIL_VERIFIED: "true"
+      SERVER_DEFAULT_ENGINE_VERSION: V1
+      SERVER_GRPC_BIND_ADDRESS: 0.0.0.0
+      SERVER_GRPC_PORT: "7077"
+      SERVER_GRPC_INSECURE: "true"
+      SERVER_GRPC_BROADCAST_ADDRESS: ${HATCHET_HOST:-localhost}:7077
+      SERVER_MSGQUEUE_KIND: postgres
+    volumes:
+      - hatchetdata:/app/config
+
+  # --- App: migrate one-shot -------------------------------------------------
+  # Runs the engine track then the client track, then exits. Both api AND worker
+  # gate on this completing successfully (service_completed_successfully) so
+  # neither ever starts against an unmigrated DB. The client track self-skips
+  # unless CLIENT_MIGRATIONS_FOLDER points at a mounted client migrations dir.
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hogsend:latest
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+    command:
+      - sh
+      - -c
+      - tsx packages/db/src/migrate.ts && tsx packages/db/src/migrate-client.ts
+
+  # --- App: API --------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hogsend:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hatchet-lite:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-env
+    ports:
+      - "${API_PORT:-3002}:3002"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3002/v1/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    # api boot self-guards on schema version (process.exit(1) if behind); the
+    # migrate gate above makes that a belt-and-braces check, not the ordering.
+    command: ["node", "apps/api/dist/index.js"]
+
+  # --- App: worker -----------------------------------------------------------
+  # No HTTP port, no healthcheck (durable task executor). It has no schema guard
+  # of its own, so the migrate gate is what keeps it off an unmigrated DB.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hogsend:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hatchet-lite:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *app-env
+    command: ["node", "apps/api/dist/worker.js"]
+
+volumes:
+  pgdata:
+  redisdata:
+  hatchetpgdata:
+  hatchetdata:
