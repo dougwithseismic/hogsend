@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "build": "next build",
+    "postbuild": "node scripts/assemble-standalone.mjs",
     "dev": "next dev --port 3005",
-    "start": "next start --port ${PORT:-3005}",
+    "start": "node .next/standalone/apps/docs/server.js",
     "check-types": "fumadocs-mdx && tsc --noEmit"
   },
   "dependencies": {

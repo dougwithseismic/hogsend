@@ -1,15 +1,24 @@
 # Pin RAILPACK explicitly. A root /Dockerfile exists for the API service, and
 # Railway's builder auto-detection prefers a root Dockerfile when present — so
-# without this the docs service silently builds the API image (pruned to
-# apps/api + packages/db), then `pnpm --filter @hogsend/docs start` matches no
-# package -> "No projects matched the filters in /app" and the healthcheck fails.
+# without this the docs service would build the API image (pruned to apps/api +
+# packages/db) instead of the docs site. RAILPACK builds the docs fine.
 [build]
 builder = "RAILPACK"
 buildCommand = "pnpm --filter @hogsend/docs build"
 watchPatterns = ["apps/docs/**", "pnpm-lock.yaml", "railway.docs.toml"]
 
 [deploy]
-startCommand = "pnpm --filter @hogsend/docs start"
+# Run the Next.js standalone server directly — NOT `pnpm --filter ... start` and
+# NOT the workspace `next` binary. railpack builds the monorepo fine but its slim
+# runtime image prunes the workspace node_modules (so `apps/docs/node_modules/next`
+# is gone) and runs corepack@latest (pnpm 11.5.0, not the pinned 9.0.0). The
+# `output: "standalone"` build (see apps/docs/next.config.mjs) emits a fully
+# self-contained server bundling its own node_modules under
+# .next/standalone — it needs no workspace, no pnpm, no corepack. server.js reads
+# PORT from env; HOSTNAME=0.0.0.0 so it accepts external connections in the
+# container. Static assets are copied into the standalone tree by the docs
+# postbuild step (scripts/assemble-standalone.mjs).
+startCommand = "HOSTNAME=0.0.0.0 node apps/docs/.next/standalone/apps/docs/server.js"
 healthcheckPath = "/"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
