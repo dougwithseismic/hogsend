@@ -197,23 +197,26 @@ release workflow's first real run is the canonical end-to-end check.
 
 ---
 
-## 8. Publishing auth — Trusted Publishing (OIDC), no secret
+## 8. Publishing auth
 
-The release workflow publishes via npm **Trusted Publishing (OIDC)** — there is
-**no `NPM_TOKEN` and no long-lived secret**. `.github/workflows/release.yml` has
-`permissions: id-token: write` and upgrades npm to ≥ 11.5.1; `npm publish` (invoked
-by `changeset publish`) then mints a short-lived, workflow-scoped token at publish
-time, and attaches build provenance automatically.
+**Today: a repo secret `NPM_TOKEN`** (an npm token with publish rights to
+`@hogsend/*` + `create-hogsend`). `release.yml` mirrors it into `NODE_AUTH_TOKEN`
+so `changeset publish` authenticates. The initial `0.0.1` versions were
+bootstrapped via a local publish (`npm login` + `pnpm release`).
 
-Setup (one-time, per package — a package must be published once before it can have
-a Trusted Publisher):
+**Target: Trusted Publishing (OIDC), tokenless.** OIDC mints a short-lived,
+workflow-scoped token at publish time (no stored secret) and attaches provenance
+for free. `release.yml` already has `id-token: write` and upgrades npm to ≥ 11.5.1,
+and **5 of 8 packages already have a Trusted Publisher configured**
+(`@hogsend/core`, `engine`, `db`, `email`, `plugin-posthog` → GitHub Actions →
+`dougwithseismic/hogsend` → `release.yml`).
 
-1. **Bootstrap** the initial version with a local publish (`npm login` + `pnpm
-   release`). This is the only time a credential is used directly.
-2. On **npmjs.com → each package → Settings → Trusted Publisher**, choose **GitHub
-   Actions** and set: organization/user `dougwithseismic`, repository `hogsend`,
-   workflow filename `release.yml`. Repeat for all 8 published packages
-   (`@hogsend/*` + `create-hogsend`).
-3. Revoke any bootstrap token — from here, every release is tokenless OIDC.
+To finish the migration and drop the token:
 
-See `docs/RELEASING.md`-adjacent npm docs: <https://docs.npmjs.com/trusted-publishers/>
+1. Add a Trusted Publisher to the remaining 3 — `@hogsend/plugin-resend`,
+   `@hogsend/cli`, `create-hogsend` (npmjs.com → package → Settings → Trusted
+   Publisher → GitHub Actions, same values).
+2. Delete the `NPM_TOKEN` secret and remove the `NPM_TOKEN`/`NODE_AUTH_TOKEN` env
+   lines from `release.yml`.
+
+npm docs: <https://docs.npmjs.com/trusted-publishers/>
