@@ -6,7 +6,11 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!packages/create-hogsend/template"]
+    "includes": [
+      "**",
+      "!packages/create-hogsend/template",
+      "!packages/db/drizzle"
+    ]
   },
   "formatter": {
     "enabled": true,

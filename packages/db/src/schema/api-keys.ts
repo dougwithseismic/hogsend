@@ -12,6 +12,7 @@ export const apiKeys = pgTable(
   "api_keys",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id"),
     name: text("name").notNull(),
     keyPrefix: text("key_prefix").notNull(),
     keyHash: text("key_hash").notNull().unique(),

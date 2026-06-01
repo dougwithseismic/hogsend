@@ -15,6 +15,7 @@ export const journeyStates = pgTable(
   "journey_states",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id"),
     userId: text("user_id").notNull(),
     userEmail: text("user_email").notNull(),
     journeyId: text("journey_id").notNull(),
@@ -30,6 +31,13 @@ export const journeyStates = pgTable(
     ...timestamps,
   },
   (table) => [
+    // NOTE: organizationId is intentionally NOT in this unique index yet. It is
+    // nullable (single-tenant today), and Postgres treats NULLs as DISTINCT in a
+    // unique index by default — so adding it now would silently stop enforcing
+    // one-active-journey-per-user for all existing rows. drizzle 0.45.2's
+    // uniqueIndex() can't express NULLS NOT DISTINCT. When multi-tenancy lands and
+    // organizationId is non-null, add it to this key (a cheap rebuild on this
+    // modest table). The nullable column is added now (the real cheap insurance).
     uniqueIndex("uq_user_journey_active").on(
       table.userId,
       table.journeyId,

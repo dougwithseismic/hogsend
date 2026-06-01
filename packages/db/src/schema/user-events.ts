@@ -12,6 +12,7 @@ export const userEvents = pgTable(
   "user_events",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id"),
     userId: text("user_id").notNull(),
     event: text("event").notNull(),
     properties: jsonb("properties").$type<Record<string, unknown>>(),

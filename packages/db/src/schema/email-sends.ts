@@ -7,6 +7,7 @@ export const emailSends = pgTable(
   "email_sends",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id"),
     journeyStateId: uuid("journey_state_id").references(() => journeyStates.id),
     templateKey: text("template_key"),
     resendId: text("resend_id"),

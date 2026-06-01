@@ -12,6 +12,7 @@ export const contacts = pgTable(
   "contacts",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    organizationId: text("organization_id"),
     externalId: text("external_id").notNull().unique(),
     email: text("email"),
     properties: jsonb("properties")
