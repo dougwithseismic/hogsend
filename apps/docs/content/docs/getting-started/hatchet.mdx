@@ -1,0 +1,87 @@
+---
+title: "Step 1 — Acquire a Hatchet"
+description: Hogsend's one prerequisite. Acquire a Hatchet token from Hatchet Cloud, the self-hosted hatchet-lite dashboard, or your own instance, then point Hogsend at it via three env vars.
+---
+
+[Hatchet](https://hatchet.run) is the durable execution engine underneath every journey — it is what makes `ctx.sleep(days(2))` survive a deploy and resume two days later exactly where it left off. Hogsend does not bundle, wrap, or abstract Hatchet away. It connects to whatever Hatchet you point it at through **exactly three environment variables**, and **acquiring a token is your Step 1**. There is no auto-mint: you obtain the token yourself and set it. That is the contract.
+
+## The contract — three values, one set
+
+The `@hatchet-dev/typescript-sdk` reads these straight from the environment. Hogsend's [env schema](/docs/getting-started/configuration) validates that the token is present and the TLS strategy is one of the allowed values, then hands them to the SDK.
+
+| Variable | Required | Default | What it is |
+|---|---|---|---|
+| `HATCHET_CLIENT_TOKEN` | **Yes** | — | Bearer JWT for the engine. The SDK hard-throws if empty. The only truly mandatory value. |
+| `HATCHET_CLIENT_HOST_PORT` | No | `localhost:7077` | gRPC `host:port`. Falls back to the address embedded in the token's claims, but set it explicitly for clarity. |
+| `HATCHET_CLIENT_TLS_STRATEGY` | No | `tls` | One of `none` \| `tls` \| `mtls`. **Secure by default** (matches Hatchet Cloud). The local insecure hatchet-lite path overrides this to `none`. |
+| `HATCHET_CLIENT_NAMESPACE` | No | _(empty)_ | Optional per-tenant isolation namespace on a shared engine. Default-empty; documented so it stays part of the contract. |
+
+This contract is **identical across every path below** — only the values differ. The full annotated list of all Hogsend env vars lives in [`.env.example`](https://github.com/dougwithseismic/hogsend/blob/main/apps/api/.env.example) and is documented on the [Configuration](/docs/getting-started/configuration) page.
+
+## Three ways to acquire a token
+
+Pick the one that matches how you want to run the engine.
+
+### Path A — Hatchet Cloud (managed, lowest friction)
+
+Zero infrastructure to run. Create a tenant, generate an API token, paste it.
+
+1. Sign up at [Hatchet Cloud](https://cloud.onhatchet.run) and create a tenant.
+2. Generate an API token (Settings → API Tokens).
+3. Set it:
+
+```bash
+HATCHET_CLIENT_TOKEN=<paste the Cloud token>
+HATCHET_CLIENT_HOST_PORT=<your Cloud gRPC address>   # or omit; the token embeds it
+HATCHET_CLIENT_TLS_STRATEGY=tls
+```
+
+Cloud speaks TLS, so leave `HATCHET_CLIENT_TLS_STRATEGY` at its `tls` default.
+
+### Path B — self-hosted hatchet-lite (the default self-host path)
+
+Hogsend ships a [production compose file](/docs/operating/deploy-docker) that runs `hatchet-lite` (plus its own Postgres) alongside the app. Because the app needs the token to boot but the token can only exist after the engine is up, you bring up the engine **first**, mint a token in its dashboard, then start the app:
+
+```bash
+# 1. Bring up just the Hatchet engine.
+docker compose -f docker-compose.prod.yml up -d hatchet-lite
+
+# 2. Open the dashboard, log in, mint a token:
+#      http://localhost:8888   (default login below)
+#      → Settings → API Tokens → create → copy the JWT
+
+# 3. Paste it into .env, then bring up the full stack.
+#      HATCHET_CLIENT_TOKEN=<the JWT you just copied>
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Default dashboard login: `admin@example.com` / `Admin123!!`.
+
+For hatchet-lite on the in-compose network, the engine speaks insecure gRPC, so:
+
+```bash
+HATCHET_CLIENT_HOST_PORT=hatchet-lite:7077
+HATCHET_CLIENT_TLS_STRATEGY=none
+```
+
+<Callout type="warn">
+  **Change the default admin credentials** before exposing the dashboard to any network. The minted token is a long-lived JWT — treat it as a secret. The token also embeds the engine's gRPC broadcast address, so a token minted against a `localhost` engine is **not portable** to a real domain: if you move the host, mint a fresh token. Set `HATCHET_HOST` to your public host (see the compose file) so the dashboard URL, cookie domain, and the broadcast address the token embeds all match the address clients dial.
+</Callout>
+
+### Path C — bring your own Hatchet
+
+Already running a Hatchet engine, or pointing at one your platform team operates? Supply all three values yourself — no bootstrap step:
+
+```bash
+HATCHET_CLIENT_TOKEN=<token from your engine>
+HATCHET_CLIENT_HOST_PORT=<your engine's gRPC host:port>
+HATCHET_CLIENT_TLS_STRATEGY=<none | tls | mtls — match your engine>
+```
+
+## Why ordering, not magic
+
+The chicken-and-egg (the engine must boot before a token can exist, but the app needs the token to boot) is resolved by **ordering**: infra → token → app. Path B's three steps are exactly that order. There is intentionally no auto-mint — bring-your-own token is the supported, predictable contract.
+
+## What's next
+
+With a token in hand, continue with [Installation](/docs/getting-started/installation) to run locally, or jump to [Deployment](/docs/operating/deployment) to ship it.

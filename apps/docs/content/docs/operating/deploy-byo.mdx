@@ -1,0 +1,82 @@
+---
+title: Bring your own orchestrator
+description: Run Hogsend on Kubernetes, Nomad, ECS, or any platform you already operate. One image, three run modes, one env contract — you provide Postgres, Redis, and a Hatchet endpoint.
+---
+
+If you already run a container platform — Kubernetes, Nomad, ECS, a fleet of VMs — Hogsend drops straight in. There is no Railway lock-in and nothing platform-specific in the engine: it is the **same image** the [Docker self-host](/docs/operating/deploy-docker) and [Railway](/docs/operating/deploy-railway) paths use, the **same three run modes**, and the **same [env contract](/docs/getting-started/configuration)**. You bring the infrastructure and the scheduler.
+
+## What you provide
+
+| Dependency | What Hogsend needs |
+|---|---|
+| **Postgres** (TimescaleDB recommended) | A connection string in `DATABASE_URL`. The primary datastore. |
+| **Redis** | A connection string in `REDIS_URL`. PostHog property caching. |
+| **A Hatchet engine** | A token + gRPC endpoint — Hatchet Cloud, your own `hatchet-lite`, or any Hatchet you run. See [Step 1: Acquire a Hatchet](/docs/getting-started/hatchet). |
+
+## The image and its three run modes
+
+Build the repo-root [`Dockerfile`](https://github.com/dougwithseismic/hogsend/blob/main/Dockerfile) (or pull your built image) and run it three ways via command override:
+
+| Run mode | Command | As |
+|---|---|---|
+| **api** | `node apps/api/dist/index.js` (default `CMD`) | a long-running Deployment / Service on port `3002`, healthcheck `GET /v1/health` |
+| **worker** | `node apps/api/dist/worker.js` | a long-running Deployment, **no port, no healthcheck** |
+| **migrate** | `tsx packages/db/src/migrate.ts` | a one-shot Job / init step that must complete **before** api and worker start |
+
+```bash
+docker build -t your-registry/hogsend:TAG .
+docker push your-registry/hogsend:TAG
+```
+
+## Ordering you must enforce
+
+The platform's scheduler is responsible for the ordering the compose file otherwise handles for you:
+
+1. **Postgres reachable** before anything else.
+2. **`migrate` runs and completes** — engine track then client track — before api and worker start. The **worker has no schema guard of its own**, so it must not start against an unmigrated database. On Kubernetes this is a `Job` gated by an init step or an `initContainer`; on ECS a one-off task; on a VM a step in your deploy script.
+3. **api and worker start** only after migrate succeeds. The api *also* self-guards at boot (`exit(1)` if the engine schema is behind), but the worker relies entirely on your ordering.
+
+## The env contract
+
+Inject the [full annotated contract](/docs/getting-started/configuration) as environment variables (or secrets) on all three run modes. The minimum to boot:
+
+```bash
+# Required — no defaults; the app fails fast without them.
+DATABASE_URL=postgresql://USER:PASS@HOST:PORT/DB
+BETTER_AUTH_SECRET=<openssl rand -base64 32>
+RESEND_API_KEY=re_…
+HATCHET_CLIENT_TOKEN=<from your Hatchet — Step 1>
+
+# Hatchet endpoint + transport (match your engine).
+HATCHET_CLIENT_HOST_PORT=<your-hatchet-host:7077>
+HATCHET_CLIENT_TLS_STRATEGY=tls          # tls for Hatchet Cloud; none for an
+                                         # insecure internal hatchet-lite
+
+# Production hygiene.
+NODE_ENV=production
+REDIS_URL=redis://HOST:PORT
+API_PUBLIC_URL=https://api.yourdomain.com
+BETTER_AUTH_URL=https://api.yourdomain.com
+```
+
+<Callout type="info">
+  **Secure by default.** `HATCHET_CLIENT_TLS_STRATEGY` defaults to `tls`, so Hatchet Cloud and any TLS-fronted engine work without thinking about it. Only override to `none` when you are dialing an explicitly insecure internal endpoint (e.g. a `hatchet-lite` on a private network).
+</Callout>
+
+## Healthchecks and scaling
+
+- **api** — liveness/readiness on `GET /v1/health`. It returns `status: "migration_pending"` (non-200 semantics for your probe) when a track is behind, and `"healthy"` when both are in sync. Stateless; scale horizontally behind a load balancer.
+- **worker** — no HTTP endpoint, so use a process-liveness probe (the container exits on fatal errors; rely on your scheduler's restart policy). Hatchet distributes tasks across worker replicas with no duplicate execution — scale on queue depth. Workers handle graceful shutdown on `SIGTERM`/`SIGINT`.
+
+## Future-cloud note
+
+Nothing in the engine bakes in single-tenancy. The DI container (`createHogsendClient`) is the single composition root, `HATCHET_CLIENT_NAMESPACE` provides per-tenant isolation on a shared engine, and the domain tables carry a nullable tenant column. A multi-tenant control plane is additive on top of this contract — see the [deployment plan](https://github.com/dougwithseismic/hogsend/blob/main/docs/deployment-plan.md) §6 — but it is not built today, and self-host behaves identically with the default sentinel.
+
+## Next steps
+
+<Cards>
+  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Deploy with Docker (default)" href="/docs/operating/deploy-docker" />
+  <Card title="Configuration reference" href="/docs/getting-started/configuration" />
+  <Card title="Monitoring & Alerting" href="/docs/operating/monitoring" />
+</Cards>

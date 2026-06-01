@@ -13,11 +13,12 @@ The framework ships as a **versioned package, `@hogsend/engine`**. You don't for
 
 ## The path
 
-1. **Scaffold** a fresh app with `create-hogsend`.
-2. **Install** dependencies (the scaffold does this for you).
-3. **Start infrastructure** — Timescale, Redis, and Hatchet-Lite via Docker Compose.
-4. **Migrate** — one command runs both the engine track and your client track.
-5. **Run** the API and worker, then fire an event and watch a journey complete.
+1. **[Acquire a Hatchet](/docs/getting-started/hatchet)** — Step 1, Hogsend's one prerequisite. Get a token from Hatchet Cloud, a self-hosted `hatchet-lite`, or your own engine. There is no auto-mint; you bring the token.
+2. **Scaffold** a fresh app with `create-hogsend`.
+3. **Install** dependencies (the scaffold does this for you).
+4. **Start infrastructure** — Timescale, Redis, and Hatchet-Lite via Docker Compose.
+5. **Migrate** — one command runs both the engine track and your client track.
+6. **Run** the API and worker, then fire an event and watch a journey complete.
 
 Follow [Installation](/docs/getting-started/installation) for the full walkthrough.
 
@@ -33,6 +34,7 @@ Follow [Installation](/docs/getting-started/installation) for the full walkthrou
 
 | Page | What it covers |
 |---|---|
+| [Acquire a Hatchet](/docs/getting-started/hatchet) | Step 1 — the token contract and the three ways to get one |
 | [Installation](/docs/getting-started/installation) | Scaffold, install, run, and fire your first journey |
 | [PostHog Setup](/docs/getting-started/posthog-setup) | Connect PostHog events to Hogsend via a webhook destination |
 | [Configuration](/docs/getting-started/configuration) | Every environment variable, what it does, and which process reads it |

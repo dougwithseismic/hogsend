@@ -1,0 +1,137 @@
+---
+title: Deploy on Railway (one paved option)
+description: Railway is one paved on-ramp for Hogsend — managed Postgres + Redis, self-hosted hatchet-lite, GitHub auto-deploy. Two services from one repo, same build, different entry points.
+---
+
+Railway is **one paved option**, not the only way — the [default deploy path is Docker self-host](/docs/operating/deploy-docker). Railway trades some control for a managed on-ramp: managed Postgres and Redis, a one-click template, and GitHub auto-deploy. It consumes the same build and the same [env contract](/docs/getting-started/configuration) as every other target.
+
+<Callout type="info">
+  A one-click [Railway template](https://railway.com/deploy/LxSCyR) provisions the topology for you. The walkthrough below is the manual path if you'd rather wire it up yourself.
+</Callout>
+
+## What you deploy
+
+From your scaffolded repo you run **two Railway services** that share the same build output but use different entry points:
+
+- **API service** — Hono HTTP server (`node dist/index.js`) handling REST endpoints, ingestion, and auth.
+- **Worker service** — Hatchet worker (`node dist/worker.js`) executing durable tasks.
+
+Both scale independently. The engine is bundled into your build at compile time (`tsup` `noExternal: ["@hogsend/*"]`), so there is no separate engine deploy — upgrading is `pnpm up "@hogsend/*"`, never a git merge.
+
+Supporting infrastructure:
+
+| Service | Purpose | Production |
+|---|---|---|
+| **TimescaleDB** (Postgres 18) | Primary database | Railway managed Postgres or a dedicated instance |
+| **Redis** | PostHog property caching | Railway managed Redis |
+| **Hatchet-Lite** | Workflow orchestration engine | Self-hosted on Railway (Docker image) |
+
+## Railway configuration
+
+The scaffold ships both Railway config files at your repo root. They build your app with its own `pnpm build` (tsup).
+
+### API service (`railway.toml`)
+
+The API service handles HTTP traffic and runs migrations before each deploy:
+
+```toml
+[build]
+buildCommand = "pnpm build"
+watchPatterns = ["src/**", "migrations/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+
+[deploy]
+# Two-track migrate: engine track first, then this repo's client track.
+preDeployCommand = "pnpm db:migrate"
+startCommand = "pnpm start"
+healthcheckPath = "/v1/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+```
+
+- **`preDeployCommand`** runs `pnpm db:migrate` (engine track first, then your client track) before the new version receives traffic.
+- **`healthcheckPath`** is `/v1/health` with a 120-second timeout; it passes only when both migration tracks are in sync.
+- **`startCommand`** boots the Hono server, which runs the engine-track schema guard on boot and `exit(1)`s if the engine schema is behind.
+
+### Worker service (`railway.worker.toml`)
+
+The worker runs Hatchet task execution with no HTTP port:
+
+```toml
+[build]
+buildCommand = "pnpm build"
+watchPatterns = ["src/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
+
+[deploy]
+# No healthcheck — the worker has no HTTP port. Migrations are owned by the API
+# service's preDeployCommand; the worker just executes Hatchet tasks.
+startCommand = "pnpm worker"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+```
+
+- **No health check** — the worker has no HTTP server; it relies on the restart policy.
+- **No `preDeployCommand`** — migrations are owned by the API service. Running them in both would race on the same database.
+
+### Two services, one repo
+
+Both services deploy from the same repository. In Railway, create two services pointing to the same repo and assign each its config file (`railway.toml` for API, `railway.worker.toml` for worker). They share the same Railway environment variables.
+
+<Callout type="warn">
+  **Monorepo watch paths are a live landmine.** Railway redeploys a service only when files under its `watchPatterns` change. In this monorepo, the engine and all shared code live under `packages/**` — if a service is scoped to redeploy only on `apps/api/**`, most code changes silently **never ship**. Set each service's watch path to the repo root (or `apps/api/**` plus `packages/**`), and verify after setup that a `packages/`-only change actually triggers a redeploy. A scaffolded app sidesteps this because its `watchPatterns` point at *its own* `src/**` — but the dogfood monorepo and any repo that vendors `packages/` must widen them.
+</Callout>
+
+## Infrastructure on Railway
+
+### Hatchet-Lite
+
+Deploy as a separate Railway service from the Docker image `ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest`, with its own Postgres instance:
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Connection string to Hatchet's Postgres |
+| `SERVER_URL` | Public URL of the Hatchet service |
+| `SERVER_AUTH_COOKIE_DOMAIN` | Domain for auth cookies |
+| `SERVER_DEFAULT_ENGINE_VERSION` | `V1` |
+| `SERVER_GRPC_BIND_ADDRESS` | `0.0.0.0` |
+| `SERVER_GRPC_PORT` | `7077` |
+| `SERVER_GRPC_BROADCAST_ADDRESS` | Internal Railway address for gRPC |
+| `SERVER_MSGQUEUE_KIND` | `postgres` |
+
+Once it is running, **mint an API token from its dashboard** and set it as `HATCHET_CLIENT_TOKEN` in both Hogsend services — this is [Step 1](/docs/getting-started/hatchet), the same bring-your-own-token contract as every other target. There is no auto-mint.
+
+### Postgres & Redis
+
+Railway's managed Postgres works out of the box; it provides `DATABASE_URL` automatically when you provision and link it. Provision Redis and link it to both services — `REDIS_URL` is set automatically. For internal Railway networking set `HATCHET_CLIENT_TLS_STRATEGY=none`.
+
+## Environment variables
+
+Set the [required vars](/docs/getting-started/configuration) (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, plus the three `HATCHET_CLIENT_*` values) in your Railway project environment, shared across both services. Set `NODE_ENV=production` to disable `/docs` and `/openapi.json`.
+
+## DNS and Cloudflare
+
+1. In Railway, generate or attach a domain for the API service.
+2. In your DNS provider (e.g. Cloudflare), create a CNAME `api.yourdomain.com` → the Railway domain.
+3. Set `API_PUBLIC_URL` and `BETTER_AUTH_URL` to `https://api.yourdomain.com`.
+
+The worker needs no public domain.
+
+## Deployment checklist
+
+- [ ] [Acquire a Hatchet token](/docs/getting-started/hatchet) and deploy Hatchet-Lite
+- [ ] Provision Postgres and Redis, link them to both services
+- [ ] Set required env (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `HATCHET_CLIENT_*`)
+- [ ] Set `NODE_ENV=production`, `API_PUBLIC_URL`, `BETTER_AUTH_URL`
+- [ ] Create two services (`railway.toml` for API, `railway.worker.toml` for worker)
+- [ ] **Widen watch paths** so `packages/**` changes trigger redeploys
+- [ ] Confirm `preDeployCommand` (`pnpm db:migrate`) ran both tracks
+- [ ] Verify `/v1/health` returns `status: "healthy"` with both tracks `inSync: true`
+
+## Next steps
+
+<Cards>
+  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Deploy with Docker (default)" href="/docs/operating/deploy-docker" />
+  <Card title="Configuration reference" href="/docs/getting-started/configuration" />
+  <Card title="Monitoring & Alerting" href="/docs/operating/monitoring" />
+</Cards>

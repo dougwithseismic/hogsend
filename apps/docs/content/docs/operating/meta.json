@@ -3,6 +3,9 @@
   "pages": [
     "index",
     "deployment",
+    "deploy-docker",
+    "deploy-railway",
+    "deploy-byo",
     "upgrading",
     "authentication",
     "contacts",

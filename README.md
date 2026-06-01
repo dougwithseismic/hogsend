@@ -14,7 +14,7 @@ Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog an
 
 **[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
+Self-host with Docker (the default), or one-click on Railway. Same image, same env contract — [pick a target](https://docs.hogsend.com/docs/operating/deployment).
 
 ---
 
@@ -101,26 +101,44 @@ That `ctx.sleep(days(2))` literally pauses for two days and picks up exactly whe
 
 ## Get Started
 
-### Deploy to Railway (recommended)
+### Step 1 — acquire a Hatchet
+
+Hogsend's one prerequisite is a [Hatchet](https://hatchet.run) token — it's what makes `ctx.sleep(days(2))` survive deploys. There is **no auto-mint**: you bring the token. Get one from [Hatchet Cloud](https://cloud.onhatchet.run) (paste a token), the self-hosted `hatchet-lite` dashboard (mint it at `:8888`), or your own engine, then set the three `HATCHET_CLIENT_*` vars.
+
+> Full guide: **[Acquire a Hatchet](apps/docs/content/docs/getting-started/hatchet.mdx)**
+
+### Self-host with Docker (the default)
+
+The full stack — Postgres, Redis, hatchet-lite, plus the migrate/api/worker run modes off one image — comes up from `docker-compose.prod.yml`. Bring up the engine first, mint a token, then start the app:
 
 ```bash
-# 1. Click the deploy button above — fills in Resend key + Hatchet token
-# 2. Install the CLI and configure everything else
-curl -L https://github.com/dougwithseismic/hogsend/releases/latest/download/hogsend_darwin_arm64.tar.gz | tar xz
-sudo mv hogsend /usr/local/bin/
-
-# 3. Connect Railway + PostHog + verify the pipeline
-hogsend init
-hogsend test
+cp .env.example .env                                          # set BETTER_AUTH_SECRET, RESEND_API_KEY
+docker compose -f docker-compose.prod.yml up -d hatchet-lite  # 1. engine first
+# 2. mint a token at http://localhost:8888 → paste into .env as HATCHET_CLIENT_TOKEN
+docker compose -f docker-compose.prod.yml up -d --build       # 3. full stack
 ```
 
-The CLI discovers your Railway project, generates secrets, creates a PostHog webhook destination, and fires a test event — zero dashboard visits.
+> Full guide: **[Deploy with Docker](apps/docs/content/docs/operating/deploy-docker.mdx)**
+
+### One-click on Railway (one paved option)
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
+
+Railway is a managed on-ramp — same image, same env contract, just less to run yourself. The `hogsend` CLI discovers your Railway project, generates secrets, creates a PostHog webhook destination, and fires a test event:
+
+```bash
+curl -L https://github.com/dougwithseismic/hogsend/releases/latest/download/hogsend_darwin_arm64.tar.gz | tar xz
+sudo mv hogsend /usr/local/bin/
+hogsend init && hogsend test
+```
+
+> Full guide: **[Deploy on Railway](apps/docs/content/docs/operating/deploy-railway.mdx)**
 
 ### Local Development
 
 ```bash
 git clone https://github.com/dougwithseismic/hogsend.git && cd hogsend
-pnpm setup        # Docker, deps, .env
+pnpm setup        # Docker, deps, .env (generates BETTER_AUTH_SECRET)
 pnpm dev          # API on :3002
 # separate terminal:
 cd apps/api && hatchet worker dev
@@ -159,7 +177,7 @@ hogsend destroy     # Tear down Railway project
 | Product analytics | PostHog (`@hogsend/plugin-posthog`) |
 | Email templates | React Email |
 | CLI | Go (cobra + charmbracelet) |
-| Deploy | Railway or Docker Compose |
+| Deploy | Docker Compose (default), Railway, or bring-your-own |
 
 Plugins are standalone packages — create your own for Slack, Twilio, or any service. See **[Creating Plugins](apps/docs/content/docs/guides/plugins.mdx)**.
 

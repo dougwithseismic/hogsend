@@ -1,306 +1,86 @@
 ---
 title: Deployment
-description: Deploy your scaffolded Hogsend app to Railway — self-hosted, your data stays yours. API and worker scale independently.
+description: Deploy Hogsend your way. Self-host with Docker (the default), one-click on Railway, or bring your own orchestrator — all from one runtime image and one env contract.
 ---
 
-## What you deploy
+Hogsend runs as **one runtime image, built once, run three ways** via a command override:
 
-Hogsend is a **versioned engine you consume as a package**, not a monorepo you fork. You scaffold a thin client app with `pnpm dlx create-hogsend@latest`, and that app pins `@hogsend/engine` (plus the other `@hogsend/*` packages) and owns your **content** — journeys, email templates, webhook sources, custom routes, config, and your own database migrations. See [Getting Started](/docs/getting-started) for the scaffold flow and [Upgrading & Customizing](/docs/operating/upgrading) for the upgrade ladder.
-
-<Callout type="info">
-  The `@hogsend/*` packages publish from the changesets pipeline. They are landing on npm imminently; until then the scaffold resolves them from this monorepo (the verification harness uses local `pnpm pack` tarballs via `--use-tarballs`). The deployment model below is the same either way — your repo pins a version line and upgrades with `pnpm up`.
-</Callout>
-
-The **deployed unit is your scaffolded repo.** From it you run two Railway services that share the same build output but different entry points:
-
-- **API service** — Hono HTTP server (`src/index.ts` → `node dist/index.js`) handling REST endpoints, PostHog/webhook ingestion, and auth
-- **Worker service** — Hatchet worker (`src/worker.ts` → `node dist/worker.js`) executing durable tasks (email sends, journey orchestration, contact imports, alert checks)
-
-Both run from your repo and scale independently. The engine code is bundled into your build at compile time (`tsup` `noExternal: ["@hogsend/*"]`), so there is no separate engine deploy — upgrading the engine is `pnpm up "@hogsend/*"` in your repo, never a git merge.
-
-Supporting infrastructure:
-
-| Service | Purpose | Production |
+| Run mode | Command | Role |
 |---|---|---|
-| **TimescaleDB** (Postgres 18) | Primary database | Railway managed Postgres or dedicated instance |
-| **Redis** | PostHog property caching | Railway managed Redis |
-| **Hatchet-Lite** | Workflow orchestration engine | Self-hosted on Railway (Docker image) |
+| **api** (default) | `node apps/api/dist/index.js` | Hono HTTP server — REST, ingestion, auth. Port `3002`, healthcheck `/v1/health`. |
+| **worker** | `node apps/api/dist/worker.js` | Hatchet durable task executor — journey runs, email sends, imports. No port, no healthcheck. |
+| **migrate** | `tsx packages/db/src/migrate.ts` | One-shot. Applies the engine migration track (then the client track if present), then exits. |
 
-## Railway Configuration
+Every deploy target is the **same image plus the same validated env contract** — only the values differ. There is nothing single-tenant baked in.
 
-The scaffold ships both Railway config files at your repo root. They build your app with its own `pnpm build` (tsup), so `watchPatterns` point at *your* `src/**` and `migrations/**` — not at any monorepo paths.
+## Before you deploy
 
-### API Service (`railway.toml`)
+Two prerequisites, in order:
 
-The API service handles HTTP traffic and runs **both migration tracks** before each deploy:
+1. **[Acquire a Hatchet](/docs/getting-started/hatchet)** — Hogsend's one hard dependency. Get a token from Hatchet Cloud, a self-hosted `hatchet-lite`, or your own engine, and set the three `HATCHET_CLIENT_*` vars. There is **no auto-mint** — bring your own token. This is **Step 1**.
+2. **A real `BETTER_AUTH_SECRET`** — generate one with `pnpm gen:secret` (`openssl rand -base64 32`). `pnpm setup` does this for you locally; never ship the placeholder.
 
-```toml
-[build]
-buildCommand = "pnpm build"
-watchPatterns = ["src/**", "migrations/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+The complete, annotated env contract is in [`.env.example`](https://github.com/dougwithseismic/hogsend/blob/main/apps/api/.env.example) — one file projected from the validated schema in `packages/engine/src/env.ts`, with every var tagged `[required]` / `[default: x]` / `[optional]`. See [Configuration](/docs/getting-started/configuration) for the per-variable reference.
 
-[deploy]
-# Two-track migrate: engine track first, then this repo's client track.
-preDeployCommand = "pnpm db:migrate"
-startCommand = "pnpm start"
-healthcheckPath = "/v1/health"
-healthcheckTimeout = 120
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
-```
+## Pick a target
 
-Key details:
+<Cards>
+  <Card title="Docker self-host (default)" href="/docs/operating/deploy-docker" />
+  <Card title="Railway (one paved option)" href="/docs/operating/deploy-railway" />
+  <Card title="Bring your own orchestrator" href="/docs/operating/deploy-byo" />
+</Cards>
 
-- **`preDeployCommand`** runs `pnpm db:migrate` (the `scripts/migrate.ts` runner), which applies the **engine track first, then your client track** — see [Two-track migrations](#two-track-migrations) below. It runs before the new version receives traffic.
-- **`healthcheckPath`** points to `/v1/health` with a 120-second timeout, giving the API time to connect to Postgres and Hatchet on startup. The health check passes only when both migration tracks are in sync (status `healthy`) — a behind track returns `migration_pending`.
-- **`startCommand`** runs `node dist/index.js` via the `start` script, which boots the Hono HTTP server on `PORT`. On boot it runs the **engine-track schema guard** (see below) and `exit(1)`s if the engine schema is behind.
-- **`buildCommand`** is your app's own `pnpm build` (tsup), which bundles all `@hogsend/*` packages via `noExternal`.
+| Target | Best for | Infra |
+|---|---|---|
+| **[Docker self-host](/docs/operating/deploy-docker)** — the default | Running Hogsend on your own box or VPS, fully in your control | `docker-compose.prod.yml` brings up Postgres, Redis, hatchet-lite, and the migrate/api/worker services |
+| **[Railway](/docs/operating/deploy-railway)** — one paved option | A managed on-ramp with one-click and GitHub auto-deploy | Railway-managed Postgres + Redis, self-hosted hatchet-lite, two app services |
+| **[Bring your own](/docs/operating/deploy-byo)** | An existing Kubernetes / Nomad / ECS / VM platform | Whatever you already run; you provide Postgres, Redis, and a Hatchet endpoint |
 
-### Worker Service (`railway.worker.toml`)
+## The deploy matrix
 
-The worker service runs Hatchet task execution with no HTTP port:
+What actually varies between targets is a handful of env values and the TLS strategy. Everything else is constant.
 
-```toml
-[build]
-buildCommand = "pnpm build"
-watchPatterns = ["src/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
-
-[deploy]
-# No healthcheck — the worker has no HTTP port. Migrations are owned by the API
-# service's preDeployCommand; the worker just executes Hatchet tasks.
-startCommand = "pnpm worker"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 5
-```
-
-Key details:
-
-- **No health check** — the worker has no HTTP server, so Railway skips health checking. It relies on the restart policy to recover from crashes.
-- **No `preDeployCommand`** — migrations are owned by the API service's `preDeployCommand`. Running them in both services would race on the same database.
-- **Higher retry count** (5 vs 3) — the worker should be more aggressive about recovering since it processes durable tasks.
-- **`startCommand`** runs `node dist/worker.js` via the `worker` script, which registers the built-in Hatchet tasks (`sendEmailTask`, `importContactsTask`, `checkAlertsTask`), your selected journey tasks, and any `extraWorkflows` you passed to `createWorker`, then begins polling for work.
-
-### Two Services, One Repo
-
-Both services deploy from your scaffolded GitHub repository. In Railway, create two services pointing to the same repo and assign each its respective config file:
-
-1. Create a service for the API and set its config to `railway.toml`
-2. Create a second service for the worker and set its config to `railway.worker.toml`
-
-Both services share the same Railway environment variables. When you push to `main`, Railway builds and deploys both services.
-
-## Two-track migrations
-
-Your deployment runs **two independent migration tracks** against the same database, each with its own ledger in the `drizzle` schema:
-
-| Track | Migrations live in | Ledger | Owned by | Gates boot? |
+| Concern | Local dev (host process) | Docker self-host (default) | Railway (one paved option) | BYO / Hatchet Cloud |
 |---|---|---|---|---|
-| **engine** | `@hogsend/db` (bundled with the package) | `drizzle.__drizzle_migrations` | upstream (the engine) | **Yes (fatal)** |
-| **client** | your repo's `migrations/` folder | `drizzle.__client_migrations` | you | No (surfaced in health) |
-
-`pnpm db:migrate` (the `scripts/migrate.ts` runner) applies them **engine-first, then client** — the engine must run first so client migrations can reference engine tables. The client track is skipped gracefully when your `migrations/` folder is empty. Both tracks serialize behind the same Postgres advisory lock, so a client migrate can never race an engine migrate.
-
-```bash
-pnpm db:generate   # generate a CLIENT-track migration from src/schema changes
-pnpm db:migrate     # engine track THEN client track (single command)
-```
-
-<Callout type="warn">
-  This is a **single `pnpm db:migrate`** command that runs both tracks. Do not wire `db:migrate:client` or `CLIENT_MIGRATIONS_FOLDER` into your Railway config — those exist only inside the engine's in-repo dogfood, not in a scaffolded app.
-</Callout>
-
-### Boot guard (engine track only)
-
-`src/index.ts` runs an engine-track schema check at startup via `getEngineSchemaVersion(container.db)`. If the engine schema applied to the database is **behind** what your build requires, the API logs the pending migrations and `exit(1)`s instead of 500ing on the first query against a missing column. The client track does **not** gate boot — you own it and may legitimately deploy app code slightly ahead of an additive client migration; client drift surfaces in `/v1/health` (`schema.client.inSync: false` → status `migration_pending`) but never takes the API down.
-
-To bypass the guard in dev or an emergency:
-
-```bash
-SKIP_SCHEMA_CHECK=true pnpm start
-```
-
-<Callout type="warn">
-  **The `db:push` ledger gotcha.** `pnpm db:push` (and seeding into a fresh DB) creates the schema **without** writing rows to `drizzle.__drizzle_migrations`. The boot guard and `/v1/health` judge "in sync" by that ledger, so a push-bootstrapped database reports `inSync: false` and the API refuses to boot — even though the tables exist. Bring up real databases with `pnpm db:migrate` from day one. `db:push` is a throwaway-local-dev shortcut only.
-</Callout>
-
-## Environment Variables
-
-Set these in your Railway project environment. All variables are shared across the API and worker services and live in **your scaffolded app's** environment (locally, its own root `.env` — not `apps/api/.env`).
-
-### Required
-
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | TimescaleDB / Postgres connection string |
-| `BETTER_AUTH_SECRET` | Secret key for Better Auth session encryption (min 32 chars) |
-| `RESEND_API_KEY` | Resend API key for email delivery |
-
-### Optional (with defaults)
-
-| Variable | Default | Description |
-|---|---|---|
-| `NODE_ENV` | `development` | Set to `production` in Railway |
-| `PORT` | `3002` | HTTP port for the API (Railway sets this automatically) |
-| `LOG_LEVEL` | `info` | Logging verbosity: `error`, `warn`, `info`, `http`, `debug` |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string for PostHog property caching |
-| `BETTER_AUTH_URL` | `http://localhost:3002` | Public URL for auth callbacks |
-| `RESEND_FROM_EMAIL` | `noreply@hogsend.com` | Default sender email address |
-| `API_PUBLIC_URL` | `http://localhost:3002` | Public-facing API URL (used for unsubscribe and tracking links) |
-| `ENABLED_JOURNEYS` | `*` | Comma-separated journey IDs, or `*` to enable all |
-
-### Optional (no defaults)
-
-| Variable | Description |
-|---|---|
-| `HATCHET_CLIENT_TOKEN` | Token for connecting to the Hatchet engine |
-| `HATCHET_CLIENT_HOST_PORT` | Hatchet gRPC host:port (e.g. `localhost:7077`) |
-| `HATCHET_CLIENT_TLS_STRATEGY` | `none` for internal networking, `tls` for public |
-| `POSTHOG_API_KEY` | PostHog project API key for person property fetching |
-| `POSTHOG_HOST` | PostHog instance URL (e.g. `https://us.i.posthog.com`) |
-| `POSTHOG_WEBHOOK_SECRET` | Secret for verifying PostHog webhook payloads |
-| `RESEND_WEBHOOK_SECRET` | Secret for verifying Resend webhook payloads |
-| `ADMIN_API_KEY` | API key for admin endpoints (contacts, preferences, metrics) |
-| `SKIP_SCHEMA_CHECK` | Set `true` to bypass the engine-track boot guard (dev/emergency only) |
-
-<Callout type="warn">
-  Set `NODE_ENV=production` in Railway to disable the `/docs` and `/openapi.json` endpoints. These are only available outside production.
-</Callout>
-
-## Infrastructure Services
-
-### Hatchet-Lite on Railway
-
-Hatchet-Lite is the workflow orchestration engine that both the API and worker connect to. Deploy it as a separate Railway service using the Docker image:
-
-```
-ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
-```
-
-Hatchet-Lite needs its own Postgres instance (separate from your app's database). Configure it with these environment variables:
-
-| Variable | Value |
-|---|---|
-| `DATABASE_URL` | Connection string to Hatchet's Postgres instance |
-| `SERVER_URL` | Public URL of the Hatchet service |
-| `SERVER_AUTH_COOKIE_DOMAIN` | Domain for auth cookies |
-| `SERVER_DEFAULT_ENGINE_VERSION` | `V1` |
-| `SERVER_GRPC_BIND_ADDRESS` | `0.0.0.0` |
-| `SERVER_GRPC_PORT` | `7077` |
-| `SERVER_GRPC_BROADCAST_ADDRESS` | Internal Railway address for gRPC |
-| `SERVER_MSGQUEUE_KIND` | `postgres` |
-
-Once Hatchet-Lite is running, generate an API token from its dashboard and set it as `HATCHET_CLIENT_TOKEN` in both Hogsend services.
-
-### TimescaleDB
-
-Railway's managed Postgres works out of the box. Railway provides the `DATABASE_URL` variable automatically when you provision a Postgres instance and link it to your services.
-
-For production workloads, TimescaleDB (Postgres 18 with time-series extensions) is recommended. You can use a dedicated TimescaleDB Cloud instance or Railway's managed Postgres if you don't need hypertable features.
-
-### Redis
-
-Provision a Redis instance on Railway and link it to both services. The `REDIS_URL` variable is set automatically. Redis caches PostHog person properties to avoid hitting the PostHog API on every journey enrollment.
-
-## DNS and Cloudflare
-
-To put the API behind a custom domain:
-
-1. In Railway, generate a domain for the API service (or attach a custom domain)
-2. In your DNS provider (e.g. Cloudflare), create a CNAME record pointing `api.yourdomain.com` to the Railway-provided domain
-3. Set `API_PUBLIC_URL` to `https://api.yourdomain.com` in Railway environment variables
-4. Set `BETTER_AUTH_URL` to `https://api.yourdomain.com` for auth callback URLs
-
-The worker service does not need a public domain since it has no HTTP endpoints.
-
-## GitHub Auto-Deploy
-
-Railway auto-deploys both services when you push to `main`:
-
-1. Connect your Railway project to your scaffolded GitHub repository
-2. Both services detect changes via their `watchPatterns` and build independently
-3. The API service runs both migration tracks via `preDeployCommand` before swapping traffic
-4. The worker service restarts with the new code
-
-The build step (`pnpm build`) uses tsup to bundle all `@hogsend/*` packages via `noExternal`. npm dependencies resolve from `node_modules` at runtime.
-
-## Upgrading the engine
-
-Upgrading the framework is **`pnpm up` plus migrations — never a git merge.**
-
-```bash
-pnpm up "@hogsend/*"     # bump engine + db + core + email + plugins (one version line)
-pnpm db:migrate          # apply any new engine migrations (then client)
-```
-
-Then verify `GET /v1/health` shows both `schema.engine` and `schema.client` with `inSync: true`. For the full upgrade contract — back up before upgrading (the only rollback), forward-only migrations, expand→migrate→contract discipline, and the Extend → Patch → Eject customization ladder — see [Upgrading & Customizing](/docs/operating/upgrading).
-
-## Scaling Considerations
-
-**API service:**
-- Stateless HTTP server, scale horizontally with multiple replicas
-- Each replica runs its own Hono server and connects to Postgres directly
-- Railway handles load balancing across replicas automatically
-- The 30-second request timeout and 72-second keep-alive are configured in `src/index.ts`
-
-**Worker service:**
-- Each worker replica polls Hatchet for available tasks
-- Hatchet distributes tasks across workers automatically (no duplicate execution)
-- Scale workers based on task queue depth and journey throughput
-- Workers handle graceful shutdown on `SIGTERM` / `SIGINT`, stopping the Hatchet poller, flushing PostHog, and closing Redis connections
-
-**Hatchet-Lite:**
-- Single-instance deployment (Hatchet-Lite is not designed for horizontal scaling)
-- For high-throughput production workloads, consider upgrading to Hatchet Cloud
-
-## Local Development with Docker Compose
-
-For local development, your scaffolded app ships a `docker-compose.yml` that starts all infrastructure services:
-
-```bash
-docker compose up -d
-```
-
-This provisions:
-
-| Service | Port | Description |
-|---|---|---|
-| **TimescaleDB** | `5434` | Postgres 18 with TimescaleDB extension |
-| **Redis** | `6380` | Redis 8 Alpine for property caching |
-| **Hatchet-Lite** | `8888` (HTTP), `7077` (gRPC) | Workflow engine with dashboard |
-| **Hatchet Postgres** | Internal only | Dedicated Postgres 15 for Hatchet's internal state |
-
-The default Hatchet-Lite login is `admin@example.com` / `Admin123!!`.
-
-### Running the API and Worker Locally
-
-After starting infrastructure and applying migrations (`pnpm db:migrate`), run the API and worker in separate terminals:
-
-```bash
-# Terminal 1: API server (port 3002)
-pnpm dev          # tsx watch --env-file=.env src/index.ts
-
-# Terminal 2: Hatchet worker
-pnpm worker:dev   # tsx watch --env-file=.env src/worker.ts
-```
+| API + worker | `pnpm dev` / `pnpm worker` on host | `api` + `worker` compose services | two Railway services, same build | your orchestrator |
+| Infra | `docker compose up -d` (infra only) | `docker-compose.prod.yml` (full stack) | Railway services + hatchet-lite | operator-provided |
+| `DATABASE_URL` | `…@localhost:5434/growthhog` | `…@postgres:5432/growthhog` | `*.railway.internal` | your value |
+| `REDIS_URL` | `redis://localhost:6380` | `redis://redis:6379` | `*.railway.internal` | your value |
+| `HATCHET_CLIENT_HOST_PORT` | `localhost:7077` | `hatchet-lite:7077` | `hatchet-lite.railway.internal:7077` | Cloud / your address |
+| `HATCHET_CLIENT_TLS_STRATEGY` | `none` | `none` | `none` (internal net) | `tls` (Cloud) |
+| `HATCHET_CLIENT_TOKEN` | minted in local lite | minted in local lite | minted in Railway lite | pasted from Cloud / your engine |
+| Migrations run via | `pnpm db:migrate` manually | `migrate` one-shot, gated on healthy Postgres | Railway `preDeployCommand` | you run the migrate command first |
+| API boot schema guard | yes (`exit(1)` if behind) | yes | yes | yes |
+| Worker schema guard | none (ordered after migrate) | none (gated on `migrate` completing) | none | you order migrate first |
 
 <Callout type="info">
-  Dev runs through `tsx watch` (the `@hogsend/*` packages ship raw `.ts`, which Vite/tsx transform on the fly). Never run `node src/index.ts` directly — production is a `tsup` build then `node dist/...`.
+  The two port regimes are mutually exclusive: **host-process dev** reaches infra on host-mapped ports (`5434`/`6380`/`7077`), **in-compose** reaches infra by in-network service names on internal ports (`postgres:5432`/`redis:6379`/`hatchet-lite:7077`). `.env.example` documents both — do not mix them.
 </Callout>
 
-## Deployment Checklist
+## Migrations — two tracks, one ordering
 
-Before your first production deploy:
+Every target runs the same two migration tracks against the same database, each with its own ledger in the `drizzle` schema:
 
-- [ ] Scaffold your app (`pnpm dlx create-hogsend@latest my-app`) and push it to GitHub
-- [ ] Provision TimescaleDB/Postgres, Redis, and Hatchet-Lite on Railway
-- [ ] Deploy Hatchet-Lite and generate an API token
-- [ ] Set all required environment variables (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`)
-- [ ] Set `HATCHET_CLIENT_TOKEN` from the Hatchet-Lite dashboard
-- [ ] Set `NODE_ENV=production`
-- [ ] Configure `API_PUBLIC_URL` and `BETTER_AUTH_URL` with your production domain
-- [ ] Create two Railway services from your repo (`railway.toml` for API, `railway.worker.toml` for worker)
-- [ ] Confirm `preDeployCommand` (`pnpm db:migrate`) ran both tracks successfully
-- [ ] Verify `/v1/health` returns `status: "healthy"` with `schema.engine.inSync` and `schema.client.inSync` both `true`
-- [ ] Configure `POSTHOG_API_KEY` and `POSTHOG_HOST` for event ingestion
-- [ ] Set webhook secrets (`POSTHOG_WEBHOOK_SECRET`, `RESEND_WEBHOOK_SECRET`) for payload verification
-- [ ] Set `ADMIN_API_KEY` for admin endpoint access
+| Track | Lives in | Ledger | Gates boot? |
+|---|---|---|---|
+| **engine** | `@hogsend/db` (bundled) | `drizzle.__drizzle_migrations` | **Yes (fatal)** — the API `exit(1)`s on boot if behind |
+| **client** | your repo's `migrations/` | `drizzle.__client_migrations` | No — surfaced non-fatally in `/v1/health` |
+
+The engine track runs first so client migrations can reference engine tables, and both serialize behind the same Postgres advisory lock. The **worker has no boot guard of its own**, so on every target it must be ordered *after* migrations complete — the compose stack enforces this with `depends_on: migrate (service_completed_successfully)`.
+
+<Callout type="warn">
+  **The `db:push` ledger gotcha.** `pnpm db:push` (and seeding a fresh DB) creates schema objects **without** writing ledger rows. The boot guard judges "in sync" by the ledger, so a push-bootstrapped database reports `inSync: false` and the API refuses to boot — even though the tables exist. Bring up real databases with `pnpm db:migrate` from day one; `db:push` is a throwaway-local-dev shortcut only.
+</Callout>
+
+To bypass the engine guard in an emergency: `SKIP_SCHEMA_CHECK=true`.
+
+## Next steps
+
+<Cards>
+  <Card title="Deploy with Docker" href="/docs/operating/deploy-docker" />
+  <Card title="Deploy on Railway" href="/docs/operating/deploy-railway" />
+  <Card title="Bring your own" href="/docs/operating/deploy-byo" />
+  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Configuration reference" href="/docs/getting-started/configuration" />
+  <Card title="Upgrading & Customizing" href="/docs/operating/upgrading" />
+</Cards>

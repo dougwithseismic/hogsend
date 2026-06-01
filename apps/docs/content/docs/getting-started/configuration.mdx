@@ -49,13 +49,14 @@ Email delivery through [Resend](https://resend.com).
 
 ### Hatchet
 
-[Hatchet](https://hatchet.run) handles durable task execution — journey orchestration, email sends, and background jobs.
+[Hatchet](https://hatchet.run) handles durable task execution — journey orchestration, email sends, and background jobs. Acquiring a token is **[Step 1](/docs/getting-started/hatchet)**; there is no auto-mint. These three values are the entire connection contract.
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `HATCHET_CLIENT_TOKEN` | No | — | API, Worker | Token for connecting to the Hatchet engine. Copy from the Hatchet dashboard (`localhost:8888` locally). Without it, the API can't push events and the worker can't register tasks. |
-| `HATCHET_CLIENT_HOST_PORT` | No | — | API, Worker | Hatchet gRPC endpoint. Local Docker: `localhost:7077`. On Railway, the internal address of the Hatchet-Lite service. |
-| `HATCHET_CLIENT_TLS_STRATEGY` | No | — | API, Worker | TLS strategy for the gRPC connection. `none` for local and internal Railway networking; `tls` over the public internet. |
+| `HATCHET_CLIENT_TOKEN` | **Yes** | — | API, Worker | Bearer JWT for connecting to the Hatchet engine. The SDK hard-throws if empty. Copy from the Hatchet dashboard (`localhost:8888` locally) or paste a Hatchet Cloud token. See [Acquire a Hatchet](/docs/getting-started/hatchet). |
+| `HATCHET_CLIENT_HOST_PORT` | No | `localhost:7077` | API, Worker | Hatchet gRPC endpoint. In-compose: `hatchet-lite:7077`. On Railway, the internal address of the Hatchet-Lite service. |
+| `HATCHET_CLIENT_TLS_STRATEGY` | No | `tls` | API, Worker | TLS strategy for the gRPC connection: `none` \| `tls` \| `mtls`. **Secure by default.** Override to `none` for local and internal-network hatchet-lite; keep `tls` for Hatchet Cloud and the public internet. |
+| `HATCHET_CLIENT_NAMESPACE` | No | _(empty)_ | API, Worker | Optional per-tenant isolation namespace on a shared engine. Default-empty; documented so it stays part of the contract. |
 
 ### PostHog
 

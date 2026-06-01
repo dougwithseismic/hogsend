@@ -1,0 +1,132 @@
+---
+title: Deploy with Docker (default)
+description: Self-host the full Hogsend stack on any box with docker-compose.prod.yml — Postgres, Redis, hatchet-lite, plus the migrate/api/worker run modes off one image.
+---
+
+Self-hosting with Docker is the **default deploy path**. One [`docker-compose.prod.yml`](https://github.com/dougwithseismic/hogsend/blob/main/docker-compose.prod.yml) at the repo root brings up the full stack on a single box: the infrastructure (TimescaleDB, Redis, `hatchet-postgres`, `hatchet-lite`) plus the three application run modes — a one-shot `migrate`, the `api`, and the `worker` — all from the single image built by the repo-root [`Dockerfile`](https://github.com/dougwithseismic/hogsend/blob/main/Dockerfile). **Same image, three commands.**
+
+## Prerequisites
+
+- **Docker** with Compose v2 (`docker compose`, not `docker-compose`).
+- **A Hatchet token** — see below; this is [Step 1](/docs/getting-started/hatchet).
+- **A real `BETTER_AUTH_SECRET`** — `pnpm gen:secret` (`openssl rand -base64 32`).
+- **A `RESEND_API_KEY`** — from the [Resend dashboard](https://resend.com/api-keys).
+
+## The one image, three run modes
+
+The Dockerfile is a multi-stage build on `node:22-bookworm-slim` with `pnpm@9`. `tsup` bundles every `@hogsend/*` package into `apps/api/dist`, so the `api` and `worker` entrypoints are self-contained. Migrations are **not** bundled — `tsx packages/db/src/migrate.ts` resolves the `drizzle/` SQL at runtime — so the runner image also ships `packages/db` source, its `drizzle/` SQL, and `tsx`.
+
+```bash
+docker run … <image>                                    # api  (default CMD)
+docker run … <image> node apps/api/dist/worker.js       # worker
+docker run … <image> tsx packages/db/src/migrate.ts     # migrate one-shot
+```
+
+The compose file wires all three up for you.
+
+## The bring-up sequence
+
+Because the app needs a Hatchet token to boot but the token can only be minted after the engine is running, bring-up is **ordered**: infra → token → app. There is no auto-mint.
+
+```bash
+# 0. Fill in .env. At minimum the required vars must be set:
+#      BETTER_AUTH_SECRET, RESEND_API_KEY, HATCHET_CLIENT_TOKEN
+cp .env.example .env
+
+# 1. Bring up ONLY the Hatchet engine first.
+docker compose -f docker-compose.prod.yml up -d hatchet-lite
+
+# 2. Mint a token in its dashboard, paste into .env as HATCHET_CLIENT_TOKEN:
+#      http://localhost:8888   (admin@example.com / Admin123!!)
+#      → Settings → API Tokens → create → copy the JWT
+
+# 3. Bring up the full stack. migrate runs first and gates api + worker.
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+See [Acquire a Hatchet](/docs/getting-started/hatchet) for the Cloud and bring-your-own alternatives — paste a Hatchet Cloud token instead and set `HATCHET_CLIENT_TLS_STRATEGY=tls`.
+
+## How ordering is enforced
+
+The compose file uses healthchecks and completion gates so nothing ever runs against an unmigrated or unhealthy database:
+
+| Service | Restart | Depends on | Notes |
+|---|---|---|---|
+| `postgres` | `unless-stopped` | — | healthcheck `pg_isready`, named volume |
+| `redis` | `unless-stopped` | — | healthcheck `redis-cli ping`, named volume |
+| `hatchet-postgres` | `unless-stopped` | — | dedicated Postgres for the engine |
+| `hatchet-lite` | `unless-stopped` | `hatchet-postgres` healthy | dashboard `:8888`, gRPC `:7077` |
+| `migrate` | `no` | `postgres` healthy | runs engine track then client track, then exits |
+| `api` | `unless-stopped` | postgres + redis healthy, hatchet-lite started, **`migrate` completed** | healthcheck `/v1/health`, port `3002` |
+| `worker` | `unless-stopped` | same as api, incl. **`migrate` completed** | **no healthcheck** (no HTTP port) |
+
+The `worker` has no schema guard of its own, so gating it on `migrate` `service_completed_successfully` is what keeps it off an unmigrated DB. The `api` *also* self-guards on schema version at boot (`exit(1)` if behind), making the migrate gate a belt-and-braces check rather than the only ordering.
+
+## In-network env (the in-compose port regime)
+
+Inside compose, services reach each other by **in-network name on internal ports** — not the host-mapped ports the dev `docker-compose.yml` publishes. The compose file sets sensible defaults that stay overridable from `.env` (anything `${VAR:-default}` can be set in `.env`):
+
+```bash
+DATABASE_URL=postgresql://growthhog:growthhog@postgres:5432/growthhog
+REDIS_URL=redis://redis:6379
+HATCHET_CLIENT_HOST_PORT=hatchet-lite:7077
+HATCHET_CLIENT_TLS_STRATEGY=none
+```
+
+The required secrets have no default and fail loudly if unset — compose errors with a message rather than booting insecurely:
+
+```
+BETTER_AUTH_SECRET  → "set BETTER_AUTH_SECRET in .env (pnpm gen:secret)"
+RESEND_API_KEY      → "set RESEND_API_KEY in .env"
+HATCHET_CLIENT_TOKEN → "set HATCHET_CLIENT_TOKEN in .env (acquire from the
+                        hatchet-lite dashboard or Hatchet Cloud)"
+```
+
+## Running on a real domain (VPS)
+
+hatchet-lite is parameterized for non-localhost via `HATCHET_HOST`. Set it to your public host so the dashboard URL, the auth cookie domain, and the gRPC broadcast address the minted token embeds all match the address clients dial:
+
+```bash
+HATCHET_HOST=hatchet.yourdomain.com docker compose -f docker-compose.prod.yml up -d
+```
+
+<Callout type="warn">
+  The minted token embeds the broadcast address, so a token minted against `localhost` is **non-portable** to a real domain — mint a fresh token after setting `HATCHET_HOST`. And rotate the default `admin@example.com` / `Admin123!!` dashboard credentials before exposing the engine to any network.
+</Callout>
+
+Then put the API behind your domain by pointing a reverse proxy (or DNS) at the `api` service's port `3002`, and set:
+
+```bash
+API_PUBLIC_URL=https://api.yourdomain.com
+BETTER_AUTH_URL=https://api.yourdomain.com
+```
+
+## Validate
+
+```bash
+curl http://localhost:3002/v1/health
+```
+
+A healthy response reports `status: "healthy"` with both `schema.engine.inSync` and `schema.client.inSync` `true`. A behind track returns `status: "migration_pending"`. See [Monitoring](/docs/operating/monitoring#health-check).
+
+## Operations
+
+```bash
+# Tail logs
+docker compose -f docker-compose.prod.yml logs -f api worker
+
+# Re-run migrations after an engine upgrade (rebuild the image first)
+docker compose -f docker-compose.prod.yml up -d --build migrate
+
+# Scale workers (api is also horizontally scalable behind a load balancer)
+docker compose -f docker-compose.prod.yml up -d --scale worker=3
+```
+
+## Next steps
+
+<Cards>
+  <Card title="Acquire a Hatchet (Step 1)" href="/docs/getting-started/hatchet" />
+  <Card title="Configuration reference" href="/docs/getting-started/configuration" />
+  <Card title="Monitoring & Alerting" href="/docs/operating/monitoring" />
+  <Card title="Upgrading & Customizing" href="/docs/operating/upgrading" />
+</Cards>

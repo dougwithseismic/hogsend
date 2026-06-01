@@ -157,12 +157,13 @@ The runbook names these so cutover is unambiguous. They MUST exist before
 running Phase 6 (they are Phase 2's job, not this plan's):
 
 - `packages/db/src/migrate.ts` → parameterized
-  `runMigrations({ migrationsFolder, migrationsTable = "__drizzle_migrations", migrationsSchema = "drizzle", lockKey })`
+  `migrateTrack({ migrationsFolder, migrationsTable, migrationsSchema, ... })`
   plus thin wrappers `migrateEngine()` (engine `drizzle/`,
   `__drizzle_migrations`) and `migrateClient(folder)` (client `migrations/`,
-  `__client_migrations`). Advisory lock keys must differ per track
-  (engine `4812007`, client e.g. `4812008`) so the two `preDeploy` steps never
-  self-deadlock.
+  `__client_migrations`). As shipped, both tracks share ONE advisory lock
+  (`4812007`) and run as separate, sequential processes — each acquires the
+  lock, migrates, then releases it before the next track starts, so the two
+  `preDeploy` steps serialize correctly and never self-deadlock.
 - `packages/db` `package.json` scripts: `migrate:engine`, and the client repo's
   `migrate:client` (in `apps/api/package.json`, pointing at the client
   `migrations/` + `drizzle.client.config.ts`).
@@ -284,8 +285,10 @@ Phase 2 (`migration-system.test.ts` extension). For Phase 6 prep:
 - **Cross-track coupling** — if the dogfood ever ALTERed engine tables in its
   client migrations, an engine upgrade can collide. Keep client migrations
   additive-only (TODO Phase 2 sharp edge).
-- **Two advisory locks** — engine and client migrate must use different lock keys
-  or the chained preDeploy can self-block.
+- **Shared advisory lock** — engine and client migrate share ONE lock key
+  (`4812007`). They run as separate, sequential processes, so each releases the
+  lock before the next acquires it; the chained preDeploy never self-blocks. Do
+  not split the key.
 - **Worker/api lockstep** — both Railway services build from the same repo/ref;
   deploy them together so api + worker + schema move as one unit
   (UPGRADING.md preamble).

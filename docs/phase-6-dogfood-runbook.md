@@ -407,9 +407,10 @@ churn (new git history).
 - **db:push ledger gotcha (Step 5).** Engine track may report `inSync:false`
   despite present tables. **Baseline** the ledger; never re-run destructive DDL.
 - **Advisory lock.** The chained preDeploy is correct because the two migrate
-  CLIs run as separate, sequential processes (engine releases its lock before
-  client starts). Do not collapse them into one process without giving the
-  client track a distinct lock key.
+  CLIs run as separate, sequential processes that share ONE lock key (4812007):
+  engine acquires the lock, migrates, and releases it before the client process
+  starts and acquires the same lock. They never self-deadlock. Do not split the
+  key.
 - **Cross-track coupling.** Keep client migrations **additive-only** against
   engine tables — never drop/rename/retype an engine column from the client
   track, or a future engine upgrade will collide.
