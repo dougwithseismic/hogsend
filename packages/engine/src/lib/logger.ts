@@ -1,8 +1,10 @@
-import path from "node:path";
 import winston from "winston";
 
-const LOG_DIR = path.resolve(process.cwd(), "logs");
-
+// Log to stdout only (12-factor): the platform — Railway, Docker, a VPS's
+// systemd/journald — captures the stream. Writing log FILES from inside the app
+// breaks in a non-root container (mkdir EACCES on a root-owned /app) and is
+// pointless on ephemeral container filesystems. If durable file logs are ever
+// needed, add a File transport behind an explicit, writable LOG_DIR opt-in.
 export function createLogger(level: string = "info") {
   return winston.createLogger({
     level,
@@ -22,19 +24,6 @@ export function createLogger(level: string = "info") {
             return `${timestamp} ${level}: ${message}${metaStr}`;
           }),
         ),
-      }),
-      new winston.transports.File({
-        filename: path.join(LOG_DIR, "error.log"),
-        level: "error",
-        format: winston.format.json(),
-        maxsize: 10_000_000,
-        maxFiles: 5,
-      }),
-      new winston.transports.File({
-        filename: path.join(LOG_DIR, "combined.log"),
-        format: winston.format.json(),
-        maxsize: 10_000_000,
-        maxFiles: 5,
       }),
     ],
   });
