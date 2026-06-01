@@ -3,7 +3,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { sql } from "drizzle-orm";
 import type { AppEnv } from "../app.js";
 import { API_VERSION } from "../env.js";
-import { getRedisIfConnected } from "../lib/redis.js";
+import { getRedis } from "../lib/redis.js";
 
 const componentSchema = z.object({
   status: z.enum(["up", "down"]),
@@ -78,9 +78,13 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
         await db.execute(sql`SELECT 1`);
       }),
       checkComponent(async () => {
-        const redis = getRedisIfConnected();
-        if (!redis) throw new Error("Not connected");
-        await redis.ping();
+        // Actively probe: getRedis() lazily creates + connects the client (with
+        // family:0 for Railway IPv6). The old getRedisIfConnected() only returned
+        // a client if something had ALREADY created one — which nothing does when
+        // PostHog is disabled — so redis always read "down" even though it was
+        // reachable. ioredis buffers the ping until connected (or rejects if the
+        // host is genuinely unreachable → a truthful "down").
+        await getRedis().ping();
       }),
       getEngineSchemaVersion(db),
       getClientSchemaVersion(db, clientJournal ?? { entries: [] }),

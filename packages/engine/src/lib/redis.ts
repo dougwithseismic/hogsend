@@ -10,6 +10,16 @@ export function getRedis(): Redis {
       // which is why Postgres (postgres.js does dual-stack) worked but Redis
       // didn't. family: 0 lets DNS resolve both A and AAAA. Harmless locally.
       family: 0,
+      // Connect on first command (e.g. the /v1/health probe), not at import.
+      lazyConnect: true,
+      connectTimeout: 5000,
+      maxRetriesPerRequest: 3,
+      // Retry a transient blip a few times, then give up cleanly. Without a cap,
+      // an environment with no redis (tests, self-host without redis) keeps a
+      // socket retrying forever — which hangs vitest and leaks handles. In prod
+      // redis is reachable, so it connects on the first try and never gives up.
+      retryStrategy: (times) =>
+        times > 5 ? null : Math.min(times * 300, 1500),
     });
   }
   return _redis;
