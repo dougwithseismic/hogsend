@@ -4,6 +4,8 @@
 
 # Hogsend
 
+[![CI](https://github.com/dougwithseismic/hogsend/actions/workflows/ci.yml/badge.svg)](https://github.com/dougwithseismic/hogsend/actions/workflows/ci.yml)
+
 The lifecycle email automation that PostHog teams actually need. Code-first, self-hosted, open source.
 
 PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys are TypeScript functions, not YAML configs or drag-and-drop canvases.

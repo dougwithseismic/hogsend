@@ -160,3 +160,17 @@ jobs:
           # never touched it; apply it on top of the upgraded engine schema.
           CLIENT_MIGRATIONS_FOLDER="$GITHUB_WORKSPACE/apps/api/src/__tests__/fixtures/client-migrations" \
             DATABASE_URL="$PGURL/upgrade_test" pnpm --filter @hogsend/db db:migrate:client
+
+  preflight:
+    name: Deploy preflight (prod image builds + boots)
+    runs-on: ubuntu-latest
+    # The runtime gate lint/types/tests can't provide: build the production image
+    # exactly as Railway does (the Dockerfile) and boot every run mode. This is
+    # the class of failure that repeatedly reached prod — a tsup noExternal gap
+    # (ERR_MODULE_NOT_FOUND), a pnpm-based start command (EACCES on /app), a
+    # winston File transport (mkdir /app/logs). The runner has Docker; the script
+    # needs neither Node nor pnpm on the host (the build runs inside the image).
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build prod image and boot api/worker/migrate
+        run: bash scripts/preflight-deploy.sh
