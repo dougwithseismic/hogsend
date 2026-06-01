@@ -197,11 +197,23 @@ release workflow's first real run is the canonical end-to-end check.
 
 ---
 
-## 8. Required CI secret
+## 8. Publishing auth — Trusted Publishing (OIDC), no secret
 
-The release workflow needs an npm **automation token** scoped to publish the
-`@hogsend` org and the `create-hogsend` package, stored as the repo secret
-`NPM_TOKEN` (Settings → Secrets and variables → Actions). Provenance (OIDC) is
-opt-in and OFF by default in the workflow — see the comments in
-`.github/workflows/release.yml` for the with- and without-provenance forms. Never
-commit a real token.
+The release workflow publishes via npm **Trusted Publishing (OIDC)** — there is
+**no `NPM_TOKEN` and no long-lived secret**. `.github/workflows/release.yml` has
+`permissions: id-token: write` and upgrades npm to ≥ 11.5.1; `npm publish` (invoked
+by `changeset publish`) then mints a short-lived, workflow-scoped token at publish
+time, and attaches build provenance automatically.
+
+Setup (one-time, per package — a package must be published once before it can have
+a Trusted Publisher):
+
+1. **Bootstrap** the initial version with a local publish (`npm login` + `pnpm
+   release`). This is the only time a credential is used directly.
+2. On **npmjs.com → each package → Settings → Trusted Publisher**, choose **GitHub
+   Actions** and set: organization/user `dougwithseismic`, repository `hogsend`,
+   workflow filename `release.yml`. Repeat for all 8 published packages
+   (`@hogsend/*` + `create-hogsend`).
+3. Revoke any bootstrap token — from here, every release is tokenless OIDC.
+
+See `docs/RELEASING.md`-adjacent npm docs: <https://docs.npmjs.com/trusted-publishers/>

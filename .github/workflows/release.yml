@@ -44,6 +44,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
+      # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 22 ships npm 10.x.
+      - run: npm install --global npm@latest
       - run: pnpm install --frozen-lockfile
       # Gate: the engine line must type-check and build before we publish
       # anything. `pnpm release` also runs `pnpm build` again as a publish guard.
@@ -59,21 +61,14 @@ jobs:
           title: "chore(release): version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NPM_TOKEN is an npm AUTOMATION token scoped to publish the @hogsend
-          # org (all @hogsend/* packages) and the create-hogsend package. Add it
-          # under repo Settings → Secrets and variables → Actions. Do NOT commit
-          # a real token. changesets/action reads NODE_AUTH_TOKEN for `npm
-          # publish` auth; we mirror NPM_TOKEN into it.
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-# Provenance (OIDC) — OPTIONAL:
-#   With provenance (recommended once the npm org has it enabled): keep
-#   `id-token: write` above and publish with `npm publish --provenance`
-#   (set `provenance: true` in each package's publishConfig, or pass the flag in
-#   `pnpm release`). Provenance attests the build came from this workflow.
-#
-#   Without provenance (the safe default for the FIRST real release, in case the
-#   org has not enabled OIDC publishing yet): drop the `id-token: write`
-#   permission and do NOT pass `--provenance`. `pnpm release` as written here
-#   does not pass `--provenance`, so this workflow is provenance-OFF by default
-#   and will not be blocked by a missing OIDC trust policy.
+          # No NPM_TOKEN — this workflow publishes via npm TRUSTED PUBLISHING
+          # (OIDC). The `id-token: write` permission above, plus a Trusted
+          # Publisher configured on each package (npmjs.com → package → Settings →
+          # GitHub Actions → dougwithseismic/hogsend → workflow `release.yml`),
+          # lets `npm publish` (invoked by `changeset publish`) mint a short-lived,
+          # workflow-scoped OIDC token automatically — nothing long-lived stored.
+          # npm >= 11.5.1 (installed above) attaches build provenance for free.
+          #
+          # Prereq: a package must be published once before a Trusted Publisher
+          # can be added to it. The initial 0.0.1 versions were bootstrapped via a
+          # local publish; every release from here is tokenless OIDC.
