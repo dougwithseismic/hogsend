@@ -1,0 +1,131 @@
+---
+title: "Upgrading & Customizing"
+description: "Upgrade the engine with pnpm up, run both migration tracks, and reach for the Extend → Patch → Eject ladder when you need to change engine behaviour."
+---
+
+Your scaffolded app **pins `@hogsend/engine`** (and the other `@hogsend/*` packages) to a single version line. The framework is upstream code you consume; your **content** — journeys, email templates, webhook sources, custom routes, config, and your own migrations — is yours. Upgrading the framework is `pnpm up` plus migrations, never a git merge of a fork.
+
+<Callout type="info">
+  The `@hogsend/*` packages publish from the changesets pipeline and are landing on npm imminently. Until then they resolve from this monorepo (the harness uses local `pnpm pack` tarballs). The upgrade commands below are the intended path either way.
+</Callout>
+
+## Upgrading the engine
+
+```bash
+pnpm up "@hogsend/*"     # bump engine + db + core + email + plugins together
+pnpm db:migrate          # apply any new engine migrations (then client)
+```
+
+Then confirm `GET /v1/health` reports both tracks `inSync: true`:
+
+```bash
+curl https://api.yourdomain.com/v1/health
+```
+
+```jsonc
+{
+  "status": "healthy",
+  "schema": {
+    "engine": { "required": "0012", "applied": "0012", "inSync": true, "pending": [] },
+    "client": { "required": "0003", "applied": "0003", "inSync": true, "pending": [] }
+  }
+}
+```
+
+### Upgrade rules (read before every upgrade)
+
+- **Back up the database first.** Migrations are forward-only — there are no `down` migrations in production, so a snapshot is your only rollback.
+- **The `@hogsend/*` packages move in lockstep.** `@hogsend/engine`, `@hogsend/db`, and `@hogsend/core` are a linked group; bump them together. Never run an engine build against a `@hogsend/db` from a different release.
+- **Expand → migrate → contract.** During a deploy, old code runs against the new schema (Railway migrates *before* the new code is live, and the worker deploys separately). Every migration must be backward-compatible with the currently-running code. Destructive changes (drop/rename column, tighten `NOT NULL`) are split across three releases.
+- **A new engine migration is at least a MINOR bump; a destructive/non-expand-contract migration is a MAJOR.** Read the CHANGELOG entry for ⚠️ breaking notes and required backfills.
+- **Heavy backfills ship as Hatchet jobs, not inside migrations.** If a release notes a backfill, trigger and verify it after the deploy. The engine exposes `runBatchedBackfill` (from `@hogsend/engine`) for batched, idempotent, resumable backfills.
+
+The semver rules behind these bumps are in [Releasing & versioning](#releasing--versioning) below.
+
+## The two migration tracks
+
+Two independent tracks run against the same database, each with its own ledger in the `drizzle` schema:
+
+| Track | Migrations live in | Ledger | Owned by | Gates boot? |
+|---|---|---|---|---|
+| **engine** | `@hogsend/db` (bundled) | `drizzle.__drizzle_migrations` | upstream | **Yes (fatal)** |
+| **client** | your repo's `migrations/` | `drizzle.__client_migrations` | you | No (surfaced in health) |
+
+A single `pnpm db:migrate` applies the engine track first, then your client track (skipping an empty client track gracefully). When you change your own schema in `src/schema/`, generate a client-track migration:
+
+```bash
+pnpm db:generate   # generate a CLIENT-track migration from src/schema changes
+pnpm db:migrate    # apply engine then client
+```
+
+The engine track gates boot (`exit(1)` if behind); the client track surfaces non-fatally in `/v1/health`. See [Deployment](/docs/operating/deployment#two-track-migrations) for the boot guard and the `db:push` ledger gotcha, and [Monitoring](/docs/operating/monitoring#health-check) for the `migration_pending` status.
+
+### Cross-track sharp edge
+
+A client migration that **ALTERs an engine table** couples the two tracks. Keep client migrations against engine tables **additive only** — add your own columns/tables, but never drop, rename, or retype an engine column from the client track. After every engine upgrade, re-run `pnpm db:migrate` and confirm both tracks report `inSync` in `/v1/health`.
+
+## Customizing engine behaviour: the Extend → Patch → Eject ladder
+
+When you need to change how `@hogsend/engine` behaves, climb the smallest rung that does the job. Each rung has a known upgrade cost.
+
+| Need | Mechanism | Upgrade cost |
+|---|---|---|
+| Add journeys, templates, sources, routes, middleware; swap a service | **Extend** via public injection points in your own app code | none — clean `pnpm up` |
+| Tweak a few lines of engine behaviour | **Patch** (`pnpm patch @hogsend/engine`) | re-applies on install; fails loudly on conflict at upgrade |
+| Rewrite engine internals | **Eject** that one package into `vendor/<name>` | you maintain a fork of that package only; everything else still `pnpm up`s |
+
+### Extend (preferred — zero upgrade cost)
+
+The default. Everything routed through the engine's public API is additive — upstream never ships files into your source tree, so there is nothing to merge on upgrade. The seams:
+
+- `createHogsendClient({ journeys, email?: { provider?, templates? }, analytics?, enabledJourneys?, clientJournal?, overrides? })` — register journeys + your `src/emails` registry; swap the email `provider` or `analytics`; `overrides` is the advanced/test-only escape hatch (`mailer`, `auth`, `hatchet`, `db`)
+- `createApp(container, { routes?, middleware?, webhookSources?, onError? })` — mount custom routers, middleware, webhook sources, and a custom error handler
+- `createWorker({ container, journeys, extraWorkflows? })` — register extra Hatchet tasks alongside the built-ins
+- `defineJourney(...)` and `defineWebhookSource(...)` — author content
+
+Because you register content in **your own** files (not by editing a shared engine index), there is no merge conflict on upgrade. See the [guides](/docs/guides) for authoring content against these seams.
+
+### Patch (re-applies on install; loud on conflict)
+
+A surgical, line-local fix to engine source held as a committed `.patch` that pnpm re-applies on every install:
+
+```bash
+pnpm patch @hogsend/engine          # opens an editable copy in a temp dir, prints its path
+# …edit the files in that printed dir…
+pnpm patch-commit <printed-path>    # writes patches/@hogsend__engine@<ver>.patch
+```
+
+Commit **both** the `.patch` file and the `pnpm.patchedDependencies` block added to your `package.json`. On an engine upgrade where the patched lines moved, install **fails loudly** (`Could not apply patch …`) — refresh the patch against the new version, or escalate to Eject if it keeps conflicting. Keep patches tiny and line-local.
+
+### Eject (you fork that one package)
+
+When you must rewrite internals — or a patch will not stop conflicting — eject the package with the Node `@hogsend/cli` (not the Go `hogsend` deployment CLI documented under [CLI](/docs/cli)):
+
+```bash
+pnpm hogsend eject @hogsend/engine        # or: pnpm dlx @hogsend/cli eject @hogsend/engine
+pnpm install                               # REQUIRED follow-up; eject never installs itself
+```
+
+This copies the package source into `vendor/engine/` (excluding `node_modules`, `dist`, `.turbo`, `.changeset`, `CHANGELOG.md`, and `*.test.ts`; stripping `private: true`) and rewrites **only that one** dependency to `file:./vendor/engine`. Every other `@hogsend/*` package keeps upgrading via `pnpm up`. The package name is unchanged, so keep `@hogsend/engine` in your tsup `noExternal` list.
+
+Un-eject by removing `vendor/engine`, restoring the dependency range in `package.json`, and running `pnpm install`.
+
+<Callout type="info">
+  After patching or ejecting, your upgrade behaviour changes: a patch fails loudly at `pnpm up` if its lines moved; an ejected package no longer tracks upstream (you merge engine changes into `vendor/` by hand). The two-track migration story is unaffected — engine migrations still ship from whatever `@hogsend/db` you resolve.
+</Callout>
+
+Coming from another platform? [Migrating to Hogsend](/docs/compare/migration) walks through porting journeys, templates, and event sources into a scaffolded app.
+
+## Releasing & versioning
+
+You consume releases; you don't cut them. But knowing how the engine is versioned tells you what a given `pnpm up` will do.
+
+- **Changesets pipeline, CI-only.** Releases happen exclusively in CI (`.github/workflows/release.yml`) — never a hand-run `npm publish` or tag. The flow: author a changeset (`pnpm changeset`), merge to `main`, merge the generated **Version Packages** PR, and CI runs `pnpm release` (`pnpm build && changeset publish`).
+- **Semver, as it applies to upgrades:**
+  - **MAJOR** — a breaking change to the engine's public API (`@hogsend/engine` exports) **or** a destructive / non-expand-contract migration. Breaking changesets are flagged ⚠️ and list any required backfills — read the CHANGELOG before a major `pnpm up`.
+  - **MINOR** — additive API **or** an additive (expand) migration. A new engine migration file is **at minimum a MINOR** engine-line bump.
+  - **PATCH** — bug fix, no API change, no new migration.
+- **Linked group.** `@hogsend/engine`, `@hogsend/db`, and `@hogsend/core` co-bump when changed together. `@hogsend/email` and the two `plugin-*` packages version independently — but you still upgrade the whole `@hogsend/*` line with one `pnpm up "@hogsend/*"`.
+- **Publishable set:** `@hogsend/core`, `@hogsend/db`, `@hogsend/email`, `@hogsend/plugin-posthog`, `@hogsend/plugin-resend`, `@hogsend/engine`, `create-hogsend`, and `@hogsend/cli`. Engine migrations ship versioned **inside `@hogsend/db`**, so the migrations you run always match the engine release you resolve.
+
+`create-hogsend@X.Y` scaffolds an app pinned to `@hogsend/engine@^X.Y`; you upgrade within that major with `pnpm up "@hogsend/*"`.

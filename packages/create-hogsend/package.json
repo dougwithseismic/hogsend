@@ -1,0 +1,37 @@
+{
+  "name": "create-hogsend",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Scaffold a Hogsend lifecycle orchestration app (consumes @hogsend/engine).",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dougwithseismic/hogsend.git",
+    "directory": "packages/create-hogsend"
+  },
+  "bin": {
+    "create-hogsend": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "template",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "verify": "bash scripts/verify-scaffold.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:^",
+    "@types/node": "^25.9.1",
+    "tsup": "^8.5.1"
+  }
+}

@@ -1,0 +1,297 @@
+---
+title: Tracking API
+description: First-party link click tracking, email open tracking, and the event loop that connects tracking to PostHog and journeys.
+---
+
+## Overview
+
+Every outgoing email gets its links rewritten to redirect through your API, and a 1x1 tracking pixel injected for open detection. When recipients interact with the email:
+
+1. **DB records are created** — `tracked_links`, `link_clicks`, `emailSends.openedAt/clickedAt`
+2. **Events are pushed** — `email.link_clicked` and `email.opened` flow through the ingest pipeline
+3. **PostHog gets synced** — events appear on the person timeline for cohort building and analytics
+4. **Journeys can react** — journey code can branch on `ctx.history.hasEvent({ event: "email.opened" })`
+
+Tracking URLs use `API_PUBLIC_URL` as the domain (e.g., `https://api.hogsend.com/v1/t/c/:id`), so it's first-party — no third-party cookie issues, better deliverability.
+
+---
+
+## Public Endpoints
+
+These endpoints are hit by email clients. No authentication required.
+
+### `GET /v1/t/c/{id}` — Track Link Click
+
+Records a click and redirects to the original URL.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string (uuid)` | Tracked link ID |
+
+**Request Headers Used**
+
+| Header | Purpose |
+|---|---|
+| `x-forwarded-for` | Client IP address (first IP if comma-separated) |
+| `x-real-ip` | Fallback IP address |
+| `user-agent` | Client user agent string |
+
+**Response `302`** — Redirect to the original URL via `Location` header.
+
+**What happens on click:**
+
+1. Insert `link_clicks` row with IP, user agent, timestamp
+2. Increment `tracked_links.click_count`
+3. Set `email_sends.clicked_at` (first click only — `WHERE clicked_at IS NULL`)
+4. Fire-and-forget: push `email.link_clicked` event through ingest pipeline + PostHog
+
+**Event properties pushed:**
+
+```json
+{
+  "emailSendId": "uuid",
+  "templateKey": "activation/welcome",
+  "linkUrl": "https://example.com/docs",
+  "linkId": "uuid"
+}
+```
+
+**Fallback:** Unknown link IDs redirect to `API_PUBLIC_URL` (your app's homepage).
+
+```bash
+# Simulating a click (in practice, email clients follow this automatically)
+curl -v "https://api.hogsend.com/v1/t/c/link-uuid-here"
+# → 302 Location: https://example.com/docs
+```
+
+---
+
+### `GET /v1/t/o/{id}` — Track Email Open
+
+Records an open and returns a 1x1 transparent GIF.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string (uuid)` | Email send ID |
+
+**Response `200`**
+
+- **Content-Type:** `image/gif`
+- **Body:** 42-byte transparent 1x1 GIF
+- **Cache-Control:** `no-store, no-cache, must-revalidate`
+
+**What happens on open:**
+
+1. Set `email_sends.opened_at` (first open only — `WHERE opened_at IS NULL`)
+2. Fire-and-forget: push `email.opened` event through ingest pipeline + PostHog
+
+**Event properties pushed:**
+
+```json
+{
+  "emailSendId": "uuid",
+  "templateKey": "activation/welcome"
+}
+```
+
+Subsequent opens are no-ops for the DB write (idempotent), but the event is only pushed on the first open.
+
+```bash
+curl -v "https://api.hogsend.com/v1/t/o/email-send-uuid"
+# → 200 image/gif (42 bytes)
+```
+
+---
+
+## Events Reference
+
+| Event Name | Trigger | Properties |
+|---|---|---|
+| `email.opened` | Email client loads tracking pixel | `emailSendId`, `templateKey` |
+| `email.link_clicked` | Email client follows tracked link | `emailSendId`, `templateKey`, `linkUrl`, `linkId` |
+
+These events:
+- Are stored in `user_events` (queryable via admin API)
+- Are pushed to Hatchet (can trigger journeys or exit conditions)
+- Are sent to PostHog (appear on person timeline)
+
+---
+
+## Database Schema
+
+### `tracked_links`
+
+One row per unique URL per email. Created at send time during HTML rewriting.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key — used in tracking redirect URL |
+| `email_send_id` | UUID | FK → `email_sends`. Cascade deletes. |
+| `original_url` | TEXT | The original destination URL |
+| `click_count` | INTEGER | Denormalized click counter (default 0) |
+| `created_at` | TIMESTAMP | When the tracked link was created |
+| `updated_at` | TIMESTAMP | Last updated (click count change) |
+
+**Indexes:** `email_send_id`
+
+### `link_clicks`
+
+One row per click event. Append-only — never updated or deleted.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `tracked_link_id` | UUID | FK → `tracked_links`. Cascade deletes. |
+| `ip_address` | TEXT | Client IP (nullable) |
+| `user_agent` | TEXT | Client user agent (nullable) |
+| `clicked_at` | TIMESTAMP | When the click occurred |
+
+**Indexes:** `tracked_link_id`, `clicked_at`
+
+---
+
+## Link Rewriting
+
+Links are rewritten automatically for every email sent through `sendEmail()`. The rewriting happens inside the tracked email pipeline before the HTML reaches Resend.
+
+### What gets rewritten
+
+All `href="https://..."` and `href="http://..."` attributes in the email HTML.
+
+### What gets skipped
+
+| Pattern | Reason |
+|---|---|
+| URLs containing `/v1/email/unsubscribe` | Functional — must not be tracked |
+| URLs containing `/v1/email/preferences` | Functional — must not be tracked |
+| `mailto:`, `tel:`, etc. | Non-HTTP schemes ignored by regex |
+
+### Deduplication
+
+If the same URL appears multiple times in an email, only one `tracked_links` row is created. All occurrences in the HTML share the same tracking ID and redirect URL.
+
+### Open tracking pixel
+
+A 1x1 transparent GIF `<img>` tag is injected before `</body>`:
+
+```html
+<img src="https://api.hogsend.com/v1/t/o/{emailSendId}"
+     width="1" height="1" alt="" style="display:none" />
+```
+
+---
+
+## Using Tracking in Journeys
+
+### Branching on email engagement
+
+```typescript
+// Check if user opened any email in the last 2 days
+const { found: opened } = await ctx.history.hasEvent({
+  userId: user.id,
+  event: "email.opened",
+  within: days(2),
+});
+
+// Check if user clicked any link in the last 3 days
+const { found: clicked } = await ctx.history.hasEvent({
+  userId: user.id,
+  event: "email.link_clicked",
+  within: days(3),
+});
+```
+
+### Setting PostHog person properties
+
+```typescript
+// Set traits on PostHog person profile
+ctx.identify({ activated: true, plan: "pro" });
+```
+
+### Firing custom PostHog events
+
+```typescript
+// Analytics event (PostHog only, not internal pipeline)
+ctx.posthog.capture({
+  event: "journey.milestone_reached",
+  properties: { milestone: "first_email_opened" },
+});
+```
+
+### Exit conditions on tracking events
+
+```typescript
+import { defineJourney, days, sendEmail } from "@hogsend/engine";
+import { Events } from "./constants/index.js";
+
+export const nurtureSequence = defineJourney({
+  meta: {
+    id: "nurture-sequence",
+    name: "Nurture Sequence",
+    enabled: true,
+    trigger: { event: Events.TRIAL_STARTED },
+    exitOn: [{ event: Events.EMAIL_LINK_CLICKED }],
+  },
+  run: async (user, ctx) => {
+    // If the user clicks any tracked link, this journey exits automatically
+    await sendEmail({ ... });
+    await ctx.sleep({ duration: days(3) });
+    await sendEmail({ ... }); // won't send if user already clicked
+  },
+});
+```
+
+`defineJourney`, `days`, and `sendEmail` all come from `@hogsend/engine`; `Events` is your own constants file (`src/journeys/constants/`). The built-in tracking events `email.opened` and `email.link_clicked` flow through the ingest pipeline, so `exitOn`, `ctx.history.hasEvent`, and trigger conditions can all branch on them.
+
+---
+
+## SQL Examples
+
+```sql
+-- Links and clicks for a specific email
+SELECT tl.original_url, tl.click_count, lc.ip_address, lc.clicked_at
+FROM tracked_links tl
+LEFT JOIN link_clicks lc ON lc.tracked_link_id = tl.id
+WHERE tl.email_send_id = 'email-send-uuid'
+ORDER BY lc.clicked_at DESC;
+
+-- Open rate by template
+SELECT
+  template_key,
+  COUNT(*) AS sent,
+  COUNT(opened_at) AS opened,
+  ROUND(COUNT(opened_at)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS open_rate_pct
+FROM email_sends
+WHERE template_key IS NOT NULL
+GROUP BY template_key
+ORDER BY sent DESC;
+
+-- Click-through rate by template
+SELECT
+  template_key,
+  COUNT(*) AS sent,
+  COUNT(clicked_at) AS clicked,
+  ROUND(COUNT(clicked_at)::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS ctr_pct
+FROM email_sends
+WHERE template_key IS NOT NULL
+GROUP BY template_key
+ORDER BY sent DESC;
+
+-- Most clicked links across all emails
+SELECT tl.original_url, SUM(tl.click_count) AS total_clicks
+FROM tracked_links tl
+GROUP BY tl.original_url
+ORDER BY total_clicks DESC
+LIMIT 20;
+
+-- Tracking events in user timeline
+SELECT event, properties, created_at
+FROM user_events
+WHERE user_id = 'user-id'
+  AND event IN ('email.opened', 'email.link_clicked')
+ORDER BY created_at DESC;
+```

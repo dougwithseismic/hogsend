@@ -1,0 +1,177 @@
+---
+title: Configuration
+description: Complete reference for every Hogsend environment variable, the two-track migration workflow, and the engine version pin.
+---
+
+A scaffolded Hogsend app is configured entirely through environment variables. Both the HTTP API (`src/index.ts`) and the worker (`src/worker.ts`) read from the same `.env` at your app's root. The engine validates them at startup with `@t3-oss/env-core` — a missing or malformed required variable fails the boot with a clear error.
+
+```bash
+cp .env.example .env
+```
+
+The `.env.example` shipped by the scaffold already points `DATABASE_URL` and `REDIS_URL` at the local Docker Compose ports, so for local development you mostly fill in secrets.
+
+## Variable reference
+
+The **Process** column notes which process actually uses each value. They share one `.env`; set everything in both deployed processes.
+
+### Core
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `NODE_ENV` | No | `development` | API, Worker | Set to `production` when deployed. Disables `/docs` and `/openapi.json`. |
+| `PORT` | No | `3002` | API | HTTP port for the API server. Railway sets this automatically. |
+| `LOG_LEVEL` | No | `info` | API, Worker | Logging verbosity: `error`, `warn`, `info`, `http`, or `debug`. Use `debug` locally, `info`/`warn` in production. |
+| `DATABASE_URL` | **Yes** | — | API, Worker | PostgreSQL connection string (`postgresql://user:pass@host:port/dbname`). Local Docker default: `postgresql://growthhog:growthhog@localhost:5434/growthhog`. |
+
+### Authentication
+
+Hogsend uses [Better Auth](https://www.better-auth.com/) for session management and admin authentication.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `BETTER_AUTH_SECRET` | **Yes** | — | API | Session encryption secret. Minimum 32 characters. Generate with `openssl rand -hex 32`. |
+| `BETTER_AUTH_URL` | No | `http://localhost:3002` | API | Public URL for auth callbacks. Set to your production API URL (e.g. `https://api.yourdomain.com`). |
+
+### Resend
+
+Email delivery through [Resend](https://resend.com).
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `RESEND_API_KEY` | **Yes** | — | Worker | Resend API key for sending emails. From the [Resend dashboard](https://resend.com/api-keys). Starts with `re_`. |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Worker | Default sender address. Must be on a domain verified in your Resend account. |
+| `RESEND_WEBHOOK_SECRET` | No | — | API | Signing secret for verifying Resend webhook payloads. Enables delivery tracking (delivered, opened, clicked, bounced, complained). From Resend → Webhooks. Starts with `whsec_`. |
+
+<Callout type="info">
+  Without `RESEND_WEBHOOK_SECRET`, Hogsend still sends email but receives no delivery status updates — sends stay in `sent` and never progress to `delivered`, `opened`, etc.
+</Callout>
+
+### Hatchet
+
+[Hatchet](https://hatchet.run) handles durable task execution — journey orchestration, email sends, and background jobs.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `HATCHET_CLIENT_TOKEN` | No | — | API, Worker | Token for connecting to the Hatchet engine. Copy from the Hatchet dashboard (`localhost:8888` locally). Without it, the API can't push events and the worker can't register tasks. |
+| `HATCHET_CLIENT_HOST_PORT` | No | — | API, Worker | Hatchet gRPC endpoint. Local Docker: `localhost:7077`. On Railway, the internal address of the Hatchet-Lite service. |
+| `HATCHET_CLIENT_TLS_STRATEGY` | No | — | API, Worker | TLS strategy for the gRPC connection. `none` for local and internal Railway networking; `tls` over the public internet. |
+
+### PostHog
+
+Optional — connects to your PostHog instance for event ingestion and person property fetching.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `POSTHOG_API_KEY` | No | — | Worker | PostHog project API key for fetching person properties (Redis-cached) and event capture. Without it, `container.analytics` is `undefined` and journeys can't read PostHog person properties. |
+| `POSTHOG_HOST` | No | — | Worker | PostHog instance URL. Cloud (US): `https://us.i.posthog.com`. Self-hosted: your instance URL. Required if `POSTHOG_API_KEY` is set. |
+| `POSTHOG_WEBHOOK_SECRET` | No | — | API | Shared secret for verifying incoming PostHog webhook payloads. Set this and send the same value in the destination's `x-posthog-webhook-secret` header. |
+
+<Callout type="warn">
+  Without `POSTHOG_WEBHOOK_SECRET`, any request to `/v1/webhooks/posthog` with valid JSON is accepted unverified. Always set it in production.
+</Callout>
+
+### API surface
+
+Public URL configuration and admin access.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `API_PUBLIC_URL` | No | `http://localhost:3002` | API, Worker | Public-facing API URL. Used to generate unsubscribe and click/open tracking links in emails. Must be reachable by end users (e.g. `https://api.yourdomain.com`). |
+| `ADMIN_API_KEY` | No | — | API | API key for `/v1/admin/*` endpoints and the Go `hogsend` admin CLI. Without it, admin endpoints are inaccessible. |
+
+<Callout type="warn">
+  `ADMIN_API_KEY` gates all admin operations — viewing contacts, managing journeys, metrics, and the Go CLI's `contacts`/`journeys` commands. Generate a strong key: `openssl rand -hex 32`.
+</Callout>
+
+### Features
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `ENABLED_JOURNEYS` | No | `*` | API, Worker | Which journeys are registered. `*` enables all journeys in your `journeys` array; or a comma-separated list of journey IDs (e.g. `welcome,test-onboarding`). Journeys not listed are not registered and cannot be triggered. You can also pass this explicitly to `createHogsendClient({ enabledJourneys })` / `createWorker({ enabledJourneys })`. |
+
+### Infrastructure
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `REDIS_URL` | No | `redis://localhost:6379` | Worker | Redis connection string for caching PostHog person properties. Local Docker default: `redis://localhost:6380`. |
+
+### Boot guard
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `SKIP_SCHEMA_CHECK` | No | — | API | Set to `true` to bypass the engine-track boot guard (`src/index.ts`). Dev/emergency only — the API normally exits if the engine schema is behind the build. |
+
+## Generating secrets
+
+```bash
+# BETTER_AUTH_SECRET (>= 32 chars) and ADMIN_API_KEY
+openssl rand -hex 32
+
+# POSTHOG_WEBHOOK_SECRET
+openssl rand -hex 16
+```
+
+## Migrations — two tracks
+
+A scaffolded app has **two independent migration streams** against the same database. A single `pnpm db:migrate` runs both, engine first:
+
+| Track | Where the files live | Ledger | Gates boot? |
+|---|---|---|---|
+| **Engine** | bundled in `@hogsend/db` | `drizzle.__drizzle_migrations` | **Yes** — fatal if behind |
+| **Client** | your repo's `migrations/` | `drizzle.__client_migrations` | No — surfaced non-fatally in health |
+
+- Your own tables live in `src/schema/index.ts`.
+- `pnpm db:generate` generates a **client-track** migration from your `src/schema` changes.
+- `pnpm db:migrate` runs `scripts/migrate.ts`: `migrateEngine()` then `migrateClient()` (it skips an empty client track). Both tracks serialize behind the same Postgres advisory lock.
+- The boot guard in `src/index.ts` gates on the **engine** track only. A pending **client** migration surfaces as `status: "migration_pending"` on `/v1/health` for you to resolve — it never takes the API down.
+
+<Callout type="warn">
+  **`db:push` ledger gotcha.** `pnpm db:push` writes schema objects directly without recording a ledger row, leaving the ledger behind the real schema. The boot guard then sees pending migrations and refuses to start even though the tables exist. Use `db:generate` + `db:migrate` from day one for anything you intend to deploy.
+</Callout>
+
+## The engine version pin
+
+The scaffold pins every `@hogsend/*` package to a single version line in `package.json` (substituted from `ENGINE_VERSION` at scaffold time). Keep them in lockstep — the API, worker, and engine migrations all ship together. Upgrade within a major with:
+
+```bash
+pnpm up "@hogsend/*"     # bump engine + db + core + email + plugins together
+pnpm db:migrate          # apply any new engine migrations
+```
+
+Then verify `/v1/health` shows both tracks `inSync: true`. This is the upgrade path — never a git merge.
+
+## Validating configuration
+
+```bash
+curl http://localhost:3002/v1/health
+```
+
+If the API fails to start, check its logs for `@t3-oss/env-core` validation errors indicating which variable is missing or malformed.
+
+## Environment-specific recommendations
+
+### Local development
+
+```bash
+NODE_ENV=development
+PORT=3002
+LOG_LEVEL=debug
+DATABASE_URL=postgresql://growthhog:growthhog@localhost:5434/growthhog
+REDIS_URL=redis://localhost:6380
+HATCHET_CLIENT_HOST_PORT=localhost:7077
+HATCHET_CLIENT_TLS_STRATEGY=none
+```
+
+### Production
+
+```bash
+NODE_ENV=production
+LOG_LEVEL=info
+API_PUBLIC_URL=https://api.yourdomain.com
+BETTER_AUTH_URL=https://api.yourdomain.com
+RESEND_FROM_EMAIL=noreply@yourdomain.com
+ENABLED_JOURNEYS=*
+```
+
+On Railway, `DATABASE_URL`, `REDIS_URL`, and `PORT` are auto-wired by linking the Postgres and Redis services. See [Deployment](/docs/operating/deployment).

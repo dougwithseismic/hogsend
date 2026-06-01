@@ -1,0 +1,66 @@
+---
+title: hogsend status
+description: Check the health of the current Hogsend deployment.
+---
+
+## Usage
+
+```bash
+hogsend status
+```
+
+Reads `.hogsend.yaml` and checks the health of the configured deployment. Works for both local development and production Railway deployments.
+
+## What it shows
+
+The status command renders a formatted report with:
+
+- **Project name** and **slug** from `.hogsend.yaml`
+- **API URL** -- `http://` for localhost, `https://` for remote domains
+- **Railway dashboard link** -- shown only for remote deployments with a project ID
+- **Health status** -- `healthy` or `unhealthy` based on the `/v1/health` endpoint response
+- **Version** -- the API version string (shown when healthy)
+- **Uptime** -- seconds since the API process started (shown when healthy)
+- **Error details** -- the connection error message (shown when unhealthy)
+- **Enabled journeys** -- the list from `.hogsend.yaml`
+
+<Callout type="info">
+`hogsend status` reads only the `status`, `version`, and `uptime` fields from `/v1/health`. It does **not** yet surface the two-track migration schema block (`schema.engine` / `schema.client`) or the `migration_pending` status that the health endpoint now returns. To inspect migration state, call the [health endpoint](/docs/api/ingestion#health) directly.
+</Callout>
+
+## Local vs remote
+
+The CLI detects local development by checking if the domain starts with `localhost` or `127.0.0.1`. Local deployments use `http://`, remote deployments use `https://`. The Railway dashboard link is only shown for remote deployments that have a project ID configured.
+
+## Example output
+
+When the API is healthy:
+
+```
+HOGSEND STATUS
+
+  ACME Corp
+
+  - Slug: acme-corp
+  - API: https://hogsend-api.up.railway.app
+  - Railway: https://railway.com/project/abc-123
+
+  Health
+
+  - Status: healthy
+  - Version: 1.2.0
+  - Uptime: 86400 seconds
+
+  Journeys
+
+  - Enabled: [activation-welcome, retention-milestone]
+```
+
+When the API is unreachable:
+
+```
+  Health
+
+  - Status: unhealthy
+  - Error: Get "https://...": dial tcp: connection refused
+```

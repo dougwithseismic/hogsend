@@ -1,0 +1,15 @@
+[build]
+buildCommand = "pnpm --filter @hogsend/api build"
+watchPatterns = ["apps/api/**", "packages/db/**", "packages/typescript-config/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+
+[deploy]
+# Two-track migrations: engine MUST succeed first, then the client track. The
+# client shim (db:migrate:client) skips gracefully when CLIENT_MIGRATIONS_FOLDER
+# is unset/absent/empty, so this same command works for this dogfood repo (no
+# client migrations) and for scaffolded client repos (which set the env var).
+preDeployCommand = "pnpm --filter @hogsend/db db:migrate && pnpm --filter @hogsend/db db:migrate:client"
+startCommand = "pnpm --filter @hogsend/api start"
+healthcheckPath = "/v1/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

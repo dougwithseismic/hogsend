@@ -1,0 +1,14 @@
+{
+  "title": "CLI Reference",
+  "pages": [
+    "index",
+    "init",
+    "setup",
+    "status",
+    "deploy",
+    "test",
+    "journeys",
+    "contacts",
+    "destroy"
+  ]
+}

@@ -1,0 +1,172 @@
+---
+title: Installation
+description: Scaffold a fresh Hogsend app, run it locally against Docker, and fire your first journey end-to-end.
+---
+
+You install Hogsend by **scaffolding a fresh app** that consumes the versioned `@hogsend/engine` package. You do not clone or fork a monorepo — your repo owns content (journeys, templates, webhook sources, routes, your own migrations) and pins the engine.
+
+<Callout type="info">
+  The `@hogsend/*` packages are publishing to npm imminently (currently `0.0.1`). `pnpm dlx create-hogsend@latest` is the intended install path. Until the registry publish lands, the packages resolve from this monorepo's local tarballs (the scaffold's TEST-ONLY `--use-tarballs <dir>` flag).
+</Callout>
+
+## 1. Scaffold the app
+
+```bash
+pnpm dlx create-hogsend@latest my-app
+# or: npm create hogsend my-app
+```
+
+This copies the starter template into `./my-app`, substitutes the app name and pinned engine version, runs `git init` with an initial commit, and installs dependencies. The app name must match `^[a-z0-9][a-z0-9._-]*$`.
+
+Useful flags:
+
+| Flag | Effect |
+|---|---|
+| `--pm <pnpm\|npm\|yarn\|bun>` | Package manager to use (default `pnpm`) |
+| `--no-install` | Skip the dependency install |
+| `--no-git` | Skip `git init` and the initial commit |
+| `-h`, `--help` | Show help |
+
+The emitted app pins every `@hogsend/*` package to a single engine version line, so the API, worker, and database migrations always move together.
+
+```bash
+cd my-app
+```
+
+### What you get
+
+The scaffold is a thin app — these are **yours to edit**:
+
+```
+my-app/
+├─ src/
+│  ├─ index.ts              # HTTP entry: createHogsendClient + createApp + boot guard
+│  ├─ worker.ts             # Worker entry: createHogsendClient + createWorker
+│  ├─ journeys/             # your journeys (welcome.ts, test-onboarding.ts, ...)
+│  │  ├─ index.ts           # exports the `journeys` array
+│  │  └─ constants/         # your Events / Templates constants
+│  ├─ emails/               # your email templates (.tsx) + registry + type augmentation
+│  │  ├─ registry.ts        # maps keys → component + subject + category (+ TemplateRegistryMap augmentation)
+│  │  └─ welcome.tsx        # your React Email components, yours to edit
+│  ├─ webhook-sources/      # your webhook sources (posthog.ts, ...)
+│  ├─ workflows/            # extra Hatchet tasks (backfill-example.ts, ...)
+│  └─ schema/               # your client-track DB tables
+├─ migrations/              # your client-track migrations + ledger
+├─ scripts/migrate.ts       # two-track migrate runner
+├─ docker-compose.yml       # local Timescale + Redis + Hatchet-Lite
+├─ .env.example
+├─ tsup.config.ts           # bundles @hogsend/* at build (noExternal)
+├─ vitest.config.ts         # inlines @hogsend/engine for tests
+└─ package.json             # pins @hogsend/engine + plugins
+```
+
+The engine itself is a dependency in `node_modules` — you never edit it. The two example journeys (`welcome`, `test-onboarding`) are emitted into **your** `src/journeys/`; they are yours to keep, change, or delete.
+
+<Callout type="info">
+  `@hogsend/*` packages ship **raw `.ts`** (no `dist`). That is why the scaffold sets `tsup.config.ts` `noExternal: ["@hogsend/*"]` (bundles the engine source at build) and `vitest.config.ts` `server.deps.inline: [/@hogsend\/engine/]` (lets Vite transform raw `.ts` for tests). Never run `node src/index.ts` directly — dev is `tsx watch`, production is a `tsup` build then `node dist/...`.
+</Callout>
+
+## 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Fill in the three values you must set:
+
+| Variable | How to get it |
+|---|---|
+| `BETTER_AUTH_SECRET` | Run `openssl rand -hex 32` (must be ≥ 32 chars) |
+| `RESEND_API_KEY` | [Resend dashboard](https://resend.com/api-keys) → API Keys (starts with `re_`) |
+| `HATCHET_CLIENT_TOKEN` | The Hatchet dashboard at `http://localhost:8888` after the containers are up (login `admin@example.com` / `Admin123!!`) |
+
+The `.env` lives at your app's root — there is no `apps/api/.env`. The defaults already point `DATABASE_URL` and `REDIS_URL` at the local Docker ports below. See [Configuration](/docs/getting-started/configuration) for every variable.
+
+## 3. Start infrastructure
+
+```bash
+docker compose up -d
+```
+
+This boots:
+
+- **TimescaleDB** (Postgres 18) on port **5434** — event store, journey state, contacts
+- **Redis** 8 on port **6380** — PostHog property caching
+- **Hatchet-Lite** — workflow engine; dashboard on **8888**, gRPC on **7077** (with its own internal Postgres)
+
+Open `http://localhost:8888`, log in, and copy the client token into `HATCHET_CLIENT_TOKEN` in your `.env`.
+
+## 4. Run migrations (two tracks)
+
+```bash
+pnpm db:migrate
+```
+
+A single command runs both tracks in order: the **engine track** first (migrations bundled in `@hogsend/db`, owned upstream), then your **client track** (the `migrations/` folder in your repo). The client track is skipped automatically when it's empty. See [Configuration](/docs/getting-started/configuration#migrations-two-tracks) for details.
+
+<Callout type="warn">
+  Use `pnpm db:migrate`, not `pnpm db:push`. `db:push` writes schema objects directly **without** recording a ledger row, which leaves the migration ledger behind the actual schema — the boot guard then refuses to start the API even though the tables exist. Use `db:migrate` from day one.
+</Callout>
+
+## 5. Run the app
+
+```bash
+# Terminal 1 — HTTP API on http://localhost:3002
+pnpm dev
+
+# Terminal 2 — Hatchet worker
+pnpm worker:dev
+```
+
+`pnpm dev` runs `tsx watch --env-file=.env src/index.ts`; `pnpm worker:dev` runs the same against `src/worker.ts`. The API boot guard checks the **engine** schema and exits if the database is behind (set `SKIP_SCHEMA_CHECK=true` to bypass in an emergency).
+
+Confirm it's healthy:
+
+```bash
+curl http://localhost:3002/v1/health
+```
+
+You want `"status": "healthy"` with both `schema.engine.inSync` and `schema.client.inSync` `true`. See the [health endpoint reference](/docs/api/ingestion#health) for the full response shape.
+
+## 6. Fire your first journey
+
+The scaffold ships a `test-onboarding` journey that runs to completion with no email or external dependencies — it exists to prove the pipeline end-to-end. With both processes running:
+
+```bash
+curl -XPOST http://localhost:3002/v1/ingest \
+  -H 'content-type: application/json' \
+  -d '{"event":"test.signup","userId":"smoke-1","userEmail":"smoke@example.com"}'
+```
+
+The ingest endpoint returns `202` and pushes the event to Hatchet, which routes it to the `test-onboarding` journey (its `trigger.event` is `test.signup`). Watch the run in the Hatchet dashboard, or query the `journey_states` table.
+
+The `welcome` example journey, triggered by `user.created`, sends a real email — so it needs a valid `RESEND_API_KEY` and a verified sender. Edit it in `src/journeys/welcome.ts`.
+
+## 7. Author and upgrade
+
+- **Add a journey** — create a file in `src/journeys/` with `defineJourney`, add its constants to `src/journeys/constants/`, and add it to the `journeys` array in `src/journeys/index.ts`. That array is passed to both `createHogsendClient({ journeys })` and `createWorker({ container, journeys })`. Full guide: [Journeys](/docs/guides/journeys).
+- **Add an email template** — drop a `.tsx` component in `src/emails/`, register its key in `src/emails/registry.ts` (with the `TemplateRegistryMap` augmentation for type-safe props), and pass the registry as `createHogsendClient({ email: { templates } })`. Full guide: [Email](/docs/guides/email).
+- **Upgrade the engine** — bump every `@hogsend/*` package in lockstep, then apply any new migrations:
+
+```bash
+pnpm up "@hogsend/*"     # engine + db + core + email + plugins, one version line
+pnpm db:migrate          # apply any new engine migrations, then your client track
+# verify: GET /v1/health shows engine + client both inSync: true
+```
+
+This is never a git merge of a fork. See [Upgrading & Customizing](/docs/operating/upgrading) for the full upgrade flow and the Extend → Patch → Eject ladder — how to change engine behavior without losing clean upgrades.
+
+---
+
+## Contributing to the engine
+
+The path above is for **building an app on Hogsend**. If you want to develop the engine itself (open a PR against `@hogsend/engine`, a plugin, or the scaffold), you clone the monorepo instead:
+
+```bash
+git clone https://github.com/dougwithseismic/hogsend.git
+cd hogsend
+pnpm install
+docker compose up -d
+```
+
+The in-repo dogfood app lives at `apps/api` and exercises the engine directly. This is engine-development tooling — it is **not** the client install path. If you're shipping lifecycle journeys for your own product, scaffold an app (steps 1–6); don't clone the monorepo.

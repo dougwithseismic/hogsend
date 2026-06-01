@@ -1,0 +1,71 @@
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const churnPrevention = defineJourney({
+  meta: {
+    id: "churn-prevention",
+    name: "Churn — Payment Recovery & Prevention",
+    enabled: true,
+    trigger: { event: Events.PAYMENT_FAILED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(4),
+    exitOn: [
+      { event: Events.PAYMENT_SUCCEEDED },
+      { event: Events.SUBSCRIPTION_CANCELLED },
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(1), label: "first-retry" });
+
+    const { found: hasRetried } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
+      within: days(1),
+    });
+    if (hasRetried) {
+      return;
+    }
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Reminder: please update your payment method",
+      journeyName: user.journeyName,
+      props: { gracePeriodDays: 2 },
+    });
+
+    await ctx.sleep({ duration: days(2), label: "final-notice" });
+
+    const { found: hasResolved } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
+      within: days(3),
+    });
+    if (!hasResolved) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.CHURN_PAYMENT_FAILED,
+        subject: "Final notice: your account will be downgraded tomorrow",
+        journeyName: user.journeyName,
+        props: { gracePeriodDays: 1 },
+      });
+    }
+  },
+});

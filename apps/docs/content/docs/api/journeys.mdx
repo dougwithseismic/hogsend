@@ -1,0 +1,428 @@
+---
+title: Journeys API
+description: Journey listing, detail, enable/disable, instance management, enrollment, and journey execution logs.
+---
+
+Journey admin endpoints let you see which journeys are registered, inspect their state, enable/disable them at runtime, cancel stuck instances, and manually enroll users. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+## Journeys
+
+### `GET /v1/admin/journeys`
+
+List all registered journeys with their enabled status and live state counts.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `enabled` | `"true" \| "false"` | -- | Filter by enabled status |
+
+**Response `200`**
+
+```json
+{
+  "journeys": [
+    {
+      "id": "activation-welcome",
+      "name": "Activation -- Welcome Series",
+      "description": "Sends a welcome email series on signup",
+      "enabled": true,
+      "trigger": { "event": "user:created" },
+      "entryLimit": "once",
+      "counts": {
+        "active": 12,
+        "waiting": 5,
+        "completed": 340,
+        "failed": 2,
+        "exited": 15
+      }
+    }
+  ],
+  "total": 10,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+The `enabled` field reflects the effective state -- if an admin has toggled a journey via PATCH, that override takes precedence over the code-level default.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/journeys?enabled=true"
+```
+
+### `GET /v1/admin/journeys/{id}`
+
+Get full journey detail including trigger conditions, exit conditions, suppress duration, state counts, and the 10 most recent journey instances.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID (e.g., `activation-welcome`) |
+
+**Response `200`**
+
+```json
+{
+  "journey": {
+    "id": "activation-welcome",
+    "name": "Activation -- Welcome Series",
+    "enabled": true,
+    "trigger": {
+      "event": "user:created",
+      "where": [{ "type": "property", "property": "plan", "operator": "eq", "value": "pro" }]
+    },
+    "entryLimit": "once",
+    "exitOn": [{ "event": "user:deleted" }],
+    "suppress": { "hours": 12 },
+    "counts": { "active": 12, "waiting": 5, "completed": 340, "failed": 2, "exited": 15 },
+    "recentStates": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "userId": "user_abc123",
+        "userEmail": "user@example.com",
+        "journeyId": "activation-welcome",
+        "currentNodeId": "post-welcome",
+        "status": "waiting",
+        "hatchetRunId": "run-uuid",
+        "context": { "plan": "pro" },
+        "errorMessage": null,
+        "entryCount": 1,
+        "completedAt": null,
+        "exitedAt": null,
+        "createdAt": "2025-01-15T10:30:00.000Z",
+        "updatedAt": "2025-01-15T10:30:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+**Response `404`** -- Journey not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome
+```
+
+### `PATCH /v1/admin/journeys/{id}`
+
+Enable or disable a journey at runtime. This persists to the database and takes effect on the next trigger -- no redeploy needed. In-flight journey instances are not affected.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Request Body**
+
+```json
+{ "enabled": false }
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | Yes | Whether the journey should accept new enrollments |
+
+**Response `200`**
+
+```json
+{
+  "journey": {
+    "id": "activation-welcome",
+    "name": "Activation -- Welcome Series",
+    "enabled": false,
+    "updatedAt": "2025-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Response `404`** -- Journey not found.
+
+```bash
+curl -X PATCH http://localhost:3002/v1/admin/journeys/activation-welcome \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "enabled": false }'
+```
+
+---
+
+## Journey Instances
+
+### `GET /v1/admin/journeys/{id}/states`
+
+List journey instances (enrollments) with optional filters. Results are ordered by `createdAt` descending.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `status` | `string` | -- | Filter by status: `active`, `waiting`, `completed`, `failed`, `exited` |
+| `userId` | `string` | -- | Filter by user ID |
+
+**Response `200`**
+
+```json
+{
+  "states": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "user_abc123",
+      "userEmail": "user@example.com",
+      "journeyId": "activation-welcome",
+      "currentNodeId": "post-welcome",
+      "status": "waiting",
+      "hatchetRunId": "run-uuid",
+      "context": { "plan": "pro" },
+      "errorMessage": null,
+      "entryCount": 1,
+      "completedAt": null,
+      "exitedAt": null,
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Response `404`** -- Journey not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/journeys/activation-welcome/states?status=active"
+```
+
+### `GET /v1/admin/journeys/{id}/states/{stateId}`
+
+Get a single journey instance with its full log trail.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+| `stateId` | `string` | Journey state UUID |
+
+**Response `200`**
+
+```json
+{
+  "state": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "journeyId": "activation-welcome",
+    "currentNodeId": "post-welcome",
+    "status": "waiting",
+    "hatchetRunId": "run-uuid",
+    "context": { "plan": "pro" },
+    "errorMessage": null,
+    "entryCount": 1,
+    "completedAt": null,
+    "exitedAt": null,
+    "createdAt": "2025-01-15T10:30:00.000Z",
+    "updatedAt": "2025-01-15T10:30:00.000Z"
+  },
+  "logs": [
+    {
+      "id": "log-uuid-1",
+      "fromNodeId": null,
+      "toNodeId": "start",
+      "action": "entered",
+      "detail": null,
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "log-uuid-2",
+      "fromNodeId": "start",
+      "toNodeId": "post-welcome",
+      "action": "email_sent",
+      "detail": { "template": "activation/welcome" },
+      "createdAt": "2025-01-15T10:30:01.000Z"
+    }
+  ]
+}
+```
+
+**Response `404`** -- State not found or journey ID mismatch.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/journeys/activation-welcome/states/550e8400-e29b-41d4-a716-446655440000
+```
+
+### `DELETE /v1/admin/journeys/{id}/states/{stateId}`
+
+Cancel a running journey instance. Sets the status to `exited` and attempts to cancel the corresponding Hatchet task run.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+| `stateId` | `string` | Journey state UUID |
+
+**Response `200`**
+
+```json
+{
+  "state": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "status": "exited",
+    "exitedAt": "2025-01-15T10:30:00.000Z"
+  },
+  "hatchetCancelled": true
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `hatchetCancelled` | `boolean` | Whether the Hatchet run was successfully cancelled. `false` if the run had already finished or Hatchet was unreachable. |
+
+**Response `404`** -- State not found.
+
+**Response `409`** -- State is already in a terminal status (`completed`, `failed`, or `exited`).
+
+```json
+{ "error": "Cannot cancel journey in 'completed' status" }
+```
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/journeys/activation-welcome/states/550e8400-e29b-41d4-a716-446655440000 \
+  -H "Authorization: Bearer your-admin-api-key"
+```
+
+---
+
+## Enrollment
+
+### `POST /v1/admin/journeys/{id}/enroll`
+
+Manually enroll a user in a journey by dispatching the journey's trigger event through the standard ingestion pipeline. The event is processed the same way as any other event -- it goes through Hatchet routing, entry guards (limits, preferences), and exit condition checks.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Journey ID |
+
+**Request Body**
+
+```json
+{
+  "userId": "user_abc123",
+  "userEmail": "user@example.com",
+  "properties": { "source": "admin_enroll" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `userId` | `string` | Yes | User's external identifier |
+| `userEmail` | `string` | Yes | User's email address |
+| `properties` | `Record<string, unknown>` | No | Additional event properties |
+
+**Response `202`**
+
+```json
+{
+  "enrolled": true,
+  "event": "user:created",
+  "userId": "user_abc123"
+}
+```
+
+The `202 Accepted` status indicates the trigger event has been dispatched. Enrollment is asynchronous -- the user may still be rejected by entry guards (e.g., already enrolled, unsubscribed, entry limit reached).
+
+**Response `404`** -- Journey not found.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/journeys/activation-welcome/enroll \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "properties": { "source": "admin_enroll" }
+  }'
+```
+
+---
+
+## Journey Logs
+
+Retrieve the full execution log for a journey instance. Requires the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/journey-logs/{stateId}`
+
+Get the journey state and its complete log sequence, ordered chronologically.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `stateId` | `string` | Journey state UUID |
+
+**Response `200`**
+
+```json
+{
+  "state": {
+    "id": "state-uuid",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "journeyId": "activation-welcome",
+    "currentNodeId": "post-welcome",
+    "status": "completed",
+    "hatchetRunId": "run-uuid",
+    "context": { "plan": "pro" },
+    "errorMessage": null,
+    "entryCount": 1,
+    "completedAt": "2025-01-16T10:30:00.000Z",
+    "exitedAt": null,
+    "createdAt": "2025-01-15T10:30:00.000Z",
+    "updatedAt": "2025-01-16T10:30:00.000Z"
+  },
+  "logs": [
+    {
+      "id": "log-uuid-1",
+      "fromNodeId": null,
+      "toNodeId": "start",
+      "action": "entered",
+      "detail": null,
+      "createdAt": "2025-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "log-uuid-2",
+      "fromNodeId": "start",
+      "toNodeId": "post-welcome",
+      "action": "email_sent",
+      "detail": { "template": "activation/welcome" },
+      "createdAt": "2025-01-15T10:30:01.000Z"
+    }
+  ]
+}
+```
+
+**Response `404`** -- Journey state not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/journey-logs/state-uuid
+```

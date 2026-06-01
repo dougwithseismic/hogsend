@@ -1,0 +1,125 @@
+---
+title: Introduction
+description: The lifecycle automation layer PostHog doesn't have yet — a versioned engine you install, not a monorepo you fork. Scaffold an app and ship your first lifecycle emails in minutes.
+---
+
+## What is Hogsend?
+
+Hogsend is the **lifecycle email automation that PostHog teams actually need**. It's an opinionated, code-first platform that connects to your PostHog events and sends the right emails at the right time — welcome sequences, trial nudges, churn recovery, payment failures — all defined as TypeScript, not drag-and-drop canvases.
+
+If you're a PostHog team that's been putting off lifecycle emails because Customer.io is overkill and building it yourself is a rabbit hole — this is the thing you'd build anyway. We just built it first.
+
+<Callout type="info">
+  The `@hogsend/*` packages are publishing imminently (currently versioned at `0.0.1`). The architecture and install path on this page are how Hogsend works going forward; until the registry push lands, the packages are consumed from this monorepo (the verification harness resolves them from local `pnpm pack` tarballs). See [Getting Started](/docs/getting-started) for the current local-dev path.
+</Callout>
+
+### A versioned engine, not a fork
+
+Hogsend ships as a **versioned package — `@hogsend/engine`** — that your app consumes, the same way you'd consume any framework. You don't clone or fork a monorepo. You **scaffold a fresh app** that pins the engine and owns only your *content*: journeys, email templates, webhook sources, custom routes, config, and your own database migrations.
+
+- **The engine** (`@hogsend/engine` + the other `@hogsend/*` packages) is upstream. You consume it and upgrade it with `pnpm up "@hogsend/*"` — never a git merge. You don't edit it; you [Extend, Patch, or Eject](/docs/operating/upgrading) instead.
+- **Your content** lives in your scaffolded repo and is **injected into** the engine's factories (`createHogsendClient`, `createApp`, `createWorker`). The engine never imports your content.
+
+### Why Hogsend exists
+
+PostHog is incredible at product analytics. But when you want to *act* on what you see — send a nudge when someone drops off onboarding, recover a failed payment, re-engage a dormant user — you're on your own. Hogsend bridges that gap.
+
+Think of it as a **gateway drug into lifecycle automation**. Start here, get scrappy, ship emails that move the needle. When you outgrow it — or when PostHog ships their own marketing automation — you'll have a clean event model and proven journeys to migrate.
+
+### PostHog-first, not PostHog-only
+
+Hogsend is built for PostHog, but it's not locked to it. Stripe webhooks, custom API calls, any system that can send an HTTP request can feed events into Hogsend. All examples in these docs lead with PostHog because that's the primary use case, with Stripe as the common secondary source.
+
+**Emails go through [Resend](https://resend.com)** — fast, developer-friendly, great deliverability. Push notifications and Slack are on the roadmap.
+
+## How it works
+
+1. **Scaffold your app** — `pnpm dlx create-hogsend@latest my-app` emits a thin app that pins `@hogsend/engine` and holds your content.
+2. **PostHog events flow in** — Point a PostHog webhook at your app and events land in Hogsend automatically.
+3. **Journeys react** — TypeScript functions that trigger on events, send emails, wait, branch, and adapt based on what the user does.
+4. **Emails go out via Resend** — React Email templates with bounce tracking, unsubscribe management, and deliverability monitoring built in.
+
+## Get started in minutes
+
+Scaffold a fresh app, then run the dev loop:
+
+```bash
+pnpm dlx create-hogsend@latest my-app
+cd my-app
+
+cp .env.example .env        # fill BETTER_AUTH_SECRET, RESEND_API_KEY, HATCHET_CLIENT_TOKEN
+docker compose up -d        # Timescale :5434, Redis :6380, Hatchet-Lite :8888
+pnpm db:migrate             # engine track, then your client track
+pnpm dev                    # HTTP API on http://localhost:3002
+pnpm worker:dev             # Hatchet worker, in a second terminal
+```
+
+That's it — your app pins the engine, owns its journeys, and upgrades with `pnpm up`.
+
+## Quick example
+
+A PostHog `user_signed_up` event triggers this journey. It sends a welcome email, waits a day, checks if the user tried the core feature, and nudges them if not. Everything imports from `@hogsend/engine` — the single surface your content depends on:
+
+```ts
+import { days, defineJourney, sendEmail } from "@hogsend/engine";
+
+export const onboarding = defineJourney({
+  meta: {
+    id: "onboarding-welcome",
+    name: "Onboarding — Welcome Series",
+    enabled: true,
+    trigger: { event: "user_signed_up" },
+    entryLimit: "once",
+    suppress: days(1),
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: "activation/welcome",
+      subject: "Welcome — let's get you set up",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(1), label: "post-welcome" });
+
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: "feature_used",
+    });
+
+    if (!found) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        template: "activation/nudge",
+        subject: "You haven't tried the key feature yet",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+You register this journey by adding it to the `journeys` array your app exports from `src/journeys/index.ts` — the array you pass to `createHogsendClient({ journeys })` and `createWorker({ container, journeys })`. No YAML, no state machines, no visual canvas. Just TypeScript with `if`, `await`, and loops — running as durable tasks that survive restarts and deploys.
+
+## What you get
+
+- **A versioned engine** — `@hogsend/engine` is the committed, semver-stable API surface. Upgrade with `pnpm up "@hogsend/*"` and run migrations; never merge a fork.
+- **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep({ duration: days(3) })` literally pauses for three days and picks up exactly where it left off.
+- **PostHog webhook source** — Point your PostHog webhook at your app and events flow through automatically.
+- **Resend email delivery** — React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center.
+- **Composable conditions** — Property checks, event history, email engagement, AND/OR composition. Use them for enrollment guards, exit conditions, and mid-journey branching.
+- **Two-track migrations** — Engine schema ships upstream in `@hogsend/db` and gates boot; your own client schema is yours to evolve. Both run from a single `pnpm db:migrate`.
+- **Admin API** — Contacts, journey control, email metrics, alerting, audit logs. Everything you need to operate without a UI.
+- **Self-hosted** — Deploy to Railway (or anywhere that runs Node.js + Postgres). Your data stays yours.
+
+## Next steps
+
+<Cards>
+  <Card title="Getting Started" href="/docs/getting-started" />
+  <Card title="How It Works" href="/docs/concepts/how-it-works" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+  <Card title="Upgrading & Customizing" href="/docs/operating/upgrading" />
+</Cards>

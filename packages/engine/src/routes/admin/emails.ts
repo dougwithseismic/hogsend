@@ -1,0 +1,269 @@
+import {
+  type Database,
+  emailSends,
+  journeyStates,
+  linkClicks,
+  trackedLinks,
+} from "@hogsend/db";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { and, count, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import type { AppEnv } from "../../app.js";
+
+const emailSchema = z.object({
+  id: z.string(),
+  journeyStateId: z.string().nullable(),
+  templateKey: z.string().nullable(),
+  resendId: z.string().nullable(),
+  fromEmail: z.string(),
+  toEmail: z.string(),
+  subject: z.string(),
+  category: z.string().nullable(),
+  status: z.string(),
+  sentAt: z.string().nullable(),
+  deliveredAt: z.string().nullable(),
+  openedAt: z.string().nullable(),
+  clickedAt: z.string().nullable(),
+  bouncedAt: z.string().nullable(),
+  complainedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const trackedLinkSchema = z.object({
+  id: z.string(),
+  originalUrl: z.string(),
+  clickCount: z.number(),
+  clicks: z.array(
+    z.object({
+      id: z.string(),
+      clickedAt: z.string(),
+      ipAddress: z.string().nullable(),
+      userAgent: z.string().nullable(),
+    }),
+  ),
+});
+
+const journeyContextSchema = z
+  .object({
+    journeyId: z.string(),
+    userId: z.string(),
+    status: z.string(),
+    currentNodeId: z.string(),
+  })
+  .nullable();
+
+import { errorSchema } from "../../lib/schemas.js";
+
+function serializeEmail(row: typeof emailSends.$inferSelect) {
+  return {
+    id: row.id,
+    journeyStateId: row.journeyStateId,
+    templateKey: row.templateKey,
+    resendId: row.resendId,
+    fromEmail: row.fromEmail,
+    toEmail: row.toEmail,
+    subject: row.subject,
+    category: row.category,
+    status: row.status,
+    sentAt: row.sentAt?.toISOString() ?? null,
+    deliveredAt: row.deliveredAt?.toISOString() ?? null,
+    openedAt: row.openedAt?.toISOString() ?? null,
+    clickedAt: row.clickedAt?.toISOString() ?? null,
+    bouncedAt: row.bouncedAt?.toISOString() ?? null,
+    complainedAt: row.complainedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+const listRoute = createRoute({
+  method: "get",
+  path: "/",
+  tags: ["Admin — Emails"],
+  summary: "List email sends",
+  request: {
+    query: z.object({
+      limit: z.coerce.number().min(1).max(100).default(50),
+      offset: z.coerce.number().min(0).default(0),
+      toEmail: z.string().optional(),
+      templateKey: z.string().optional(),
+      status: z
+        .enum([
+          "queued",
+          "rendered",
+          "sent",
+          "delivered",
+          "opened",
+          "clicked",
+          "bounced",
+          "complained",
+          "failed",
+        ])
+        .optional(),
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            emails: z.array(emailSchema),
+            total: z.number(),
+            limit: z.number(),
+            offset: z.number(),
+          }),
+        },
+      },
+      description: "Paginated email send list",
+    },
+  },
+});
+
+const getRoute = createRoute({
+  method: "get",
+  path: "/{id}",
+  tags: ["Admin — Emails"],
+  summary: "Get email detail with delivery timeline and link clicks",
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            email: emailSchema,
+            trackedLinks: z.array(trackedLinkSchema),
+            journeyContext: journeyContextSchema,
+          }),
+        },
+      },
+      description: "Email detail with tracked links and journey context",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Email not found",
+    },
+  },
+});
+
+async function fetchTrackedLinksWithClicks(db: Database, emailSendId: string) {
+  const links = await db
+    .select()
+    .from(trackedLinks)
+    .where(eq(trackedLinks.emailSendId, emailSendId))
+    .orderBy(trackedLinks.createdAt);
+
+  if (links.length === 0) return [];
+
+  const linkIds = links.map((l) => l.id);
+  const clicks = await db
+    .select()
+    .from(linkClicks)
+    .where(inArray(linkClicks.trackedLinkId, linkIds))
+    .orderBy(linkClicks.clickedAt);
+
+  const clicksByLink = new Map<string, (typeof clicks)[number][]>();
+  for (const click of clicks) {
+    const arr = clicksByLink.get(click.trackedLinkId) ?? [];
+    arr.push(click);
+    clicksByLink.set(click.trackedLinkId, arr);
+  }
+
+  return links.map((link) => ({
+    id: link.id,
+    originalUrl: link.originalUrl,
+    clickCount: link.clickCount,
+    clicks: (clicksByLink.get(link.id) ?? []).map((click) => ({
+      id: click.id,
+      clickedAt: click.clickedAt.toISOString(),
+      ipAddress: click.ipAddress,
+      userAgent: click.userAgent,
+    })),
+  }));
+}
+
+export const emailsRouter = new OpenAPIHono<AppEnv>()
+  .openapi(listRoute, async (c) => {
+    const { db } = c.get("container");
+    const { limit, offset, toEmail, templateKey, status, from, to } =
+      c.req.valid("query");
+
+    const conditions = [];
+    if (toEmail) conditions.push(eq(emailSends.toEmail, toEmail));
+    if (templateKey) conditions.push(eq(emailSends.templateKey, templateKey));
+    if (status) conditions.push(eq(emailSends.status, status));
+    if (from) conditions.push(gte(emailSends.createdAt, new Date(from)));
+    if (to) conditions.push(lte(emailSends.createdAt, new Date(to)));
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [rows, totalRows] = await Promise.all([
+      db
+        .select()
+        .from(emailSends)
+        .where(where)
+        .orderBy(desc(emailSends.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ count: count() }).from(emailSends).where(where),
+    ]);
+
+    return c.json(
+      {
+        emails: rows.map(serializeEmail),
+        total: totalRows[0]?.count ?? 0,
+        limit,
+        offset,
+      },
+      200,
+    );
+  })
+  .openapi(getRoute, async (c) => {
+    const { db } = c.get("container");
+    const { id } = c.req.valid("param");
+
+    const rows = await db
+      .select()
+      .from(emailSends)
+      .where(eq(emailSends.id, id))
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      return c.json({ error: "Email not found" }, 404);
+    }
+
+    const [links, journeyContext] = await Promise.all([
+      fetchTrackedLinksWithClicks(db, id),
+      row.journeyStateId
+        ? db
+            .select({
+              journeyId: journeyStates.journeyId,
+              userId: journeyStates.userId,
+              status: journeyStates.status,
+              currentNodeId: journeyStates.currentNodeId,
+            })
+            .from(journeyStates)
+            .where(
+              and(
+                eq(journeyStates.id, row.journeyStateId),
+                isNull(journeyStates.deletedAt),
+              ),
+            )
+            .limit(1)
+            .then((rows) => rows[0] ?? null)
+        : Promise.resolve(null),
+    ]);
+
+    return c.json(
+      {
+        email: serializeEmail(row),
+        trackedLinks: links,
+        journeyContext,
+      },
+      200,
+    );
+  });

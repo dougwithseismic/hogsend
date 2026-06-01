@@ -1,0 +1,98 @@
+---
+title: Feature Matrix
+description: Side-by-side comparison of Hogsend, Customer.io, Loops, Brevo, and ActiveCampaign across pricing, channels, automation, data, developer experience, and operations.
+---
+
+A scannable comparison across the platforms most commonly evaluated alongside Hogsend. Checkmarks and X marks indicate general availability -- check each platform's current docs for exact details, as features change frequently.
+
+## Pricing
+
+| Feature | Hogsend | Customer.io | Loops | Brevo | ActiveCampaign |
+|---|---|---|---|---|---|
+| Starting price | Free | ~$100/mo | $149/mo | $25/mo | $29/mo |
+| Pricing model | Self-hosted (infra cost only) | Per profile | Per contact | Per email volume | Per contact |
+| Free tier | Unlimited (self-hosted) | No | No | 300 emails/day | No |
+| Self-hosted option | Yes | No | No | No | No |
+| Open source | Yes | No | No | No | No |
+
+## Channels
+
+| Channel | Hogsend | Customer.io | Loops | Brevo | ActiveCampaign |
+|---|---|---|---|---|---|
+| Email | Yes | Yes | Yes | Yes | Yes |
+| SMS | No | Yes | No | Yes | Yes (add-on) |
+| Push notifications | No | Yes | No | Yes | No |
+| In-app messaging | No | Yes | No | No | No |
+| Webhooks (outbound) | Yes | Yes | Yes (limited) | Yes | Yes |
+| Slack / custom channels | Via plugins | Via integrations | No | No | Via integrations |
+
+## Automation
+
+| Feature | Hogsend | Customer.io | Loops | Brevo | ActiveCampaign |
+|---|---|---|---|---|---|
+| Visual workflow builder | No | Yes | Yes | Yes | Yes |
+| Code-first journeys | Yes (TypeScript) | No | API only | No | No |
+| Durable execution | Yes (Hatchet) | Managed | Managed | Managed | Managed |
+| Survives deploys/restarts | Yes | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) |
+| Event-triggered flows | Yes | Yes | Yes | Yes | Yes |
+| Time-delayed sends | Yes (`ctx.sleep()`) | Yes | Yes | Yes | Yes |
+| Conditional branching | Yes (TypeScript `if/else`) | Yes (visual) | Basic | Basic | Yes (visual) |
+| Exit conditions | Yes (event-driven) | Yes | Limited | No | Yes |
+| Cross-journey triggers | Yes (`ctx.trigger()`) | Limited | No | No | Limited |
+| Entry limits / cooldowns | Yes | Yes | Basic | No | Yes |
+| Suppression windows | Yes | Yes | No | No | Yes |
+
+## Data
+
+| Feature | Hogsend | Customer.io | Loops | Brevo | ActiveCampaign |
+|---|---|---|---|---|---|
+| PostHog native integration | Yes (built-in) | Via webhook | No | No | No |
+| Custom event ingestion | Yes (REST API + webhooks) | Yes | Yes (API) | Yes | Yes |
+| Contact management | Yes | Yes | Yes | Yes (with CRM) | Yes (with CRM) |
+| Segmentation | Property + event conditions | Advanced segments | Basic | Basic | Advanced |
+| A/B testing | Via code (in journeys) | Built-in | No | Yes | Built-in |
+| Data warehouse sync | No | Yes | No | No | No |
+| Your data, your database | Yes (Postgres) | No | No | No | No |
+
+## Developer experience
+
+| Feature | Hogsend | Customer.io | Loops | Brevo | ActiveCampaign |
+|---|---|---|---|---|---|
+| Open source | Yes | No | No | No | No |
+| Self-hosted | Yes | No | No | No | No |
+| API-first | Yes | Yes | Yes | Yes | Yes |
+| TypeScript / code-first | Yes | No | SDK only | No | No |
+| Consumed as a versioned package | Yes (`@hogsend/engine`) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) |
+| Clean framework upgrades | Yes (`pnpm up "@hogsend/*"`) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) |
+| Plugin architecture | Yes (`@hogsend/plugin-*`) | No | No | No | No |
+| CI/CD friendly | Yes (content is code) | No | Partially | No | No |
+| React Email templates | Yes (`@hogsend/email`) | No | No | No | No |
+| Version-controlled workflows | Yes (Git) | No | No | No | No |
+| AI-agent friendly | Yes (consistent patterns) | No | No | No | No |
+
+## Operations
+
+| Feature | Hogsend | Customer.io | Loops | Brevo | ActiveCampaign |
+|---|---|---|---|---|---|
+| Audit logging | Yes | Yes | No | No | Yes |
+| API key scoping | Yes | Yes | No | Basic | Yes |
+| Rate limiting | Yes | Managed | Managed | Managed | Managed |
+| Bulk operations | Yes (CSV/JSON import) | Yes | Yes | Yes | Yes |
+| Dead letter queue | Yes | Managed | Managed | Managed | Managed |
+| Email bounce tracking | Yes | Yes | Yes | Yes | Yes |
+| Unsubscribe management | Yes (preference center) | Yes | Yes | Yes | Yes |
+| Deliverability monitoring | Via Resend dashboard | Built-in | Built-in | Built-in | Built-in |
+
+## Reading the matrix
+
+A few things to keep in mind:
+
+**"Managed" vs. "Yes"** -- for SaaS platforms, features like durable execution and rate limiting are handled by the vendor. You don't configure them, but you also don't control them. Hogsend gives you direct control over these, which is more powerful but also more responsibility.
+
+**"No" doesn't always mean "never"** -- platforms add features regularly. Check current docs before making a decision based on this table alone.
+
+**"Via plugins" / "Via code"** -- some Hogsend capabilities aren't built-in features with UI controls. They're available because your journeys, templates, and routes are code you own and inject into the engine. A/B testing in Hogsend means writing an `if` statement with `Math.random()` or checking a PostHog feature flag. Slack notifications means creating a plugin package and importing it into a journey. This is a strength if your team works in code. It's a gap if your team expects a UI.
+
+**Owning content vs. owning the framework.** "Self-hosted" and "code-first" don't mean you maintain a fork. The framework is the `@hogsend/engine` package you pin and upgrade like any dependency; the code you own is your *content* -- journeys, templates, webhook sources, custom routes, config, and your own migrations. Framework upgrades are `pnpm up "@hogsend/*"` plus a migration run, not an upstream merge. When you do need to change engine behavior, there's an editability ladder -- extend through injection points, patch in place, or eject a single package into `vendor/` -- rather than an all-or-nothing fork.
+
+**The pricing gap is significant.** Hogsend's cost is your infrastructure -- typically $10--30/mo on Railway for a small-to-medium deployment. Every other platform on this list charges per contact or per email, which means your costs scale with your user base. For a team with 10,000 contacts, the annual cost difference can be $1,000--$10,000+.

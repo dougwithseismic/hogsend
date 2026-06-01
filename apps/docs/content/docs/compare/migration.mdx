@@ -1,0 +1,170 @@
+---
+title: Migrating to Hogsend
+description: How to move your lifecycle email automation to Hogsend from Customer.io, Loops, Brevo, ActiveCampaign, or a custom setup.
+---
+
+This page is about moving **to** Hogsend from another lifecycle email platform -- translating your existing automation into a Hogsend app. (If you're looking for how Hogsend applies its *own* schema migrations across upgrades, that's a different thing entirely -- see the two-track migration model under [Operating](/docs/operating).)
+
+Moving to Hogsend is more of a "rewrite the good parts" exercise than a traditional import. Because Hogsend is code-first, you're translating your existing automation logic into TypeScript rather than importing configuration files. The upside is that your journeys usually come out cleaner and more maintainable on the other side.
+
+## Start with a scaffolded app
+
+Before you translate anything, you need somewhere for it to live. Hogsend is a versioned engine you consume as a package, so you scaffold a fresh app -- you do **not** fork the framework repo:
+
+```bash
+pnpm dlx create-hogsend@latest my-app
+cd my-app
+```
+
+This emits a thin app that owns **content only** -- your journeys, email templates, webhook sources, custom routes, config, and your own database migrations -- and pins `@hogsend/engine` (plus the other `@hogsend/*` packages) to a single version line. Everything you migrate goes into this app's `src/`. The framework itself stays a dependency you upgrade with `pnpm up "@hogsend/*"`.
+
+<Callout type="info">
+The `@hogsend/*` packages are not on npm yet (everything is at `0.0.1` while the publish pipeline finishes) -- they're landing imminently. Until then they're consumed from this monorepo, and the scaffold's verification harness resolves them from local `pnpm pack` tarballs. The commands here are the intended, final shape. See [Getting Started](/docs/getting-started) for the current local-dev path.
+</Callout>
+
+Once the app boots, the migration is three concrete tasks: bring your contacts over, translate your journeys, and rebuild your templates.
+
+## What migrates
+
+**Contacts.** Export your contact list from your current platform as CSV or JSON. Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`) accepts both formats. Map your fields to Hogsend's contact schema: `externalId`, `email`, `properties` (a JSON object for everything else). Most platforms export in a format that maps cleanly.
+
+**Email templates.** You'll rewrite these as React Email components, not import them. This sounds like more work than it is -- React Email templates are typically shorter and more maintainable than the markup most platforms export. They live in **your** repo under `src/emails/` as `.tsx` components with typed props (rendered through `@hogsend/email`'s machinery), so your editor catches mistakes before they reach a user's inbox.
+
+**Journey logic.** This is the core of the migration. Each visual workflow or automation rule in your current platform becomes a `defineJourney()` call in TypeScript, living in your app's `src/journeys/`. The translation is usually straightforward: "wait 2 days" becomes `ctx.sleep({ duration: days(2) })`, "check if user did X" becomes `ctx.history.hasEvent()`, and branching logic becomes `if/else` statements.
+
+## What doesn't migrate
+
+**Historical email analytics.** Open rates, click rates, delivery stats, and engagement history from your previous platform stay there. Hogsend starts tracking from the first email it sends. If you need historical data for reference, keep read access to your old platform for a while.
+
+**Platform-specific integrations.** If your current platform has deep integrations with tools that Hogsend doesn't connect to yet (e.g. a CRM sync, a landing page builder, SMS delivery), you'll need to either create a Hogsend plugin for that service or handle it outside Hogsend.
+
+**Visual workflow exports.** There's no way to import a Customer.io or ActiveCampaign workflow file directly. The migration is a manual translation -- but it's also a good opportunity to simplify flows that have accumulated cruft over time.
+
+## From Customer.io
+
+Customer.io is the most common platform teams migrate from, usually because of pricing.
+
+### 1. Export contacts
+
+Use Customer.io's People export to download your contacts as CSV. Map the fields:
+
+| Customer.io field | Hogsend field |
+|---|---|
+| `id` or `cio_id` | `externalId` |
+| `email` | `email` |
+| Custom attributes | `properties` (JSON object) |
+
+Import via the bulk endpoint:
+
+```bash
+curl -X POST https://your-hogsend.example.com/v1/admin/contacts/import \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d @contacts.json
+```
+
+### 2. Translate workflows
+
+Each Customer.io campaign or workflow becomes a journey file in your app's `src/journeys/`. The mapping is usually direct:
+
+| Customer.io concept | Hogsend equivalent |
+|---|---|
+| Trigger (event-based) | `trigger: { event: "your_event" }` |
+| Filter / segment condition | `trigger.where` conditions |
+| Wait step | `ctx.sleep({ duration: days(n) })` |
+| Branch (if/else) | TypeScript `if/else` |
+| Send email action | `sendEmail({ ... })` |
+| Goal / conversion | `exitOn: [{ event: "goal_event" }]` |
+| Frequency cap | `entryLimit` + `suppress` |
+
+A translated journey imports everything it needs from `@hogsend/engine` -- there are no monorepo-internal paths:
+
+```ts
+// src/journeys/welcome.ts
+import { days, defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const welcome = defineJourney({
+  meta: {
+    id: "welcome",
+    name: "Welcome Series",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ACTIVATION_WELCOME,
+      subject: "Welcome — let's get you set up",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(2), label: "post-welcome" });
+
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+    });
+    if (!found) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.ACTIVATION_NUDGE,
+        subject: "You haven't tried the key feature yet",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+Register it by adding it to the exported `journeys` array in your own `src/journeys/index.ts` -- the same array your app passes to `createHogsendClient({ journeys })` and `createWorker({ container, journeys })`. You never edit anything inside `@hogsend/engine`. See the [Journeys guide](/docs/guides/journeys) for the full authoring reference.
+
+### 3. Map events
+
+If you're already on PostHog, your events are already flowing. Point your PostHog webhook at Hogsend's ingest endpoint and the events Customer.io was receiving will now route to Hogsend journeys.
+
+If Customer.io was receiving events directly from your app (not via PostHog), update your app's event calls to either send to PostHog (recommended) or directly to Hogsend's ingest endpoint.
+
+## From Loops, Brevo, or ActiveCampaign
+
+The process is the same pattern regardless of the source platform:
+
+### 1. Export contacts
+
+Every platform has a contact export feature. Download as CSV, map to Hogsend's schema (`externalId`, `email`, `properties`), and import via the bulk endpoint.
+
+### 2. Rewrite journeys
+
+Open each automation or flow in your current platform and translate it to a `defineJourney()` call in `src/journeys/`. Focus on the logic, not the UI representation. A 20-node visual workflow often collapses into 30--50 lines of TypeScript because most of the "nodes" are just wait steps and conditionals. Your scaffolded app ships with `welcome` and `test-onboarding` examples in `src/journeys/` -- copy one as a starting point.
+
+### 3. Rebuild templates
+
+Author your React Email templates as `.tsx` components with typed props and register them in your template map, then reference each one by key in your journey's `sendEmail()` calls. The [Email guide](/docs/guides/email) walks through the template package, the registry, and tracked sends.
+
+### 4. Connect events
+
+Point your event source (PostHog webhook, Stripe webhook, custom API calls) at Hogsend's ingest endpoint. If you're coming from a platform that was receiving events directly from your app, consider routing through PostHog first so you get both analytics and automation from a single event stream. For non-PostHog sources, define a webhook source with `defineWebhookSource()` and pass it to `createApp(container, { webhookSources })` -- see the [Events & webhook sources guide](/docs/guides/events).
+
+## The PostHog advantage
+
+If you're already on PostHog, the hardest part of setting up lifecycle automation is already done.
+
+Event instrumentation -- deciding what to track, adding tracking calls, making sure data is clean -- is where most teams spend the majority of their setup time with any automation platform. With PostHog already in place, Hogsend just listens to events you're already capturing. The `user_signed_up` event that feeds your PostHog funnel is the same event that triggers your Hogsend welcome sequence. No duplicate instrumentation, no keeping two event schemas in sync.
+
+PostHog person properties are also available in Hogsend via the `@hogsend/plugin-posthog` package, with Redis caching. Your journeys can branch based on the same properties you see in PostHog -- plan type, feature usage, company size, whatever you're tracking.
+
+## Or build on top
+
+Hogsend is a platform, not a product. The two built-in plugins -- `@hogsend/plugin-posthog` and `@hogsend/plugin-resend` -- show the pattern for extending it.
+
+Need Slack notifications when a high-value user enters a churn flow? Create a Slack plugin. Want to send SMS via Twilio when a payment fails? Create a Twilio plugin. Need to sync contacts to your CRM? Create a plugin that pushes updates on contact changes.
+
+Each plugin is a self-contained package with a client, a service, and typed exports. The [Creating Plugins](/docs/guides/plugins) guide walks through the full process. You import the plugin directly into any journey as a standalone function call.
+
+The migration doesn't have to be a one-time event. Start with email, get your core journeys running, then extend into other channels and integrations as you need them. Your content is yours to grow -- and the engine underneath it upgrades cleanly with `pnpm up "@hogsend/*"`, never a fork merge.

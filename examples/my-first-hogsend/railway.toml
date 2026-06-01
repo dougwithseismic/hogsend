@@ -1,0 +1,15 @@
+[build]
+buildCommand = "pnpm build"
+watchPatterns = ["src/**", "migrations/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+
+[deploy]
+# Two-track migrate: engine track first, then this repo's client track.
+# `scripts/migrate.ts` runs both in order and skips an empty client track
+# gracefully. Engine MUST succeed before the API boots (boot guard in
+# src/index.ts hard-requires the engine schema).
+preDeployCommand = "pnpm db:migrate"
+startCommand = "pnpm start"
+healthcheckPath = "/v1/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

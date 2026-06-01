@@ -1,0 +1,29 @@
+# STAGED — NOT ACTIVE. Two-track Railway config for the consumer (client-repo)
+# model. Promote at cutover by renaming this file over the live railway.toml
+# (Phase 6 runbook Step 4, MANUAL — operator). This file is inert until renamed;
+# committing it changes no deploy behavior.
+#
+# Differences vs the live railway.toml:
+#   - buildCommand runs `pnpm install` first. The client repo pins
+#     @hogsend/* to published ^X.Y.Z (not workspace:*), so deps must resolve
+#     from the registry before the build.
+#   - preDeployCommand runs the ENGINE track first, then the CLIENT track. Order
+#     is load-bearing (engine owns the base schema; client migrations are
+#     additive on top). Each track uses a distinct advisory lock so the chained
+#     commands never self-deadlock (engine lock 4812007 in @hogsend/db; the
+#     client track must use a different key — see runbook §"Two advisory locks").
+#   - The client repo sets CLIENT_MIGRATIONS_FOLDER (service env var) to its
+#     own migrations/ dir; db:migrate:client skips gracefully when unset/empty,
+#     so this command is correct for both this dogfood and scaffolded repos.
+
+[build]
+buildCommand = "pnpm install && pnpm --filter @hogsend/api build"
+watchPatterns = ["apps/api/**", "migrations/**", "package.json", "pnpm-lock.yaml", "railway.toml"]
+
+[deploy]
+preDeployCommand = "pnpm --filter @hogsend/db db:migrate && pnpm --filter @hogsend/db db:migrate:client"
+startCommand = "pnpm --filter @hogsend/api start"
+healthcheckPath = "/v1/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

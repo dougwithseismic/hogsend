@@ -1,0 +1,98 @@
+---
+title: CLI Reference
+description: Install and use the Go hogsend CLI to deploy, configure, and operate lifecycle engine instances on Railway from your terminal.
+---
+
+## Overview
+
+This is the **Go `hogsend` CLI** — the operator and Railway-deployment tool. It connects to a Railway deployment created from the Hogsend deploy template, configures PostHog webhooks, manages contacts, and lets you test the full event pipeline without leaving your terminal.
+
+<Callout type="info">
+There are **two distinct CLIs that both use the `hogsend` bin name** — do not confuse them:
+
+- **Go `hogsend` CLI** (this reference) — the operator/admin and Railway CLI: `init`, `setup`, `status`, `deploy`, `journeys`, `destroy`, `test`, `contacts`.
+- **Node `@hogsend/cli`** — exposes **only `hogsend eject`**, part of the editability ladder. It is documented in [Upgrading & Customizing](/docs/operating/upgrading), not here.
+
+This page never documents `eject`. The eject docs never document `init`/`setup`/`deploy`/…
+</Callout>
+
+<Callout type="warn">
+**This CLI does not create your project.** A Hogsend app is created by scaffolding with the Node tooling:
+
+```bash
+pnpm dlx create-hogsend@latest my-app
+```
+
+The packages are not published to npm yet (all at `0.0.1`; the publish pipeline is in place but has not run). Today they are consumed from this monorepo, and the scaffold verification harness resolves them from local `pnpm pack` tarballs. The npm install path is available imminently. See [Getting started](/docs/getting-started/installation).
+
+The Go `hogsend init` command **configures an existing Railway deploy** — it is not a project scaffolder. See [`hogsend init`](/docs/cli/init).
+</Callout>
+
+## Installation
+
+Releases are published to GitHub at **`github.com/dougwithseismic/hogsend/releases`** (built with GoReleaser). Archives are named `hogsend_<version>_<os>_<arch>.tar.gz` and contain a single `hogsend` binary.
+
+Download the archive for your platform from the [latest release](https://github.com/dougwithseismic/hogsend/releases/latest), unpack it, and put `hogsend` on your `PATH`. For example (replace `<version>` with the release tag):
+
+### macOS (Apple Silicon)
+
+```bash
+curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_darwin_arm64.tar.gz \
+  | tar xz -C /usr/local/bin hogsend
+```
+
+### macOS (Intel)
+
+```bash
+curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_darwin_amd64.tar.gz \
+  | tar xz -C /usr/local/bin hogsend
+```
+
+### Linux (arm64)
+
+```bash
+curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_linux_arm64.tar.gz \
+  | tar xz -C /usr/local/bin hogsend
+```
+
+### Linux (amd64)
+
+```bash
+curl -fsSL https://github.com/dougwithseismic/hogsend/releases/download/v<version>/hogsend_<version>_linux_amd64.tar.gz \
+  | tar xz -C /usr/local/bin hogsend
+```
+
+Windows builds ship as `.zip` archives (`hogsend_<version>_windows_amd64.zip`).
+
+Verify the installation:
+
+```bash
+hogsend --version
+```
+
+## Commands
+
+| Command | Description |
+|---|---|
+| [`hogsend init`](/docs/cli/init) | Configure an existing Railway-template deploy (env vars, PostHog webhook, verify) |
+| [`hogsend setup`](/docs/cli/setup) | Set up the **engine monorepo** for local development (engine contributors) |
+| [`hogsend status`](/docs/cli/status) | Check health of the current deployment |
+| [`hogsend deploy`](/docs/cli/deploy) | Trigger a Railway redeploy for API + Worker |
+| [`hogsend test`](/docs/cli/test) | Send a test event and verify the pipeline |
+| [`hogsend journeys`](/docs/cli/journeys) | Manage the `ENABLED_JOURNEYS` filter on Railway |
+| [`hogsend contacts`](/docs/cli/contacts) | List, inspect, create, update, and delete contacts |
+| [`hogsend destroy`](/docs/cli/destroy) | Tear down the Railway project |
+
+Only two commands take flags: `init` accepts `--force`, and `contacts list` accepts `--search`/`-s`. The `contacts get/update/delete/unsub/prefs` subcommands each take a single positional `<id>`. `status`, `deploy`, `journeys`, `destroy`, and `test` take no flags.
+
+## Configuration
+
+All commands except `setup` read from `.hogsend.yaml` in the current directory. This file is created by `hogsend init` (for a Railway deployment) or `hogsend setup` (for monorepo local development) and stores:
+
+- Project name and slug
+- Railway project ID, environment ID, service IDs, domain, and API token
+- PostHog project ID, API keys, host, and webhook destination ID
+- Enabled journeys list
+- Admin API key
+
+The file contains secrets (Railway token, PostHog keys, admin API key). Add `.hogsend.yaml` to your `.gitignore`.

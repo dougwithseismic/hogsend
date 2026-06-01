@@ -1,0 +1,40 @@
+---
+title: Getting Started
+description: Scaffold a fresh Hogsend app, run it locally, and watch your first journey fire. From zero to a running pipeline in a few minutes.
+---
+
+Hogsend is a code-first lifecycle orchestration engine for teams using PostHog and Resend. You define journeys in TypeScript, connect them to events, and Hogsend handles the durable execution — email sequences, timing, branching, and exit conditions.
+
+The framework ships as a **versioned package, `@hogsend/engine`**. You don't fork or clone a monorepo. You scaffold a fresh app that **owns content only** — journeys, email templates, webhook sources, custom routes, and your own database migrations — and pins `@hogsend/engine`. Upgrading the framework is `pnpm up`, never a git merge. See [How It Works](/docs/concepts/how-it-works) for the full mental model.
+
+<Callout type="info">
+  The `@hogsend/*` packages are landing on npm imminently (currently `0.0.1`). The scaffold and import paths below are the intended, committed install path. Until the registry publish lands, the packages are consumed from this monorepo's local tarballs (the scaffold's `--use-tarballs` test flag). Everything else in this guide is accurate today.
+</Callout>
+
+## The path
+
+1. **Scaffold** a fresh app with `create-hogsend`.
+2. **Install** dependencies (the scaffold does this for you).
+3. **Start infrastructure** — Timescale, Redis, and Hatchet-Lite via Docker Compose.
+4. **Migrate** — one command runs both the engine track and your client track.
+5. **Run** the API and worker, then fire an event and watch a journey complete.
+
+Follow [Installation](/docs/getting-started/installation) for the full walkthrough.
+
+## Prerequisites
+
+- **Node.js 22** — pinned via the scaffold's `.node-version`
+- **pnpm** (recommended) — or npm/yarn/bun via the `--pm` flag
+- **Docker** installed and running — for Timescale, Redis, and Hatchet-Lite
+- **Resend** account — [sign up free](https://resend.com), grab your API key from the [dashboard](https://resend.com/api-keys) (starts with `re_`)
+- **PostHog** account (optional for first boot) — with a **personal API key** (`phx_`) if you want PostHog person properties and event capture
+
+## What's next
+
+| Page | What it covers |
+|---|---|
+| [Installation](/docs/getting-started/installation) | Scaffold, install, run, and fire your first journey |
+| [PostHog Setup](/docs/getting-started/posthog-setup) | Connect PostHog events to Hogsend via a webhook destination |
+| [Configuration](/docs/getting-started/configuration) | Every environment variable, what it does, and which process reads it |
+
+When the local pipeline is running, head to [Journeys](/docs/guides/journeys) to author your first lifecycle flow. To deploy, see [Deployment](/docs/operating/deployment); to upgrade, see [Upgrading](/docs/operating/upgrading).

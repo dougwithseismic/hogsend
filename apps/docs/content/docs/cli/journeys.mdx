@@ -1,0 +1,75 @@
+---
+title: hogsend journeys
+description: List, enable, or disable journeys for the current deployment.
+---
+
+## Usage
+
+```bash
+hogsend journeys
+```
+
+Shows which journeys are currently enabled, then optionally lets you update the selection. Changes are applied to both the API and Worker services on Railway and trigger an automatic redeploy.
+
+## What it does
+
+1. Loads the current journey configuration from `.hogsend.yaml`
+2. Displays the currently enabled journeys (or "All journeys (*)" if none are filtered)
+3. Asks if you want to update the selection
+4. If yes, presents a multi-select with all available journeys, pre-selecting currently enabled ones
+5. Updates the `ENABLED_JOURNEYS` environment variable on both the API and Worker services
+6. Redeploys both services
+7. Saves the new selection to `.hogsend.yaml`
+
+## Available journeys
+
+<Callout type="info">
+This list is a **hardcoded 10-journey set baked into the Go CLI**. It is **not** read from your app — a scaffolded app owns its own journeys in `src/journeys/` and registers them via `createHogsendClient({ journeys })` and `createWorker({ container, journeys })`. The CLI only writes the `ENABLED_JOURNEYS` filter (matched by ID at runtime by the engine's registry); it does not know which journeys your app actually defines. If your app's journey IDs differ from this list, set `ENABLED_JOURNEYS` directly (env var or Railway dashboard) rather than relying on this selector.
+</Callout>
+
+| Journey | Trigger event |
+|---|---|
+| `activation-welcome` | `user_signed_up` |
+| `activation-nudge-series` | `user_signed_up` |
+| `conversion-trial-upgrade` | `trial_started` |
+| `conversion-abandoned-checkout` | `checkout_abandoned` |
+| `retention-milestone` | `milestone_reached` |
+| `referral-invite` | `subscription_created` |
+| `feedback-nps` | `subscription_created` |
+| `reactivation-dormancy` | `user_activated` |
+| `churn-prevention` | `subscription_cancelled`, `payment_failed` |
+| `test-onboarding` | `test_signup` |
+
+## How filtering works
+
+The `ENABLED_JOURNEYS` environment variable controls which journeys the worker loads:
+
+- `*` -- all journeys are enabled (default when no filter is set, or when all journeys are selected)
+- `activation-welcome,retention-milestone` -- comma-separated list enables only those specific journeys
+
+If you select all available journeys, the filter is set to `*` rather than listing them all individually.
+
+## Example output
+
+```
+HOGSEND JOURNEYS
+
+Currently enabled:
+  + activation-welcome
+  + retention-milestone
+
+? Update journey selection? Yes
+
+? Select journeys to enable
+  [x] activation-welcome
+  [ ] activation-nudge-series
+  [x] conversion-trial-upgrade
+  [x] retention-milestone
+  [ ] referral-invite
+  ...
+
+  Updating ENABLED_JOURNEYS...  done
+  Redeploying services...       done
+
+  Updated  Journeys updated and redeployed
+```

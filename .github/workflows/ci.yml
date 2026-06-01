@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  quality:
+    name: Lint & types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check-types
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      # Mirror the local docker-compose dev DB (port 5434, growthhog creds) that
+      # the integration tests connect to. The superuser role lets the migration
+      # test create/drop its own throwaway database.
+      postgres:
+        image: timescale/timescaledb:latest-pg18
+        env:
+          POSTGRES_USER: growthhog
+          POSTGRES_PASSWORD: growthhog
+          POSTGRES_DB: growthhog
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U growthhog"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://growthhog:growthhog@localhost:5434/growthhog
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations
+        run: pnpm --filter @hogsend/db db:migrate
+      - run: pnpm test
+
+  migrations:
+    name: Migration safety
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hogsend
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGURL: postgres://postgres:postgres@localhost:5432
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/hogsend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for the upgrade-from-previous test
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # 1. Schema drift: committed migrations must match the Drizzle schema.
+      #    `db:generate` is offline (schema vs. migration snapshot, no DB).
+      - name: Check for uncommitted schema changes
+        run: |
+          pnpm --filter @hogsend/db db:generate
+          if ! git diff --quiet -- packages/db/drizzle; then
+            echo "::error::Schema changed without a committed migration. Run 'pnpm --filter @hogsend/db db:generate' and commit the result."
+            git diff -- packages/db/drizzle
+            exit 1
+          fi
+
+      # 2. Fresh apply: every migration applies cleanly from an empty database.
+      - name: Migrate fresh database (0000 -> head)
+        run: pnpm --filter @hogsend/db db:migrate
+
+      # 3. Idempotency: re-running is a no-op (the hardened migrator detects this).
+      - name: Migrate again is a no-op
+        run: pnpm --filter @hogsend/db db:migrate
+
+      # 3a. Client track fresh apply. Reuses the vitest fixture as the canonical
+      #     sample client track (there is no production client folder in-repo).
+      #     Applies into drizzle.__client_migrations, leaving the engine ledger
+      #     untouched.
+      # An absolute path is required: `pnpm --filter` runs the shim with cwd
+      # packages/db, so a relative folder would not resolve.
+      - name: Migrate client track (fresh apply)
+        env:
+          CLIENT_MIGRATIONS_FOLDER: ${{ github.workspace }}/apps/api/src/__tests__/fixtures/client-migrations
+        run: pnpm --filter @hogsend/db db:migrate:client
+
+      # 3b. Client track idempotency: re-running is a no-op (exit 0 + already-up).
+      - name: Migrate client track again is a no-op
+        env:
+          CLIENT_MIGRATIONS_FOLDER: ${{ github.workspace }}/apps/api/src/__tests__/fixtures/client-migrations
+        run: |
+          out=$(pnpm --filter @hogsend/db db:migrate:client 2>&1)
+          echo "$out"
+          echo "$out" | grep -qi "already up to date"
+
+      # 4. Upgrade path: apply the PREVIOUS release's migrations + seed data,
+      #    then apply this PR's migrations on top — catches data-dependent
+      #    failures (NOT NULL on existing rows, constraints over real values)
+      #    that a fresh apply never sees.
+      - name: Upgrade from previous release (with data)
+        run: |
+          set -euo pipefail
+          if [ -n "${GITHUB_BASE_REF:-}" ]; then
+            BASE="origin/${GITHUB_BASE_REF}"
+          else
+            BASE="HEAD^"
+          fi
+          echo "Upgrade base: $BASE"
+          psql "$PGURL/postgres" -c 'DROP DATABASE IF EXISTS upgrade_test;'
+          psql "$PGURL/postgres" -c 'CREATE DATABASE upgrade_test;'
+
+          # Roll the db package back to the base release, apply + seed it.
+          git checkout "$BASE" -- packages/db
+          DATABASE_URL="$PGURL/upgrade_test" pnpm --filter @hogsend/db db:migrate
+          DATABASE_URL="$PGURL/upgrade_test" pnpm --filter @hogsend/db db:seed || \
+            echo "::warning::Base seed failed or absent — running upgrade without seeded data."
+
+          # Restore this PR's migrations and upgrade the populated database.
+          git checkout HEAD -- packages/db
+          DATABASE_URL="$PGURL/upgrade_test" pnpm --filter @hogsend/db db:migrate
+
+          # Prove engine-upgrade-then-client-apply on a populated DB. The client
+          # fixture lives under apps/api (not packages/db), so the rollback above
+          # never touched it; apply it on top of the upgraded engine schema.
+          CLIENT_MIGRATIONS_FOLDER="$GITHUB_WORKSPACE/apps/api/src/__tests__/fixtures/client-migrations" \
+            DATABASE_URL="$PGURL/upgrade_test" pnpm --filter @hogsend/db db:migrate:client

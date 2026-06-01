@@ -1,0 +1,309 @@
+---
+title: Ingestion & Webhooks
+description: Event ingestion endpoint, Resend webhook handler, generic webhook sources, and health check.
+---
+
+## Health
+
+### `GET /v1/health`
+
+Returns service health status and the two-track migration state. Used by Railway health checks and monitoring.
+
+**Response `200`**
+
+```json
+{
+  "status": "healthy",
+  "uptime": 12345.678,
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "version": "0.0.1",
+  "components": {
+    "database": { "status": "up", "latencyMs": 1 },
+    "redis": { "status": "up" }
+  },
+  "schema": {
+    "engine": { "required": "0012", "applied": "0012", "inSync": true, "pending": [] },
+    "client": { "required": "0003", "applied": "0003", "inSync": true, "pending": [] }
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | `"healthy" \| "degraded" \| "migration_pending"` | Current service status. `migration_pending` if either migration track is behind; `degraded` if a component is down; otherwise `healthy` |
+| `uptime` | `number` | Process uptime in seconds |
+| `timestamp` | `string` | ISO 8601 timestamp |
+| `version` | `string` | API version |
+| `components` | `object` | Per-component health status |
+| `components.database` | `object` | Database health (`status`: `"up" \| "down"`, `latencyMs`: `number`) |
+| `components.redis` | `object` | Redis health (`status`: `"up" \| "down"`, `latencyMs`: `number` when measured) |
+| `schema` | `object` | Two-track migration state |
+| `schema.engine` | `object` | Engine track (bundled in `@hogsend/db`) — see below |
+| `schema.client` | `object` | Client track (the client repo's own `migrations/`) — see below |
+
+Each `schema` track block has the same shape:
+
+| Field | Type | Description |
+|---|---|---|
+| `required` | `string \| null` | Latest migration tag the running build expects (e.g. `"0012"`). `null` for the client track when the client ships no migrations |
+| `applied` | `string \| null` | Latest migration tag recorded in that track's ledger. `null` when the track has no ledger yet |
+| `inSync` | `boolean` | Whether the database has at least as many migrations applied as required. A DB *ahead* of the build (more applied than required) still reports `true` by design |
+| `pending` | `string[]` | Pending migration tags, if any |
+
+**Two tracks, one status.** Hogsend uses two independent migration streams against the same database:
+
+- **`engine`** — migrations bundled in `@hogsend/db`, applied first. The startup **boot guard** checks this track and refuses to start (`exit(1)`) if it is behind, so a running API is always engine-in-sync unless the guard was bypassed with `SKIP_SCHEMA_CHECK=true`.
+- **`client`** — migrations the scaffolded app owns in its own `migrations/` folder, applied second. This track **never gates boot**; it is surfaced here non-fatally. A client with no migrations reports an empty track (`required: null`, `applied: null`, `pending: []`, `inSync: true`) and never flips the status to `migration_pending`.
+
+`status` is `"migration_pending"` whenever **either** track has `inSync: false`. A `healthy` status requires both `schema.engine.inSync` and `schema.client.inSync` to be true and every component to be up. See [Two-track migrations](/docs/operating/deployment) for the migration workflow.
+
+```bash
+curl http://localhost:3002/v1/health
+```
+
+---
+
+## Ingestion
+
+### `POST /v1/ingest`
+
+Receives events from direct API calls. Stores the event in `userEvents`, pushes it to Hatchet for journey routing, processes exit conditions on active journeys, and upserts the contact record.
+
+**Request Body**
+
+```json
+{
+  "event": "user:signed_up",
+  "userId": "user_abc123",
+  "userEmail": "user@example.com",
+  "properties": {
+    "plan": "pro",
+    "source": "website"
+  },
+  "timestamp": "2025-01-15T10:30:00.000Z",
+  "idempotencyKey": "evt_abc123_signup_2025"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `event` | `string` | Yes | Event name (min 1 char) |
+| `userId` | `string` | Yes | External user identifier (min 1 char) |
+| `userEmail` | `string` | No | User email address (validated format) |
+| `properties` | `Record<string, unknown>` | No | Arbitrary event properties |
+| `timestamp` | `string` | No | ISO 8601 datetime (defaults to now) |
+| `idempotencyKey` | `string` | No | Unique key for deduplication. If a duplicate key is sent, the event is silently dropped and `stored: false` is returned |
+
+**Response `202`**
+
+```json
+{
+  "stored": true,
+  "exits": [
+    {
+      "journeyId": "onboarding-welcome",
+      "stateId": "550e8400-e29b-41d4-a716-446655440000",
+      "exited": false
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `stored` | `boolean` | Whether the event was persisted. Returns `false` when a duplicate `idempotencyKey` is detected |
+| `exits` | `ExitResult[]` | Exit condition evaluation results for active journeys |
+| `exits[].journeyId` | `string` | Journey that was checked |
+| `exits[].stateId` | `string` | Journey state ID |
+| `exits[].exited` | `boolean` | Whether the user exited this journey |
+
+```bash
+curl -X POST http://localhost:3002/v1/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "user:signed_up",
+    "userId": "user_abc123",
+    "userEmail": "user@example.com",
+    "properties": { "plan": "pro" }
+  }'
+```
+
+---
+
+## Webhooks
+
+### `POST /v1/webhooks/resend`
+
+Receives webhook events from Resend (email delivery status updates). The raw request body and headers are passed to `container.emailService.handleWebhook()`, which verifies the signature against `RESEND_WEBHOOK_SECRET` internally.
+
+**Request Body** -- Raw Resend webhook payload (`Record<string, unknown>`).
+
+**Headers** -- Resend includes signature headers for verification against `RESEND_WEBHOOK_SECRET`.
+
+**Response `200`**
+
+```json
+{ "ok": true }
+```
+
+**Response `401`**
+
+```json
+{ "error": "Webhook verification failed" }
+```
+
+Any error thrown while verifying or handling the webhook (including a missing/invalid signature) results in a `401`. This endpoint processes email events like `email.delivered`, `email.bounced`, `email.complained`, etc. The `EmailService` tracks bounces and updates suppression status when the bounce threshold (default: 3) is reached.
+
+### `POST /v1/webhooks/{sourceId}`
+
+Generic webhook ingestion endpoint. Each registered webhook source has its own `sourceId` and transforms incoming payloads into Hogsend events.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `sourceId` | `string` | Registered webhook source identifier |
+
+**Authentication** -- Each source defines its own auth header. The value is matched against the corresponding environment variable.
+
+**Available Sources**
+
+#### PostHog (`sourceId: posthog`)
+
+Receives events from PostHog webhook destinations and workflow batch triggers.
+
+**Auth header:** `X-PostHog-Webhook-Secret` (matched against `POSTHOG_WEBHOOK_SECRET` env var)
+
+**Request Body**
+
+```json
+{
+  "event": {
+    "uuid": "event-uuid",
+    "event": "user:signed_up",
+    "distinct_id": "user_abc123",
+    "timestamp": "2025-01-15T10:30:00.000Z",
+    "properties": { "plan": "pro" }
+  },
+  "person": {
+    "id": "person-uuid",
+    "properties": {
+      "email": "user@example.com"
+    }
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `event.event` | `string` | Yes | PostHog event name |
+| `event.distinct_id` | `string` | Yes | PostHog distinct ID (maps to `userId`) |
+| `event.uuid` | `string` | No | PostHog event UUID (stored as `_posthogEventId` property) |
+| `event.timestamp` | `string` | No | Event timestamp |
+| `event.properties` | `Record<string, unknown>` | No | Event properties |
+| `person.properties.email` | `string` | No | User email (maps to `userEmail`) |
+
+**Response `200`**
+
+```json
+{
+  "ok": true,
+  "event": "user:signed_up",
+  "userId": "user_abc123",
+  "exits": []
+}
+```
+
+If the source's `transform` function returns `null`, the event is skipped:
+
+```json
+{ "ok": true, "skipped": true }
+```
+
+**Response `401`** -- `{ "error": "Invalid webhook secret" }`. Auth is only enforced when the source's secret env var is configured; an unconfigured source is treated as open.
+
+**Response `404`** -- `{ "error": "Unknown webhook source" }`.
+
+**Response `400`** -- `{ "error": "Invalid payload", "details": ... }` when the payload fails the source's optional Zod schema.
+
+```bash
+curl -X POST http://localhost:3002/v1/webhooks/posthog \
+  -H "Content-Type: application/json" \
+  -H "X-PostHog-Webhook-Secret: your-posthog-secret" \
+  -d '{
+    "event": {
+      "event": "user:signed_up",
+      "distinct_id": "user_abc123",
+      "properties": { "plan": "pro" }
+    },
+    "person": {
+      "properties": { "email": "user@example.com" }
+    }
+  }'
+```
+
+---
+
+## Adding a Webhook Source
+
+Webhook sources are **content you own** in your scaffolded app, not part of the engine. Author one with `defineWebhookSource` (imported from `@hogsend/engine`) to transform external payloads into Hogsend events:
+
+```ts
+// src/webhook-sources/my-source.js
+import { defineWebhookSource } from "@hogsend/engine";
+import { z } from "zod";
+
+const payloadSchema = z.object({
+  action: z.string(),
+  user_id: z.string(),
+  user_email: z.string().optional(),
+});
+
+export const mySource = defineWebhookSource({
+  meta: {
+    id: "my-source",
+    name: "My Source",
+    description: "Receives events from My Source",
+  },
+  auth: {
+    header: "x-my-source-secret",
+    envKey: "MY_SOURCE_WEBHOOK_SECRET",
+    type: "match",
+  },
+  schema: payloadSchema,
+  transform: async (payload, ctx) => {
+    return {
+      event: `my_source:${payload.action}`,
+      userId: payload.user_id,
+      userEmail: payload.user_email ?? "",
+      properties: {},
+    };
+  },
+});
+```
+
+The `transform` function receives the validated payload and a context object (`{ db, logger }`), and returns an `IngestEvent` (or `null` to skip the event).
+
+Collect your sources into the array your app owns in `src/webhook-sources/index.js`:
+
+```ts
+// src/webhook-sources/index.js
+import { mySource } from "./my-source.js";
+import { posthogSource } from "./posthog.js";
+
+export const webhookSources = [posthogSource, mySource];
+```
+
+Then inject that array into the engine when you build the app — you never edit the engine itself:
+
+```ts
+// src/index.ts
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { journeys } from "./journeys/index.js";
+import { webhookSources } from "./webhook-sources/index.js";
+
+const container = createHogsendClient({ journeys });
+const app = createApp(container, { webhookSources });
+```
+
+The source is now served at `POST /v1/webhooks/my-source`. See the [Events & webhook sources guide](/docs/guides/events) for more.

@@ -1,0 +1,600 @@
+---
+title: Email
+description: Lifecycle emails via Resend — React Email templates, bounce tracking, unsubscribe management, and deliverability monitoring.
+---
+
+Hogsend sends emails through a swappable **provider** (Resend by default) — fast delivery, great developer experience, solid deliverability. You reference templates by key, Hogsend handles everything else: rendering, delivery with retries, bounce tracking, automatic suppression, unsubscribe management, and a preference center.
+
+The split is deliberate:
+
+- **Your templates are content.** The actual `.tsx` email components and their registry live in **your** repo under `src/emails/` — scaffolded in by `create-hogsend`, yours to edit, delete, or extend. The engine bakes in no business templates.
+- **The engine owns the pipeline.** `@hogsend/engine` provides the high-level `sendEmail()` your journeys call, the `TrackedMailer` (render → preference/suppression check → link/open tracking → `emailSends` row → deliver → record status), the unsubscribe endpoints, and the preference center.
+- **The template machinery** lives in `@hogsend/email`: render helpers, the registry helpers, the `TemplateRegistry`/`TemplateDefinition` types, and the unsubscribe token/URL helpers — but no concrete templates.
+- **The email provider is a dumb `EmailProvider`.** `@hogsend/plugin-resend` implements the `EmailProvider` contract (send, batch, webhook parse/verify). Swap it for Postmark/SES by implementing the same interface — tracking, rendering, preferences, and the `emailSends` pipeline all come along for free because they never lived in the provider.
+
+You don't edit the engine packages — you own your templates, call `sendEmail()`, and (rarely) swap the provider. Customizing is covered in [Customizing the templates](#customizing-the-templates).
+
+## Sending email from journeys
+
+Inside a journey, use the standalone `sendEmail` function imported from `@hogsend/engine`. It goes through the tracked email pipeline — every email automatically gets an `emailSends` DB row, link rewriting for click tracking, and an open tracking pixel.
+
+```ts
+import { sendEmail } from "@hogsend/engine";
+
+await sendEmail({
+  to: user.email,
+  userId: user.id,
+  journeyStateId: user.stateId,
+  template: Templates.ACTIVATION_NUDGE,
+  subject: "You haven't tried the key feature yet",
+  journeyName: user.journeyName,
+  props: { firstName: "Alice" },
+});
+// => { emailSendId: string; sentAt: string }
+```
+
+`sendEmail()` is wired to the `TrackedMailer` the engine builds inside `createHogsendClient()` (using your injected `templates` registry and `provider`), so there is nothing to initialize in your journey — just call it.
+
+The function signature:
+
+```ts
+async function sendEmail(opts: {
+  to: string;
+  userId: string;
+  template: string;
+  subject: string;
+  journeyName?: string;
+  journeyStateId?: string;
+  props?: Record<string, unknown>;
+}): Promise<{ emailSendId: string; sentAt: string }>
+```
+
+Under the hood, `sendEmail` does the following:
+
+1. Generates a signed unsubscribe URL using `generateUnsubscribeUrl` (requires `API_PUBLIC_URL` and `BETTER_AUTH_SECRET` env vars).
+2. Sets `List-Unsubscribe` and `List-Unsubscribe-Post` headers for one-click unsubscribe compliance.
+3. Calls the engine's `TrackedMailer.send()` which creates an `emailSends` DB row, renders the template (from **your** injected registry) to HTML, rewrites all links for click tracking, injects an open tracking pixel, checks suppression/unsubscribe status, and delivers via the configured `EmailProvider` (Resend by default) with automatic retries.
+4. Returns the `emailSendId` (the DB record ID) and send timestamp.
+
+The `journeyStateId` links the email to the journey, which enables the tracking system to resolve clicks and opens back to the correct user and push events like `email.opened` and `email.link_clicked` through the ingest pipeline. Always pass `user.stateId` from journey code.
+
+## Tracking
+
+Every email sent through `sendEmail()` gets first-party link tracking and open tracking automatically. See the [Tracking API reference](/docs/api/tracking) for full details on how it works, the events it pushes, and how to use tracking data in journeys.
+
+## Delivery and retries
+
+Email delivery uses the `@hogsend/plugin-resend` package which includes automatic retries with exponential backoff. Errors are classified as retryable or non-retryable. Rate limits (429), server errors (5xx), timeouts, and connection resets are retried up to 3 times. Client errors (4xx) like validation errors and invalid API keys fail immediately.
+
+## React Email templates
+
+Your templates are **your content**. They live in your repo under `src/emails/` as React components built with the [React Email](https://react.email) library, alongside a `registry.ts` that maps each key → component + default subject + category. `create-hogsend` scaffolds a starter set in for you; you own them from minute one — edit, delete, or add freely. The engine bakes in **no** business templates.
+
+You reference templates by **key** from your journeys (via your `Templates` constants) — you don't import the components into journey code. At send time the engine threads your registry into `getTemplate(..., { registry })` and renders the matching component.
+
+### Type safety via module augmentation
+
+Template keys and their props are type-checked end to end (Option B from the [boundary revision](/docs/concepts/philosophy)). Your `src/emails/` includes an augmentation of the open `TemplateRegistryMap` interface exported by `@hogsend/email`:
+
+```ts
+// src/emails/registry.ts (your content)
+declare module "@hogsend/email" {
+  interface TemplateRegistryMap {
+    welcome: { name: string; dashboardUrl?: string };
+    "activation-nudge": { name: string; featureName: string };
+  }
+}
+```
+
+After augmentation, `TemplateName` resolves to your keys and `sendEmail({ template, props })` / `emailService.send({ template, props })` are fully type-checked — wrong key or wrong props is a compile error. Add a key to the registry + the augmentation, drop in the `.tsx`, and it's sendable.
+
+### Wiring your registry into the engine
+
+Your registry is **injected**, not imported by the engine. Pass it as the first-class `templates` option to `createHogsendClient`:
+
+```ts
+import { createHogsendClient } from "@hogsend/engine";
+import { journeys } from "./journeys/index.js";
+import { templates } from "./emails/registry.js"; // YOUR registry
+
+const container = createHogsendClient({ journeys, email: { templates } });
+```
+
+The engine threads `templates` into its `TrackedMailer` and onward to `getTemplate(..., { registry })`. With no `templates` it defaults to an empty registry (no sendable keys).
+
+## Customizing the templates
+
+Because templates are your own files, "customizing" is just editing your code — there is no Patch/Eject needed to change what an email looks like.
+
+### Adjust copy via props (the common case)
+
+Most customization is just data. Every template accepts props, and you pass them per send. Subject lines are per-send too. For many cases you never touch a template component at all:
+
+```ts
+await sendEmail({
+  to: user.email,
+  userId: user.id,
+  journeyStateId: user.stateId,
+  template: Templates.CONVERSION_WINBACK_OFFER,
+  subject: "Still interested? Here's 10% off", // overrides the default subject
+  journeyName: user.journeyName,
+  props: { discountPercent: 10 },              // template-specific data
+});
+```
+
+### Edit, add, or remove a template
+
+To change a template's markup, the shared `Layout`/`Footer`, or to add a brand-new key:
+
+1. Edit (or create) the `.tsx` component in `src/emails/`.
+2. Register it in `src/emails/registry.ts` (component + default subject + category).
+3. Add the key + its props to the `TemplateRegistryMap` augmentation so it type-checks.
+
+No engine change, no Patch, no Eject. (Patch/Eject remain for changing *engine internals* — the render machinery, routes, or the pipeline — not your templates. See [Upgrading & Customizing](/docs/operating/upgrading).)
+
+> The `createRegistry()` helper (below) is the same machinery the engine uses to assemble a `TemplateRegistry`. You can also call `getTemplate({ key, props, registry })` yourself with your registry — handy for previews or a custom route that renders email HTML.
+
+## Template registry API
+
+`@hogsend/email` exports the registry **machinery** — no concrete templates. Each helper takes the registry you pass in (your `src/emails/registry.ts`); they never read a baked-in default.
+
+### `getTemplate`
+
+Returns a rendered React element, default subject, and category for a given template key, props, and registry.
+
+```ts
+import { getTemplate } from "@hogsend/email";
+import { templates } from "./emails/registry.js";
+
+const { element, subject, category } = getTemplate({
+  key: "welcome",
+  props: { name: "Alice", dashboardUrl: "https://app.hogsend.com" },
+  registry: templates,
+});
+```
+
+### `getTemplateDefinition`
+
+Returns the raw `TemplateDefinition` (component function, default subject, category, preview function) without rendering.
+
+```ts
+import { getTemplateDefinition } from "@hogsend/email";
+import { templates } from "./emails/registry.js";
+
+const def = getTemplateDefinition({ key: "welcome", registry: templates });
+// def.component, def.defaultSubject, def.category, def.preview
+```
+
+### `getPreviewText`
+
+Returns the preview text string for a given template and props, as defined by the registry's `preview` function.
+
+```ts
+import { getPreviewText } from "@hogsend/email";
+import { templates } from "./emails/registry.js";
+
+const preview = getPreviewText({
+  key: "welcome",
+  props: { name: "Alice" },
+  registry: templates,
+});
+// => "Welcome to Hogsend, Alice!"
+```
+
+### `getTemplateNames`
+
+Returns the keys registered in a registry.
+
+```ts
+import { getTemplateNames } from "@hogsend/email";
+import { templates } from "./emails/registry.js";
+
+const names = getTemplateNames(templates);
+// => ["welcome", "activation-nudge", ...]
+```
+
+### `createRegistry`
+
+Merges partial overrides on top of a base registry. Useful for building a variant (a preview registry, a tenant-specific override set) without mutating your main one.
+
+```ts
+import { createRegistry, getTemplate } from "@hogsend/email";
+import { templates } from "./emails/registry.js";
+
+const previewRegistry = createRegistry(templates, {
+  welcome: {
+    component: MyCustomWelcome,
+    defaultSubject: "Welcome aboard!",
+    category: "transactional",
+  },
+});
+
+const { element } = getTemplate({
+  key: "welcome",
+  props: { name: "Alice" },
+  registry: previewRegistry,
+});
+```
+
+### Rendering helpers
+
+Convert a React element to HTML or plain text:
+
+```ts
+import { renderToHtml, renderToPlainText } from "@hogsend/email";
+
+const html = await renderToHtml(element);
+const text = await renderToPlainText(element);
+```
+
+## The EmailProvider contract (swapping providers)
+
+The email provider is a **dumb `EmailProvider`** — the entire provider surface is one small interface. The engine owns everything else (rendering, tracking, preferences, the `emailSends` pipeline), so swapping providers never costs you those features.
+
+```ts
+import type { EmailProvider } from "@hogsend/plugin-resend";
+
+interface EmailProvider {
+  send(options: SendEmailOptions): Promise<{ id: string }>;
+  sendBatch(emails: BatchEmailItem[]): Promise<{ results: { id: string }[] }>;
+  verifyWebhook(opts: {
+    payload: string;
+    headers: Record<string, string>;
+  }): WebhookEvent; // verify signature + parse
+  parseWebhook(payload: string): WebhookEvent; // parse only (trusted contexts/tests)
+}
+```
+
+### Default: the Resend provider
+
+By default `createHogsendClient()` builds a Resend provider from your env (`RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET`). You can build one explicitly:
+
+```ts
+import { createResendProvider } from "@hogsend/plugin-resend";
+
+const provider = createResendProvider({
+  apiKey: "re_...",
+  webhookSecret: "whsec_...",
+});
+```
+
+### Swapping the provider
+
+Implement the `EmailProvider` interface for your provider and pass it as the first-class `provider` option — that's the whole swap:
+
+```ts
+import { createHogsendClient } from "@hogsend/engine";
+import { journeys } from "./journeys/index.js";
+import { templates } from "./emails/registry.js";
+import { createPostmarkTransport } from "./lib/postmark-provider.js"; // your impl
+
+const container = createHogsendClient({
+  journeys,
+  templates,
+  provider: createPostmarkTransport({ apiKey: "..." }),
+});
+```
+
+Tracking, rendering, preference/suppression checks, and the `emailSends` pipeline all keep working — they live in the engine's `TrackedMailer`, never in the provider. `@hogsend/plugin-resend` also exports the low-level `createResendClient`, `sendEmail`, and `sendBatchEmails` helpers that its provider is built from, if you need raw Resend access.
+
+## The tracked send pipeline (engine-owned)
+
+The engine's `TrackedMailer` runs the full pipeline on every `sendEmail()` / `emailService.send()`: it records the email in the `emailSends` table, checks suppression and unsubscribe status before sending, rewrites links + injects the open pixel, delivers via the `EmailProvider`, and updates the row with the provider id on success.
+
+The send result type:
+
+```ts
+interface TrackedSendResult {
+  emailSendId: string;
+  resendId: string; // the EmailProvider's returned message id
+  status: "sent" | "suppressed" | "unsubscribed";
+}
+```
+
+Before sending, the mailer checks the `emailPreferences` table for:
+
+1. **Suppressed** -- the address has been suppressed (e.g., too many bounces). Returns `status: "suppressed"`.
+2. **Globally unsubscribed** -- the user has opted out of all emails. Returns `status: "unsubscribed"`.
+3. **Category unsubscribed** -- the user has opted out of the specific email category. Returns `status: "unsubscribed"`.
+
+If the check passes, the email is sent and the `emailSends` row is updated to `"sent"`. If sending fails, the row is updated to `"failed"` and the error is rethrown. Set `skipPreferenceCheck: true` on the send to bypass suppression checks (e.g., for transactional emails like password resets).
+
+## The email service (`TrackedMailer`)
+
+`createTrackedMailer` (from `@hogsend/engine`) builds the high-level service object that combines template rendering, tracked sending, batch sending, and webhook handling into a single interface. **The engine builds and wires this for you inside `createHogsendClient()`** using your injected `templates` registry and `provider`, and `sendEmail()` calls it. You construct it yourself only to fully replace the engine's mailer — pass it via `createHogsendClient({ overrides: { mailer } })`.
+
+```ts
+import { createTrackedMailer } from "@hogsend/engine";
+import { createResendProvider } from "@hogsend/plugin-resend";
+import { templates } from "./emails/registry.js";
+
+const mailer = createTrackedMailer(
+  {
+    defaultFrom: "Hogsend <noreply@hogsend.com>",
+    templates,                 // your registry
+    db,
+    webhookSecret: "whsec_...",
+    bounceThreshold: 3,
+    baseUrl: "https://api.hogsend.com", // tracking domain
+  },
+  {
+    provider: createResendProvider({ apiKey: "re_...", webhookSecret: "whsec_..." }),
+  },
+);
+```
+
+The config type:
+
+```ts
+interface EmailServiceConfig {
+  defaultFrom: string;
+  templates: TemplateRegistry;     // your src/emails registry
+  db?: unknown;                    // Drizzle database instance
+  webhookSecret?: string;          // provider webhook signing secret
+  webhookHandlers?: WebhookHandlerMap;
+  retryOptions?: RetryOptions;
+  bounceThreshold?: number;        // default: 3
+  baseUrl?: string;                // tracking domain for link/open rewriting
+}
+```
+
+### `service.send`
+
+Template-based tracked send. Uses the template registry, checks preferences, records in `emailSends`.
+
+```ts
+const result = await emailService.send({
+  template: "welcome",
+  props: { name: "Alice" },
+  to: "alice@example.com",
+  category: "transactional",
+});
+```
+
+### `service.sendRaw`
+
+Sends a raw email with a React element, bypassing the template registry and tracking.
+
+```ts
+const result = await emailService.sendRaw({
+  from: "Hogsend <noreply@hogsend.com>",
+  to: "user@example.com",
+  subject: "Raw email",
+  react: element,
+});
+```
+
+### `service.sendBatch`
+
+Sends a batch of raw emails with automatic chunking.
+
+```ts
+const { results } = await emailService.sendBatch({
+  emails: [
+    { from: "...", to: "alice@example.com", subject: "...", react: el1 },
+    { from: "...", to: "bob@example.com", subject: "...", react: el2 },
+  ],
+});
+```
+
+### `service.render`
+
+Renders a template to HTML and plain text without sending.
+
+```ts
+const { html, text, subject, category } = await emailService.render({
+  template: "welcome",
+  props: { name: "Alice" },
+});
+```
+
+### `service.handleWebhook`
+
+Verifies and processes Resend webhook events. More on this in the [bounce tracking](#bounce-tracking) section.
+
+## Bounce tracking
+
+Resend sends webhook events for email lifecycle changes. The email service handles these automatically, updating the `emailSends` table and managing suppressions.
+
+### Webhook event types
+
+| Event | Status field updated | Additional action |
+|---|---|---|
+| `email.sent` | `sentAt` | -- |
+| `email.delivered` | `deliveredAt` | -- |
+| `email.opened` | `openedAt` | -- |
+| `email.clicked` | `clickedAt` | -- |
+| `email.bounced` | `bouncedAt` | Increments bounce count, suppresses after threshold |
+| `email.complained` | `complainedAt` | Immediately suppresses the address |
+| `email.delivery_delayed` | -- | Forwarded to custom handler only |
+
+### Automatic suppression
+
+When a bounce is received, the service increments the `bounceCount` on the `emailPreferences` record. Once the count reaches the `bounceThreshold` (default: 3), the address is automatically suppressed -- all future tracked sends to that address return `status: "suppressed"`.
+
+Spam complaints immediately suppress the address regardless of bounce count.
+
+### Webhook endpoint
+
+The API exposes a webhook receiver at `POST /v1/webhooks/resend`. Configure this URL in your Resend dashboard under webhook settings. The endpoint verifies the Svix signature headers (`svix-id`, `svix-timestamp`, `svix-signature`) before processing.
+
+```ts
+// Verification uses the Svix library
+const event = verifyWebhook({
+  payload: rawBody,
+  headers: { "svix-id": "...", "svix-timestamp": "...", "svix-signature": "..." },
+  signingSecret: "whsec_...",
+});
+```
+
+### Custom webhook handlers
+
+You can add custom logic for any webhook event type via the `webhookHandlers` config:
+
+```ts
+const mailer = createTrackedMailer(
+  {
+    defaultFrom: "...",
+    templates,
+    db,
+    webhookSecret: "whsec_...",
+    webhookHandlers: {
+      "email.bounced": async (event) => {
+        console.log("Bounced:", event.data.to, event.data.bounce.message);
+      },
+      "email.clicked": async (event) => {
+        console.log("Clicked:", event.data.click.link);
+      },
+    },
+  },
+  { provider },
+);
+```
+
+Custom handlers run after the built-in status update and suppression logic.
+
+## Unsubscribe management
+
+Hogsend generates signed, time-limited unsubscribe tokens using HMAC-SHA256. Tokens default to a 30-day expiry and are verified with timing-safe comparison to prevent timing attacks.
+
+### Generating URLs
+
+```ts
+import { generateUnsubscribeUrl, generatePreferenceCenterUrl } from "@hogsend/email";
+
+// One-click unsubscribe URL (optionally scoped to a category)
+const unsubUrl = generateUnsubscribeUrl({
+  baseUrl: "https://api.hogsend.com",
+  secret: "your-auth-secret",
+  externalId: "usr_abc123",
+  email: "user@example.com",
+  category: "journey", // optional: unsubscribe from this category only
+});
+// => https://api.hogsend.com/v1/email/unsubscribe?token=...
+
+// Preference center URL
+const prefsUrl = generatePreferenceCenterUrl({
+  baseUrl: "https://api.hogsend.com",
+  secret: "your-auth-secret",
+  externalId: "usr_abc123",
+  email: "user@example.com",
+});
+// => https://api.hogsend.com/v1/email/preferences?token=...
+```
+
+### Token structure
+
+The token payload contains:
+
+```ts
+interface UnsubscribeTokenPayload {
+  externalId: string;  // User identifier
+  email: string;       // Email address
+  category?: string;   // Optional category scope
+  action: "unsubscribe" | "resubscribe" | "manage";
+  exp: number;         // Unix timestamp expiry
+}
+```
+
+The payload is base64url-encoded and signed with HMAC-SHA256. The token format is `{encodedPayload}.{signature}`.
+
+### Unsubscribe endpoint
+
+`GET /v1/email/unsubscribe?token=...`
+
+Validates the token and updates the `emailPreferences` table. If the token includes a `category`, only that category is unsubscribed. Without a category, the user is globally unsubscribed from all emails.
+
+The endpoint returns an HTML confirmation page and includes a link to the preference center.
+
+### Resubscribe
+
+The same endpoint handles resubscribe actions. When the token's action is `"resubscribe"`, the endpoint re-enables emails for the specified category (or clears global unsubscribe).
+
+## Email preferences
+
+### Preference center
+
+`GET /v1/email/preferences?token=...`
+
+Renders an HTML page where users can see their subscription status and toggle individual categories or global unsubscribe. Each toggle is a link to the unsubscribe endpoint with the appropriate action and category.
+
+Current categories:
+
+| Category ID | Label |
+|---|---|
+| `journey` | Journey & lifecycle emails |
+
+### Admin API
+
+Preferences can also be managed programmatically through the admin API.
+
+**Get preferences:**
+
+```
+GET /v1/admin/{contactId}/preferences
+```
+
+**Update preferences:**
+
+```
+PUT /v1/admin/{contactId}/preferences
+```
+
+```json
+{
+  "unsubscribedAll": false,
+  "suppressed": false,
+  "categories": {
+    "journey": true
+  }
+}
+```
+
+The response includes the full preference state:
+
+```ts
+{
+  id: string;
+  userId: string;
+  email: string;
+  unsubscribedAll: boolean;
+  suppressed: boolean;
+  bounceCount: number;
+  categories: Record<string, boolean>;
+  suppressedAt: string | null;
+  lastBounceAt: string | null;
+}
+```
+
+## Error handling
+
+The email package defines three error classes:
+
+### `EmailSendError`
+
+Thrown when email delivery fails. Includes a `retryable` flag that the retry logic uses to decide whether to retry.
+
+```ts
+class EmailSendError extends Error {
+  readonly retryable: boolean;
+  readonly statusCode?: number;
+}
+```
+
+### `EmailSuppressionError`
+
+Thrown when an email is suppressed due to user preferences.
+
+```ts
+class EmailSuppressionError extends Error {
+  readonly reason: "unsubscribed" | "suppressed" | "category_unsubscribed";
+}
+```
+
+### `InvalidTokenError`
+
+Thrown when an unsubscribe token is malformed, has an invalid signature, is missing fields, or has expired.
+
+```ts
+class InvalidTokenError extends Error {}
+```

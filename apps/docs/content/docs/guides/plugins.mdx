@@ -1,0 +1,241 @@
+---
+title: Integrations & Plugins
+description: Call any external service from a journey — Slack, Twilio, a CRM. Standalone imports, no plugin registry, no lifecycle hooks.
+---
+
+There is no plugin framework to learn. A "plugin" in Hogsend is just well-organized code that wraps an external service and exposes typed functions you call from a journey. The engine ships two such packages — `@hogsend/plugin-posthog` (person properties + event capture) and `@hogsend/plugin-resend` (a dumb email `EmailProvider`) — but you don't need to author a workspace package to integrate something new.
+
+Because journeys are **your content** in your own app, the simplest integration is the best one: install the service's SDK, write a thin service wrapper in your `src/` tree, and import it directly into a journey. There's no plugin registration, no lifecycle hooks, no abstract base classes, and nothing to inject into the engine — the engine never imports your content, and it doesn't need to know about your integrations either.
+
+## The model: standalone imports
+
+Services are **not** part of the journey context. `ctx` is reserved for durable execution primitives (`sleep`, `checkpoint`, `trigger`, `guard`, `history`, `posthog`, `identify`). Everything else — email, Slack, your CRM — is a plain import and a function call. This is exactly how `sendEmail` works:
+
+```ts
+import { sendEmail } from "@hogsend/engine"; // a function, not ctx.sendEmail
+```
+
+You integrate any other service the same way. See [How it works](/docs/concepts/how-it-works) for why the context stays this thin.
+
+## Integrating a service in your app
+
+For most integrations you don't create a package at all — you add a small service module to your scaffolded app and import it where you need it.
+
+### 1. Install the SDK
+
+```bash
+pnpm add @slack/web-api
+```
+
+### 2. Write a thin service wrapper
+
+Put it under your own `src/` tree (for example `src/lib/slack.ts`). Keep config explicit and validate it at construction time, not at import time, so tests don't blow up on a missing env var.
+
+```ts
+// src/lib/slack.ts — your content
+import { WebClient } from "@slack/web-api";
+
+export interface SlackServiceConfig {
+  token: string;
+  defaultChannel?: string;
+}
+
+export function createSlackService(config: SlackServiceConfig) {
+  if (!config.token) {
+    throw new Error("SlackServiceConfig.token is required");
+  }
+  const client = new WebClient(config.token);
+
+  return {
+    async sendMessage(opts: { channel?: string; text: string }) {
+      const channel = opts.channel ?? config.defaultChannel;
+      if (!channel) {
+        throw new Error("No channel provided and no defaultChannel configured");
+      }
+      const result = await client.chat.postMessage({
+        channel,
+        text: opts.text,
+      });
+      return { ts: result.ts, channel: result.channel };
+    },
+  };
+}
+```
+
+### 3. Use it in a journey
+
+```ts
+// src/journeys/churn-alert.ts — your content
+import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { createSlackService } from "../lib/slack.js";
+import { Events, Templates } from "./constants/index.js";
+
+// Construct once at module scope (or pull from your own shared module).
+const slack = createSlackService({
+  token: process.env.SLACK_BOT_TOKEN ?? "",
+  defaultChannel: "#lifecycle-alerts",
+});
+
+export const churnAlert = defineJourney({
+  meta: {
+    id: "churn-alert",
+    name: "Churn — Alert Team on High-Value Churn Risk",
+    enabled: true,
+    trigger: { event: Events.PAYMENT_FAILED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: days(1),
+    exitOn: [{ event: Events.PAYMENT_SUCCEEDED }],
+  },
+
+  run: async (user, ctx) => {
+    // Notify the team immediately.
+    await slack.sendMessage({
+      channel: "#churn-alerts",
+      text: `Payment failed for ${user.email} — starting recovery flow.`,
+    });
+
+    // Send the recovery email.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(2), label: "escalation-check" });
+
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.PAYMENT_SUCCEEDED,
+      within: days(2),
+    });
+
+    if (!found) {
+      await slack.sendMessage({
+        channel: "#churn-alerts",
+        text: `Payment still failing for ${user.email} after 2 days. Manual follow-up needed.`,
+      });
+    }
+  },
+});
+```
+
+The pattern is the same as `sendEmail` — a function call, not a context method. This keeps the journey context focused on orchestration and avoids coupling integrations to the engine.
+
+### Need the database or a long-running connection?
+
+Your service module can do anything Node can. If you need DB access (for example, to record Slack message history in your own table), open a connection with `createDatabase()` from `@hogsend/db` against your `DATABASE_URL`, or query through a [client-track table](/docs/operating/deployment) you defined in `src/schema/`. If your SDK needs cleanup (flushing buffers, closing sockets), expose a `shutdown()` method and call it from your `src/worker.ts` graceful-shutdown handler alongside `worker.stop()`.
+
+## Conventions for service wrappers
+
+These keep integrations predictable, whether they live in your app or in a shared package.
+
+### Fail at construction, not at import
+
+```ts
+// Good: fail when the service is created
+export function createSlackService(config: SlackServiceConfig) {
+  if (!config.token) throw new Error("SlackServiceConfig.token is required");
+  // ...
+}
+
+// Bad: top-level env access throws on import, even in tests
+const token = process.env.SLACK_BOT_TOKEN!;
+```
+
+### Throw descriptive errors
+
+Don't swallow failures. Let the journey's error handling capture them — a thrown error marks the run `"failed"` and fires a `journey:failed` event.
+
+```ts
+async sendMessage(opts: { channel: string; text: string }) {
+  try {
+    const result = await client.chat.postMessage(opts);
+    return { ts: result.ts, channel: result.channel };
+  } catch (error) {
+    throw new Error(
+      `Slack sendMessage failed for ${opts.channel}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+```
+
+### Optional caching
+
+If your service fetches data that changes infrequently (like the bundled `@hogsend/plugin-posthog` does for person properties), accept an optional Redis client and a TTL in your config and cache there.
+
+```ts
+export interface MyServiceConfig {
+  apiKey: string;
+  redis?: Redis;            // optional caching
+  cacheTtlSeconds?: number; // default: 300
+}
+```
+
+### Testing
+
+Test your service logic against a mocked SDK client — don't make real API calls in tests. The bundled plugin tests in `packages/plugin-resend/src/__tests__/` show the pattern.
+
+```ts
+import { describe, expect, it, vi } from "vitest";
+
+describe("createSlackService", () => {
+  it("sends a message to the configured channel", async () => {
+    const postMessage = vi.fn().mockResolvedValue({
+      ts: "1234567890.123456",
+      channel: "C123",
+    });
+    // ... inject the mock and assert on your wrapper's behavior
+  });
+});
+```
+
+## Background jobs (Hatchet tasks)
+
+Some integrations are better run as durable background work than inline in a journey — a nightly CRM sync, a heavy data backfill, a fan-out import. Author these as Hatchet tasks in your own `src/workflows/` and register them via `createWorker({ extraWorkflows })`. They run on the same worker as your journeys.
+
+```ts
+// src/worker.ts — your content
+import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { journeys } from "./journeys/index.js";
+import { crmSyncTask } from "./workflows/crm-sync.js";
+
+const container = createHogsendClient({ journeys });
+const worker = createWorker({
+  container,
+  journeys,
+  extraWorkflows: [crmSyncTask], // your extra tasks
+});
+await worker.start();
+```
+
+The option is named **`extraWorkflows`**. The engine always registers its built-in tasks (`sendEmailTask`, `importContactsTask`, `checkAlertsTask`) plus your selected journey tasks automatically — don't re-list those. For heavy data backfills specifically, use `runBatchedBackfill` from `@hogsend/engine`; the scaffold ships a `src/workflows/backfill-example.ts` template you can copy.
+
+## When to publish a `@hogsend/plugin-*` package instead
+
+A standalone module in your app is the right default. Author a real workspace package only when an integration is **reusable across multiple apps** or you intend to **contribute it back to the engine**. That is engine-development work — done in a clone of the Hogsend monorepo, not in a scaffolded client app — and the package then ships and versions like any other `@hogsend/*` dependency. (For changing the engine's *existing* packages from a client app, see the Patch/Eject rungs in [Upgrading & Customizing](/docs/operating/upgrading).)
+
+If you do build one, follow the existing layout:
+
+```
+packages/plugin-{name}/
+  src/
+    client.ts       # thin SDK/HTTP client wrapper
+    service.ts      # high-level service (caching, retries, convenience methods)
+    types.ts        # config, option, and result interfaces — the public contract
+    index.ts        # barrel exports — one import path
+  package.json
+  tsconfig.json
+```
+
+`package.json` points `exports` directly at `.ts` source (no build step — consumers bundle via tsup's `noExternal`), names the package `@hogsend/plugin-{name}`, and is included in the changesets publishable set. `tsconfig.json` extends `@repo/typescript-config/base.json`. The mechanics are identical to the in-app wrapper above — only the packaging and the publish/versioning story differ. See [Releasing & versioning](/docs/operating/upgrading#releasing--versioning) for how engine packages are versioned and published.
+
+## What integrations are not
+
+Integrations don't register themselves anywhere — there's no manifest, no auto-discovery, no lifecycle hooks. You import what you need, where you need it. They also aren't on the journey context: `ctx` is orchestration-only. This keeps the system simple and explicit, and keeps the content-vs-framework boundary clean — your integrations live entirely in your content, and the engine upgrades underneath them with `pnpm up`.

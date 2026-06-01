@@ -1,0 +1,47 @@
+---
+title: About
+description: Who built Hogsend, why it exists, and how to get in touch.
+---
+
+## The short version
+
+I'm Doug Silkstone. I'm a software engineer with a previous life in growth engineering, analytics, and martech. I built Hogsend because I got tired of rebuilding the same thing every few months.
+
+## The longer version
+
+Over the last 15+ years as a freelance startup and product engineer, I've been through this cycle more times than I'd like to admit:
+
+1. A team picks PostHog (or Mixpanel, or Amplitude, or whatever analytics tool is hot that quarter).
+2. They get great at tracking events. Dashboards everywhere. Funnels, cohorts, the works.
+3. Then someone asks: "OK, but can we send an email when someone drops off onboarding?"
+4. And suddenly everyone's staring at each other.
+
+There's always a gap. It's always analytics. It's always martech. And it's always the struggle of trying to set up something that honestly doesn't need to take that long.
+
+I've watched non-technical teams burn weeks trying to configure complex lifecycle tools that were built for enterprise marketing orgs with dedicated ops people. I've watched engineers hand-roll email logic that's been solved a hundred times, because the "proper" tools felt like overkill or didn't play nice with their stack. I've been that engineer, more than once.
+
+The pattern was always the same: PostHog (or whatever) captures everything beautifully. Then you need to actually *do* something with those events — send a welcome sequence, nudge someone who's stalling, recover a failed payment — and you're duct-taping together webhooks, cron jobs, and Resend API calls in a way that works but isn't really a system.
+
+So I built Hogsend. Not because the world needed another email tool — it probably doesn't — but because I kept rebuilding this exact thing for clients. Different repo, different team, same bones every time. At some point it made more sense to build it properly once and use it everywhere — which is exactly what Hogsend is now: a versioned engine you install (`@hogsend/engine`), not a codebase you fork. You scaffold an app, write your journeys, and upgrade the engine with `pnpm up`.
+
+## What this actually is
+
+Hogsend is the tool I reach for when a client says "we use PostHog and we need lifecycle emails." It ships as a package — your app pins `@hogsend/engine` and owns only your content: journeys, templates, webhook sources, your config. It's code-first because I'm an engineer and I think lifecycle automation should live in your codebase, not in some third-party visual canvas that your team will outgrow in six months. It uses Resend because Resend is fast, the DX is excellent, and deliverability just works.
+
+It's opinionated. It's not trying to be Customer.io or Braze. It's trying to be the thing that gets you from "we should probably send onboarding emails" to actually sending them, in days instead of weeks.
+
+## If you want help setting this up
+
+Here's the honest pitch: I built Hogsend to help me go faster for my clients. If you want to be one of my clients, that's awesome too.
+
+I can get all of this up and running for you in a matter of days — the PostHog integration, the email templates, the journey logic, the deployment. So you can actually start making your PostHog analytics work for you instead of just staring at dashboards.
+
+If you don't have PostHog yet, or you're not using it to its full potential, I can help with that too. PostHog setup, event taxonomy, the whole thing.
+
+If you're a consultant or a product team already in love with PostHog — get in touch, because we have a lot to talk about.
+
+**Email me:** [doug@withseismic.com](mailto:doug@withseismic.com)
+
+**Find me on LinkedIn:** [linkedin.com/in/dougsilkstone](https://linkedin.com/in/dougsilkstone)
+
+No forms, no "book a call" buttons, no SDR in the middle. Just send me an email and tell me what you're working on. I'll tell you if I can help.

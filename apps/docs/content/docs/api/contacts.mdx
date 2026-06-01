@@ -1,0 +1,384 @@
+---
+title: Contacts API
+description: Contact CRUD operations, email preference management, and contact timeline.
+---
+
+All admin endpoints require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+## Contacts
+
+### `GET /v1/admin/contacts`
+
+List contacts with optional search and pagination. Results are ordered by `lastSeenAt` descending.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `search` | `string` | -- | Search by email or externalId (case-insensitive) |
+
+**Response `200`**
+
+```json
+{
+  "contacts": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "externalId": "user_abc123",
+      "email": "user@example.com",
+      "properties": { "plan": "pro" },
+      "firstSeenAt": "2025-01-10T08:00:00.000Z",
+      "lastSeenAt": "2025-01-15T10:30:00.000Z",
+      "createdAt": "2025-01-10T08:00:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/contacts?limit=10&search=example.com"
+```
+
+### `GET /v1/admin/contacts/{id}`
+
+Get a single contact by internal UUID or `externalId`, along with their email preferences.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Response `200`**
+
+```json
+{
+  "contact": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "externalId": "user_abc123",
+    "email": "user@example.com",
+    "properties": { "plan": "pro" },
+    "firstSeenAt": "2025-01-10T08:00:00.000Z",
+    "lastSeenAt": "2025-01-15T10:30:00.000Z",
+    "createdAt": "2025-01-10T08:00:00.000Z",
+    "updatedAt": "2025-01-15T10:30:00.000Z"
+  },
+  "preferences": {
+    "id": "pref-uuid",
+    "userId": "user_abc123",
+    "email": "user@example.com",
+    "unsubscribedAll": false,
+    "suppressed": false,
+    "bounceCount": 0,
+    "categories": { "journey": true }
+  }
+}
+```
+
+The `preferences` field is `null` if no preference record exists for the contact.
+
+**Response `404`**
+
+```json
+{ "error": "Contact not found" }
+```
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123
+```
+
+### `POST /v1/admin/contacts`
+
+Create a new contact.
+
+**Request Body**
+
+```json
+{
+  "externalId": "user_abc123",
+  "email": "user@example.com",
+  "properties": { "plan": "pro", "company": "Acme" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `externalId` | `string` | Yes | Your system's user identifier (min 1 char) |
+| `email` | `string` | No | Email address (validated format) |
+| `properties` | `Record<string, unknown>` | No | Arbitrary contact properties |
+
+**Response `201`**
+
+```json
+{
+  "contact": { ... }
+}
+```
+
+**Response `409`**
+
+```json
+{ "error": "Contact with this externalId already exists" }
+```
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/contacts \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "externalId": "user_abc123",
+    "email": "user@example.com",
+    "properties": { "plan": "pro" }
+  }'
+```
+
+### `PATCH /v1/admin/contacts/{id}`
+
+Update an existing contact. Properties are **merged** (deep merge via `jsonb ||`) rather than replaced.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Request Body**
+
+```json
+{
+  "email": "newemail@example.com",
+  "properties": { "plan": "enterprise" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | `string` | No | Updated email address |
+| `properties` | `Record<string, unknown>` | No | Properties to merge into existing |
+
+**Response `200`** -- Updated contact object.
+
+**Response `404`** -- Contact not found.
+
+```bash
+curl -X PATCH http://localhost:3002/v1/admin/contacts/user_abc123 \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "properties": { "plan": "enterprise" } }'
+```
+
+### `DELETE /v1/admin/contacts/{id}`
+
+Soft-delete a contact. This sets `deletedAt` on the contact record rather than permanently removing it. Soft-deleted contacts are excluded from all list queries, search results, and journey enrollment. Their associated email preferences and journey states are preserved.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Response `200`**
+
+```json
+{ "deleted": true }
+```
+
+**Response `404`** -- Contact not found.
+
+```bash
+curl -X DELETE http://localhost:3002/v1/admin/contacts/user_abc123 \
+  -H "Authorization: Bearer your-api-key"
+```
+
+---
+
+## Email Preferences
+
+These endpoints manage email preferences for a specific contact. They are mounted under the admin contacts router and require the same `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/contacts/{contactId}/preferences`
+
+Get email preferences for a contact.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `contactId` | `string` | Contact UUID or `externalId` |
+
+**Response `200`**
+
+```json
+{
+  "preferences": {
+    "id": "pref-uuid",
+    "userId": "user_abc123",
+    "email": "user@example.com",
+    "unsubscribedAll": false,
+    "suppressed": false,
+    "bounceCount": 0,
+    "categories": { "journey": true },
+    "suppressedAt": null,
+    "lastBounceAt": null
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Preference record UUID |
+| `userId` | `string` | The contact's `externalId` |
+| `email` | `string` | Email address |
+| `unsubscribedAll` | `boolean` | Global unsubscribe flag |
+| `suppressed` | `boolean` | Whether delivery is suppressed (e.g., due to bounces) |
+| `bounceCount` | `number` | Total hard bounces recorded |
+| `categories` | `Record<string, boolean>` | Per-category subscription status |
+| `suppressedAt` | `string \| null` | ISO timestamp when suppression started |
+| `lastBounceAt` | `string \| null` | ISO timestamp of most recent bounce |
+
+**Response `404`** -- Contact not found, or no preferences exist.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/contacts/user_abc123/preferences
+```
+
+### `PUT /v1/admin/contacts/{contactId}/preferences`
+
+Create or update email preferences for a contact. Uses upsert semantics -- if no preference record exists, one is created. The contact must have an email address on file.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `contactId` | `string` | Contact UUID or `externalId` |
+
+**Request Body**
+
+```json
+{
+  "unsubscribedAll": false,
+  "suppressed": false,
+  "categories": { "journey": true, "marketing": false }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `unsubscribedAll` | `boolean` | No | Set global unsubscribe |
+| `suppressed` | `boolean` | No | Set delivery suppression |
+| `categories` | `Record<string, boolean>` | No | Set per-category preferences |
+
+**Response `200`** -- Updated preferences object.
+
+**Response `400`**
+
+```json
+{ "error": "Contact has no email address" }
+```
+
+**Response `404`** -- Contact not found.
+
+```bash
+curl -X PUT http://localhost:3002/v1/admin/contacts/user_abc123/preferences \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "unsubscribedAll": false,
+    "categories": { "journey": true }
+  }'
+```
+
+---
+
+## Contact Timeline
+
+View a contact's full activity history across events, journeys, and emails. Requires the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/contacts/{id}/timeline`
+
+Get a chronological feed of all activity for a contact, interleaving events received, journey state changes, and emails sent. Results are ordered by timestamp descending.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact UUID or `externalId` |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `type` | `string` | -- | Filter by entry type: `event`, `journey`, `email` |
+
+**Response `200`**
+
+```json
+{
+  "timeline": [
+    {
+      "type": "event",
+      "timestamp": "2025-01-15T10:30:00.000Z",
+      "data": {
+        "id": "event-uuid",
+        "event": "user:signed_up",
+        "properties": { "plan": "pro" }
+      }
+    },
+    {
+      "type": "journey",
+      "timestamp": "2025-01-15T10:30:01.000Z",
+      "data": {
+        "id": "state-uuid",
+        "journeyId": "activation-welcome",
+        "status": "completed",
+        "currentNodeId": "done",
+        "completedAt": "2025-01-16T10:30:00.000Z",
+        "exitedAt": null
+      }
+    },
+    {
+      "type": "email",
+      "timestamp": "2025-01-15T10:30:02.000Z",
+      "data": {
+        "id": "email-uuid",
+        "templateKey": "activation/welcome",
+        "subject": "Welcome to Hogsend",
+        "status": "delivered",
+        "toEmail": "user@example.com",
+        "sentAt": "2025-01-15T10:30:02.000Z",
+        "deliveredAt": "2025-01-15T10:30:07.000Z",
+        "openedAt": null
+      }
+    }
+  ],
+  "total": 3,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Each entry has a `type` discriminator and a `data` object whose shape varies by type:
+
+| Type | Data fields |
+|---|---|
+| `event` | `id`, `event`, `properties` |
+| `journey` | `id`, `journeyId`, `status`, `currentNodeId`, `completedAt`, `exitedAt` |
+| `email` | `id`, `templateKey`, `subject`, `status`, `toEmail`, `sentAt`, `deliveredAt`, `openedAt` |
+
+**Response `404`** -- Contact not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/contacts/user_abc123/timeline?type=email&limit=10"
+```

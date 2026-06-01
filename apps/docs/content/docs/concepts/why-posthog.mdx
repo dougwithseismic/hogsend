@@ -1,0 +1,69 @@
+---
+title: Why PostHog?
+description: PostHog is the best product analytics platform for startups. Hogsend is the lifecycle automation it doesn't have yet.
+---
+
+## PostHog is great. It just doesn't do lifecycle emails.
+
+If you're reading this, you probably already love PostHog. You've got event tracking, feature flags, session replays, A/B testing, and a data warehouse — all in one platform, self-hostable, with a generous free tier. It's the analytics stack that startups actually want to use.
+
+But there's a gap. PostHog tells you *what users do*. It doesn't help you *respond* to what they do. When someone signs up and doesn't activate, when a payment fails, when a power user goes quiet — you're on your own. You either hand-roll email logic in your app code, or you buy a separate lifecycle platform and spend weeks wiring it up.
+
+Hogsend fills that gap. It listens to your PostHog events and reacts to them with durable, code-first journeys that send emails, check conditions, wait, and branch — all without touching your application code.
+
+## PostHog is building this themselves
+
+We should be upfront about this: PostHog acquired the [Laudspeaker](https://posthog.com/blog/laudspeaker-acquisition) team in 2025 to build marketing automation into PostHog natively. PostHog Workflows is already a thing, and we expect lifecycle email to land eventually.
+
+**We're rooting for them.** When PostHog ships their own lifecycle automation, it'll be deeply integrated with their analytics, feature flags, and experimentation platform in ways no external tool can match.
+
+Until then, Hogsend exists. And it's designed with that future in mind:
+
+- **Clean event model** — Hogsend uses your PostHog events directly. No proprietary event format. When PostHog ships their own tool, your events are already in the right shape.
+- **Two-way sync** — email engagement (opens, clicks, unsubscribes) is pushed back to PostHog as events and person properties. You can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, in PostHog where it belongs.
+- **No lock-in** — journeys are TypeScript files in your repo. Templates are React components. Data lives in your Postgres. Nothing is trapped in a proprietary format.
+- **Gateway drug** — if you outgrow Hogsend before PostHog ships their solution, you can migrate to Customer.io, Brevo, or any other platform. Your event model and journey logic translate directly.
+
+## What PostHog gives Hogsend
+
+The PostHog integration isn't just "send events via webhook." Hogsend uses PostHog in both directions:
+
+### Events flow in
+
+Every PostHog event can trigger a Hogsend journey. Set up the webhook once (2 minutes) and your entire PostHog event stream is available:
+
+- `user_signed_up` → welcome sequence
+- `feature_used` → activation branching
+- `subscription_cancelled` → churn recovery
+- Custom events from PostHog Actions → any journey you define
+
+### Person properties enrich journeys
+
+Hogsend fetches PostHog person properties (with Redis caching) so your journeys can make decisions based on the full user profile:
+
+```ts
+import { getPostHog } from "@hogsend/engine";
+
+// getPostHog() returns undefined when POSTHOG_API_KEY isn't set, so guard it.
+const properties = await getPostHog()?.getPersonProperties(user.id);
+// { plan: "pro", company_size: 50, signup_source: "Product Hunt" }
+```
+
+### Engagement flows back
+
+When Hogsend sends an email and the user opens it, clicks a link, or unsubscribes — those events are pushed back to PostHog. This means:
+
+- **Cohort building** — "users who received the trial-expiring email and clicked through" is a PostHog cohort, not a separate tool
+- **Funnel analysis** — email engagement becomes part of your product funnels in PostHog
+- **Feature flag targeting** — target users based on email engagement using PostHog feature flags
+- **Session replays** — see what a user did after clicking through from an email
+
+This two-way loop is the real power. PostHog becomes the single source of truth for both product behavior *and* lifecycle email engagement.
+
+## Hogsend is the thing you'd build anyway
+
+Every PostHog team eventually needs lifecycle emails. The question is whether you spend 2-3 weeks hand-rolling it in your app (and maintaining it forever), 6 weeks integrating Customer.io (and paying $500+/month), or 10 minutes setting up Hogsend.
+
+Hogsend is opinionated. It's built specifically for the PostHog + Resend stack. It doesn't try to be everything — it just does lifecycle email really well, with the assumption that PostHog is your analytics platform and you want everything flowing back there.
+
+When you're ready for more — push notifications, SMS, in-app messages, or PostHog's own marketing automation — you'll have a clean event model, proven journey logic, and engagement data already in PostHog to build on.

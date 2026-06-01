@@ -1,0 +1,79 @@
+name: Release
+
+# Two-phase changesets release. CONFIG-ONLY in this repo today; runs only in CI.
+#
+#   Phase A — a merge to `main` that carries unreleased changesets ⇒
+#             changesets/action opens/updates a "Version Packages" PR that runs
+#             `pnpm changeset version` (bumps versions, writes CHANGELOGs,
+#             deletes the consumed changeset files).
+#   Phase B — merging that "Version Packages" PR (no changesets left, versions
+#             already bumped) ⇒ the action runs `publish` (`pnpm release`),
+#             publishing the public @hogsend/* packages + create-hogsend to npm
+#             and pushing git tags (e.g. @hogsend/engine@1.4.0).
+#
+# `changeset publish` automatically SKIPS private packages, so @hogsend/api,
+# growthhog (root), and @repo/typescript-config are never published.
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel an in-flight publish
+
+permissions:
+  contents: write # push tags + the version-bump commit/PR
+  pull-requests: write # open/update the "Version Packages" PR
+  id-token: write # npm provenance (OIDC) — see provenance note below
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+      - run: pnpm install --frozen-lockfile
+      # Gate: the engine line must type-check and build before we publish
+      # anything. `pnpm release` also runs `pnpm build` again as a publish guard.
+      - run: pnpm check-types
+      - run: pnpm build
+      - name: Create Release PR or Publish
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          publish: pnpm release
+          commit: "chore(release): version packages"
+          title: "chore(release): version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # NPM_TOKEN is an npm AUTOMATION token scoped to publish the @hogsend
+          # org (all @hogsend/* packages) and the create-hogsend package. Add it
+          # under repo Settings → Secrets and variables → Actions. Do NOT commit
+          # a real token. changesets/action reads NODE_AUTH_TOKEN for `npm
+          # publish` auth; we mirror NPM_TOKEN into it.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+# Provenance (OIDC) — OPTIONAL:
+#   With provenance (recommended once the npm org has it enabled): keep
+#   `id-token: write` above and publish with `npm publish --provenance`
+#   (set `provenance: true` in each package's publishConfig, or pass the flag in
+#   `pnpm release`). Provenance attests the build came from this workflow.
+#
+#   Without provenance (the safe default for the FIRST real release, in case the
+#   org has not enabled OIDC publishing yet): drop the `id-token: write`
+#   permission and do NOT pass `--provenance`. `pnpm release` as written here
+#   does not pass `--provenance`, so this workflow is provenance-OFF by default
+#   and will not be blocked by a missing OIDC trust policy.

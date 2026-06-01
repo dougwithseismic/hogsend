@@ -1,0 +1,10 @@
+[build]
+buildCommand = "pnpm build"
+watchPatterns = ["src/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
+
+[deploy]
+# No healthcheck — the worker has no HTTP port. Migrations are owned by the API
+# service's preDeployCommand; the worker just executes Hatchet tasks.
+startCommand = "pnpm worker"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

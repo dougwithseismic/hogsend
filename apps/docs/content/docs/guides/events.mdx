@@ -1,0 +1,347 @@
+---
+title: Events & Ingestion
+description: Your PostHog events flow into Hogsend and trigger journeys automatically. Stripe, custom webhooks, and the REST API work too.
+---
+
+## Overview
+
+**Your PostHog events are Hogsend events.** When you connect PostHog's webhook to Hogsend, every event your users generate — `user_signed_up`, `feature_used`, `subscription_created` — flows straight into the ingestion pipeline and can trigger journeys, update contacts, and evaluate exit conditions.
+
+There's no separate "Hogsend event" concept to learn. Events come from three sources:
+
+1. **PostHog** (primary) — via a webhook source. The scaffold ships one ready to register; set it up once and every PostHog event is available to your journeys.
+2. **Other systems** (Stripe, your app, etc.) — via custom webhook sources or the REST API.
+3. **Hogsend itself** — lifecycle events like `journey:completed` and `journey:failed` are emitted automatically and can trigger other journeys.
+
+Webhook sources are **your content** — you author them under `src/webhook-sources/` in your scaffolded app, import `defineWebhookSource` from `@hogsend/engine`, and register them in an array you own that gets passed to `createApp(container, { webhookSources })`. See [Engine vs content](/docs/concepts/philosophy) for the content-vs-framework boundary.
+
+All events — regardless of source — flow through the same pipeline. When an event is ingested, four things happen:
+
+1. **Store** — the event is persisted to the `user_events` table
+2. **Route** — the event is pushed to Hatchet, which routes it to any journey whose trigger matches the event name
+3. **Exit check** — all active/waiting journey states for the user are evaluated against `exitOn` rules
+4. **Contact upsert** — the user's contact record is created or updated with the latest properties
+
+This all happens in a single request — the API returns the result synchronously.
+
+## Ingest API
+
+### `POST /v1/ingest`
+
+Send events directly from your application code.
+
+#### Request body
+
+```ts
+{
+  event: string;        // required -- event name (e.g. "user:signed_up")
+  userId: string;       // required -- unique user identifier
+  userEmail?: string;   // optional -- user's email address
+  properties?: Record<string, unknown>; // optional -- arbitrary event data
+  timestamp?: string;   // optional -- ISO 8601 datetime
+}
+```
+
+#### Response `202 Accepted`
+
+```ts
+{
+  stored: boolean;
+  exits: Array<{
+    journeyId: string;
+    stateId: string;
+    exited: boolean;
+  }>;
+}
+```
+
+The `exits` array reports every active journey state that was evaluated. Entries with `exited: true` indicate the user was removed from that journey because this event matched an exit condition.
+
+#### Example
+
+```bash
+curl -X POST https://api.hogsend.com/v1/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event": "user:signed_up",
+    "userId": "user_abc123",
+    "userEmail": "alice@example.com",
+    "properties": {
+      "plan": "pro",
+      "source": "landing-page"
+    }
+  }'
+```
+
+```json
+{
+  "stored": true,
+  "exits": []
+}
+```
+
+## Event data model
+
+Events are stored in the `user_events` table with the following schema:
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | `uuid` | Auto-generated primary key |
+| `user_id` | `text` | The external user identifier |
+| `event` | `text` | Event name |
+| `properties` | `jsonb` | Arbitrary event properties |
+| `occurred_at` | `timestamptz` | Defaults to `now()` |
+
+The table is indexed on `user_id`, `event`, `occurred_at`, and the composite `(user_id, event, occurred_at)` for efficient lookups during journey condition checks.
+
+## How routing works
+
+When Hogsend pushes an event to Hatchet, the event payload is serialized as:
+
+```ts
+{
+  userId: string;
+  userEmail: string;
+  properties: Record<string, string | number | boolean | null>;
+}
+```
+
+Properties are filtered to JSON-primitive values only (strings, numbers, booleans, and null). Complex nested objects are stripped before dispatch to Hatchet.
+
+Each journey declares its trigger event in `meta.trigger.event`. Hatchet routes the event to all journeys listening on `onEvents: [trigger.event]`. If the journey has `trigger.where` conditions, they are evaluated inside the journey task before the `run()` function executes.
+
+## Exit conditions
+
+Every ingested event also triggers an exit condition scan. Hogsend queries all `active` or `waiting` journey states for the user, then checks each journey's `exitOn` rules:
+
+```ts
+exitOn?: Array<{
+  event: string;              // event name to match
+  where?: PropertyCondition[]; // optional property conditions
+}>;
+```
+
+If the ingested event name matches and all `where` conditions pass (or none are defined), the journey state is set to `"exited"` and the `exitedAt` timestamp is recorded. This happens regardless of where the user is in the journey flow.
+
+## Contact upsert
+
+Every ingested event upserts a record in the `contacts` table using `userId` as the external identifier. This ensures contact records are created automatically the first time a user triggers any event. The contact's `email`, `properties`, and `lastSeenAt` fields are updated on each event. If the upsert fails, it logs a warning but does not block the event from being processed.
+
+## Connecting PostHog (recommended)
+
+The fastest way to get events into Hogsend is to connect your PostHog instance. The scaffold ships a PostHog webhook source at `src/webhook-sources/posthog.ts`, already registered in your `webhookSources` array — set it up once and every PostHog event is available to your journeys.
+
+### Setup (2 minutes)
+
+1. **Set your webhook secret** — add `POSTHOG_WEBHOOK_SECRET` to your Hogsend environment
+2. **Create a PostHog Action or Webhook destination** — in PostHog, go to Data pipelines → Destinations → Webhook. Set the URL to:
+
+```
+https://your-hogsend-api.com/v1/webhooks/posthog
+```
+
+3. **Add the auth header** — configure PostHog to send `x-posthog-webhook-secret: your-secret-value` with each request
+4. **That's it** — events start flowing. Every PostHog event becomes a Hogsend event with the same name.
+
+### How PostHog events map to Hogsend
+
+| PostHog field | Hogsend field | Notes |
+|---|---|---|
+| `event.event` | Event name | Used as-is (e.g., `user_signed_up`) |
+| `event.distinct_id` | `userId` | Your user identifier |
+| `person.properties.email` | `userEmail` | Used for sending emails |
+| `event.properties` + `person.properties` | `properties` | Merged into a single object |
+| `event.uuid` | `properties._posthogEventId` | Preserved for deduplication |
+
+### PostHog payload format
+
+For reference, here's the full payload structure PostHog sends:
+
+```ts
+{
+  event: {
+    uuid?: string;
+    event: string;
+    distinct_id: string;
+    timestamp?: string;
+    properties?: Record<string, unknown>;
+    url?: string;
+  };
+  person?: {
+    id?: string;
+    name?: string;
+    url?: string;
+    properties?: {
+      email?: string;
+      [key: string]: unknown;
+    };
+  };
+  groups?: Record<string, unknown>;
+  project?: Record<string, unknown>;
+}
+```
+
+The transform merges `event.properties` and `person.properties` into a single properties object.
+
+## Other webhook sources
+
+Webhook sources let any external system push events into Hogsend through dedicated endpoints at `POST /v1/webhooks/:sourceId`. Each source defines its own authentication, payload validation, and transform logic.
+
+### How webhook sources work
+
+1. A request arrives at `/v1/webhooks/:sourceId`
+2. The source is looked up by ID — returns `404` if unknown
+3. Authentication is verified by comparing the configured header against the expected secret from environment variables
+4. If a Zod schema is defined, the payload is validated — returns `400` with details on failure
+5. The `transform()` function converts the external payload into an `IngestEvent`
+6. If `transform()` returns `null`, the event is skipped (returns `200` with `skipped: true`)
+7. Otherwise, the event is passed to `ingestEvent()` and processed through the full pipeline
+
+### Example: adding Stripe as a webhook source
+
+Stripe is the most common second event source after PostHog. Here's how to add it — the same pattern works for any system that can send webhooks.
+
+#### 1. Define the source
+
+```ts title="src/webhook-sources/stripe.ts"
+import { defineWebhookSource } from "@hogsend/engine";
+import { z } from "zod";
+
+const stripeEventSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  data: z.object({
+    object: z.record(z.string(), z.unknown()),
+  }),
+});
+
+export const stripeSource = defineWebhookSource({
+  meta: {
+    id: "stripe",
+    name: "Stripe",
+    description: "Receives Stripe webhook events.",
+  },
+  auth: {
+    header: "x-stripe-secret",
+    envKey: "STRIPE_WEBHOOK_SECRET",
+    type: "match",
+  },
+  schema: stripeEventSchema,
+  async transform(payload) {
+    const userId = payload.data.object.customer as string;
+    if (!userId) return null; // skip events without a customer
+
+    return {
+      event: `stripe:${payload.type}`,
+      userId,
+      userEmail: (payload.data.object.email as string) ?? "",
+      properties: {
+        stripeEventId: payload.id,
+        ...payload.data.object,
+      },
+    };
+  },
+});
+```
+
+#### 2. Register it
+
+Add the source to the exported `webhookSources` array in your `src/webhook-sources/index.ts` — the array you own and pass to `createApp`:
+
+```ts title="src/webhook-sources/index.ts"
+import type { DefinedWebhookSource } from "@hogsend/engine";
+import { posthogSource } from "./posthog.js";
+import { stripeSource } from "./stripe.js";
+
+export const webhookSources: DefinedWebhookSource[] = [
+  posthogSource,
+  stripeSource,
+];
+```
+
+That array is wired into the engine once, in your thin `src/index.ts`:
+
+```ts title="src/index.ts"
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { journeys } from "./journeys/index.js";
+import { webhookSources } from "./webhook-sources/index.js";
+
+const container = createHogsendClient({ journeys });
+const app = createApp(container, { webhookSources });
+```
+
+No engine code is touched — you only edit your own files.
+
+#### 3. Set the environment variable
+
+Add `STRIPE_WEBHOOK_SECRET` to your `.env` and deployment configuration.
+
+The new source is immediately available at `POST /v1/webhooks/stripe`. Now any Stripe event with a `customer` field triggers journeys — `stripe:invoice.payment_failed` can kick off a churn recovery flow, `stripe:customer.subscription.created` can trigger a welcome sequence.
+
+### Creating your own webhook source
+
+The Stripe example above follows the same `defineWebhookSource()` pattern you'd use for any system — Intercom, HubSpot, your own app. Here's the full API:
+
+### The `defineWebhookSource` API
+
+`defineWebhookSource` is imported from `@hogsend/engine`, alongside the `DefinedWebhookSource`, `WebhookSourceMeta`, and `WebhookSourceCtx` types:
+
+```ts
+import {
+  defineWebhookSource,
+  type DefinedWebhookSource,
+  type WebhookSourceCtx,
+} from "@hogsend/engine";
+```
+
+```ts
+interface WebhookSourceMeta {
+  id: string;          // URL-safe identifier, used in the endpoint path
+  name: string;        // Human-readable name
+  description?: string;
+}
+
+interface WebhookSourceAuth {
+  header: string;      // HTTP header containing the secret
+  envKey: string;      // Environment variable name for the expected secret
+  type: "match";       // Auth strategy (exact string match)
+}
+
+interface WebhookSourceCtx {
+  db: Database;        // Drizzle database instance
+  logger: Logger;      // Structured logger
+}
+
+function defineWebhookSource<T>(def: {
+  meta: WebhookSourceMeta;
+  auth: WebhookSourceAuth;
+  schema?: z.ZodSchema<T>;       // Optional Zod schema for payload validation
+  transform(
+    payload: T,
+    ctx: WebhookSourceCtx
+  ): Promise<IngestEvent | null>; // Return null to skip the event
+}): DefinedWebhookSource<T>;
+```
+
+The `transform` function receives the validated payload and a context object with database and logger access. Return an `IngestEvent` to process the event, or `null` to silently skip it.
+
+### The `IngestEvent` type
+
+Every event -- whether from the API or a webhook source -- must conform to this shape before entering the pipeline. The type is exported from `@hogsend/engine` (`import type { IngestEvent } from "@hogsend/engine"`):
+
+```ts
+interface IngestEvent {
+  event: string;                     // event name
+  userId: string;                    // unique user identifier
+  userEmail: string;                 // user email (empty string if unknown)
+  properties: Record<string, unknown>; // arbitrary event data
+}
+```
+
+## Best practices
+
+- **Use your PostHog event names as-is** — Hogsend uses the exact event name from PostHog (e.g., `user_signed_up`, `feature_used`). No need to rename or namespace them separately. If you also have Stripe events, the `stripe:` prefix from the webhook source keeps them distinct.
+- **Keep properties flat** — nested objects are stripped when routing to Hatchet. PostHog person properties are already flat, which works perfectly. For custom events, use flat key-value pairs for properties that journey conditions need to evaluate.
+- **Make sure PostHog has email on the person** — the `person.properties.email` field from PostHog becomes the `userEmail` in Hogsend. Without it, Hogsend can track behavior but cannot send emails. Set email as a person property in PostHog early (e.g., on signup).
+- **Return `null` from transform for irrelevant events** — webhook sources often receive events you don't care about. PostHog may send `$pageview`, `$autocapture`, etc. that you don't need for journeys. The scaffold's PostHog source forwards everything — since the source is your content, filter in your journey trigger conditions or edit `transform()` to skip noisy events.
+- **Validate with Zod schemas** — defining a schema on custom webhook sources catches malformed payloads at the boundary, before they reach your transform logic.

@@ -1,0 +1,101 @@
+import {
+  copyFile,
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
+import { join, relative } from "node:path";
+import {
+  ENGINE_VERSION,
+  HOGSEND_PACKAGES,
+  RENAME_MAP,
+  TOKEN_FILES,
+} from "./template-manifest.js";
+
+export interface CopyOptions {
+  templateDir: string;
+  targetDir: string;
+  appName: string;
+  /** Absolute dir of `file:` tarballs to rewrite @hogsend/* deps against. */
+  tarballDir?: string;
+}
+
+function applyTokens(content: string, appName: string): string {
+  return content
+    .split("{{APP_NAME}}")
+    .join(appName)
+    .split("{{ENGINE_VERSION}}")
+    .join(ENGINE_VERSION);
+}
+
+/**
+ * Rewrite each `@hogsend/<pkg>` dependency value to a local tarball `file:`
+ * specifier so the scaffold resolves the (not-yet-published) packages from
+ * `pnpm pack` / `npm pack` output. Used only by the verification harness.
+ */
+function rewriteTarballDeps(pkgJson: string, tarballDir: string): string {
+  const pkg = JSON.parse(pkgJson) as {
+    dependencies?: Record<string, string>;
+    pnpm?: { overrides?: Record<string, string> };
+  };
+  const overrides: Record<string, string> = {};
+  for (const name of HOGSEND_PACKAGES) {
+    const dep = `@hogsend/${name}`;
+    const spec = `file:${tarballDir}/hogsend-${name}-${ENGINE_VERSION}.tgz`;
+    if (pkg.dependencies && dep in pkg.dependencies) {
+      pkg.dependencies[dep] = spec;
+    }
+    // `pnpm pack` rewrites each tarball's internal `workspace:` @hogsend deps
+    // to a bare version (e.g. "0.0.1"), which would 404 against the registry.
+    // Overrides force every transitive @hogsend/* to resolve to its tarball.
+    overrides[dep] = spec;
+  }
+  pkg.pnpm = {
+    ...pkg.pnpm,
+    overrides: { ...pkg.pnpm?.overrides, ...overrides },
+  };
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+/** Recursively copy `template/` into the target, renaming + token-replacing. */
+export async function copyTemplate(opts: CopyOptions): Promise<void> {
+  await walk(opts.templateDir, opts.templateDir, opts.targetDir, opts);
+}
+
+async function walk(
+  current: string,
+  templateRoot: string,
+  targetRoot: string,
+  opts: CopyOptions,
+): Promise<void> {
+  const entries = await readdir(current, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = join(current, entry.name);
+    const rel = relative(templateRoot, srcPath);
+
+    if (entry.isDirectory()) {
+      await mkdir(join(targetRoot, rel), { recursive: true });
+      await walk(srcPath, templateRoot, targetRoot, opts);
+      continue;
+    }
+
+    const renamed = RENAME_MAP[entry.name] ?? entry.name;
+    const relDir = rel.slice(0, rel.length - entry.name.length);
+    const destPath = join(targetRoot, relDir, renamed);
+    await mkdir(join(targetRoot, relDir), { recursive: true });
+
+    const isTokenFile = (TOKEN_FILES as readonly string[]).includes(renamed);
+    if (!isTokenFile) {
+      await copyFile(srcPath, destPath);
+      continue;
+    }
+
+    let content = await readFile(srcPath, "utf8");
+    content = applyTokens(content, opts.appName);
+    if (renamed === "package.json" && opts.tarballDir) {
+      content = rewriteTarballDeps(content, opts.tarballDir);
+    }
+    await writeFile(destPath, content);
+  }
+}

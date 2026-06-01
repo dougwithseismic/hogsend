@@ -1,0 +1,22 @@
+# STAGED — NOT ACTIVE. Two-track-model worker config for the consumer
+# (client-repo) model. Promote at cutover by renaming this file over the live
+# railway.worker.toml (Phase 6 runbook Step 4, MANUAL — operator). Inert until
+# renamed.
+#
+# The worker runs NO migrations and exposes NO HTTP port, so it has no
+# preDeployCommand and no healthcheck (a healthcheck on a port-less worker fails
+# the deploy — see memory feedback_railway-deploy.md). The API service owns the
+# preDeploy migrate step; api + worker build from the same ref and must deploy
+# together so api + worker + schema move as one unit (UPGRADING.md).
+#
+# Difference vs the live railway.worker.toml: buildCommand runs `pnpm install`
+# first (published-dep client repo, no workspace:* resolution).
+
+[build]
+buildCommand = "pnpm install && pnpm --filter @hogsend/api build"
+watchPatterns = ["apps/api/**", "migrations/**", "package.json", "pnpm-lock.yaml", "railway.worker.toml"]
+
+[deploy]
+startCommand = "pnpm --filter @hogsend/api worker"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
