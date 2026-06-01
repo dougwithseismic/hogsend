@@ -50,7 +50,7 @@ This emits a thin app that pins `@hogsend/engine`, contains only content, and ha
 
 The engine exposes a small set of injection seams. Everything you build flows through them, which is exactly why upgrades stay clean:
 
-- **`createHogsendClient({ journeys, email?: { provider?, templates? }, analytics?, enabledJourneys?, overrides? })`** — build the client (the shared services bag) from your journeys and content. `email` ({ `provider`, your `src/emails` `templates` registry }) and `analytics` (PostHog by default) are first-class; `overrides` is a small advanced/test-only escape hatch (replace the whole mailer, swap auth/Hatchet/db).
+- **`createHogsendClient({ journeys, email?: { provider?, templates? }, analytics?, enabledJourneys?, overrides? })`** — build the client (the shared services bag) from your journeys and content. `email` (your `src/emails` `templates` registry plus a swappable `provider`) and `analytics` (PostHog by default) are first-class; `overrides` is a small advanced/test-only escape hatch (replace the whole mailer, swap auth/Hatchet/db).
 - **`createApp(container, { routes?, middleware?, webhookSources?, onError? })`** — mount custom routers, add middleware, serve your webhook sources, replace the error handler.
 - **`createWorker({ container, journeys, extraWorkflows? })`** — run the durable worker loop; register extra Hatchet tasks via `extraWorkflows`.
 - **`defineJourney({ meta, run })`** and **`defineWebhookSource({ meta, auth, schema?, transform })`** — the authoring helpers for content.

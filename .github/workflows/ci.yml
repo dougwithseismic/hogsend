@@ -26,6 +26,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm check-types
+      # Full build (incl. the Next docs site). check-types runs fumadocs-mdx +
+      # tsc but does NOT compile MDX, so a bad MDX expression (bare `{}` outside
+      # code) only fails `next build`. Build here so it's caught on every push,
+      # not just in the release workflow's publish guard.
+      - run: pnpm build
 
   test:
     name: Tests
