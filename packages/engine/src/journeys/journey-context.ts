@@ -3,6 +3,7 @@ import type { DurationObject } from "@hogsend/core";
 import { evaluateEventCondition } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import {
+  isValidTimeZone,
   resolveAfter,
   resolveNextLocalTime,
   resolveNextWeekday,
@@ -81,6 +82,9 @@ function createWhenBuilder(opts: {
       return timeBuilder((time) => resolveAfter(duration, time, baseOpts()));
     },
     tz(timezone: string) {
+      if (!isValidTimeZone(timezone)) {
+        throw new TypeError(`ctx.when.tz: invalid timezone "${timezone}"`);
+      }
       return createWhenBuilder({ ...opts, timezone });
     },
     window(start: string, end: string) {

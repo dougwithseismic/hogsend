@@ -94,6 +94,12 @@ describe("ctx.when (thin wrapper over pure resolvers)", () => {
     );
   });
 
+  it(".tz(...) throws TypeError on an invalid timezone (runtime guard)", () => {
+    const ctx = makeCtx({ timezone: NY, sleepFor: vi.fn() });
+    // Cast past the TimeZone literal type to simulate a dynamic/bad value.
+    expect(() => ctx.when.tz("Not/AZone" as never)).toThrow(TypeError);
+  });
+
   it("auto-applies the default send window and .window(...) overrides it", () => {
     const ctx = makeCtx({
       timezone: NY,

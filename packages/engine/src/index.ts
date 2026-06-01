@@ -91,6 +91,7 @@ export {
   type ResolveTimezoneResult,
   resolveTimezone,
   resolveTimezoneWithSource,
+  setContactTimezone,
   type TimezoneSource,
 } from "./lib/timezone.js";
 export {
