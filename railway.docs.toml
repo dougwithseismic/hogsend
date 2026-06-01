@@ -1,24 +1,21 @@
-# Pin RAILPACK explicitly. A root /Dockerfile exists for the API service, and
-# Railway's builder auto-detection prefers a root Dockerfile when present — so
-# without this the docs service would build the API image (pruned to apps/api +
-# packages/db) instead of the docs site. RAILPACK builds the docs fine.
+# Build the docs from a DEDICATED Dockerfile (Dockerfile.docs), NOT railpack and
+# NOT the root /Dockerfile (which builds the API). `builder = "RAILPACK"` did not
+# reliably stop Railway from preferring the root Dockerfile for this service — it
+# kept building the API image, which has no docs output, so the deploy failed
+# with a missing server entry. Pointing dockerfilePath at Dockerfile.docs makes
+# the build deterministic: this service builds exactly the docs image.
 [build]
-builder = "RAILPACK"
-buildCommand = "pnpm --filter @hogsend/docs build"
-watchPatterns = ["apps/docs/**", "pnpm-lock.yaml", "railway.docs.toml"]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.docs"
+watchPatterns = ["apps/docs/**", "Dockerfile.docs", "pnpm-lock.yaml", "railway.docs.toml"]
 
 [deploy]
-# Run the Next.js standalone server directly — NOT `pnpm --filter ... start` and
-# NOT the workspace `next` binary. railpack builds the monorepo fine but its slim
-# runtime image prunes the workspace node_modules (so `apps/docs/node_modules/next`
-# is gone) and runs corepack@latest (pnpm 11.5.0, not the pinned 9.0.0). The
-# `output: "standalone"` build (see apps/docs/next.config.mjs) emits a fully
-# self-contained server bundling its own node_modules under
-# .next/standalone — it needs no workspace, no pnpm, no corepack. server.js reads
-# PORT from env; HOSTNAME=0.0.0.0 so it accepts external connections in the
-# container. Static assets are copied into the standalone tree by the docs
-# postbuild step (scripts/assemble-standalone.mjs).
-startCommand = "HOSTNAME=0.0.0.0 node apps/docs/.next/standalone/apps/docs/server.js"
+# Dockerfile.docs ships the Next.js standalone output, so the server entry is the
+# self-contained apps/docs/server.js (it bundles its own node_modules — no pnpm,
+# no workspace, no corepack). server.js reads PORT from env; HOSTNAME=0.0.0.0
+# (set in Dockerfile.docs) lets it accept external connections. This matches the
+# image's CMD; kept explicit for parity with the API service config.
+startCommand = "node apps/docs/server.js"
 healthcheckPath = "/"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"

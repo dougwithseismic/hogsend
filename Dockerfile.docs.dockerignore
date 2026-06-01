@@ -1,0 +1,62 @@
+# BuildKit uses this file (named <dockerfile>.dockerignore) INSTEAD of the root
+# .dockerignore when building Dockerfile.docs. The root .dockerignore is tuned
+# for the API image and deliberately strips apps/docs content — which the docs
+# build needs — so the docs build requires its own ignore list.
+#
+# Keep all workspace source: `pnpm install --frozen-lockfile` validates every
+# workspace package against the lockfile, so all package.json manifests must be
+# present. apps/docs needs its full source to build. Only deps, build outputs,
+# VCS metadata, secrets, and heavy local-only assets are excluded.
+
+# Dependencies — reinstalled in-image from the pnpm store.
+node_modules
+**/node_modules
+
+# Build outputs — rebuilt in the build stage.
+dist
+**/dist
+.next
+**/.next
+out
+**/out
+
+# Tooling caches.
+.turbo
+**/.turbo
+coverage
+**/coverage
+
+# VCS + CI metadata.
+.git
+.github
+.changeset
+
+# Local env files — never bake secrets into the image.
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Tests are not needed to build the docs site.
+**/__tests__
+**/*.test.ts
+
+# The root Go CLI dir is not a pnpm workspace member.
+cli
+
+# Reference docs (deployment plans etc.) — the docs SITE content lives in
+# apps/docs/content, not this top-level docs/ folder.
+docs
+
+# Heavy static assets + misc local files.
+*.png
+*.pem
+*.log
+.DS_Store
+pgdata/
+backups/
+
+# Docker artifacts + compose.
+Dockerfile*
+.dockerignore
+docker-compose*.yml
