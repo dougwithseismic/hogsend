@@ -26,6 +26,13 @@ function resolveBaseUrl(): string {
   if (envBase) {
     return envBase.replace(/\/$/, "");
   }
+  // Same-origin mount (engine serves the SPA at /studio). Better Auth's React
+  // client rejects relative base URLs, so resolve the current origin instead of
+  // returning "" — otherwise the auth client throws "Invalid base URL" at load
+  // and the whole SPA fails to mount.
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
   return "";
 }
 
