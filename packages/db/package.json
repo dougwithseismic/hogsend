@@ -28,6 +28,7 @@
     "db:migrate": "tsx src/migrate.ts",
     "db:migrate:client": "tsx src/migrate-client.ts",
     "db:push": "drizzle-kit push",
+    "db:stamp": "tsx src/stamp.ts",
     "db:studio": "drizzle-kit studio",
     "db:pull": "drizzle-kit pull",
     "db:seed": "tsx src/seed.ts",

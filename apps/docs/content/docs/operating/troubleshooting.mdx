@@ -250,7 +250,15 @@ curl https://your-hogsend-api.com/v1/health   # check schema.engine / schema.cli
 - `schema.engine.inSync: false` -- the engine track is behind. This also blocks boot, so the API may be exiting. Run `pnpm db:migrate`.
 - `schema.client.inSync: false` -- your own client migrations are behind (non-fatal, but your `src/schema` changes are not applied). Run `pnpm db:migrate`.
 
-A common false alarm is bootstrapping with `pnpm db:push` or a seed: those create tables **without** writing a migration ledger row, so the health probe reports `inSync: false` even though the tables exist. Always bring up databases with `pnpm db:migrate` from day one. See [Deployment](/docs/operating/deployment#two-track-migrations).
+A common false alarm is bootstrapping with `pnpm db:push` or a seed: those create tables **without** writing a migration ledger row, so the health probe reports `inSync: false` even though the tables exist — and `pnpm db:migrate` then fails trying to replay migrations whose objects already exist (e.g. "type already exists"). Prefer `pnpm db:migrate` from day one.
+
+To recover a `db:push`-ed database whose schema is already current, **stamp** the ledger instead of replaying migrations:
+
+```bash
+cd packages/db && pnpm db:stamp   # records all bundled migrations as applied, runs no DDL
+```
+
+Only run `db:stamp` when you're confident the schema already matches HEAD — it marks migrations applied without creating their objects. See [Deployment](/docs/operating/deployment#two-track-migrations).
 
 ### Connection pool exhaustion
 
