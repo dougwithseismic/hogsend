@@ -42,9 +42,12 @@ const TEST_TEMPLATE = "admin-emails-test-template";
 const TEST_JOURNEY = "admin-emails-test-journey";
 const TEST_USER = "admin-emails-test-user";
 
+const DENORM_USER = "admin-emails-denorm-user";
+
 let journeyStateId: string;
 let openedEmailId: string;
 let plainEmailId: string;
+let denormEmailId: string;
 let trackedLinkId: string;
 let createdLinkClickIds: string[] = [];
 
@@ -96,6 +99,23 @@ beforeAll(async () => {
     .returning({ id: emailSends.id });
   plainEmailId = plainRows[0]?.id ?? "";
 
+  // A journeyless send that carries denormalized identity (no journey_states row).
+  const denormRows = await db
+    .insert(emailSends)
+    .values({
+      templateKey: TEST_TEMPLATE,
+      fromEmail: "from@hogsend.com",
+      toEmail: "denorm@example.com",
+      userId: DENORM_USER,
+      userEmail: "denorm@example.com",
+      subject: "Denormalized identity test email",
+      status: "sent",
+      createdAt: new Date(base.getTime() + 20000),
+      sentAt: new Date(base.getTime() + 21000),
+    })
+    .returning({ id: emailSends.id });
+  denormEmailId = denormRows[0]?.id ?? "";
+
   const linkRows = await db
     .insert(trackedLinks)
     .values({
@@ -130,6 +150,9 @@ afterAll(async () => {
   }
   if (plainEmailId) {
     await db.delete(emailSends).where(eq(emailSends.id, plainEmailId));
+  }
+  if (denormEmailId) {
+    await db.delete(emailSends).where(eq(emailSends.id, denormEmailId));
   }
   if (journeyStateId) {
     await db.delete(journeyStates).where(eq(journeyStates.id, journeyStateId));
@@ -169,6 +192,27 @@ describe("GET /v1/admin/emails", () => {
     expect(plain).toBeDefined();
     expect(plain.userId).toBeNull();
     expect(plain.journeyId).toBeNull();
+
+    // Journeyless send with denormalized identity surfaces userId (no journey join).
+    const denorm = body.emails.find(
+      (e: { id: string }) => e.id === denormEmailId,
+    );
+    expect(denorm).toBeDefined();
+    expect(denorm.userId).toBe(DENORM_USER);
+    expect(denorm.journeyId).toBeNull();
+  });
+
+  it("filters by userId matching the denormalized identity (journeyless send)", async () => {
+    const res = await app.request(
+      `/v1/admin/emails?limit=100&userId=${DENORM_USER}`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    const ids = body.emails.map((e: { id: string }) => e.id);
+    expect(ids).toContain(denormEmailId);
+    expect(ids).not.toContain(openedEmailId);
   });
 
   it("filters by engagement=opened (isNotNull openedAt)", async () => {

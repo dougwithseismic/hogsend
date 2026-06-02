@@ -18,6 +18,7 @@ import {
   isNotNull,
   isNull,
   lte,
+  or,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 
@@ -265,7 +266,13 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
     if (status) conditions.push(eq(emailSends.status, status));
     if (category) conditions.push(eq(emailSends.category, category));
     if (journeyId) conditions.push(eq(journeyStates.journeyId, journeyId));
-    if (userId) conditions.push(eq(journeyStates.userId, userId));
+    // Match the denormalized identity OR the journey-state join, so journeyless
+    // sends (which only carry the denormalized userId) are still filterable.
+    if (userId) {
+      conditions.push(
+        or(eq(emailSends.userId, userId), eq(journeyStates.userId, userId)),
+      );
+    }
     if (engagement) conditions.push(isNotNull(engagementColumn[engagement]));
     if (from) conditions.push(gte(emailSends.createdAt, new Date(from)));
     if (to) conditions.push(lte(emailSends.createdAt, new Date(to)));
@@ -303,8 +310,10 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         emails: rows.map(({ identityUserId, identityJourneyId, ...row }) =>
+          // Prefer the denormalized identity on the send row; fall back to the
+          // journey-state join (covers rows written before denormalization).
           serializeEmail(row, {
-            userId: identityUserId,
+            userId: row.userId ?? identityUserId,
             journeyId: identityJourneyId,
           }),
         ),
@@ -394,7 +403,7 @@ export const emailsRouter = new OpenAPIHono<AppEnv>()
     return c.json(
       {
         email: serializeEmail(row, {
-          userId: journeyContext?.userId ?? null,
+          userId: row.userId ?? journeyContext?.userId ?? null,
           journeyId: journeyContext?.journeyId ?? null,
         }),
         events,
