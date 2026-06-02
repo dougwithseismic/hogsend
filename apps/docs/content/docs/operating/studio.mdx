@@ -1,0 +1,74 @@
+---
+title: "Studio"
+description: "The Hogsend Studio admin UI — observe sends, templates, journeys, contacts, and suppressions. Open it at /studio or run it locally with the CLI."
+---
+
+Hogsend Studio is a read-and-operate admin UI for your instance. It is a static single-page app that talks to the same `/v1/admin/*` API the CLI uses, so everything you can see in the Studio is also scriptable. It is built to **observe, not author** — journeys and templates stay code-first; the Studio shows you what is happening and gives you a few targeted actions (resend a failed email, enable/disable a journey, un-suppress a contact, send a test, manage API keys).
+
+## What's in it
+
+| View | What it shows |
+|---|---|
+| **Overview** | Headline metrics for the instance (sends, delivery, engagement, contacts, journeys). |
+| **Sends** | Every email send with filters (template, status, engagement, journey, recipient, date). Open a send for its event timeline + tracked links; resend failed/bounced sends. |
+| **Templates** | The template catalog with a live preview (sandboxed iframe), per-template totals and a sends-over-time chart, and a send-test action. |
+| **Journeys** | Enrollment + completion funnels per journey, with an enable/disable toggle. |
+| **Contacts** | Search contacts; open one for its profile, activity, and timeline; un-suppress. |
+| **Suppressions** | Bounced / unsubscribed / complained contacts, filterable, with un-suppress. |
+| **Settings** | Create and revoke admin API keys (one-time secret reveal on create). |
+
+## Opening the Studio
+
+There are two ways to get to it.
+
+### 1. Mounted at `/studio` (recommended)
+
+The engine serves the built Studio as static files at **`/studio`** on your API instance — same origin, so it uses your session cookie for auth and needs no extra configuration:
+
+```
+http://localhost:3002/studio       # local dev
+https://api.example.com/studio     # production
+```
+
+This mount is **best-effort**: it only activates when a built Studio bundle is present. In the dogfood monorepo, build it once with:
+
+```bash
+pnpm --filter @hogsend/studio build
+```
+
+On boot the engine logs `Studio mounted at /studio (dist: …)` when it finds the bundle. If no bundle is found the mount is skipped silently — the API never fails to start because the Studio is missing. You can point the engine at an explicit bundle with the `STUDIO_DIST_PATH` env var.
+
+<Callout type="info">
+The static `/studio` files are public — that is intentional. The SPA itself decides what to show by probing `GET /v1/auth/status` and then requiring login. The actual data lives behind `/v1/admin/*`, which stays protected by the admin guard, so an unauthenticated visitor sees only the login screen.
+</Callout>
+
+### 2. Locally with the CLI
+
+`hogsend studio` serves the Studio bundled with `@hogsend/cli` on a local port and (optionally) opens your browser. Use it to drive a remote instance from your machine:
+
+```bash
+hogsend studio --open                                  # serve on :3333, open browser
+hogsend studio --base-url https://api.example.com --open
+hogsend studio --port 4000
+```
+
+| Option | Description |
+|---|---|
+| `--port <n>` | Local port to serve on (default `3333`). |
+| `--base-url <url>` | API instance the Studio should call (injected at runtime as `window.__HOGSEND_STUDIO__`). |
+| `--open` | Open the Studio in your default browser. |
+| `--dist <path>` | Override the Studio dist directory (advanced). |
+
+Without `--base-url` the Studio calls the local server it is served from (static preview only — the API calls will fail). Set `--base-url` to your instance, or just open `<instance>/studio` directly. Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio origin (CORS + cross-site cookies); the simplest path for a hosted instance is the mounted `/studio`.
+
+## First load: create an admin
+
+Hogsend is single-tenant with **closed signup** — the very first user to register becomes the admin, and signups close after that.
+
+On first load the Studio probes `GET /v1/auth/status`. If no admin exists yet (`needsSetup: true`) it shows a **create-admin** form; submitting it registers the first user via Better Auth. Once an admin exists, every subsequent load shows the **login** form instead. After a valid session the app shell loads.
+
+This is the security control that lets the admin API trust any authenticated session: only the first user can ever register, so any logged-in session is an intended operator.
+
+## Relationship to the CLI
+
+The Studio and the [CLI](/docs/cli) are two front-ends over the same admin API. Reach for the Studio when you want to *look* — funnels, timelines, previews. Reach for the CLI (or its `--json` output) when you want to *script* — agents, CI, bulk operations. Neither authors journeys or templates; those stay in code.

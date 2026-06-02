@@ -9,6 +9,7 @@ import type { ErrorHandler, MiddlewareHandler } from "hono/types";
 import type { HogsendClient } from "./container.js";
 import { API_VERSION } from "./env.js";
 import type { Auth } from "./lib/auth.js";
+import { mountStudio } from "./lib/studio.js";
 import type { ApiKeyContext } from "./middleware/api-key.js";
 import { errorHandler } from "./middleware/error-handler.js";
 import { requestLogger } from "./middleware/request-logger.js";
@@ -96,6 +97,16 @@ export function createApp(
   });
 
   registerRoutes(app, { webhookSources: opts.webhookSources ?? [] });
+
+  // Serve the Studio SPA at /studio/* (static layer, no auth — the SPA gates
+  // itself via /v1/auth/status + login; data endpoints stay behind requireAdmin).
+  // No-op when no built dist is present, so an unbuilt studio never crashes boot.
+  const studio = mountStudio(app);
+  if (studio.mounted) {
+    container.logger.info(
+      `Studio mounted at /studio (dist: ${studio.distPath})`,
+    );
+  }
 
   opts.routes?.(app);
 

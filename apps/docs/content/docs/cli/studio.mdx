@@ -1,0 +1,36 @@
+---
+title: hogsend studio
+description: Serve the bundled Hogsend Studio admin SPA locally and open it in a browser, optionally pointed at a remote instance.
+---
+
+Serve the Studio admin UI bundled with `@hogsend/cli` on a local port and (optionally) open it in your browser. The Studio is a static single-page app; this command starts a tiny local web server for it.
+
+```bash
+hogsend studio [options]
+```
+
+See [Operating → Studio](/docs/operating/studio) for what the Studio does and how it authenticates.
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--port <n>` | Local port to serve on (default `3333`). |
+| `--base-url <url>` | API instance the Studio should call (injected at runtime as `window.__HOGSEND_STUDIO__`). |
+| `--open` | Open the Studio in your default browser after starting. |
+| `--dist <path>` | Override the Studio dist directory (advanced). |
+| `-h, --help` | Show this help. |
+
+## Examples
+
+```bash
+hogsend studio --open
+hogsend studio --base-url https://api.example.com --open
+hogsend studio --port 4000
+```
+
+## Notes
+
+- Without `--base-url`, the Studio calls the local server it is served from (static preview only — API calls will fail). Set `--base-url` to your instance, or open `<instance>/studio` directly.
+- Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio's origin (CORS + cross-site cookies). For a hosted instance, the mounted `<instance>/studio` is the simplest path.
+- The command keeps running until you press `Ctrl+C`.

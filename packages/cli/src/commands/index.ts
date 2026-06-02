@@ -7,6 +7,7 @@ import { patchCommand } from "./patch.js";
 import { setupCommand } from "./setup.js";
 import { skillsCommand } from "./skills.js";
 import { statsCommand } from "./stats.js";
+import { studioCommand } from "./studio.js";
 import type { Command } from "./types.js";
 
 /**
@@ -23,6 +24,7 @@ export const commands: Command[] = [
   contactsCommand,
   statsCommand,
   eventsCommand,
+  studioCommand,
   setupCommand,
   skillsCommand,
   ejectCommand,

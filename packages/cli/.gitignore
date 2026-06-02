@@ -1,0 +1,9 @@
+dist
+node_modules
+.turbo
+*.local
+
+# Bundled at build time from packages/studio/dist (see scripts/bundle-studio.mjs).
+# Generated artifact — shipped in the published tarball via package.json files[],
+# but not committed.
+studio

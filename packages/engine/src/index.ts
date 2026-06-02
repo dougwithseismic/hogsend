@@ -86,6 +86,7 @@ export { createLogger, type Logger } from "./lib/logger.js";
 export { createTrackedMailer } from "./lib/mailer.js";
 export { getPostHog } from "./lib/posthog.js";
 export { getRedisIfConnected } from "./lib/redis.js";
+export { type MountStudioResult, mountStudio } from "./lib/studio.js";
 export {
   type ResolveTimezoneInput,
   type ResolveTimezoneResult,
