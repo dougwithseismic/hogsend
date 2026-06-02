@@ -56,6 +56,10 @@ COPY --from=fetch /pnpm/store /pnpm/store
 COPY . .
 RUN pnpm install --frozen-lockfile --offline
 RUN pnpm --filter @hogsend/api build
+# Build the Studio SPA → packages/studio/dist (static, base /studio/). It is NOT
+# a runtime dependency of the engine; it ships as a built artifact the runner
+# serves at /studio. Built here while the full workspace (incl. vite) is present.
+RUN pnpm --filter @hogsend/studio build
 RUN pnpm --filter @hogsend/api deploy --prod /deploy/api \
   && pnpm --filter @hogsend/db deploy --prod /deploy/db
 # tsx is a devDep dropped by `deploy --prod`, but db:migrate runs `tsx
@@ -85,6 +89,12 @@ COPY --from=build /deploy/db/package.json ./packages/db/package.json
 COPY --from=build /app/packages/db/src ./packages/db/src
 COPY --from=build /app/packages/db/drizzle ./packages/db/drizzle
 COPY --from=build /app/packages/db/drizzle.config.ts ./packages/db/drizzle.config.ts
+
+# Studio SPA: the built static dist, served at /studio by the engine's
+# best-effort mount. STUDIO_DIST_PATH points the mount straight at it so it does
+# not depend on cwd or module resolution.
+COPY --from=build /app/packages/studio/dist ./packages/studio/dist
+ENV STUDIO_DIST_PATH=/app/packages/studio/dist
 
 # Global tsx (dropped by `deploy --prod`) for the migrate run mode. /pnpm is on
 # PATH (set in base), so the `tsx` shim resolves for `tsx packages/db/src/migrate.ts`.
