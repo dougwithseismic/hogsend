@@ -1,63 +1,60 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Section, Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Button, Title } from "./_components/ui.js";
 import type { RetentionAchievementEmailProps } from "./types.js";
 
 export default function RetentionAchievementEmail({
   name = "there",
-  productName = "our platform",
-  achievementName = "First Milestone",
-  achievementDescription = "You've reached an impressive milestone!",
-  stat,
+  achievementName = "10,000 emails delivered",
+  achievementDescription = "Your journeys just crossed a serious milestone — that's ten thousand on-time, on-trigger emails sent without you touching a thing.",
+  stat = "10,000",
   previousStat,
   shareUrl,
-  ctaUrl = "https://app.example.com",
-  ctaText = "Keep going",
+  ctaUrl = BRAND.appUrl,
+  ctaText = "Open your dashboard",
   unsubscribeUrl,
 }: RetentionAchievementEmailProps) {
   return (
-    <Layout preview={`${achievementName} on ${productName} — congratulations!`}>
+    <Layout
+      preview={`${achievementName} — nice work`}
+      eyebrow="Milestone unlocked"
+      unsubscribeUrl={unsubscribeUrl}
+    >
       <Section className="text-center">
-        <Text className="text-4xl">&#127942;</Text>
-        <Heading className="text-2xl font-bold text-gray-900">
-          {achievementName}
-        </Heading>
+        <Text className="m-0 text-[40px] leading-none">&#127881;</Text>
       </Section>
-
-      <Text className="text-base text-gray-600">
-        Hey {name}, {achievementDescription}
-      </Text>
+      <Title>{achievementName}</Title>
+      <Body>
+        Hey {name} — {achievementDescription}
+      </Body>
 
       {stat && (
-        <Section className="mt-4 rounded-md bg-green-50 px-6 py-4 text-center">
-          <Text className="text-2xl font-bold text-green-700">{stat}</Text>
+        <Section className="my-6 rounded-2xl border border-solid border-zinc-200 bg-zinc-50 px-6 py-6 text-center">
+          <Text className="m-0 text-[34px] font-bold leading-none text-zinc-900">
+            {stat}
+          </Text>
           {previousStat && (
-            <Text className="mt-1 text-sm text-green-600">
+            <Text className="m-0 mt-2 text-sm text-zinc-500">
               Previous best: {previousStat}
             </Text>
           )}
         </Section>
       )}
 
-      <Section className="mt-4 text-center">
-        <Button
-          href={ctaUrl}
-          className="rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-        >
-          {ctaText}
-        </Button>
+      <Section className="text-center">
+        <Button href={ctaUrl}>{ctaText}</Button>
       </Section>
 
       {shareUrl && (
-        <Text className="mt-4 text-center text-sm text-gray-500">
-          <a href={shareUrl} className="text-indigo-600 underline">
-            Share this achievement
+        <Text className="mt-5 text-center text-sm text-zinc-500">
+          <a href={shareUrl} className="font-semibold text-zinc-900 underline">
+            Share the milestone
           </a>
         </Text>
       )}
-      <Footer unsubscribeUrl={unsubscribeUrl} />
     </Layout>
   );
 }

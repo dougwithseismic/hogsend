@@ -1,8 +1,8 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Text } from "react-email";
 import { Layout } from "./_components/layout.js";
+import { Body, Button, Callout, Title } from "./_components/ui.js";
 import type { ActivationNudgeEmailProps } from "./types.js";
 
 // Starter template — CONTENT, yours to edit. Rendered for the `activation/nudge`
@@ -17,35 +17,30 @@ export default function ActivationNudgeEmail({
   unsubscribeUrl,
 }: ActivationNudgeEmailProps) {
   return (
-    <Layout preview={`You haven't tried ${featureName} yet`}>
-      <Heading className="text-2xl font-bold text-gray-900">
-        You haven't tried {featureName} yet
-      </Heading>
-      <Text className="text-base text-gray-600">Hey {name},</Text>
-      <Text className="text-base text-gray-600">{nudgeMessage}</Text>
-
-      <Button
-        href={ctaUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        {ctaText}
-      </Button>
+    <Layout
+      preview={`You haven't tried ${featureName} yet`}
+      eyebrow="A quick nudge"
+      unsubscribeUrl={unsubscribeUrl}
+    >
+      <Title>You haven't tried {featureName} yet</Title>
+      <Body>Hey {name},</Body>
+      <Body>{nudgeMessage}</Body>
+      <Button href={ctaUrl}>{ctaText}</Button>
 
       {helpUrl && (
-        <Section className="mt-6 rounded-md bg-yellow-50 px-4 py-3">
-          <Text className="text-sm text-yellow-800">
+        <Callout tone="warn">
+          <Text className="m-0 text-sm leading-6 text-amber-900">
             Having trouble getting set up?{" "}
             <a
               href={helpUrl}
-              className="font-semibold text-yellow-900 underline"
+              className="font-semibold text-amber-950 underline"
             >
               Check out our setup guide
             </a>{" "}
             or reply to this email — we're happy to help.
           </Text>
-        </Section>
+        </Callout>
       )}
-      <Footer unsubscribeUrl={unsubscribeUrl} />
     </Layout>
   );
 }

@@ -1,56 +1,50 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Bullets, Button, Callout, Title } from "./_components/ui.js";
 import type { ReactivationCheckinEmailProps } from "./types.js";
 
 export default function ReactivationCheckinEmail({
   name = "there",
-  productName = "our platform",
   daysSinceActive = 14,
   highlights = [
-    "New features shipped since you've been away",
-    "Your data is still here — pick up where you left off",
+    "Frequency caps so journeys never over-mail a contact",
+    "First-party open & click tracking baked into every send",
+    "Agentic-ready journeys you can drive from an LLM or script",
   ],
-  returnUrl = "https://app.example.com",
+  returnUrl = BRAND.appUrl,
   unsubscribeUrl,
 }: ReactivationCheckinEmailProps) {
   return (
     <Layout
-      preview={`We haven't seen you in ${daysSinceActive} days — everything okay?`}
+      preview={`Your Hogsend project has been quiet for ${daysSinceActive} days`}
+      eyebrow="Checking in"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
-        We haven't seen you in a while
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, it's been {daysSinceActive} days since your last session on{" "}
-        {productName}. No pressure — just checking in.
-      </Text>
+      <Title>Your project's gone quiet</Title>
+      <Body>
+        Hey {name} — Hogsend hasn't processed an event from your project in
+        about {daysSinceActive} days. No pressure at all; just making sure
+        nothing broke on your side.
+      </Body>
 
-      <Section className="mt-4 rounded-md bg-blue-50 px-4 py-3">
-        <Text className="text-sm font-semibold text-blue-900">
-          While you've been away:
+      <Callout tone="brand">
+        <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-orange-600">
+          Shipped while you were away
         </Text>
-        {highlights.map((h) => (
-          <Text key={h} className="my-1 text-sm text-blue-800">
-            &bull; {h}
-          </Text>
-        ))}
-      </Section>
+        <Bullets items={highlights} />
+      </Callout>
 
-      <Button
-        href={returnUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Jump Back In
-      </Button>
-
-      <Text className="mt-6 text-sm text-gray-400">
-        If something isn't working right, just reply to this email. We read
-        every response.
-      </Text>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Body>
+        Your journeys and contacts are all still here — pick up exactly where
+        you left off.
+      </Body>
+      <Button href={returnUrl}>Jump back in</Button>
+      <Body>
+        If something did break, reply to this email and we'll dig in with you.
+      </Body>
     </Layout>
   );
 }

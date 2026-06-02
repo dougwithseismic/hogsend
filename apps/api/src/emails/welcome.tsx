@@ -1,33 +1,52 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Bullets, Button, Divider, Title } from "./_components/ui.js";
 import type { WelcomeEmailProps } from "./types.js";
 
 export default function WelcomeEmail({
   name = "there",
-  dashboardUrl = "https://app.hogsend.com",
+  dashboardUrl = BRAND.appUrl,
+  docsUrl = BRAND.quickstartUrl,
+  unsubscribeUrl,
 }: WelcomeEmailProps) {
   return (
     <Layout
-      preview={`Welcome to Hogsend, ${name}! Connect PostHog events to Resend and send the right email at the right time.`}
+      preview="Welcome to Hogsend — turn PostHog events into the right email at the right time."
+      eyebrow="Welcome aboard"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
-        Welcome to Hogsend
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, thanks for signing up. Hogsend connects your PostHog events
-        to Resend so you can send the right email at the right time — without
-        writing a single workflow.
-      </Text>
-      <Button
-        href={dashboardUrl}
-        className="rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Go to Dashboard
-      </Button>
-      <Footer />
+      <Title>Lifecycle email, as code.</Title>
+      <Body>
+        Hey {name} — welcome to Hogsend. You now have a place to turn your
+        PostHog events into Resend emails, with journeys written in TypeScript
+        and version-controlled like the rest of your app. No drag-and-drop
+        builder, no marketing seat required.
+      </Body>
+      <Body>
+        Over the next few days we'll help you ship your first journey:
+      </Body>
+      <Bullets
+        items={[
+          "Connect PostHog and Resend, then send a test email",
+          "Define your first journey in code — a bare-bones welcome series",
+          "Watch enrollments, sends, opens and clicks land in your dashboard",
+        ]}
+      />
+      <Divider />
+      <Button href={docsUrl}>Open the 5-minute quickstart</Button>
+      <Body>
+        Prefer to poke around first?{" "}
+        <a
+          href={dashboardUrl}
+          className="font-semibold text-zinc-900 underline"
+        >
+          Head to your dashboard
+        </a>
+        . And yes — this email was sent by Hogsend, through a journey defined in
+        code. That's the whole idea.
+      </Body>
     </Layout>
   );
 }

@@ -1,51 +1,68 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import {
+  Body,
+  Button,
+  CodeBlock,
+  Divider,
+  Step,
+  Title,
+} from "./_components/ui.js";
 import type { ActivationQuickstartEmailProps } from "./types.js";
 
 export default function ActivationQuickstartEmail({
   name = "there",
-  productName = "our platform",
-  quickstartUrl = "https://app.example.com/quickstart",
-  setupSteps = [
-    "Connect your data source",
-    "Configure your first workflow",
-    "Send a test email",
-  ],
+  quickstartUrl = BRAND.quickstartUrl,
+  docsUrl = BRAND.docsUrl,
   unsubscribeUrl,
 }: ActivationQuickstartEmailProps) {
   return (
     <Layout
-      preview={`Welcome to ${productName}! Get set up in under 5 minutes.`}
+      preview="Your Hogsend setup guide — first journey live in about five minutes."
+      eyebrow="Setup guide"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
-        Welcome to {productName}
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, thanks for signing up. Let's get you up and running — it
-        takes less than 5 minutes.
-      </Text>
-      <Text className="text-base font-semibold text-gray-800">
-        Here's what to do first:
-      </Text>
-      {setupSteps.map((step, i) => (
-        <Text key={step} className="my-1 text-base text-gray-600">
-          {i + 1}. {step}
-        </Text>
-      ))}
-      <Button
-        href={quickstartUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Get Started
-      </Button>
-      <Text className="mt-6 text-sm text-gray-400">
-        You'll receive a few more emails over the next week to help you get the
-        most out of {productName}. You can unsubscribe at any time.
-      </Text>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Title>Let's get your first journey live</Title>
+      <Body>
+        Hey {name} — here's the fastest path from empty project to a working
+        lifecycle email. Three steps, all in code.
+      </Body>
+
+      <Step index={1} title="Scaffold a Hogsend app">
+        <CodeBlock
+          code={
+            "# spin up a new project\npnpm dlx create-hogsend@latest my-app\ncd my-app && pnpm install"
+          }
+        />
+      </Step>
+
+      <Step index={2} title="Define a journey">
+        <CodeBlock
+          code={
+            'import { defineJourney, days } from "@hogsend/engine";\n\nexport const welcome = defineJourney({\n  meta: { trigger: { event: "user.created" } },\n  async run(user, ctx) {\n    await sendEmail({ to: user.email, template: "welcome" });\n    await ctx.sleep({ duration: days(2) });\n    // ...nudge, highlight, community\n  },\n});'
+          }
+        />
+      </Step>
+
+      <Step index={3} title="Send PostHog an event and watch it fire">
+        <CodeBlock
+          code={
+            '# enroll a user from anywhere\ncurl -X POST $API_URL/v1/ingest \\\n  -d \'{ "event": "user.created", "userId": "u_1" }\''
+          }
+        />
+      </Step>
+
+      <Divider />
+      <Button href={quickstartUrl}>Open the full quickstart</Button>
+      <Body>
+        Want the deep dive on triggers, sleeps and exit conditions? The{" "}
+        <a href={docsUrl} className="font-semibold text-zinc-900 underline">
+          docs
+        </a>{" "}
+        cover all of it — or just reply here and we'll help you wire it up.
+      </Body>
     </Layout>
   );
 }

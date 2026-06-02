@@ -1,59 +1,51 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Heading, Link, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Link, Section, Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Title } from "./_components/ui.js";
 import type { FeedbackNpsSurveyEmailProps } from "./types.js";
 
 export default function FeedbackNpsSurveyEmail({
   name = "there",
-  productName = "our platform",
-  surveyUrl = "https://app.example.com/survey",
+  surveyUrl = `${BRAND.siteUrl}/nps`,
   unsubscribeUrl,
 }: FeedbackNpsSurveyEmailProps) {
   const scores = Array.from({ length: 11 }, (_, i) => i);
 
   return (
     <Layout
-      preview={`How likely are you to recommend ${productName}? Quick 1-click survey.`}
+      preview="Quick question — how likely are you to recommend Hogsend?"
+      eyebrow="One quick question"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
-        Quick question
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, how likely are you to recommend {productName} to a friend or
-        colleague?
-      </Text>
+      <Title>How are we doing?</Title>
+      <Body>
+        Hey {name} — how likely are you to recommend Hogsend to another
+        developer or team? Tap a number; it takes one click.
+      </Body>
 
-      <Section className="mt-4 text-center">
-        <Text className="text-sm text-gray-500">
-          Click a number below (0 = not likely, 10 = extremely likely)
-        </Text>
+      <Section className="my-6 text-center">
+        {scores.map((score) => (
+          <Link
+            key={score}
+            href={`${surveyUrl}?score=${score}`}
+            className="mx-0.5 mb-1 inline-block h-9 w-9 rounded-lg border border-solid border-zinc-200 bg-white text-center text-sm font-semibold leading-9 text-zinc-700 no-underline"
+          >
+            {String(score)}
+          </Link>
+        ))}
         <Section className="mt-2">
-          {scores.map((score) => (
-            <Link
-              key={score}
-              href={`${surveyUrl}?score=${score}`}
-              className="mx-1 inline-block h-9 w-9 rounded-md bg-gray-100 text-center text-sm font-semibold leading-9 text-gray-700 no-underline"
-            >
-              {String(score)}
-            </Link>
-          ))}
-        </Section>
-        <Section className="mt-1">
-          <Text className="inline text-xs text-gray-400">
-            Not likely
-            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-            Extremely likely
+          <Text className="m-0 text-xs text-zinc-400">
+            0 = not likely&nbsp;&nbsp;·&nbsp;&nbsp;10 = extremely likely
           </Text>
         </Section>
       </Section>
 
-      <Text className="mt-6 text-sm text-gray-400">
-        Takes less than 10 seconds. Your feedback directly shapes what we build
-        next.
-      </Text>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Body>
+        Whatever you pick, you'll get a chance to tell us why — and that's what
+        actually shapes the roadmap. Thank you.
+      </Body>
     </Layout>
   );
 }

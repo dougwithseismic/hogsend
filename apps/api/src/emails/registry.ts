@@ -21,7 +21,8 @@ import WelcomeEmail from "./welcome.js";
 // `createHogsendClient({ email: { templates } })`, which threads it through the engine's
 // `TrackedMailer` to `getTemplate(..., { registry })` at send + render time.
 //
-// The keys here MUST match the keys augmented into `@hogsend/email`'s
+// These are Hogsend's own dogfood lifecycle emails — the examples shipped with
+// the engine. The keys here MUST match the keys augmented into `@hogsend/email`'s
 // `TemplateRegistryMap` (see `./templates.d.ts`) for `send({ template, props })`
 // to type-check.
 export const templates: TemplateRegistry = {
@@ -29,7 +30,8 @@ export const templates: TemplateRegistry = {
     component: WelcomeEmail,
     defaultSubject: "Welcome to Hogsend",
     category: "transactional",
-    preview: (props) => `Welcome to Hogsend, ${props.name}!`,
+    preview: (props) =>
+      `Welcome, ${props.name} — lifecycle email as code starts here.`,
     examples: { name: "Ada" },
   },
   "password-reset": {
@@ -46,82 +48,84 @@ export const templates: TemplateRegistry = {
   },
   "activation-quickstart": {
     component: ActivationQuickstartEmail,
-    defaultSubject: "Welcome — let's get you set up",
+    defaultSubject: "Your Hogsend setup guide",
     category: "journey",
-    preview: (props) => `Welcome, ${props.name}! Get set up in 5 minutes.`,
+    preview: (props) =>
+      `${props.name}, get your first journey live in ~5 minutes.`,
     examples: { name: "Ada" },
   },
   "activation-feature-highlight": {
     component: ActivationFeatureHighlightEmail,
-    defaultSubject: "Have you tried this yet?",
+    defaultSubject: "Journeys are just TypeScript",
     category: "journey",
-    preview: (props) => `${props.name}, check out what this feature can do`,
+    preview: (props) =>
+      `${props.name}, here's a Hogsend superpower worth a look`,
   },
   "activation-community": {
     component: ActivationCommunityEmail,
-    defaultSubject: "Join the community",
+    defaultSubject: "See what other teams are shipping",
     category: "journey",
-    preview: (props) => `${props.name}, join the community`,
+    preview: (props) => `${props.name}, don't start from a blank file`,
   },
   "activation-nudge": {
     component: ActivationNudgeEmail,
-    defaultSubject: "You haven't tried the key feature yet",
+    defaultSubject: "We haven't seen any events yet",
     category: "journey",
-    preview: (props) => `${props.name}, you're missing out`,
+    preview: (props) => `${props.name}, is your project connected?`,
   },
   "conversion-usage-milestone": {
     component: ConversionUsageMilestoneEmail,
-    defaultSubject: "You're on a roll — here's what's next",
+    defaultSubject: "You've hit a Hogsend milestone",
     category: "journey",
-    preview: (props) => `${props.name}, you've hit a milestone`,
+    preview: (props) => `${props.name}, your journeys are doing real work`,
   },
   "conversion-trial-expiring": {
     component: ConversionTrialExpiringEmail,
-    defaultSubject: "Your trial is ending soon",
+    defaultSubject: "Your Hogsend Cloud trial is ending soon",
     category: "journey",
-    preview: (props) => `${props.name}, your trial ends soon`,
+    preview: (props) => `${props.name}, keep your journeys live`,
   },
   "conversion-winback-offer": {
     component: ConversionWinbackOfferEmail,
-    defaultSubject: "We'd love to have you back",
+    defaultSubject: "A little something to come back",
     category: "journey",
-    preview: (props) => `${props.name}, here's a special offer`,
+    preview: (props) => `${props.name}, here's a discount on Hogsend Cloud`,
     examples: { name: "Ada", discountPercent: 25, expiresIn: "48 hours" },
   },
   "retention-achievement": {
     component: RetentionAchievementEmail,
-    defaultSubject: "Congratulations on your achievement!",
+    defaultSubject: "You hit a milestone 🎉",
     category: "journey",
-    preview: (props) => `${props.name}, you hit a milestone!`,
+    preview: (props) => `${props.name}, nice work — milestone unlocked`,
   },
   "retention-weekly-digest": {
     component: RetentionWeeklyDigestEmail,
-    defaultSubject: "Your weekly snapshot",
+    defaultSubject: "Your Hogsend week",
     category: "journey",
-    preview: (props) => `${props.name}, here's your week in review`,
+    preview: (props) => `${props.name}, your sends, opens and clicks this week`,
   },
   "reactivation-checkin": {
     component: ReactivationCheckinEmail,
-    defaultSubject: "We haven't seen you in a while",
+    defaultSubject: "Your project's gone quiet",
     category: "journey",
-    preview: (props) => `${props.name}, everything okay?`,
+    preview: (props) => `${props.name}, everything okay over there?`,
   },
   "reactivation-final-nudge": {
     component: ReactivationFinalNudgeEmail,
-    defaultSubject: "One last note",
+    defaultSubject: "One last note from Hogsend",
     category: "journey",
-    preview: (props) => `${props.name}, this is our last email`,
+    preview: (props) => `${props.name}, we'll leave it here`,
   },
   "feedback-nps-survey": {
     component: FeedbackNpsSurveyEmail,
     defaultSubject: "Quick question — how are we doing?",
     category: "journey",
-    preview: (props) => `${props.name}, one quick question`,
+    preview: (props) => `${props.name}, one quick click`,
   },
   "churn-payment-failed": {
     component: ChurnPaymentFailedEmail,
     defaultSubject: "Your payment didn't go through",
     category: "transactional",
-    preview: (props) => `${props.name}, action needed on your account`,
+    preview: (props) => `${props.name}, action needed on your billing`,
   },
 };

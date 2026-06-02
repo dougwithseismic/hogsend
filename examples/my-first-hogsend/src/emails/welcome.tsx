@@ -1,8 +1,7 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Button, Divider, Title } from "./_components/ui.js";
 import type { WelcomeEmailProps } from "./types.js";
 
 // Starter template — CONTENT, yours to edit. Rendered for the `activation/welcome`
@@ -13,20 +12,18 @@ export default function WelcomeEmail({
   unsubscribeUrl,
 }: WelcomeEmailProps) {
   return (
-    <Layout preview={`Welcome to my-first-hogsend, ${name}!`}>
-      <Heading className="text-2xl font-bold text-gray-900">
-        Welcome to {"my-first-hogsend"}
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, thanks for signing up. Let's get you up and running.
-      </Text>
-      <Button
-        href={dashboardUrl}
-        className="rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Go to Dashboard
-      </Button>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+    <Layout
+      preview={`Welcome to my-first-hogsend, ${name}!`}
+      eyebrow="Welcome aboard"
+      unsubscribeUrl={unsubscribeUrl}
+    >
+      <Title>Welcome to {"my-first-hogsend"}</Title>
+      <Body>
+        Hey {name}, thanks for signing up. We're glad you're here — let's get
+        you up and running.
+      </Body>
+      <Divider />
+      <Button href={dashboardUrl}>Go to your dashboard</Button>
     </Layout>
   );
 }

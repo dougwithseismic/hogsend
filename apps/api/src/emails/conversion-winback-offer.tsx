@@ -1,53 +1,51 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Section, Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Button, Title } from "./_components/ui.js";
 import type { ConversionWinbackOfferEmailProps } from "./types.js";
 
 export default function ConversionWinbackOfferEmail({
   name = "there",
-  productName = "our platform",
   discountPercent = 20,
-  offerUrl = "https://app.example.com/offer",
+  offerUrl = `${BRAND.siteUrl}/pricing`,
   expiresIn = "48 hours",
   unsubscribeUrl,
 }: ConversionWinbackOfferEmailProps) {
   return (
     <Layout
-      preview={`${discountPercent}% off ${productName} — limited time offer`}
+      preview={`${discountPercent}% off Hogsend Cloud — for a limited time`}
+      eyebrow="A little nudge"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
-        We'd love to have you back
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, your trial recently ended. We know timing isn't always right
-        — so here's a little incentive.
-      </Text>
+      <Title>Come back to Hogsend?</Title>
+      <Body>
+        Hey {name} — your trial ended without upgrading, and that's completely
+        fair. Timing matters. If it was the price, here's something to make the
+        decision easier.
+      </Body>
 
-      <Section className="mt-4 rounded-md bg-indigo-50 px-6 py-5 text-center">
-        <Text className="text-3xl font-bold text-indigo-600">
+      <Section className="my-6 rounded-2xl border border-solid border-orange-200 bg-orange-50 px-6 py-7 text-center">
+        <Text className="m-0 text-[40px] font-bold leading-none text-orange-600">
           {discountPercent}% off
         </Text>
-        <Text className="mt-1 text-sm text-indigo-800">
-          your first month or annual plan
+        <Text className="m-0 mt-2 text-sm text-orange-900">
+          your first year of Hogsend Cloud
         </Text>
-        <Text className="mt-1 text-xs text-indigo-600">
+        <Text className="m-0 mt-1 text-xs font-medium uppercase tracking-wide text-orange-500">
           Expires in {expiresIn}
         </Text>
       </Section>
 
-      <Button
-        href={offerUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Claim Your Discount
-      </Button>
+      <Section className="text-center">
+        <Button href={offerUrl}>Claim the discount</Button>
+      </Section>
 
-      <Text className="mt-6 text-sm text-gray-400">
-        If you have any questions, just reply to this email. We're here to help.
-      </Text>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Body>
+        Your journeys and data are exactly where you left them — claiming this
+        just turns the lights back on. Questions? Reply anytime.
+      </Body>
     </Layout>
   );
 }

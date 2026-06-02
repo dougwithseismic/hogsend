@@ -1,6 +1,6 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Hr, Link, Section, Text } from "react-email";
+import { Link, Section, Text } from "react-email";
 
 interface FooterProps {
   unsubscribeUrl?: string;
@@ -9,22 +9,21 @@ interface FooterProps {
 
 export function Footer({ unsubscribeUrl, preferencesUrl }: FooterProps) {
   return (
-    <Section className="mt-8">
-      <Hr className="border-gray-200" />
-      <Text className="text-center text-xs text-gray-400">
+    <Section className="px-2 py-6">
+      <Text className="m-0 text-xs leading-5 text-zinc-400">
         Sent by {"{{APP_NAME}}"}
       </Text>
       {(unsubscribeUrl || preferencesUrl) && (
-        <Text className="text-center text-xs text-gray-400">
+        <Text className="m-0 mt-1 text-xs leading-5 text-zinc-400">
           {unsubscribeUrl && (
-            <Link href={unsubscribeUrl} className="text-gray-400 underline">
+            <Link href={unsubscribeUrl} className="text-zinc-500 underline">
               Unsubscribe
             </Link>
           )}
-          {unsubscribeUrl && preferencesUrl && " | "}
+          {unsubscribeUrl && preferencesUrl && " · "}
           {preferencesUrl && (
-            <Link href={preferencesUrl} className="text-gray-400 underline">
-              Manage preferences
+            <Link href={preferencesUrl} className="text-zinc-500 underline">
+              Email preferences
             </Link>
           )}
         </Text>

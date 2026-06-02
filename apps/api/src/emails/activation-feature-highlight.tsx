@@ -1,49 +1,50 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Hr, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Button, Callout, Divider, Title } from "./_components/ui.js";
 import type { ActivationFeatureHighlightEmailProps } from "./types.js";
 
 export default function ActivationFeatureHighlightEmail({
   name = "there",
-  productName = "our platform",
-  featureName = "the key feature",
-  featureDescription = "This feature helps you work smarter, not harder.",
-  beforeText = "Before: Manually tracking everything in spreadsheets.",
-  afterText = "After: Automated insights delivered to your inbox.",
-  ctaUrl = "https://app.example.com",
-  ctaText = "Try it now",
+  featureName = "journeys-as-code",
+  featureDescription = "Most lifecycle tools make you click through a flowchart builder. In Hogsend, a journey is just a TypeScript function — so it lives in your repo, runs through code review, and diffs in a pull request like everything else you ship.",
+  beforeText = "Drag boxes around a canvas, hope the export matches what's in staging, screenshot it for the next standup.",
+  afterText = "Open an editor, write control flow you already understand, commit it. The journey is the source of truth.",
+  ctaUrl = BRAND.docsUrl,
+  ctaText = "See how journeys work",
   unsubscribeUrl,
 }: ActivationFeatureHighlightEmailProps) {
   return (
     <Layout
-      preview={`${featureName} on ${productName} — see what it can do for you`}
+      preview={`A Hogsend superpower: ${featureName}`}
+      eyebrow="Worth a look"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
-        Have you tried {featureName}?
-      </Heading>
-      <Text className="text-base text-gray-600">Hey {name},</Text>
-      <Text className="text-base text-gray-600">{featureDescription}</Text>
+      <Title>Have you tried {featureName}?</Title>
+      <Body>Hey {name},</Body>
+      <Body>{featureDescription}</Body>
 
-      <Section className="mt-4 rounded-md bg-gray-50 px-4 py-3">
-        <Text className="text-sm font-semibold text-red-600">Before</Text>
-        <Text className="mt-1 text-sm text-gray-600">{beforeText}</Text>
-      </Section>
-      <Section className="mt-2 rounded-md bg-gray-50 px-4 py-3">
-        <Text className="text-sm font-semibold text-green-600">After</Text>
-        <Text className="mt-1 text-sm text-gray-600">{afterText}</Text>
-      </Section>
+      <Callout tone="danger">
+        <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-red-600">
+          The old way
+        </Text>
+        <Text className="m-0 mt-1 text-sm leading-6 text-zinc-700">
+          {beforeText}
+        </Text>
+      </Callout>
+      <Callout tone="success">
+        <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-emerald-600">
+          With Hogsend
+        </Text>
+        <Text className="m-0 mt-1 text-sm leading-6 text-zinc-700">
+          {afterText}
+        </Text>
+      </Callout>
 
-      <Hr className="my-6 border-gray-200" />
-
-      <Button
-        href={ctaUrl}
-        className="rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        {ctaText}
-      </Button>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Divider />
+      <Button href={ctaUrl}>{ctaText}</Button>
     </Layout>
   );
 }

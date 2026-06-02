@@ -1,59 +1,57 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Hr, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import {
+  Body,
+  Bullets,
+  Button,
+  Callout,
+  Divider,
+  Title,
+} from "./_components/ui.js";
 import type { ConversionTrialExpiringEmailProps } from "./types.js";
 
 export default function ConversionTrialExpiringEmail({
   name = "there",
-  productName = "our platform",
   daysLeft = 3,
   trialEndDate = "soon",
   valueSummary = [
-    "12 sessions completed",
-    "3 reports generated",
-    "2 automations running",
+    "4 journeys live in production",
+    "1,300 emails delivered",
+    "38% average open rate",
   ],
-  upgradeUrl = "https://app.example.com/upgrade",
+  upgradeUrl = `${BRAND.siteUrl}/pricing`,
   unsubscribeUrl,
 }: ConversionTrialExpiringEmailProps) {
   return (
     <Layout
-      preview={`Your ${productName} trial ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`}
+      preview={`Your Hogsend Cloud trial ends in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`}
+      eyebrow="Trial ending"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
+      <Title>
         Your trial ends {daysLeft === 1 ? "tomorrow" : `in ${daysLeft} days`}
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, your {productName} trial wraps up on {trialEndDate}. Here's
-        what you've accomplished so far:
-      </Text>
+      </Title>
+      <Body>
+        Hey {name} — your Hogsend Cloud trial wraps up on {trialEndDate}. Before
+        it does, here's what your journeys have shipped:
+      </Body>
 
-      <Section className="mt-4 rounded-md bg-green-50 px-4 py-3">
-        <Text className="text-sm font-semibold text-green-900">
-          Your progress
+      <Callout tone="success">
+        <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-emerald-600">
+          Your trial so far
         </Text>
-        {valueSummary.map((item) => (
-          <Text key={item} className="my-1 text-sm text-green-800">
-            &bull; {item}
-          </Text>
-        ))}
-      </Section>
+        <Bullets items={valueSummary} marker="✓" />
+      </Callout>
 
-      <Hr className="my-6 border-gray-200" />
-
-      <Text className="text-base text-gray-600">
-        Don't lose your progress. Upgrade now to keep everything running.
-      </Text>
-
-      <Button
-        href={upgradeUrl}
-        className="rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Upgrade Now
-      </Button>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Divider />
+      <Body>
+        Keep it all running — your journeys, dashboard, and managed worker stay
+        exactly as they are. No re-deploy, no migration.
+      </Body>
+      <Button href={upgradeUrl}>Keep my journeys live</Button>
     </Layout>
   );
 }

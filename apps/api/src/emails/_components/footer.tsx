@@ -1,6 +1,7 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Hr, Link, Section, Text } from "react-email";
+import { Link, Section, Text } from "react-email";
+import { BRAND } from "./brand.js";
 
 interface FooterProps {
   unsubscribeUrl?: string;
@@ -9,24 +10,31 @@ interface FooterProps {
 
 export function Footer({ unsubscribeUrl, preferencesUrl }: FooterProps) {
   return (
-    <Section className="mt-8">
-      <Hr className="border-gray-200" />
-      <Text className="text-center text-xs text-gray-400">Sent by Hogsend</Text>
-      {(unsubscribeUrl || preferencesUrl) && (
-        <Text className="text-center text-xs text-gray-400">
-          {unsubscribeUrl && (
-            <Link href={unsubscribeUrl} className="text-gray-400 underline">
-              Unsubscribe
-            </Link>
-          )}
-          {unsubscribeUrl && preferencesUrl && " | "}
-          {preferencesUrl && (
-            <Link href={preferencesUrl} className="text-gray-400 underline">
-              Manage preferences
-            </Link>
-          )}
-        </Text>
-      )}
+    <Section className="px-2 py-6">
+      <Text className="m-0 text-xs leading-5 text-zinc-400">
+        {BRAND.name} — {BRAND.tagline}
+      </Text>
+      <Text className="m-0 mt-1 text-xs leading-5 text-zinc-400">
+        <Link href={BRAND.docsUrl} className="text-zinc-500 underline">
+          Docs
+        </Link>
+        {" · "}
+        <Link href={BRAND.communityUrl} className="text-zinc-500 underline">
+          Community
+        </Link>
+        {(unsubscribeUrl || preferencesUrl) && " · "}
+        {unsubscribeUrl && (
+          <Link href={unsubscribeUrl} className="text-zinc-500 underline">
+            Unsubscribe
+          </Link>
+        )}
+        {unsubscribeUrl && preferencesUrl && " · "}
+        {preferencesUrl && (
+          <Link href={preferencesUrl} className="text-zinc-500 underline">
+            Email preferences
+          </Link>
+        )}
+      </Text>
     </Section>
   );
 }

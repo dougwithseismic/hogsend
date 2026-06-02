@@ -1,51 +1,48 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Bullets, Button, Callout, Title } from "./_components/ui.js";
 import type { ActivationCommunityEmailProps } from "./types.js";
 
 export default function ActivationCommunityEmail({
   name = "there",
-  productName = "our platform",
-  communityUrl = "https://discord.gg/example",
-  communityName = "our Discord",
-  memberCount = "2,000+",
+  communityUrl = BRAND.communityUrl,
+  communityName = BRAND.communityName,
+  memberCount = "1,200+",
   highlights = [
-    "Get help from other users and the team",
-    "Share tips, strategies, and feedback",
-    "Be the first to hear about new features",
+    "A welcome series that drops a setup nudge only if no events arrive",
+    "Trial-expiry sequences gated on real PostHog usage milestones",
+    "Win-back offers that exit the moment someone comes back",
   ],
   unsubscribeUrl,
 }: ActivationCommunityEmailProps) {
   return (
-    <Layout preview={`Join ${memberCount} members in ${communityName}`}>
-      <Heading className="text-2xl font-bold text-gray-900">
-        Join the {productName} community
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, you're not in this alone. {memberCount} people are already
-        hanging out in {communityName}.
-      </Text>
+    <Layout
+      preview={`See what ${memberCount} teams are shipping with Hogsend`}
+      eyebrow="What others are doing"
+      unsubscribeUrl={unsubscribeUrl}
+    >
+      <Title>You don't have to start from a blank file</Title>
+      <Body>
+        Hey {name} — {memberCount} teams are already running lifecycle email on
+        Hogsend, and most of them happily steal each other's journeys. A few
+        patterns that show up again and again:
+      </Body>
 
-      <Section className="mt-4 rounded-md bg-indigo-50 px-4 py-3">
-        <Text className="text-sm font-semibold text-indigo-900">
-          What happens there:
+      <Callout tone="brand">
+        <Text className="m-0 text-xs font-semibold uppercase tracking-wide text-orange-600">
+          Popular journeys in the wild
         </Text>
-        {highlights.map((h) => (
-          <Text key={h} className="my-1 text-sm text-indigo-800">
-            &bull; {h}
-          </Text>
-        ))}
-      </Section>
+        <Bullets items={highlights} />
+      </Callout>
 
-      <Button
-        href={communityUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Join {communityName}
-      </Button>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Body>
+        They share the code, the gotchas, and the open rates in {communityName}.
+        It's the fastest way to copy something that already works.
+      </Body>
+      <Button href={communityUrl}>Join {communityName}</Button>
     </Layout>
   );
 }

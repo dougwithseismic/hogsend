@@ -1,59 +1,60 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Hr, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import {
+  Body,
+  Bullets,
+  Button,
+  Callout,
+  Divider,
+  Title,
+} from "./_components/ui.js";
 import type { ConversionUsageMilestoneEmailProps } from "./types.js";
 
 export default function ConversionUsageMilestoneEmail({
   name = "there",
-  productName = "our platform",
-  usageCount = 5,
-  usageLabel = "sessions",
+  usageCount = 100,
+  usageLabel = "emails",
   usageLimit,
-  proFeatures = ["Unlimited usage", "Advanced analytics", "Priority support"],
-  upgradeUrl = "https://app.example.com/upgrade",
+  proFeatures = [
+    "Unlimited sends and journeys",
+    "Hosted dashboard with delivery, open & click analytics",
+    "Managed worker — no infra to babysit",
+    "Priority support from the team",
+  ],
+  upgradeUrl = `${BRAND.siteUrl}/pricing`,
   unsubscribeUrl,
 }: ConversionUsageMilestoneEmailProps) {
   return (
     <Layout
-      preview={`You've completed ${usageCount} ${usageLabel} — here's what's next`}
+      preview={`You've sent ${usageCount} ${usageLabel} through Hogsend`}
+      eyebrow="Milestone"
+      unsubscribeUrl={unsubscribeUrl}
     >
-      <Heading className="text-2xl font-bold text-gray-900">
-        You're on a roll
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, you've hit {usageCount} {usageLabel}
-        {usageLimit ? ` out of ${usageLimit} on the free plan` : ""}. Nice work.
-      </Text>
+      <Title>
+        That's {usageCount} {usageLabel} sent 🎉
+      </Title>
+      <Body>
+        Hey {name} — your journeys have now delivered {usageCount} {usageLabel}
+        {usageLimit ? ` of your ${usageLimit} on the free plan` : ""}. Hogsend
+        is clearly doing real work for you.
+      </Body>
 
       {usageLimit && (
-        <Section className="mt-4 rounded-md bg-amber-50 px-4 py-3">
-          <Text className="text-sm text-amber-800">
+        <Callout tone="warn">
+          <Text className="m-0 text-sm leading-6 text-amber-900">
             You've used {usageCount} of {usageLimit} free {usageLabel}. Upgrade
-            to keep going without interruption.
+            to keep your journeys running without hitting the cap.
           </Text>
-        </Section>
+        </Callout>
       )}
 
-      <Hr className="my-6 border-gray-200" />
-
-      <Text className="text-base font-semibold text-gray-800">
-        What you unlock with {productName} Pro:
-      </Text>
-      {proFeatures.map((feature) => (
-        <Text key={feature} className="my-1 text-base text-gray-600">
-          &bull; {feature}
-        </Text>
-      ))}
-
-      <Button
-        href={upgradeUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Upgrade Now
-      </Button>
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Divider />
+      <Body>What Hogsend Cloud adds on top of the open-source engine:</Body>
+      <Bullets items={proFeatures} />
+      <Button href={upgradeUrl}>See Hogsend Cloud</Button>
     </Layout>
   );
 }

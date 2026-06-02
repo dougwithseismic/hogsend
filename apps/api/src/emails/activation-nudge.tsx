@@ -1,52 +1,73 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Section, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Text } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import {
+  Body,
+  Bullets,
+  Button,
+  Callout,
+  Divider,
+  Title,
+} from "./_components/ui.js";
 import type { ActivationNudgeEmailProps } from "./types.js";
 
 export default function ActivationNudgeEmail({
   name = "there",
-  productName = "our platform",
-  featureName = "the key feature",
-  nudgeMessage = "Most users see results within their first session. Here's how to get started.",
-  ctaUrl = "https://app.example.com",
-  ctaText = "Try it now",
+  daysSinceSignup = 3,
+  setupUrl = BRAND.quickstartUrl,
+  docsUrl = BRAND.docsUrl,
   helpUrl,
   unsubscribeUrl,
 }: ActivationNudgeEmailProps) {
   return (
-    <Layout preview={`You haven't tried ${featureName} yet`}>
-      <Heading className="text-2xl font-bold text-gray-900">
-        You haven't tried {featureName} yet
-      </Heading>
-      <Text className="text-base text-gray-600">Hey {name},</Text>
-      <Text className="text-base text-gray-600">
-        {nudgeMessage} Try it out on {productName} today.
-      </Text>
+    <Layout
+      preview="We haven't seen any events from your project yet — everything okay?"
+      eyebrow="Checking in"
+      unsubscribeUrl={unsubscribeUrl}
+    >
+      <Title>We haven't seen any events yet</Title>
+      <Body>
+        Hey {name} — it's been {daysSinceSignup} days and Hogsend hasn't
+        received a single event from your project. Nothing's wrong with the
+        account; it just means nothing has been wired up to send us data yet.
+      </Body>
+      <Body>That's usually one of these:</Body>
+      <Bullets
+        items={[
+          "The app is installed but no journey is enrolling users yet",
+          "Events are firing in PostHog but not being forwarded to /v1/ingest",
+          "You're testing locally and the worker isn't running",
+        ]}
+      />
 
-      <Button
-        href={ctaUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        {ctaText}
-      </Button>
+      <Callout tone="warn">
+        <Text className="m-0 text-sm leading-6 text-amber-900">
+          The fastest sanity check: send one test event and watch your dashboard
+          light up. If it shows, you're connected.
+        </Text>
+      </Callout>
 
-      {helpUrl && (
-        <Section className="mt-6 rounded-md bg-yellow-50 px-4 py-3">
-          <Text className="text-sm text-yellow-800">
-            Having trouble getting set up?{" "}
-            <a
-              href={helpUrl}
-              className="font-semibold text-yellow-900 underline"
-            >
-              Check out our setup guide
-            </a>{" "}
-            or reply to this email — we're happy to help.
-          </Text>
-        </Section>
-      )}
-      <Footer unsubscribeUrl={unsubscribeUrl} />
+      <Divider />
+      <Button href={setupUrl}>Send a test event</Button>
+      <Body>
+        Stuck on a step? The{" "}
+        <a href={docsUrl} className="font-semibold text-zinc-900 underline">
+          setup docs
+        </a>{" "}
+        walk through it,{" "}
+        {helpUrl ? (
+          <>
+            or grab the{" "}
+            <a href={helpUrl} className="font-semibold text-zinc-900 underline">
+              troubleshooting guide
+            </a>
+            .{" "}
+          </>
+        ) : null}
+        Or just reply to this email — a real person reads every one.
+      </Body>
     </Layout>
   );
 }

@@ -1,48 +1,49 @@
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Button, Heading, Hr, Link, Text } from "react-email";
-import { Footer } from "./_components/footer.js";
+import { Link } from "react-email";
+import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
+import { Body, Button, Divider, Title } from "./_components/ui.js";
 import type { ReactivationFinalNudgeEmailProps } from "./types.js";
 
 export default function ReactivationFinalNudgeEmail({
   name = "there",
-  productName = "our platform",
-  returnUrl = "https://app.example.com",
+  returnUrl = BRAND.appUrl,
   unsubscribeUrl,
 }: ReactivationFinalNudgeEmailProps) {
   return (
-    <Layout preview="This is the last email we'll send unless you come back">
-      <Heading className="text-2xl font-bold text-gray-900">
-        One last note
-      </Heading>
-      <Text className="text-base text-gray-600">
-        Hey {name}, this is the last email we'll send you about coming back to{" "}
-        {productName}. We don't want to clutter your inbox.
-      </Text>
-      <Text className="text-base text-gray-600">
-        Your account and data are still here if you ever want to pick things
-        back up. No time limit on that.
-      </Text>
+    <Layout
+      preview="The last email we'll send unless you come back"
+      eyebrow="One last note"
+      unsubscribeUrl={unsubscribeUrl}
+    >
+      <Title>We'll leave it here</Title>
+      <Body>
+        Hey {name} — this is the last reactivation email we'll send. We'd rather
+        respect your inbox than keep nudging. (Fittingly, this whole sequence is
+        a Hogsend journey that exits itself right here.)
+      </Body>
+      <Body>
+        Your account, journeys, and data stay put with no time limit — so if you
+        ever want to pick things back up, everything's waiting.
+      </Body>
+      <Button href={returnUrl}>Come back to Hogsend</Button>
 
-      <Button
-        href={returnUrl}
-        className="mt-4 rounded-md bg-indigo-600 px-6 py-3 text-sm font-semibold text-white"
-      >
-        Come Back
-      </Button>
-
-      <Hr className="my-6 border-gray-200" />
-
-      <Text className="text-sm text-gray-400">
-        If {productName} isn't for you, no hard feelings.{" "}
-        {unsubscribeUrl && (
-          <Link href={unsubscribeUrl} className="text-gray-400 underline">
-            Unsubscribe
+      <Divider />
+      <Body>
+        Not the right fit? No hard feelings — you can{" "}
+        {unsubscribeUrl ? (
+          <Link
+            href={unsubscribeUrl}
+            className="font-semibold text-zinc-900 underline"
+          >
+            unsubscribe here
           </Link>
+        ) : (
+          "unsubscribe anytime"
         )}
-      </Text>
-      <Footer />
+        .
+      </Body>
     </Layout>
   );
 }
