@@ -186,6 +186,32 @@ hogsend patch       # Patch a package via pnpm's native patch flow
 
 ---
 
+## Studio
+
+Hogsend ships with **Studio** — a read-and-operate admin UI for your instance. It's built to **observe, not author**: journeys and templates stay code-first, while the Studio shows you what's happening and gives you a few targeted actions (resend a failed send, enable/disable a journey, un-suppress a contact, send a test, manage API keys). It's a static SPA over the same `/v1/admin/*` API the [CLI](#cli) drives, so everything you can see is also scriptable.
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><b>Sends</b><br/><sub>Every email — filter, sort, and drill into the delivery + engagement timeline</sub><br/><img src="apps/docs/public/images/studio/studio-sends.png" alt="Hogsend Studio — email send log with delivery and engagement status" width="100%"/></td>
+    <td width="50%" valign="top"><b>Journeys</b><br/><sub>Enrollment and completion rates per journey, with an enable/disable toggle</sub><br/><img src="apps/docs/public/images/studio/studio-journeys.png" alt="Hogsend Studio — per-journey completion rates and funnels" width="100%"/></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><b>Templates</b><br/><sub>The template catalog with a live preview, per-template stats, and send-test</sub><br/><img src="apps/docs/public/images/studio/studio-templates.png" alt="Hogsend Studio — template catalog with live preview and stats" width="100%"/></td>
+    <td width="50%" valign="top"><b>Overview</b><br/><sub>Delivery and engagement metrics for the whole instance at a glance</sub><br/><img src="apps/docs/public/images/studio/studio-overview.png" alt="Hogsend Studio — overview metrics dashboard" width="100%"/></td>
+  </tr>
+</table>
+
+The engine serves the built Studio at **`/studio`** on your API — same origin, so it uses your session cookie and needs no extra config (in the dogfood monorepo, build it once with `pnpm --filter @hogsend/studio build`). Or drive any instance from your machine with the CLI:
+
+```bash
+hogsend studio --open                                   # serve locally, open browser
+hogsend studio --base-url https://api.example.com --open
+```
+
+> Full guide: **[Studio](https://docs.hogsend.com/docs/operating/studio)** | **[hogsend studio](https://docs.hogsend.com/docs/cli/studio)**
+
+---
+
 ## Reporting
 
 Every send is recorded — template, recipient, journey, and the full engagement trail (delivered, opened, clicked, bounced, complained) — and it's all queryable over the admin API. No external analytics, no ETL; the numbers are SQL aggregates computed on demand.
