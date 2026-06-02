@@ -1,8 +1,8 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
-import { requireApiKey } from "../../middleware/api-key.js";
 import { auditMiddleware } from "../../middleware/audit.js";
 import { rateLimit } from "../../middleware/rate-limit.js";
+import { requireAdmin } from "../../middleware/require-admin.js";
 import { alertsRouter } from "./alerts.js";
 import { apiKeysRouter } from "./api-keys.js";
 import { auditLogsRouter } from "./audit-logs.js";
@@ -19,7 +19,7 @@ import { reportingRouter } from "./reporting.js";
 import { timelineRouter } from "./timeline.js";
 
 export const adminRouter = new OpenAPIHono<AppEnv>();
-adminRouter.use("*", requireApiKey);
+adminRouter.use("*", requireAdmin);
 adminRouter.use("*", rateLimit);
 adminRouter.use("*", auditMiddleware);
 adminRouter.route("/", bulkRouter);

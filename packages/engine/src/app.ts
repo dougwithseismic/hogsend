@@ -1,3 +1,4 @@
+import { user } from "@hogsend/db";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { apiReference } from "@scalar/hono-api-reference";
 import { compress } from "hono/compress";
@@ -64,9 +65,34 @@ export function createApp(
     return c.json({ error: "Not Found" }, 404);
   });
 
+  // Closed signup: the first user may register (first-load "create admin");
+  // once any user exists, sign-up is blocked. This is the security control that
+  // lets `requireAdmin` trust any authenticated session in a single-tenant app.
+  app.use("/api/auth/sign-up/*", async (c, next) => {
+    if (c.req.method === "POST") {
+      const { db } = c.get("container");
+      const existing = await db.select({ id: user.id }).from(user).limit(1);
+      if (existing.length > 0) {
+        return c.json(
+          { error: "Sign-ups are closed. An admin already exists." },
+          403,
+        );
+      }
+    }
+    return next();
+  });
+
   app.on(["POST", "GET"], "/api/auth/*", (c) => {
     const { auth } = c.get("container");
     return auth.handler(c.req.raw);
+  });
+
+  // Public bootstrap probe: tells the Studio whether to show the first-run
+  // "create admin" screen (no users yet) instead of the login screen.
+  app.get("/v1/auth/status", async (c) => {
+    const { db } = c.get("container");
+    const existing = await db.select({ id: user.id }).from(user).limit(1);
+    return c.json({ needsSetup: existing.length === 0 });
   });
 
   registerRoutes(app, { webhookSources: opts.webhookSources ?? [] });

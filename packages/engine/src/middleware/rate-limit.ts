@@ -13,7 +13,7 @@ export const rateLimit = createMiddleware<AppEnv>(async (c, next) => {
   if (process.env.NODE_ENV === "test") return next();
 
   const apiKey = c.get("apiKey");
-  const keyId = apiKey?.id ?? "anonymous";
+  const keyId = apiKey?.id ?? c.get("user")?.id ?? "anonymous";
   const now = Date.now();
 
   let count: number;
