@@ -9,7 +9,7 @@ Browse email send history and inspect delivery details. All require the `Authori
 
 ### `GET /v1/admin/emails`
 
-List email sends with optional filters. Results are ordered by `createdAt` descending.
+List email sends with optional filters. Results are sorted by `createdAt` descending by default.
 
 **Query Parameters**
 
@@ -20,8 +20,16 @@ List email sends with optional filters. Results are ordered by `createdAt` desce
 | `toEmail` | `string` | -- | Filter by recipient email |
 | `templateKey` | `string` | -- | Filter by template key |
 | `status` | `string` | -- | Filter by status: `queued`, `rendered`, `sent`, `delivered`, `opened`, `clicked`, `bounced`, `complained`, `failed` |
-| `from` | `string` | -- | ISO 8601 datetime lower bound |
-| `to` | `string` | -- | ISO 8601 datetime upper bound |
+| `category` | `string` | -- | Filter by email category (e.g. `journey`, `transactional`) |
+| `journeyId` | `string` | -- | Filter to emails sent from this journey (resolved via the linked journey state) |
+| `userId` | `string` | -- | Filter to emails sent to this user (resolved via the linked journey state) |
+| `engagement` | `string` | -- | Filter by engagement signal: `opened`, `clicked`, `bounced`, or `complained` (matches rows where the corresponding timestamp is set) |
+| `sort` | `string` | `createdAt` | Sort column: `createdAt`, `sentAt`, `openedAt`, or `clickedAt` |
+| `order` | `string` | `desc` | Sort direction: `asc` or `desc` |
+| `from` | `string` | -- | ISO 8601 datetime lower bound (on `createdAt`) |
+| `to` | `string` | -- | ISO 8601 datetime upper bound (on `createdAt`) |
+
+The `journeyId` and `userId` fields in each result are resolved from the email's linked journey state (soft-deleted states are ignored); both are `null` for emails not sent from a journey.
 
 **Response `200`**
 
@@ -38,6 +46,8 @@ List email sends with optional filters. Results are ordered by `createdAt` desce
       "subject": "Welcome to Hogsend",
       "category": "journey",
       "status": "delivered",
+      "userId": "user_abc123",
+      "journeyId": "activation-welcome",
       "sentAt": "2025-01-15T10:30:00.000Z",
       "deliveredAt": "2025-01-15T10:30:05.000Z",
       "openedAt": "2025-01-15T11:00:00.000Z",
@@ -55,8 +65,9 @@ List email sends with optional filters. Results are ordered by `createdAt` desce
 ```
 
 ```bash
+# Opened emails for a given journey, oldest first
 curl -H "Authorization: Bearer your-admin-api-key" \
-  "http://localhost:3002/v1/admin/emails?status=delivered&toEmail=user@example.com"
+  "http://localhost:3002/v1/admin/emails?journeyId=activation-welcome&engagement=opened&sort=openedAt&order=asc"
 ```
 
 ### `GET /v1/admin/emails/{id}`
@@ -83,6 +94,8 @@ Get a single email with its delivery timeline, tracked link clicks, and journey 
     "subject": "Welcome to Hogsend",
     "category": "journey",
     "status": "delivered",
+    "userId": "user_abc123",
+    "journeyId": "activation-welcome",
     "sentAt": "2025-01-15T10:30:00.000Z",
     "deliveredAt": "2025-01-15T10:30:05.000Z",
     "openedAt": "2025-01-15T11:00:00.000Z",
@@ -92,6 +105,19 @@ Get a single email with its delivery timeline, tracked link clicks, and journey 
     "createdAt": "2025-01-15T10:30:00.000Z",
     "updatedAt": "2025-01-15T11:00:00.000Z"
   },
+  "events": [
+    { "type": "queued", "timestamp": "2025-01-15T10:30:00.000Z" },
+    { "type": "sent", "timestamp": "2025-01-15T10:30:01.000Z" },
+    { "type": "delivered", "timestamp": "2025-01-15T10:30:05.000Z" },
+    { "type": "opened", "timestamp": "2025-01-15T11:00:00.000Z" },
+    {
+      "type": "clicked",
+      "timestamp": "2025-01-15T11:05:00.000Z",
+      "url": "https://example.com/docs",
+      "ipAddress": "192.168.1.1",
+      "userAgent": "Mozilla/5.0..."
+    }
+  ],
   "trackedLinks": [
     {
       "id": "link-uuid",
@@ -116,7 +142,9 @@ Get a single email with its delivery timeline, tracked link clicks, and journey 
 }
 ```
 
-The `journeyContext` field is `null` if the email was not sent from a journey. The `trackedLinks` array is empty if no links were tracked.
+The `events` array is a chronological (ascending) delivery timeline assembled from the email's lifecycle timestamps — one entry per non-null event (`queued`, `sent`, `delivered`, `opened`, `bounced`, `complained`, and `failed` when the send failed) plus one `clicked` entry per recorded link click (with `url`, `ipAddress`, and `userAgent`).
+
+The `userId` and `journeyId` fields on `email` are resolved from the linked journey state and are `null` when the email was not sent from a journey. The `journeyContext` field is `null` if the email was not sent from a journey. The `trackedLinks` array is empty if no links were tracked.
 
 **Response `404`** -- Email not found.
 

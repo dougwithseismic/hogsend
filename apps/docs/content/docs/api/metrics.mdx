@@ -132,11 +132,19 @@ curl -H "Authorization: Bearer your-api-key" \
 
 Per-template email performance metrics.
 
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `from` | `string` | -- | ISO 8601 datetime lower bound (on `createdAt`) |
+| `to` | `string` | -- | ISO 8601 datetime upper bound (on `createdAt`) |
+| `includeUntemplated` | `string` | `false` | `"true"` to include sends with no `templateKey` (grouped under `"(none)"`); `"false"` excludes them |
+
 **Response `200`**
 
 ```json
 {
-  "emails": [
+  "templates": [
     {
       "templateKey": "activation/welcome",
       "sent": 480,
@@ -145,8 +153,9 @@ Per-template email performance metrics.
       "clicked": 150,
       "bounced": 5,
       "deliveryRate": 0.99,
-      "openRate": 0.67,
-      "clickRate": 0.31
+      "openRate": 0.6737,
+      "clickRate": 0.4688,
+      "clickToDeliveryRate": 0.3158
     }
   ]
 }
@@ -154,19 +163,20 @@ Per-template email performance metrics.
 
 | Field | Type | Description |
 |---|---|---|
-| `templateKey` | `string` | Email template identifier |
+| `templateKey` | `string` | Email template identifier (`"(none)"` for untemplated sends when included) |
 | `sent` | `number` | Total sends |
 | `delivered` | `number` | Successfully delivered |
 | `opened` | `number` | Unique opens |
 | `clicked` | `number` | Unique clicks |
 | `bounced` | `number` | Hard bounces |
-| `deliveryRate` | `number` | Delivery ratio (0-1) |
-| `openRate` | `number` | Open ratio (0-1) |
-| `clickRate` | `number` | Click ratio (0-1) |
+| `deliveryRate` | `number` | Delivered / sent (0-1) |
+| `openRate` | `number` | Opened / delivered, falling back to opened / sent when no deliveries are recorded (0-1) |
+| `clickRate` | `number` | Clicked / opened (0-1) |
+| `clickToDeliveryRate` | `number` | Clicked / delivered (0-1) |
 
 ```bash
 curl -H "Authorization: Bearer your-api-key" \
-  http://localhost:3002/v1/admin/metrics/emails
+  "http://localhost:3002/v1/admin/metrics/emails?from=2025-01-01T00:00:00Z&to=2025-01-31T00:00:00Z&includeUntemplated=false"
 ```
 
 ### `GET /v1/admin/metrics/emails/deliverability`

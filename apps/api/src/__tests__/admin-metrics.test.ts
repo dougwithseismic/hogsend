@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
@@ -30,14 +30,47 @@ vi.mock("../workflows/send-email.js", () => ({
   },
 }));
 
+const { emailSends } = await import("@hogsend/db");
+const { eq } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 
 const container = createHogsendClient();
 const app = createApp(container);
+const { db } = container;
 
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.ADMIN_API_KEY}`,
 };
+
+// A template whose only row is sent but NOT delivered (deliveredAt null) yet
+// opened — exercises the open-rate denominator fallback to `sent`.
+const OPEN_RATE_TEMPLATE = "admin-metrics-open-rate-template";
+let openRateEmailId: string;
+
+beforeAll(async () => {
+  const base = new Date("2026-02-01T00:00:00.000Z");
+  const rows = await db
+    .insert(emailSends)
+    .values({
+      templateKey: OPEN_RATE_TEMPLATE,
+      fromEmail: "from@hogsend.com",
+      toEmail: "openrate@example.com",
+      subject: "Open rate fallback test",
+      status: "opened",
+      createdAt: base,
+      sentAt: new Date(base.getTime() + 1000),
+      // deliveredAt intentionally null
+      openedAt: new Date(base.getTime() + 3000),
+    })
+    .returning({ id: emailSends.id });
+  openRateEmailId = rows[0]?.id ?? "";
+});
+
+afterAll(async () => {
+  if (openRateEmailId) {
+    await db.delete(emailSends).where(eq(emailSends.id, openRateEmailId));
+  }
+});
 
 // --- Overview ---
 
@@ -113,7 +146,7 @@ describe("GET /v1/admin/metrics/emails", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns per-template metrics", async () => {
+  it("returns per-template metrics with clickToDeliveryRate", async () => {
     const res = await app.request("/v1/admin/metrics/emails", {
       headers: AUTH_HEADER,
     });
@@ -121,6 +154,58 @@ describe("GET /v1/admin/metrics/emails", () => {
 
     const body = await res.json();
     expect(body.templates).toBeInstanceOf(Array);
+    for (const t of body.templates) {
+      expect(typeof t.deliveryRate).toBe("number");
+      expect(typeof t.openRate).toBe("number");
+      expect(typeof t.clickRate).toBe("number");
+      expect(typeof t.clickToDeliveryRate).toBe("number");
+    }
+  });
+
+  it("computes openRate off sent when delivered is 0 (denominator fallback)", async () => {
+    const res = await app.request("/v1/admin/metrics/emails", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    const row = body.templates.find(
+      (t: { templateKey: string }) => t.templateKey === OPEN_RATE_TEMPLATE,
+    );
+    expect(row).toBeDefined();
+    expect(row.sent).toBe(1);
+    expect(row.delivered).toBe(0);
+    expect(row.opened).toBe(1);
+    // delivered=0 -> denominator falls back to sent=1, so openRate is 1, not 0.
+    expect(row.openRate).toBe(1);
+    // clickToDeliveryRate guards on delivered>0, so it stays 0.
+    expect(row.clickToDeliveryRate).toBe(0);
+  });
+
+  it("accepts from/to window and includeUntemplated params", async () => {
+    const res = await app.request(
+      "/v1/admin/metrics/emails?from=2020-01-01T00:00:00.000Z&to=2020-12-31T00:00:00.000Z&includeUntemplated=true",
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    expect(body.templates).toBeInstanceOf(Array);
+  });
+
+  it("includeUntemplated=false excludes untemplated rows (not coerced to true)", async () => {
+    const res = await app.request(
+      "/v1/admin/metrics/emails?includeUntemplated=false",
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+    // The "(none)" bucket is only produced when untemplated rows are included.
+    const untemplated = body.templates.find(
+      (t: { templateKey: string }) => t.templateKey === "(none)",
+    );
+    expect(untemplated).toBeUndefined();
   });
 });
 

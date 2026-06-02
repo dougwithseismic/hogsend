@@ -27,6 +27,10 @@ const TRUNC_SQL = {
   month: sql`'month'`,
 } as const;
 
+/** Guarded divide, rounded to 4 decimal places. Returns 0 when denom <= 0. */
+const rate = (num: number, denom: number) =>
+  denom > 0 ? Math.round((num / denom) * 10000) / 10000 : 0;
+
 const overviewRoute = createRoute({
   method: "get",
   path: "/overview",
@@ -123,6 +127,13 @@ const emailMetricsRoute = createRoute({
   path: "/emails",
   tags: ["Admin — Metrics"],
   summary: "Per-template email metrics",
+  request: {
+    query: z.object({
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+      includeUntemplated: z.enum(["true", "false"]).default("false"),
+    }),
+  },
   responses: {
     200: {
       content: {
@@ -139,6 +150,7 @@ const emailMetricsRoute = createRoute({
                 deliveryRate: z.number(),
                 openRate: z.number(),
                 clickRate: z.number(),
+                clickToDeliveryRate: z.number(),
               }),
             ),
           }),
@@ -284,8 +296,6 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
     ]);
 
     const sent30d = emails30d;
-    const bounceRate30d = sent30d > 0 ? bounced30d / sent30d : 0;
-    const unsubscribeRate = totalPrefs > 0 ? unsubscribed / totalPrefs : 0;
 
     return c.json(
       {
@@ -294,8 +304,8 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
         emailsSent24h: emails24h,
         emailsSent7d: emails7d,
         emailsSent30d: sent30d,
-        bounceRate30d: Math.round(bounceRate30d * 10000) / 10000,
-        unsubscribeRate: Math.round(unsubscribeRate * 10000) / 10000,
+        bounceRate30d: rate(bounced30d, sent30d),
+        unsubscribeRate: rate(unsubscribed, totalPrefs),
       },
       200,
     );
@@ -352,7 +362,6 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
         (counts.failed ?? 0) +
         (counts.exited ?? 0);
       const completed = counts.completed ?? 0;
-      const completionRate = enrolled > 0 ? completed / enrolled : 0;
 
       return {
         journeyId: j.id,
@@ -362,7 +371,7 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
         failed: counts.failed ?? 0,
         exited: counts.exited ?? 0,
         active: (counts.active ?? 0) + (counts.waiting ?? 0),
-        completionRate: Math.round(completionRate * 10000) / 10000,
+        completionRate: rate(completed, enrolled),
         avgDurationSecs: durationMap.has(j.id)
           ? Math.round(durationMap.get(j.id) ?? 0)
           : null,
@@ -437,6 +446,15 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
   })
   .openapi(emailMetricsRoute, async (c) => {
     const { db } = c.get("container");
+    const { from, to, includeUntemplated } = c.req.valid("query");
+
+    const conditions = [];
+    if (includeUntemplated !== "true")
+      conditions.push(isNotNull(emailSends.templateKey));
+    if (from) conditions.push(gte(emailSends.createdAt, new Date(from)));
+    if (to) conditions.push(lte(emailSends.createdAt, new Date(to)));
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
 
     const rows = await db
       .select({
@@ -448,7 +466,7 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
         bounced: sql<number>`count(*) filter (where ${emailSends.status} = 'bounced')`,
       })
       .from(emailSends)
-      .where(isNotNull(emailSends.templateKey))
+      .where(where)
       .groupBy(emailSends.templateKey);
 
     const templates = rows.map((row) => {
@@ -456,19 +474,20 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
       const delivered = Number(row.delivered);
       const opened = Number(row.opened);
       const clicked = Number(row.clicked);
+      // Open-rate denominator falls back to sent when delivered-webhooks aren't
+      // firing, so opens aren't silently zeroed.
+      const openDenominator = delivered > 0 ? delivered : sent;
       return {
-        templateKey: row.templateKey ?? "",
+        templateKey: row.templateKey ?? "(none)",
         sent,
         delivered,
         opened,
         clicked,
         bounced: Number(row.bounced),
-        deliveryRate:
-          sent > 0 ? Math.round((delivered / sent) * 10000) / 10000 : 0,
-        openRate:
-          delivered > 0 ? Math.round((opened / delivered) * 10000) / 10000 : 0,
-        clickRate:
-          opened > 0 ? Math.round((clicked / opened) * 10000) / 10000 : 0,
+        deliveryRate: rate(delivered, sent),
+        openRate: rate(opened, openDenominator),
+        clickRate: rate(clicked, opened),
+        clickToDeliveryRate: rate(clicked, delivered),
       };
     });
 
@@ -510,8 +529,7 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
         delivered,
         bounced: Number(row.bounced),
         complained: Number(row.complained),
-        deliveryRate:
-          total > 0 ? Math.round((delivered / total) * 10000) / 10000 : 0,
+        deliveryRate: rate(delivered, total),
       };
     });
 
