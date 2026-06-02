@@ -16,6 +16,10 @@ export const env = createEnv({
     REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
     BETTER_AUTH_SECRET: z.string().min(1),
     BETTER_AUTH_URL: z.string().url().default("http://localhost:3002"),
+    // Extra origins allowed to call the auth endpoints (beyond BETTER_AUTH_URL),
+    // comma-separated. Needed when the Studio is served from a different origin
+    // than the API — e.g. the `hogsend studio` CLI pointing at a remote instance.
+    BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
     RESEND_API_KEY: z.string().min(1),
     RESEND_FROM_EMAIL: z.string().email().default("noreply@hogsend.com"),
     // Hatchet connection contract. The @hatchet-dev SDK also reads these straight

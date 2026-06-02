@@ -8,12 +8,19 @@ export function createAuth(opts: {
   db: Database;
   secret: string;
   baseURL: string;
+  /**
+   * Extra origins allowed to call auth endpoints, beyond `baseURL` (which is
+   * always trusted). Needed when the Studio is served from a different origin
+   * than the API (e.g. the `hogsend studio` CLI against a remote instance).
+   */
+  trustedOrigins?: string[];
 }) {
-  const { db, secret, baseURL } = opts;
+  const { db, secret, baseURL, trustedOrigins } = opts;
   return betterAuth({
     basePath: "/api/auth",
     secret,
     baseURL,
+    ...(trustedOrigins && trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     database: drizzleAdapter(db, {
       provider: "pg",
       schema,

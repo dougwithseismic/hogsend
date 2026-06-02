@@ -161,6 +161,18 @@ export function createHogsendClient(
       db,
       secret: env.BETTER_AUTH_SECRET,
       baseURL: env.BETTER_AUTH_URL,
+      // Always trust the public API origin; add any explicitly configured ones
+      // (e.g. a remote Studio origin) on top. baseURL is trusted automatically.
+      trustedOrigins: Array.from(
+        new Set(
+          [
+            env.API_PUBLIC_URL,
+            ...(env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []),
+          ]
+            .map((o) => o.trim())
+            .filter(Boolean),
+        ),
+      ),
     });
 
   const email = createResendClient({ apiKey: env.RESEND_API_KEY });
