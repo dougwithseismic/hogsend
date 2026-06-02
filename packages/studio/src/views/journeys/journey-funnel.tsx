@@ -7,7 +7,10 @@ import { formatNumber, formatPercent } from "@/lib/format";
 type Step = { label: string; value: number };
 
 function FunnelBar({ step, base }: { step: Step; base: number }) {
-  const pct = base > 0 ? (step.value / base) * 100 : 0;
+  // `ratio` is a 0–1 fraction (what formatPercent expects); `pct` is the same
+  // value as a 0–100 number for the bar's CSS width.
+  const ratio = base > 0 ? step.value / base : 0;
+  const pct = ratio * 100;
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-sm">
@@ -15,7 +18,7 @@ function FunnelBar({ step, base }: { step: Step; base: number }) {
         <span className="text-muted-foreground">
           {formatNumber(step.value)}
           {base > 0 ? (
-            <span className="ml-1 text-xs">({formatPercent(pct)})</span>
+            <span className="ml-1 text-xs">({formatPercent(ratio)})</span>
           ) : null}
         </span>
       </div>

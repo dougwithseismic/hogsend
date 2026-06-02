@@ -42,10 +42,13 @@ export function formatRelative(iso: string | null | undefined): string {
   return formatDate(iso);
 }
 
-/** Backend rates are already percentages (0–100). Render with one decimal. */
+/**
+ * Backend rates are 0–1 fractions (see the engine's `rate()` helper, which the
+ * CLI also renders as `value * 100`). Scale to a percent and show one decimal.
+ */
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
-  return `${value.toFixed(1)}%`;
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 /** Thousands-separated integer. */
