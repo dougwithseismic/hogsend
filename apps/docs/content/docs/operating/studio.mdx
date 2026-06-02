@@ -69,6 +69,32 @@ On first load the Studio probes `GET /v1/auth/status`. If no admin exists yet (`
 
 This is the security control that lets the admin API trust any authenticated session: only the first user can ever register, so any logged-in session is an intended operator.
 
+## Creating an API key
+
+API keys authenticate programmatic access to `/v1/admin/*` — the CLI, CI jobs, agents, and anything that isn't a logged-in human in the Studio. Create them under **Settings**.
+
+![Creating an API key in Hogsend Studio](/images/studio/create-api-key.gif)
+
+1. Open **Settings** in the sidebar and click **New API key**.
+2. Give it a **descriptive name** (e.g. `production-ingest`, `ci`, `analytics-readonly`) — this is how you'll recognise it in the list and the audit log.
+3. Pick the **scopes** it needs (least privilege wins):
+
+   | Scope | Grants |
+   |---|---|
+   | `read` | Read-only access to all admin endpoints (metrics, reporting, sends, contacts). |
+   | `journey-admin` | `read` plus journey operations (enable/disable, retrigger). |
+   | `full-admin` | Everything, including destructive + billing-sensitive actions (e.g. send-test, key management). |
+
+4. Click **Create key**. The **secret is shown once** — copy it immediately; it can't be retrieved again (only the prefix is stored). Pass it as `Authorization: Bearer <key>`.
+5. To rotate or retire a key, **Revoke** it from the list — it stops working immediately. Revoking can't be undone, so create the replacement first.
+
+```bash
+# Use the key with the CLI or any HTTP client
+export HOGSEND_ADMIN_KEY=hsk_...
+hogsend doctor
+curl -H "Authorization: Bearer $HOGSEND_ADMIN_KEY" https://api.example.com/v1/admin/metrics/overview
+```
+
 ## Relationship to the CLI
 
 The Studio and the [CLI](/docs/cli) are two front-ends over the same admin API. Reach for the Studio when you want to *look* — funnels, timelines, previews. Reach for the CLI (or its `--json` output) when you want to *script* — agents, CI, bulk operations. Neither authors journeys or templates; those stay in code.
