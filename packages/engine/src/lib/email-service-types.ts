@@ -35,6 +35,9 @@ export interface SendTrackedEmailOptions<
   to: string;
   subject?: string;
   journeyStateId?: string;
+  /** Denormalized recipient identity, persisted on the email_sends row for reporting. */
+  userId?: string;
+  userEmail?: string;
   category?: string;
   tags?: Array<{ name: string; value: string }>;
   headers?: Record<string, string>;
@@ -108,6 +111,9 @@ export interface EmailServiceSendOptions<
   from?: string;
   subject?: string;
   journeyStateId?: string;
+  /** Denormalized recipient identity, persisted on the email_sends row for reporting. */
+  userId?: string;
+  userEmail?: string;
   category?: string;
   tags?: Array<{ name: string; value: string }>;
   headers?: Record<string, string>;

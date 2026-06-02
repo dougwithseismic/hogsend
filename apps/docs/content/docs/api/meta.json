@@ -9,6 +9,7 @@
     "tracking",
     "events",
     "metrics",
+    "reporting",
     "operations"
   ]
 }

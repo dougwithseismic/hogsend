@@ -71,6 +71,13 @@
       "when": 1780319468132,
       "tag": "0009_productive_shadowcat",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1780391105279,
+      "tag": "0010_equal_legion",
+      "breakpoints": true
     }
   ]
 }

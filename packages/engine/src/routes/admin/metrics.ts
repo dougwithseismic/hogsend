@@ -18,18 +18,8 @@ import {
   sql,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { rate, TRUNC_SQL } from "../../lib/metrics-sql.js";
 import { errorSchema } from "../../lib/schemas.js";
-
-const TRUNC_SQL = {
-  hour: sql`'hour'`,
-  day: sql`'day'`,
-  week: sql`'week'`,
-  month: sql`'month'`,
-} as const;
-
-/** Guarded divide, rounded to 4 decimal places. Returns 0 when denom <= 0. */
-const rate = (num: number, denom: number) =>
-  denom > 0 ? Math.round((num / denom) * 10000) / 10000 : 0;
 
 const overviewRoute = createRoute({
   method: "get",

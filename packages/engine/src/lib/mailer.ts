@@ -91,6 +91,8 @@ export function createTrackedMailer(
             to: options.to,
             subject: options.subject,
             journeyStateId: options.journeyStateId,
+            userId: options.userId,
+            userEmail: options.userEmail,
             category: options.category,
             tags: options.tags,
             headers: options.headers,
@@ -190,7 +192,10 @@ export function createTrackedMailer(
         await updateEmailStatus(event.type, event.data.email_id);
         break;
       case "email.bounced":
-        await updateEmailStatus(event.type, event.data.email_id);
+        await updateEmailStatus(event.type, event.data.email_id, {
+          bounceType: event.data.bounce?.type,
+          bounceReason: event.data.bounce?.message,
+        });
         await handleBounce(event.data.to);
         break;
       case "email.complained":
@@ -247,6 +252,7 @@ export function createTrackedMailer(
   async function updateEmailStatus(
     eventType: WebhookEventType,
     resendId: string,
+    extra?: { bounceType?: string; bounceReason?: string },
   ): Promise<void> {
     if (!db) return;
 
@@ -259,6 +265,8 @@ export function createTrackedMailer(
       .set({
         status: status as typeof emailSends.$inferSelect.status,
         [timestampField]: new Date(),
+        ...(extra?.bounceType ? { bounceType: extra.bounceType } : {}),
+        ...(extra?.bounceReason ? { bounceReason: extra.bounceReason } : {}),
         updatedAt: new Date(),
       })
       .where(eq(emailSends.resendId, resendId));

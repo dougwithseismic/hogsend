@@ -1,0 +1,134 @@
+---
+title: Reporting API
+description: Per-template time-series, per-contact email activity, and CSV export of sends.
+---
+
+Reporting endpoints build on the email send log to answer deeper questions: how a template trends over time, everything a single contact has been sent, and bulk export. All live under `/v1/admin/reporting` and require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+For the searchable send log and per-template snapshot, see the [Emails API](/docs/api/emails) and [Metrics API](/docs/api/metrics).
+
+## `GET /v1/admin/reporting/templates/{templateKey}`
+
+One template's totals plus an engagement time-series, over an optional window.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `templateKey` | `string` | The template to report on |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `from` | `string` | -- | ISO 8601 datetime lower bound (on `createdAt`) |
+| `to` | `string` | -- | ISO 8601 datetime upper bound (on `createdAt`) |
+| `granularity` | `string` | `day` | Series bucket: `day`, `week`, or `month` |
+
+**Response `200`**
+
+```json
+{
+  "templateKey": "activation-quickstart",
+  "window": { "from": "2026-05-01T00:00:00.000Z", "to": null },
+  "totals": {
+    "sent": 480,
+    "delivered": 475,
+    "opened": 320,
+    "clicked": 150,
+    "bounced": 5,
+    "complained": 0,
+    "deliveryRate": 0.9896,
+    "openRate": 0.6737,
+    "clickRate": 0.4688,
+    "clickToDeliveryRate": 0.3158
+  },
+  "series": [
+    { "date": "2026-05-01 00:00:00+00", "sent": 120, "delivered": 119, "opened": 80, "clicked": 35, "bounced": 1 }
+  ]
+}
+```
+
+`openRate` divides by `delivered`, falling back to `sent` when no deliveries are recorded. `clickToDeliveryRate` (clicks ÷ delivered) is the most robust headline when open tracking is partially blocked.
+
+**Response `404`** -- the template has never been sent.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/reporting/templates/activation-quickstart?granularity=week&from=2026-01-01T00:00:00Z"
+```
+
+## `GET /v1/admin/reporting/contacts/{id}/activity`
+
+Every email a single contact has been sent, with engagement. The `id` resolves by external ID, contact UUID, or email; sends are matched on the denormalized recipient identity (`userId`/`userEmail`), so journeyless sends are included too.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Contact external ID, UUID, or email |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+
+**Response `200`**
+
+```json
+{
+  "contact": { "externalId": "user_abc123", "email": "user@acme.com" },
+  "sends": [
+    {
+      "id": "email-uuid",
+      "templateKey": "conversion-trial-expiring",
+      "subject": "Your trial ends in 3 days",
+      "status": "opened",
+      "sentAt": "2026-05-20T10:00:00.000Z",
+      "deliveredAt": "2026-05-20T10:00:04.000Z",
+      "openedAt": "2026-05-20T11:12:00.000Z",
+      "clickedAt": null,
+      "bouncedAt": null,
+      "complainedAt": null,
+      "bounceType": null,
+      "createdAt": "2026-05-20T10:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Response `404`** -- contact not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/reporting/contacts/user_abc123/activity"
+```
+
+## `GET /v1/admin/reporting/sends/export`
+
+Streams a CSV of email sends matching the same filters as [`GET /v1/admin/emails`](/docs/api/emails). Returns `Content-Type: text/csv` with a `Content-Disposition: attachment` header. Bounded to 50,000 rows.
+
+**Query Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `templateKey` | `string` | Filter by template key |
+| `status` | `string` | Filter by status |
+| `category` | `string` | Filter by category |
+| `userId` | `string` | Filter by recipient user (denormalized identity) |
+| `engagement` | `string` | `opened`, `clicked`, `bounced`, or `complained` |
+| `from` | `string` | ISO 8601 datetime lower bound (on `createdAt`) |
+| `to` | `string` | ISO 8601 datetime upper bound (on `createdAt`) |
+
+**Response `200`** -- CSV with the header row: `id,createdAt,templateKey,status,toEmail,userId,subject,sentAt,deliveredAt,openedAt,clickedAt,bouncedAt,complainedAt,bounceType`.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/reporting/sends/export?templateKey=activation-quickstart&engagement=clicked" \
+  -o sends.csv
+```

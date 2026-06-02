@@ -66,6 +66,8 @@ export async function sendTrackedEmail<K extends TemplateName>(
           subject: options.subject ?? "",
           category: options.category,
           journeyStateId: options.journeyStateId,
+          userId: options.userId,
+          userEmail: options.userEmail ?? options.to,
           status: "failed",
         })
         .returning({ id: emailSends.id });
@@ -126,6 +128,8 @@ export async function sendTrackedEmail<K extends TemplateName>(
       subject,
       category: options.category ?? category,
       journeyStateId: options.journeyStateId,
+      userId: options.userId,
+      userEmail: options.userEmail ?? options.to,
       status: "queued",
     })
     .returning({ id: emailSends.id });

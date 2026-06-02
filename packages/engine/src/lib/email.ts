@@ -76,6 +76,8 @@ export async function sendEmail(
     to: opts.to,
     subject: opts.subject,
     journeyStateId: opts.journeyStateId,
+    userId: opts.userId,
+    userEmail: opts.to,
     category: "journey",
     tags: [
       { name: "journeyId", value: opts.journeyName ?? opts.template },
