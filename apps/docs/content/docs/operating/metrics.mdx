@@ -111,7 +111,7 @@ curl -H "Authorization: Bearer your-api-key" \
 
 ```json
 {
-  "emails": [
+  "templates": [
     {
       "templateKey": "activation/welcome",
       "sent": 480,
@@ -120,14 +120,15 @@ curl -H "Authorization: Bearer your-api-key" \
       "clicked": 150,
       "bounced": 5,
       "deliveryRate": 0.99,
-      "openRate": 0.67,
-      "clickRate": 0.31
+      "openRate": 0.6737,
+      "clickRate": 0.4688,
+      "clickToDeliveryRate": 0.3158
     }
   ]
 }
 ```
 
-Use this to compare template performance side-by-side and identify templates that need attention (low open rates, high bounce rates, etc.).
+Use this to compare template performance side-by-side and identify templates that need attention (low open rates, high bounce rates, etc.). Accepts a `from`/`to` window (on `createdAt`) and `includeUntemplated=true` to fold raw sends (no `templateKey`) into a `"(none)"` bucket. `openRate` divides by `delivered`, falling back to `sent` when no deliveries are recorded yet; `clickToDeliveryRate` (clicks ÷ delivered) is the most robust headline when open tracking is partially blocked.
 
 ### Deliverability Trends
 
@@ -140,7 +141,7 @@ curl -H "Authorization: Bearer your-api-key" \
 
 ```json
 {
-  "deliverability": [
+  "points": [
     {
       "date": "2025-01-15",
       "total": 120,

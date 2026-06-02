@@ -186,6 +186,35 @@ hogsend patch       # Patch a package via pnpm's native patch flow
 
 ---
 
+## Reporting
+
+Every send is recorded — template, recipient, journey, and the full engagement trail (delivered, opened, clicked, bounced, complained) — and it's all queryable over the admin API. No external analytics, no ETL; the numbers are SQL aggregates computed on demand.
+
+```bash
+# What was sent to one user, oldest first
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "$API/v1/admin/emails?userId=user_abc123&sort=createdAt&order=asc"
+
+# Opened emails from a specific journey
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "$API/v1/admin/emails?journeyId=activation-welcome&engagement=opened"
+
+# One send's full delivery timeline (queued → sent → delivered → opened → clicked)
+curl -H "Authorization: Bearer $ADMIN_API_KEY" "$API/v1/admin/emails/$ID"
+
+# Per-template performance over a window
+curl -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "$API/v1/admin/metrics/emails?from=2026-05-01T00:00:00Z"
+```
+
+- **`GET /v1/admin/emails`** — filter by `templateKey`, `category`, `status`, `journeyId`, `userId`, `engagement` (opened/clicked/bounced/complained), and a date window; sort by any lifecycle timestamp. Each row resolves who it went to and from which journey.
+- **`GET /v1/admin/emails/{id}`** — a single send with a chronological `events[]` timeline and every tracked-link click (URL, IP, user agent).
+- **`GET /v1/admin/metrics/emails`** — per-template `sent`/`delivered`/`opened`/`clicked`/`bounced` with delivery, open, click, and click-to-delivery rates over an optional window.
+
+> Full guide: **[Email Operations](https://docs.hogsend.com/docs/operating/emails)** | **[Metrics & Analytics](https://docs.hogsend.com/docs/operating/metrics)** | **[API Reference](https://docs.hogsend.com/docs/api/emails)**
+
+---
+
 ## Stack
 
 | Concern | Tool |

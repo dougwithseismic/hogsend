@@ -29,7 +29,21 @@ curl -H "Authorization: Bearer your-api-key" \
 # Bounced emails
 curl -H "Authorization: Bearer your-api-key" \
   "http://localhost:3002/v1/admin/emails?status=bounced"
+
+# Everything a single user has been sent, oldest first
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?userId=user_abc123&sort=createdAt&order=asc"
+
+# Emails from one journey that were opened
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?journeyId=activation-welcome&engagement=opened"
+
+# Most recently clicked emails across a template
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/emails?templateKey=conversion-trial-expiring&engagement=clicked&sort=clickedAt&order=desc"
 ```
+
+**Filters:** `toEmail`, `templateKey`, `category`, `status`, `journeyId`, `userId`, `engagement` (`opened` / `clicked` / `bounced` / `complained`), and a `from`/`to` window on `createdAt`. `engagement` matches on the underlying timestamp column rather than the latest `status`, so a filter like `engagement=opened` still catches an email that has since `clicked` or `bounced`. Sort with `sort` (`createdAt`, `sentAt`, `openedAt`, `clickedAt`) and `order` (`asc` / `desc`); the default is newest-first by `createdAt`. `journeyId` and `userId` are resolved from the email's linked journey state.
 
 ```json
 {
@@ -44,6 +58,8 @@ curl -H "Authorization: Bearer your-api-key" \
       "subject": "Welcome to Hogsend",
       "category": "journey",
       "status": "delivered",
+      "userId": "user_abc123",
+      "journeyId": "activation-welcome",
       "sentAt": "2025-01-15T10:30:00.000Z",
       "deliveredAt": "2025-01-15T10:30:05.000Z",
       "openedAt": "2025-01-15T11:00:00.000Z",
@@ -113,6 +129,19 @@ curl -H "Authorization: Bearer your-api-key" \
     "bouncedAt": null,
     "complainedAt": null
   },
+  "events": [
+    { "type": "queued", "timestamp": "2025-01-15T10:30:00.000Z" },
+    { "type": "sent", "timestamp": "2025-01-15T10:30:01.000Z" },
+    { "type": "delivered", "timestamp": "2025-01-15T10:30:05.000Z" },
+    { "type": "opened", "timestamp": "2025-01-15T11:00:00.000Z" },
+    {
+      "type": "clicked",
+      "timestamp": "2025-01-15T11:05:00.000Z",
+      "url": "https://example.com/docs",
+      "ipAddress": "192.168.1.1",
+      "userAgent": "Mozilla/5.0..."
+    }
+  ],
   "trackedLinks": [
     {
       "id": "link-uuid",
@@ -139,9 +168,11 @@ curl -H "Authorization: Bearer your-api-key" \
 
 The `journeyContext` field is `null` if the email was not sent from a journey. The `trackedLinks` array shows every link that was tracked in the email, with individual click records including timestamps, IP addresses, and user agents.
 
+The `events` array is the same history pre-assembled into a single chronological (ascending) timeline — one entry per lifecycle moment (`queued`, `sent`, `delivered`, `opened`, `bounced`, `complained`, and `failed` when a send fails) plus one `clicked` entry per recorded link click (carrying its `url`, `ipAddress`, and `userAgent`). It's the easiest thing to render in a per-contact activity view.
+
 ### Understanding the Delivery Timeline
 
-For a delivered email, read the timestamps to understand the delivery path:
+The `events` array above gives you the ready-made timeline; the raw timestamps on the email object are the underlying source:
 
 | Timestamp | What happened |
 |---|---|
@@ -164,7 +195,7 @@ curl -H "Authorization: Bearer your-api-key" \
 
 ```json
 {
-  "emails": [
+  "templates": [
     {
       "templateKey": "activation/welcome",
       "sent": 480,
@@ -173,8 +204,9 @@ curl -H "Authorization: Bearer your-api-key" \
       "clicked": 150,
       "bounced": 5,
       "deliveryRate": 0.99,
-      "openRate": 0.67,
-      "clickRate": 0.31
+      "openRate": 0.6737,
+      "clickRate": 0.4688,
+      "clickToDeliveryRate": 0.3158
     },
     {
       "templateKey": "activation/getting-started",
@@ -184,12 +216,22 @@ curl -H "Authorization: Bearer your-api-key" \
       "clicked": 45,
       "bounced": 2,
       "deliveryRate": 0.99,
-      "openRate": 0.50,
-      "clickRate": 0.15
+      "openRate": 0.5034,
+      "clickRate": 0.30,
+      "clickToDeliveryRate": 0.1510
     }
   ]
 }
 ```
+
+Scope it with a `from`/`to` window (on `createdAt`), and pass `includeUntemplated=true` to fold raw/`sendRaw` sends (no `templateKey`) into a `"(none)"` bucket:
+
+```bash
+curl -H "Authorization: Bearer your-api-key" \
+  "http://localhost:3002/v1/admin/metrics/emails?from=2026-05-01T00:00:00Z&to=2026-06-01T00:00:00Z"
+```
+
+`openRate` is opens ÷ delivered, but falls back to opens ÷ sent when no deliveries are recorded yet (so opens aren't silently zeroed if Resend's `delivered` webhook isn't wired up). `clickToDeliveryRate` (clicks ÷ delivered) is the most robust headline number when open tracking is partially blocked by mail clients.
 
 ### Benchmarks
 
@@ -224,7 +266,7 @@ curl -H "Authorization: Bearer your-api-key" \
 
 ```json
 {
-  "deliverability": [
+  "points": [
     {
       "date": "2026-05-24",
       "total": 120,
