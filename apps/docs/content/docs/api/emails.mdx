@@ -185,6 +185,180 @@ curl -X POST http://localhost:3002/v1/admin/emails/email-uuid/resend \
 
 ---
 
+## Admin -- Templates
+
+Browse the registered template catalog and render server-side previews. Previews use each template's optional `examples` props merged over engine-injected defaults (`name`, `unsubscribeUrl`, `journeyName`, `eventName`, `body`), then any caller-supplied props on top. Previews never use a real tracking domain, so rendering a preview never writes tracked links or touches the send pipeline. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/templates`
+
+List every template registered with the engine.
+
+**Response `200`**
+
+```json
+{
+  "templates": [
+    {
+      "key": "welcome",
+      "defaultSubject": "Welcome to Hogsend",
+      "category": "transactional",
+      "hasPreview": true
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `key` | `string` | Template registry key |
+| `defaultSubject` | `string` | Default subject line |
+| `category` | `string \| null` | Template category (e.g. `transactional`, `journey`) |
+| `hasPreview` | `boolean` | Whether the template defines a preview-text function |
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/templates
+```
+
+### `GET /v1/admin/templates/{key}/preview`
+
+Render one template to HTML and plain text.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `key` | `string` | Template registry key |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `props` | `string` | -- | Base64-encoded JSON object of props, merged over examples + engine defaults |
+| `format` | `string` | -- | `html` or `text` to return the raw rendered body; omit for the JSON envelope |
+
+**Response `200`** (default, JSON envelope)
+
+```json
+{
+  "key": "welcome",
+  "subject": "Welcome to Hogsend",
+  "category": "transactional",
+  "preview": "Welcome, Ada — lifecycle email as code starts here.",
+  "html": "<!DOCTYPE html> ...",
+  "text": "Lifecycle email, as code. ..."
+}
+```
+
+With `?format=html` the response is `text/html` with the raw rendered body; with `?format=text` it is `text/plain`.
+
+**Response `400`** -- `props` was supplied but is not base64-encoded JSON (or decodes to a non-object).
+
+**Response `404`** -- no template with that key is registered.
+
+**Response `500`** -- the template threw while rendering.
+
+```bash
+# JSON envelope with custom props
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/templates/welcome/preview?props=$(echo -n '{"name":"Grace"}' | base64)"
+
+# raw HTML for an iframe
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/templates/welcome/preview?format=html"
+```
+
+### `POST /v1/admin/templates/{key}/send-test`
+
+Render and send a single real test email of a template. Requires the `full-admin` scope. The recipient is exempt from preference/suppression checks so a test always lands.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `key` | `string` | Template registry key |
+
+**Request Body**
+
+```json
+{
+  "to": "you@example.com",
+  "props": { "name": "Ada" }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `to` | `string` | Yes | Recipient email address |
+| `props` | `object` | No | Props merged over the template's examples + engine defaults |
+
+**Response `200`**
+
+```json
+{ "status": "sent", "emailSendId": "email-uuid" }
+```
+
+**Response `400`** -- invalid recipient address.
+
+**Response `403`** -- the API key lacks the `full-admin` scope.
+
+**Response `404`** -- no template with that key is registered.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/templates/welcome/send-test \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "to": "you@example.com", "props": { "name": "Ada" } }'
+```
+
+---
+
+## Admin -- Suppressions
+
+List recipients who have been suppressed, have bounced, or have unsubscribed, drawn from the `email_preferences` table. Requires the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+### `GET /v1/admin/suppressions`
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `type` | `string` | -- | `bounced` (any bounces), `unsubscribed` (global unsubscribe), or `complained` (suppressed via spam complaint). Omit for all preference rows |
+| `limit` | `number` | `50` | Results per page (1-200) |
+| `offset` | `number` | `0` | Pagination offset |
+
+**Response `200`**
+
+```json
+{
+  "suppressions": [
+    {
+      "id": "pref-uuid",
+      "userId": "user_abc123",
+      "email": "user@acme.com",
+      "unsubscribedAll": false,
+      "suppressed": false,
+      "bounceCount": 2,
+      "categories": {},
+      "suppressedAt": null,
+      "lastBounceAt": "2026-05-20T10:00:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+The `complained` filter matches rows suppressed without any recorded bounces (a spam complaint sets `suppressed` without incrementing `bounceCount`).
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/suppressions?type=bounced&limit=100"
+```
+
+---
+
 ## Unsubscribe and Preferences
 
 These public endpoints handle email unsubscription and the preference center. They are token-authenticated (no API key needed) -- each link contains a signed JWT that identifies the user and action.

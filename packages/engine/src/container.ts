@@ -49,6 +49,13 @@ export interface HogsendClient {
   auth: Auth;
   email: Resend;
   emailService: EmailService;
+  /**
+   * The app's template registry (key → component + subject + category +
+   * optional preview/examples). Same object threaded into the engine mailer;
+   * exposed here so admin preview/catalog routes can enumerate keys and render
+   * templates without going through a send. Empty when no templates are wired.
+   */
+  templates: TemplateRegistry;
   analytics?: PostHogService;
   registry: JourneyRegistry;
   hatchet: HatchetClient;
@@ -183,12 +190,14 @@ export function createHogsendClient(
     sendWindow: defaults.sendWindow,
   });
 
+  const templates = opts.email?.templates ?? ({} as TemplateRegistry);
+
   const emailService =
     opts.overrides?.mailer ??
     createTrackedMailer(
       {
         defaultFrom: env.RESEND_FROM_EMAIL,
-        templates: opts.email?.templates ?? ({} as TemplateRegistry),
+        templates,
         db,
         webhookSecret: env.RESEND_WEBHOOK_SECRET,
         bounceThreshold: 3,
@@ -216,6 +225,7 @@ export function createHogsendClient(
     auth,
     email,
     emailService,
+    templates,
     analytics,
     registry,
     hatchet: opts.overrides?.hatchet ?? hatchet,

@@ -30,6 +30,13 @@ export interface TemplateDefinition<P = Record<string, unknown>> {
   defaultSubject: string;
   category?: string;
   preview?: (props: P) => string;
+  /**
+   * Sample props used to render this template in admin previews / catalogs.
+   * Purely illustrative — never used at real send time. Optional and additive;
+   * a template without `examples` simply falls back to engine-injected defaults
+   * (and its own component prop defaults) when previewed.
+   */
+  examples?: Partial<P>;
 }
 
 export type TemplateRegistry = {

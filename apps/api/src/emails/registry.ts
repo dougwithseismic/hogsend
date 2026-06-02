@@ -30,6 +30,7 @@ export const templates: TemplateRegistry = {
     defaultSubject: "Welcome to Hogsend",
     category: "transactional",
     preview: (props) => `Welcome to Hogsend, ${props.name}!`,
+    examples: { name: "Ada" },
   },
   "password-reset": {
     component: PasswordResetEmail,
@@ -48,6 +49,7 @@ export const templates: TemplateRegistry = {
     defaultSubject: "Welcome — let's get you set up",
     category: "journey",
     preview: (props) => `Welcome, ${props.name}! Get set up in 5 minutes.`,
+    examples: { name: "Ada" },
   },
   "activation-feature-highlight": {
     component: ActivationFeatureHighlightEmail,
@@ -84,6 +86,7 @@ export const templates: TemplateRegistry = {
     defaultSubject: "We'd love to have you back",
     category: "journey",
     preview: (props) => `${props.name}, here's a special offer`,
+    examples: { name: "Ada", discountPercent: 25, expiresIn: "48 hours" },
   },
   "retention-achievement": {
     component: RetentionAchievementEmail,

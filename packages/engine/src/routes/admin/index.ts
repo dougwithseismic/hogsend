@@ -16,6 +16,8 @@ import { journeysRouter } from "./journeys.js";
 import { metricsRouter } from "./metrics.js";
 import { preferencesRouter } from "./preferences.js";
 import { reportingRouter } from "./reporting.js";
+import { suppressionsRouter } from "./suppressions.js";
+import { templatesRouter } from "./templates.js";
 import { timelineRouter } from "./timeline.js";
 
 export const adminRouter = new OpenAPIHono<AppEnv>();
@@ -32,6 +34,8 @@ adminRouter.route("/emails", emailsRouter);
 adminRouter.route("/journey-logs", journeyLogsRouter);
 adminRouter.route("/metrics", metricsRouter);
 adminRouter.route("/reporting", reportingRouter);
+adminRouter.route("/templates", templatesRouter);
+adminRouter.route("/suppressions", suppressionsRouter);
 adminRouter.route("/api-keys", apiKeysRouter);
 adminRouter.route("/audit-logs", auditLogsRouter);
 adminRouter.route("/alerts", alertsRouter);
