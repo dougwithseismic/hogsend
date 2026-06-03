@@ -1,4 +1,5 @@
 import {
+  bucketMemberships,
   contacts,
   emailPreferences,
   emailSends,
@@ -33,6 +34,8 @@ const overviewRoute = createRoute({
           schema: z.object({
             totalContacts: z.number(),
             activeJourneys: z.number(),
+            activeBuckets: z.number(),
+            bucketMembers: z.number(),
             emailsSent24h: z.number(),
             emailsSent7d: z.number(),
             emailsSent30d: z.number(),
@@ -218,6 +221,75 @@ const eventVolumeRoute = createRoute({
   },
 });
 
+const bucketsMetricsRoute = createRoute({
+  method: "get",
+  path: "/buckets",
+  tags: ["Admin — Metrics"],
+  summary: "Per-bucket membership metrics",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            buckets: z.array(
+              z.object({
+                bucketId: z.string(),
+                name: z.string(),
+                size: z.number(),
+                entered: z.number(),
+                left: z.number(),
+                avgDwellSecs: z.number().nullable(),
+              }),
+            ),
+          }),
+        },
+      },
+      description: "Per-bucket size, entered/left totals, and average dwell",
+    },
+  },
+});
+
+const bucketTrendRoute = createRoute({
+  method: "get",
+  path: "/buckets/{id}",
+  tags: ["Admin — Metrics"],
+  summary: "Single bucket size-over-time and entered/left trend",
+  request: {
+    params: z.object({ id: z.string() }),
+    query: z.object({
+      period: z.enum(["day", "week", "month"]).default("day"),
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            bucketId: z.string(),
+            size: z.number(),
+            points: z.array(
+              z.object({
+                date: z.string(),
+                entered: z.number(),
+                left: z.number(),
+              }),
+            ),
+          }),
+        },
+      },
+      description: "Bucket entered/left time-series with current size",
+    },
+    404: {
+      content: {
+        "application/json": { schema: errorSchema },
+      },
+      description: "Bucket not found",
+    },
+  },
+});
+
 export const metricsRouter = new OpenAPIHono<AppEnv>()
   .openapi(overviewRoute, async (c) => {
     const { db } = c.get("container");
@@ -230,6 +302,8 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
     const [
       contactsTotal,
       activeJourneys,
+      activeBucketsRows,
+      bucketMembers,
       emails24h,
       emails7d,
       emails30d,
@@ -249,6 +323,27 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
           and(
             inArray(journeyStates.status, ["active", "waiting"]),
             isNull(journeyStates.deletedAt),
+          ),
+        )
+        .then((r) => r[0]?.count ?? 0),
+      // Distinct buckets with at least one active member.
+      db
+        .selectDistinct({ bucketId: bucketMemberships.bucketId })
+        .from(bucketMemberships)
+        .where(
+          and(
+            inArray(bucketMemberships.status, ["active"]),
+            isNull(bucketMemberships.deletedAt),
+          ),
+        ),
+      // Total active memberships across all buckets.
+      db
+        .select({ count: count() })
+        .from(bucketMemberships)
+        .where(
+          and(
+            inArray(bucketMemberships.status, ["active"]),
+            isNull(bucketMemberships.deletedAt),
           ),
         )
         .then((r) => r[0]?.count ?? 0),
@@ -291,6 +386,8 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
       {
         totalContacts: contactsTotal,
         activeJourneys,
+        activeBuckets: activeBucketsRows.length,
+        bucketMembers,
         emailsSent24h: emails24h,
         emailsSent7d: emails7d,
         emailsSent30d: sent30d,
@@ -564,4 +661,162 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
     }));
 
     return c.json({ events }, 200);
+  })
+  .openapi(bucketsMetricsRoute, async (c) => {
+    const { db, bucketRegistry } = c.get("container");
+
+    const [sizes, totals, dwell] = await Promise.all([
+      // Current size = active, non-deleted memberships per bucket.
+      db
+        .select({
+          bucketId: bucketMemberships.bucketId,
+          size: count(),
+        })
+        .from(bucketMemberships)
+        .where(
+          and(
+            eq(bucketMemberships.status, "active"),
+            isNull(bucketMemberships.deletedAt),
+          ),
+        )
+        .groupBy(bucketMemberships.bucketId),
+      // Total entered = all rows; total left = rows that have flipped to "left".
+      db
+        .select({
+          bucketId: bucketMemberships.bucketId,
+          entered: count(),
+          left: sql<number>`count(*) filter (where ${bucketMemberships.status} = 'left')`,
+        })
+        .from(bucketMemberships)
+        .where(isNull(bucketMemberships.deletedAt))
+        .groupBy(bucketMemberships.bucketId),
+      // Average dwell — seconds between entry and leave (or now, if still active).
+      db
+        .select({
+          bucketId: bucketMemberships.bucketId,
+          avgDwell: sql<number>`avg(extract(epoch from (coalesce(${bucketMemberships.leftAt}, now()) - ${bucketMemberships.enteredAt})))`,
+        })
+        .from(bucketMemberships)
+        .where(isNull(bucketMemberships.deletedAt))
+        .groupBy(bucketMemberships.bucketId),
+    ]);
+
+    const sizeMap = new Map(sizes.map((r) => [r.bucketId, r.size]));
+    const totalsMap = new Map(
+      totals.map((r) => [
+        r.bucketId,
+        { entered: Number(r.entered), left: Number(r.left) },
+      ]),
+    );
+    const dwellMap = new Map<string, number>();
+    for (const row of dwell) {
+      if (row.avgDwell != null) {
+        dwellMap.set(row.bucketId, Number(row.avgDwell));
+      }
+    }
+
+    const buckets = bucketRegistry.getAll().map((b) => {
+      const t = totalsMap.get(b.id) ?? { entered: 0, left: 0 };
+      return {
+        bucketId: b.id,
+        name: b.name,
+        size: sizeMap.get(b.id) ?? 0,
+        entered: t.entered,
+        left: t.left,
+        avgDwellSecs: dwellMap.has(b.id)
+          ? Math.round(dwellMap.get(b.id) ?? 0)
+          : null,
+      };
+    });
+
+    return c.json({ buckets }, 200);
+  })
+  .openapi(bucketTrendRoute, async (c) => {
+    const { db, bucketRegistry } = c.get("container");
+    const { id } = c.req.valid("param");
+    const { period, from, to } = c.req.valid("query");
+
+    if (!bucketRegistry.has(id)) {
+      return c.json({ error: "Bucket not found" }, 404);
+    }
+
+    const now = new Date();
+    const defaultFrom = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const fromDate = from ? new Date(from) : defaultFrom;
+    const toDate = to ? new Date(to) : now;
+
+    const [size, enteredRows, leftRows] = await Promise.all([
+      db
+        .select({ count: count() })
+        .from(bucketMemberships)
+        .where(
+          and(
+            eq(bucketMemberships.bucketId, id),
+            eq(bucketMemberships.status, "active"),
+            isNull(bucketMemberships.deletedAt),
+          ),
+        )
+        .then((r) => r[0]?.count ?? 0),
+      // Joins over time, bucketed on enteredAt.
+      db
+        .select({
+          date: sql<string>`date_trunc(${TRUNC_SQL[period]}, ${bucketMemberships.enteredAt})::text`,
+          count: count(),
+        })
+        .from(bucketMemberships)
+        .where(
+          and(
+            eq(bucketMemberships.bucketId, id),
+            isNull(bucketMemberships.deletedAt),
+            gte(bucketMemberships.enteredAt, fromDate),
+            lte(bucketMemberships.enteredAt, toDate),
+          ),
+        )
+        .groupBy(
+          sql`date_trunc(${TRUNC_SQL[period]}, ${bucketMemberships.enteredAt})`,
+        )
+        .orderBy(
+          sql`date_trunc(${TRUNC_SQL[period]}, ${bucketMemberships.enteredAt})`,
+        ),
+      // Leaves over time, bucketed on leftAt (only flipped rows have a leftAt).
+      db
+        .select({
+          date: sql<string>`date_trunc(${TRUNC_SQL[period]}, ${bucketMemberships.leftAt})::text`,
+          count: count(),
+        })
+        .from(bucketMemberships)
+        .where(
+          and(
+            eq(bucketMemberships.bucketId, id),
+            isNull(bucketMemberships.deletedAt),
+            isNotNull(bucketMemberships.leftAt),
+            gte(bucketMemberships.leftAt, fromDate),
+            lte(bucketMemberships.leftAt, toDate),
+          ),
+        )
+        .groupBy(
+          sql`date_trunc(${TRUNC_SQL[period]}, ${bucketMemberships.leftAt})`,
+        )
+        .orderBy(
+          sql`date_trunc(${TRUNC_SQL[period]}, ${bucketMemberships.leftAt})`,
+        ),
+    ]);
+
+    const pointMap = new Map<string, { entered: number; left: number }>();
+    for (const row of enteredRows) {
+      const entry = pointMap.get(row.date) ?? { entered: 0, left: 0 };
+      entry.entered = row.count;
+      pointMap.set(row.date, entry);
+    }
+    for (const row of leftRows) {
+      const entry = pointMap.get(row.date) ?? { entered: 0, left: 0 };
+      entry.left = row.count;
+      pointMap.set(row.date, entry);
+    }
+
+    const points = Array.from(pointMap.entries())
+      .map(([date, v]) => ({ date, entered: v.entered, left: v.left }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return c.json({ bucketId: id, size, points }, 200);
   });

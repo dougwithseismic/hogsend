@@ -4,6 +4,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/app-shell";
+import { BucketsView } from "@/views/buckets-view";
 import { ContactsView } from "@/views/contacts-view";
 import { JourneysView } from "@/views/journeys-view";
 import { OverviewView } from "@/views/overview-view";
@@ -40,6 +41,12 @@ const journeysRoute = createRoute({
   component: JourneysView,
 });
 
+const bucketsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/buckets",
+  component: BucketsView,
+});
+
 const contactsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/contacts",
@@ -63,6 +70,7 @@ const routeTree = rootRoute.addChildren([
   sendsRoute,
   templatesRoute,
   journeysRoute,
+  bucketsRoute,
   contactsRoute,
   suppressionsRoute,
   settingsRoute,

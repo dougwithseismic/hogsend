@@ -1,5 +1,6 @@
 import {
   Ban,
+  Boxes,
   GitBranch,
   LayoutDashboard,
   type LucideIcon,
@@ -20,6 +21,7 @@ export const navItems: NavItem[] = [
   { label: "Sends", path: "/sends", icon: Send },
   { label: "Templates", path: "/templates", icon: Mail },
   { label: "Journeys", path: "/journeys", icon: GitBranch },
+  { label: "Buckets", path: "/buckets", icon: Boxes },
   { label: "Contacts", path: "/contacts", icon: Users },
   { label: "Suppressions", path: "/suppressions", icon: Ban },
   { label: "Settings", path: "/settings", icon: Settings },

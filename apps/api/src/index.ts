@@ -7,11 +7,16 @@ import {
   getRedisIfConnected,
 } from "@hogsend/engine";
 import { serve } from "@hono/node-server";
+import { buckets } from "./buckets/index.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
-const client = createHogsendClient({ journeys, email: { templates } });
+const client = createHogsendClient({
+  journeys,
+  buckets,
+  email: { templates },
+});
 
 // Refuse to serve when the database schema is behind what this build requires.
 // `preDeployCommand` runs migrations before boot, so reaching here out of sync

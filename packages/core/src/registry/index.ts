@@ -1,6 +1,12 @@
 import { journeyMetaSchema } from "../schemas/index.js";
 import type { JourneyMeta } from "../types/index.js";
 
+export {
+  BucketRegistry,
+  collectEventNames,
+  collectPropertyNames,
+} from "./bucket.js";
+
 export class JourneyRegistry {
   private journeys: Map<string, JourneyMeta> = new Map();
   private triggerIndex: Map<string, JourneyMeta[]> = new Map();

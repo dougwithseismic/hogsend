@@ -11,7 +11,12 @@ export {
   hours,
   minutes,
 } from "./duration.js";
-export { JourneyRegistry } from "./registry/index.js";
+export {
+  BucketRegistry,
+  collectEventNames,
+  collectPropertyNames,
+  JourneyRegistry,
+} from "./registry/index.js";
 export * from "./schedule/index.js";
-export { journeyMetaSchema } from "./schemas/index.js";
+export { bucketMetaSchema, journeyMetaSchema } from "./schemas/index.js";
 export * from "./types/index.js";

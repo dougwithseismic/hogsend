@@ -1,13 +1,19 @@
 import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { buckets } from "./buckets/index.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { extraWorkflows } from "./workflows/index.js";
 
 async function main() {
-  const client = createHogsendClient({ journeys, email: { templates } });
+  const client = createHogsendClient({
+    journeys,
+    buckets,
+    email: { templates },
+  });
   const worker = createWorker({
     container: client,
     journeys,
+    buckets,
     // Your custom Hatchet tasks (see src/workflows/index.ts). The engine's
     // built-in workflows are registered automatically — list only your own.
     extraWorkflows,

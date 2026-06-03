@@ -1,6 +1,6 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { TimeZone } from "@hogsend/core";
-import type { JourneyRegistry } from "@hogsend/core/registry";
+import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
 import type { SendWindow } from "@hogsend/core/schedule";
 import {
   createDatabase,
@@ -16,6 +16,8 @@ import {
   type EmailProvider,
 } from "@hogsend/plugin-resend";
 import type { Resend } from "resend";
+import type { DefinedBucket } from "./buckets/define-bucket.js";
+import { buildBucketRegistry } from "./buckets/registry.js";
 import { env } from "./env.js";
 import { setClientScheduleDefaults } from "./journeys/client-defaults-singleton.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
@@ -58,6 +60,13 @@ export interface HogsendClient {
   templates: TemplateRegistry;
   analytics?: PostHogService;
   registry: JourneyRegistry;
+  /**
+   * The bucket registry (id map + event/property inverted indexes for candidate
+   * narrowing). Built and installed as the process singleton at client build;
+   * the real-time ingest path reads it via `getBucketRegistrySingleton()`.
+   * Empty when no buckets are wired.
+   */
+  bucketRegistry: BucketRegistry;
   hatchet: HatchetClient;
   /**
    * The client repo's migration journal (`migrations/meta/_journal.json`),
@@ -77,6 +86,8 @@ export interface HogsendClient {
 export interface HogsendClientOptions {
   /** Journeys to register in the {@link JourneyRegistry}. Defaults to none. */
   journeys?: DefinedJourney[];
+  /** Buckets to register in the {@link BucketRegistry}. Defaults to none. */
+  buckets?: DefinedBucket[];
   /**
    * Email is a first-class channel. Its config is grouped here rather than
    * spread across top-level args — the engine owns the cohesive email pipeline
@@ -112,6 +123,11 @@ export interface HogsendClientOptions {
    * `env.ENABLED_JOURNEYS`.
    */
   enabledJourneys?: string;
+  /**
+   * Comma-separated ids (or `*`) controlling which buckets load. Defaults to
+   * `env.ENABLED_BUCKETS`.
+   */
+  enabledBuckets?: string;
   /**
    * The client repo's migration journal for the `schema.client` health block.
    * Defaults to `{ entries: [] }` (empty client track ⇒ trivially in sync).
@@ -182,6 +198,14 @@ export function createHogsendClient(
     opts.enabledJourneys ?? env.ENABLED_JOURNEYS,
   );
 
+  // Installs the bucket registry singleton in BOTH the API and worker processes
+  // (both call createHogsendClient); the real-time ingest path reads it via
+  // getBucketRegistrySingleton().
+  const bucketRegistry = buildBucketRegistry(
+    opts.buckets ?? [],
+    opts.enabledBuckets ?? env.ENABLED_BUCKETS,
+  );
+
   const provider =
     opts.email?.provider ??
     createResendProvider({
@@ -228,6 +252,7 @@ export function createHogsendClient(
   const analytics = opts.analytics ?? getPostHog();
 
   logger.info(`Journey registry loaded: ${registry.count()} journeys`);
+  logger.info(`Bucket registry loaded: ${bucketRegistry.count()} buckets`);
 
   return {
     env,
@@ -240,6 +265,7 @@ export function createHogsendClient(
     templates,
     analytics,
     registry,
+    bucketRegistry,
     hatchet: opts.overrides?.hatchet ?? hatchet,
     clientJournal: opts.clientJournal ?? { entries: [] },
     defaults,

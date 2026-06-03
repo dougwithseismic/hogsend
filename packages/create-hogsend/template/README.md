@@ -61,6 +61,24 @@ deps). Watch it in the Hatchet dashboard, or query `journey_states`.
 The journey's `trigger.event` is what enrolls a user; the engine routes
 ingested events to matching journeys automatically.
 
+## Adding a bucket
+
+Buckets are real-time, code-defined groups of users — the peer of a journey. A
+user joins the moment their data satisfies the bucket's `criteria` and leaves
+when it stops; each transition fires `bucket:entered:<id>` / `bucket:left:<id>`
+through the same ingestion spine a journey trigger binds to.
+
+1. Create `src/buckets/my-bucket.ts` using `defineBucket` (copy
+   `src/buckets/power-users.ts` as a starting point).
+2. Register it in `src/buckets/index.ts` (`buckets` array) and add its id to the
+   `BucketId` union in `src/journeys/constants/index.ts` — that keeps the typed
+   `bucketEntered`/`bucketLeft` alias helpers typo-safe.
+
+That's it for a bucket that just exists in Studio. To make a journey react, bind
+its `trigger.event` to `bucketEntered("my-bucket")` (and optionally
+`exitOn: [{ event: bucketLeft("my-bucket") }]`). Buckets are observe-only in
+Studio — there is no visual builder; they live in code, like journeys.
+
 ## Adding a webhook source
 
 1. Create `src/webhook-sources/my-source.ts` using `defineWebhookSource`

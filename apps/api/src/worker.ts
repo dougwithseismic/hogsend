@@ -1,10 +1,15 @@
 import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { buckets } from "./buckets/index.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 
 async function main() {
-  const client = createHogsendClient({ journeys, email: { templates } });
-  const worker = createWorker({ container: client, journeys });
+  const client = createHogsendClient({
+    journeys,
+    buckets,
+    email: { templates },
+  });
+  const worker = createWorker({ container: client, journeys, buckets });
 
   async function shutdown(signal: string) {
     console.log(`${signal} received, shutting down worker`);

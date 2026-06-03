@@ -3,6 +3,7 @@ import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
+import { checkBucketMembership } from "../buckets/check-membership.js";
 import { upsertContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
 
@@ -92,6 +93,30 @@ export async function ingestEvent(opts: {
       });
     }),
   ]);
+
+  // Real-time bucket membership re-evaluation (Section 6.1). NOT part of the
+  // Promise.all above: its property eval reads MERGED contact state, and its
+  // bucket:entered/left emissions recurse back into ingestEvent (the recursion
+  // guard in checkBucketMembership bounds them). Best-effort: a bucket failure
+  // must not fail the ingest of the originating event.
+  try {
+    await checkBucketMembership({
+      db,
+      registry,
+      hatchet,
+      logger,
+      userId: event.userId,
+      userEmail: event.userEmail || null,
+      event: event.event,
+      properties: event.properties,
+    });
+  } catch (err) {
+    logger.warn("Bucket membership check failed", {
+      event: event.event,
+      userId: event.userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   logger.info("Event ingested", {
     event: event.event,

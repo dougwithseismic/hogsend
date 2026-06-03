@@ -1,9 +1,16 @@
+import type { DefinedBucket } from "./buckets/define-bucket.js";
+import { selectBucketTasks } from "./buckets/registry.js";
 import type { HogsendClient } from "./container.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
 import { selectJourneyTasks } from "./journeys/registry.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getPostHog } from "./lib/posthog.js";
 import { getRedisIfConnected } from "./lib/redis.js";
+import {
+  bucketBackfillTask,
+  enqueueBucketBackfills,
+} from "./workflows/bucket-backfill.js";
+import { bucketReconcileTask } from "./workflows/bucket-reconcile.js";
 import { checkAlertsTask } from "./workflows/check-alerts.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
 import { sendEmailTask } from "./workflows/send-email.js";
@@ -11,8 +18,12 @@ import { sendEmailTask } from "./workflows/send-email.js";
 export interface CreateWorkerOptions {
   container: HogsendClient;
   journeys: DefinedJourney[];
+  /** Buckets whose fast-expiry timer tasks are registered. Defaults to none. */
+  buckets?: DefinedBucket[];
   /** Defaults to `container.env.ENABLED_JOURNEYS`. */
   enabledJourneys?: string;
+  /** Defaults to `container.env.ENABLED_BUCKETS`. */
+  enabledBuckets?: string;
   /** Extra client tasks registered alongside the built-in workflows. */
   extraWorkflows?: unknown[];
 }
@@ -27,11 +38,22 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
   const enabled = opts.enabledJourneys ?? container.env.ENABLED_JOURNEYS;
   const journeyTasks = selectJourneyTasks(journeys, enabled);
 
+  const enabledBuckets = opts.enabledBuckets ?? container.env.ENABLED_BUCKETS;
+  // The single place a bucket's per-user fast-expiry timer task is constructed
+  // (Section 9.4): the shared `bucket:arm-expiry` durableTask, registered once iff
+  // any enabled bucket opts into fastExpiry. The engine-wide time-based-leave
+  // reconcile cron (bucketReconcileTask) is ALWAYS registered in baseWorkflows
+  // below (Section 10), regardless of fastExpiry.
+  const bucketTasks = selectBucketTasks(opts.buckets ?? [], enabledBuckets);
+
   const baseWorkflows = [
     sendEmailTask,
     importContactsTask,
     checkAlertsTask,
+    bucketReconcileTask,
+    bucketBackfillTask,
     ...journeyTasks,
+    ...bucketTasks,
   ];
   const workflows = [
     ...baseWorkflows,
@@ -58,6 +80,19 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     );
 
     await _worker.start();
+
+    // Boot-time backfill / criteria-change re-eval (Section 6.6 B): diff each
+    // enabled bucket's criteriaHash against bucket_configs and enqueue a
+    // backfill/re-eval job where it differs. Best-effort — never block worker
+    // start; the cron is the backstop for time-based leaves regardless.
+    enqueueBucketBackfills({
+      db: container.db,
+      logger: container.logger,
+    }).catch((err) => {
+      container.logger.warn("Bucket backfill enqueue (boot) failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   return { start, stop };
