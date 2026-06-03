@@ -5,6 +5,11 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: "Hogsend",
     },
+    links: [
+      { text: "Docs", url: "/docs" },
+      { text: "Getting Started", url: "/docs/getting-started" },
+      { text: "Compare", url: "/docs/compare" },
+    ],
     githubUrl: "https://github.com/withseismic/hogsend",
   };
 }
