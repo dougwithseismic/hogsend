@@ -16,6 +16,10 @@ Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog an
 
 Everything ships on npm: scaffold an app with `pnpm dlx create-hogsend@latest`, self-host with Docker, or one-click on Railway.
 
+> **A note from Doug** — I built Hogsend to do more for my clients, faster. I kept rebuilding the same PostHog + Resend lifecycle plumbing for every team, so I built it properly once and opened it up for everyone. If you'd like a hand getting it running — PostHog setup, journeys, templates, deploy — I can have you live in days. It's open source and yours to run solo; the offer to help is there if you want it.
+>
+> → **[About Hogsend & how to get in touch](https://docs.hogsend.com/docs/about)** — _Doug Silkstone_
+
 ---
 
 ## How It Works
