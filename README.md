@@ -8,7 +8,7 @@
 
 The lifecycle email automation that PostHog teams actually need. Code-first, self-hosted, open source.
 
-PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys are TypeScript functions, not YAML configs or drag-and-drop canvases.
+PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys (email sequences) and buckets (real-time segments) are plain TypeScript functions, not YAML configs or drag-and-drop canvases — and because a user joining a bucket can itself trigger a journey, segmentation and messaging live in one event stream.
 
 Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog and Resend and now need behavioral sequences without buying a third platform.
 
@@ -43,8 +43,9 @@ Events flow in from PostHog, journeys react with emails via Resend, engagement d
 - **NPS / feedback collection** timed after key moments
 - **Abandoned checkout recovery** — start a sequence when checkout begins, exit when it completes
 - **Cross-journey orchestration** — one journey enrolls a user in another, chaining sequences without duplicating logic
+- **Real-time segments** — group users the instant their behavior matches (power users, trials expiring, gone dormant), then trigger a journey off the membership change itself
 
-Each is a single TypeScript file using `defineJourney()`. The repo ships with [10 production-ready journeys](apps/api/src/journeys/) covering common lifecycle stages.
+Each is a single TypeScript file using `defineJourney()` — or `defineBucket()` for segments. The repo ships with [10 production-ready journeys](apps/api/src/journeys/) and [3 example buckets](apps/api/src/buckets/) covering common lifecycle stages.
 
 ## Buckets — real-time segments
 
@@ -294,7 +295,7 @@ Plugins are standalone packages — create your own for Slack, Twilio, or any se
 | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | Installation, PostHog setup, configuration reference |
 | **[Concepts](https://docs.hogsend.com/docs/concepts/how-it-works)** | How it works, why PostHog, why Hatchet, philosophy |
 | **[Compare](https://docs.hogsend.com/docs/compare)** | Hogsend vs Customer.io, Loops, Brevo, ActiveCampaign — feature matrix and migration |
-| **[Building](https://docs.hogsend.com/docs/guides/journeys)** | Journeys, events, email, conditions, creating plugins |
+| **[Building](https://docs.hogsend.com/docs/guides/journeys)** | Journeys, buckets, events, email, conditions, creating plugins |
 | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | Every command documented with examples |
 | **[Operating](https://docs.hogsend.com/docs/operating)** | Deployment, auth, monitoring, metrics, bulk ops, troubleshooting |
 | **[API Reference](https://docs.hogsend.com/docs/api)** | Every endpoint with request/response examples |
