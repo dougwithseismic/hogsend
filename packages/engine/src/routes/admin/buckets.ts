@@ -111,6 +111,7 @@ const getRoute = createRoute({
                 .nullable()
                 .optional(),
               minDwell: z.record(z.string(), z.unknown()).nullable().optional(),
+              maxDwell: z.record(z.string(), z.unknown()).nullable().optional(),
               reconcileEvery: z
                 .record(z.string(), z.unknown())
                 .nullable()
@@ -371,6 +372,7 @@ export const bucketsRouter = new OpenAPIHono<AppEnv>()
             | Record<string, unknown>
             | undefined,
           minDwell: meta.minDwell as Record<string, unknown> | undefined,
+          maxDwell: meta.maxDwell as Record<string, unknown> | undefined,
           reconcileEvery: meta.reconcileEvery as
             | Record<string, unknown>
             | undefined,

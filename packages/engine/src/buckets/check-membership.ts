@@ -240,6 +240,10 @@ async function handleJoin(opts: {
   // inserted the active row makes THIS insert return zero rows → we do NOT emit
   // (the loser mutates nothing — Section 6.3 governing rule).
   const expiresAt = computeExpiresAt(bucket);
+  // Unconditional TTL deadline — set once on join, swept by the reconcile cron.
+  const maxDwellAt = bucket.maxDwell
+    ? new Date(Date.now() + durationToMs(bucket.maxDwell))
+    : null;
   const inserted = await db
     .insert(bucketMemberships)
     .values({
@@ -250,6 +254,7 @@ async function handleJoin(opts: {
       source: "event",
       entryCount: epoch,
       expiresAt,
+      maxDwellAt,
       lastEvaluatedAt: new Date(),
     })
     .onConflictDoNothing()

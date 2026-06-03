@@ -14,7 +14,16 @@ import {
   type Database,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
@@ -77,24 +86,44 @@ export const bucketReconcileTask = hatchet.task({
     for (const bucket of registry.getEnabled()) {
       // kind:"manual" buckets are NEVER auto-recomputed (early-continue).
       if (bucket.kind === "manual" || !bucket.criteria) continue;
-      // Only TIME-BASED, dynamic buckets — the only kind a clock can change.
-      // timeBased is honoured explicitly OR inferred from a `within` window.
-      if (!isTimeBased(bucket)) continue;
+
+      // Process a bucket here iff a clock can flip its membership: a TIME-BASED
+      // criteria window (criteria-driven leaves/joins) OR an unconditional
+      // `maxDwell` TTL (membership-age-driven leaves). timeBased is honoured
+      // explicitly OR inferred from a `within` window.
+      const timeBased = isTimeBased(bucket);
+      if (!timeBased && !bucket.maxDwell) continue;
 
       try {
-        const left = await reconcileBucketLeaves({
-          db,
-          logger,
-          journeyRegistry,
-          bucket,
-        });
-        reconciled += left;
+        if (timeBased) {
+          reconciled += await reconcileBucketLeaves({
+            db,
+            logger,
+            journeyRegistry,
+            bucket,
+          });
 
-        // reconcileJoins (default off) materializes absence joins the real-time
-        // path cannot see (e.g. went-dormant — the NOT-EXISTS-within-window
-        // case). Kept off for non-absence buckets to bound cost (Section 6.4).
-        if (bucket.reconcileJoins) {
-          joined += await reconcileBucketJoins({
+          // reconcileJoins (default off) materializes absence joins the
+          // real-time path cannot see (e.g. went-dormant — the
+          // NOT-EXISTS-within-window case). Kept off for non-absence buckets to
+          // bound cost (Section 6.4).
+          if (bucket.reconcileJoins) {
+            joined += await reconcileBucketJoins({
+              db,
+              logger,
+              journeyRegistry,
+              bucket,
+            });
+          }
+        }
+
+        // Unconditional max-dwell TTL: force-leave members past
+        // enteredAt + maxDwell REGARDLESS of whether criteria still match. Runs
+        // for time-based AND pure-property dynamic buckets. Re-entry afterwards
+        // is governed by the bucket's `reentry` policy (per-bucket time-box vs
+        // periodic flush).
+        if (bucket.maxDwell) {
+          reconciled += await reconcileBucketTtlLeaves({
             db,
             logger,
             journeyRegistry,
@@ -407,6 +436,47 @@ async function reconcileCompositeLeaves(opts: {
 }
 
 /**
+ * Unconditional max-dwell TTL leave (per-bucket `maxDwell`). Selects active
+ * members whose `maxDwellAt` deadline has passed (GDPR: live contacts only) and
+ * force-leaves them through the shared `bulkLeave` CAS — with NO criteria
+ * re-evaluation, unlike the criteria SHOULD-LEAVE path. Emits `bucket:left`;
+ * whether the user can re-join afterwards is governed by the bucket's `reentry`
+ * policy on their next qualifying event (the per-bucket time-box vs flush knob).
+ */
+async function reconcileBucketTtlLeaves(opts: {
+  db: Database;
+  logger: Logger;
+  journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
+  bucket: BucketMeta;
+}): Promise<number> {
+  const { db, logger, journeyRegistry, bucket } = opts;
+
+  const expired = await db
+    .select({ userId: bucketMemberships.userId })
+    .from(bucketMemberships)
+    .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+    .where(
+      and(
+        eq(bucketMemberships.bucketId, bucket.id),
+        eq(bucketMemberships.status, "active"),
+        isNull(bucketMemberships.deletedAt),
+        isNotNull(bucketMemberships.maxDwellAt),
+        lte(bucketMemberships.maxDwellAt, new Date()),
+        isNull(contacts.deletedAt),
+      ),
+    );
+
+  if (expired.length === 0) return 0;
+  return bulkLeave({
+    db,
+    logger,
+    journeyRegistry,
+    bucket,
+    userIds: expired.map((r) => r.userId),
+  });
+}
+
+/**
  * Bulk compare-and-swap a set of active members to `left`, then emit `bucket:left`
  * for each row the UPDATE actually flipped (gated on RETURNING — the loser of a
  * concurrent race mutates zero rows and never emits, Section 6.3). minDwell defers:
@@ -592,6 +662,9 @@ async function reconcileJoinOne(opts: {
       source: "reconcile",
       entryCount: epoch,
       expiresAt: computeReconcileExpiresAt(bucket),
+      maxDwellAt: bucket.maxDwell
+        ? new Date(Date.now() + durationToMs(bucket.maxDwell))
+        : null,
       lastEvaluatedAt: new Date(),
     })
     .onConflictDoNothing()

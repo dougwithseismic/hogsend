@@ -48,6 +48,23 @@ export interface BucketMeta {
   minDwell?: DurationObject;
 
   /**
+   * Maximum dwell — an UNCONDITIONAL membership TTL. `maxDwell` after the user
+   * joined, the reconcile cron force-leaves them REGARDLESS of whether the
+   * criteria still match (contrast `within`, which is criteria-driven, and
+   * `minDwell`, which is a floor). Use it for time-boxed membership: "in this
+   * bucket for exactly N days, then out".
+   *
+   * Re-entry after a maxDwell exit is governed by `reentry` (per-bucket): pair
+   * with `reentry:"once"` / `"once_per_period"` for a HARD time-box (they stay
+   * out / cool off), or leave the default `"unlimited"` for a PERIODIC FLUSH
+   * (they re-join on their next qualifying event). Independent of `within` and
+   * `fastExpiry`; if `minDwell` is also set it must be <= `maxDwell` (validated).
+   * Enforced by the reconcile cron, so the exit lands within the reconcile
+   * cadence (default 5m), not to-the-second.
+   */
+  maxDwell?: DurationObject;
+
+  /**
    * Reconciliation knobs.
    * timeBased: criteria contain an event `within` window a clock can expire —
    *   the ONLY kind the cron sweep touches (candidate narrowing). Inferred from

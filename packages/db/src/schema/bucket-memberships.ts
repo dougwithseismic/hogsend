@@ -30,6 +30,11 @@ export const bucketMemberships = pgTable(
     leftAt: timestamp("left_at", { withTimezone: true }),
     // membership epoch / armed deadline for time-based + fastExpiry buckets
     expiresAt: timestamp("expires_at", { withTimezone: true }),
+    // unconditional membership TTL deadline (enteredAt + meta.maxDwell). Set once
+    // on join, never mutated. The reconcile cron force-leaves rows past it
+    // REGARDLESS of criteria — kept separate from expiresAt, which is the
+    // criteria-window / minDwell-defer arming epoch (overloaded meaning).
+    maxDwellAt: timestamp("max_dwell_at", { withTimezone: true }),
     lastEvaluatedAt: timestamp("last_evaluated_at", { withTimezone: true }),
     entryCount: integer("entry_count").notNull().default(1),
     source: text("source"), // "event" | "reconcile" | "backfill" | "manual"
@@ -61,5 +66,7 @@ export const bucketMemberships = pgTable(
     index("bucket_memberships_user_id_idx").on(table.userId), // a user's buckets
     index("bucket_memberships_last_evaluated_idx").on(table.lastEvaluatedAt),
     index("bucket_memberships_expires_at_idx").on(table.expiresAt),
+    // the cron TTL sweep: active rows past their max_dwell_at
+    index("bucket_memberships_max_dwell_at_idx").on(table.maxDwellAt),
   ],
 );

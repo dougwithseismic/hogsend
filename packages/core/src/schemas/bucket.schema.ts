@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { durationToMs } from "../duration.js";
 import type {
   CompositeCondition,
   ConditionEval,
@@ -75,6 +76,7 @@ export const bucketMetaSchema = z
     reentryPeriod: durationObjectSchema.optional(),
 
     minDwell: durationObjectSchema.optional(),
+    maxDwell: durationObjectSchema.optional(),
 
     timeBased: z.boolean().optional(),
     reconcileEvery: durationObjectSchema.optional(),
@@ -87,6 +89,21 @@ export const bucketMetaSchema = z
   .superRefine((meta, ctx) => {
     const kind = meta.kind ?? "dynamic";
     const criteria = meta.criteria as ConditionEval | undefined;
+
+    // minDwell is a floor, maxDwell an unconditional ceiling. A ceiling below the
+    // floor is contradictory — the TTL leave would be permanently blocked by the
+    // minDwell guard. Applies regardless of kind.
+    if (
+      meta.minDwell &&
+      meta.maxDwell &&
+      durationToMs(meta.maxDwell) < durationToMs(meta.minDwell)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["maxDwell"],
+        message: "maxDwell must be greater than or equal to minDwell.",
+      });
+    }
 
     // Rule 4: kind/criteria coherence. Manual buckets skip rules 1–3.
     if (kind === "manual") {

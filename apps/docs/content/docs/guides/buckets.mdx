@@ -74,6 +74,7 @@ interface BucketMeta {
   reentryPeriod?: DurationObject;
 
   minDwell?: DurationObject;
+  maxDwell?: DurationObject;
 
   timeBased?: boolean;
   reconcileEvery?: DurationObject;
@@ -98,6 +99,7 @@ interface BucketMeta {
 | `reentry` | `"once" \| "once_per_period" \| "unlimited"` | Controls how often a **join** event re-fires. Default `"unlimited"`. |
 | `reentryPeriod` | `DurationObject?` | Required when `reentry` is `"once_per_period"`. The cooldown before a join re-emits. |
 | `minDwell` | `DurationObject?` | Anti-flap: defers a `bucket:left` until membership has lasted at least this long. Guards journeys from re-enroll spam on oscillating membership. |
+| `maxDwell` | `DurationObject?` | **Unconditional membership TTL.** `maxDwell` after joining, the reconcile cron force-leaves the member **regardless of whether the criteria still match** (contrast `within`, which is criteria-driven). Use it for time-boxed membership. Re-entry afterwards follows `reentry` (so `+ reentry:"once"` = a hard time-box; `+ reentry:"unlimited"` = a periodic flush). Must be ≥ `minDwell`. Lands within the reconcile cadence, not to-the-second. |
 | `timeBased` | `boolean?` | Set `true` (or let it be inferred) when criteria contain a rolling `within` window a clock can expire. Marks the bucket for the reconcile cron. |
 | `reconcileEvery` | `DurationObject?` | Advisory cadence surfaced in Studio. One engine-wide cron sweeps all time-based buckets; this is informational. |
 | `reconcileJoins` | `boolean?` | Also re-evaluate **joins** during the cron sweep. Default `false` — the real-time path already catches joins on event arrival. |
@@ -207,9 +209,9 @@ export const powerUsers = defineBucket({
 });
 ```
 
-### Trial expiring soon — property inclusion + exclusion
+### Trial expiring soon — property criteria + an unconditional time-box
 
-Pure property predicates: on a trial, ≤3 days left, not already converted. No rolling window, so this bucket is real-time only — never swept. `reentry: "once"` means the join fires a single time per user.
+Pure property predicates: on a trial, ≤3 days left, not already converted. The criteria leave fires in real time the moment they convert. `maxDwell` adds an unconditional backstop — 14 days after joining the reconcile cron force-leaves them **regardless** of whether they're still on a trial (stop the nag eventually), and `reentry: "once"` keeps them out afterward (a hard time-box).
 
 ```ts
 // src/buckets/trial-expiring-soon.ts
@@ -221,6 +223,8 @@ export const trialExpiringSoon = defineBucket({
     name: "Trial expiring soon",
     enabled: true,
     reentry: "once",
+    // Unconditional time-box: out 14 days after joining, no matter what.
+    maxDwell: { hours: 24 * 14 },
     criteria: {
       type: "composite",
       operator: "and",

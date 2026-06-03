@@ -130,7 +130,27 @@ const onceBucket = defineBucket({
   },
 });
 
-const TEST_BUCKETS = [propBucket, eventBucket, onceBucket];
+// maxDwell bucket: property inclusion (plan === "vip") with an UNCONDITIONAL
+// 1-day membership TTL. Join stamps maxDwellAt = enteredAt + maxDwell; the cron
+// force-leaves past it REGARDLESS of criteria (the leave itself is validated
+// live against the reconcile worker, not at this unit seam).
+const TTL_BUCKET_ID = `${RUN}-vip-ttl`;
+const ttlBucket = defineBucket({
+  meta: {
+    id: TTL_BUCKET_ID,
+    name: "VIP (time-boxed)",
+    enabled: true,
+    maxDwell: { hours: 24 },
+    criteria: {
+      type: "property",
+      property: "plan",
+      operator: "eq",
+      value: "vip",
+    },
+  },
+});
+
+const TEST_BUCKETS = [propBucket, eventBucket, onceBucket, ttlBucket];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,7 +247,12 @@ afterEach(() => {
 
 afterAll(async () => {
   // Targeted cleanup — only rows this file created (everything is RUN-namespaced).
-  for (const bucketId of [PROP_BUCKET_ID, EVENT_BUCKET_ID, ONCE_BUCKET_ID]) {
+  for (const bucketId of [
+    PROP_BUCKET_ID,
+    EVENT_BUCKET_ID,
+    ONCE_BUCKET_ID,
+    TTL_BUCKET_ID,
+  ]) {
     await db
       .delete(bucketMemberships)
       .where(eq(bucketMemberships.bucketId, bucketId));
@@ -270,6 +295,47 @@ describe("recursion guard (Phase 1 #5)", () => {
     });
 
     expect(transitions).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// maxDwell — unconditional membership TTL stamped on join
+// ===========================================================================
+
+describe("maxDwell TTL stamping", () => {
+  it("stamps maxDwellAt = enteredAt + maxDwell on join", async () => {
+    const userId = uid("ttl");
+    await seedContact(userId, { plan: "vip" });
+
+    const transitions = await check({
+      userId,
+      event: "plan.changed",
+      properties: { plan: "vip" },
+    });
+
+    expect(transitions).toContainEqual({
+      bucketId: TTL_BUCKET_ID,
+      transition: "entered",
+    });
+
+    const row = await activeRow(userId, TTL_BUCKET_ID);
+    expect(row?.maxDwellAt).toBeTruthy();
+    if (!row?.maxDwellAt) throw new Error("expected maxDwellAt to be set");
+
+    // maxDwellAt ≈ enteredAt + 24h. enteredAt is the DB now(); maxDwellAt is the
+    // JS now()+ttl, so allow a few seconds of skew.
+    const expectedMs = row.enteredAt.getTime() + 24 * 60 * 60 * 1000;
+    expect(Math.abs(row.maxDwellAt.getTime() - expectedMs)).toBeLessThan(5000);
+  });
+
+  it("leaves maxDwellAt null for buckets without maxDwell", async () => {
+    const userId = uid("no-ttl");
+    await seedContact(userId, { plan: "pro" });
+
+    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+
+    const row = await activeRow(userId, PROP_BUCKET_ID);
+    expect(row?.maxDwellAt ?? null).toBeNull();
   });
 });
 

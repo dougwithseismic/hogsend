@@ -23,10 +23,11 @@ condition engine.
 - `@hogsend/engine` — `defineBucket`, real-time inclusion/exclusion evaluation
   inside the ingest pipeline (recursion-guarded, transition-only emission), an
   engine-owned cron reconciliation for time-based/absence leaves, opt-in
-  fast-expiry timers, backfill + criteria-change re-evaluation, admin routes
-  (`/v1/admin/buckets`), an optional off-by-default PostHog person-property sync,
-  and `buckets` / `ENABLED_BUCKETS` wiring on `createHogsendClient` and
-  `createWorker`.
+  fast-expiry timers, an unconditional `maxDwell` membership TTL (force-leave N
+  after joining regardless of criteria; re-entry governed by `reentry`), backfill
+  + criteria-change re-evaluation, admin routes (`/v1/admin/buckets`), an optional
+  off-by-default PostHog person-property sync, and `buckets` / `ENABLED_BUCKETS`
+  wiring on `createHogsendClient` and `createWorker`.
 - `@hogsend/studio` — an observe-only Buckets view (size, enter/leave over time,
   which journeys a bucket feeds).
 - `create-hogsend` — the scaffold template ships a `src/buckets/` example and the
