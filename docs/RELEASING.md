@@ -199,23 +199,25 @@ release workflow's first real run is the canonical end-to-end check.
 
 ## 8. Publishing auth
 
-**Today: a repo secret `NPM_TOKEN`** (an npm token with publish rights to
-`@hogsend/*` + `create-hogsend`). `release.yml` mirrors it into `NODE_AUTH_TOKEN`
-so `changeset publish` authenticates. The initial `0.0.1` versions were
-bootstrapped via a local publish (`npm login` + `pnpm release`).
+**Today: a repo secret `NPM_TOKEN`** (an npm token with publish rights to the
+public packages). `release.yml` mirrors it into `NODE_AUTH_TOKEN` so
+`changeset publish` authenticates.
+
+> A **new** package's first publish must be done by a maintainer with *create*
+> rights in the scope — a granular token usually can't create a package, and a
+> Trusted Publisher can't be configured until the package exists. See the
+> `release` skill (`.claude/skills/release/`) for that procedure, plus how to
+> verify a publish actually landed (CI green does not guarantee it).
 
 **Target: Trusted Publishing (OIDC), tokenless.** OIDC mints a short-lived,
 workflow-scoped token at publish time (no stored secret) and attaches provenance
-for free. `release.yml` already has `id-token: write` and upgrades npm to ≥ 11.5.1,
-and **5 of 8 packages already have a Trusted Publisher configured**
-(`@hogsend/core`, `engine`, `db`, `email`, `plugin-posthog` → GitHub Actions →
-`dougwithseismic/hogsend` → `release.yml`).
+for free. `release.yml` already has `id-token: write` and upgrades npm to ≥ 11.5.1.
+Migration is in progress across the public packages.
 
 To finish the migration and drop the token:
 
-1. Add a Trusted Publisher to the remaining 3 — `@hogsend/plugin-resend`,
-   `@hogsend/cli`, `create-hogsend` (npmjs.com → package → Settings → Trusted
-   Publisher → GitHub Actions, same values).
+1. Add a Trusted Publisher to each remaining public package (npmjs.com → package →
+   Settings → Trusted Publisher → GitHub Actions).
 2. Delete the `NPM_TOKEN` secret and remove the `NPM_TOKEN`/`NODE_AUTH_TOKEN` env
    lines from `release.yml`.
 
