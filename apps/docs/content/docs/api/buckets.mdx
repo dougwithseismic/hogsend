@@ -1,0 +1,248 @@
+---
+title: Buckets API
+description: Bucket listing with live counts, detail with criteria and fed journeys, member listing, and enable/disable.
+---
+
+Bucket admin endpoints let you see which buckets are registered, inspect their criteria and which journeys they feed, list current and former members, and enable/disable them at runtime. Buckets are real-time, code-defined membership groups (a peer of journeys) — see the [Buckets guide](/docs/guides/buckets) for the `defineBucket()` authoring API. All endpoints below require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+## Buckets
+
+### `GET /v1/admin/buckets`
+
+List all registered buckets with their effective enabled status and live membership counts.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `enabled` | `"true" \| "false"` | -- | Filter by effective enabled status |
+
+**Response `200`**
+
+```json
+{
+  "buckets": [
+    {
+      "id": "power-users",
+      "name": "Power users",
+      "description": "Performed a key action 10+ times in the last 30 days.",
+      "enabled": true,
+      "kind": "dynamic",
+      "timeBased": true,
+      "reentry": "once_per_period",
+      "counts": {
+        "active": 184,
+        "left": 57
+      }
+    }
+  ],
+  "total": 3,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+The `enabled` field reflects the effective state -- if an admin has toggled a bucket via PATCH, that override takes precedence over the code-level default. `counts.active` is the current size; `counts.left` is the number of historical departures. The `enabled` query filter is applied against this effective state.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/buckets?enabled=true"
+```
+
+### `GET /v1/admin/buckets/{id}`
+
+Get full bucket detail including the membership `criteria`, reconciliation knobs, which journeys the bucket feeds, state counts, and the 10 most recent active members.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Bucket ID (e.g., `power-users`) |
+
+**Response `200`**
+
+```json
+{
+  "bucket": {
+    "id": "power-users",
+    "name": "Power users",
+    "description": "Performed a key action 10+ times in the last 30 days.",
+    "enabled": true,
+    "kind": "dynamic",
+    "timeBased": true,
+    "reentry": "once_per_period",
+    "criteria": {
+      "type": "event",
+      "eventName": "key.action",
+      "check": "count",
+      "operator": "gte",
+      "value": 10,
+      "within": { "hours": 720 }
+    },
+    "reentryPeriod": { "hours": 168 },
+    "minDwell": null,
+    "reconcileEvery": null,
+    "fastExpiry": false,
+    "syncToPostHog": false,
+    "counts": { "active": 184, "left": 57 },
+    "feedsJourneys": [
+      {
+        "id": "power-user-celebration",
+        "name": "Power user -- Celebration",
+        "trigger": "bucket:entered:power-users"
+      }
+    ],
+    "recentMembers": [
+      {
+        "id": "550e8400-e29b-41d4-a716-446655440000",
+        "userId": "user_abc123",
+        "userEmail": "user@example.com",
+        "bucketId": "power-users",
+        "status": "active",
+        "enteredAt": "2025-01-15T10:30:00.000Z",
+        "leftAt": null,
+        "expiresAt": "2025-02-14T10:30:00.000Z",
+        "lastEvaluatedAt": "2025-01-15T10:30:00.000Z",
+        "entryCount": 1,
+        "source": "event",
+        "context": {},
+        "createdAt": "2025-01-15T10:30:00.000Z",
+        "updatedAt": "2025-01-15T10:30:00.000Z"
+      }
+    ]
+  }
+}
+```
+
+`criteria` is the raw `ConditionEval` tree from the bucket definition (the same condition engine journeys use). `reentryPeriod`, `minDwell`, and `reconcileEvery` are returned as their `DurationObject` shape or `null` when unset.
+
+`feedsJourneys` is derived by cross-referencing this bucket's emitted transition events -- `bucket:entered:<id>`, `bucket:left:<id>`, and the generic `bucket:entered` / `bucket:left` -- against the journey registry's trigger index. Any journey bound to one of those events appears here, with the `trigger` field showing the exact event it binds to. This is how you confirm a membership change actually kicks off the journey you expect. `recentMembers` contains up to the 10 most recently entered **active** members.
+
+**Response `404`** -- Bucket not found.
+
+```bash
+curl -H "Authorization: Bearer your-admin-api-key" \
+  http://localhost:3002/v1/admin/buckets/power-users
+```
+
+### `PATCH /v1/admin/buckets/{id}`
+
+Enable or disable a bucket at runtime. This persists to the database (`bucketConfigs`) and overrides the code-level `enabled` default -- no redeploy needed. A disabled bucket stops evaluating membership on incoming events; existing memberships are not torn down.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Bucket ID |
+
+**Request Body**
+
+```json
+{ "enabled": false }
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | Yes | Whether the bucket should evaluate membership on new events |
+
+**Response `200`**
+
+```json
+{
+  "bucket": {
+    "id": "power-users",
+    "name": "Power users",
+    "enabled": false,
+    "updatedAt": "2025-01-15T10:30:00.000Z"
+  }
+}
+```
+
+**Response `404`** -- Bucket not found.
+
+```bash
+curl -X PATCH http://localhost:3002/v1/admin/buckets/power-users \
+  -H "Authorization: Bearer your-admin-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "enabled": false }'
+```
+
+---
+
+## Members
+
+### `GET /v1/admin/buckets/{id}/members`
+
+List a bucket's members, filtered by status. Results are ordered by `enteredAt` descending.
+
+**Path Parameters**
+
+| Param | Type | Description |
+|---|---|---|
+| `id` | `string` | Bucket ID |
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `limit` | `number` | `50` | Results per page (1-100) |
+| `offset` | `number` | `0` | Pagination offset |
+| `status` | `"active" \| "left"` | `active` | Membership status to list |
+| `userId` | `string` | -- | Filter to a single user's membership rows |
+
+**Response `200`**
+
+```json
+{
+  "members": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "user_abc123",
+      "userEmail": "user@example.com",
+      "bucketId": "power-users",
+      "status": "active",
+      "enteredAt": "2025-01-15T10:30:00.000Z",
+      "leftAt": null,
+      "expiresAt": "2025-02-14T10:30:00.000Z",
+      "lastEvaluatedAt": "2025-01-15T10:30:00.000Z",
+      "entryCount": 1,
+      "source": "event",
+      "context": {},
+      "createdAt": "2025-01-15T10:30:00.000Z",
+      "updatedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 184,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | `"active" \| "left"` | Whether the user is currently in the bucket or has left it. |
+| `enteredAt` | `string` | When this membership row was created (the join). |
+| `leftAt` | `string \| null` | When the user left. `null` for active members. |
+| `expiresAt` | `string \| null` | Armed deadline for time-based / `fastExpiry` buckets. `null` for non-time-based buckets. |
+| `lastEvaluatedAt` | `string \| null` | Last time membership was recomputed for this row. |
+| `entryCount` | `number` | Re-entry ordinal -- how many times this user has joined this bucket. |
+| `source` | `string \| null` | What produced the row: `"event"`, `"reconcile"`, `"backfill"`, or `"manual"`. |
+| `context` | `object` | Snapshot of the properties carried at the transition. |
+
+**Response `404`** -- Bucket not found.
+
+```bash
+# Current members
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/buckets/power-users/members?status=active"
+
+# Past members of this bucket
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/buckets/power-users/members?status=left"
+
+# A single user's membership rows
+curl -H "Authorization: Bearer your-admin-api-key" \
+  "http://localhost:3002/v1/admin/buckets/power-users/members?userId=user_abc123"
+```

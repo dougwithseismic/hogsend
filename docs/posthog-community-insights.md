@@ -39,7 +39,7 @@ Researched the PostHog community (posthog.com/community) for feature requests, p
 | Must-have | List-Unsubscribe headers + opt-out sync | Compliance blocker | Already partially handled by contacts system |
 | Must-have | Surveys in emails | 165 votes | Natural journey step — embed survey in email, capture response as event |
 | High | Webhook source ingestion (external events into journeys) | 35 votes | Enables PostHog workflows to trigger Hogsend journeys via webhook |
-| High | Cohort-based journey triggers | Repeated asks | Depends on PostHog cohort API exposing membership changes |
+| High | Cohort-based journey triggers | Repeated asks | **Addressed by Buckets** (`docs/segments-and-buckets-spec.md`) for real-time membership off Hogsend's own stream; PostHog-cohort-defined membership still uses the batch-webhook bridge |
 | High | Property-change triggers | 6+ replies | Needs event stream diffing or periodic polling against PostHog |
 | High | Push notification channel | 29 votes | New channel type beyond email in journey context |
 | Medium | Product tour orchestration | 682 votes | Different product surface entirely, but Hogsend could orchestrate timing/targeting |
@@ -73,15 +73,39 @@ Deep-dive into what PostHog workflows can and can't do today, specifically aroun
 3. Dispatch: webhook to `POST /v1/ingest` with `{ event: "inactive.onboarding", userId, userEmail }`
 4. Hogsend receives event → Hatchet routes to matching journey → journey executes
 
-### Architectural Boundary (Resolved)
+### Architectural Boundary (Resolved — partially revised 2026-06-03)
+
+> **Revision (2026-06-03).** The "Hogsend never computes membership" line below
+> has been **narrowed** by `docs/segments-and-buckets-spec.md` §2. The boundary is
+> now **real-time vs batch recompute**, not "membership is PostHog's job":
+> Hogsend's **Buckets** primitive computes membership **off Hogsend's own ingested
+> `userEvents` stream** in real time (event-driven joins + sub-hour reconciled
+> leaves) at any window length, and fires `bucket:entered`/`bucket:left` events
+> that can trigger journeys. PostHog keeps (a) batch analytics cohorts that scan
+> PostHog's own event store Hogsend never ingested, (b) detection over events
+> Hogsend does not ingest, and (c) anything authored in PostHog's cohort UI.
+> Hogsend still never polls PostHog or mirrors PostHog's event store. See the spec
+> for the full reconciliation and the anti-CDP invariant.
 
 **PostHog detects. Hogsend acts.**
 
-- **PostHog owns:** event collection, user identification, cohort computation, inactivity/absence detection, feature flags, session recording, A/B testing.
-- **Hogsend owns:** journey state machines, email rendering + sending (Resend), multi-step orchestration (Hatchet), contact preferences, delivery tracking, engagement analytics (opens, clicks, bounces), compliance (unsubscribes, suppression).
-- **The bridge:** PostHog workflow webhooks → Hogsend's `/v1/ingest` endpoint. PostHog decides WHO needs action. Hogsend decides WHAT to do about it.
+- **PostHog owns:** event collection, user identification, **batch** cohort
+  computation, detection over events Hogsend does not ingest, feature flags,
+  session recording, A/B testing.
+- **Hogsend owns:** journey state machines, **real-time bucket membership computed
+  off its own ingested event stream** (Buckets — see spec), email rendering +
+  sending (Resend), multi-step orchestration (Hatchet), contact preferences,
+  delivery tracking, engagement analytics (opens, clicks, bounces), compliance
+  (unsubscribes, suppression).
+- **The bridge:** PostHog workflow webhooks → Hogsend's `/v1/ingest` endpoint.
+  PostHog decides WHO needs action (for analytics-defined/batch audiences).
+  Hogsend decides WHAT to do — and now also computes its own real-time membership.
+  The webhook bridge and Buckets **complement** each other (spec §2.3).
 
-Hogsend should NOT replicate PostHog's event stream, poll for inactivity, or compute cohorts. That's PostHog's job.
+Hogsend should NOT replicate PostHog's **analytics event store**, poll PostHog for
+inactivity, or recompute PostHog's batch cohorts. Computing **real-time membership
+off Hogsend's own `userEvents` stream is now in scope** (Buckets); recomputing
+PostHog's analytics cohorts is not.
 
 ### Feature Decisions
 

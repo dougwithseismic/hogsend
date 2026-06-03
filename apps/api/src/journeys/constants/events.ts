@@ -6,6 +6,8 @@ export const Events = {
   USER_SUPPRESSED: "user.suppressed",
 
   FEATURE_USED: "feature.used",
+  KEY_ACTION: "key.action",
+  APP_ACTIVE: "app.active",
   SETUP_COMPLETED: "setup.completed",
   VALUE_DELIVERED: "value.delivered",
   SESSION_COMPLETED: "session.completed",
@@ -26,6 +28,12 @@ export const Events = {
 
   EMAIL_OPENED: "email.opened",
   EMAIL_LINK_CLICKED: "email.link_clicked",
+
+  // Generic bucket-transition events (Section 4.5). Per-bucket aliases
+  // (`bucket:entered:<id>` / `bucket:left:<id>`) are built with the id-validated
+  // `bucketEntered`/`bucketLeft` helpers in `./buckets.js`.
+  BUCKET_ENTERED: "bucket:entered",
+  BUCKET_LEFT: "bucket:left",
 
   JOURNEY_WELCOME_FIRED: "journey.welcome_fired",
   JOURNEY_PRO_PATH: "journey.pro_path",

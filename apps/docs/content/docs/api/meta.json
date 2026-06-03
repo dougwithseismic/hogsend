@@ -5,6 +5,7 @@
     "ingestion",
     "contacts",
     "journeys",
+    "buckets",
     "emails",
     "tracking",
     "events",

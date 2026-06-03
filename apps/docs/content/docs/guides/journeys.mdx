@@ -167,6 +167,8 @@ trigger: {
 
 See the [Conditions guide](/docs/guides/conditions) for the full operator reference and the richer condition types available to `ctx.history` and exit rules.
 
+> A journey doesn't have to start from a raw product event. A [Bucket](/docs/guides/buckets) emits `bucket:entered:<id>` when a user joins it and `bucket:left:<id>` when they leave, both through the same ingest pipeline — so `trigger.event: bucketEntered("went-dormant")` starts a journey on a membership change, and `exitOn: [bucketLeft("went-dormant")]` exits it when the user no longer qualifies.
+
 ### Exit conditions
 
 `exitOn` lets you define events that should immediately end the journey for a user. The ingestion pipeline checks these on every incoming event against all active journeys for that user.

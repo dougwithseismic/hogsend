@@ -1,6 +1,6 @@
 import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
-import { Events, Templates } from "./constants/index.js";
+import { bucketLeft, Events, Templates } from "./constants/index.js";
 
 export const reactivationDormancy = defineJourney({
   meta: {
@@ -15,6 +15,12 @@ export const reactivationDormancy = defineJourney({
       { event: Events.USER_DELETED },
       { event: Events.SESSION_COMPLETED },
       { event: Events.FEATURE_USED },
+      // Bucket → journey composition (Section 7): when the user leaves the
+      // `went-dormant` bucket they have become active again, so auto-exit the
+      // winback sequence. `bucketLeft` is the id-validated alias helper, so a
+      // typo here is a compile error. This proves the end-to-end bucket-leave →
+      // `exitOn` path through `ingestEvent`'s `checkExits`.
+      { event: bucketLeft("went-dormant") },
     ],
   },
 

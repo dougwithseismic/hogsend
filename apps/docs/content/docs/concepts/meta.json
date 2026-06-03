@@ -1,4 +1,10 @@
 {
   "title": "Concepts",
-  "pages": ["how-it-works", "why-posthog", "why-hatchet", "philosophy"]
+  "pages": [
+    "how-it-works",
+    "buckets",
+    "why-posthog",
+    "why-hatchet",
+    "philosophy"
+  ]
 }

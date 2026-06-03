@@ -45,3 +45,8 @@ export const dlqStatusEnum = pgEnum("dlq_status", [
   "retried",
   "discarded",
 ]);
+
+export const bucketMembershipStatusEnum = pgEnum("bucket_membership_status", [
+  "active",
+  "left",
+]);

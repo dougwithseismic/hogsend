@@ -61,6 +61,7 @@ EXPECTED=(
   package.json src/index.ts src/worker.ts
   src/journeys/index.ts src/journeys/welcome.ts src/journeys/test-onboarding.ts
   src/journeys/constants/index.ts
+  src/buckets/index.ts src/buckets/power-users.ts
   src/webhook-sources/index.ts src/webhook-sources/posthog.ts
   src/workflows/index.ts src/workflows/backfill-example.ts
   src/schema/index.ts scripts/migrate.ts

@@ -1,0 +1,137 @@
+---
+title: Buckets
+description: Real-time, code-defined membership groups. A user joins the moment their data matches, leaves when it stops — and every join or leave fires an event that can trigger a journey.
+---
+
+## What a bucket is
+
+A bucket is a named group of users, defined in code, whose membership is computed in real time. You declare a predicate — "performed a key action 10+ times in the last 30 days," "on trial with 3 days left and not yet converted," "went quiet for 7 days" — and Hogsend keeps the membership current as events flow in. A user **joins** the moment their data satisfies the predicate and **leaves** the moment it stops.
+
+Buckets are a peer primitive to journeys. Where a journey is a durable *flow* you author with `defineJourney()`, a bucket is a declarative *membership* you author with `defineBucket()` — same authoring shape, same client/worker wiring, same "this is your content, the engine never imports it" boundary. The one difference is that a bucket is *simpler* than a journey: there's no `run` function. A bucket is criteria, nothing else.
+
+> "Segment" is only a discoverability synonym — the title and glossary keep it so you can find this page. Everywhere else we say **Buckets**, deliberately: they're a real-time orchestration primitive for journeys, not a CDP audience-sync surface. More on that below.
+
+## Join and leave fire an event
+
+The thing that makes buckets useful is what happens on a transition. When a user joins or leaves a bucket, Hogsend emits a first-class event through the **same ingestion spine** every other event travels:
+
+- **Join** emits `bucket:entered:<id>` — e.g. `bucket:entered:power-users`
+- **Leave** emits `bucket:left:<id>` — e.g. `bucket:left:went-dormant`
+
+These are real events. They land in `user_events`, they get pushed to Hatchet, and they run through the exit-condition check — exactly like a `user_signed_up` or a `payment_failed`. That has one powerful consequence:
+
+**A membership change can directly trigger a journey.** A journey whose `trigger.event` is `bucket:entered:trial-expiring-soon` starts when — and only when — a user joins that bucket. The journey side needs zero special wiring: Hatchet routes the transition event to the journey by exact event-name match, the same way it routes everything else. And because `bucket:left:<id>` flows through the exit path too, a journey can list `exitOn: [{ event: bucketLeft("trial-expiring-soon") }]` and a user automatically exits the moment they no longer qualify.
+
+So the mental model is a clean two-step composition:
+
+1. A **bucket** answers *"who is in this state right now?"*
+2. A **journey** answers *"what do we do when someone enters or leaves that state?"*
+
+You bind them with a typed helper so a typo can't silently break the wire:
+
+```ts
+import { bucketEntered, bucketLeft } from "./constants/index.js";
+
+trigger: { event: bucketEntered("trial-expiring-soon") },
+exitOn:  [{ event: bucketLeft("trial-expiring-soon") }],
+```
+
+`bucketEntered` / `bucketLeft` only accept a registered bucket id (`BucketId`), so `bucketEntered("trial-expring-soon")` is a compile error rather than a trigger that never fires. (`trigger.event` is typed `string`, so without the helper a misspelled alias would compile and silently route nothing.)
+
+Transitions fire **only on a change** — never per evaluation, never for a user who's already a stable member. A user who satisfies the criteria on every event for a month produces exactly one `bucket:entered`, not thousands.
+
+## Criteria are the conditions you already know
+
+A bucket's membership predicate is the same composable condition model journeys use for trigger filters, exit rules, and mid-journey branching — there's no new language to learn:
+
+- **Property** — `plan == "trial"`, `trial_days_left <= 3`, `converted != true`
+- **Event** — "did `app.active` in the last 7 days," or a count threshold like "fired `key_action` 10+ times in the last 30 days"
+- **Composite** — arbitrary `and` / `or` nesting of the above
+
+Inclusion and exclusion live in the same tree — a `neq` or an event `check: "not_exists"` is just another leaf, no separate exclusion list. The canonical absence predicate ("did **not** do X in the last N days") is exactly how you express dormancy or churn risk.
+
+> Email-engagement conditions (open/click history) are **not** allowed in bucket criteria in v1. They key on the recipient address rather than the user id, which can't be validated when a bucket is defined, so the engine rejects them at registration. Everything else from the [Conditions guide](/docs/guides/conditions) applies.
+
+## Dynamic vs manual
+
+Most buckets are **dynamic** (the default): membership is recomputed from `criteria` automatically. You write the predicate; the engine maintains the set.
+
+A bucket can also be **manual** (`kind: "manual"`): it has no criteria, and membership is changed only by an explicit API call or import. That's the escape hatch for sets that aren't a function of event data — a hand-curated beta cohort, a list imported from elsewhere. Manual buckets are skipped by the membership engine and the reconcile cron entirely. The common case is dynamic; manual is there when you need it.
+
+## Real-time, where PostHog's cohorts can't be
+
+This is the gap buckets exist to fill, and it's worth being precise about it.
+
+PostHog computes dynamic cohorts on a **batch schedule** — roughly every 24 hours. That's the right design for analytics: scanning the full event store to recompute a behavioral cohort is expensive, and for "which users belong to this audience" a daily refresh is fine. But it means PostHog cohort membership is **stale by up to a day**, and PostHog has no native "this user just joined/left this cohort" webhook to act on. For lifecycle automation, where the whole point is to react *now* — the trial expires today, the payment just failed, the power user went quiet this morning — a 24-hour batch lag is the difference between a timely nudge and a wasted one.
+
+Buckets close that gap by computing membership off **Hogsend's own ingested event stream**, in real time:
+
+- **Joins and most leaves are immediate.** When an event arrives, the ingestion pipeline re-evaluates the buckets that event could affect and flips membership inline — sub-second, as part of processing the event that caused it.
+- **Time-based leaves are reconciled by a cron.** Some leaves are triggered by the *clock*, not an event: "no longer active in the last 7 days" becomes false simply because seven days passed with nothing happening. No inbound event will ever signal that, so an engine-owned reconcile pass sweeps time-based buckets and emits those absence leaves. A late or missed sweep only *delays* a leave — it never corrupts membership.
+
+The boundary is **real-time vs batch recompute, not window length**. A 30-day rolling window is still a real-time bucket; what makes it Hogsend's job is that Hogsend computes it off its own stream with its own condition engine, the instant the data changes. PostHog keeps what it's best at — cohorts that must scan PostHog's own analytics store, detection over events Hogsend never ingests, and anything a team would rather author once in PostHog's cohort UI. The two are complementary: a PostHog cohort can still fire a journey via the PostHog webhook with no bucket involved. Buckets are for the real-time slice, where membership-change-as-a-trigger and automatic `exitOn` are the point.
+
+## Buckets observe; they don't author, and they don't sync
+
+Buckets inherit Hogsend's two governing stances.
+
+**Code-first, observe-not-author.** A bucket is a TypeScript file, exactly like a journey or a webhook source. There is no visual bucket builder and there never will be — Studio shows you a bucket's size, its enter/leave rate over time, and which journeys it feeds, but you author the criteria in code. Definitions live in your repo, you own them, and the engine never imports them. See [Philosophy](/docs/concepts/philosophy) for the full engine-vs-content line.
+
+**Not a CDP.** Once you have a materialized membership table, entered/left events, and an arbitrary condition language, you have most of the machinery of a customer data platform. The one thing that keeps Hogsend from *being* one is a deliberate refusal: buckets emit events into **Hogsend's own journey system only**. There are no destination connectors — no Braze, no HubSpot, no Segment sync baked into a bucket. If you want a membership change to reach an external system, you do it the way a journey reaches any destination today: trigger a journey on `bucket:entered:<id>` and have it call out. First-class destination sync would turn Hogsend into a generic CDP, which is an explicit non-goal.
+
+There is exactly **one** blessed external sync, and it's off by default: a bucket can optionally `$set` a boolean PostHog person property (`hogsend_bucket_<id>`) on join and clear it on leave. That gives a PostHog cohort a *person-property* membership signal it can evaluate in real time — something PostHog can't compute on its own — while staying inside the "PostHog detects, Hogsend acts" loop. It's a no-op without a PostHog API key, and it's the only sync target that exists. It is not a destination connector, and it isn't on unless you turn it on.
+
+## A bucket in code
+
+The three buckets the starter app ships — one behavioral, one property-based, one absence — cover the shapes you'll reach for most:
+
+```ts
+// src/buckets/power-users.ts — behavioral, time-based (30-day rolling window)
+import { defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const powerUsers = defineBucket({
+  meta: {
+    id: "power-users",
+    name: "Power users",
+    description: "Performed a key action 10+ times in the last 30 days.",
+    enabled: true,
+    timeBased: true,
+    reentry: "once_per_period",
+    reentryPeriod: { hours: 24 * 7 },
+    criteria: {
+      type: "event",
+      eventName: Events.KEY_ACTION,
+      check: "count",
+      operator: "gte",
+      value: 10,
+      within: { hours: 24 * 30 }, // days(30)
+    },
+  },
+});
+```
+
+```ts
+// src/buckets/went-dormant.ts — absence; the leave is owned by the cron sweep
+import { defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    name: "Went dormant",
+    enabled: true,
+    timeBased: true,
+    criteria: {
+      type: "event",
+      eventName: Events.APP_ACTIVE,
+      check: "not_exists",
+      within: { hours: 24 * 7 }, // days(7)
+    },
+  },
+});
+```
+
+`power-users` and `went-dormant` are **time-based** — a rolling window means the clock alone can flip membership, so the reconcile cron owns their leaves. `trial-expiring-soon` (a pure-property composite) is real-time only, since a property bucket can only change when an event carries a new property value. The criteria are just the conditions you already write everywhere else; the only new idea is that the predicate defines a *group*, and crossing its boundary fires an event.
+
+For authoring detail — re-entry policy, anti-flap, the full `defineBucket()` reference, and the registration steps — see the [Buckets guide](/docs/guides/buckets). To see the whole loop a transition rides through, see [How it works](/docs/concepts/how-it-works).

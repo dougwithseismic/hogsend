@@ -168,9 +168,13 @@ describe("GET /v1/admin/emails", () => {
   });
 
   it("returns paginated email list with identity fields", async () => {
-    const res = await app.request("/v1/admin/emails?limit=100", {
-      headers: AUTH_HEADER,
-    });
+    // Scope to this test's unique template so pre-existing rows (e.g. the demo
+    // seed) can't push our fixtures past the page limit. Identity-field behavior
+    // under test is independent of the template filter.
+    const res = await app.request(
+      `/v1/admin/emails?limit=100&templateKey=${TEST_TEMPLATE}`,
+      { headers: AUTH_HEADER },
+    );
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -269,9 +273,10 @@ describe("GET /v1/admin/emails", () => {
 
   it("orders by createdAt asc/desc (sort + order applied)", async () => {
     // opened row created before plain row, so asc => opened precedes plain,
-    // desc => plain precedes opened.
+    // desc => plain precedes opened. Scope to this test's template so seed/other
+    // rows can't bury our fixtures past the page limit.
     const ascRes = await app.request(
-      "/v1/admin/emails?limit=100&sort=createdAt&order=asc",
+      `/v1/admin/emails?limit=100&sort=createdAt&order=asc&templateKey=${TEST_TEMPLATE}`,
       { headers: AUTH_HEADER },
     );
     const asc = await ascRes.json();
@@ -281,7 +286,7 @@ describe("GET /v1/admin/emails", () => {
     );
 
     const descRes = await app.request(
-      "/v1/admin/emails?limit=100&sort=createdAt&order=desc",
+      `/v1/admin/emails?limit=100&sort=createdAt&order=desc&templateKey=${TEST_TEMPLATE}`,
       { headers: AUTH_HEADER },
     );
     const desc = await descRes.json();

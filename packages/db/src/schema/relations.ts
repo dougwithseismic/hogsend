@@ -11,6 +11,8 @@ import {
   session,
   user,
 } from "./auth.js";
+import { bucketConfigs } from "./bucket-configs.js";
+import { bucketMemberships } from "./bucket-memberships.js";
 import { contacts } from "./contacts.js";
 import { deadLetterQueue } from "./dead-letter-queue.js";
 import { emailPreferences } from "./email-preferences.js";
@@ -44,11 +46,24 @@ export const importJobsRelations = relations(importJobs, () => ({}));
 
 export const journeyConfigsRelations = relations(journeyConfigs, () => ({}));
 
+export const bucketConfigsRelations = relations(bucketConfigs, () => ({}));
+
 export const contactsRelations = relations(contacts, ({ many }) => ({
   emailPreferences: many(emailPreferences),
   userEvents: many(userEvents),
   journeyStates: many(journeyStates),
+  bucketMemberships: many(bucketMemberships),
 }));
+
+export const bucketMembershipsRelations = relations(
+  bucketMemberships,
+  ({ one }) => ({
+    contact: one(contacts, {
+      fields: [bucketMemberships.userId],
+      references: [contacts.externalId],
+    }),
+  }),
+);
 
 export const emailPreferencesRelations = relations(
   emailPreferences,

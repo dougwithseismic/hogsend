@@ -54,6 +54,12 @@ export const env = createEnv({
     ADMIN_API_KEY: z.string().min(1).optional(),
     API_PUBLIC_URL: z.string().url().default("http://localhost:3002"),
     ENABLED_JOURNEYS: z.string().default("*"),
+    // Buckets: same `"*"`-or-csv contract as ENABLED_JOURNEYS (Section 9.3).
+    // Evaluated at worker boot — a toggle requires a worker restart; only the
+    // bucket_configs DB override is hot.
+    ENABLED_BUCKETS: z.string().default("*"),
+    // Cadence for the engine-owned bucket reconcile cron (time-based leaves).
+    BUCKET_RECONCILE_CRON: z.string().default("*/5 * * * *"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

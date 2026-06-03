@@ -107,6 +107,12 @@ Setting up lifecycle email from scratch means building a lot of plumbing. Here's
 - Cross-journey triggers (one journey can start another via `ctx.trigger`)
 - Journey registry built from the `journeys` array you inject, with `ENABLED_JOURNEYS` filtering
 
+### Buckets (real-time membership)
+- [`defineBucket()`](/docs/concepts/buckets) — a peer primitive to journeys: code-defined, real-time membership groups
+- Joins and leaves are evaluated inside the same ingest pipeline, emitting `bucket:entered:<id>` / `bucket:left:<id>` events that journeys can trigger and exit on
+- Criteria reuse the same condition engine as journey triggers and exit rules
+- An engine-owned cron reconciles time-based and absence-based leaves PostHog's batch cohorts can't serve in real time
+
 ### Email delivery
 - React Email templates with a type-safe registry
 - Resend integration with automatic retries and exponential backoff

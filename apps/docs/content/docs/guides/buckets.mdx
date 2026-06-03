@@ -1,0 +1,484 @@
+---
+title: Buckets
+description: Real-time, code-defined membership groups — power users, trials expiring soon, users who went dormant. Joining or leaving a bucket fires an event that can trigger a journey.
+---
+
+Buckets are named, real-time groups of users you define in code — *power users*, *trials expiring soon*, *users who went dormant*. A user **joins** the bucket the moment their data satisfies its criteria, and **leaves** when it stops. Every join and leave fires a first-class event through the same ingestion pipeline that powers journeys, so **a bucket membership change can trigger a journey** — bind a journey's `trigger.event` to `bucketEntered("went-dormant")` and it runs the instant someone goes dormant.
+
+Buckets are a **peer of journeys**, authored the exact same way. You write a `defineBucket()` call — no `run` function, just criteria — and register it in an array that *you* own. The engine never imports your buckets; you inject them into the same factories that take your journeys. If you've written a journey, you already know how to write a bucket.
+
+> **Buckets vs PostHog cohorts.** PostHog recomputes dynamic cohorts in a ~24h batch and has no native membership-change webhook. Buckets fill that gap: they compute membership off Hogsend's *own* event stream in real time, so joins are sub-second and a membership change is a trigger. They are **not** a CDP — a bucket emits events into your own journey system only (and can optionally mirror to one PostHog person property, off by default). For slow, analytics-defined audiences, keep using a PostHog cohort → webhook → ingest. See [Buckets concepts](/docs/concepts/buckets) for the full boundary.
+
+> If you don't have an app yet, scaffold one with `pnpm dlx create-hogsend@latest my-app` and follow [Getting Started](/docs/getting-started). The scaffold ships three example buckets (`power-users`, `trial-expiring-soon`, `went-dormant`) you can copy.
+
+## Quick example
+
+```ts
+// src/buckets/went-dormant.ts
+import { days } from "@hogsend/core";
+import { defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+// Absence — did NOT do app.active in the last 7 days.
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    name: "Went dormant",
+    enabled: true,
+    timeBased: true,
+    fastExpiry: true,
+    criteria: {
+      type: "event",
+      eventName: Events.APP_ACTIVE,
+      check: "not_exists",
+      within: days(7),
+    },
+  },
+});
+```
+
+That's the whole bucket. No `run`, no state machine — just a predicate. When a user stops being active for 7 days they join `went-dormant`, which fires `bucket:entered:went-dormant`. A journey bound to that event starts a win-back flow. When they come back, they leave the bucket, `bucket:left:went-dormant` fires, and the journey can auto-exit via `exitOn`.
+
+Everything content needs — `defineBucket`, the duration helpers — imports from `@hogsend/engine` (which re-exports `@hogsend/core`, so `days`/`hours`/`minutes` are available either way).
+
+## `defineBucket()`
+
+Every bucket is created with `defineBucket()` from `@hogsend/engine`. Unlike `defineJourney()`, it takes **one** thing: metadata describing *who* is in the bucket. There is no `run` function — a bucket is purely declarative. This is the one place the API is *simpler* than a journey.
+
+```ts
+import { defineBucket } from "@hogsend/engine";
+
+export const myBucket = defineBucket({
+  meta: { /* BucketMeta */ },
+});
+```
+
+`defineBucket()` returns a `DefinedBucket` (`{ meta }`). You export it from your bucket file and add it to the `buckets` array in your `src/buckets/index.ts` (see [Adding a bucket](#adding-a-bucket)). The membership engine — real-time joins/leaves on ingest, plus a cron reconcile for time-based leaves — is engine-owned. You only declare the criteria.
+
+## `BucketMeta`
+
+The `meta` object describes the bucket's identity, membership predicate, and re-entry/reconciliation behavior.
+
+```ts
+interface BucketMeta {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+
+  kind?: "dynamic" | "manual";
+
+  criteria?: ConditionEval;
+
+  reentry?: "once" | "once_per_period" | "unlimited";
+  reentryPeriod?: DurationObject;
+
+  minDwell?: DurationObject;
+  maxDwell?: DurationObject;
+
+  timeBased?: boolean;
+  reconcileEvery?: DurationObject;
+  reconcileJoins?: boolean;
+  fastExpiry?: boolean;
+
+  syncToPostHog?: boolean;
+  postHogPropertyKey?: string;
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Unique identifier. Used in the database, registry, the `ENABLED_BUCKETS` filter, and the emitted event names (`bucket:entered:<id>`). |
+| `name` | `string` | Human-readable name for logs and Studio. |
+| `description` | `string?` | Optional longer description, shown in Studio. |
+| `enabled` | `boolean` | Set to `false` to disable without removing code. Checked before membership is evaluated. |
+| `kind` | `"dynamic" \| "manual"` | `"dynamic"` (default) recomputes membership from `criteria`. `"manual"` membership is mutated only by explicit API/import (no criteria). |
+| `criteria` | `ConditionEval?` | The membership predicate, reusing the existing condition engine. **Required** for `"dynamic"` buckets; omit for `"manual"`. |
+| `reentry` | `"once" \| "once_per_period" \| "unlimited"` | Controls how often a **join** event re-fires. Default `"unlimited"`. |
+| `reentryPeriod` | `DurationObject?` | Required when `reentry` is `"once_per_period"`. The cooldown before a join re-emits. |
+| `minDwell` | `DurationObject?` | Anti-flap: defers a `bucket:left` until membership has lasted at least this long. Guards journeys from re-enroll spam on oscillating membership. |
+| `maxDwell` | `DurationObject?` | **Unconditional membership TTL.** `maxDwell` after joining, the reconcile cron force-leaves the member **regardless of whether the criteria still match** (contrast `within`, which is criteria-driven). Use it for time-boxed membership. Re-entry afterwards follows `reentry` (so `+ reentry:"once"` = a hard time-box; `+ reentry:"unlimited"` = a periodic flush). Must be ≥ `minDwell`. Lands within the reconcile cadence, not to-the-second. |
+| `timeBased` | `boolean?` | Set `true` (or let it be inferred) when criteria contain a rolling `within` window a clock can expire. Marks the bucket for the reconcile cron. |
+| `reconcileEvery` | `DurationObject?` | Advisory cadence surfaced in Studio. One engine-wide cron sweeps all time-based buckets; this is informational. |
+| `reconcileJoins` | `boolean?` | Also re-evaluate **joins** during the cron sweep. Default `false` — the real-time path already catches joins on event arrival. |
+| `fastExpiry` | `boolean?` | Opt-in per-user durable timer for sub-second absence-leave on latency-critical buckets. The cron stays the authoritative backstop. Default `false`. |
+| `syncToPostHog` | `boolean?` | When `true`, on join/leave the engine `$set`/`$unset` a boolean PostHog person property. Off by default. No-op without `POSTHOG_API_KEY`. |
+| `postHogPropertyKey` | `string?` | The property key for `syncToPostHog`. Defaults to `hogsend_bucket_<id>`. |
+
+> **No `suppress` field (deliberate).** A bucket is not a journey — there's no post-completion suppression window. Use `minDwell` to debounce leaves and `reentry`/`reentryPeriod` to throttle how often a join re-fires. If you're porting a journey mental model, map "don't re-fire too soon" onto `reentry`, not a missing `suppress`.
+
+### Re-entry
+
+`reentry` controls how often the **join event** re-fires for a user who joins, leaves, and joins again. The active membership row is always written (so Studio size reflects reality) — `reentry` only gates the emitted `bucket:entered` event.
+
+- **`"unlimited"`** (default) — every join emits `bucket:entered`.
+- **`"once"`** — emit once *ever*. Any prior membership suppresses re-emission.
+- **`"once_per_period"`** — re-emit only after `reentryPeriod` has elapsed since the last transition. Useful when you don't want a journey re-triggering on a flapping bucket.
+
+```ts
+// Re-fire the join at most once a week
+meta: {
+  reentry: "once_per_period",
+  reentryPeriod: days(7),
+  // ...
+}
+```
+
+> **Two-layer gating.** `reentry` gates the bucket's emitted event; the journey it triggers *also* has its own `entryLimit`/`entryPeriod`. Both apply. If your journey already uses `entryLimit: "once"`, you usually don't also need `reentry: "once"` on the bucket — pick the layer that expresses your intent and leave the other relaxed.
+
+### Time-based buckets and the reconcile cron
+
+A bucket whose criteria contain a rolling `within` window can flip a user **out** as the clock advances, with no inbound event to signal it — the canonical *"did NOT do X in the last 7 days"* dormancy predicate. The real-time path can't catch a leave that no event triggers, so the engine runs a cron **reconcile** that sweeps time-based buckets and emits those absence leaves.
+
+Set `timeBased: true` on any bucket with a rolling-window leave (it's also inferred from a criteria walk). For latency-critical buckets, add `fastExpiry: true` to arm a per-user durable timer for a near-instant leave — the cron remains the backstop.
+
+```ts
+meta: {
+  timeBased: true,   // swept by the reconcile cron for the absence leave
+  fastExpiry: true,  // opt-in sub-second leave timer (cron still backstops)
+  // ...
+}
+```
+
+Pure-property buckets (no `within` window) are real-time only and never swept.
+
+## Membership criteria
+
+Criteria reuse the existing `@hogsend/core` condition engine — the same `ConditionEval` types journeys use for `trigger.where`, `exitOn`, and `ctx.history`. No new condition language to learn. See the [Conditions guide](/docs/guides/conditions) for the full operator reference.
+
+The three condition types you can use in a bucket:
+
+- **`property`** — checks a contact property: `{ type: "property", property: "plan", operator: "eq", value: "trial" }`.
+- **`event`** — counts events over `userEvents`, optionally within a rolling window: `{ type: "event", eventName, check: "exists" | "not_exists" | "count", within: days(N) }`.
+- **`composite`** — `and`/`or` over a list of conditions, arbitrarily nested.
+
+**Inclusion and exclusion live in the same tree** — there's no separate exclusion list. Use positive operators (`eq`, `gte`, `exists`, `event check:"exists"`) to include and negative ones (`neq`, `not_exists`, `event check:"not_exists"`) to exclude.
+
+```ts
+criteria: {
+  type: "composite",
+  operator: "and",
+  conditions: [
+    { type: "property", property: "plan", operator: "eq", value: "trial" },
+    { type: "property", property: "converted", operator: "neq", value: true },
+  ],
+}
+```
+
+> **`email_engagement` is not allowed in bucket criteria in v1.** The fourth condition type (open/click tracking) is rejected at registration — using it in a bucket fails to load. It keys on the email address rather than the user id, which can't be validated at registration time. Use it in journeys (`ctx.history.email`, `exitOn`) as usual.
+
+A few rules the registry enforces when it loads a dynamic bucket:
+
+- **At least one positive condition.** A bucket made entirely of exclusions is unbounded and rejected. The one exception is a *time-bounded* absence (`event check:"not_exists"` **with** a `within` window) — that's the dormancy predicate, and it counts as a real anchor.
+- **No `bucket:*` event names** in criteria. Transition events are reserved; a bucket can't be defined in terms of bucket membership (buckets-of-buckets is deferred past v1).
+
+## Realistic examples
+
+The scaffold ships these three under `src/buckets/`. Each shows a different shape of criteria.
+
+### Power users — behavioral count
+
+A behavioral inclusion: fired a key action 10+ times in the last 30 days. Because the window rolls, it's `timeBased` — the cron owns the leave when activity drops off.
+
+```ts
+// src/buckets/power-users.ts
+import { days } from "@hogsend/core";
+import { defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const powerUsers = defineBucket({
+  meta: {
+    id: "power-users",
+    name: "Power users",
+    description: "Performed a key action 10+ times in the last 30 days.",
+    enabled: true,
+    timeBased: true,
+    reentry: "once_per_period",
+    reentryPeriod: days(7),
+    criteria: {
+      type: "event",
+      eventName: Events.KEY_ACTION,
+      check: "count",
+      operator: "gte",
+      value: 10,
+      within: days(30),
+    },
+  },
+});
+```
+
+### Trial expiring soon — property criteria + an unconditional time-box
+
+Pure property predicates: on a trial, ≤3 days left, not already converted. The criteria leave fires in real time the moment they convert. `maxDwell` adds an unconditional backstop — 14 days after joining the reconcile cron force-leaves them **regardless** of whether they're still on a trial (stop the nag eventually), and `reentry: "once"` keeps them out afterward (a hard time-box).
+
+```ts
+// src/buckets/trial-expiring-soon.ts
+import { defineBucket } from "@hogsend/engine";
+
+export const trialExpiringSoon = defineBucket({
+  meta: {
+    id: "trial-expiring-soon",
+    name: "Trial expiring soon",
+    enabled: true,
+    reentry: "once",
+    // Unconditional time-box: out 14 days after joining, no matter what.
+    maxDwell: { hours: 24 * 14 },
+    criteria: {
+      type: "composite",
+      operator: "and",
+      conditions: [
+        { type: "property", property: "plan", operator: "eq", value: "trial" },
+        { type: "property", property: "trial_days_left", operator: "lte", value: 3 },
+        // exclusion: not already converted
+        { type: "property", property: "converted", operator: "neq", value: true },
+      ],
+    },
+  },
+});
+```
+
+### Went dormant — time-based absence
+
+The canonical absence bucket: did *not* fire `app.active` in the last 7 days. No event will ever signal this leave — the cron sweep owns it. `fastExpiry: true` arms a per-user timer so win-back eligibility lands near-instantly.
+
+```ts
+// src/buckets/went-dormant.ts
+import { days } from "@hogsend/core";
+import { defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    name: "Went dormant",
+    enabled: true,
+    timeBased: true,
+    fastExpiry: true,
+    criteria: {
+      type: "event",
+      eventName: Events.APP_ACTIVE,
+      check: "not_exists",
+      within: days(7),
+    },
+  },
+});
+```
+
+## Emitted events
+
+Every membership transition fires through `ingestEvent()` — the same pipeline as any other event — which means it's stored in `userEvents`, routed to journeys by Hatchet, and run through exit conditions. Each transition emits **two** event names:
+
+| Event | When | Use |
+|---|---|---|
+| `bucket:entered:<id>` | A user joins (e.g. `bucket:entered:went-dormant`) | **Recommended** journey binding — narrow, one bucket only. |
+| `bucket:left:<id>` | A user leaves | Bind `exitOn` to it so a journey auto-exits when membership ends. |
+| `bucket:entered` | A user joins *any* bucket | A single all-buckets handler that switches on the `bucketId` property. |
+| `bucket:left` | A user leaves *any* bucket | Same, for leaves. |
+
+All four carry the same flat properties: `{ bucketId, bucketName, userId, transition, source }`.
+
+> **Prefer the aliased form.** Hatchet routes by exact event-name match. A journey bound to the *generic* `bucket:entered` is woken on **every** bucket's joins and must filter with `trigger.where` on `bucketId` — a wasted task start per irrelevant transition. The aliased `bucket:entered:<id>` lets a journey bind to exactly one bucket. Reserve the generic form for a deliberate all-buckets handler.
+
+### Typed alias helpers
+
+Build the alias event names with the `bucketEntered` / `bucketLeft` helpers from your constants, not hand-written strings. They only accept a registered `BucketId`, so a typo like `bucketEntered("went-dorment")` is a **compile error** rather than a trigger that silently never fires. (`JourneyMeta.trigger.event` is typed `string`, so without this guard a typo would compile.)
+
+```ts
+// src/journeys/constants/buckets.ts
+export type BucketId = "power-users" | "trial-expiring-soon" | "went-dormant";
+
+export const bucketEntered = <T extends BucketId>(id: T) =>
+  `bucket:entered:${id}` as const;
+export const bucketLeft = <T extends BucketId>(id: T) =>
+  `bucket:left:${id}` as const;
+```
+
+`BucketId` is the union of the ids in your `src/buckets/index.ts`. Keep it in sync when you add a bucket — it's step 2 of the [checklist](#adding-a-bucket). The generic `Events.BUCKET_ENTERED` / `Events.BUCKET_LEFT` constants are there too, for the all-buckets case.
+
+## A bucket triggers a journey
+
+This is the point of buckets: membership-change-as-a-trigger. Bind a journey's `trigger.event` to `bucketEntered("went-dormant")` and it starts the moment a user goes dormant. Bind `exitOn` to `bucketLeft("went-dormant")` and it ends the moment they come back — no polling, no manual cleanup.
+
+```ts
+// src/journeys/dormancy-winback.ts
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { bucketEntered, bucketLeft } from "./constants/buckets.js";
+import { Templates } from "./constants/index.js";
+
+export const dormancyWinback = defineJourney({
+  meta: {
+    id: "dormancy-winback",
+    name: "Dormancy — Win-back",
+    enabled: true,
+    // Triggered by the bucket join, not a raw product event:
+    trigger: { event: bucketEntered("went-dormant") },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: hours(12),
+    // Auto-exit the instant the user comes back and leaves the bucket:
+    exitOn: [{ event: bucketLeft("went-dormant") }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.WINBACK_WE_MISS_YOU,
+      subject: "We haven't seen you in a while",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(3), label: "winback-followup" });
+
+    // If they came back, exitOn already ended the journey mid-sleep.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.WINBACK_OFFER,
+      subject: "Here's something to bring you back",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+Key patterns:
+
+- **`trigger.event: bucketEntered("went-dormant")`** — the journey is driven by a bucket join, computed by the engine, not a product event you have to fire yourself.
+- **`exitOn: [{ event: bucketLeft("went-dormant") }]`** — when the user returns and leaves the bucket, the `bucket:left:went-dormant` event flows through ingest and terminates the journey, even mid-sleep. No bucket-side code needed; it's the ordinary exit path.
+- The journey itself is unchanged otherwise — buckets compose with journeys through the existing event spine, with zero journey-side machinery.
+
+## Enabling buckets at runtime
+
+Which registered buckets actually load is controlled by the `ENABLED_BUCKETS` environment variable — the same `"*"`-or-csv contract as `ENABLED_JOURNEYS`.
+
+```bash
+# Enable specific buckets by ID
+ENABLED_BUCKETS=power-users,went-dormant
+
+# Enable all buckets (default)
+ENABLED_BUCKETS=*
+```
+
+`createHogsendClient({ buckets })` and `createWorker({ buckets })` both honor this filter (or an explicit `enabledBuckets` option). You pass the *same* `buckets` array to both.
+
+## Adding a bucket
+
+Registration is entirely in your own files — there's no shared engine index to edit. Mirrors the journey flow exactly.
+
+### 1. Create the bucket file
+
+```ts
+// src/buckets/high-value.ts
+import { days } from "@hogsend/core";
+import { defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const highValue = defineBucket({
+  meta: {
+    id: "high-value",
+    name: "High value",
+    enabled: true,
+    timeBased: true,
+    criteria: {
+      type: "event",
+      eventName: Events.VALUE_DELIVERED,
+      check: "count",
+      operator: "gte",
+      value: 25,
+      within: days(30),
+    },
+  },
+});
+```
+
+### 2. Add the id to `BucketId`
+
+So the typed alias helpers stay in sync, add the new id to the `BucketId` union in `src/journeys/constants/buckets.ts`:
+
+```ts
+export type BucketId =
+  | "power-users"
+  | "trial-expiring-soon"
+  | "went-dormant"
+  | "high-value"; // <- new
+```
+
+### 3. Add it to your `buckets` array
+
+Import it and add it to the exported `buckets` array in your `src/buckets/index.ts`:
+
+```ts
+// src/buckets/index.ts
+import type { DefinedBucket } from "@hogsend/engine";
+import { highValue } from "./high-value.js";
+import { powerUsers } from "./power-users.js";
+import { trialExpiringSoon } from "./trial-expiring-soon.js";
+import { wentDormant } from "./went-dormant.js";
+
+export const buckets: DefinedBucket[] = [
+  powerUsers,
+  trialExpiringSoon,
+  wentDormant,
+  highValue,
+];
+```
+
+### 4. (Already wired) the array flows into the engine
+
+Your two thin entry files pass the same `buckets` array into both factories — you wire this once and don't touch it per-bucket:
+
+```ts
+// src/index.ts (HTTP)
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { buckets } from "./buckets/index.js";
+import { journeys } from "./journeys/index.js";
+import { webhookSources } from "./webhook-sources/index.js";
+
+const container = createHogsendClient({ journeys, buckets });
+const app = createApp(container, { webhookSources });
+```
+
+```ts
+// src/worker.ts (task execution)
+import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { buckets } from "./buckets/index.js";
+import { journeys } from "./journeys/index.js";
+
+const container = createHogsendClient({ journeys, buckets });
+const worker = createWorker({ container, journeys, buckets });
+await worker.start();
+```
+
+Once a bucket is in the array (and enabled via `ENABLED_BUCKETS`), the engine evaluates membership on every relevant ingested event, the reconcile cron sweeps it if it's time-based, and its transition events route to journeys automatically. No engine code changes, ever.
+
+### Checklist
+
+1. **Create the file** in `src/buckets/` with `defineBucket()` and your `criteria`.
+2. **Add the id** to the `BucketId` union in `src/journeys/constants/buckets.ts`.
+3. **Add it** to the `buckets` array in `src/buckets/index.ts`.
+4. **Bind a journey** (optional) to `bucketEntered("<id>")` / `bucketLeft("<id>")`.
+5. **Enable it** via `ENABLED_BUCKETS` (or leave the default `*`).
+
+## Optional: sync to PostHog
+
+A bucket can mirror its membership to a boolean PostHog person property — set `syncToPostHog: true` (and optionally `postHogPropertyKey`, default `hogsend_bucket_<id>`). On join the engine `$set`s it; on leave it `$unset`s. This gives a PostHog cohort a *person-property-only* membership signal it can evaluate in real time in feature flags and CDP destinations — something PostHog can't compute itself.
+
+```ts
+meta: {
+  syncToPostHog: true,
+  postHogPropertyKey: "hogsend_bucket_power_users", // optional override
+  // ...
+}
+```
+
+It's **off by default** and a **no-op without `POSTHOG_API_KEY`** (so it silently does nothing in self-host setups that omit PostHog). This is the *only* blessed external sync — buckets are not a destination-sync surface. To reach Braze/HubSpot/Segment, do it the way journeys reach any destination: a journey triggered on `bucket:entered:<id>` calling out from its `run`. See [Buckets concepts](/docs/concepts/buckets) for why that line exists.
+
+## Observing buckets
+
+Buckets are observe-only in [Studio](/docs/operating/studio) — there is no visual bucket builder, ever. Definitions live in code; Studio shows you size, enter/leave over time, which journeys a bucket feeds, and an enable/disable kill switch. The admin API exposes the same data under `/v1/admin/buckets` — see [Buckets (Admin API)](/docs/api/buckets) for endpoints and [Operating buckets](/docs/operating/buckets) for monitoring and the reconcile cron.

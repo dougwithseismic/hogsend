@@ -1,0 +1,2 @@
+ALTER TABLE "bucket_memberships" ADD COLUMN "max_dwell_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "bucket_memberships_max_dwell_at_idx" ON "bucket_memberships" USING btree ("max_dwell_at");

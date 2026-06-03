@@ -247,6 +247,130 @@ export function setJourneyEnabled(id: string, enabled: boolean) {
   }>(`/v1/admin/journeys/${encodeURIComponent(id)}`, { json: { enabled } });
 }
 
+// --- Buckets -------------------------------------------------------------
+
+export type BucketListItem = {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  kind: "dynamic" | "manual";
+  timeBased: boolean;
+  reentry: "once" | "once_per_period" | "unlimited";
+  counts: {
+    active: number;
+    left: number;
+  };
+};
+
+export function listBuckets() {
+  return api.get<{
+    buckets: BucketListItem[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>("/v1/admin/buckets", { query: { limit: 100 } });
+}
+
+export type BucketMember = {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  bucketId: string;
+  status: string;
+  enteredAt: string;
+  leftAt: string | null;
+  expiresAt: string | null;
+  lastEvaluatedAt: string | null;
+  entryCount: number;
+  source: string | null;
+  context: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BucketFeedJourney = {
+  id: string;
+  name: string;
+  trigger: string;
+};
+
+export type BucketDetail = {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  kind: "dynamic" | "manual";
+  timeBased: boolean;
+  reentry: "once" | "once_per_period" | "unlimited";
+  criteria?: Record<string, unknown>;
+  reentryPeriod?: Record<string, unknown> | null;
+  minDwell?: Record<string, unknown> | null;
+  reconcileEvery?: Record<string, unknown> | null;
+  fastExpiry: boolean;
+  syncToPostHog: boolean;
+  counts: {
+    active: number;
+    left: number;
+  };
+  feedsJourneys: BucketFeedJourney[];
+  recentMembers: BucketMember[];
+};
+
+export function getBucket(id: string) {
+  return api.get<{ bucket: BucketDetail }>(
+    `/v1/admin/buckets/${encodeURIComponent(id)}`,
+  );
+}
+
+export function listBucketMembers(
+  id: string,
+  query?: { limit?: number; offset?: number; status?: "active" | "left" },
+) {
+  return api.get<{
+    members: BucketMember[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>(`/v1/admin/buckets/${encodeURIComponent(id)}/members`, { query });
+}
+
+export type BucketMetric = {
+  bucketId: string;
+  name: string;
+  size: number;
+  entered: number;
+  left: number;
+  avgDwellSecs: number | null;
+};
+
+export function listBucketMetrics() {
+  return api.get<{ buckets: BucketMetric[] }>("/v1/admin/metrics/buckets");
+}
+
+export type BucketTrend = {
+  bucketId: string;
+  size: number;
+  points: {
+    date: string;
+    entered: number;
+    left: number;
+  }[];
+};
+
+export function getBucketTrend(id: string, period?: "day" | "week" | "month") {
+  return api.get<BucketTrend>(
+    `/v1/admin/metrics/buckets/${encodeURIComponent(id)}`,
+    { query: { period } },
+  );
+}
+
+export function setBucketEnabled(id: string, enabled: boolean) {
+  return api.patch<{
+    bucket: { id: string; name: string; enabled: boolean; updatedAt: string };
+  }>(`/v1/admin/buckets/${encodeURIComponent(id)}`, { json: { enabled } });
+}
+
 // --- Contacts ------------------------------------------------------------
 
 export type Contact = {
@@ -424,6 +548,10 @@ export const qk = {
   journeyMetrics: ["journey-metrics"] as const,
   journeys: ["journeys"] as const,
   journeyFunnel: (id: string) => ["journey-funnel", id] as const,
+  buckets: ["buckets"] as const,
+  bucketMetrics: ["bucket-metrics"] as const,
+  bucket: (id: string) => ["bucket", id] as const,
+  bucketTrend: (id: string) => ["bucket-trend", id] as const,
   contacts: (search: string) => ["contacts", search] as const,
   contact: (id: string) => ["contact", id] as const,
   contactActivity: (id: string) => ["contact-activity", id] as const,

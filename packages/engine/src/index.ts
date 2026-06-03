@@ -6,7 +6,10 @@
 // Core helpers used by content journeys (days/hours/minutes, condition + journey
 // types) so content can import everything from `@hogsend/engine`.
 export * from "@hogsend/core";
-export { JourneyRegistry } from "@hogsend/core/registry";
+export {
+  BucketRegistry,
+  JourneyRegistry,
+} from "@hogsend/core/registry";
 // --- Re-exports for content ---
 // Schema/version helpers used by the boot guard and the /v1/health route.
 export {
@@ -19,6 +22,25 @@ export {
 } from "@hogsend/db";
 // --- App / container / worker factories ---
 export { type AppEnv, type CreateAppOptions, createApp } from "./app.js";
+// --- Buckets ---
+export {
+  type BucketTransition,
+  type BucketTransitionKind,
+  checkBucketMembership,
+} from "./buckets/check-membership.js";
+export {
+  type DefinedBucket,
+  defineBucket,
+} from "./buckets/define-bucket.js";
+export {
+  buildBucketRegistry,
+  selectBucketTasks,
+} from "./buckets/registry.js";
+export {
+  getBucketRegistrySingleton,
+  resetBucketRegistry,
+  setBucketRegistry,
+} from "./buckets/registry-singleton.js";
 export {
   createHogsendClient,
   type HogsendClient,
@@ -50,6 +72,11 @@ export {
   type BatchedBackfillResult,
   runBatchedBackfill,
 } from "./lib/backfill.js";
+// --- Bucket transition emission (shared by real-time / cron / fast-expiry) ---
+export {
+  type BucketTransitionSource,
+  emitBucketTransition,
+} from "./lib/bucket-emit.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
 // --- Email ---
@@ -121,6 +148,17 @@ export {
   createWorker,
   type Worker,
 } from "./worker.js";
+export {
+  type BucketBackfillInput,
+  bucketBackfillTask,
+  computeCriteriaHash,
+  enqueueBucketBackfills,
+} from "./workflows/bucket-backfill.js";
+export {
+  type BucketArmExpiryInput,
+  bucketExpiryTask,
+  bucketReconcileTask,
+} from "./workflows/bucket-reconcile.js";
 export { checkAlertsTask } from "./workflows/check-alerts.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
 // --- Built-in Hatchet workflow tasks ---
