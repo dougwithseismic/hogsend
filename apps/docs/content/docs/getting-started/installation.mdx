@@ -124,21 +124,99 @@ curl http://localhost:3002/v1/health
 
 You want `"status": "healthy"` with both `schema.engine.inSync` and `schema.client.inSync` `true`. See the [health endpoint reference](/docs/api/ingestion#health) for the full response shape.
 
-## 6. Fire your first journey
+## 6. Fire your first journey — same trigger in, different lifecycle
 
-The scaffold ships a `test-onboarding` journey that runs to completion with no email or external dependencies — it exists to prove the pipeline end-to-end. With both processes running:
+The scaffold ships a `test-onboarding` journey that runs to completion with **no email and no external accounts** — it exists to prove the pipeline end-to-end, and to show off the whole point of code-first lifecycle. Its `run()` branches on `user.properties.plan` and fires internal events with `ctx.trigger` along the way (open `src/journeys/test-onboarding.ts` and read it — it's ~30 lines of plain TypeScript).
+
+Fire its trigger — `test.signup` — **twice**, with a different `plan` each time and a distinct `userId`. With both processes running:
+
+```bash title="pro run"
+curl -XPOST http://localhost:3002/v1/ingest \
+  -H 'content-type: application/json' \
+  -d '{"event":"test.signup","userId":"smoke-pro","userEmail":"pro@example.com","properties":{"plan":"pro"}}'
+```
+
+```bash title="free run"
+curl -XPOST http://localhost:3002/v1/ingest \
+  -H 'content-type: application/json' \
+  -d '{"event":"test.signup","userId":"smoke-free","userEmail":"free@example.com","properties":{"plan":"free"}}'
+```
+
+`POST /v1/ingest` requires `event` + `userId` (`userEmail` and `properties` are optional). Each call returns `202` and pushes the event to Hatchet, which routes it to the `test-onboarding` journey (its `trigger.event` is `test.signup`).
+
+### Read the divergence
+
+Each run leaves a trail of internal events you can read straight back out of the event store. The admin events feed is **authenticated** — set `ADMIN_API_KEY` in your `.env` (any value) and pass it as a Bearer token. It filters by `userId`, so pull each run's trail separately:
+
+```bash title="pro run's trail"
+curl 'http://localhost:3002/v1/admin/events?userId=smoke-pro&limit=10' \
+  -H "authorization: Bearer $ADMIN_API_KEY"
+```
+
+```bash title="free run's trail"
+curl 'http://localhost:3002/v1/admin/events?userId=smoke-free&limit=10' \
+  -H "authorization: Bearer $ADMIN_API_KEY"
+```
+
+Both runs fire `journey.welcome_fired` then `journey.completed` — but the middle event differs by code path:
+
+- the **pro** run emitted `journey.pro_path`
+- the **free** run emitted `journey.free_path`
+
+Same trigger in, **different lifecycle — decided by code you can read** (the `if (user.properties.plan === "pro")` branch in `test-onboarding.ts`), not by a rule buried in a marketing tool. You can also watch each run step through in the [Hatchet dashboard](http://localhost:8888).
+
+<Callout type="info">
+  This entire branch needs **zero external accounts** — no Resend, no PostHog, no verified domain. Docker + the two local processes are everything. If the two trails diverged, the engine, worker, ingest pipeline, Hatchet routing, and your journey code are all wired correctly.
+</Callout>
+
+## 7. Send a real email (Resend)
+
+The `welcome` example journey (`src/journeys/welcome.ts`) is the one that talks to the outside world. It's triggered by `user.created`: it sends the welcome email **immediately**, then `ctx.sleep(days(2))` — a durable Hatchet sleep — and only then conditionally sends a nudge.
+
+Fire its trigger:
 
 ```bash
 curl -XPOST http://localhost:3002/v1/ingest \
   -H 'content-type: application/json' \
-  -d '{"event":"test.signup","userId":"smoke-1","userEmail":"smoke@example.com"}'
+  -d '{"event":"user.created","userId":"welcome-1","userEmail":"you@yourdomain.com","properties":{"plan":"free"}}'
 ```
 
-The ingest endpoint returns `202` and pushes the event to Hatchet, which routes it to the `test-onboarding` journey (its `trigger.event` is `test.signup`). Watch the run in the Hatchet dashboard, or query the `journey_states` table.
+Only the **first** welcome email (subject `Welcome — let's get you set up`) is sent right away. The follow-up nudge sits behind a **2-day durable sleep**, so assert success on the first email only — don't wait around for the second.
 
-The `welcome` example journey, triggered by `user.created`, sends a real email — so it needs a valid `RESEND_API_KEY` and a verified sender. Edit it in `src/journeys/welcome.ts`.
+<Callout type="warn">
+  The one slow prerequisite is a **verified Resend sender**: a real `RESEND_API_KEY` plus a verified domain in the [Resend dashboard](https://resend.com/domains). This is the single setup gate in the whole quickstart — and it sits **off the path** to the aha in step 6. Do step 6 first with zero accounts; only reach for Resend when you want a real email to land.
+</Callout>
 
-## 7. Author and upgrade
+### Watch it in Studio
+
+With the app running, open Studio:
+
+```text
+http://localhost:3002/studio
+```
+
+On first run Studio asks you to **create an admin login** — set one, then sign in. Then:
+
+- **[/studio/sends](http://localhost:3002/studio/sends)** — every email the engine sent, with engagement (opened / clicked) as it happens
+- **[/studio/journeys](http://localhost:3002/studio/journeys)** — each journey and the contacts moving through it
+
+Your `welcome-1` send shows up under **Sends**; open it and you'll see open and click state populate once you interact with the email.
+
+<Callout type="info">
+  Link-click and open tracking is **automatic** — the engine rewrites outgoing HTML to inject tracked links and an open pixel before the provider ever sees it. There is nothing to configure; every send is tracked.
+</Callout>
+
+## 8. Did it work? (tiered success)
+
+<Callout type="info">
+  **Required — the dependency-free aha (step 6).** You fired `test.signup` twice and read **two different event trails**: the `smoke-pro` run emitted `journey.pro_path`, the `smoke-free` run emitted `journey.free_path`. That alone proves the engine end-to-end with no external accounts.
+
+  **Optional adapters.** Layer these in once the required path is green:
+  - **Email** — a real `welcome` send visible in [Studio → Sends](http://localhost:3002/studio/sends), behind a verified Resend sender (step 7).
+  - **Analytics** — one PostHog event reaching Hogsend. See [PostHog setup](/docs/getting-started/posthog-setup).
+</Callout>
+
+## 9. Author and upgrade
 
 - **Add a journey** — create a file in `src/journeys/` with `defineJourney`, add its constants to `src/journeys/constants/`, and add it to the `journeys` array in `src/journeys/index.ts`. That array is passed to both `createHogsendClient({ journeys })` and `createWorker({ container, journeys })`. Full guide: [Journeys](/docs/guides/journeys).
 - **Add an email template** — drop a `.tsx` component in `src/emails/`, register its key in `src/emails/registry.ts` (with the `TemplateRegistryMap` augmentation for type-safe props), and pass the registry as `createHogsendClient({ email: { templates } })`. Full guide: [Email](/docs/guides/email).
@@ -165,4 +243,4 @@ pnpm install
 docker compose up -d
 ```
 
-The in-repo dogfood app lives at `apps/api` and exercises the engine directly. This is engine-development tooling — it is **not** the client install path. If you're shipping lifecycle journeys for your own product, scaffold an app (steps 1–6); don't clone the monorepo.
+The in-repo dogfood app lives at `apps/api` and exercises the engine directly. This is engine-development tooling — it is **not** the client install path. If you're shipping lifecycle journeys for your own product, scaffold an app (steps 1–7); don't clone the monorepo.

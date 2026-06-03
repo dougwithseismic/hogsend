@@ -11,6 +11,19 @@ This connects your PostHog instance to a **running** Hogsend API. Make sure you'
   PostHog's servers must be able to reach your API over the internet. A locally-running app on `http://localhost:3002` is **not** reachable by PostHog Cloud — deploy first (see [Deployment](/docs/operating/deployment)), or use a tunnel (ngrok, Cloudflare Tunnel) to expose your local API while testing.
 </Callout>
 
+## Two directions, two secrets
+
+PostHog and Hogsend talk to each other in **both** directions, and each direction uses its own credential. This page is about the **inbound** direction; don't conflate it with outbound.
+
+| Direction | Flow | Credential | What it does |
+|---|---|---|---|
+| **Inbound** | PostHog → Hogsend | `POSTHOG_WEBHOOK_SECRET` | Product events enter the engine via `POST /v1/webhooks/posthog` and trigger journeys. **This is what this page sets up.** |
+| **Outbound** | Hogsend → PostHog | `POSTHOG_API_KEY` | The engine's _own_ analytics capture — including email **open** and **link click** events it generates — flows back into your PostHog project. |
+
+<Callout type="warn">
+  **Email open/click tracking does NOT automatically show up in PostHog.** Hogsend always records opens and clicks in its own database, but it only mirrors them into PostHog when **`POSTHOG_API_KEY`** is set (outbound). That key is separate from `POSTHOG_WEBHOOK_SECRET` (inbound) — setting the webhook secret on this page gets events _into_ Hogsend, but it does nothing for getting Hogsend's engagement events _into_ PostHog. If you want opens/clicks in PostHog, set `POSTHOG_API_KEY` too.
+</Callout>
+
 ## Overview
 
 This guide connects your PostHog instance to Hogsend using PostHog's **Destinations** pipeline. Once set up, the PostHog events you select automatically flow into Hogsend and trigger your lifecycle journeys.
@@ -54,6 +67,10 @@ You'll see a two-column form. Here's what to set:
 | **Method** | `POST` (default) |
 | **JSON Body** | Leave the default — it sends `{event}` and `{person}` which is exactly what Hogsend expects |
 
+<Callout type="warn">
+  **Include person properties.** Hogsend's PostHog source reads the contact's email from `person.properties.email` (and `event.distinct_id` for `userId`). If your destination's JSON body doesn't expand `{person}` — or the person has no `email` property — the event still lands, but the contact has **no address**, so the welcome journey can't email them. Keep `{person}` in the body and make sure `email` is set as a person property in PostHog (typically on signup).
+</Callout>
+
 **Headers — Add the auth secret:**
 
 The form already has a `Content-Type: application/json` header. Click **+ Add entry** to add your webhook secret:
@@ -61,6 +78,8 @@ The form already has a `Content-Type: application/json` header. Click **+ Add en
 | Header | Value |
 |---|---|
 | `x-posthog-webhook-secret` | The value you set as `POSTHOG_WEBHOOK_SECRET` in your Hogsend environment |
+
+Both sides must match. PostHog sends the `x-posthog-webhook-secret` header; Hogsend compares it against the `POSTHOG_WEBHOOK_SECRET` env var on your API. If they don't match, Hogsend rejects the request with **`401 Invalid webhook secret`** and the event never enters the pipeline. (If `POSTHOG_WEBHOOK_SECRET` is unset, the source is treated as open and accepts unauthenticated requests — set it in any internet-reachable deployment.)
 
 ### Step 4: Add event matchers (critical)
 
@@ -104,21 +123,42 @@ Leave **Trigger options** on "Run every time" unless you have a reason to thrott
 
 Click **Create & enable**. The destination is immediately active — the next time one of your matched events fires in PostHog, it'll hit Hogsend.
 
-### Step 7: Verify it's working
+### Step 7: Verify it's working (assert the event landed)
 
-Send a test event from your app (or use PostHog's "Start testing" button on the destination page). Then check Hogsend:
+Configuring the destination is not proof — **seeing the event in Hogsend is.** Fire one of your matched events from your app (or use PostHog's "Start testing" button on the destination page), then assert it landed by querying the admin events endpoint. Filter by the exact event name you just fired so you're confirming _that_ event, not just any recent traffic:
 
 ```bash
-# Check if the event arrived
+# Assert the specific event arrived. Swap user_signed_up for the event you fired.
 curl -H "Authorization: Bearer $ADMIN_API_KEY" \
-  "https://your-hogsend-api.com/v1/admin/events?limit=5"
+  "https://your-hogsend-api.com/v1/admin/events?event=user_signed_up&limit=5"
 ```
 
-You should see the event in the response. If not, check:
+A successful response looks like this — `total` is non-zero and the event is in the list:
+
+```json
+{
+  "events": [
+    {
+      "id": "…",
+      "userId": "user_abc123",
+      "event": "user_signed_up",
+      "properties": { "email": "alice@example.com", "_posthogEventId": "…" },
+      "occurredAt": "2025-01-15T10:30:00.000Z"
+    }
+  ],
+  "total": 1,
+  "limit": 5,
+  "offset": 0
+}
+```
+
+Check `userId` (mapped from `distinct_id`) and `properties.email` are populated — that's the proof the contact has an address and the journey can email them. You can also narrow to a single contact with `&userId=user_abc123`.
+
+If `total` is `0` and the list is empty, the event never landed. Check:
 - Is the webhook URL correct? (including the `/v1/webhooks/posthog` path)
-- Is `POSTHOG_WEBHOOK_SECRET` set in your Hogsend environment?
-- Does the header name match exactly: `x-posthog-webhook-secret`?
+- Is `POSTHOG_WEBHOOK_SECRET` set in your Hogsend environment, and does the `x-posthog-webhook-secret` header value match it exactly? A mismatch returns `401` and the event is dropped — check PostHog's History tab for `401`s.
 - Is the Hogsend API running and reachable from the internet?
+- The endpoint requires admin auth — `$ADMIN_API_KEY` (sent as `Authorization: Bearer …`) is a different credential from `POSTHOG_WEBHOOK_SECRET`. A `401` from _this_ curl means your admin key is wrong, not the webhook secret.
 
 ## Option 2: PostHog Workflows
 
