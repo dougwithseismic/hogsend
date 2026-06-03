@@ -71,6 +71,20 @@ export function formatDuration(secs: number | null | undefined): string {
   return remHr ? `${day}d ${remHr}h` : `${day}d`;
 }
 
+/**
+ * DurationObject ({ hours?, minutes?, seconds? }) → human duration, or null when
+ * the duration is absent or sums to zero. Sums to seconds then delegates to
+ * formatDuration (which expects seconds — never pass the object directly).
+ */
+export function formatDurationObject(
+  d: { hours?: number; minutes?: number; seconds?: number } | null | undefined,
+): string | null {
+  if (!d) return null;
+  const totalSecs =
+    (d.hours ?? 0) * 3600 + (d.minutes ?? 0) * 60 + (d.seconds ?? 0);
+  return totalSecs > 0 ? formatDuration(totalSecs) : null;
+}
+
 /** Truncate a long string with an ellipsis. */
 export function truncate(value: string, max = 48): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;

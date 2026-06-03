@@ -30,7 +30,11 @@ import {
   setBucketEnabled,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
-import { formatDuration, formatNumber } from "@/lib/format";
+import {
+  formatDuration,
+  formatDurationObject,
+  formatNumber,
+} from "@/lib/format";
 import { BucketTrend } from "./buckets/bucket-trend";
 
 type Row = BucketMetric & {
@@ -282,26 +286,45 @@ function BucketFeeds({ bucketId }: { bucketId: string }) {
   }
 
   const feeds = query.data.bucket.feedsJourneys;
-  if (feeds.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No journeys are bound to this bucket's transitions yet. Bind a journey
-        with <code className="text-xs">bucketEntered("{bucketId}")</code>.
-      </p>
-    );
-  }
+  // maxDwell is a DurationObject ({ hours?, minutes?, seconds? }) returned by the
+  // detail endpoint; render the time-box badge ABOVE the feeds early-return so it
+  // surfaces even when no journeys are bound to this bucket.
+  const maxDwell = formatDurationObject(
+    query.data.bucket.maxDwell as
+      | { hours?: number; minutes?: number; seconds?: number }
+      | null
+      | undefined,
+  );
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {feeds.map((j) => (
+    <div className="space-y-3">
+      {maxDwell ? (
         <Badge
-          key={`${j.id}-${j.trigger}`}
-          variant="secondary"
-          title={j.trigger}
+          variant="outline"
+          title="Members are force-removed maxDwell after joining, regardless of criteria."
         >
-          {j.name}
+          Time-boxed · {maxDwell}
         </Badge>
-      ))}
+      ) : null}
+
+      {feeds.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No journeys are bound to this bucket's transitions yet. Bind a journey
+          with <code className="text-xs">bucketEntered("{bucketId}")</code>.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {feeds.map((j) => (
+            <Badge
+              key={`${j.id}-${j.trigger}`}
+              variant="secondary"
+              title={j.trigger}
+            >
+              {j.name}
+            </Badge>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

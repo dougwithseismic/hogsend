@@ -10,7 +10,7 @@ const bucketSchema = z.object({
   enabled: z.boolean(),
   kind: z.enum(["dynamic", "manual"]),
   timeBased: z.boolean(),
-  reentry: z.enum(["once", "once_per_period", "unlimited"]),
+  entryLimit: z.enum(["once", "once_per_period", "unlimited"]),
   counts: z.object({
     active: z.number(),
     left: z.number(),
@@ -106,7 +106,7 @@ const getRoute = createRoute({
           schema: z.object({
             bucket: bucketSchema.extend({
               criteria: z.record(z.string(), z.unknown()).optional(),
-              reentryPeriod: z
+              entryPeriod: z
                 .record(z.string(), z.unknown())
                 .nullable()
                 .optional(),
@@ -267,7 +267,7 @@ export const bucketsRouter = new OpenAPIHono<AppEnv>()
         enabled: effectiveEnabled,
         kind: b.kind ?? "dynamic",
         timeBased: b.timeBased ?? false,
-        reentry: b.reentry ?? "unlimited",
+        entryLimit: b.entryLimit ?? "unlimited",
         counts: countsMap.get(b.id) ?? { ...emptyCounts },
       };
     });
@@ -366,11 +366,9 @@ export const bucketsRouter = new OpenAPIHono<AppEnv>()
           enabled: effectiveEnabled,
           kind: meta.kind ?? "dynamic",
           timeBased: meta.timeBased ?? false,
-          reentry: meta.reentry ?? "unlimited",
+          entryLimit: meta.entryLimit ?? "unlimited",
           criteria: meta.criteria as Record<string, unknown> | undefined,
-          reentryPeriod: meta.reentryPeriod as
-            | Record<string, unknown>
-            | undefined,
+          entryPeriod: meta.entryPeriod as Record<string, unknown> | undefined,
           minDwell: meta.minDwell as Record<string, unknown> | undefined,
           maxDwell: meta.maxDwell as Record<string, unknown> | undefined,
           reconcileEvery: meta.reconcileEvery as

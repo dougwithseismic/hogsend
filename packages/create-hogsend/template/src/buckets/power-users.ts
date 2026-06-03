@@ -16,7 +16,7 @@ import { Events } from "../journeys/constants/index.js";
  *   - `meta.timeBased`  set when criteria use a rolling `within` window so a
  *                       clock change (not an event) can flip membership — the
  *                       reconcile cron then owns the absence leave
- *   - `meta.reentry`    "once" | "once_per_period" | "unlimited" — controls when
+ *   - `meta.entryLimit`    "once" | "once_per_period" | "unlimited" — controls when
  *                       a re-join re-emits `bucket:entered`
  *
  * Buckets are observe-only in Studio — there is no visual builder; they live in
@@ -34,8 +34,8 @@ export const powerUsers = defineBucket({
     // Rolling 30-day window → time-based: the reconcile cron sweeps the leave
     // when the window rolls past, since no event signals it.
     timeBased: true,
-    reentry: "once_per_period",
-    reentryPeriod: { hours: 24 * 7 },
+    entryLimit: "once_per_period",
+    entryPeriod: { hours: 24 * 7 },
     criteria: {
       type: "event",
       eventName: Events.FEATURE_USED,

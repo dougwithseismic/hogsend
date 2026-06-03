@@ -79,12 +79,12 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
       `Hogsend worker started with ${journeyTasks.length} journey task(s)`,
     );
 
-    await _worker.start();
-
     // Boot-time backfill / criteria-change re-eval (Section 6.6 B): diff each
-    // enabled bucket's criteriaHash against bucket_configs and enqueue a
-    // backfill/re-eval job where it differs. Best-effort — never block worker
-    // start; the cron is the backstop for time-based leaves regardless.
+    // enabled bucket's criteriaHash against bucket_configs and trigger a
+    // backfill/re-eval run where it differs. Kicked off BEFORE the listener
+    // because `_worker.start()` below does NOT return until the worker stops —
+    // anything after it is dead code at runtime. The triggers are fire-and-forget
+    // (runNoWait) and execute once the listener is up; best-effort, never blocks.
     enqueueBucketBackfills({
       db: container.db,
       logger: container.logger,
@@ -93,6 +93,8 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
+    await _worker.start();
   }
 
   return { start, stop };

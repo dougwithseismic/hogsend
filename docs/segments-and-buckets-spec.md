@@ -172,7 +172,7 @@ observe-only, and the only blessed external sync is back to PostHog.
 | **Bucket** | A named, code-defined predicate over a user's data. The peer of a journey. Defined with `defineBucket()`. |
 | **Membership** | The materialized fact that a user is currently in a bucket — a `bucket_memberships` row with `status = "active"`. |
 | **Criteria** | The membership predicate: a `ConditionEval` tree from `@hogsend/core` (property / event / email_engagement / composite). |
-| **Enter / join** | A transition from non-member → member. Emits `bucket:entered:<id>` (and the generic `bucket:entered` only if a generic-bound journey exists — Section 8.5), gated by `reentry`. |
+| **Enter / join** | A transition from non-member → member. Emits `bucket:entered:<id>` (and the generic `bucket:entered` only if a generic-bound journey exists — Section 8.5), gated by `entryLimit`. |
 | **Leave / exit** | A transition from member → non-member. Emits `bucket:left:<id>` (generic as above), via a compare-and-swap UPDATE. |
 | **Dynamic bucket** | `kind:"dynamic"` (default). Membership auto-recomputed from `criteria`. Two paths maintain it: real-time on ingest + cron reconcile for time windows. |
 | **Static / manual bucket** | `kind:"manual"`. Membership mutated only by explicit API/import (no `criteria`). The escape hatch. Phase 4; the `kind` discriminator ships in Phase 1 for forward-compat. |
@@ -216,6 +216,13 @@ export interface BucketMeta {
    * skipped by checkBucketMembership and the reconcile cron (early-continue, the
    * Laudspeaker pattern). Declaring it up front keeps Phase 4 genuinely additive
    * — no breaking change to BucketMeta later. Default "dynamic".
+   *
+   * SHIPPED 0.3.0: the discriminator + type still ALLOW declaring "manual" (no
+   * published-type break), but registering a kind:"manual" bucket now THROWS a
+   * ZodError at startup (message /not implemented in v1/, path ["kind"]) through
+   * BOTH BucketRegistry.register() and buildBucketRegistry(). Rejection is
+   * runtime-only at validation; full manual-membership support is still Phase 4.
+   * Loud > silent — previously manual buckets registered as no-ops.
    */
   kind?: "dynamic" | "manual";
 
@@ -239,8 +246,8 @@ export interface BucketMeta {
    * re-emit only after a prior leave + period elapses; "unlimited" = always.
    * Default "unlimited".
    */
-  reentry?: "once" | "once_per_period" | "unlimited";
-  reentryPeriod?: DurationObject;
+  entryLimit?: "once" | "once_per_period" | "unlimited";
+  entryPeriod?: DurationObject;
 
   /**
    * Anti-flap: suppress bucket:left until membership has existed at least this
@@ -252,7 +259,7 @@ export interface BucketMeta {
    * Unconditional membership TTL. `maxDwell` after enteredAt, the reconcile cron
    * force-leaves the member REGARDLESS of whether the criteria still match
    * (contrast `within`, which is criteria-driven; and `minDwell`, a floor). Used
-   * for time-boxed membership. Re-entry is governed by `reentry` (per-bucket:
+   * for time-boxed membership. Re-entry is governed by `entryLimit` (per-bucket:
    * `once`/`once_per_period` = hard time-box; `unlimited` = periodic flush).
    * Stored on its OWN column `bucket_memberships.max_dwell_at` (set once on join,
    * never mutated) — NOT overloaded onto `expiresAt`, which already carries the
@@ -295,10 +302,10 @@ export interface BucketMeta {
 engine — carried in metadata/admin serialization at `journeys.ts:153,486` but
 never read by any enrollment guard — so nothing is lost.) Bucket anti-flap is
 handled by two distinct mechanisms: `minDwell` (debounce-before-leave) and
-`reentry`/`reentryPeriod` (re-emit cooldown). These are NOT the journey
+`entryLimit`/`entryPeriod` (re-emit cooldown). These are NOT the journey
 post-completion suppression window; bucket transitions do not participate in any
 journey suppression window. An author migrating from journeys should map
-"don't re-fire too soon" onto `reentry`, not a missing `suppress`.
+"don't re-fire too soon" onto `entryLimit`, not a missing `suppress`.
 
 ### 4.2 `bucketMetaSchema` (Zod, mirrors `packages/core/src/schemas/journey.schema.ts`)
 
@@ -335,6 +342,16 @@ enforces four rules:
    skip rules 1–3.
 
 ### 4.3 `defineBucket` + `DefinedBucket` (in `@hogsend/engine`)
+
+> **SHIPPED 0.3.0 — fluent criteria builder.** `meta.criteria` now also accepts a
+> function `(b) => ConditionEval` using the `@hogsend/core` builder
+> (`b.prop()`/`b.event()`/`b.event(X).within(W)`/`b.all()`/`b.any()`), e.g.
+> `criteria: (b) => b.all(b.event(X).exists(), b.event(X).within(days(7)).notExists())`.
+> `defineBucket` runs the function ONCE at definition time and stores the returned
+> canonical `ConditionEval`, so registry indexes, `bucketMetaSchema.parse`, the
+> reconcile cron, and Studio all see the same declarative data. The declarative
+> form passes straight through unchanged — the builder is the recommended
+> authoring style, not a replacement.
 
 ```ts
 // packages/engine/src/buckets/define-bucket.ts
@@ -384,8 +401,8 @@ export const powerUsers = defineBucket({
     description: "Performed a key action 10+ times in the last 30 days.",
     enabled: true,
     timeBased: true,
-    reentry: "once_per_period",
-    reentryPeriod: { hours: 24 * 7 },
+    entryLimit: "once_per_period",
+    entryPeriod: { hours: 24 * 7 },
     criteria: {
       type: "event",
       eventName: Events.KEY_ACTION,
@@ -409,7 +426,7 @@ export const trialExpiringSoon = defineBucket({
     id: "trial-expiring-soon",
     name: "Trial expiring soon",
     enabled: true,
-    reentry: "once",
+    entryLimit: "once",
     criteria: {
       type: "composite",
       operator: "and",
@@ -821,7 +838,7 @@ if (!wasMember && isMember) {
     if (shouldEmitJoin(bucket, userId, priorCount, active /* prior rows */)) {
       await emitBucket("entered", bucket, userId, userEmail, epoch);
     }
-    // The active row is written even when the EMIT is suppressed by reentry
+    // The active row is written even when the EMIT is suppressed by entryLimit
     // (Studio size must reflect reality); only the bucket:entered ingestEvent
     // recursion is skipped. The epoch still advanced via the real insert, so a
     // later legitimate emit is not deduped against a suppressed one.
@@ -848,8 +865,8 @@ if (!wasMember && isMember) {
 } // else no change → optionally bump lastEvaluatedAt; emit NOTHING
 ```
 
-**`shouldEmitJoin` — the `reentry` gate (was a documented no-op; now real).**
-`reentry`/`reentryPeriod` previously had NO implementation path — `emitBucket`
+**`shouldEmitJoin` — the `entryLimit` gate (was a documented no-op; now real).**
+`entryLimit`/`entryPeriod` previously had NO implementation path — `emitBucket`
 fired unconditionally and `checkEntryLimit` is journey-side (`enrollment-
 guards.ts`, keyed on `journeyStates.createdAt`) and is never invoked by buckets.
 A bucket-side gate is specified here, consulted on the JOIN transition only:
@@ -857,12 +874,12 @@ A bucket-side gate is specified here, consulted on the JOIN transition only:
 ```ts
 function shouldEmitJoin(bucket, userId, priorCount, priorRows): boolean {
   if (priorCount === 0) return true;          // first-ever join always emits
-  switch (bucket.reentry ?? "unlimited") {
+  switch (bucket.entryLimit ?? "unlimited") {
     case "unlimited":      return true;
     case "once":           return false;       // any prior membership → suppress
     case "once_per_period": {
       const lastLeftOrEntered = mostRecentTransitionTs(priorRows);
-      return Date.now() - lastLeftOrEntered >= durationToMs(bucket.reentryPeriod);
+      return Date.now() - lastLeftOrEntered >= durationToMs(bucket.entryPeriod);
     }
   }
 }
@@ -871,7 +888,7 @@ function shouldEmitJoin(bucket, userId, priorCount, priorRows): boolean {
 - `once` → emit `bucket:entered` once **ever** (suppress if any prior membership
   row exists), mirroring `checkEntryLimit "once"`.
 - `once_per_period` → suppress unless the most recent prior `leftAt`/`enteredAt` is
-  older than `reentryPeriod`, mirroring the `createdAt`-cutoff logic.
+  older than `entryPeriod`, mirroring the `createdAt`-cutoff logic.
 - **Critically: suppressing the EMIT still writes the active membership row** (so
   Studio size reflects reality) and still **advances the epoch** via the real
   insert; only the `bucket:entered` `ingestEvent` recursion is skipped. If the
@@ -879,8 +896,22 @@ function shouldEmitJoin(bucket, userId, priorCount, priorRows): boolean {
   emit could be deduped against it.
 - This is the EMIT gate only; the journey it would trigger ALSO has its own
   `entryLimit`/`entryPeriod`. The two-layer interaction (bucket-side
-  `reentry` + journey-side `entryLimit`) is documented in Section 13 so authors
+  `entryLimit` + journey-side `entryLimit`) is documented in Section 13 so authors
   are not surprised by double-gating.
+
+> **SHIPPED 0.3.0 — precise `once_per_period` cooldown.** `shouldEmitJoin` is now
+> `async`, signature `async shouldEmitJoin({ db, bucket, userId, priorCount }):
+> Promise<boolean>` (module-private; the only call site is awaited). The cooldown
+> is measured from the **most-recent prior `bucketMemberships` row with
+> `status:"left"` AND `leftAt` set** — not "leftAt/enteredAt". When `entryPeriod`
+> has not elapsed since that leave, the `bucket:entered:<id>` emit is suppressed
+> while the active membership row is STILL inserted and `entryCount`/epoch STILL
+> advance. With `entryPeriod` **undefined**, `once_per_period` returns `true`
+> (emits) exactly as 0.2.0 — setting `entryPeriod` is what activates the precise
+> gate. `once` and `unlimited` are unchanged. **Anchor dependency:** every
+> force-leave path (`maxDwell` TTL sweep, `fastExpiry` timer, reconcile
+> leave/`bulkLeave`, `reconcileCompositeLeaves`) MUST set BOTH `status:"left"` and
+> `leftAt` for the cooldown anchor to be correct.
 
 **`deferLeave` — minDwell must DEFER, never DROP (was: stuck-active members).**
 The earlier `if (withinMinDwell) return;` suppressed the leave AND scheduled no
@@ -1043,11 +1074,34 @@ export const bucketReconcileTask = hatchet.task({
   accordingly OR make the task **self-requeue as a continuation** rather than
   relying on a single 120s run. The cheap set-based pre-filter, when used, MUST be
   a **superset** of real leavers (never miss one).
-- **`reconcileJoins`** (default off): only when on does the sweep scan
-  recent-event users not yet members (joins are already caught real-time). For
-  absence buckets the JOIN is itself the `NOT EXISTS`-within-window case, so the
-  sweep with `reconcileJoins` is what materializes `went-dormant` joins. Keep off
-  for non-absence buckets to bound cost.
+- **`reconcileJoins`** (default off for non-absence buckets): only when on does
+  the sweep scan recent-event users not yet members (joins are already caught
+  real-time). For absence buckets the JOIN is itself the
+  `NOT EXISTS`-within-window case, so the sweep is what materializes
+  `went-dormant` joins. Keep off for non-absence buckets to bound cost.
+  - **SHIPPED 0.3.0 — absence-shaped buckets auto-enable the join scan.** A
+    bucket whose criteria are *absence-shaped* (a bounded `not_exists` leg, alone
+    or inside a composite) now runs the cron join path automatically even when
+    `reconcileJoins` is **unset** — `went-dormant` no longer needs the flag.
+    `reconcileBucketJoins` infers it via `shouldReconcileJoins(bucket)` /
+    `isAbsenceShaped(criteria)`, with `selectAbsenceEventName(criteria)` picking
+    the windowed `not_exists` leg's event for the candidate query. Opt **out**
+    with `reconcileJoins: false`. Non-absence time-based buckets still skip the
+    join scan. Both single-event and composite absence shapes are materialized
+    set-based (`reconcileSingleEventJoins` / `reconcileCompositeJoins`); the
+    candidate query also anti-joins users present in the absence window(s) so the
+    bounded `externalId asc` page reaches genuinely-dormant users instead of
+    re-scanning a prefix of currently-active users each tick.
+  - **SHIPPED 0.3.0 — lapsed-active is a composite, not a bare `not_exists`.**
+    `went-dormant`'s canonical criteria is now
+    `all(event(X).exists(), event(X).within(7d).notExists())`: the **unbounded**
+    exists-ever leg is a never-active floor (a brand-new signup with zero `X`
+    events fails it and is NOT joined), while only the windowed `not_exists` leg
+    decays. Composite-join correctness depends on the exists-ever leg staying
+    UNBOUNDED. This changes `went-dormant`'s `criteriaHash` vs 0.2.0, so the boot
+    diff treats it as a reeval/first-time and may run one backfill on next worker
+    start — expected; the bucket `id`, `timeBased`, and `fastExpiry` are
+    unchanged.
 - Never backfill in a migration (engine migrations run under a 15min statement
   timeout).
 
@@ -1233,7 +1287,7 @@ quiet, and **leaves** it the moment they return):
    `app.active` within 7d, the absence-bucket join shape from Section 6.4) finds
    the user now matches, inserts an `active` `went-dormant` membership, and — being
    a real (non-backfill) transition — emits `bucket:entered:went-dormant` via
-   `ingestEvent` (subject to the `reentry` gate; here `entryLimit` lives on the
+   `ingestEvent` (subject to the `entryLimit` gate; here `entryLimit` lives on the
    journey side).
 2. `ingestEvent` pushes `bucket:entered:went-dormant` to Hatchet
    (`ingestion.ts:73`). Hatchet routes it to the `winback` journey task
@@ -1833,7 +1887,7 @@ route so external callers cannot spoof transitions.
   transition rows can never satisfy a bucket criterion. Buckets-of-buckets deferred
   to avoid transitive loops.
 - **Flapping** — emission gated on the atomic mutation + `minDwell` **deferred-not-
-  dropped** leave debounce + the bucket-side `reentry`/`reentryPeriod` emit gate
+  dropped** leave debounce + the bucket-side `entryLimit`/`entryPeriod` emit gate
   (Section 6.3) guard against re-enroll spam.
 - **Staleness** — property predicates evaluate against **merged contact state**
   (`{ ...contact.properties, ...event.properties }`), NOT the bare event payload
@@ -1845,8 +1899,8 @@ route so external callers cannot spoof transitions.
   #2); the connection-pooling assumption is documented.
 - **Backfill** — first-time backfilled matches do **not** fire live joins;
   criteria-change re-eval LEAVES emit but JOINS do not (Section 6.6).
-- **Two-layer re-enrollment gating** — a bucket has its OWN `reentry`/
-  `reentryPeriod` emit gate (Section 6.3), AND the journey it triggers has its own
+- **Two-layer re-enrollment gating** — a bucket has its OWN `entryLimit`/
+  `entryPeriod` emit gate (Section 6.3), AND the journey it triggers has its own
   `entryLimit`/`entryPeriod`. Both apply; authors should not be surprised by
   double-gating. The bucket gate controls whether `bucket:entered` is emitted at
   all; the journey gate controls whether the emitted event enrolls.
@@ -1888,7 +1942,7 @@ Each phase is independently shippable and additive.
 - `checkBucketMembership` inside `ingestEvent` (recursion guard; event+property
   candidate narrowing; cached `bucket_configs`; **merged-contact-state** property
   eval; read-after-write-safe count; diff with **RETURNING-gated** emission;
-  `reentry` emit gate; `minDwell` deferred-leave; aliased-only emission default).
+  `entryLimit` emit gate; `minDwell` deferred-leave; aliased-only emission default).
 - `ENABLED_BUCKETS` env; `buckets?` option on `createHogsendClient`/`createWorker`;
   `create-hogsend` template parity (`src/buckets/` + wiring).
 - Consumer `apps/api/src/buckets/` with one property-based example.
@@ -1899,7 +1953,7 @@ Each phase is independently shippable and additive.
   `join → leave → join → leave → join` (3 full cycles) produces three `left` rows +
   one `active` row with **no unique violation**, `entryCount` incrementing. (3) A
   triggering event that OMITS a referenced property still evaluates correctly
-  against merged contact state (no spurious join/leave). (4) `reentry:"once"`
+  against merged contact state (no spurious join/leave). (4) `entryLimit:"once"`
   suppresses the second `bucket:entered` while still writing the active row. (5) A
   `bucket:`-prefixed event short-circuits (no recursion). (6) A journey bound to
   `bucket:entered:<id>` enrolls; the test installs a known registry via
@@ -1968,7 +2022,7 @@ bucket registry) plus a recursive-emit path, so the test seam is stated explicit
   enter/leave/no-op WITHOUT a live Hatchet or worker. The recursion-guard test
   (Section 6.1 rule #1) and the convergence test (Section 6.3 worked example) target
   `checkBucketMembership` directly.
-- The re-entrant-cycle, merged-property, `reentry`-suppression, count-decay, and
+- The re-entrant-cycle, merged-property, `entryLimit`-suppression, count-decay, and
   minDwell-deferral acceptance tests above all run at this seam.
 
 ---
@@ -2009,7 +2063,7 @@ bucket registry) plus a recursive-emit path, so the test seam is stated explicit
    safer for large audiences.) (b) Confirm the asymmetric edit semantics:
    criteria-change LEAVES emit `bucket:left` (so journeys exit) while criteria-change
    JOINS do not emit (Section 6.6).
-7. **`reentry` defaults.** Default `unlimited` (always emit on transition) vs
+7. **`entryLimit` defaults.** Default `unlimited` (always emit on transition) vs
    `once_per_period` to be conservative about journey re-enrollment? (The gate is
    now actually implemented — Section 6.3.)
 8. **PostHog sync key + leave op — RECOMMENDED: `$unset` on leave.** `$unset` and
@@ -2039,7 +2093,7 @@ This revision folded in the architecture review. Summary of dispositions:
   REAL-TIME vs BATCH, not window length; examples kept; revision named openly
   (Section 2).
 
-**Majors (all addressed):** `reentry` gate implemented (`shouldEmitJoin`);
+**Majors (all addressed):** `entryLimit` gate implemented (`shouldEmitJoin`);
 emission gated on the atomic mutation not a key race; count-decay SHOULD-LEAVE per
 criterion shape; read-after-write transaction/`+1` rule; reserved `bucket:*` event
 names rejected at registration; minDwell deferred-not-dropped; boundary revision

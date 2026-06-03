@@ -1,8 +1,12 @@
 export {
   type ConditionContext,
+  type CriteriaBuilder,
+  criteriaBuilder,
+  type EventMatcher,
   evaluateCondition,
   evaluateEventCondition,
   evaluatePropertyConditions,
+  type PropertyMatcher,
 } from "./conditions/index.js";
 export {
   type DurationObject,

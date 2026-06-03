@@ -97,8 +97,8 @@ export const powerUsers = defineBucket({
     description: "Performed a key action 10+ times in the last 30 days.",
     enabled: true,
     timeBased: true,
-    reentry: "once_per_period",
-    reentryPeriod: { hours: 24 * 7 },
+    entryLimit: "once_per_period",
+    entryPeriod: { hours: 24 * 7 },
     criteria: {
       type: "event",
       eventName: Events.KEY_ACTION,

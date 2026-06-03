@@ -199,6 +199,20 @@ async function backfillJoins(opts: {
     .set({ totalRows: matcherIds.length, updatedAt: new Date() })
     .where(eq(importJobs.id, jobId));
 
+  // Unconditional max-dwell TTL deadline, stamped once at insert (mirrors the
+  // live join, check-membership.ts). null when the bucket has no maxDwell; the
+  // TTL sweep (reconcileBucketTtlLeaves) filters isNotNull(maxDwellAt), so an
+  // unset value would never be force-left.
+  const maxDwellAt = bucket.maxDwell
+    ? new Date(Date.now() + durationToMs(bucket.maxDwell))
+    : null;
+
+  // Fix C (DEFERRED): backfilled fastExpiry rows are NOT armed with a
+  // bucket:arm-expiry durable timer here — they are picked up by the next cron
+  // sweep instead (reconcileBucketLeaves / reconcileBucketTtlLeaves are the
+  // authoritative backstop). Conscious choice (cron cadence, default 5m), not an
+  // omission: arming at backfill would fan out one durable task per inserted row.
+
   let inserted = 0;
   for (let i = 0; i < matcherIds.length; i += BATCH_SIZE) {
     const chunk = matcherIds.slice(i, i + BATCH_SIZE);
@@ -214,14 +228,38 @@ async function backfillJoins(opts: {
       chunkContacts.map((c) => [c.externalId, c.email]),
     );
 
+    // Fix A: entryCount = 1 + prior memberships for each (user, bucket), the
+    // same monotonic ordinal the live join computes (check-membership.ts). On a
+    // FIRST-TIME backfill priorCount is 0 → entryCount 1 (unchanged); on a
+    // REEVAL re-join of a user with historical "left" rows it advances the
+    // epoch correctly. ONE batched GROUP BY per chunk (never per-user — the set-
+    // based path must not reintroduce the O(P) serial-query trap).
+    const priorCounts = await db
+      .select({
+        userId: bucketMemberships.userId,
+        cnt: sql<number>`count(*)::int`,
+      })
+      .from(bucketMemberships)
+      .where(
+        and(
+          eq(bucketMemberships.bucketId, bucket.id),
+          inArray(bucketMemberships.userId, chunk),
+        ),
+      )
+      .groupBy(bucketMemberships.userId);
+    const priorByUser = new Map(
+      priorCounts.map((r) => [r.userId, Number(r.cnt)]),
+    );
+
     const rows = chunk.map((userId) => ({
       userId,
       userEmail: emailByUser.get(userId) ?? null,
       bucketId: bucket.id,
       status: "active" as const,
       source: "backfill" as const,
-      entryCount: 1,
+      entryCount: 1 + (priorByUser.get(userId) ?? 0),
       expiresAt: computeBackfillExpiresAt(bucket),
+      maxDwellAt,
       lastEvaluatedAt: new Date(),
     }));
 
@@ -365,16 +403,23 @@ async function selectEventMatchers(
     return rows.map((r) => r.userId);
   }
 
-  // exists / count: group counts then filter by the operator.
+  // exists / count: group counts then filter by the operator. Fix B: innerJoin
+  // live contacts (GDPR — only materialize memberships for non-deleted contacts
+  // that actually exist), mirroring selectEventLeavers in bucket-reconcile.ts.
+  // The not_exists branch above already filters contacts.deletedAt; without this
+  // join the positive-event path could materialize active rows for soft-deleted
+  // or orphan-event userIds, diverging from the live/reconcile paths.
   const rows = await db
     .select({
       userId: userEvents.userId,
       cnt: sql<number>`count(*)::int`,
     })
     .from(userEvents)
+    .innerJoin(contacts, eq(contacts.externalId, userEvents.userId))
     .where(
       and(
         eq(userEvents.event, criteria.eventName),
+        isNull(contacts.deletedAt),
         cutoff ? gte(userEvents.occurredAt, cutoff) : undefined,
       ),
     )
@@ -535,7 +580,11 @@ export async function enqueueBucketBackfills(opts: {
 
       if (!job) continue;
 
-      await bucketBackfillTask.run({
+      // runNoWait (fire-and-forget): this is called from worker boot BEFORE the
+      // listener starts, so awaiting the run would deadlock (the run needs the
+      // listener that `_worker.start()` brings up). The triggered run queues and
+      // executes once listening; the task itself persists the criteriaHash.
+      await bucketBackfillTask.runNoWait({
         jobId: job.id,
         bucketId: bucket.id,
         mode,
