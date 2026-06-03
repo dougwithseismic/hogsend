@@ -46,6 +46,30 @@ Events flow in from PostHog, journeys react with emails via Resend, engagement d
 
 Each is a single TypeScript file using `defineJourney()`. The repo ships with [10 production-ready journeys](apps/api/src/journeys/) covering common lifecycle stages.
 
+## Buckets — real-time segments
+
+Buckets are the peer of journeys: named, code-defined groups a user **joins** the moment their data matches and **leaves** when it stops. Each join and leave fires an event through the same pipeline, so **a membership change can trigger a journey** — bind one to `bucketEntered("went-dormant")` and it runs the instant someone goes dormant. You write a `defineBucket()` with criteria (the same condition engine, or a fluent builder) — no `run`, just the predicate. Membership recomputes in real time off your own event stream — the sub-hour, code-first complement to PostHog's ~24h batch cohorts — with a reconcile pass for time-based leaves and a `maxDwell` TTL.
+
+```ts
+import { days, defineBucket } from "@hogsend/engine";
+
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    name: "Went dormant",
+    enabled: true,
+    timeBased: true,
+    criteria: (b) =>
+      b.all(
+        b.event("app.active").exists(), // was active at some point
+        b.event("app.active").within(days(7)).notExists(), // but not lately
+      ),
+  },
+});
+```
+
+> Full guide: **[Buckets](https://docs.hogsend.com/docs/guides/buckets)**
+
 ---
 
 ## Example Emails
@@ -131,7 +155,7 @@ export const activationWelcome = defineJourney({
 
 That `ctx.sleep(days(2))` literally pauses for two days and picks up exactly where it left off — durable execution via [Hatchet](https://hatchet.run) that survives deploys and restarts.
 
-> Full guide: **[Journeys](https://docs.hogsend.com/docs/guides/journeys)** | **[Events](https://docs.hogsend.com/docs/guides/events)** | **[Email](https://docs.hogsend.com/docs/guides/email)** | **[Conditions](https://docs.hogsend.com/docs/guides/conditions)**
+> Full guide: **[Journeys](https://docs.hogsend.com/docs/guides/journeys)** | **[Buckets](https://docs.hogsend.com/docs/guides/buckets)** | **[Events](https://docs.hogsend.com/docs/guides/events)** | **[Email](https://docs.hogsend.com/docs/guides/email)** | **[Conditions](https://docs.hogsend.com/docs/guides/conditions)**
 
 ---
 
