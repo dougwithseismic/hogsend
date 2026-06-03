@@ -25,7 +25,7 @@ curl -H "Authorization: Bearer your-api-key" \
       "enabled": true,
       "kind": "dynamic",
       "timeBased": true,
-      "reentry": "unlimited",
+      "entryLimit": "unlimited",
       "counts": {
         "active": 482,
         "left": 1190
@@ -93,7 +93,7 @@ The headline KPIs (`GET /v1/admin/metrics/overview`) also carry `activeBuckets` 
 ### Reading the Numbers
 
 - **A growing `size` with a flat `left`** — the bucket is filling but not draining. Expected for an inclusion bucket (`power-users`); for an absence bucket (`went-dormant`) it can mean members are not re-activating, which is exactly the audience your winback journey targets.
-- **`entered` climbing far faster than `size`** — heavy churn at the boundary. Members join and leave repeatedly. If a journey feeds off this bucket, lean on `reentry` (bucket side) and `entryLimit` (journey side) so you don't re-enroll the same users.
+- **`entered` climbing far faster than `size`** — heavy churn at the boundary. Members join and leave repeatedly. If a journey feeds off this bucket, lean on `entryLimit` (bucket side) and `entryLimit` (journey side) so you don't re-enroll the same users.
 - **`avgDwellSecs` near zero** — flapping. Usually a property bucket whose criteria sit right on a threshold. Consider a `minDwell` debounce in the definition.
 
 ## Enabling and Disabling Buckets

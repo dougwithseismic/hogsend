@@ -72,8 +72,8 @@ export const bucketMetaSchema = z
 
     criteria: conditionEvalSchema.optional(),
 
-    reentry: z.enum(["once", "once_per_period", "unlimited"]).optional(),
-    reentryPeriod: durationObjectSchema.optional(),
+    entryLimit: z.enum(["once", "once_per_period", "unlimited"]).optional(),
+    entryPeriod: durationObjectSchema.optional(),
 
     minDwell: durationObjectSchema.optional(),
     maxDwell: durationObjectSchema.optional(),
@@ -105,15 +105,21 @@ export const bucketMetaSchema = z
       });
     }
 
-    // Rule 4: kind/criteria coherence. Manual buckets skip rules 1–3.
+    // Rule 4: kind/criteria coherence. `kind:"manual"` is declared on the
+    // discriminator for forward-compat (Phase 4) but is NOT implemented in v1 —
+    // it would register as a silent no-op (never populated by the real-time path
+    // or the reconcile cron). Reject it LOUDLY at registration time
+    // (bucketMetaSchema.parse) rather than accepting a bucket that can never
+    // gain members. This is a runtime-validation tightening, not a type break:
+    // the `kind` enum still allows declaring "manual".
     if (kind === "manual") {
-      if (criteria !== undefined) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["criteria"],
-          message: 'kind:"manual" buckets must not declare `criteria`.',
-        });
-      }
+      ctx.addIssue({
+        code: "custom",
+        path: ["kind"],
+        message:
+          'kind:"manual" buckets are not implemented in v1; use a dynamic ' +
+          'bucket (kind:"dynamic" with `criteria`) instead.',
+      });
       return;
     }
 

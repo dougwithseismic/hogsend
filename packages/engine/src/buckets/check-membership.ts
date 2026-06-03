@@ -7,13 +7,16 @@ import {
 } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
 import type { Logger } from "../lib/logger.js";
+import {
+  BUCKET_EVENT_PREFIX,
+  computeExpiresAt,
+  computeMaxDwellAt,
+  countPriorMemberships,
+} from "./membership-epoch.js";
 import { getBucketRegistrySingleton } from "./registry-singleton.js";
-
-/** The reserved prefix every bucket transition event carries. */
-const BUCKET_EVENT_PREFIX = "bucket:";
 
 export type BucketTransitionKind = "entered" | "left";
 
@@ -33,7 +36,7 @@ export interface BucketTransition {
  * RETURNING-gated mutation (partial-unique INSERT for joins, compare-and-swap
  * UPDATE for leaves — Section 6.3). On a real transition it emits
  * `bucket:entered:<id>` / `bucket:left:<id>` back through `ingestEvent`, gated on
- * the reentry policy and deferring leaves still inside `minDwell`.
+ * the entryLimit policy and deferring leaves still inside `minDwell`.
  *
  * Returns the computed transition list so a unit test can assert enter/leave/no-op
  * WITHOUT a live Hatchet (Section 14 — the testing seam). Production callers
@@ -221,18 +224,10 @@ async function handleJoin(opts: {
   const { db, registry, hatchet, logger, bucket, userId, userEmail } = opts;
 
   // entryCount ordinal = 1 + count of ALL prior memberships (active + left) for
-  // this (user, bucket) (Section 6.3 / 8.2). priorCount also drives the reentry
-  // gate.
-  const [counted] = await db
-    .select({ priorCount: sql<number>`count(*)::int` })
-    .from(bucketMemberships)
-    .where(
-      and(
-        eq(bucketMemberships.userId, userId),
-        eq(bucketMemberships.bucketId, bucket.id),
-      ),
-    );
-  const priorCount = Number(counted?.priorCount ?? 0);
+  // this (user, bucket) (Section 6.3 / 8.2). priorCount also drives the entryLimit
+  // gate. Shared with the reconcile-discovered join path so the ordinal can
+  // never drift between the two writers.
+  const priorCount = await countPriorMemberships(db, bucket.id, userId);
   const epoch = priorCount + 1;
 
   // INSERT a FRESH active row. ON CONFLICT DO NOTHING targets the partial active
@@ -241,9 +236,7 @@ async function handleJoin(opts: {
   // (the loser mutates nothing — Section 6.3 governing rule).
   const expiresAt = computeExpiresAt(bucket);
   // Unconditional TTL deadline — set once on join, swept by the reconcile cron.
-  const maxDwellAt = bucket.maxDwell
-    ? new Date(Date.now() + durationToMs(bucket.maxDwell))
-    : null;
+  const maxDwellAt = computeMaxDwellAt(bucket);
   const inserted = await db
     .insert(bucketMemberships)
     .values({
@@ -284,8 +277,8 @@ async function handleJoin(opts: {
 
   // The active row is always written (Studio size must reflect reality) and the
   // epoch always advances via the real insert; only the bucket:entered emission
-  // is gated by the reentry policy (Section 6.3).
-  if (shouldEmitJoin(bucket, priorCount)) {
+  // is gated by the entryLimit policy (Section 6.3).
+  if (await shouldEmitJoin({ db, bucket, userId, priorCount })) {
     await emitBucketTransition({
       db,
       registry,
@@ -299,10 +292,10 @@ async function handleJoin(opts: {
       source: "event",
     });
   } else {
-    logger.info("Bucket join emit suppressed by reentry policy", {
+    logger.info("Bucket join emit suppressed by entryLimit policy", {
       bucketId: bucket.id,
       userId,
-      reentry: bucket.reentry ?? "unlimited",
+      entryLimit: bucket.entryLimit ?? "unlimited",
     });
   }
 
@@ -392,28 +385,56 @@ async function handleLeave(opts: {
 }
 
 /**
- * The `reentry` emit gate, consulted on the JOIN transition only (Section 6.3).
+ * The `entryLimit` emit gate, consulted on the JOIN transition only (Section 6.3).
  * Suppressing the emit still wrote the active row and advanced the epoch — only
  * the `bucket:entered` ingestEvent recursion is skipped.
+ *
+ * The engine now enforces `once_per_period` PRECISELY: it reads the most-recent
+ * prior LEAVE (`status:"left"` with `leftAt` set) and emits only once the
+ * configured `entryPeriod` has elapsed since that leave. The journey-side
+ * entryLimit/entryPeriod is a redundant backstop, no longer the sole gate.
  */
-function shouldEmitJoin(bucket: BucketMeta, priorCount: number): boolean {
+export async function shouldEmitJoin(opts: {
+  db: Database;
+  bucket: BucketMeta;
+  userId: string;
+  priorCount: number;
+}): Promise<boolean> {
+  const { db, bucket, userId, priorCount } = opts;
   // First-ever join always emits.
   if (priorCount === 0) return true;
-  switch (bucket.reentry ?? "unlimited") {
+  switch (bucket.entryLimit ?? "unlimited") {
     case "unlimited":
       return true;
     case "once":
       // Any prior membership → suppress (mirrors checkEntryLimit "once").
       return false;
-    case "once_per_period":
-      // Conservative without re-reading prior rows here: a per-period emit gate
-      // needs the most-recent prior transition timestamp. The active row was
-      // just inserted; the prior-row timestamps are not loaded on this path, so
-      // we treat once_per_period as "emit" once the active insert won and let
-      // the journey-side entryLimit/entryPeriod enforce cooldown (the documented
-      // two-layer gating, Section 13). A precise prior-transition lookup is a
-      // later-phase refinement.
-      return true;
+    case "once_per_period": {
+      // Back-compat: with no period configured, preserve 0.2.0 behavior (emit)
+      // and defer cooldown to the journey-side entryLimit/entryPeriod.
+      if (!bucket.entryPeriod) return true;
+      // Look up the most-recent COMPLETED prior cycle. Scoping to status:"left"
+      // (not "any prior row") makes this order-independent and race-safe against
+      // the active row we just inserted at this join — that row has no leftAt and
+      // status:"active", so it can never be mistaken for the prior cycle.
+      const [prior] = await db
+        .select({ leftAt: bucketMemberships.leftAt })
+        .from(bucketMemberships)
+        .where(
+          and(
+            eq(bucketMemberships.userId, userId),
+            eq(bucketMemberships.bucketId, bucket.id),
+            eq(bucketMemberships.status, "left"),
+            isNotNull(bucketMemberships.leftAt),
+          ),
+        )
+        .orderBy(desc(bucketMemberships.leftAt))
+        .limit(1);
+      // No completed prior cycle to cool off from → emit.
+      if (!prior?.leftAt) return true;
+      const elapsed = Date.now() - prior.leftAt.getTime();
+      return elapsed >= durationToMs(bucket.entryPeriod);
+    }
     default:
       return true;
   }
@@ -466,34 +487,4 @@ async function armExpiryTimer(opts: {
       error: err instanceof Error ? err.message : String(err),
     });
   }
-}
-
-/**
- * The persisted membership-expiry / fastExpiry arming epoch. Non-time-based,
- * non-fastExpiry buckets have no deadline (returns null). Time-based / fastExpiry
- * buckets that carry a single `within` window get `now + within`; the reconcile
- * cron (Phase 2) and fastExpiry timer (Phase 3) own the actual leave.
- */
-function computeExpiresAt(bucket: BucketMeta): Date | null {
-  if (!bucket.criteria) return null;
-  if (!bucket.timeBased && !bucket.fastExpiry) return null;
-  const within = firstWithin(bucket.criteria);
-  if (!within) return null;
-  return new Date(Date.now() + durationToMs(within));
-}
-
-/** Find the first EventCondition.within in a criteria tree (depth-first). */
-function firstWithin(
-  criteria: NonNullable<BucketMeta["criteria"]>,
-): NonNullable<BucketMeta["minDwell"]> | null {
-  if (criteria.type === "event" && criteria.within) {
-    return criteria.within;
-  }
-  if (criteria.type === "composite") {
-    for (const child of criteria.conditions) {
-      const found = firstWithin(child);
-      if (found) return found;
-    }
-  }
-  return null;
 }

@@ -256,7 +256,7 @@ export type BucketListItem = {
   enabled: boolean;
   kind: "dynamic" | "manual";
   timeBased: boolean;
-  reentry: "once" | "once_per_period" | "unlimited";
+  entryLimit: "once" | "once_per_period" | "unlimited";
   counts: {
     active: number;
     left: number;
@@ -302,10 +302,11 @@ export type BucketDetail = {
   enabled: boolean;
   kind: "dynamic" | "manual";
   timeBased: boolean;
-  reentry: "once" | "once_per_period" | "unlimited";
+  entryLimit: "once" | "once_per_period" | "unlimited";
   criteria?: Record<string, unknown>;
-  reentryPeriod?: Record<string, unknown> | null;
+  entryPeriod?: Record<string, unknown> | null;
   minDwell?: Record<string, unknown> | null;
+  maxDwell?: Record<string, unknown> | null;
   reconcileEvery?: Record<string, unknown> | null;
   fastExpiry: boolean;
   syncToPostHog: boolean;

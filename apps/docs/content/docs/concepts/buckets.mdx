@@ -97,8 +97,8 @@ export const powerUsers = defineBucket({
     description: "Performed a key action 10+ times in the last 30 days.",
     enabled: true,
     timeBased: true,
-    reentry: "once_per_period",
-    reentryPeriod: { hours: 24 * 7 },
+    entryLimit: "once_per_period",
+    entryPeriod: { hours: 24 * 7 },
     criteria: {
       type: "event",
       eventName: Events.KEY_ACTION,
@@ -113,7 +113,7 @@ export const powerUsers = defineBucket({
 
 ```ts
 // src/buckets/went-dormant.ts — absence; the leave is owned by the cron sweep
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 import { Events } from "../journeys/constants/index.js";
 
 export const wentDormant = defineBucket({
@@ -122,15 +122,17 @@ export const wentDormant = defineBucket({
     name: "Went dormant",
     enabled: true,
     timeBased: true,
-    criteria: {
-      type: "event",
-      eventName: Events.APP_ACTIVE,
-      check: "not_exists",
-      within: { hours: 24 * 7 }, // days(7)
-    },
+    // Lapsed-active: was active once, but NOT in the last 7 days.
+    criteria: (b) =>
+      b.all(
+        b.event(Events.APP_ACTIVE).exists(),
+        b.event(Events.APP_ACTIVE).within(days(7)).notExists(),
+      ),
   },
 });
 ```
+
+The unbounded `exists()` floor is what excludes never-active signups — a bare `not_exists within 7d` would join every brand-new user who has yet to fire `app.active`.
 
 `power-users` and `went-dormant` are **time-based** — a rolling window means the clock alone can flip membership, so the reconcile cron owns their leaves. `trial-expiring-soon` (a pure-property composite) is real-time only, since a property bucket can only change when an event carries a new property value. The criteria are just the conditions you already write everywhere else; the only new idea is that the predicate defines a *group*, and crossing its boundary fires an event.
 

@@ -39,17 +39,19 @@ vi.mock("../lib/hatchet.js", () => ({
 }));
 
 const { bucketMemberships, contacts, userEvents } = await import("@hogsend/db");
-const { and, eq } = await import("drizzle-orm");
+const { and, desc, eq } = await import("drizzle-orm");
 const {
   BucketRegistry,
   JourneyRegistry,
   buildBucketRegistry,
   checkBucketMembership,
   createHogsendClient,
+  days,
   defineBucket,
   resetBucketRegistry,
   setBucketRegistry,
 } = await import("@hogsend/engine");
+const { bucketMetaSchema } = await import("@hogsend/core");
 
 const container = createHogsendClient();
 const { db, logger } = container;
@@ -112,7 +114,7 @@ const eventBucket = defineBucket({
   },
 });
 
-// reentry:"once" bucket keyed on a property → second join must NOT re-emit, but
+// entryLimit:"once" bucket keyed on a property → second join must NOT re-emit, but
 // the active row IS written.
 const ONCE_BUCKET_ID = `${RUN}-once-pro`;
 const onceBucket = defineBucket({
@@ -120,7 +122,50 @@ const onceBucket = defineBucket({
     id: ONCE_BUCKET_ID,
     name: "Once pro",
     enabled: true,
-    reentry: "once",
+    entryLimit: "once",
+    criteria: {
+      type: "property",
+      property: "plan",
+      operator: "eq",
+      value: "pro",
+    },
+  },
+});
+
+// entryLimit:"once_per_period" bucket keyed on a property → a re-join INSIDE the
+// configured entryPeriod (measured from the most-recent prior leave's leftAt)
+// must NOT re-emit bucket:entered, but the active row IS still written + epoch
+// advances. After the period elapses the emit is allowed again. The seam
+// manipulates the prior left row's leftAt directly to control elapsed time
+// deterministically (no real waiting).
+const PERIOD_BUCKET_ID = `${RUN}-period-pro`;
+const periodBucket = defineBucket({
+  meta: {
+    id: PERIOD_BUCKET_ID,
+    name: "Once per period pro",
+    enabled: true,
+    entryLimit: "once_per_period",
+    entryPeriod: { hours: 24 },
+    criteria: {
+      type: "property",
+      property: "plan",
+      operator: "eq",
+      value: "pro",
+    },
+  },
+});
+
+// entryLimit:"once_per_period" WITHOUT a entryPeriod → 0.2.0 back-compat anchor:
+// the precise cooldown is NOT activated, so the emit fires on every qualifying
+// re-join exactly as it did before entryPeriod existed (the journey-side
+// entryLimit/entryPeriod remains the redundant backstop).
+const PERIOD_NOCFG_BUCKET_ID = `${RUN}-period-nocfg-pro`;
+const periodNoCfgBucket = defineBucket({
+  meta: {
+    id: PERIOD_NOCFG_BUCKET_ID,
+    name: "Once per period (no period configured)",
+    enabled: true,
+    entryLimit: "once_per_period",
     criteria: {
       type: "property",
       property: "plan",
@@ -150,7 +195,54 @@ const ttlBucket = defineBucket({
   },
 });
 
-const TEST_BUCKETS = [propBucket, eventBucket, onceBucket, ttlBucket];
+// Builder-form bucket — authored with the fluent criteria builder instead of a
+// declarative object. Proves defineBucket resolves the function once and the
+// result is indistinguishable downstream.
+const BUILDER_BUCKET_ID = `${RUN}-builder-vip`;
+const builderBucket = defineBucket({
+  meta: {
+    id: BUILDER_BUCKET_ID,
+    name: "VIP (builder)",
+    enabled: true,
+    criteria: (b) => b.prop("tier").eq("vip"),
+  },
+});
+
+// Absence-shaped composite — the canonical lapsed-active dormancy predicate
+// (mirrors apps/api/src/buckets/went-dormant.ts): "was active once AND has NOT
+// been active in the last 7 days". The exists-ever leg (no window) excludes
+// brand-new never-active signups; the windowed not_exists leg is the time-based
+// flip the cron sweep owns. `reconcileJoins` is intentionally UNSET so the
+// engine INFERS the cron join path on for this absence-shaped composite (the
+// inference under test). The actual cron join materialization is exercised by
+// the lead's live validation (the inference helpers are engine-internal /
+// non-exported); this fixture asserts the inference INPUTS the cron keys on.
+const ABSENCE_BUCKET_ID = `${RUN}-went-dormant`;
+const ABSENCE_EVENT = `${RUN}:app.active`;
+const absenceBucket = defineBucket({
+  meta: {
+    id: ABSENCE_BUCKET_ID,
+    name: "Went dormant (absence-shaped)",
+    enabled: true,
+    timeBased: true,
+    fastExpiry: true,
+    criteria: (b) =>
+      b.all(
+        b.event(ABSENCE_EVENT).exists(),
+        b.event(ABSENCE_EVENT).within(days(7)).notExists(),
+      ),
+  },
+});
+
+const TEST_BUCKETS = [
+  propBucket,
+  eventBucket,
+  onceBucket,
+  periodBucket,
+  periodNoCfgBucket,
+  ttlBucket,
+  builderBucket,
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -194,6 +286,33 @@ async function allRows(userId: string, bucketId: string) {
     ),
     orderBy: (m, { asc }) => [asc(m.entryCount)],
   });
+}
+
+/**
+ * Backdate the most-recent "left" membership row's leftAt for (user, bucket) so
+ * the once_per_period cooldown anchor (the prior leave) is `ageMs` in the past.
+ * Lets the seam exercise "inside the period" vs "after the period" deterministically
+ * without real waiting. Returns the row id it mutated (or undefined if none).
+ */
+async function backdateLastLeave(
+  userId: string,
+  bucketId: string,
+  ageMs: number,
+): Promise<string | undefined> {
+  const last = await db.query.bucketMemberships.findFirst({
+    where: and(
+      eq(bucketMemberships.userId, userId),
+      eq(bucketMemberships.bucketId, bucketId),
+      eq(bucketMemberships.status, "left"),
+    ),
+    orderBy: [desc(bucketMemberships.leftAt)],
+  });
+  if (!last) return undefined;
+  await db
+    .update(bucketMemberships)
+    .set({ leftAt: new Date(Date.now() - ageMs) })
+    .where(eq(bucketMemberships.id, last.id));
+  return last.id;
 }
 
 /** How many times the aliased transition event was pushed to Hatchet. */
@@ -251,7 +370,11 @@ afterAll(async () => {
     PROP_BUCKET_ID,
     EVENT_BUCKET_ID,
     ONCE_BUCKET_ID,
+    PERIOD_BUCKET_ID,
+    PERIOD_NOCFG_BUCKET_ID,
     TTL_BUCKET_ID,
+    BUILDER_BUCKET_ID,
+    ABSENCE_BUCKET_ID,
   ]) {
     await db
       .delete(bucketMemberships)
@@ -295,6 +418,39 @@ describe("recursion guard (Phase 1 #5)", () => {
     });
 
     expect(transitions).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Criteria builder (function form) — resolves at definition time, behaves same
+// ===========================================================================
+
+describe("criteria builder (function form)", () => {
+  it("resolves the builder function to a plain ConditionEval at define time", () => {
+    expect(typeof builderBucket.meta.criteria).toBe("object");
+    expect(builderBucket.meta.criteria).toEqual({
+      type: "property",
+      property: "tier",
+      operator: "eq",
+      value: "vip",
+    });
+  });
+
+  it("a builder-defined bucket joins exactly like a declarative one", async () => {
+    const userId = uid("builder");
+    await seedContact(userId, { tier: "vip" });
+
+    const transitions = await check({
+      userId,
+      event: "user.updated",
+      properties: { tier: "vip" },
+    });
+
+    expect(transitions).toContainEqual({
+      bucketId: BUILDER_BUCKET_ID,
+      transition: "entered",
+    });
+    expect((await activeRow(userId, BUILDER_BUCKET_ID))?.status).toBe("active");
   });
 });
 
@@ -565,13 +721,13 @@ describe("merged contact state (Phase 1 #3)", () => {
 });
 
 // ===========================================================================
-// Phase 1 acceptance #4 — reentry:"once" suppresses the 2nd entered but still
+// Phase 1 acceptance #4 — entryLimit:"once" suppresses the 2nd entered but still
 // writes the active row
 // ===========================================================================
 
-describe('reentry:"once" (Phase 1 #4)', () => {
+describe('entryLimit:"once" (Phase 1 #4)', () => {
   it("suppresses the second bucket:entered emit yet still writes the active row + advances epoch", async () => {
-    const userId = uid("reentry-once");
+    const userId = uid("entryLimit-once");
     await seedContact(userId, { plan: "pro" });
 
     // First join → emits.
@@ -614,9 +770,149 @@ describe('reentry:"once" (Phase 1 #4)', () => {
     expect(active).toBeDefined();
     expect(active?.entryCount).toBe(2); // epoch advanced via the real insert
 
-    // ...but the bucket:entered EMIT is suppressed by reentry:"once" (no second
+    // ...but the bucket:entered EMIT is suppressed by entryLimit:"once" (no second
     // Hatchet push of the alias).
     expect(aliasPushCount("entered", ONCE_BUCKET_ID)).toBe(0);
+  });
+});
+
+// ===========================================================================
+// entryLimit:"once_per_period" — PRECISE cooldown gate (STEP 2). The active row is
+// ALWAYS written + epoch advances; only the bucket:entered EMIT is gated on
+// whether `entryPeriod` has elapsed since the most-recent prior leave (its
+// leftAt). entryPeriod UNSET → 0.2.0 back-compat (always emits).
+// ===========================================================================
+
+describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
+  it("SUPPRESSES the re-join emit while still inside the entryPeriod", async () => {
+    const userId = uid("period-inside");
+    await seedContact(userId, { plan: "pro" });
+
+    // First join → emits (first-ever join always emits).
+    const first = await check({
+      userId,
+      event: "user.updated",
+      properties: { plan: "pro" },
+    });
+    expect(
+      first.filter(
+        (t) => t.bucketId === PERIOD_BUCKET_ID && t.transition === "entered",
+      ),
+    ).toHaveLength(1);
+    expect(aliasPushCount("entered", PERIOD_BUCKET_ID)).toBe(1);
+
+    // Leave (downgrade) → writes a "left" row with leftAt.
+    await seedContact(userId, { plan: "free" });
+    await check({
+      userId,
+      event: "user.updated",
+      properties: { plan: "free" },
+    });
+    expect(aliasPushCount("left", PERIOD_BUCKET_ID)).toBe(1);
+
+    // Pin the prior leave to 1h ago — INSIDE the 24h entryPeriod.
+    const leftId = await backdateLastLeave(
+      userId,
+      PERIOD_BUCKET_ID,
+      60 * 60 * 1000,
+    );
+    expect(leftId).toBeDefined();
+    pushSpy.mockClear();
+
+    // Re-join (upgrade) while still cooling down.
+    await seedContact(userId, { plan: "pro" });
+    const second = await check({
+      userId,
+      event: "user.updated",
+      properties: { plan: "pro" },
+    });
+
+    // The JOIN transition is still reported AND the active row is written +
+    // epoch advanced...
+    expect(
+      second.filter(
+        (t) => t.bucketId === PERIOD_BUCKET_ID && t.transition === "entered",
+      ),
+    ).toHaveLength(1);
+    const active = await activeRow(userId, PERIOD_BUCKET_ID);
+    expect(active).toBeDefined();
+    expect(active?.entryCount).toBe(2);
+
+    // ...but the bucket:entered EMIT is SUPPRESSED because the cooldown window
+    // since the prior leave has not elapsed (1h < 24h). A journey bound to
+    // bucket:entered:<id> therefore does NOT re-enroll during the cooldown.
+    expect(aliasPushCount("entered", PERIOD_BUCKET_ID)).toBe(0);
+  });
+
+  it("ALLOWS the re-join emit once the entryPeriod has elapsed", async () => {
+    const userId = uid("period-after");
+    await seedContact(userId, { plan: "pro" });
+
+    // Join → leave (first cycle).
+    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await seedContact(userId, { plan: "free" });
+    await check({
+      userId,
+      event: "user.updated",
+      properties: { plan: "free" },
+    });
+
+    // Pin the prior leave to 25h ago — PAST the 24h entryPeriod.
+    const leftId = await backdateLastLeave(
+      userId,
+      PERIOD_BUCKET_ID,
+      25 * 60 * 60 * 1000,
+    );
+    expect(leftId).toBeDefined();
+    pushSpy.mockClear();
+
+    // Re-join after the cooldown has elapsed.
+    await seedContact(userId, { plan: "pro" });
+    const second = await check({
+      userId,
+      event: "user.updated",
+      properties: { plan: "pro" },
+    });
+
+    expect(
+      second.filter(
+        (t) => t.bucketId === PERIOD_BUCKET_ID && t.transition === "entered",
+      ),
+    ).toHaveLength(1);
+    const active = await activeRow(userId, PERIOD_BUCKET_ID);
+    expect(active?.entryCount).toBe(2);
+
+    // The cooldown has elapsed (25h >= 24h) → the bucket:entered emit fires
+    // again, re-arming any journey bound to bucket:entered:<id>.
+    expect(aliasPushCount("entered", PERIOD_BUCKET_ID)).toBe(1);
+  });
+
+  it("BACK-COMPAT: once_per_period with NO entryPeriod always emits (0.2.0)", async () => {
+    const userId = uid("period-nocfg");
+    await seedContact(userId, { plan: "pro" });
+
+    // First join → emits.
+    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    expect(aliasPushCount("entered", PERIOD_NOCFG_BUCKET_ID)).toBe(1);
+
+    // Leave then immediately re-join (no time passes); the prior leave is
+    // brand-new but with no entryPeriod configured the precise gate is NOT
+    // active, so the emit fires exactly as it did before entryPeriod existed.
+    await seedContact(userId, { plan: "free" });
+    await check({
+      userId,
+      event: "user.updated",
+      properties: { plan: "free" },
+    });
+    pushSpy.mockClear();
+
+    await seedContact(userId, { plan: "pro" });
+    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+
+    const active = await activeRow(userId, PERIOD_NOCFG_BUCKET_ID);
+    expect(active?.entryCount).toBe(2);
+    // No period configured → emit is NOT suppressed (back-compat anchor).
+    expect(aliasPushCount("entered", PERIOD_NOCFG_BUCKET_ID)).toBe(1);
   });
 });
 
@@ -744,5 +1040,155 @@ describe("bucket registry seam", () => {
     // After reset, checkBucketMembership with no explicit override would throw;
     // we assert reset by passing an explicit override still works.
     expect(() => buildBucketRegistry(TEST_BUCKETS, "*")).not.toThrow();
+  });
+});
+
+// ===========================================================================
+// Absence-join inference (completeness #4 / STEP 4-5). The cron join path is
+// INFERRED-ON for absence-shaped buckets (a windowed not_exists leg) when
+// reconcileJoins is left UNDEFINED. The inference helpers
+// (shouldReconcileJoins / isAbsenceShaped / collectAbsenceLegs) are
+// engine-internal and NOT exported, so this suite asserts the inference INPUTS
+// the cron keys on, while the actual JOIN materialization (and the starvation /
+// multi-leg-floor fixes) is covered DB-backed in bucket-reconcile.test.ts. Here
+// we assert: the absence-shaped composite (a) passes schema validation (a
+// windowed not_exists is a legitimate anchor, not a degenerate pure-negation
+// bucket), (b) registers + is indexed by both legs' event, and (c) leaves
+// reconcileJoins UNSET so the engine's inference (rather than an explicit flag)
+// decides — plus the exact criteria shape the inference matches on. went-dormant
+// in apps/api/src/buckets/ is the same shape.
+// ===========================================================================
+
+describe("absence-join inference inputs (completeness #4 / STEP 4-5)", () => {
+  it("the absence-shaped composite passes schema validation (windowed not_exists is a valid anchor)", () => {
+    // A pure UNBOUNDED not_exists would be a degenerate pure-negation bucket and
+    // throw; the windowed not_exists leg + exists-ever leg make this legitimate.
+    expect(() => bucketMetaSchema.parse(absenceBucket.meta)).not.toThrow();
+  });
+
+  it("registers + is indexed by the absence event (reachable to the cron registry walk)", () => {
+    const registry = buildBucketRegistry([absenceBucket], "*");
+    expect(registry.has(ABSENCE_BUCKET_ID)).toBe(true);
+    // Both legs reference ABSENCE_EVENT, so the event index routes to it; this is
+    // the same getEnabled() registry the reconcile cron sweeps.
+    expect(
+      registry.getByReferencedEvent(ABSENCE_EVENT).map((b) => b.id),
+    ).toContain(ABSENCE_BUCKET_ID);
+    expect(registry.getEnabled().map((b) => b.id)).toContain(ABSENCE_BUCKET_ID);
+  });
+
+  it("leaves reconcileJoins UNSET so the engine INFERS the join path on", () => {
+    // The whole point of the inference: an absence-shaped bucket needs NO
+    // explicit reconcileJoins:true. undefined → inferred-on (the cron's
+    // shouldReconcileJoins returns true for this shape).
+    expect(absenceBucket.meta.reconcileJoins).toBeUndefined();
+  });
+
+  it("has the exact absence-shaped composite the inference matches on (windowed not_exists leg)", () => {
+    // shouldReconcileJoins/isAbsenceShaped/collectAbsenceLegs key on: a
+    // composite containing an EventCondition with check:"not_exists" AND a
+    // `within` window. Assert that exact shape so a refactor that drops the
+    // window (making it unbounded / non-joinable) is caught here, even though
+    // the helper itself is internal.
+    const criteria = absenceBucket.meta.criteria;
+    expect(criteria?.type).toBe("composite");
+    if (criteria?.type !== "composite") throw new Error("expected composite");
+
+    const windowedNotExists = criteria.conditions.find(
+      (c) => c.type === "event" && c.check === "not_exists" && c.within != null,
+    );
+    expect(windowedNotExists).toBeDefined();
+    // collectAbsenceLegs picks this leg's event for the candidate query.
+    expect(
+      windowedNotExists?.type === "event"
+        ? windowedNotExists.eventName
+        : undefined,
+    ).toBe(ABSENCE_EVENT);
+
+    // The exists-ever floor leg (no window) MUST stay UNBOUNDED — only the
+    // not_exists leg decays. This is the canonical lapsed-active shape the
+    // composite-join path depends on.
+    const existsEver = criteria.conditions.find(
+      (c) => c.type === "event" && c.check === "exists" && c.within == null,
+    );
+    expect(existsEver).toBeDefined();
+  });
+
+  it("a non-absence time-based bucket (positive within) is NOT absence-shaped", () => {
+    // Contrast: a windowed EXISTS (positive) bucket is caught real-time on event
+    // arrival, so the inference must NOT turn the join scan on for it. We assert
+    // the shape distinction (no windowed not_exists leg) that drives that.
+    const positiveWindow = defineBucket({
+      meta: {
+        id: `${RUN}-recently-active`,
+        name: "Recently active (positive window)",
+        enabled: true,
+        timeBased: true,
+        criteria: (b) => b.event(ABSENCE_EVENT).within(days(7)).exists(),
+      },
+    });
+    const criteria = positiveWindow.meta.criteria;
+    // No not_exists leg anywhere → not absence-shaped → inference stays OFF.
+    const hasWindowedNotExists =
+      criteria?.type === "event" &&
+      criteria.check === "not_exists" &&
+      criteria.within != null;
+    expect(hasWindowedNotExists).toBe(false);
+  });
+});
+
+describe('kind:"manual" guard (Phase 1 #7)', () => {
+  it("rejects a manual bucket at registration with the v1 message", () => {
+    const manual = defineBucket({
+      meta: {
+        id: `${RUN}-manual-bucket`,
+        name: "Manual bucket",
+        enabled: true,
+        kind: "manual",
+      },
+    });
+    const registry = new BucketRegistry();
+    expect(() => registry.register(manual.meta)).toThrow(
+      /not implemented in v1/,
+    );
+    expect(registry.has(manual.meta.id)).toBe(false);
+  });
+
+  it("rejects a manual bucket even when it declares criteria", () => {
+    const manual = defineBucket({
+      meta: {
+        id: `${RUN}-manual-with-criteria`,
+        name: "Manual with criteria",
+        enabled: true,
+        kind: "manual",
+        criteria: (b) => b.event(SIGNUP_EVENT).exists(),
+      },
+    });
+    const registry = new BucketRegistry();
+    expect(() => registry.register(manual.meta)).toThrow(
+      /not implemented in v1/,
+    );
+  });
+
+  it("rejects a manual bucket through buildBucketRegistry too", () => {
+    const manual = defineBucket({
+      meta: {
+        id: `${RUN}-manual-build`,
+        name: "Manual via build",
+        enabled: true,
+        kind: "manual",
+      },
+    });
+    expect(() => buildBucketRegistry([manual], "*")).toThrow(
+      /not implemented in v1/,
+    );
+  });
+
+  it("dynamic buckets are unaffected by the manual guard", () => {
+    const registry = new BucketRegistry();
+    expect(() => registry.register(propBucket.meta)).not.toThrow();
+    expect(() => registry.register(eventBucket.meta)).not.toThrow();
+    expect(registry.has(PROP_BUCKET_ID)).toBe(true);
+    expect(registry.has(EVENT_BUCKET_ID)).toBe(true);
   });
 });

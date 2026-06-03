@@ -15,11 +15,10 @@ Buckets are a **peer of journeys**, authored the exact same way. You write a `de
 
 ```ts
 // src/buckets/went-dormant.ts
-import { days } from "@hogsend/core";
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 import { Events } from "../journeys/constants/index.js";
 
-// Absence — did NOT do app.active in the last 7 days.
+// Lapsed-active — was active once, but NOT in the last 7 days.
 export const wentDormant = defineBucket({
   meta: {
     id: "went-dormant",
@@ -27,17 +26,16 @@ export const wentDormant = defineBucket({
     enabled: true,
     timeBased: true,
     fastExpiry: true,
-    criteria: {
-      type: "event",
-      eventName: Events.APP_ACTIVE,
-      check: "not_exists",
-      within: days(7),
-    },
+    criteria: (b) =>
+      b.all(
+        b.event(Events.APP_ACTIVE).exists(),
+        b.event(Events.APP_ACTIVE).within(days(7)).notExists(),
+      ),
   },
 });
 ```
 
-That's the whole bucket. No `run`, no state machine — just a predicate. When a user stops being active for 7 days they join `went-dormant`, which fires `bucket:entered:went-dormant`. A journey bound to that event starts a win-back flow. When they come back, they leave the bucket, `bucket:left:went-dormant` fires, and the journey can auto-exit via `exitOn`.
+That's the whole bucket. No `run`, no state machine — just a predicate, here written with the [fluent criteria builder](#criteria-builder). When a once-active user stops being active for 7 days they join `went-dormant`, which fires `bucket:entered:went-dormant`. A journey bound to that event starts a win-back flow. When they come back, they leave the bucket, `bucket:left:went-dormant` fires, and the journey can auto-exit via `exitOn`. (The bare `not_exists` form would also join brand-new signups who were never active — see the [dormancy recipe](#dormancy--lapsed-active-recipe).)
 
 Everything content needs — `defineBucket`, the duration helpers — imports from `@hogsend/engine` (which re-exports `@hogsend/core`, so `days`/`hours`/`minutes` are available either way).
 
@@ -70,8 +68,8 @@ interface BucketMeta {
 
   criteria?: ConditionEval;
 
-  reentry?: "once" | "once_per_period" | "unlimited";
-  reentryPeriod?: DurationObject;
+  entryLimit?: "once" | "once_per_period" | "unlimited";
+  entryPeriod?: DurationObject;
 
   minDwell?: DurationObject;
   maxDwell?: DurationObject;
@@ -94,39 +92,39 @@ interface BucketMeta {
 | `name` | `string` | Human-readable name for logs and Studio. |
 | `description` | `string?` | Optional longer description, shown in Studio. |
 | `enabled` | `boolean` | Set to `false` to disable without removing code. Checked before membership is evaluated. |
-| `kind` | `"dynamic" \| "manual"` | `"dynamic"` (default) recomputes membership from `criteria`. `"manual"` membership is mutated only by explicit API/import (no criteria). |
+| `kind` | `"dynamic" \| "manual"` | `"dynamic"` (default) recomputes membership from `criteria`. `"manual"` is **not implemented in v1** — the discriminator ships for forward-compat, but registering a `kind:"manual"` bucket **throws at startup**. Omit `kind` (or set `"dynamic"`). |
 | `criteria` | `ConditionEval?` | The membership predicate, reusing the existing condition engine. **Required** for `"dynamic"` buckets; omit for `"manual"`. |
-| `reentry` | `"once" \| "once_per_period" \| "unlimited"` | Controls how often a **join** event re-fires. Default `"unlimited"`. |
-| `reentryPeriod` | `DurationObject?` | Required when `reentry` is `"once_per_period"`. The cooldown before a join re-emits. |
+| `entryLimit` | `"once" \| "once_per_period" \| "unlimited"` | Controls how often a **join** event re-fires. Default `"unlimited"`. |
+| `entryPeriod` | `DurationObject?` | Required when `entryLimit` is `"once_per_period"`. The cooldown before a join re-emits. |
 | `minDwell` | `DurationObject?` | Anti-flap: defers a `bucket:left` until membership has lasted at least this long. Guards journeys from re-enroll spam on oscillating membership. |
-| `maxDwell` | `DurationObject?` | **Unconditional membership TTL.** `maxDwell` after joining, the reconcile cron force-leaves the member **regardless of whether the criteria still match** (contrast `within`, which is criteria-driven). Use it for time-boxed membership. Re-entry afterwards follows `reentry` (so `+ reentry:"once"` = a hard time-box; `+ reentry:"unlimited"` = a periodic flush). Must be ≥ `minDwell`. Lands within the reconcile cadence, not to-the-second. |
+| `maxDwell` | `DurationObject?` | **Unconditional membership TTL.** `maxDwell` after joining, the reconcile cron force-leaves the member **regardless of whether the criteria still match** (contrast `within`, which is criteria-driven). Use it for time-boxed membership. Re-entry afterwards follows `entryLimit` (so `+ entryLimit:"once"` = a hard time-box; `+ entryLimit:"unlimited"` = a periodic flush). Must be ≥ `minDwell`. Lands within the reconcile cadence, not to-the-second. |
 | `timeBased` | `boolean?` | Set `true` (or let it be inferred) when criteria contain a rolling `within` window a clock can expire. Marks the bucket for the reconcile cron. |
 | `reconcileEvery` | `DurationObject?` | Advisory cadence surfaced in Studio. One engine-wide cron sweeps all time-based buckets; this is informational. |
-| `reconcileJoins` | `boolean?` | Also re-evaluate **joins** during the cron sweep. Default `false` — the real-time path already catches joins on event arrival. |
+| `reconcileJoins` | `boolean?` | Also re-evaluate **joins** during the cron sweep. **Undefined by default** and *inferred on* for safe absence shapes (a pure `not_exists within` and the lapsed-active composite), where the join is itself the absence of an event the real-time path can't catch. Set `true` explicitly to enable the join scan on other absence composites, or `false` to opt out. |
 | `fastExpiry` | `boolean?` | Opt-in per-user durable timer for sub-second absence-leave on latency-critical buckets. The cron stays the authoritative backstop. Default `false`. |
 | `syncToPostHog` | `boolean?` | When `true`, on join/leave the engine `$set`/`$unset` a boolean PostHog person property. Off by default. No-op without `POSTHOG_API_KEY`. |
 | `postHogPropertyKey` | `string?` | The property key for `syncToPostHog`. Defaults to `hogsend_bucket_<id>`. |
 
-> **No `suppress` field (deliberate).** A bucket is not a journey — there's no post-completion suppression window. Use `minDwell` to debounce leaves and `reentry`/`reentryPeriod` to throttle how often a join re-fires. If you're porting a journey mental model, map "don't re-fire too soon" onto `reentry`, not a missing `suppress`.
+> **No `suppress` field (deliberate).** A bucket is not a journey — there's no post-completion suppression window. Use `minDwell` to debounce leaves and `entryLimit`/`entryPeriod` to throttle how often a join re-fires. If you're porting a journey mental model, map "don't re-fire too soon" onto `entryLimit`, not a missing `suppress`.
 
 ### Re-entry
 
-`reentry` controls how often the **join event** re-fires for a user who joins, leaves, and joins again. The active membership row is always written (so Studio size reflects reality) — `reentry` only gates the emitted `bucket:entered` event.
+`entryLimit` controls how often the **join event** re-fires for a user who joins, leaves, and joins again. The active membership row is always written (so Studio size reflects reality) — `entryLimit` only gates the emitted `bucket:entered` event.
 
 - **`"unlimited"`** (default) — every join emits `bucket:entered`.
 - **`"once"`** — emit once *ever*. Any prior membership suppresses re-emission.
-- **`"once_per_period"`** — re-emit only after `reentryPeriod` has elapsed since the last transition. Useful when you don't want a journey re-triggering on a flapping bucket.
+- **`"once_per_period"`** — re-emit only after `entryPeriod` has elapsed since the user's most-recent prior **leave**. Useful when you don't want a journey re-triggering on a flapping bucket. The cooldown is precise: during the window the active membership row is **still** written and `entryCount` still advances — only the `bucket:entered:<id>` event is suppressed, so a journey bound to it won't re-enroll until the cooldown clears. With `entryPeriod` **undefined**, `once_per_period` emits on every re-join (no cooldown).
 
 ```ts
 // Re-fire the join at most once a week
 meta: {
-  reentry: "once_per_period",
-  reentryPeriod: days(7),
+  entryLimit: "once_per_period",
+  entryPeriod: days(7),
   // ...
 }
 ```
 
-> **Two-layer gating.** `reentry` gates the bucket's emitted event; the journey it triggers *also* has its own `entryLimit`/`entryPeriod`. Both apply. If your journey already uses `entryLimit: "once"`, you usually don't also need `reentry: "once"` on the bucket — pick the layer that expresses your intent and leave the other relaxed.
+> **Two-layer gating.** `entryLimit` gates the bucket's emitted event; the journey it triggers *also* has its own `entryLimit`/`entryPeriod`. Both apply. If your journey already uses `entryLimit: "once"`, you usually don't also need `entryLimit: "once"` on the bucket — pick the layer that expresses your intent and leave the other relaxed.
 
 ### Time-based buckets and the reconcile cron
 
@@ -174,6 +172,52 @@ A few rules the registry enforces when it loads a dynamic bucket:
 - **At least one positive condition.** A bucket made entirely of exclusions is unbounded and rejected. The one exception is a *time-bounded* absence (`event check:"not_exists"` **with** a `within` window) — that's the dormancy predicate, and it counts as a real anchor.
 - **No `bucket:*` event names** in criteria. Transition events are reserved; a bucket can't be defined in terms of bucket membership (buckets-of-buckets is deferred past v1).
 
+## Criteria builder
+
+`criteria` accepts two equivalent forms. The declarative `ConditionEval` tree shown above always works, but the **recommended** authoring style is the fluent builder — a function `(b) => …` that you compose with `b.prop()`, `b.event()`, `b.all()`, and `b.any()`. It's terser, fully typed, and harder to mistype than a hand-written object literal.
+
+```ts
+import { days } from "@hogsend/core";
+import { defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const powerUsers = defineBucket({
+  meta: {
+    id: "power-users",
+    name: "Power users",
+    enabled: true,
+    timeBased: true,
+    // Fluent form — identical result to the declarative tree below.
+    criteria: (b) =>
+      b.event(Events.KEY_ACTION).within(days(30)).atLeast(10),
+  },
+});
+```
+
+The builder runs **once**, at bucket-definition time, and returns a plain `ConditionEval` POJO — byte-identical to the declarative form. Nothing executes per-user, so criteria stays introspectable data: the registry indexes, schema validation, the reconcile cron, and Studio all see the exact same tree either way. You can mix forms freely across buckets; a declarative `criteria` passes straight through unchanged.
+
+### Builder reference
+
+`b.prop(name)` opens a **property matcher**; `b.event(name)` opens an **event matcher**; `b.all(...)` / `b.any(...)` compose an `and` / `or` composite over the conditions you pass.
+
+```ts
+criteria: (b) =>
+  b.all(
+    b.prop("plan").eq("trial"),               // property equality
+    b.prop("trial_days_left").lte(3),          // property comparison
+    b.prop("converted").neq(true),             // exclusion
+  );
+```
+
+| Matcher | Terminals |
+|---|---|
+| `b.prop(name)` | `.eq(v)` `.neq(v)` `.gt(n)` `.gte(n)` `.lt(n)` `.lte(n)` `.contains(v)` `.exists()` `.notExists()` |
+| `b.event(name)` | `.exists()` `.notExists()` `.count(op, n)` `.atLeast(n)` `.moreThan(n)` `.atMost(n)` `.lessThan(n)` `.exactly(n)` |
+| `b.event(name).within(window)` | same event terminals, scoped to a rolling window — **this is what makes a bucket time-based** |
+| `b.all(...c)` / `b.any(...c)` | `and` / `or` composite over the given conditions |
+
+The count helpers are sugar over `.count(op, n)`: `.atLeast(10)` is `.count("gte", 10)`, `.moreThan` → `gt`, `.atMost` → `lte`, `.lessThan` → `lt`, `.exactly` → `eq`. Put `.within(window)` **before** the terminal — `b.event(X).within(days(7)).notExists()` — so the terminal still returns a clean condition.
+
 ## Realistic examples
 
 The scaffold ships these three under `src/buckets/`. Each shows a different shape of criteria.
@@ -195,8 +239,8 @@ export const powerUsers = defineBucket({
     description: "Performed a key action 10+ times in the last 30 days.",
     enabled: true,
     timeBased: true,
-    reentry: "once_per_period",
-    reentryPeriod: days(7),
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
     criteria: {
       type: "event",
       eventName: Events.KEY_ACTION,
@@ -211,7 +255,7 @@ export const powerUsers = defineBucket({
 
 ### Trial expiring soon — property criteria + an unconditional time-box
 
-Pure property predicates: on a trial, ≤3 days left, not already converted. The criteria leave fires in real time the moment they convert. `maxDwell` adds an unconditional backstop — 14 days after joining the reconcile cron force-leaves them **regardless** of whether they're still on a trial (stop the nag eventually), and `reentry: "once"` keeps them out afterward (a hard time-box).
+Pure property predicates: on a trial, ≤3 days left, not already converted. The criteria leave fires in real time the moment they convert. `maxDwell` adds an unconditional backstop — 14 days after joining the reconcile cron force-leaves them **regardless** of whether they're still on a trial (stop the nag eventually), and `entryLimit: "once"` keeps them out afterward (a hard time-box).
 
 ```ts
 // src/buckets/trial-expiring-soon.ts
@@ -222,7 +266,7 @@ export const trialExpiringSoon = defineBucket({
     id: "trial-expiring-soon",
     name: "Trial expiring soon",
     enabled: true,
-    reentry: "once",
+    entryLimit: "once",
     // Unconditional time-box: out 14 days after joining, no matter what.
     maxDwell: { hours: 24 * 14 },
     criteria: {
@@ -239,14 +283,13 @@ export const trialExpiringSoon = defineBucket({
 });
 ```
 
-### Went dormant — time-based absence
+### Went dormant — lapsed-active absence
 
-The canonical absence bucket: did *not* fire `app.active` in the last 7 days. No event will ever signal this leave — the cron sweep owns it. `fastExpiry: true` arms a per-user timer so win-back eligibility lands near-instantly.
+The canonical dormancy bucket: was active *once*, but has *not* fired `app.active` in the last 7 days. No event will ever signal this leave — the cron sweep owns it. `fastExpiry: true` arms a per-user timer so win-back eligibility lands near-instantly. See the [Dormancy / lapsed-active recipe](#dormancy--lapsed-active-recipe) below for why this is a composite, not a bare `not_exists`.
 
 ```ts
 // src/buckets/went-dormant.ts
-import { days } from "@hogsend/core";
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 import { Events } from "../journeys/constants/index.js";
 
 export const wentDormant = defineBucket({
@@ -256,15 +299,48 @@ export const wentDormant = defineBucket({
     enabled: true,
     timeBased: true,
     fastExpiry: true,
-    criteria: {
-      type: "event",
-      eventName: Events.APP_ACTIVE,
-      check: "not_exists",
-      within: days(7),
-    },
+    criteria: (b) =>
+      b.all(
+        b.event(Events.APP_ACTIVE).exists(),                 // active once, ever
+        b.event(Events.APP_ACTIVE).within(days(7)).notExists(), // not lately
+      ),
   },
 });
 ```
+
+## Dormancy / lapsed-active recipe
+
+Dormancy is the bucket shape that justifies the whole reconcile cron — no inbound event signals "this user stopped doing X," so a clock has to find the leave. The naive form is a bare windowed absence:
+
+```ts
+// ⚠️ joins EVERY never-active signup, not just users who lapsed.
+criteria: (b) => b.event(Events.APP_ACTIVE).within(days(7)).notExists();
+```
+
+The trap: a brand-new user who has *never* fired `app.active` satisfies `not_exists within 7d` trivially, so they'd join `went-dormant` on day one — exactly the people a win-back flow shouldn't target. The fix is a **composite** that adds an unbounded *exists-ever* floor:
+
+```ts
+criteria: (b) =>
+  b.all(
+    b.event(Events.APP_ACTIVE).exists(),                    // floor: active once, ever
+    b.event(Events.APP_ACTIVE).within(days(7)).notExists(), // decays: not in the last 7d
+  );
+```
+
+- The **exists-ever leg has no `within`** — it stays unbounded so it never expires. It's the floor that excludes never-active signups.
+- Only the **windowed `not_exists` leg** decays as the clock advances; that's the time-based flip the cron materializes.
+
+> **Never-active caveat.** Keep the exists-ever leg unbounded. If you scope it to a window (`b.event(X).within(days(30)).exists()`), the floor itself can expire and the bucket reverts to the naive behavior for users who fall out of *both* windows. The canonical shape is one bounded `not_exists` leg plus one unbounded `exists` leg.
+
+### Absence buckets auto-enable the join scan
+
+The real-time path catches joins on event arrival, but a *dormancy* join is itself the absence of an event — there's nothing to arrive. So for absence-shaped buckets the engine **automatically runs the cron join scan**, even when `reconcileJoins` is unset. This is what materializes a `went-dormant` join when a once-active user crosses the 7-day window with no event to announce it.
+
+- You **don't** set `reconcileJoins: true` on a dormancy bucket — leave it unset and the engine infers it on.
+- To opt **out** (e.g. you only want reconcile-driven *leaves*, not joins), set `reconcileJoins: false` explicitly.
+- Non-absence time-based buckets (e.g. a decaying `count` like `power-users`) still skip the join scan by default — the real-time path already catches their joins.
+
+The join lands within the reconcile cadence (default every 5 minutes), not to-the-second; `fastExpiry: true` tightens the leave (return-to-active) but the cron is always the authoritative backstop. For a large dormant cohort the cron materializes joins in batches, paging until the whole cohort is filled.
 
 ## Emitted events
 
@@ -481,4 +557,12 @@ It's **off by default** and a **no-op without `POSTHOG_API_KEY`** (so it silentl
 
 ## Observing buckets
 
-Buckets are observe-only in [Studio](/docs/operating/studio) — there is no visual bucket builder, ever. Definitions live in code; Studio shows you size, enter/leave over time, which journeys a bucket feeds, and an enable/disable kill switch. The admin API exposes the same data under `/v1/admin/buckets` — see [Buckets (Admin API)](/docs/api/buckets) for endpoints and [Operating buckets](/docs/operating/buckets) for monitoring and the reconcile cron.
+Buckets are observe-only in [Studio](/docs/operating/studio) — there is no visual bucket builder, ever. Definitions live in code; Studio shows you size, enter/leave over time, which journeys a bucket feeds, and an enable/disable kill switch. A bucket with `maxDwell` set also renders a `Time-boxed · <dwell>` badge in its detail panel, so the unconditional membership TTL is visible without reading the source. The admin API exposes the same data under `/v1/admin/buckets` — see [Buckets (Admin API)](/docs/api/buckets) for endpoints and [Operating buckets](/docs/operating/buckets) for monitoring and the reconcile cron.
+
+## Roadmap
+
+Deliberately deferred, not missing — the API is shaped to add these without breaking changes:
+
+- **Static / manual buckets** (`kind: "manual"`) — membership mutated by an explicit add/remove API instead of `criteria`. The discriminator is declared today, but registering a `manual` bucket throws (`not implemented in v1`); use a dynamic bucket for now.
+- **Imperative criteria escape hatch** — an opaque `(user, ctx) => boolean` predicate (with an explicit dependency hint) for membership the declarative/builder form can't express. `criteria` stays declarative today so the registry index, set-based cron, and Studio keep working.
+- **`in_bucket` condition** — reference one bucket's membership inside another bucket's (or a journey's) criteria. Workaround today: `syncToPostHog` to a property, then a `PropertyCondition`.

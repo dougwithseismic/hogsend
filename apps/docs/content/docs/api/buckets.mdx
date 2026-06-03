@@ -31,7 +31,7 @@ List all registered buckets with their effective enabled status and live members
       "enabled": true,
       "kind": "dynamic",
       "timeBased": true,
-      "reentry": "once_per_period",
+      "entryLimit": "once_per_period",
       "counts": {
         "active": 184,
         "left": 57
@@ -72,7 +72,7 @@ Get full bucket detail including the membership `criteria`, reconciliation knobs
     "enabled": true,
     "kind": "dynamic",
     "timeBased": true,
-    "reentry": "once_per_period",
+    "entryLimit": "once_per_period",
     "criteria": {
       "type": "event",
       "eventName": "key.action",
@@ -81,7 +81,7 @@ Get full bucket detail including the membership `criteria`, reconciliation knobs
       "value": 10,
       "within": { "hours": 720 }
     },
-    "reentryPeriod": { "hours": 168 },
+    "entryPeriod": { "hours": 168 },
     "minDwell": null,
     "reconcileEvery": null,
     "fastExpiry": false,
@@ -116,7 +116,7 @@ Get full bucket detail including the membership `criteria`, reconciliation knobs
 }
 ```
 
-`criteria` is the raw `ConditionEval` tree from the bucket definition (the same condition engine journeys use). `reentryPeriod`, `minDwell`, and `reconcileEvery` are returned as their `DurationObject` shape or `null` when unset.
+`criteria` is the raw `ConditionEval` tree from the bucket definition (the same condition engine journeys use). `entryPeriod`, `minDwell`, and `reconcileEvery` are returned as their `DurationObject` shape or `null` when unset.
 
 `feedsJourneys` is derived by cross-referencing this bucket's emitted transition events -- `bucket:entered:<id>`, `bucket:left:<id>`, and the generic `bucket:entered` / `bucket:left` -- against the journey registry's trigger index. Any journey bound to one of those events appears here, with the `trigger` field showing the exact event it binds to. This is how you confirm a membership change actually kicks off the journey you expect. `recentMembers` contains up to the 10 most recently entered **active** members.
 

@@ -15,6 +15,11 @@ export interface BucketMeta {
    * skipped by checkBucketMembership and the reconcile cron (early-continue, the
    * Laudspeaker pattern). Declaring it up front keeps Phase 4 genuinely additive
    * — no breaking change to BucketMeta later. Default "dynamic".
+   *
+   * v1: kind:"manual" is REJECTED at registration time (bucketMetaSchema parse)
+   * because nothing populates a manual bucket yet — it would be a silent no-op.
+   * The value stays on the enum for forward-compat; use kind:"dynamic" with
+   * `criteria` until full manual membership ships.
    */
   kind?: "dynamic" | "manual";
 
@@ -38,8 +43,8 @@ export interface BucketMeta {
    * re-emit only after a prior leave + period elapses; "unlimited" = always.
    * Default "unlimited".
    */
-  reentry?: "once" | "once_per_period" | "unlimited";
-  reentryPeriod?: DurationObject;
+  entryLimit?: "once" | "once_per_period" | "unlimited";
+  entryPeriod?: DurationObject;
 
   /**
    * Anti-flap: suppress bucket:left until membership has existed at least this
@@ -54,8 +59,8 @@ export interface BucketMeta {
    * `minDwell`, which is a floor). Use it for time-boxed membership: "in this
    * bucket for exactly N days, then out".
    *
-   * Re-entry after a maxDwell exit is governed by `reentry` (per-bucket): pair
-   * with `reentry:"once"` / `"once_per_period"` for a HARD time-box (they stay
+   * Re-entry after a maxDwell exit is governed by `entryLimit` (per-bucket): pair
+   * with `entryLimit:"once"` / `"once_per_period"` for a HARD time-box (they stay
    * out / cool off), or leave the default `"unlimited"` for a PERIODIC FLUSH
    * (they re-join on their next qualifying event). Independent of `within` and
    * `fastExpiry`; if `minDwell` is also set it must be <= `maxDwell` (validated).
@@ -71,8 +76,12 @@ export interface BucketMeta {
    *   a criteria walk if omitted; an explicit value overrides.
    * reconcileEvery: advisory cadence surfaced in Studio (the single engine-wide
    *   cron sweeps all time-based buckets; per-bucket cadence is informational).
-   * reconcileJoins: also re-evaluate JOINS in the sweep (default false — the
-   *   real-time path already catches joins on event arrival; keep the sweep
+   * reconcileJoins: also re-evaluate JOINS in the sweep. Tri-state:
+   *   `false` = hard OFF (cost-bounding override, even for absence buckets);
+   *   `true` = explicit ON; `undefined` = INFERRED — ON only for absence-shaped
+   *   criteria (a windowed `not_exists` leg, the sole shape a clock can JOIN, so
+   *   went-dormant works with no extra config), OFF otherwise (the real-time
+   *   path already catches positive joins on event arrival; keep the sweep
    *   O(active members)).
    * fastExpiry: opt-in per-user durable timer for sub-second absence-leave on
    *   latency-critical buckets (Approach A graft). The cron remains the
