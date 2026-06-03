@@ -10,11 +10,13 @@ import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
 import type { Logger } from "../lib/logger.js";
-import { countPriorMemberships } from "./membership-epoch.js";
+import {
+  BUCKET_EVENT_PREFIX,
+  computeExpiresAt,
+  computeMaxDwellAt,
+  countPriorMemberships,
+} from "./membership-epoch.js";
 import { getBucketRegistrySingleton } from "./registry-singleton.js";
-
-/** The reserved prefix every bucket transition event carries. */
-const BUCKET_EVENT_PREFIX = "bucket:";
 
 export type BucketTransitionKind = "entered" | "left";
 
@@ -234,9 +236,7 @@ async function handleJoin(opts: {
   // (the loser mutates nothing — Section 6.3 governing rule).
   const expiresAt = computeExpiresAt(bucket);
   // Unconditional TTL deadline — set once on join, swept by the reconcile cron.
-  const maxDwellAt = bucket.maxDwell
-    ? new Date(Date.now() + durationToMs(bucket.maxDwell))
-    : null;
+  const maxDwellAt = computeMaxDwellAt(bucket);
   const inserted = await db
     .insert(bucketMemberships)
     .values({
@@ -394,7 +394,7 @@ async function handleLeave(opts: {
  * configured `entryPeriod` has elapsed since that leave. The journey-side
  * entryLimit/entryPeriod is a redundant backstop, no longer the sole gate.
  */
-async function shouldEmitJoin(opts: {
+export async function shouldEmitJoin(opts: {
   db: Database;
   bucket: BucketMeta;
   userId: string;
@@ -487,34 +487,4 @@ async function armExpiryTimer(opts: {
       error: err instanceof Error ? err.message : String(err),
     });
   }
-}
-
-/**
- * The persisted membership-expiry / fastExpiry arming epoch. Non-time-based,
- * non-fastExpiry buckets have no deadline (returns null). Time-based / fastExpiry
- * buckets that carry a single `within` window get `now + within`; the reconcile
- * cron (Phase 2) and fastExpiry timer (Phase 3) own the actual leave.
- */
-function computeExpiresAt(bucket: BucketMeta): Date | null {
-  if (!bucket.criteria) return null;
-  if (!bucket.timeBased && !bucket.fastExpiry) return null;
-  const within = firstWithin(bucket.criteria);
-  if (!within) return null;
-  return new Date(Date.now() + durationToMs(within));
-}
-
-/** Find the first EventCondition.within in a criteria tree (depth-first). */
-function firstWithin(
-  criteria: NonNullable<BucketMeta["criteria"]>,
-): NonNullable<BucketMeta["minDwell"]> | null {
-  if (criteria.type === "event" && criteria.within) {
-    return criteria.within;
-  }
-  if (criteria.type === "composite") {
-    for (const child of criteria.conditions) {
-      const found = firstWithin(child);
-      if (found) return found;
-    }
-  }
-  return null;
 }

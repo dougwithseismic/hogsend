@@ -4,15 +4,16 @@ import {
   type BucketMeta,
   type ConditionEval,
   collectPropertyNames,
-  type DurationObject,
   durationToMs,
   evaluateCondition,
 } from "@hogsend/core";
 import {
+  bucketConfigs,
   bucketMemberships,
   contacts,
   createDatabase,
   type Database,
+  importJobs,
   userEvents,
 } from "@hogsend/db";
 import {
@@ -26,19 +27,25 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { countPriorMemberships } from "../buckets/membership-epoch.js";
+import { shouldEmitJoin } from "../buckets/check-membership.js";
+import {
+  BUCKET_EVENT_PREFIX,
+  computeExpiresAt,
+  computeMaxDwellAt,
+  countPriorMemberships,
+  firstWithin,
+  shouldLeaveByCount,
+} from "../buckets/membership-epoch.js";
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
+import { FIRST_TIME_FORMAT } from "./bucket-backfill.js";
 
 /** Chunk size for the composite-only per-member re-evaluation path (Section 6.4). */
 const BATCH_SIZE = 500;
-
-/** The reserved prefix every bucket transition event carries. */
-const BUCKET_EVENT_PREFIX = "bucket:";
 
 /**
  * Engine-owned cron reconciliation for TIME-BASED bucket leaves (Section 6.4).
@@ -109,8 +116,11 @@ export const bucketReconcileTask = hatchet.task({
           // reconcileJoins materializes absence joins the real-time path
           // cannot see (e.g. went-dormant — the NOT-EXISTS-within-window case).
           // An explicit `reconcileJoins` overrides; when omitted it is INFERRED
-          // true for absence-shaped buckets only (a windowed `not_exists` leg —
-          // the sole shape a clock can JOIN), keeping the sweep O(active
+          // true ONLY for the two SAFE set-based shapes — a single-event windowed
+          // `not_exists` and the lapsed-active composite (Fix #3) — whose SQL
+          // candidate set is exact. Other absence composites (OR-of-absence,
+          // absence + property/count) need an explicit opt-in and run the
+          // BATCH_SIZE-bounded per-member confirm, keeping the sweep O(active
           // members) for everything else (Section 6.4).
           if (shouldReconcileJoins(bucket)) {
             joined += await reconcileBucketJoins({
@@ -346,46 +356,6 @@ async function selectEventLeavers(
 }
 
 /**
- * SHOULD-LEAVE decision from the windowed count, per criterion shape (Section
- * 6.4). A member is a leaver when the criterion is NO LONGER satisfied.
- */
-function shouldLeaveByCount(
-  criteria: Extract<ConditionEval, { type: "event" }>,
-  windowedCount: number,
-): boolean {
-  switch (criteria.check) {
-    case "not_exists":
-      // Absence bucket: SHOULD LEAVE when an event REAPPEARS in the window.
-      return windowedCount > 0;
-    case "exists":
-      // Positive existence: SHOULD LEAVE when NOT EXISTS in the window.
-      return windowedCount === 0;
-    case "count": {
-      // SHOULD LEAVE when the windowed count NO LONGER satisfies the operator.
-      if (!criteria.operator || criteria.value === undefined) {
-        return windowedCount === 0;
-      }
-      switch (criteria.operator) {
-        case "gt":
-          return !(windowedCount > criteria.value);
-        case "gte":
-          return !(windowedCount >= criteria.value);
-        case "lt":
-          return !(windowedCount < criteria.value);
-        case "lte":
-          return !(windowedCount <= criteria.value);
-        case "eq":
-          return !(windowedCount === criteria.value);
-        default:
-          return false;
-      }
-    }
-    default:
-      return false;
-  }
-}
-
-/**
  * Composite/multi-condition time-based fallback — chunked per-member
  * `evaluateCondition` keyed on `lastEvaluatedAt` so the oldest-evaluated members
  * are swept first and the run is bounded by `BATCH_SIZE` (Section 6.4).
@@ -563,16 +533,30 @@ async function bulkLeave(opts: {
 /**
  * reconcileJoins (absence buckets): materialize NEW members the real-time path
  * cannot see — a user who STOPS doing X fires no event, so only the clock can
- * enroll them. ONE bounded (BATCH_SIZE per tick) path handles both shapes:
+ * enroll them. ONE bounded (BATCH_SIZE per tick) path handles every shape, but
+ * the per-candidate handling splits on whether the SQL candidate set is EXACT:
  *
- *  - SINGLE-EVENT `not_exists within W` — the candidate query IS exact (the
- *    `present` windowed anti-join makes it so), so no per-member confirm runs.
- *  - COMPOSITE absence (e.g. the lapsed-active shape `all(event(X).exists(),
- *    event(X).within(N).notExists())`, or an OR of several absence legs) — the
- *    candidate query is a cheap superset, so each candidate is confirmed with
- *    `evaluateCondition` (correct AND/OR) before it is materialized.
+ *  - SET-BASED / EXACT (no per-member confirm, Fix #3) — the SAFE shapes the
+ *    engine auto-infers `reconcileJoins` on:
+ *      (a) SINGLE-EVENT `not_exists within W` — the `present` windowed anti-join
+ *          makes the candidate query exact, and
+ *      (b) the LAPSED-ACTIVE composite `all(event(X).exists(),
+ *          event(X).within(W).not_exists())` — ever-fired X satisfies the exists()
+ *          leg and the present-in-X's-window anti-join satisfies the not_exists()
+ *          leg, so EVERY returned row is a true matcher.
+ *    Because each matcher becomes an active member, the next tick excludes it →
+ *    the `externalId asc` page advances naturally and the scan cannot starve.
+ *  - PER-MEMBER CONFIRM (non-exact superset) — any OTHER absence-containing
+ *    composite (an OR of absence legs, or absence mixed with property/count legs)
+ *    reached ONLY via an EXPLICIT `reconcileJoins: true`. The candidate query is a
+ *    cheap superset, so each candidate is confirmed with `evaluateCondition`
+ *    (correct AND/OR) before it is materialized. This path is BATCH_SIZE-bounded
+ *    per tick: a wide non-matching prefix can keep genuine matchers off the page
+ *    indefinitely (a clean cursor would require a per-candidate examined-stamp =
+ *    a schema change), so the bound is LOGGED once per sweep rather than silently
+ *    starving (Fix #3).
  *
- * In both cases the candidate set is the exists-ever floor over ALL windowed
+ * In all cases the candidate set is the exists-ever floor over ALL windowed
  * `not_exists` legs (the UNION of their ever-fired sets — so an OR of absence
  * legs never silently drops a user who only fired the OTHER leg), MINUS users
  * present in EVERY absence leg's window (always-safe to exclude: such a user
@@ -592,6 +576,24 @@ async function reconcileBucketJoins(opts: {
 }): Promise<number> {
   const { db, logger, journeyRegistry, bucket } = opts;
   const criteria = bucket.criteria as ConditionEval;
+
+  // First-deploy guard (Fix #2): the JOIN path must NOT emit `bucket:entered`
+  // for historically-dormant users while a brand-new bucket's first-time
+  // backfill is still claiming them silently. The backfill materializes
+  // historical members WITHOUT live emission (the Customer.io rule); if the
+  // cron's absence-join scan runs concurrently it would re-discover the SAME
+  // dormant cohort and emit for them — a historical blast. So skip the join
+  // path entirely until the first-time backfill has persisted its
+  // criteriaHash. The transition skipped→active-joins happens when the backfill
+  // task finishes and calls persistCriteriaHash (bucket-backfill.ts), at which
+  // point bucket_configs.criteriaHash is non-null and no first-time job is in
+  // flight. (The LEAVE + maxDwell TTL paths are unaffected — see the caller.)
+  if (await firstTimeBackfillIncomplete(db, bucket)) {
+    logger.info("Bucket join reconcile skipped (first-time backfill pending)", {
+      bucketId: bucket.id,
+    });
+    return 0;
+  }
 
   // Every windowed not_exists leg (the shapes a clock can JOIN). No absence leg
   // → nothing for the cron to materialize (positive shapes are caught live).
@@ -667,18 +669,34 @@ async function reconcileBucketJoins(opts: {
     .orderBy(sql`${contacts.externalId} asc`)
     .limit(BATCH_SIZE);
 
-  // A single absence leg makes the candidate query exact (present-in-all = the
-  // one leg's present anti-join), so the per-member confirm is redundant. A
-  // composite with multiple legs (or any non-event top-level criteria, i.e. an
-  // AND/OR with extra non-absence legs) needs the full `evaluateCondition`
-  // confirm for correct AND/OR before materializing a member.
-  const exact = criteria.type === "event" && absenceLegs.length === 1;
+  // SET-BASED / EXACT shapes (Fix #3) — every candidate row is a true matcher,
+  // so the per-member confirm is skipped entirely:
+  //   (a) a single absence leg makes the candidate query exact (present-in-all =
+  //       the one leg's present anti-join), and
+  //   (b) the lapsed-active composite — ever-fired X satisfies the exists() leg
+  //       and the present-in-X-window exclusion satisfies the not_exists() leg.
+  // Any OTHER composite (OR-of-absence, absence + property/count) is a non-exact
+  // superset that needs the full `evaluateCondition` confirm for correct AND/OR.
+  const exact =
+    (criteria.type === "event" && absenceLegs.length === 1) ||
+    isLapsedActiveComposite(criteria) != null;
 
   // Merged contact properties feed property legs in the per-member confirm so
   // an absence+property composite evaluates the SAME way it does on the
   // real-time path (which reads merged contact state). Empty when no confirm
-  // runs (single-event exact path) or no property leg exists.
+  // runs (exact path) or no property leg exists.
   const needsProps = !exact && collectPropertyNames(criteria).length > 0;
+
+  // The non-exact per-member path is BATCH_SIZE-bounded per tick with no
+  // examined-cursor (a clean cursor would need a schema change). Log the bound
+  // ONCE per sweep so a wide non-matching prefix that delays genuine matchers is
+  // visible rather than a silent starve (Fix #3).
+  if (!exact && candidates.length >= BATCH_SIZE) {
+    logger.warn(
+      "Bucket composite-join confirm is bounded to BATCH_SIZE/tick (explicit reconcileJoins); matchers behind a wide non-matching prefix may take multiple ticks to enroll",
+      { bucketId: bucket.id, batchSize: BATCH_SIZE },
+    );
+  }
 
   let joined = 0;
   for (const candidate of candidates) {
@@ -704,6 +722,51 @@ async function reconcileBucketJoins(opts: {
     if (transitioned) joined += 1;
   }
   return joined;
+}
+
+/**
+ * True while a bucket's first-time backfill has NOT completed — the gate that
+ * keeps the cron JOIN path from emitting a historical blast on first deploy
+ * (Fix #2). Two signals, either of which means "not yet safe to join-reconcile":
+ *
+ *   1. `bucket_configs.criteriaHash IS NULL` (or no row at all) — the first-time
+ *      backfill task persists this hash on completion (persistCriteriaHash in
+ *      bucket-backfill.ts), so a null/absent hash means the backfill has not yet
+ *      finished claiming the historical cohort silently.
+ *   2. A first-time backfill `import_jobs` row is in flight — `fileName =
+ *      bucket.id AND format = FIRST_TIME_FORMAT AND status IN
+ *      ('pending','processing')`. This covers the boot window AFTER a prior run
+ *      persisted a hash but BEFORE a freshly-enqueued first-time job runs (and
+ *      the general in-flight case), so a concurrent cron tick never races the
+ *      backfill's silent materialization.
+ *
+ * The transition skipped→active-joins is monotonic: once the backfill completes,
+ * the hash is non-null AND its job leaves the in-flight set, so the next cron
+ * tick proceeds with the absence-join scan as normal.
+ */
+async function firstTimeBackfillIncomplete(
+  db: Database,
+  bucket: BucketMeta,
+): Promise<boolean> {
+  // (1) criteriaHash not yet persisted → backfill hasn't finished.
+  const config = await db.query.bucketConfigs.findFirst({
+    where: eq(bucketConfigs.bucketId, bucket.id),
+  });
+  if (!config || config.criteriaHash == null) return true;
+
+  // (2) a first-time backfill job is still pending/processing for this bucket.
+  const inFlight = await db
+    .select({ id: importJobs.id })
+    .from(importJobs)
+    .where(
+      and(
+        eq(importJobs.fileName, bucket.id),
+        eq(importJobs.format, FIRST_TIME_FORMAT),
+        inArray(importJobs.status, ["pending", "processing"]),
+      ),
+    )
+    .limit(1);
+  return inFlight.length > 0;
 }
 
 /**
@@ -773,10 +836,8 @@ async function reconcileJoinOne(opts: {
       status: "active",
       source: "reconcile",
       entryCount: epoch,
-      expiresAt: computeReconcileExpiresAt(bucket),
-      maxDwellAt: bucket.maxDwell
-        ? new Date(Date.now() + durationToMs(bucket.maxDwell))
-        : null,
+      expiresAt: computeExpiresAt(bucket),
+      maxDwellAt: computeMaxDwellAt(bucket),
       lastEvaluatedAt: new Date(),
     })
     .onConflictDoNothing()
@@ -786,29 +847,32 @@ async function reconcileJoinOne(opts: {
     return false;
   }
 
-  await emitBucketTransition({
-    db,
-    registry: journeyRegistry,
-    hatchet,
-    logger,
-    kind: "entered",
-    bucket,
-    userId,
-    userEmail,
-    epoch,
-    source: "reconcile",
-  });
+  // The active row is always written (Studio size must reflect reality) and the
+  // epoch always advances via the real insert; only the bucket:entered emission
+  // is gated by the entryLimit policy — mirrors the real-time join path so the
+  // cron-discovered join cannot bypass entryLimit (Section 6.3).
+  if (await shouldEmitJoin({ db, bucket, userId, priorCount })) {
+    await emitBucketTransition({
+      db,
+      registry: journeyRegistry,
+      hatchet,
+      logger,
+      kind: "entered",
+      bucket,
+      userId,
+      userEmail,
+      epoch,
+      source: "reconcile",
+    });
+  } else {
+    logger.info("Bucket join emit suppressed by entryLimit policy", {
+      bucketId: bucket.id,
+      userId,
+      entryLimit: bucket.entryLimit ?? "unlimited",
+    });
+  }
 
   return true;
-}
-
-/** now + within for time-based / fastExpiry buckets; null otherwise. */
-function computeReconcileExpiresAt(bucket: BucketMeta): Date | null {
-  if (!bucket.criteria) return null;
-  if (!bucket.timeBased && !bucket.fastExpiry) return null;
-  const within = firstWithin(bucket.criteria);
-  if (!within) return null;
-  return new Date(Date.now() + durationToMs(within));
 }
 
 /** A bucket is time-based if flagged OR its criteria carry a `within` window. */
@@ -824,15 +888,92 @@ function isTimeBased(bucket: BucketMeta): boolean {
  *  - `false` → hard OFF (explicit cost-bounding override; the absence join is
  *    skipped even for an absence-shaped bucket).
  *  - `true`  → explicit ON (unchanged 0.2.0 opt-in behavior).
- *  - `undefined` → INFERRED: ON iff the criteria are absence-shaped (a windowed
- *    `not_exists` leg — the only shape a clock can JOIN). Non-absence time-based
- *    buckets still skip the join scan (their joins are caught real-time).
+ *  - `undefined` → INFERRED, but ONLY for the two SAFE set-based shapes the cron
+ *    can JOIN with an EXACT SQL candidate set (every returned row a true matcher,
+ *    so no per-member confirm → no starvation, Fix #3):
+ *      (a) a single-event windowed `not_exists` criterion, and
+ *      (b) the lapsed-active composite `all(event(X).exists(),
+ *          event(X).within(W).not_exists())` (see {@link isLapsedActiveComposite}).
+ *    ANY OTHER absence-containing composite (an OR of absence legs, or absence
+ *    mixed with extra property/count legs) is NOT auto-inferred — its candidate
+ *    set is a non-exact superset that needs a per-member confirm, which is
+ *    BATCH_SIZE-bounded per tick and can starve, so it requires an explicit
+ *    `reconcileJoins: true` opt-in. Non-absence time-based buckets still skip the
+ *    join scan (their joins are caught real-time).
  */
 function shouldReconcileJoins(bucket: BucketMeta): boolean {
   if (bucket.reconcileJoins === false) return false;
   if (bucket.reconcileJoins === true) return true;
   if (!bucket.criteria) return false;
-  return isAbsenceShaped(bucket.criteria);
+  return isSafeAbsenceShape(bucket.criteria);
+}
+
+/**
+ * The two SAFE absence shapes whose cron-JOIN candidate set is EXACT in SQL
+ * alone — the only shapes the engine AUTO-INFERS `reconcileJoins` on (Fix #3):
+ *   (a) a single-event windowed `not_exists` criterion, and
+ *   (b) the lapsed-active composite (see {@link isLapsedActiveComposite}).
+ * Every other absence-containing composite is a non-exact superset and must opt
+ * in explicitly (the per-member confirm path is BATCH_SIZE-bounded per tick).
+ */
+function isSafeAbsenceShape(criteria: ConditionEval): boolean {
+  if (
+    criteria.type === "event" &&
+    criteria.check === "not_exists" &&
+    criteria.within != null
+  ) {
+    return true;
+  }
+  return isLapsedActiveComposite(criteria) != null;
+}
+
+/** The recognized lapsed-active composite (shape (b)): event + window cutoff. */
+interface LapsedActiveShape {
+  event: string;
+  /** now - within for the not_exists leg's window. */
+  cutoff: Date;
+}
+
+/**
+ * Recognize shape (b) — the flagship "went-dormant" composite — and return its
+ * (event, window cutoff), else null. It is a composite AND of EXACTLY two legs on
+ * the SAME event X: an `event(X).exists()` ever-fired anchor (no window) and an
+ * `event(X).within(W).not_exists()` windowed-absence leg. Because the candidate
+ * SQL (ever-fired X, MINUS present-in-X's-window, MINUS active members) satisfies
+ * BOTH legs of the AND for every returned row, the set is EXACT — no per-member
+ * `evaluateCondition` is needed and the page advances naturally (matchers become
+ * active members → excluded next tick), so it cannot starve (Fix #3).
+ */
+function isLapsedActiveComposite(
+  criteria: ConditionEval,
+): LapsedActiveShape | null {
+  if (
+    criteria.type !== "composite" ||
+    criteria.operator !== "and" ||
+    criteria.conditions.length !== 2
+  ) {
+    return null;
+  }
+
+  const existsLeg = criteria.conditions.find(
+    (c) => c.type === "event" && c.check === "exists" && c.within == null,
+  );
+  const notExistsLeg = criteria.conditions.find(
+    (c) => c.type === "event" && c.check === "not_exists" && c.within != null,
+  );
+  if (
+    existsLeg?.type !== "event" ||
+    notExistsLeg?.type !== "event" ||
+    existsLeg.eventName !== notExistsLeg.eventName ||
+    notExistsLeg.within == null
+  ) {
+    return null;
+  }
+
+  return {
+    event: notExistsLeg.eventName,
+    cutoff: new Date(Date.now() - durationToMs(notExistsLeg.within)),
+  };
 }
 
 /** One windowed `not_exists` leg: the event + its window cutoff instant. */
@@ -866,28 +1007,4 @@ function collectAbsenceLegs(criteria: ConditionEval): AbsenceLeg[] {
     return criteria.conditions.flatMap(collectAbsenceLegs);
   }
   return [];
-}
-
-/**
- * A criteria tree is "absence-shaped" iff it contains at least one windowed
- * `not_exists` leg — the only shape a clock can materialize a JOIN for. Defined
- * in terms of {@link collectAbsenceLegs} so the absence predicate has a single
- * source of truth (no two walkers to drift).
- */
-function isAbsenceShaped(criteria: ConditionEval): boolean {
-  return collectAbsenceLegs(criteria).length > 0;
-}
-
-/** Find the first EventCondition.within in a criteria tree (depth-first). */
-function firstWithin(criteria: ConditionEval): DurationObject | null {
-  if (criteria.type === "event" && criteria.within) {
-    return criteria.within;
-  }
-  if (criteria.type === "composite") {
-    for (const child of criteria.conditions) {
-      const found = firstWithin(child);
-      if (found) return found;
-    }
-  }
-  return null;
 }

@@ -36,3 +36,15 @@ Rounds the Buckets primitive out to a complete dynamic-membership feature and al
 No new migration — `max_dwell_at`, `left_at`, and `criteria_hash` already exist.
 The canonical `went-dormant` example is now a lapsed-active composite (active at
 some point, but not in the last 7 days), so it excludes never-active signups.
+
+Hardening (from a full pre-release review): the cron join path is gated by
+`entryLimit` (no re-emit on every tick after re-dormancy); a brand-new absence
+bucket does NOT blast historically-dormant users into journeys (the cron join
+path waits for the first-time backfill to claim them silently); the safe absence
+shapes (single-event `not_exists within` and the lapsed-active composite) join
+via an exact set-based query (no per-member starvation), and other absence
+composites require an explicit `reconcileJoins: true`; backfill and cron agree on
+never-active exclusion; composite backfill is keyset-paged. Deferred to 0.3.1
+(non-gating): parallelizing the per-event candidate evaluation on the ingest hot
+path, and dedicated indexes (`user_events(event, occurred_at, user_id)` and an
+`entryLimit` cooldown index).

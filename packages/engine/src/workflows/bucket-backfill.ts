@@ -3,7 +3,6 @@ import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types.js";
 import {
   type BucketMeta,
   type ConditionEval,
-  type DurationObject,
   durationToMs,
   evaluateCondition,
 } from "@hogsend/core";
@@ -16,7 +15,12 @@ import {
   importJobs,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, isNull, sql } from "drizzle-orm";
+import {
+  computeExpiresAt,
+  computeMaxDwellAt,
+  matchesEventCount,
+} from "../buckets/membership-epoch.js";
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
@@ -28,7 +32,7 @@ import { createLogger } from "../lib/logger.js";
 const BATCH_SIZE = 500;
 
 /** import_jobs.format discriminator for the reused status record (Section 6.6). */
-const FIRST_TIME_FORMAT = "bucket-backfill";
+export const FIRST_TIME_FORMAT = "bucket-backfill";
 const REEVAL_FORMAT = "bucket-reeval";
 
 /**
@@ -203,9 +207,7 @@ async function backfillJoins(opts: {
   // live join, check-membership.ts). null when the bucket has no maxDwell; the
   // TTL sweep (reconcileBucketTtlLeaves) filters isNotNull(maxDwellAt), so an
   // unset value would never be force-left.
-  const maxDwellAt = bucket.maxDwell
-    ? new Date(Date.now() + durationToMs(bucket.maxDwell))
-    : null;
+  const maxDwellAt = computeMaxDwellAt(bucket);
 
   // Fix C (DEFERRED): backfilled fastExpiry rows are NOT armed with a
   // bucket:arm-expiry durable timer here — they are picked up by the next cron
@@ -258,7 +260,7 @@ async function backfillJoins(opts: {
       status: "active" as const,
       source: "backfill" as const,
       entryCount: 1 + (priorByUser.get(userId) ?? 0),
-      expiresAt: computeBackfillExpiresAt(bucket),
+      expiresAt: computeExpiresAt(bucket),
       maxDwellAt,
       lastEvaluatedAt: new Date(),
     }));
@@ -381,8 +383,22 @@ async function selectEventMatchers(
     : null;
 
   // count gte N / exists → SELECT user_id ... GROUP BY HAVING. not_exists
-  // (absence) → live contacts with NO such event in the window (anti-join).
+  // (absence) → live contacts who EVER fired the event but have NONE in the
+  // window (lapsed-only). A bare windowed `not_exists within W` is treated as
+  // LAPSED-ONLY (never-active EXCLUDED) in BOTH this backfill and the cron
+  // (bucket-reconcile.ts reconcileBucketJoins, the everFired floor), so the two
+  // writers agree: brand-new never-active signups are NOT materialized for an
+  // absence-within-window bucket — only users who once did X and then stopped.
   if (criteria.check === "not_exists") {
+    // everFired floor: contacts who fired the event AT LEAST ONCE (no window),
+    // mirroring the cron's `ever_fired` semi-join. Excludes never-active
+    // contacts so the two writers select the same lapsed-only cohort.
+    const everFired = db
+      .selectDistinct({ userId: userEvents.userId })
+      .from(userEvents)
+      .where(eq(userEvents.event, criteria.eventName))
+      .as("ever_fired");
+
     const present = db
       .select({ userId: userEvents.userId })
       .from(userEvents)
@@ -398,6 +414,7 @@ async function selectEventMatchers(
     const rows = await db
       .select({ userId: contacts.externalId })
       .from(contacts)
+      .innerJoin(everFired, eq(everFired.userId, contacts.externalId))
       .leftJoin(present, eq(present.userId, contacts.externalId))
       .where(and(isNull(contacts.deletedAt), isNull(present.userId)));
     return rows.map((r) => r.userId);
@@ -426,94 +443,65 @@ async function selectEventMatchers(
     .groupBy(userEvents.userId);
 
   return rows
-    .filter((r) => matchesCount(criteria, Number(r.cnt)))
+    .filter((r) => matchesEventCount(criteria, Number(r.cnt)))
     .map((r) => r.userId);
-}
-
-/** True when a windowed count satisfies the (exists/count) criterion. */
-function matchesCount(
-  criteria: Extract<ConditionEval, { type: "event" }>,
-  count: number,
-): boolean {
-  switch (criteria.check) {
-    case "exists":
-      return count > 0;
-    case "count": {
-      if (!criteria.operator || criteria.value === undefined) return count > 0;
-      switch (criteria.operator) {
-        case "gt":
-          return count > criteria.value;
-        case "gte":
-          return count >= criteria.value;
-        case "lt":
-          return count < criteria.value;
-        case "lte":
-          return count <= criteria.value;
-        case "eq":
-          return count === criteria.value;
-        default:
-          return false;
-      }
-    }
-    default:
-      return false;
-  }
 }
 
 /**
  * Composite/multi-condition fallback (the documented O(P) exception, Section 6.6):
- * a chunked per-contact `evaluateCondition` loop over live contacts. Property
+ * a per-contact `evaluateCondition` loop over live contacts. Property
  * sub-conditions evaluate against the contact's merged properties.
+ *
+ * KEYSET PAGINATION by `contacts.externalId` in BATCH_SIZE pages (mirrors
+ * reconcileBucketJoins' `externalId asc` paging): each page selects
+ * `WHERE externalId > :cursor ORDER BY externalId ASC LIMIT BATCH_SIZE`,
+ * evaluates the criteria per contact, then advances the cursor to the last
+ * externalId of the page — repeating until a short page ends the scan. The whole
+ * contacts table is never held in memory at once.
  */
 async function selectCompositeMatchers(
   db: Database,
   criteria: ConditionEval,
 ): Promise<string[]> {
-  const liveContacts = await db
-    .select({
-      externalId: contacts.externalId,
-      properties: contacts.properties,
-    })
-    .from(contacts)
-    .where(isNull(contacts.deletedAt));
-
   const matchers: string[] = [];
-  for (const contact of liveContacts) {
-    const isMember = await evaluateCondition({
-      condition: criteria,
-      ctx: {
-        db,
-        userId: contact.externalId,
-        journeyContext:
-          (contact.properties as Record<string, unknown> | null) ?? {},
-      },
-    });
-    if (isMember) matchers.push(contact.externalId);
-  }
-  return matchers;
-}
+  let cursor: string | null = null;
 
-/** now + within for time-based / fastExpiry buckets; null otherwise. */
-function computeBackfillExpiresAt(bucket: BucketMeta): Date | null {
-  if (!bucket.criteria) return null;
-  if (!bucket.timeBased && !bucket.fastExpiry) return null;
-  const within = firstWithin(bucket.criteria);
-  if (!within) return null;
-  return new Date(Date.now() + durationToMs(within));
-}
+  for (;;) {
+    const page = await db
+      .select({
+        externalId: contacts.externalId,
+        properties: contacts.properties,
+      })
+      .from(contacts)
+      .where(
+        and(
+          isNull(contacts.deletedAt),
+          cursor != null ? gt(contacts.externalId, cursor) : undefined,
+        ),
+      )
+      .orderBy(sql`${contacts.externalId} asc`)
+      .limit(BATCH_SIZE);
 
-/** Find the first EventCondition.within in a criteria tree (depth-first). */
-function firstWithin(criteria: ConditionEval): DurationObject | null {
-  if (criteria.type === "event" && criteria.within) {
-    return criteria.within;
-  }
-  if (criteria.type === "composite") {
-    for (const child of criteria.conditions) {
-      const found = firstWithin(child);
-      if (found) return found;
+    for (const contact of page) {
+      const isMember = await evaluateCondition({
+        condition: criteria,
+        ctx: {
+          db,
+          userId: contact.externalId,
+          journeyContext:
+            (contact.properties as Record<string, unknown> | null) ?? {},
+        },
+      });
+      if (isMember) matchers.push(contact.externalId);
     }
+
+    // A short page (fewer than a full batch) means the scan is exhausted.
+    if (page.length < BATCH_SIZE) break;
+    cursor = page[page.length - 1]?.externalId ?? null;
+    if (cursor == null) break;
   }
-  return null;
+
+  return matchers;
 }
 
 /**
