@@ -6,7 +6,7 @@
  *
  * MUST equal the `@hogsend/engine` package version.
  */
-export const ENGINE_VERSION = "0.1.0";
+export const ENGINE_VERSION = "0.3.0";
 
 /** Every `@hogsend/*` package the scaffolded app depends on. */
 export const HOGSEND_PACKAGES = [
