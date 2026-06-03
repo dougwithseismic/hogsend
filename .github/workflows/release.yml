@@ -61,14 +61,13 @@ jobs:
           title: "chore(release): version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # NPM_TOKEN: an npm token with publish rights to @hogsend/* and
-          # create-hogsend, stored as the repo secret NPM_TOKEN. changeset publish
-          # reads NODE_AUTH_TOKEN for npm auth; we mirror NPM_TOKEN into it.
+          # NPM_TOKEN: an npm token with publish rights to the public packages,
+          # stored as a repo secret. changeset publish reads NODE_AUTH_TOKEN for
+          # npm auth; we mirror NPM_TOKEN into it.
           #
-          # NOTE: Trusted Publishing (OIDC) is the better, tokenless end state and
-          # 5 of 8 packages already have a Trusted Publisher configured
-          # (GitHub Actions → dougwithseismic/hogsend → release.yml). To finish the
-          # migration: add a Trusted Publisher to plugin-resend, cli, and
-          # create-hogsend, then delete this secret + drop these two env lines.
+          # NOTE: Trusted Publishing (OIDC) is the tokenless end state — npm mints a
+          # short-lived, workflow-scoped token at publish time (id-token: write is
+          # already set above). Migration in progress; once every public package has
+          # a Trusted Publisher, delete this secret and drop these two env lines.
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
