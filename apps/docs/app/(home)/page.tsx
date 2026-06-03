@@ -9,7 +9,13 @@ import {
   Workflow,
 } from "lucide-react";
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
+import lifecycleImg from "@/public/images/hogsend-lifecycle.png";
+import studioJourneys from "@/public/images/studio/studio-journeys.png";
+import studioOverview from "@/public/images/studio/studio-overview.png";
+import studioSends from "@/public/images/studio/studio-sends.png";
+import studioTemplates from "@/public/images/studio/studio-templates.png";
 
 function GithubMark({ className }: { className?: string }) {
   return (
@@ -81,7 +87,7 @@ function Hero() {
             <ArrowRight className="size-4" />
           </Link>
           <a
-            href="https://github.com/withseismic/hogsend"
+            href="https://github.com/dougwithseismic/hogsend"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 rounded-lg border border-fd-border bg-fd-card px-5 py-2.5 font-medium text-sm transition-colors hover:bg-fd-accent"
@@ -224,12 +230,12 @@ function HowItWorks() {
           subtitle="Activity comes in from PostHog, the right emails go out through Resend, and what people do with them flows right back. Nothing new to buy or keep in sync."
         />
         <div className="mt-12 overflow-hidden rounded-xl border border-fd-border bg-fd-card p-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/images/hogsend-lifecycle.png"
+          <Image
+            src={lifecycleImg}
             alt="PostHog → Hogsend → Resend lifecycle email flow"
-            className="w-full rounded-lg"
-            loading="lazy"
+            className="h-auto w-full rounded-lg"
+            sizes="(max-width: 1024px) 100vw, 1024px"
+            placeholder="blur"
           />
         </div>
       </div>
@@ -248,21 +254,21 @@ function Studio() {
         />
         <div className="mt-12 grid gap-4 md:grid-cols-2">
           {[
-            { src: "studio-overview.png", label: "Overview" },
-            { src: "studio-journeys.png", label: "Journeys" },
-            { src: "studio-sends.png", label: "Sends" },
-            { src: "studio-templates.png", label: "Templates" },
+            { img: studioOverview, label: "Overview" },
+            { img: studioJourneys, label: "Journeys" },
+            { img: studioSends, label: "Sends" },
+            { img: studioTemplates, label: "Templates" },
           ].map((s) => (
             <figure
-              key={s.src}
+              key={s.label}
               className="overflow-hidden rounded-xl border border-fd-border bg-fd-card"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/images/studio/${s.src}`}
+              <Image
+                src={s.img}
                 alt={`Hogsend Studio — ${s.label}`}
-                className="w-full"
-                loading="lazy"
+                className="h-auto w-full"
+                sizes="(max-width: 768px) 100vw, 50vw"
+                placeholder="blur"
               />
               <figcaption className="border-fd-border border-t px-4 py-2 text-fd-muted-foreground text-xs">
                 {s.label}

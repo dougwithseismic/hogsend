@@ -10,6 +10,6 @@ export function baseOptions(): BaseLayoutProps {
       { text: "Getting Started", url: "/docs/getting-started" },
       { text: "Compare", url: "/docs/compare" },
     ],
-    githubUrl: "https://github.com/withseismic/hogsend",
+    githubUrl: "https://github.com/dougwithseismic/hogsend",
   };
 }
