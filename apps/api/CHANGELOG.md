@@ -1,5 +1,14 @@
 # @hogsend/api
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [31e5ed7]
+  - @hogsend/core@0.2.0
+  - @hogsend/db@0.2.0
+  - @hogsend/engine@0.2.0
+
 ## 0.0.3
 
 ### Patch Changes
