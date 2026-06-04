@@ -97,6 +97,8 @@ Public URL configuration and admin access.
 |---|---|---|---|---|
 | `REDIS_URL` | No | `redis://localhost:6379` | Worker | Redis connection string for caching PostHog person properties. Local Docker default: `redis://localhost:6380`. |
 
+The local `docker-compose.yml` host ports are parameterized and default to `5434` (Postgres), `6380` (Redis), and `8888`/`7077` (Hatchet dashboard/gRPC). `pnpm bootstrap` auto-remaps any that are already in use — writing the chosen `POSTGRES_PORT` / `REDIS_PORT` / `HATCHET_DASHBOARD_PORT` / `HATCHET_GRPC_PORT` into a root `.env` (for Compose) and syncing the matching `DATABASE_URL` / `REDIS_URL` / `HATCHET_CLIENT_HOST_PORT` — so several stacks can run side by side. You rarely set these by hand.
+
 ### Boot guard
 
 | Variable | Required | Default | Process | Description |
