@@ -7,7 +7,7 @@ Thanks for wanting to contribute. Hogsend is a work in progress and we keep thin
 ```bash
 git clone https://github.com/dougwithseismic/hogsend.git
 cd hogsend
-pnpm setup          # Checks Docker, starts containers, installs deps, creates .env
+pnpm bootstrap      # Docker + .env + deps; auto-remaps busy host ports
 pnpm dev            # Starts API on port 3002
 ```
 

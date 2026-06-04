@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 
-PACKAGES=(core db email engine plugin-posthog plugin-resend)
+PACKAGES=(core db email engine plugin-posthog plugin-resend studio)
 
 TARBALLS=""
 APP_PARENT=""
@@ -38,15 +38,24 @@ head -1 "$CLI" | grep -q '#!/usr/bin/env node' || fail "missing shebang in $CLI"
 # --- 2. pack @hogsend/* into a /tmp tarball dir ---------------------------
 echo "==> [2/8] pack @hogsend/* tarballs"
 TARBALLS="$(mktemp -d /tmp/hogsend-tarballs.XXXXXX)"
+# studio ships a built `dist` bundle (files: ["dist"]) — the engine serves the
+# Studio UI from it. Build it first so its tarball isn't empty. The other
+# packages ship raw `src/**` and need no build.
+pnpm --filter @hogsend/studio build >/dev/null
 for pkg in "${PACKAGES[@]}"; do
-  # `pnpm pack` works on private packages and (no `files` field) packs src/**.
-  # Run with --dir on the package path: `--filter ... pack` is a recursive run,
-  # which pnpm's `pack` rejects.
+  # `pnpm pack` works on private packages. Run with --dir on the package path:
+  # `--filter ... pack` is a recursive run, which pnpm's `pack` rejects.
   pnpm --dir "$REPO_ROOT/packages/$pkg" pack \
     --pack-destination "$TARBALLS" >/dev/null
-  tgz="$TARBALLS/hogsend-$pkg-0.0.1.tgz"
-  [ -f "$tgz" ] || fail "tarball not produced: $tgz"
-  tar -tzf "$tgz" | grep -q 'package/src/' || fail "$tgz missing package/src/**"
+  # Version-agnostic: the tarball is named for the package's own version, so
+  # match the glob rather than hardcoding a version that drifts each release.
+  tgz="$(echo "$TARBALLS"/hogsend-"$pkg"-*.tgz)"
+  [ -f "$tgz" ] || fail "tarball not produced for $pkg (no hogsend-$pkg-*.tgz)"
+  if [ "$pkg" = "studio" ]; then
+    tar -tzf "$tgz" | grep -q 'package/dist/' || fail "$tgz missing package/dist/**"
+  else
+    tar -tzf "$tgz" | grep -q 'package/src/' || fail "$tgz missing package/src/**"
+  fi
 done
 echo "    packed: $(ls "$TARBALLS" | tr '\n' ' ')"
 
@@ -64,7 +73,7 @@ EXPECTED=(
   src/buckets/index.ts src/buckets/power-users.ts
   src/webhook-sources/index.ts src/webhook-sources/posthog.ts
   src/workflows/index.ts src/workflows/backfill-example.ts
-  src/schema/index.ts scripts/migrate.ts
+  src/schema/index.ts scripts/migrate.ts scripts/bootstrap.ts
   drizzle.config.ts migrations/0000_init.sql migrations/meta/_journal.json
   migrations/meta/0000_snapshot.json
   docker-compose.yml railway.toml railway.worker.toml

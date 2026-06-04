@@ -7,7 +7,8 @@ services:
       POSTGRES_PASSWORD: growthhog
       POSTGRES_DB: growthhog
     ports:
-      - "5434:5432"
+      # Host port is parameterized so `pnpm bootstrap` can remap on conflict.
+      - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - pgdata:/home/postgres/pgdata/data
     healthcheck:
@@ -20,7 +21,7 @@ services:
     image: redis:8-alpine
     restart: unless-stopped
     ports:
-      - "6380:6379"
+      - "${REDIS_PORT:-6380}:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -51,11 +52,11 @@ services:
       hatchet-postgres:
         condition: service_healthy
     ports:
-      - "8888:8888"
-      - "7077:7077"
+      - "${HATCHET_DASHBOARD_PORT:-8888}:8888"
+      - "${HATCHET_GRPC_PORT:-7077}:7077"
     environment:
       DATABASE_URL: postgresql://hatchet:hatchet@hatchet-postgres:5432/hatchet?sslmode=disable
-      SERVER_URL: http://localhost:8888
+      SERVER_URL: http://localhost:${HATCHET_DASHBOARD_PORT:-8888}
       SERVER_AUTH_COOKIE_DOMAIN: localhost
       SERVER_AUTH_COOKIE_INSECURE: "true"
       SERVER_AUTH_SET_EMAIL_VERIFIED: "true"
@@ -63,7 +64,7 @@ services:
       SERVER_GRPC_BIND_ADDRESS: 0.0.0.0
       SERVER_GRPC_PORT: "7077"
       SERVER_GRPC_INSECURE: "true"
-      SERVER_GRPC_BROADCAST_ADDRESS: localhost:7077
+      SERVER_GRPC_BROADCAST_ADDRESS: localhost:${HATCHET_GRPC_PORT:-7077}
       SERVER_MSGQUEUE_KIND: postgres
     volumes:
       - hatchetdata:/app/config

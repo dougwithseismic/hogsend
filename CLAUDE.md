@@ -38,8 +38,8 @@ cd packages/db && pnpm db:migrate     # run migrations
 cd packages/db && pnpm db:push        # push schema directly (dev shortcut)
 cd packages/db && pnpm db:studio      # Drizzle Studio GUI
 
-# First-time setup (Docker, deps, env)
-pnpm setup                      # runs scripts/setup.sh
+# First-time setup (Docker, deps, env; auto-remaps busy host ports)
+pnpm bootstrap                  # runs scripts/bootstrap.sh
 
 # Infrastructure (TimescaleDB, Redis, Hatchet-Lite)
 docker compose up -d            # Start postgres, redis, hatchet-lite

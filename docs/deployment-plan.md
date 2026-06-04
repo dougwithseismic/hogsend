@@ -58,10 +58,10 @@ front because getting any of them backwards costs a rebuild or a security hole.
    `:5434`/`:6380` for the host-process dev path. Host-process and in-compose are
    mutually exclusive port regimes and the templates say which is which.
 
-7. **`BETTER_AUTH_SECRET` generation is in scope.** `pnpm setup` today
+7. **`BETTER_AUTH_SECRET` generation is in scope.** `pnpm bootstrap` today
    `cp`s `.env.example` whose secret is the literal `your-secret-here-...` placeholder
    and the schema only enforces `min(1)`. A fresh self-hoster runs with a
-   publicly-known auth secret. `scripts/setup.sh` must generate a real
+   publicly-known auth secret. `scripts/bootstrap.sh` must generate a real
    `openssl rand -base64 32` value.
 
 8. **The worker must be gated on migrations too.** `getEngineSchemaVersion` +
@@ -208,13 +208,13 @@ Artifacts:
   `process.env` independently, so values must agree. "Single contract" = one schema +
   one example; it does not make env.ts the sole reader.
 
-### Phase 2 — Canonical `.env.example` + secret generation + setup.sh
+### Phase 2 — Canonical `.env.example` + secret generation + bootstrap.sh
 Artifacts:
 - ONE annotated `.env.example` (owner: engine) projected to `apps/api/.env.example`
   and `packages/create-hogsend/template/env.example`. Fix the host-port bug
   (`:5432`→`:5434`, `:6379`→`:6380`) in the dogfood file. Each var annotated
   `[required] / [default: x] / [optional]` with per-target value.
-- `scripts/setup.sh`: generate `BETTER_AUTH_SECRET` via `openssl rand -base64 32` and
+- `scripts/bootstrap.sh`: generate `BETTER_AUTH_SECRET` via `openssl rand -base64 32` and
   write it into the generated `.env` instead of copying the placeholder; add a
   `pnpm gen:secret` helper.
 - Replace the "copy token from dashboard at :8888" comment with "auto-populated by the
