@@ -467,6 +467,5 @@ const BUCKET_CODE = `export const wentDormant = defineBucket({
 const INSTALL_CODE = `pnpm dlx create-hogsend@latest my-app
 cd my-app
 
-docker compose up -d   # Postgres, Redis, Hatchet
-pnpm db:migrate
+pnpm bootstrap         # Docker + .env + Hatchet token + migrate
 pnpm dev               # API on :3002`;

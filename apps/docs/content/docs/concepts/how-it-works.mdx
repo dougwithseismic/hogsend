@@ -140,10 +140,9 @@ Setting up lifecycle email from scratch means building a lot of plumbing. Here's
 You don't fork anything. You scaffold a fresh app and let it consume the engine:
 
 1. **Scaffold** — `pnpm dlx create-hogsend@latest my-app` emits a thin app pinned to `@hogsend/engine`, with starter journeys, the PostHog webhook source, and the two entry files already wired
-2. **Configure** — `cp .env.example .env`, then fill `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `HATCHET_CLIENT_TOKEN`
-3. **Infra + schema** — `docker compose up -d`, then `pnpm db:migrate` (runs the engine track, then your client track)
-4. **Run** — `pnpm dev` (HTTP API on port 3002) and `pnpm worker:dev` (the Hatchet worker, in a second terminal)
-5. **Connect PostHog** — add `<your-url>/v1/webhooks/posthog` to PostHog's data pipeline destinations, then edit the starter journeys
+2. **Bootstrap** — `pnpm bootstrap` brings up Docker, writes `.env` (with a generated `BETTER_AUTH_SECRET` and Hatchet token), auto-remaps any busy host ports, and runs migrations. Set `RESEND_API_KEY` for real sends.
+3. **Run** — `pnpm dev` (HTTP API on port 3002) and `pnpm worker:dev` (the Hatchet worker, in a second terminal)
+4. **Connect PostHog** — add `<your-url>/v1/webhooks/posthog` to PostHog's data pipeline destinations, then edit the starter journeys
 
 See [Getting Started](/docs/getting-started) for the full walkthrough.
 
