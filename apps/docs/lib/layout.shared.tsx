@@ -1,9 +1,11 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
+import { Logo } from "@/components/landing/logo";
 
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
-      title: "Hogsend",
+      title: <Logo />,
+      transparentMode: "none",
     },
     links: [
       { text: "Docs", url: "/docs" },

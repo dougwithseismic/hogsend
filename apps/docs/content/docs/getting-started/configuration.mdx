@@ -9,7 +9,7 @@ A scaffolded Hogsend app is configured entirely through environment variables. B
 cp .env.example .env
 ```
 
-The `.env.example` shipped by the scaffold already points `DATABASE_URL` and `REDIS_URL` at the local Docker Compose ports, so for local development you mostly fill in secrets.
+`pnpm bootstrap` does this copy for you — generating a real `BETTER_AUTH_SECRET` and minting a Hatchet token (see [Installation](/docs/getting-started/installation)). The `.env.example` shipped by the scaffold already points `DATABASE_URL` and `REDIS_URL` at the local Docker Compose ports, so for local development you mostly fill in secrets.
 
 ## Variable reference
 
