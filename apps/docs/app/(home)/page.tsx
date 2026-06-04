@@ -1,3 +1,4 @@
+import { highlight } from "fumadocs-core/highlight";
 import {
   ArrowRight,
   BarChart3,
@@ -281,7 +282,7 @@ function Studio() {
   );
 }
 
-function GetStarted() {
+async function GetStarted() {
   return (
     <section>
       <div className="mx-auto max-w-3xl px-4 py-20 text-center md:py-28">
@@ -294,9 +295,11 @@ function GetStarted() {
         </p>
 
         <div className="mx-auto mt-8 max-w-md rounded-xl border border-fd-border bg-fd-card p-1 text-left">
-          <pre className="overflow-x-auto px-4 py-3 font-mono text-sm leading-relaxed">
-            <code>{INSTALL_CODE}</code>
-          </pre>
+          <Code
+            code={INSTALL_CODE}
+            lang="bash"
+            className="py-3 font-mono text-sm leading-relaxed"
+          />
         </div>
 
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -328,6 +331,32 @@ function GetStarted() {
 
 /* ---------------------------------- bits --------------------------------- */
 
+// Server-side Shiki highlighting (github-light/dark dual theme), reusing the
+// same `.shiki` CSS variables that fumadocs-ui/css/preset.css already wires up.
+// The pre background is forced transparent so the code blends into our cards.
+async function Code({
+  code,
+  lang,
+  className,
+}: {
+  code: string;
+  lang: string;
+  className?: string;
+}) {
+  return highlight(code, {
+    lang,
+    components: {
+      pre: ({ className: shikiClass, style, ...props }) => (
+        <pre
+          {...props}
+          style={{ ...style, backgroundColor: "transparent" }}
+          className={`${shikiClass ?? ""} overflow-x-auto ${className ?? ""}`}
+        />
+      ),
+    },
+  });
+}
+
 function SectionHeading({
   eyebrow,
   title,
@@ -352,7 +381,7 @@ function SectionHeading({
   );
 }
 
-function PrimitiveCard({
+async function PrimitiveCard({
   icon,
   kind,
   blurb,
@@ -387,9 +416,11 @@ function PrimitiveCard({
             {filename}
           </span>
         </div>
-        <pre className="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-relaxed">
-          <code>{code}</code>
-        </pre>
+        <Code
+          code={code}
+          lang="ts"
+          className="py-4 font-mono text-[13px] leading-relaxed"
+        />
       </div>
     </div>
   );
