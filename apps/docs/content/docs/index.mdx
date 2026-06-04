@@ -43,14 +43,12 @@ Scaffold a fresh app, then run the dev loop:
 pnpm dlx create-hogsend@latest my-app
 cd my-app
 
-cp .env.example .env        # fill BETTER_AUTH_SECRET, RESEND_API_KEY, HATCHET_CLIENT_TOKEN
-docker compose up -d        # Timescale :5434, Redis :6380, Hatchet-Lite :8888
-pnpm db:migrate             # engine track, then your client track
+pnpm bootstrap              # Docker + .env (fresh secret) + Hatchet token + migrate
 pnpm dev                    # HTTP API on http://localhost:3002
 pnpm worker:dev             # Hatchet worker, in a second terminal
 ```
 
-That's it — your app pins the engine, owns its journeys, and upgrades with `pnpm up`.
+`pnpm bootstrap` is idempotent and auto-remaps any busy host ports — set `RESEND_API_KEY` in `.env` before sending real email. That's it: your app pins the engine, owns its journeys, and upgrades with `pnpm up`.
 
 ## Quick example
 
