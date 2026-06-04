@@ -44,5 +44,6 @@ export const TOKEN_FILES = [
   "README.md",
   "footer.tsx",
   "welcome.tsx",
+  "logo.tsx",
   "registry.ts",
 ] as const;

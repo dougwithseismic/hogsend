@@ -9,24 +9,28 @@ and is yours to edit.
 ## Prerequisites
 
 - Node 22 (`.node-version`)
-- pnpm
+- pnpm (or npm / yarn / bun)
 - Docker (for local Timescale + Redis + Hatchet-Lite)
 
 ## Quickstart
 
 ```bash
-cp .env.example .env
-# Fill BETTER_AUTH_SECRET (>=32 chars), RESEND_API_KEY, and HATCHET_CLIENT_TOKEN
-# (copy the token from the Hatchet dashboard at http://localhost:8888 after the
-# containers are up — login admin@example.com / Admin123!!).
-
-docker compose up -d        # Timescale (5434), Redis (6380), Hatchet-Lite (8888/7077)
-pnpm db:migrate             # engine track, then this repo's client track
-pnpm dev                    # HTTP API on http://localhost:3002
-pnpm worker:dev             # Hatchet worker (run in a second terminal)
+pnpm bootstrap     # one command: Docker + .env + Hatchet token + migrate
+pnpm dev           # HTTP API on http://localhost:3002
+pnpm worker:dev    # Hatchet worker (run in a second terminal)
 ```
 
-API docs: `http://localhost:3002/docs`. Health: `GET /v1/health`.
+`pnpm bootstrap` is idempotent — re-run it any time. It creates `.env` (with a
+fresh `BETTER_AUTH_SECRET`), brings up Timescale + Redis + Hatchet-Lite
+(auto-remapping any host ports already in use, so multiple stacks coexist),
+mints a Hatchet token for you, and runs both migration tracks. Set
+`RESEND_API_KEY` in `.env` before sending real email.
+
+Using npm / yarn / bun? Swap `pnpm` for `npm run` / `yarn` / `bun run`
+(e.g. `npm run bootstrap`).
+
+API docs: `http://localhost:3002/docs`. Health: `GET /v1/health`. Full docs:
+[docs.hogsend.com](https://docs.hogsend.com).
 
 ## Verify the pipeline (end-to-end smoke)
 

@@ -63,6 +63,17 @@ export async function copyTemplate(opts: CopyOptions): Promise<void> {
   await walk(opts.templateDir, opts.templateDir, opts.targetDir, opts);
 }
 
+/**
+ * The top-level names the scaffold will write (rename map applied). Used to
+ * detect collisions when scaffolding into a non-empty current directory (`.`).
+ */
+export async function emittedTopLevelNames(
+  templateDir: string,
+): Promise<string[]> {
+  const entries = await readdir(templateDir, { withFileTypes: true });
+  return entries.map((e) => RENAME_MAP[e.name] ?? e.name);
+}
+
 async function walk(
   current: string,
   templateRoot: string,

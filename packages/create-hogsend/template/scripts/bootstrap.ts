@@ -1,0 +1,417 @@
+import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The one-command local setup (run via `<pm> run bootstrap`).
+ *
+ * Idempotent and safe to re-run. It:
+ *   1. checks Docker is installed + running
+ *   2. creates `.env` from `.env.example` with a fresh BETTER_AUTH_SECRET
+ *   3. remaps any conflicting host ports (so multiple Hogsend stacks coexist)
+ *   4. brings up Postgres + Redis + Hatchet-Lite and waits for health
+ *   5. mints a Hatchet API token and writes it to `.env`
+ *   6. runs the two-track database migrations
+ *
+ * After this, the `dev` + `worker:dev` scripts just work. Docs: docs.hogsend.com
+ */
+
+// Default seed tenant baked into the hatchet-lite image. Overridden at runtime
+// by whatever `/config/server.yaml` reports, so a future image can't break us.
+const DEFAULT_HATCHET_TENANT = "707d0855-80ab-4e1f-a156-f1c4546cbf52";
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ENV_PATH = join(ROOT, ".env");
+const ENV_EXAMPLE = join(ROOT, ".env.example");
+const PROJECT = sanitizeName(basename(ROOT));
+
+// --- tiny ANSI helpers (no deps in the scaffolded app) ---------------------
+const isTTY = Boolean(process.stdout.isTTY);
+const paint =
+  (code: string) =>
+  (s: string): string =>
+    isTTY ? `\x1b[${code}m${s}\x1b[0m` : s;
+const bold = paint("1");
+const dim = paint("2");
+const red = paint("31");
+const green = paint("32");
+const yellow = paint("33");
+const cyan = paint("36");
+const magenta = paint("35");
+
+let stepNo = 0;
+const TOTAL = 6;
+function step(label: string): void {
+  stepNo += 1;
+  process.stdout.write(
+    `\n${magenta(bold(`[${stepNo}/${TOTAL}]`))} ${bold(label)}\n`,
+  );
+}
+function ok(msg: string): void {
+  process.stdout.write(`  ${green("✓")} ${msg}\n`);
+}
+function info(msg: string): void {
+  process.stdout.write(`  ${dim("·")} ${dim(msg)}\n`);
+}
+function warn(msg: string): void {
+  process.stdout.write(`  ${yellow("!")} ${msg}\n`);
+}
+function die(msg: string, hint?: string): never {
+  process.stdout.write(`\n  ${red("✗")} ${msg}\n`);
+  if (hint) process.stdout.write(`    ${dim(hint)}\n`);
+  process.exit(1);
+}
+
+// --- generic helpers -------------------------------------------------------
+function sanitizeName(name: string): string {
+  const cleaned = name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^[^a-z0-9]+/, "");
+  return cleaned || "hogsend-app";
+}
+
+/** Which package manager invoked us (`npm_config_user_agent`). */
+function detectPm(): string {
+  const name = (process.env.npm_config_user_agent ?? "").split("/")[0];
+  return name === "npm" || name === "yarn" || name === "bun" ? name : "pnpm";
+}
+
+const PM = detectPm();
+
+/** Idiomatic "run a script" for the active pm — only npm needs the `run` word. */
+function pmRun(script: string): string {
+  return PM === "npm" ? `npm run ${script}` : `${PM} ${script}`;
+}
+
+interface Run {
+  status: number;
+  stdout: string;
+  stderr: string;
+}
+
+function run(cmd: string, args: string[]): Run {
+  const r = spawnSync(cmd, args, { cwd: ROOT, encoding: "utf8" });
+  return {
+    status: r.status ?? 1,
+    stdout: (r.stdout ?? "").trim(),
+    stderr: (r.stderr ?? "").trim(),
+  };
+}
+
+/** Stream a command's output straight to the terminal (for long/noisy steps). */
+function runLive(cmd: string, args: string[], shell = false): number {
+  const r = spawnSync(cmd, args, { cwd: ROOT, stdio: "inherit", shell });
+  return r.status ?? 1;
+}
+
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((res) => {
+    const srv = createServer();
+    srv.once("error", () => res(false));
+    srv.once("listening", () => srv.close(() => res(true)));
+    srv.listen(port, "0.0.0.0");
+  });
+}
+
+async function findFreePort(
+  start: number,
+  taken: Set<number>,
+): Promise<number> {
+  let port = start;
+  while (taken.has(port) || !(await isPortFree(port))) port += 1;
+  taken.add(port);
+  return port;
+}
+
+// --- .env helpers ----------------------------------------------------------
+function getEnv(content: string, key: string): string | undefined {
+  return content.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1];
+}
+
+function setEnv(content: string, key: string, value: string): string {
+  const re = new RegExp(`^${key}=.*$`, "m");
+  if (re.test(content)) return content.replace(re, `${key}=${value}`);
+  return `${content.trimEnd()}\n${key}=${value}\n`;
+}
+
+function portInUrl(url: string): number | undefined {
+  const m = url.match(/:\/\/[^/]*?:(\d+)/);
+  return m ? Number(m[1]) : undefined;
+}
+
+function withPort(url: string, port: number): string {
+  return url.replace(/(:\/\/[^/]*?:)\d+/, `$1${port}`);
+}
+
+// --- 1. Docker -------------------------------------------------------------
+function checkDocker(): void {
+  if (run("docker", ["--version"]).status !== 0) {
+    die(
+      "Docker is not installed.",
+      "Install Docker Desktop → https://docs.docker.com/get-docker/",
+    );
+  }
+  if (run("docker", ["info"]).status !== 0) {
+    die(
+      "Docker is installed but the daemon isn't running.",
+      `Start Docker Desktop and re-run \`${pmRun("bootstrap")}\`.`,
+    );
+  }
+  ok("Docker is running");
+}
+
+// --- 2. .env ---------------------------------------------------------------
+function ensureEnv(): void {
+  if (existsSync(ENV_PATH)) {
+    ok(".env already exists — keeping it");
+    return;
+  }
+  if (!existsSync(ENV_EXAMPLE))
+    die(".env.example is missing — cannot create .env");
+  copyFileSync(ENV_EXAMPLE, ENV_PATH);
+  let content = readFileSync(ENV_PATH, "utf8");
+  content = setEnv(
+    content,
+    "BETTER_AUTH_SECRET",
+    randomBytes(32).toString("base64"),
+  );
+  writeFileSync(ENV_PATH, content);
+  ok("Created .env with a fresh BETTER_AUTH_SECRET");
+}
+
+// --- 3. ports --------------------------------------------------------------
+interface Ports {
+  pg: number;
+  redis: number;
+  grpc: number;
+  dash: number;
+}
+
+async function resolvePorts(): Promise<Ports> {
+  const env = readFileSync(ENV_PATH, "utf8");
+  const dbUrl = getEnv(env, "DATABASE_URL") ?? "";
+  const redisUrl = getEnv(env, "REDIS_URL") ?? "";
+  const hostPort = getEnv(env, "HATCHET_CLIENT_HOST_PORT") ?? "localhost:7077";
+
+  const want: Ports = {
+    pg: portInUrl(dbUrl) ?? 5434,
+    redis: portInUrl(redisUrl) ?? 6380,
+    grpc: Number(hostPort.split(":")[1]) || 7077,
+    dash: Number(getEnv(env, "HATCHET_DASHBOARD_PORT")) || 8888,
+  };
+
+  // If our own stack is already up, its containers own these ports — leave them.
+  if (run("docker", ["compose", "ps", "-q"]).stdout.length > 0) {
+    ok("Containers already running — keeping current ports");
+    return want;
+  }
+
+  const taken = new Set<number>();
+  const got: Ports = { ...want };
+  const remaps: string[] = [];
+  for (const key of ["pg", "redis", "grpc", "dash"] as const) {
+    const desired = want[key];
+    if (!taken.has(desired) && (await isPortFree(desired))) {
+      taken.add(desired);
+      continue;
+    }
+    const free = await findFreePort(desired + 1, taken);
+    got[key] = free;
+    remaps.push(`${key} ${desired}→${free}`);
+  }
+
+  if (remaps.length === 0) {
+    ok("All default ports are free");
+    return got;
+  }
+
+  warn(`Ports in use — remapped: ${remaps.join(", ")}`);
+  syncEnvPorts(got);
+  info("Synced host ports into .env (Docker Compose reads them)");
+  // A minted token embeds the gRPC broadcast address; a port change makes an
+  // existing token stale (ensureHatchetToken keeps a real token as-is).
+  if (got.grpc !== want.grpc) {
+    const token = getEnv(env, "HATCHET_CLIENT_TOKEN") ?? "";
+    if (token.split(".").length === 3) {
+      warn(
+        "gRPC port changed — re-mint your Hatchet token (the old one targets the old port).",
+      );
+    }
+  }
+  return got;
+}
+
+/**
+ * Persist the chosen ports to `.env`. The compose file interpolates the
+ * `*_PORT` vars (`${POSTGRES_PORT:-5434}` etc.) and the app reads the URLs —
+ * so a single `.env` is the source of truth for both, with no override file.
+ */
+function syncEnvPorts(got: Ports): void {
+  let env = readFileSync(ENV_PATH, "utf8");
+  const dbUrl = getEnv(env, "DATABASE_URL");
+  const redisUrl = getEnv(env, "REDIS_URL");
+  if (dbUrl) env = setEnv(env, "DATABASE_URL", withPort(dbUrl, got.pg));
+  if (redisUrl) env = setEnv(env, "REDIS_URL", withPort(redisUrl, got.redis));
+  env = setEnv(env, "HATCHET_CLIENT_HOST_PORT", `localhost:${got.grpc}`);
+  // Compose-only port vars (consumed by docker-compose.yml interpolation).
+  env = setEnv(env, "POSTGRES_PORT", String(got.pg));
+  env = setEnv(env, "REDIS_PORT", String(got.redis));
+  env = setEnv(env, "HATCHET_DASHBOARD_PORT", String(got.dash));
+  env = setEnv(env, "HATCHET_GRPC_PORT", String(got.grpc));
+  writeFileSync(ENV_PATH, env);
+}
+
+// --- 4. docker up ----------------------------------------------------------
+function dockerUp(): void {
+  info("docker compose up -d --wait (first run pulls images — be patient)");
+  const status = runLive("docker", [
+    "compose",
+    "up",
+    "-d",
+    "--wait",
+    "--wait-timeout",
+    "180",
+  ]);
+  if (status !== 0) {
+    die(
+      "Containers failed to start.",
+      `Check \`docker compose logs\`, then re-run \`${pmRun("bootstrap")}\`.`,
+    );
+  }
+  ok("Postgres, Redis and Hatchet-Lite are up");
+}
+
+// --- 5. hatchet token ------------------------------------------------------
+function hatchetTenantId(): string {
+  const r = run("docker", [
+    "compose",
+    "exec",
+    "-T",
+    "hatchet-lite",
+    "cat",
+    "/config/server.yaml",
+  ]);
+  const m = r.stdout.match(/defaultTenantId:\s*([0-9a-f-]+)/);
+  return m?.[1] ?? DEFAULT_HATCHET_TENANT;
+}
+
+function mintToken(tenantId: string): string | null {
+  const r = run("docker", [
+    "compose",
+    "exec",
+    "-T",
+    "hatchet-lite",
+    "/hatchet-admin",
+    "token",
+    "create",
+    "--config",
+    "/config",
+    "--tenant-id",
+    tenantId,
+    "--name",
+    PROJECT,
+  ]);
+  // The JWT is the only stdout line; logs go to stderr.
+  const token = r.stdout.split("\n").pop()?.trim() ?? "";
+  return r.status === 0 && token.split(".").length === 3 ? token : null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+async function ensureHatchetToken(): Promise<void> {
+  const env = readFileSync(ENV_PATH, "utf8");
+  const current = getEnv(env, "HATCHET_CLIENT_TOKEN") ?? "";
+  if (current.split(".").length === 3) {
+    ok("HATCHET_CLIENT_TOKEN already set — keeping it");
+    return;
+  }
+
+  const tenantId = hatchetTenantId();
+  let token: string | null = null;
+  for (let attempt = 1; attempt <= 20 && !token; attempt += 1) {
+    token = mintToken(tenantId);
+    if (!token) {
+      if (attempt === 1) info("Waiting for Hatchet to finish initializing…");
+      await sleep(2000);
+    }
+  }
+  if (!token) {
+    die(
+      "Couldn't mint a Hatchet token after ~40s.",
+      "Open the dashboard, create one manually, and set HATCHET_CLIENT_TOKEN in .env.",
+    );
+  }
+
+  writeFileSync(
+    ENV_PATH,
+    setEnv(readFileSync(ENV_PATH, "utf8"), "HATCHET_CLIENT_TOKEN", token),
+  );
+  ok("Minted a Hatchet API token → .env");
+}
+
+// --- 6. migrations ---------------------------------------------------------
+function runMigrations(): void {
+  info(`${pmRun("db:migrate")} (engine track, then client track)`);
+  const status = runLive(
+    PM,
+    ["run", "db:migrate"],
+    process.platform === "win32",
+  );
+  if (status !== 0) {
+    die(
+      "Migrations failed.",
+      `Check the output above, then re-run \`${pmRun("bootstrap")}\`.`,
+    );
+  }
+  ok("Database migrated");
+}
+
+// --- orchestration ---------------------------------------------------------
+async function main(): Promise<void> {
+  process.stdout.write(
+    `\n${magenta(bold("◆ Hogsend"))} ${dim("local bootstrap")} ${dim("· docs.hogsend.com")}\n`,
+  );
+
+  step("Checking Docker");
+  checkDocker();
+
+  step("Preparing .env");
+  ensureEnv();
+
+  step("Resolving ports");
+  const ports = await resolvePorts();
+
+  step("Starting containers");
+  dockerUp();
+
+  step("Minting Hatchet token");
+  await ensureHatchetToken();
+
+  step("Running migrations");
+  runMigrations();
+
+  const dash = `http://localhost:${ports.dash}`;
+  process.stdout.write(
+    [
+      `\n${green(bold("✓ Ready."))} Your local stack is up.\n`,
+      `  ${dim("Hatchet dashboard:")} ${cyan(dash)} ${dim("(admin@example.com / Admin123!!)")}`,
+      "",
+      `  ${bold("Next:")}`,
+      `    ${cyan(pmRun("dev"))}          ${dim("# HTTP API on :3002")}`,
+      `    ${cyan(pmRun("worker:dev"))}   ${dim("# Hatchet worker (second terminal)")}`,
+      "",
+      `  ${dim("First journey:")} ${cyan("src/journeys/welcome.ts")}   ${dim("· docs.hogsend.com")}`,
+      "",
+    ].join("\n"),
+  );
+}
+
+main().catch((err: unknown) => {
+  die(err instanceof Error ? err.message : String(err));
+});

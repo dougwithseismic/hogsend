@@ -18,7 +18,7 @@ Every deploy target is the **same image plus the same validated env contract** �
 Two prerequisites, in order:
 
 1. **[Get a Hatchet token](/docs/getting-started/hatchet)** — Hogsend's one hard dependency. Get a token from a self-hosted `hatchet-lite`, Hatchet Cloud, or your own engine, and set the three `HATCHET_CLIENT_*` vars.
-2. **A real `BETTER_AUTH_SECRET`** — generate one with `pnpm gen:secret` (`openssl rand -base64 32`). `pnpm setup` does this for you locally; never ship the placeholder.
+2. **A real `BETTER_AUTH_SECRET`** — generate one with `pnpm gen:secret` (`openssl rand -base64 32`). `pnpm bootstrap` does this for you locally; never ship the placeholder.
 
 The complete, annotated env contract is in [`.env.example`](https://github.com/dougwithseismic/hogsend/blob/main/apps/api/.env.example) — one file projected from the validated schema in `packages/engine/src/env.ts`, with every var tagged `[required]` / `[default: x]` / `[optional]`. See [Configuration](/docs/getting-started/configuration) for the per-variable reference.
 
