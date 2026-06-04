@@ -10,15 +10,25 @@ You install Hogsend by **scaffolding a fresh app** that consumes the versioned `
 ```bash
 pnpm dlx create-hogsend@latest my-app
 # or: npm create hogsend my-app
+# or scaffold into the current folder:
+pnpm dlx create-hogsend@latest .
 ```
 
-This copies the starter template into `./my-app`, substitutes the app name and pinned engine version, runs `git init` with an initial commit, and installs dependencies. The app name must match `^[a-z0-9][a-z0-9._-]*$`.
+This copies the starter template into `./my-app` (or the current folder with `.`), substitutes the app name and pinned engine version, runs `git init` with an initial commit, installs dependencies, and offers to run local setup for you (Docker, `.env`, Hatchet token, migrations — that's [step 2](#2-bootstrap-your-local-stack)). The app name must match `^[a-z0-9][a-z0-9._-]*$`.
+
+For a fully hands-off run with no prompts, add `--yes`:
+
+```bash
+pnpm dlx create-hogsend@latest my-app --yes   # scaffold + install + bootstrap, zero prompts
+```
 
 Useful flags:
 
 | Flag | Effect |
 |---|---|
+| `--yes`, `-y` | Accept all defaults and run local setup — no prompts |
 | `--pm <pnpm\|npm\|yarn\|bun>` | Package manager to use (default `pnpm`) |
+| `--no-setup` | Skip the post-install local setup |
 | `--no-install` | Skip the dependency install |
 | `--no-git` | Skip `git init` and the initial commit |
 | `-h`, `--help` | Show help |

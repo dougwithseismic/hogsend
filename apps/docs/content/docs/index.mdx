@@ -48,7 +48,7 @@ pnpm dev                    # HTTP API on http://localhost:3002
 pnpm worker:dev             # Hatchet worker, in a second terminal
 ```
 
-`pnpm bootstrap` is idempotent and auto-remaps any busy host ports — set `RESEND_API_KEY` in `.env` before sending real email. That's it: your app pins the engine, owns its journeys, and upgrades with `pnpm up`.
+`pnpm bootstrap` is idempotent and auto-remaps any busy host ports — set `RESEND_API_KEY` in `.env` before sending real email. Prefer one command? `pnpm dlx create-hogsend@latest my-app --yes` scaffolds, installs, and bootstraps in a single hands-off step (or use `.` to scaffold into the current folder). That's it: your app pins the engine, owns its journeys, and upgrades with `pnpm up`.
 
 ## Quick example
 

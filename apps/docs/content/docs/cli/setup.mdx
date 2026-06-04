@@ -3,12 +3,20 @@ title: hogsend setup
 description: Interactive local onboarding for a scaffolded Hogsend app — bring up infra, create .env, generate a secret, and run migrations.
 ---
 
-Interactive local onboarding for a scaffolded Hogsend app. It mirrors the "next steps" `create-hogsend` prints after scaffolding, running them for you:
+Interactive local onboarding for a scaffolded Hogsend app — a standalone CLI helper that brings up the core local stack for you:
 
 1. `docker compose up -d` — Postgres, Redis, and Hatchet-Lite
 2. `cp .env.example .env` (if `.env` is missing)
 3. Generate a `BETTER_AUTH_SECRET` (if it's still the placeholder)
 4. `pnpm db:migrate` — the engine track, then your client track
+
+<Callout type="info">
+  Scaffolded apps ship a **`pnpm bootstrap`** script that does all of this **plus**
+  minting a Hatchet token and auto-remapping any conflicting host ports — that's
+  the recommended local setup ([Installation](/docs/getting-started/installation)).
+  `hogsend setup` is the standalone CLI equivalent, handy from outside the app dir
+  or in non-pnpm workflows.
+</Callout>
 
 ```bash
 hogsend setup [--cwd <dir>] [--yes] [--json]
