@@ -24,6 +24,12 @@ Pick the one that matches how you want to run the engine.
 
 ### Path A — self-hosted hatchet-lite (the default)
 
+<Callout type="info">
+  For local dev, `pnpm bootstrap` mints this token and writes it to `.env`
+  automatically — the manual steps below are for doing it by hand (or when
+  bootstrapping a token outside the scaffold flow).
+</Callout>
+
 The local `docker compose` (and the [production compose file](/docs/operating/deploy-docker)) runs `hatchet-lite` alongside the app. Since the app needs a token to boot but the token only exists once the engine is up, bring the engine up first, mint a token in its dashboard, then start the app:
 
 ```bash
