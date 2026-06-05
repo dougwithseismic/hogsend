@@ -122,7 +122,7 @@ After augmentation, `TemplateName` resolves to your keys and `sendEmail({ templa
 
 ### Wiring your registry into the engine
 
-Your registry is **injected**, not imported by the engine. Pass it as the first-class `templates` option to `createHogsendClient`:
+Your registry is **injected**, not imported by the engine. Pass it under the grouped `email` option (as `email.templates`) to `createHogsendClient`:
 
 ```ts
 import { createHogsendClient } from "@hogsend/engine";
@@ -264,7 +264,7 @@ const text = await renderToPlainText(element);
 The email provider is a **dumb `EmailProvider`** — the entire provider surface is one small interface. The engine owns everything else (rendering, tracking, preferences, the `emailSends` pipeline), so swapping providers never costs you those features.
 
 ```ts
-import type { EmailProvider } from "@hogsend/plugin-resend";
+import type { EmailProvider } from "@hogsend/engine";
 
 interface EmailProvider {
   send(options: SendEmailOptions): Promise<{ id: string }>;
@@ -292,7 +292,7 @@ const provider = createResendProvider({
 
 ### Swapping the provider
 
-Implement the `EmailProvider` interface for your provider and pass it as the first-class `provider` option — that's the whole swap:
+Implement the `EmailProvider` interface for your provider and pass it under the grouped `email` option (alongside your `templates`) — that's the whole swap:
 
 ```ts
 import { createHogsendClient } from "@hogsend/engine";
@@ -302,8 +302,10 @@ import { createPostmarkTransport } from "./lib/postmark-provider.js"; // your im
 
 const container = createHogsendClient({
   journeys,
-  templates,
-  provider: createPostmarkTransport({ apiKey: "..." }),
+  email: {
+    templates,
+    provider: createPostmarkTransport({ apiKey: "..." }),
+  },
 });
 ```
 

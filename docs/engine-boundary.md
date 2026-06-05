@@ -69,13 +69,19 @@ FRAMEWORK → moves to `packages/engine/src`. CONTENT → stays in `apps/api/src
 The shared-index aggregation (`allJourneys`, `allSources`, `getJourneyTasks`) is
 **deleted from the engine**. Content is passed in:
 
+> Historical note: the implemented shape grouped `provider` + `templates` under a
+> single `email` arg (`analytics` stays top-level); the signature below reflects
+> that final shape.
+
 ```ts
 // @hogsend/engine
 createHogsendClient(opts?: {
   journeys?: Journey[];                 // → builds JourneyRegistry from these
-  templates?: TemplateRegistry;        // client's src/emails registry (Move 1)
-  provider?: EmailProvider;               // swappable email provider (Move 2)
-  analytics?: PostHogService;          // default: PostHog from env
+  email?: {                            // grouped email config (Move 1)
+    provider?: EmailProvider;           //   swappable email provider (Move 2)
+    templates?: TemplateRegistry;       //   client's src/emails registry
+  };
+  analytics?: PostHogService;          // top-level: PostHog from env
   enabledJourneys?: string;
   clientJournal?: JournalShape;
   overrides?: {                        // advanced / test-only (Move 3)

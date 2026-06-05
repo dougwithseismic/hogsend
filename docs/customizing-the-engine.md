@@ -33,9 +33,11 @@ The committed semver surface is exported from `@hogsend/engine`
 ```ts
 createHogsendClient(opts?: {
   journeys?: Journey[];                              // → builds JourneyRegistry
-  templates?: TemplateRegistry;                      // YOUR src/emails registry
-  provider?: EmailProvider;                             // swappable email provider
-  analytics?: PostHogService;                        // default: PostHog (env)
+  email?: {                                          // grouped email config
+    provider?: EmailProvider;                        //   swappable email provider
+    templates?: TemplateRegistry;                    //   YOUR src/emails registry
+  };
+  analytics?: PostHogService;                        // top-level: PostHog (env)
   enabledJourneys?: string;                          // ENABLED_JOURNEYS filter
   clientJournal?: JournalShape;                      // client migration ledger
   overrides?: {                                      // advanced / test-only
@@ -45,6 +47,9 @@ createHogsendClient(opts?: {
     db?: Database;
   };
 }): HogsendClient;
+
+// Contract types (EmailProvider, SendEmailOptions, etc.) are importable
+// directly from @hogsend/engine — the canonical author surface.
 
 createApp(container: HogsendClient, opts?: {
   routes?: (app: OpenAPIHono<AppEnv>) => void;       // mount custom routers
