@@ -1,5 +1,44 @@
 # @hogsend/engine
 
+## 0.5.0
+
+### Minor Changes
+
+- 8e7d7a2: Add engine-owned, TTY-aware boot output. On an interactive `pnpm dev` the API and worker now print a minimal branded banner — magenta badge, `engine` + `api` versions, loaded journeys·buckets·templates, schema status, and the API/Docs/Studio/Guides links plus a next-step hint. In production, CI, and tests they instead emit a single structured `… ready` log line, so log scraping is unchanged. The previously-scattered registry/studio/server boot logs drop to `debug`, making the banner the single source of truth on startup.
+
+  New public exports: `reportApiReady`, `reportWorkerReady`, `getEngineVersion`. The running engine version is read at runtime from the package manifest (adds a `./package.json` entry to `exports`), falling back to `"unknown"` only if that read ever fails.
+
+- f4e604e: Relocate the capability-provider contracts to `@hogsend/core`. The `EmailProvider`
+  and `PostHogService` interfaces (and their supporting types — `SendEmailOptions`,
+  `BatchEmailItem`, `SendResult`, `WebhookEvent`, `WebhookEventType`,
+  `WebhookHandlerMap`, `CaptureOptions`) now live in `@hogsend/core` and are
+  re-exported from `@hogsend/engine` as the canonical author import. The vendor
+  plugins (`@hogsend/plugin-resend`, `@hogsend/plugin-posthog`) re-export them
+  unchanged, so existing imports keep working — no breaking changes. A custom email
+  provider now implements `import type { EmailProvider } from "@hogsend/engine"`
+  (the contract no longer lives inside the Resend package). See
+  `docs/adr/0001-provider-boundary.md`.
+
+  Also makes the injected provider/analytics instances load-bearing: a swapped
+  `opts.analytics` is now honored in journey context, the bucket→PostHog sync, and
+  worker shutdown (previously these bypassed it via the module singleton), and the
+  built-in `send-email` task and alert notifications now deliver through the
+  injected `EmailProvider` instead of constructing a raw Resend client — so a
+  swapped provider takes effect everywhere. The `send-email` task no longer
+  double-retries on top of the provider's own retry loop.
+
+- cdc7743: Surface worker connectivity. The worker now publishes a TTL'd Redis heartbeat, and `GET /v1/health` reports a `components.worker` status (`up`/`down` + `lastSeenAt`) derived from it — so the API and Studio can tell whether a worker is actually connected, instead of journeys silently not firing when no worker is running. The field is informational and does **not** affect the API's own `status` (the worker is a separate service, so its absence must not fail the API healthcheck). Best-effort: a Redis-less deploy reads `worker.status: "down"` and never crashes the worker.
+
+### Patch Changes
+
+- Updated dependencies [f4e604e]
+- Updated dependencies [f4e604e]
+  - @hogsend/core@0.5.0
+  - @hogsend/plugin-resend@0.5.0
+  - @hogsend/plugin-posthog@0.5.0
+  - @hogsend/db@0.5.0
+  - @hogsend/email@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes
