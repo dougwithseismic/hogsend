@@ -72,6 +72,10 @@ The shared-index aggregation (`allJourneys`, `allSources`, `getJourneyTasks`) is
 > Historical note: the implemented shape grouped `provider` + `templates` under a
 > single `email` arg (`analytics` stays top-level); the signature below reflects
 > that final shape.
+>
+> The `EmailProvider` / `PostHogService` contract types referenced below are owned
+> by `@hogsend/core` and re-exported from `@hogsend/engine` (the canonical author
+> import). See [docs/adr/0001-provider-boundary.md](./adr/0001-provider-boundary.md).
 
 ```ts
 // @hogsend/engine

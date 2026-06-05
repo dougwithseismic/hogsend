@@ -17,7 +17,8 @@ template rendering, a typed template registry, and unsubscribe token/URL helpers
 | Build / merge a template registry | `createRegistry` | `@hogsend/email` (here) |
 | Generate unsubscribe links/tokens | `generateUnsubscribeUrl`, `generateUnsubscribeToken`, … | `@hogsend/email` (here) |
 | **Send** a tracked email | `createTrackedMailer` / `sendEmail()` | `@hogsend/engine` |
-| Talk to the email provider | `createResendProvider` (the `EmailProvider` contract) | `@hogsend/plugin-resend` |
+| Implement against the email-provider contract | `EmailProvider` (the contract) | `@hogsend/core` (canonical `@hogsend/engine`) |
+| Talk to the email provider | `createResendProvider` (the contract's impl) | `@hogsend/plugin-resend` |
 | **Own** your email designs | `welcome.tsx`, `registry.ts`, `templates.d.ts` | **your app** `src/emails/` |
 
 Link rewriting, the open pixel, preference/suppression checks, the `email_sends`

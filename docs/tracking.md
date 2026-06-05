@@ -235,7 +235,7 @@ const journey = defineJourney({
 - **Deduplication**: If the same URL appears multiple times in an email, only one `tracked_links` row is created. All occurrences share the same tracking ID.
 - **Idempotent opens/clicks**: `openedAt` and `clickedAt` on `emailSends` use `WHERE ... IS NULL` guards — they're set once and never overwritten.
 - **Non-blocking**: tracking DB writes happen in parallel and don't delay the redirect/pixel response.
-- **Engine-owned mailer**: `prepareTrackedHtml` is part of the engine-owned `createTrackedMailer` (in `@hogsend/engine`). The email provider is a dumb `EmailProvider` (`@hogsend/plugin-resend` exports `createResendProvider`); link/open tracking, preference checks, and the `email_sends` write all live in the engine and come along regardless of which provider you supply.
+- **Engine-owned mailer**: `prepareTrackedHtml` is part of the engine-owned `createTrackedMailer` (in `@hogsend/engine`). The email provider is a dumb `EmailProvider` — the contract lives in `@hogsend/core` (canonical author import `@hogsend/engine`), and `@hogsend/plugin-resend` exports `createResendProvider`, the reference implementation. Link/open tracking, preference checks, and the `email_sends` write all live in the engine and come along regardless of which provider you supply.
 - **Analytics in the client**: The PostHog-style analytics service is initialized once at startup by `createHogsendClient` and available as `client.analytics`. Tracking endpoints and journey context both use it from there.
 - **Graceful degradation**: All PostHog operations are no-ops when `POSTHOG_API_KEY` is not set. Tracking still works (DB writes + ingest events), just without PostHog sync.
 

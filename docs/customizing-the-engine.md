@@ -48,8 +48,11 @@ createHogsendClient(opts?: {
   };
 }): HogsendClient;
 
-// Contract types (EmailProvider, SendEmailOptions, etc.) are importable
-// directly from @hogsend/engine — the canonical author surface.
+// The capability-provider contracts (EmailProvider, PostHogService, + their
+// supporting types) are owned by @hogsend/core and re-exported from
+// @hogsend/engine — the canonical author surface. (Exception: the contract's
+// SendEmailOptions imports from @hogsend/core, since @hogsend/engine exports a
+// different, higher-level SendEmailOptions.) See docs/adr/0001-provider-boundary.md.
 
 createApp(container: HogsendClient, opts?: {
   routes?: (app: OpenAPIHono<AppEnv>) => void;       // mount custom routers

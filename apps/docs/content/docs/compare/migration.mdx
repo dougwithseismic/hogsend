@@ -32,7 +32,7 @@ Once the app boots, the migration is three concrete tasks: bring your contacts o
 
 **Historical email analytics.** Open rates, click rates, delivery stats, and engagement history from your previous platform stay there. Hogsend starts tracking from the first email it sends. If you need historical data for reference, keep read access to your old platform for a while.
 
-**Platform-specific integrations.** If your current platform has deep integrations with tools that Hogsend doesn't connect to yet (e.g. a CRM sync, a landing page builder, SMS delivery), you'll need to either create a Hogsend plugin for that service or handle it outside Hogsend.
+**Platform-specific integrations.** If your current platform has deep integrations with tools that Hogsend doesn't connect to yet (e.g. a CRM sync, a landing page builder, SMS delivery), you'll wire them yourself -- install the service's SDK and call it from a journey -- or handle it outside Hogsend.
 
 **Visual workflow exports.** There's no way to import a Customer.io or ActiveCampaign workflow file directly. The migration is a manual translation -- but it's also a good opportunity to simplify flows that have accumulated cruft over time.
 
@@ -157,10 +157,10 @@ PostHog person properties are also available in Hogsend via the `@hogsend/plugin
 
 ## Or build on top
 
-Hogsend is a platform, not a product. The two built-in plugins -- `@hogsend/plugin-posthog` and `@hogsend/plugin-resend` -- show the pattern for extending it.
+Hogsend is a platform, not a product. Extending it falls into two categories. Email and analytics are **capability providers** -- swappable implementations behind an engine-owned contract -- and `@hogsend/plugin-resend` and `@hogsend/plugin-posthog` are the bundled defaults and reference implementations. **Everything you call out to** -- Slack, Twilio, a CRM -- is just an integration: plain code, no contract, no framework.
 
-Need Slack notifications when a high-value user enters a churn flow? Create a Slack plugin. Want to send SMS via Twilio when a payment fails? Create a Twilio plugin. Need to sync contacts to your CRM? Create a plugin that pushes updates on contact changes.
+Need Slack notifications when a high-value user enters a churn flow? Install the Slack SDK and call it. Want to send SMS via Twilio when a payment fails? Same thing. Need to sync contacts to your CRM? Push updates from a journey.
 
-Each plugin is a self-contained package with a client, a service, and typed exports. The [Creating Plugins](/docs/guides/plugins) guide walks through the full process. You import the plugin directly into any journey as a standalone function call.
+An integration is just a thin service wrapper you import directly into any journey as a standalone function call -- there's no plugin registration, no lifecycle hooks, nothing to inject into the engine. The [Integrations & Plugins](/docs/guides/plugins) guide covers both categories in full.
 
 The migration doesn't have to be a one-time event. Start with email, get your core journeys running, then extend into other channels and integrations as you need them. Your content is yours to grow -- and the engine underneath it upgrades cleanly with `pnpm up "@hogsend/*"`, never a fork merge.

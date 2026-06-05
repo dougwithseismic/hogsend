@@ -245,7 +245,7 @@ returns:
   pixel, inserts the `email_sends` row, then calls the **provider** to actually
   deliver. The `sendEmail()` you call inside a journey talks to this. Crucially,
   rendering, tracking, DB, and preferences are all engine-owned — only the final
-  delivery step is swappable (see `provider` below).
+  delivery step is swappable (see `email.provider` below).
 - **`analytics`** — a PostHog capture client, or a no-op if you didn't set
   `POSTHOG_API_KEY`. Supply your own to swap analytics backends.
 - **`registry`** — a `JourneyRegistry` built from the `journeys[]` you passed,
@@ -255,20 +255,26 @@ returns:
 - **`clientJournal`** — your client migration ledger, used to report client
   schema sync status on `/v1/health`.
 
-Besides `journeys` and `templates`, the factory accepts two more **first-class**
-content args:
+Besides `journeys`, the factory accepts two more **first-class** content args:
 
-- **`provider`** — the email provider contract (the swappable "dumb pipe").
-  Defaults to a Resend provider built from `RESEND_API_KEY` /
-  `RESEND_WEBHOOK_SECRET`. Implement `send(msg)` + webhook parse/verify for
-  Postmark/SES/etc. and tracking, rendering, preferences, and the `email_sends`
-  pipeline all come along for free, because they never lived in the provider.
-- **`analytics`** — your PostHog (or compatible) client; PostHog is the default.
+- **`email`** — your email config, grouped together: `email.templates` (the
+  registry above) and `email.provider` — a swappable implementation of the
+  engine-owned `EmailProvider` contract (the "dumb pipe"). The provider defaults
+  to a Resend provider built from `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET`. To
+  swap it, implement the `EmailProvider` contract (`send(msg)` + webhook
+  parse/verify — type it with `import type { EmailProvider } from
+  "@hogsend/engine"`) and pass it as `email: { provider }`; tracking, rendering,
+  preferences, and the `email_sends` pipeline all come along for free, because
+  they never lived in the provider.
+- **`analytics`** — your PostHog (or compatible) `PostHogService`; PostHog is the
+  default. This one is top-level (not under `email`) because the engine itself
+  uses it.
 
 There's also a small **`overrides`** escape hatch (`{ mailer, auth, hatchet,
 db }`) for genuinely advanced / test-only swaps — e.g. injecting a mock mailer or
 auth in a test. You almost never need it; prefer the first-class
-`templates` / `provider` / `analytics` args above. The scaffold doesn't use it.
+`email` (`templates` / `provider`) and `analytics` args above. The scaffold
+doesn't use it.
 
 ### `createApp(container, { webhookSources })`
 
@@ -349,9 +355,9 @@ A candid read for a newcomer, not a sales pitch:
 
 5. **The `overrides` escape hatch** (`{ mailer, auth, hatchet, db }`) is exposed
    on `createHogsendClient` but the scaffold never uses it. It's a deliberately
-   small, advanced/test-only seam — the common config (`templates`, `provider`,
-   `analytics`) is first-class. If you stumble onto `overrides` via autocomplete,
-   you almost certainly don't want it.
+   small, advanced/test-only seam — the common config (`email.templates`,
+   `email.provider`, `analytics`) is first-class. If you stumble onto `overrides`
+   via autocomplete, you almost certainly don't want it.
 
 ### Does it actually run?
 
