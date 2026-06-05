@@ -63,6 +63,30 @@ export const activation = defineJourney({
   after a long `ctx.sleep` — a user can unsubscribe during the wait. Enrollment
   only checks preferences at entry, not at each send.
 
+## Reactive alternative: `ctx.waitForEvent`
+
+The pattern above sleeps a **fixed window** then polls history — good when you
+want to wait a set time regardless. When you're waiting **for a specific event to
+happen** (and want to react the moment it does, or give up after a deadline),
+`ctx.waitForEvent` is the sharper tool: it resumes the instant the user fires the
+event, or returns `timedOut: true` when the timeout wins.
+
+```ts
+const { timedOut } = await ctx.waitForEvent({
+  event: Events.FEATURE_USED,
+  timeout: days(7),                 // required; capped at the 720h task limit
+  label: "await-activation",
+});
+if (!timedOut) return;              // they activated on their own — done
+if (!(await ctx.guard.isSubscribed())) return;
+await sendEmail({ /* nudge */ });
+```
+
+Rule of thumb: **fixed delay → `ctx.sleep` then `ctx.history.hasEvent`**;
+**wait until they do X (or time out) → `ctx.waitForEvent`**. The wait is
+forward-looking (only events after it begins count), and an `exitOn` match
+cancels it mid-wait, so no post-wait send fires after the journey exits.
+
 ## Idempotency — journeys can replay
 
 A journey task is durable, and a step before a `ctx.sleep` can be re-executed if

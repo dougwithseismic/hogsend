@@ -6,7 +6,7 @@ import type {
   JourneyUser,
 } from "@hogsend/core/types";
 import { contacts, journeyConfigs, journeyStates } from "@hogsend/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 import { getDb } from "../lib/db.js";
 import {
   checkEmailPreferences,
@@ -17,7 +17,9 @@ import { createLogger } from "../lib/logger.js";
 import { getPostHog } from "../lib/posthog.js";
 import { resolveTimezoneWithSource } from "../lib/timezone.js";
 import { getClientScheduleDefaults } from "./client-defaults-singleton.js";
-import { createJourneyContext } from "./journey-context.js";
+import { JOURNEY_EXECUTION_TIMEOUT } from "./constants.js";
+import { JourneyExitedError } from "./errors.js";
+import { createJourneyContext, TERMINAL_STATUSES } from "./journey-context.js";
 import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
 const logger = createLogger(process.env.LOG_LEVEL);
@@ -43,7 +45,7 @@ export function defineJourney(options: {
   const task = hatchet.durableTask({
     name: `journey-${meta.id}`,
     onEvents: [meta.trigger.event],
-    executionTimeout: "720h",
+    executionTimeout: JOURNEY_EXECUTION_TIMEOUT,
     retries: 0,
     fn: async (input: EventPayloadInput, hatchetCtx) => {
       const db = getDb();
@@ -203,17 +205,42 @@ export function defineJourney(options: {
 
         return { stateId, status: "completed" };
       } catch (err) {
+        // The journey reached a terminal state (exitOn / cancel) while suspended
+        // in a durable wait. The state row is already terminal — stop gracefully
+        // without marking it "failed" or re-pushing a journey:failed event.
+        if (err instanceof JourneyExitedError) {
+          return { stateId, status: "exited" };
+        }
+
         const message =
           err instanceof Error ? err.message : "Unknown error during journey";
 
-        await db
+        // Mark "failed" ONLY if the row isn't already terminal. A run cancelled
+        // by exitOn (ingestEvent sets "exited" then `runs.cancel`) or by the
+        // admin route surfaces here as a Hatchet AbortError thrown from the
+        // suspended waitFor/sleepFor — NOT a JourneyExitedError. Guarding on a
+        // non-terminal status prevents clobbering that "exited" row to "failed"
+        // and emitting a spurious journey:failed event.
+        const [failed] = await db
           .update(journeyStates)
           .set({
             status: "failed",
             errorMessage: message,
             updatedAt: new Date(),
           })
-          .where(eq(journeyStates.id, stateId));
+          .where(
+            and(
+              eq(journeyStates.id, stateId),
+              notInArray(journeyStates.status, [...TERMINAL_STATUSES]),
+            ),
+          )
+          .returning({ id: journeyStates.id });
+
+        if (!failed) {
+          // Already terminal (cancelled after exit) — swallow the cancellation
+          // so the run doesn't double-report as failed.
+          return { stateId, status: "exited" };
+        }
 
         await hatchet.events.push("journey:failed", {
           journeyId: meta.id,

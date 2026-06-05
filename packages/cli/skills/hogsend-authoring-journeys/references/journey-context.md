@@ -29,6 +29,29 @@ await ctx.sleepUntil(at, { label: "morning-nudge" });
 // .in(days(3)).at("HH:mm"), and chainers .tz(zone) / .window(start,end) / .ifPast("next"|"now")
 ```
 
+## Durable wait-for-event
+
+```ts
+// Park the journey until THIS user emits `event`, OR `timeout` elapses —
+// whichever first. The reactive alternative to "sleep a fixed window, then poll
+// ctx.history": it resumes the INSTANT the event lands. Forward-looking — only
+// events fired AFTER the wait begins count (use ctx.history.hasEvent for the past).
+const { timedOut } = await ctx.waitForEvent({
+  event: Events.FEATURE_USED,
+  timeout: days(7),           // REQUIRED, capped at the 720h task execution limit
+  label: "await-activation",  // optional — written as currentNodeId
+});
+if (timedOut) {
+  // they never did it — nudge (re-check ctx.guard.isSubscribed() first after a long wait)
+} else {
+  // event arrived — they activated on their own
+}
+```
+
+If the journey `exitOn`-matches (or is cancelled) WHILE waiting, the run aborts
+cleanly — state goes `"exited"`, the durable run is cancelled, and no post-wait
+step (or email) fires. You don't catch anything; the engine handles it.
+
 ## Observability
 
 ```ts

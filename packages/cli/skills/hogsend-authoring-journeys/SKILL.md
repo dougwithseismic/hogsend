@@ -59,7 +59,7 @@ export const welcome = defineJourney({
 ## Key concepts
 
 - **`ctx` is orchestration primitives ONLY** — `sleep`, `sleepUntil`, `when`,
-  `checkpoint`, `trigger`, `identify`, `guard.isSubscribed`,
+  `waitForEvent`, `checkpoint`, `trigger`, `identify`, `guard.isSubscribed`,
   `history.hasEvent/journey/email`, `posthog.capture`. Features are standalone
   imports: `sendEmail()` and `getPostHog()` come from `@hogsend/engine`, NOT off
   `ctx`.

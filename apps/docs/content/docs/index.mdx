@@ -101,7 +101,7 @@ You register this journey by adding it to the `journeys` array your app exports 
 ## What you get
 
 - **A versioned engine** — `@hogsend/engine` is a semver-stable API surface. Upgrade with `pnpm up "@hogsend/*"` and run migrations.
-- **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep({ duration: days(3) })` literally pauses for three days and picks up exactly where it left off.
+- **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep({ duration: days(3) })` literally pauses for three days and picks up exactly where it left off — or `ctx.waitForEvent()` pauses until the user actually _does_ something (with a timeout fallback), so journeys react to behavior, not just the clock.
 - **PostHog webhook source** — Point your PostHog webhook at your app and events flow through automatically.
 - **Resend email delivery** — React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center.
 - **Composable conditions** — Property checks, event history, email engagement, AND/OR composition. Use them for enrollment guards, exit conditions, and mid-journey branching.

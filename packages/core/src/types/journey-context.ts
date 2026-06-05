@@ -96,11 +96,46 @@ export interface EmailHistoryResult {
   count: number;
 }
 
+export interface WaitForEventOptions {
+  /** Event name to wait for (use your `Events` constant). Matched verbatim. */
+  event: string;
+  /**
+   * Max time to wait before resolving as timed-out. Required: an unbounded wait
+   * is only capped by the task's execution timeout and would fail rather than
+   * resume. Keep it within the journey execution timeout (720h / 30 days).
+   */
+  timeout: DurationObject;
+  /** Optional observability label written to `currentNodeId` while waiting. */
+  label?: string;
+}
+
+export interface WaitForEventResult {
+  /** `true` when the `timeout` elapsed first; `false` when the event fired. */
+  timedOut: boolean;
+}
+
 export interface JourneyContext {
   sleep(opts: SleepOptions): Promise<SleepResult>;
 
   /** Durable sleep until an absolute instant (`Date` or ISO string). */
   sleepUntil(at: Date | string, opts?: SleepUntilOptions): Promise<SleepResult>;
+
+  /**
+   * Durably wait until THIS user emits `event`, or `timeout` elapses —
+   * whichever comes first. The state is marked `"waiting"` while suspended and
+   * `"active"` again on resume. Returns `{ timedOut }` so the journey can branch
+   * (e.g. send a nudge on timeout, do nothing if the event arrived).
+   *
+   * Forward-looking: only events emitted AFTER the wait is established count —
+   * use `ctx.history.hasEvent` to check whether something already happened.
+   *
+   * If the journey exits (via `exitOn`) or is cancelled while waiting, the run
+   * is aborted cleanly (a `JourneyExitedError` is thrown and handled by the
+   * engine) so no post-wait side effects fire. After a long wait you should
+   * still re-check `ctx.guard.isSubscribed()` before sending, since an
+   * unsubscribe does not exit the journey.
+   */
+  waitForEvent(opts: WaitForEventOptions): Promise<WaitForEventResult>;
 
   /** Timezone-bound fluent scheduler. Always terminates in a `Date`. */
   when: WhenBuilder;

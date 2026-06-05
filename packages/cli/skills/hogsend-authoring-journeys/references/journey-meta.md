@@ -129,13 +129,16 @@ overlapping runs of the same journey.
 A `journeyStates` row tracks each run. Once the gates pass:
 
 - **enter** → row created with `status: "active"`, `currentNodeId: "start"`.
-- **`ctx.sleep` / `ctx.sleepUntil`** → `status: "waiting"` for the duration, back
-  to `"active"` on resume.
+- **`ctx.sleep` / `ctx.sleepUntil` / `ctx.waitForEvent`** → `status: "waiting"`
+  while suspended, back to `"active"` on resume.
 - **`run()` returns** → `status: "completed"`, `completedAt` set, and a
   `journey:completed` event is pushed.
 - **`run()` throws** → `status: "failed"`, `errorMessage` recorded, and a
   `journey:failed` event is pushed; the error re-throws so Hatchet sees the
   failure.
+- **`exitOn` matches (or cancelled)** → `status: "exited"`. If it happens while
+  the journey is suspended in a `ctx.sleep`/`ctx.waitForEvent`, the durable run
+  is cancelled so no further step runs — even mid-wait.
 
 Because the gates run before any state is created, a skipped event is invisible
 in `journeyStates` — to debug "why didn't this user enroll?", check the gate

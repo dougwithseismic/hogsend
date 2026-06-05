@@ -183,6 +183,8 @@ exitOn: [
 
 You can also add `where` conditions to exit rules, so the journey only exits when a matching event has specific properties.
 
+When a journey exits mid-flight — while it's paused inside a `ctx.sleep()` or `ctx.waitForEvent()` — Hogsend marks the run `"exited"` **and cancels the durable Hatchet run**, so no further steps (and no post-wait emails) fire. The journey stops the instant the exit event lands, even mid-wait.
+
 ## The `run` function
 
 The `run` function receives two arguments:
@@ -232,6 +234,115 @@ await ctx.sleep({ duration: days(2), label: "post-welcome" });
 await ctx.sleep({ duration: hours(4), label: "cooldown" });
 await ctx.sleep({ duration: minutes(30), label: "short-wait" });
 ```
+
+## `ctx.sleepUntil()`
+
+Durable sleep until an **absolute instant** instead of a relative duration. Pass a `Date` or ISO-8601 string; the journey resumes at that moment, surviving restarts just like `ctx.sleep()`. If the instant is already in the past, it resolves immediately.
+
+```ts
+sleepUntil(at: Date | string, opts?: {
+  label?: string;
+}): Promise<{ sleptAt: string; resumedAt: string }>
+```
+
+Same `"waiting"` → `"active"` lifecycle as `ctx.sleep()`. Reach for `ctx.sleep()` when you mean "wait _N_ days", and `ctx.sleepUntil()` when you mean "wait until this date/time".
+
+```ts
+// Resume at a fixed deadline
+await ctx.sleepUntil("2026-07-01T09:00:00Z", { label: "renewal-day" });
+
+// Pair it with ctx.when (below) for timezone-aware scheduling
+await ctx.sleepUntil(ctx.when.tomorrow().at("09:00"), { label: "morning-send" });
+```
+
+## `ctx.when`
+
+A **timezone-bound fluent scheduler** that turns human rules — "next Monday at 9am", "tomorrow at 08:00", "3 days from now" — into an absolute `Date` you hand to `ctx.sleepUntil()`. Every chain resolves to a `Date`; it's pure date math, so there's no `await`.
+
+```ts
+ctx.when.next(weekday).at("HH:mm")   // upcoming named weekday → Date
+ctx.when.nextLocal("HH:mm")          // next HH:mm (today if still ahead, else tomorrow) → Date
+ctx.when.tomorrow().at("HH:mm")      // tomorrow at HH:mm → Date
+ctx.when.in(days(3)).at("HH:mm")     // 3 days out, at HH:mm that day → Date
+
+// chainable refinements — each returns a new builder:
+ctx.when.tz("Asia/Tokyo")            // override the resolved timezone
+ctx.when.window("09:00", "17:00")    // override the send window for this chain
+ctx.when.ifPast("now")               // "next" (default) rolls forward; "now" clamps to now
+```
+
+`weekday` accepts the short form (`"mon"`…`"sun"`) or the full name (`"monday"`…`"sunday"`).
+
+```ts
+// Next Monday at 9am, in the user's timezone
+await ctx.sleepUntil(ctx.when.next("monday").at("09:00"), { label: "monday-9am" });
+
+// Tomorrow morning, in a fixed timezone instead of the user's
+await ctx.sleepUntil(ctx.when.tz("America/New_York").tomorrow().at("08:00"));
+
+// Five days out, clamped into business hours
+const at = ctx.when.in(days(5)).window("09:00", "17:00").at("14:00");
+await ctx.sleepUntil(at, { label: "day-5-followup" });
+```
+
+### Timezone resolution
+
+`ctx.when` is bound to the user's timezone automatically — you rarely pass `.tz()`. It resolves the first **valid** candidate in this order (invalid IANA strings are skipped, not thrown):
+
+1. an explicit `.tz()` override
+2. PostHog person properties — `$timezone`, then `$geoip_time_zone`
+3. the contact's stored timezone (cached from PostHog)
+4. the contact's `properties.timezone`
+5. the client's `defaults.timezone` (set on `createHogsendClient`)
+6. `"UTC"` — the final fallback
+
+### Send windows (quiet hours)
+
+If a default send window is configured on the client (or you set one with `.window(start, end)`), resolved instants are **clamped into the window**: a time landing outside it snaps forward to the next open slot. Windows are interpreted in the bound timezone and handle DST correctly — `"09:00"` is always 9am wall-clock — and an overnight window like `.window("22:00", "06:00")` wraps midnight. Clamping only applies to instants you schedule through `ctx.when`; an immediate `sendEmail()` is never delayed.
+
+## `ctx.waitForEvent()`
+
+Pause the journey until **this user** emits a specific event — or a timeout elapses, whichever comes first. Where `ctx.sleep()` waits for a fixed amount of _time_, `ctx.waitForEvent()` waits for _behavior_: "after signup, wait up to 7 days for them to activate, otherwise send a nudge." Like `ctx.sleep()`, it's a _durable_ wait backed by Hatchet — the worker can restart and the journey resumes the moment the event arrives.
+
+```ts
+waitForEvent(opts: {
+  event: string;
+  timeout: DurationObject;
+  label?: string;
+}): Promise<{ timedOut: boolean }>
+```
+
+While waiting, the journey state is `"waiting"`; it flips back to `"active"` on resume. The result tells you which side won: `timedOut: false` means the event fired, `timedOut: true` means the `timeout` elapsed first.
+
+The wait is **forward-looking** — only events emitted _after_ the wait begins count. Use [`ctx.history.hasEvent()`](#ctxhistoryhasevent) to check whether something already happened. `timeout` is required and capped at the journey's execution limit (`720h` / 30 days).
+
+If the journey [exits](#exit-conditions) (or is cancelled) while waiting, the run is aborted cleanly — no post-wait email fires. After a long wait, still re-check [`ctx.guard.isSubscribed()`](#ctxguardissubscribed) before sending, since an unsubscribe doesn't exit the journey.
+
+```ts
+// After signup, wait up to 7 days for activation. If it never comes, nudge.
+run: async (user, ctx) => {
+  const { timedOut } = await ctx.waitForEvent({
+    event: Events.FEATURE_USED,
+    timeout: days(7),
+    label: "await-activation",
+  });
+
+  if (!timedOut) return; // they activated on their own — nothing to do
+
+  if (!(await ctx.guard.isSubscribed())) return;
+
+  await sendEmail({
+    to: user.email,
+    userId: user.id,
+    journeyStateId: user.stateId,
+    template: Templates.ACTIVATION_NUDGE,
+    subject: "Still haven't tried the key feature?",
+    journeyName: user.journeyName,
+  });
+};
+```
+
+This is the reactive complement to `ctx.sleep()` — combine them freely: sleep for a delay, then wait for the behavior you actually care about. Because the wait is scoped to the enrolled user and resumes through the same ingestion pipeline, any event your product (or a [webhook source](/docs/guides/events)) emits can wake a journey.
 
 ## `ctx.checkpoint()`
 
@@ -478,16 +589,18 @@ These guards are automatic -- you don't need to implement them in your `run` fun
 Each journey run creates a row in the `journeyStates` table that tracks its progress:
 
 ```
-start -> active -> waiting (during sleep) -> active (after sleep) -> completed
-                                                                  -> failed (on error)
+start -> active -> waiting (sleep / waitForEvent) -> active (on resume) -> completed
+                                                                        -> failed (on error)
+                                                                        -> exited (exitOn / cancel)
 ```
 
 - **`active`** -- the `run` function is executing.
-- **`waiting`** -- paused inside a `ctx.sleep()` call.
+- **`waiting`** -- paused inside a `ctx.sleep()`, `ctx.sleepUntil()`, or `ctx.waitForEvent()` call.
 - **`completed`** -- the `run` function returned successfully. A `journey:completed` event is fired.
 - **`failed`** -- the `run` function threw an error. A `journey:failed` event is fired and the error message is stored.
+- **`exited`** -- an [`exitOn`](#exit-conditions) event matched (or the run was cancelled). Any in-flight wait is cancelled and no further steps run.
 
-The `currentNodeId` field (updated by `ctx.checkpoint()` and `ctx.sleep()` labels) shows where the user currently is in the journey.
+The `currentNodeId` field (updated by `ctx.checkpoint()`, `ctx.sleep()`, and `ctx.waitForEvent()` labels) shows where the user currently is in the journey.
 
 ## Enabling journeys at runtime
 
