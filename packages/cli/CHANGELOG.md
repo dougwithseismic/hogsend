@@ -1,5 +1,11 @@
 # @hogsend/cli
 
+## 0.2.1
+
+### Patch Changes
+
+- 0db58c6: Refresh the bundled agent skills (`hogsend-authoring-journeys`) to teach `ctx.waitForEvent`, and to fill in the previously-undocumented `ctx.sleepUntil`/`ctx.when` primitives and the `"exited"` journey state.
+
 ## 0.2.0
 
 ### Minor Changes
