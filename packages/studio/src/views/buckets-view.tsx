@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/dialog";
+import { DocLink } from "@/components/ui/doc-link";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -35,6 +36,7 @@ import {
   formatDurationObject,
   formatNumber,
 } from "@/lib/format";
+import { links } from "@/lib/links";
 import { BucketTrend } from "./buckets/bucket-trend";
 
 type Row = BucketMetric & {
@@ -127,7 +129,15 @@ export function BucketsView() {
       ) : rows.length === 0 ? (
         <EmptyState
           title="No buckets registered"
-          description="Define a bucket with defineBucket() and it will show up here."
+          description="Buckets are real-time, code-defined audiences (defineBucket()). Add one to your app and members appear here as events arrive."
+          action={
+            <>
+              <DocLink href={links.buckets}>How to create a bucket</DocLink>
+              <DocLink href={links.recipes} variant="ghost">
+                Recipes
+              </DocLink>
+            </>
+          }
         />
       ) : (
         <div className="rounded-lg border">

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/dialog";
+import { DocLink } from "@/components/ui/doc-link";
 import {
   Table,
   TableBody,
@@ -29,6 +30,7 @@ import {
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDuration, formatNumber, formatPercent } from "@/lib/format";
+import { links } from "@/lib/links";
 import { JourneyFunnel } from "./journeys/journey-funnel";
 
 type Row = JourneyMetric & { enabled: boolean };
@@ -107,7 +109,15 @@ export function JourneysView() {
       ) : rows.length === 0 ? (
         <EmptyState
           title="No journeys registered"
-          description="Define a journey with defineJourney() and it will show up here."
+          description="Journeys are defined in code with defineJourney(). Add one to your app, then fire its trigger event from Debug to see it here."
+          action={
+            <>
+              <DocLink href={links.journeys}>How to create a journey</DocLink>
+              <DocLink href={links.recipes} variant="ghost">
+                Recipes
+              </DocLink>
+            </>
+          }
         />
       ) : (
         <div className="rounded-lg border">

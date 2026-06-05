@@ -537,6 +537,32 @@ export function revokeApiKey(id: string) {
   );
 }
 
+// --- Ingest (test events) ------------------------------------------------
+
+export type IngestExit = {
+  journeyId: string;
+  stateId: string;
+  exited: boolean;
+};
+
+export type IngestResult = {
+  stored: boolean;
+  exits: IngestExit[];
+};
+
+/**
+ * Fire an event through the public ingest pipeline (POST /v1/ingest) — the same
+ * path real events take. Powers the Debug panel's test-event sender.
+ */
+export function ingestEvent(body: {
+  event: string;
+  userId: string;
+  userEmail?: string;
+  properties?: Record<string, unknown>;
+}) {
+  return api.post<IngestResult>("/v1/ingest", { json: body });
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {

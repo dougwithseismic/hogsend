@@ -1,6 +1,7 @@
 import {
   Ban,
   Boxes,
+  FlaskConical,
   GitBranch,
   LayoutDashboard,
   type LucideIcon,
@@ -24,5 +25,6 @@ export const navItems: NavItem[] = [
   { label: "Buckets", path: "/buckets", icon: Boxes },
   { label: "Contacts", path: "/contacts", icon: Users },
   { label: "Suppressions", path: "/suppressions", icon: Ban },
+  { label: "Debug", path: "/debug", icon: FlaskConical },
   { label: "Settings", path: "/settings", icon: Settings },
 ];

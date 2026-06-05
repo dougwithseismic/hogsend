@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   GitBranch,
   MailCheck,
@@ -6,11 +7,70 @@ import {
   Send,
   UserMinus,
   Users,
+  Zap,
 } from "lucide-react";
 import { StatCard } from "@/components/stat-card";
 import { CardsSkeleton, ErrorState, PageHeader } from "@/components/states";
-import { getOverview, qk } from "@/lib/admin-api";
+import { buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { DocLink } from "@/components/ui/doc-link";
+import { getOverview, type OverviewMetrics, qk } from "@/lib/admin-api";
 import { formatNumber, formatPercent } from "@/lib/format";
+import { links } from "@/lib/links";
+import { cn } from "@/lib/utils";
+
+/** Brand-new install: nothing has happened yet across the board. */
+function isFreshInstall(m: OverviewMetrics): boolean {
+  return (
+    m.totalContacts === 0 && m.activeJourneys === 0 && m.emailsSent30d === 0
+  );
+}
+
+function OnboardingCard() {
+  return (
+    <Card className="border-primary/30 bg-primary/5">
+      <CardHeader>
+        <CardTitle className="text-base">Welcome to Hogsend Studio</CardTitle>
+        <CardDescription>
+          Studio observes your code-first lifecycle engine. Here's the path to
+          your first running journey.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <ol className="space-y-1.5 text-sm text-muted-foreground">
+          <li>
+            <span className="font-medium text-foreground">1.</span> Define a
+            journey in code and start the worker.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">2.</span> Fire its
+            trigger event to enrol a test user.
+          </li>
+          <li>
+            <span className="font-medium text-foreground">3.</span> Watch
+            enrolments, sends, and exits land here.
+          </li>
+        </ol>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/debug" className={cn(buttonVariants({ size: "sm" }))}>
+            <Zap className="h-4 w-4" />
+            Send a test event
+          </Link>
+          <DocLink href={links.quickstart}>Quickstart</DocLink>
+          <DocLink href={links.journeys} variant="ghost">
+            Create a journey
+          </DocLink>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function OverviewView() {
   const query = useQuery({ queryKey: qk.overview, queryFn: getOverview });
@@ -28,6 +88,7 @@ export function OverviewView() {
         <ErrorState error={query.error} onRetry={() => query.refetch()} />
       ) : (
         <>
+          {isFreshInstall(query.data) ? <OnboardingCard /> : null}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <StatCard
               label="Total contacts"
