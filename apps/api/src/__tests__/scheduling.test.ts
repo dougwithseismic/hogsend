@@ -12,10 +12,14 @@ const NY = "America/New_York";
 // 2026-06-01 10:00 in America/New_York (EDT, -04:00) === 14:00 UTC.
 const FIXED = new Date("2026-06-01T14:00:00.000Z");
 
-/** A minimal db stub: update() chains resolve; query/select unused here. */
+/** A minimal db stub: update() chains resolve; query/select unused here. The
+ * guarded wait lifecycle ends each update in `.returning()` (one row = success;
+ * the resume guard throws on zero rows), so `where()` exposes a `returning`. */
 function makeDbStub() {
   const set = vi.fn().mockReturnThis();
-  const where = vi.fn().mockResolvedValue(undefined);
+  const where = vi.fn(() => ({
+    returning: vi.fn().mockResolvedValue([{ id: "state-1" }]),
+  }));
   const update = vi.fn().mockReturnValue({ set, where });
   return {
     db: { update } as unknown as Parameters<
@@ -39,6 +43,9 @@ function makeCtx(opts: {
     hatchet: {} as any,
     hatchetCtx: {
       sleepFor: opts.sleepFor as unknown as (d: unknown) => Promise<unknown>,
+      waitFor: vi.fn() as unknown as (
+        c: unknown,
+      ) => Promise<Record<string, unknown>>,
     },
     // biome-ignore lint/suspicious/noExplicitAny: minimal test stubs
     registry: {} as any,
@@ -185,6 +192,9 @@ describe("ctx.sleepUntil", () => {
       hatchet: {} as any,
       hatchetCtx: {
         sleepFor: sleepFor as unknown as (d: unknown) => Promise<unknown>,
+        waitFor: vi.fn() as unknown as (
+          c: unknown,
+        ) => Promise<Record<string, unknown>>,
       },
       // biome-ignore lint/suspicious/noExplicitAny: minimal test stub
       registry: {} as any,

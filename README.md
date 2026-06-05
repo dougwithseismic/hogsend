@@ -154,7 +154,7 @@ export const activationWelcome = defineJourney({
 });
 ```
 
-That `ctx.sleep(days(2))` literally pauses for two days and picks up exactly where it left off — durable execution via [Hatchet](https://hatchet.run) that survives deploys and restarts.
+That `ctx.sleep(days(2))` literally pauses for two days and picks up exactly where it left off — durable execution via [Hatchet](https://hatchet.run) that survives deploys and restarts. Need to wait on _behavior_ instead of the clock? `ctx.waitForEvent({ event: Events.FEATURE_USED, timeout: days(7) })` parks the journey until that user fires the event (or the timeout wins), then resumes — and an `exitOn` match cancels the wait mid-flight.
 
 > Full guide: **[Journeys](https://docs.hogsend.com/docs/guides/journeys)** | **[Buckets](https://docs.hogsend.com/docs/guides/buckets)** | **[Events](https://docs.hogsend.com/docs/guides/events)** | **[Email](https://docs.hogsend.com/docs/guides/email)** | **[Conditions](https://docs.hogsend.com/docs/guides/conditions)**
 

@@ -76,7 +76,7 @@ export async function ingestEvent(opts: {
       userEmail: event.userEmail,
       properties: serializableProperties,
     }),
-    checkExits(db, registry, {
+    checkExits(db, registry, hatchet, logger, {
       userId: event.userId,
       eventName: event.event,
       properties: event.properties,
@@ -130,6 +130,8 @@ export async function ingestEvent(opts: {
 async function checkExits(
   db: Database,
   registry: JourneyRegistry,
+  hatchet: HatchetClient,
+  logger: Logger,
   event: {
     userId: string;
     eventName: string;
@@ -147,6 +149,7 @@ async function checkExits(
   });
 
   const statesToExit: string[] = [];
+  const runIdsToCancel: string[] = [];
 
   for (const state of activeStates) {
     const journey = registry.get(state.journeyId);
@@ -163,6 +166,9 @@ async function checkExits(
 
     if (shouldExit) {
       statesToExit.push(state.id);
+      if (state.hatchetRunId) {
+        runIdsToCancel.push(state.hatchetRunId);
+      }
     }
 
     results.push({
@@ -181,6 +187,21 @@ async function checkExits(
         updatedAt: new Date(),
       })
       .where(inArray(journeyStates.id, statesToExit));
+
+    // Cancel the live durable runs so a journey suspended in a sleep or
+    // `waitForEvent` can't resume and fire after it has exited. Best-effort: a
+    // run may have already finished, and the in-run resume guard
+    // (JourneyExitedError) is the backstop if a cancel races a resume.
+    if (runIdsToCancel.length > 0) {
+      try {
+        await hatchet.runs.cancel({ ids: runIdsToCancel });
+      } catch (err) {
+        logger.warn("Failed to cancel exited journey runs", {
+          count: runIdsToCancel.length,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
   }
 
   return results;

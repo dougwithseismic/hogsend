@@ -54,6 +54,7 @@ export {
   type DefinedJourney,
   defineJourney,
 } from "./journeys/define-journey.js";
+export { JourneyExitedError } from "./journeys/errors.js";
 export { createJourneyContext } from "./journeys/journey-context.js";
 export {
   buildJourneyRegistry,
