@@ -35,10 +35,11 @@ export function Hero({ className }: HeroProps): JSX.Element {
             <span className="text-ink">scrappy product engineers</span>
           </h1>
 
-          <p className="mt-7 max-w-2xl text-lg leading-relaxed text-ink/70">
-            Hogsend turns PostHog events into Resend emails as plain TypeScript
-            — journeys, waits, and buckets are functions you read in your
-            editor, not boxes you wire on a canvas or YAML you hand-edit.
+          <p className="mt-7 max-w-3xl text-lg leading-relaxed text-ink/70">
+            PostHog already knows what your users do. Resend already sends your
+            mail. Hogsend is the piece that connects them — so when someone
+            signs up, hits a milestone, or goes quiet, the right message goes
+            out on its own.
           </p>
         </Reveal>
 
