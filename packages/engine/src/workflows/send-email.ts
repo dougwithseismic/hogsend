@@ -5,7 +5,12 @@ import { hatchet } from "../lib/hatchet.js";
 
 export const sendEmailTask = hatchet.task({
   name: "send-email",
-  retries: 3,
+  // The EmailProvider owns transient-failure backoff internally (classified
+  // exponential retry in its `send`), and permanent failures fail fast below via
+  // NonRetryableError — so Hatchet's retry is just ONE durability re-attempt for a
+  // worker crash/timeout, not a second transient-retry loop layered on the
+  // provider's. (Previously 3, which multiplied with the provider's own retries.)
+  retries: 1,
   executionTimeout: "30s",
   backoff: { factor: 2, maxSeconds: 30 },
   fn: async (input: {
