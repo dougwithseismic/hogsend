@@ -59,6 +59,19 @@ for pkg in "${PACKAGES[@]}"; do
 done
 echo "    packed: $(ls "$TARBALLS" | tr '\n' ' ')"
 
+# create-hogsend's OWN publish-time pack must carry the generated .claude tree +
+# the CLAUDE.template.md orientation file. The harness runs the CLI from dist/,
+# so this `pnpm pack` is the ONLY check that exercises real publish-time packing
+# of template/.claude (build step 1 ran the prebuild that populates it).
+echo "==> [2b] assert create-hogsend pack carries template/.claude + CLAUDE.template.md"
+pnpm --dir "$PKG_DIR" pack --pack-destination "$TARBALLS" >/dev/null
+chtgz="$(echo "$TARBALLS"/create-hogsend-*.tgz)"
+[ -f "$chtgz" ] || fail "create-hogsend tarball not produced"
+tar -tzf "$chtgz" | grep -q 'package/template/.claude/skills/.*/SKILL.md' \
+  || fail "create-hogsend pack missing template/.claude/skills/**/SKILL.md"
+tar -tzf "$chtgz" | grep -q 'package/template/CLAUDE.template.md' \
+  || fail "create-hogsend pack missing template/CLAUDE.template.md"
+
 # --- 3. scaffold into a clean /tmp dir ------------------------------------
 echo "==> [3/8] scaffold my-app"
 APP_PARENT="$(mktemp -d /tmp/hogsend-app.XXXXXX)"
@@ -79,6 +92,7 @@ EXPECTED=(
   docker-compose.yml railway.toml railway.worker.toml
   .env.example .node-version .gitignore
   biome.json vitest.config.ts tsconfig.json tsup.config.ts README.md
+  CLAUDE.md .claude/README.md .claude/skills/hogsend-cli/SKILL.md
 )
 for f in "${EXPECTED[@]}"; do
   [ -e "$APPDIR/$f" ] || fail "missing scaffolded file: $f"
@@ -89,13 +103,32 @@ grep -q '"name": "my-app"' "$APPDIR/package.json" \
   || fail "APP_NAME token not applied in package.json"
 grep -q 'file:.*hogsend-engine' "$APPDIR/package.json" \
   || fail "tarball file: dep not present in package.json"
-if grep -rq '{{' "$APPDIR"; then
+# Scope past the copied skill bodies (.claude/), which legitimately document
+# {{ }} templating; CLAUDE.md sits at the app root and IS token-substituted, so
+# it stays covered by the residue check.
+if grep -rq '{{' "$APPDIR" --exclude-dir=.claude; then
   fail "leftover {{ token in scaffold"
 fi
 if grep -q 'workspace:' "$APPDIR/package.json"; then
   fail "workspace: residue in package.json"
 fi
+# CLAUDE.md is token-substituted with the app name.
+grep -q '# my-app' "$APPDIR/CLAUDE.md" \
+  || fail "APP_NAME token not applied in CLAUDE.md"
+# Vendored skills must be byte-identical to the canonical source (drift gate).
+diff -r "$APPDIR/.claude/skills" "$REPO_ROOT/packages/cli/skills" \
+  || fail ".claude/skills drifted from packages/cli/skills"
 echo "    filesystem + tokens OK"
+
+# --- 3b. --no-skills omits .claude + CLAUDE.md ----------------------------
+echo "==> [3b] scaffold (--no-skills) omits .claude + CLAUDE.md"
+NOSKILLS_DIR="$APP_PARENT/no-skills"
+(cd "$APP_PARENT" && node "$CLI" no-skills --pm pnpm --no-install --no-git \
+  --no-skills --use-tarballs "$TARBALLS")
+[ -e "$NOSKILLS_DIR/package.json" ] || fail "--no-skills produced no app"
+[ ! -e "$NOSKILLS_DIR/.claude" ] || fail "--no-skills emitted .claude/"
+[ ! -e "$NOSKILLS_DIR/CLAUDE.md" ] || fail "--no-skills emitted CLAUDE.md"
+echo "    --no-skills OK"
 
 # --- 4. install -----------------------------------------------------------
 echo "==> [4/8] pnpm install (scaffolded app)"

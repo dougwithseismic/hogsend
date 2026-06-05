@@ -9,6 +9,7 @@ import { skillsCommand } from "./skills.js";
 import { statsCommand } from "./stats.js";
 import { studioCommand } from "./studio.js";
 import type { Command } from "./types.js";
+import { upgradeCommand } from "./upgrade.js";
 
 /**
  * The command registry. The router (src/bin.ts) matches the leading argv token
@@ -27,6 +28,7 @@ export const commands: Command[] = [
   studioCommand,
   setupCommand,
   skillsCommand,
+  upgradeCommand,
   ejectCommand,
   patchCommand,
 ];

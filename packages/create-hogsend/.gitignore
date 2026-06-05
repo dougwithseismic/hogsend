@@ -1,0 +1,5 @@
+# Generated at build time from packages/cli/skills by scripts/sync-skills.mjs.
+# Shipped in the published tarball via package.json files[] ("template"), but
+# NOT committed — the canonical source is packages/cli/skills/. Edit skills there.
+template/.claude/skills/
+template/.claude/.hogsend-skills.json

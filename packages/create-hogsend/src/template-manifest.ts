@@ -31,6 +31,10 @@ export const RENAME_MAP: Record<string, string> = {
   "env.example": ".env.example",
   "node-version": ".node-version",
   "_package.json": "package.json",
+  // The scaffolded app's always-loaded agent orientation. Authored as
+  // CLAUDE.template.md so the monorepo's own tooling never treats it as guidance
+  // for THIS repo; renamed to CLAUDE.md (and token-substituted) on emit.
+  "CLAUDE.template.md": "CLAUDE.md",
 };
 
 /**
@@ -46,4 +50,7 @@ export const TOKEN_FILES = [
   "welcome.tsx",
   "logo.tsx",
   "registry.ts",
+  // Matched on the RENAMED basename (CLAUDE.template.md -> CLAUDE.md), so the
+  // {{APP_NAME}}/{{ENGINE_VERSION}} tokens in the orientation file resolve.
+  "CLAUDE.md",
 ] as const;

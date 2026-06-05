@@ -13,6 +13,8 @@ export interface CliOptions {
   packageManager: PackageManager;
   install: boolean;
   git: boolean;
+  /** Emit `.claude/skills/` + a tailored `CLAUDE.md` for Claude Code agents. */
+  skills: boolean;
   /** Run `pnpm bootstrap` after install (Docker, .env, Hatchet token, migrate). */
   setup: boolean;
   /** TEST-ONLY: resolve `@hogsend/*` from `file:` tarballs in this dir. */
@@ -35,6 +37,7 @@ Options:
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
   --no-git                   Skip git init + initial commit
+  --skills / --no-skills     Include (default) or skip Claude Code skills + CLAUDE.md
   --use-tarballs <dir>       TEST-ONLY: resolve @hogsend/* from local tarballs
   -h, --help                 Show this help
 
@@ -82,6 +85,8 @@ interface RawArgs {
     "no-setup"?: boolean;
     "no-install"?: boolean;
     "no-git"?: boolean;
+    skills?: boolean;
+    "no-skills"?: boolean;
     "use-tarballs"?: string;
     help?: boolean;
   };
@@ -101,6 +106,8 @@ function parse(argv: string[]): RawArgs {
       "no-setup": { type: "boolean", default: false },
       "no-install": { type: "boolean", default: false },
       "no-git": { type: "boolean", default: false },
+      skills: { type: "boolean", default: false },
+      "no-skills": { type: "boolean", default: false },
       "use-tarballs": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -169,6 +176,9 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       packageManager: packageManager ?? "pnpm",
       install,
       git: !values["no-git"],
+      // Default ON; only --no-skills opts out. Mirrors `hogsend skills add`'s
+      // non-TTY behaviour (install all) so CI scaffolds and CI installs agree.
+      skills: !values["no-skills"],
       setup: wantSetup && !values["no-setup"] && install,
       useTarballs: values["use-tarballs"],
     };
@@ -217,6 +227,19 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
         }),
       );
 
+  // --no-skills wins; explicit --skills skips the prompt; else ask (default yes).
+  const skills = values["no-skills"]
+    ? false
+    : values.skills
+      ? true
+      : bail(
+          await confirm({
+            message:
+              "Include Claude Code skills + a tailored CLAUDE.md? (recommended)",
+            initialValue: true,
+          }),
+        );
+
   // Setup needs deps installed first; only offer it when we're installing.
   const setup =
     values["no-setup"] || !install
@@ -237,6 +260,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     packageManager,
     install,
     git,
+    skills,
     setup,
     useTarballs: values["use-tarballs"],
   };

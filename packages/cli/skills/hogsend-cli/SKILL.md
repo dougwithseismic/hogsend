@@ -58,6 +58,7 @@ other data command requires one.
 | `hogsend contacts list/get/timeline` | Inspect contacts + their activity. |
 | `hogsend events <userId>` | Raw event stream for one user. |
 | `hogsend skills list/add` | Manage these bundled agent skills. |
+| `hogsend upgrade` | Bump `@hogsend/*` deps to latest + refresh vendored skills. |
 | `hogsend setup` | Interactive LOCAL onboarding (docker, secret, migrate). |
 | `hogsend eject <pkg>` | Vendor a `@hogsend/*` package (unchanged). |
 | `hogsend patch <pkg>` | Wrap `pnpm patch` (unchanged). |

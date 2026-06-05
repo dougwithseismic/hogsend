@@ -21,6 +21,7 @@
     "access": "public"
   },
   "scripts": {
+    "prebuild": "node scripts/sync-skills.mjs",
     "build": "tsup",
     "check-types": "tsc --noEmit",
     "lint": "biome check .",

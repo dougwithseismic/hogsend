@@ -7,3 +7,8 @@ logs
 .turbo
 *.tsbuildinfo
 .DS_Store
+
+# Claude Code: skills + CLAUDE.md ARE committed (shared agent guidance); your
+# personal settings + local journal are not.
+.claude/settings.local.json
+.claude/journal.db

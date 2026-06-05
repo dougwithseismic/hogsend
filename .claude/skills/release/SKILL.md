@@ -60,6 +60,14 @@ rm -rf /tmp/hs-verify
 - **Why caret, not exact:** bumping a package that `@hogsend/engine` depends on (`email`, `plugin-posthog`, `plugin-resend`) cascades engine to a *patch* (e.g. `0.1.0 → 0.1.1`) via `updateInternalDependencies: "patch"`, and drags its `linked` siblings (`db`, `core`). An exact pin can't equal both `0.1.0` and `0.1.1` and the scaffold breaks. A caret (`^0.1.0`) absorbs same-minor drift, so all deps just need to land on the same minor line.
 - Changeset *bump types* (patch/minor) cannot align two packages that start on different version lines (e.g. `0.0.1` vs `0.1.0`) onto one number — caret pinning is what makes the single `ENGINE_VERSION` token work across the drift. The `linked` group is `[engine, db, core]`.
 
+## Vendored agent skills (packages/cli/skills) — off the engine line, content-audited
+
+The Claude Code skills shipped to scaffolded apps have a **single source**: `packages/cli/skills/`. `@hogsend/cli` ships that dir in its tarball (`files[]`), and `create-hogsend`'s `scripts/sync-skills.mjs` build-copies it into `template/.claude/skills/` (gitignored build artifact; rides the `template` tarball entry). `hogsend skills add` / `hogsend upgrade` install/refresh from the same source.
+
+- **`@hogsend/cli` is INTENTIONALLY off the engine version line** (its own line, currently `0.1.x`). Do **NOT** add it to `HOGSEND_PACKAGES`, to the `linked` group `[engine, db, core]`, or pin any `SKILL.md` frontmatter to `ENGINE_VERSION`. Skills are *content*; the framework version is pinned only in the scaffold's token-substituted `CLAUDE.md`. The scaffold does **not** depend on `@hogsend/cli`.
+- **On an engine public-API change, content-audit `packages/cli/skills/*`** for staleness (imports, option names, ctx primitives, factory wiring) and bump `@hogsend/cli` so the refreshed skills publish. This is a *content review* step, not a version-bump-to-engine rule.
+- **Keep `@hogsend/cli` published.** A scaffolded app's later-fetch + refresh path (`pnpm dlx hogsend skills add --all --force`, `hogsend upgrade`) and the `hogsend doctor` staleness nudge all resolve `@hogsend/cli` from npm — it is never installed into the scaffold. If it ever falls off the registry, those paths silently break.
+
 ## Adding a new publishable package — checklist
 
 1. `package.json`: `private: false`, `version` on the right line, `files`, `publishConfig.access: public`. Most packages ship **raw `.ts`** (`RELEASING.md §6`); **`@hogsend/studio` is the exception** — it ships a built `dist/` (`files: ["dist"]`, built by `vite build`), and the engine mounts `/studio` by resolving `@hogsend/studio/package.json` then `./dist`, so the tarball MUST contain `dist/index.html` + assets.

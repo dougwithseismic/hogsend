@@ -17,6 +17,8 @@ export interface CopyOptions {
   templateDir: string;
   targetDir: string;
   appName: string;
+  /** Emit `.claude/` (skills) + `CLAUDE.md`. Gated by the `--skills` prompt/flag. */
+  skills: boolean;
   /** Absolute dir of `file:` tarballs to rewrite @hogsend/* deps against. */
   tarballDir?: string;
 }
@@ -84,6 +86,16 @@ async function walk(
   for (const entry of entries) {
     const srcPath = join(current, entry.name);
     const rel = relative(templateRoot, srcPath);
+
+    // Skills + the agent orientation file are opt-out (--no-skills). Both names
+    // only exist at the template root, so an entry-name check skips the whole
+    // .claude/ tree (no recurse) and the CLAUDE.template.md -> CLAUDE.md emit.
+    if (
+      !opts.skills &&
+      (entry.name === ".claude" || entry.name === "CLAUDE.template.md")
+    ) {
+      continue;
+    }
 
     if (entry.isDirectory()) {
       await mkdir(join(targetRoot, rel), { recursive: true });
