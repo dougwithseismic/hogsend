@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "bootstrap": "tsx scripts/bootstrap.ts",
     "dev": "tsx watch --env-file=.env src/index.ts",
     "worker:dev": "tsx watch --env-file=.env src/worker.ts",
     "build": "tsup",
