@@ -32,10 +32,13 @@ export function EmptyState({
   title,
   description,
   icon: Icon = Inbox,
+  action,
 }: {
   title: string;
   description?: string;
   icon?: typeof Inbox;
+  /** Optional CTAs (e.g. doc links) rendered below the description. */
+  action?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-12 text-center">
@@ -43,6 +46,11 @@ export function EmptyState({
       <p className="text-sm font-medium">{title}</p>
       {description ? (
         <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+      ) : null}
+      {action ? (
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          {action}
+        </div>
       ) : null}
     </div>
   );

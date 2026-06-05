@@ -1,4 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
+import { ArrowUpRight, BookOpen } from "lucide-react";
+import { links } from "@/lib/links";
 import { cn } from "@/lib/utils";
 import { navItems } from "./nav";
 
@@ -38,6 +40,18 @@ export function Sidebar() {
           );
         })}
       </nav>
+      <div className="border-t p-2">
+        <a
+          href={links.docs}
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        >
+          <BookOpen className="h-4 w-4" />
+          Docs
+          <ArrowUpRight className="ml-auto h-3.5 w-3.5 opacity-60" />
+        </a>
+      </div>
     </aside>
   );
 }
