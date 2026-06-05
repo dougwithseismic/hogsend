@@ -1,0 +1,50 @@
+---
+title: Hogsend vs. Loops
+description: An honest comparison of Loops and Hogsend for lifecycle email. Loops is the closest in spirit on developer experience -- the real difference is code-first, self-hosted, and no per-contact pricing.
+---
+
+Of every platform we compare against, Loops is the one we have the most respect for. It is the closest competitor to Hogsend in spirit: both teams clearly believe that lifecycle email tooling for product companies should feel good to use, not like a relic from the 2010s marketing-automation era. If you are weighing Hogsend against Loops, you have already filtered out the platforms that treat developers as an afterthought. The remaining decision is narrower and more interesting than most comparisons on this site.
+
+**From $49/mo** | contact-based pricing -- free up to 1,000 contacts ($49 at 5k, $99 at 10k, $149 at 15k)
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Loops' pricing page](https://loops.so/pricing) for the current numbers.*
+
+## What Loops does well
+
+Loops has the best UI in the category, and it is not close. The editor feels like Notion -- writing an email is genuinely pleasant, and the result looks good without you fighting templates. The whole product is designed rather than assembled, and it shows in the small things: clean navigation, sensible defaults, an onboarding flow that does not make you read a manual first.
+
+It is also legitimately API-first. There is a maintained React/Next.js SDK, a clean REST API, and the kind of documentation that assumes you are a developer who wants to integrate quickly rather than a marketer clicking through a wizard. For a SaaS or product-led-growth team that wants transactional and lifecycle email handled in one place, with a UI a non-technical teammate can also operate, Loops is a strong, honest choice. It removes a real category of pain -- nobody on your team has to dread opening the email tool.
+
+## Where it falls short
+
+The trade-offs are mostly about depth and ownership, not quality.
+
+Automation in Loops is deliberately simpler than Customer.io or ActiveCampaign. You get welcome sequences, time delays, and basic branching, but you will hit the ceiling on heavy conditional logic, fine-grained event-property filtering, and cross-journey orchestration. For "welcome sequence plus trial nudge" that ceiling is fine. For "branch on three runtime conditions, call an internal API mid-flow, then route into a second journey," it starts to feel constraining.
+
+There is no self-hosting. Your contact data lives on Loops' infrastructure, and pricing is contact-based -- you pay as your list grows, whether or not those contacts are active. And as a newer platform, the integration ecosystem is thinner than the incumbents. None of these are bugs; they are the natural consequences of being a polished hosted SaaS.
+
+## When to pick Loops
+
+Pick Loops when the UI is the point. If a non-technical founder, a marketer, or a generalist needs to write and ship emails without a developer in the loop, Loops is hard to beat -- and that is a real, common requirement. Pick it if you are a SaaS or PLG team whose flows are genuinely more "onboarding sequence and trial reminder" than deep multi-stage branching, and if you would rather pay a predictable monthly bill than run any infrastructure yourself.
+
+If your honest assessment is that nobody on your team wants to own a self-hosted service, Loops is the right call, and we would tell you so.
+
+## Loops vs. Hogsend
+
+This is the comparison where Hogsend and Loops actually overlap on values, so the differences are sharp and specific.
+
+The core split is code-first and self-hosted versus polished hosted SaaS. In Hogsend, every journey is a TypeScript file authored with `defineJourney()` -- not a flow on a canvas and not an SDK call into someone else's runtime. That control flow is plain TypeScript, so `if/else`, loops, external API calls, and feature-flag checks are just code, which gets you past the branching ceiling that Loops' simpler automation hits. See the [Journeys guide](/docs/guides/journeys) for what that looks like in practice.
+
+On ownership, Hogsend is open source and self-hosted: your data sits in your own Postgres, and there is no per-contact or per-email pricing -- you pay only for infrastructure. It is consumed as a versioned engine package (`@hogsend/engine`), so you scaffold with `pnpm dlx create-hogsend@latest` and upgrade with `pnpm up "@hogsend/*"`. It is a dependency you pin, not a fork you maintain.
+
+Hogsend also leans on durable execution through Hatchet. A `ctx.sleep` survives deploys and resumes exactly where it left off, and `ctx.waitForEvent` pauses a journey until the user does something specific or a timeout wins -- whichever comes first. Combined with native PostHog integration, first-party email open and link-click tracking, and real-time, code-defined [Buckets](/docs/concepts/buckets) for segmentation, the model is built around events you already emit.
+
+<Callout type="warn">
+The honest gaps cut the other way. Hogsend is email-only today -- no native SMS, push, or in-app messaging. There is no visual builder, so you need a developer to author and change journeys; a non-technical teammate cannot ship a campaign on their own the way they can in Loops. It is younger with a smaller community, and self-hosting means you own the infra, the updates, and the monitoring. Loops will not page you at 2am; your Hogsend deployment can.
+</Callout>
+
+For a fuller side-by-side, see [the feature matrix](/docs/compare/feature-matrix). The short version: Loops wins on UI polish and zero-ops; Hogsend wins on control, branching depth, and pricing that does not scale with your contact count.
+
+## Migrating from Loops
+
+Because both platforms are developer-friendly, a move from Loops is one of the cleaner translations. Your Loops automations become `defineJourney()` files -- you are rewriting the good parts in TypeScript rather than importing config, and the simpler your Loops flows are, the faster this goes. Contacts come over via Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`, CSV or JSON), and your email designs get rebuilt as React Email components. Historical analytics stay on Loops; Hogsend tracks from the first email it sends. See [Migrating to Hogsend](/docs/compare/migration) for the step-by-step.

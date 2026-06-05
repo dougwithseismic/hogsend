@@ -1,35 +1,34 @@
+import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { LogoMarquee } from "@/components/ds/marquee";
 import { cn } from "@/lib/cn";
 
 /**
  * Dark thin band sitting directly under the hero. A small "WORKS WITH" label on
- * the left, then an auto-scrolling marquee of the stack wordmarks. Pure text
- * wordmarks — no real logo assets — styled in the display face with mono tags.
+ * the left, then an auto-scrolling marquee of the stack marks. Renders real
+ * masked brand SVGs (via `BrandLogo`) tinted to the surrounding white/opacity
+ * treatment — no plain-text wordmarks.
  *
  * Server component: it composes the client-free `LogoMarquee` (CSS keyframe)
- * and renders styled wordmarks as its items.
+ * and renders the brand marks as its items.
  */
 
 const STACK = [
-  "PostHog",
-  "Resend",
-  "Railway",
-  "Docker",
-  "Hatchet",
-  "TypeScript",
-  "Stripe",
-] as const;
-
-function Wordmark({ name }: { name: string }) {
-  return (
-    <span className="whitespace-nowrap font-display text-lg text-white/70 tracking-tight md:text-xl">
-      {name}
-    </span>
-  );
-}
+  "posthog",
+  "resend",
+  "stripe",
+  "railway",
+  "typescript",
+] as const satisfies readonly BrandKey[];
 
 export function LogoStrip({ className }: { className?: string }) {
-  const items = STACK.map((name) => <Wordmark key={name} name={name} />);
+  const items = STACK.map((brand) => (
+    <BrandLogo
+      key={brand}
+      brand={brand}
+      height={24}
+      className="text-white/70"
+    />
+  ));
 
   return (
     <section

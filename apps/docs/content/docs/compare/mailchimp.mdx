@@ -1,0 +1,53 @@
+---
+title: Hogsend vs. Mailchimp
+description: An honest comparison for PostHog + Resend teams. What Mailchimp does well, where it falls short for SaaS lifecycle, and how Hogsend's code-first, self-hosted model differs.
+---
+
+Mailchimp is the name most people think of first when you say "email" -- the default starting point for newsletters and, since the Intuit acquisition, part of a much larger business stack. This page is for developers and technical founders already on PostHog and Resend who are weighing Mailchimp against a code-first lifecycle engine. It's an honest look, not a takedown.
+
+**$13--350+/mo** | contact-based pricing; free tier limited to 250 contacts / 500 sends, no automation
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Mailchimp's pricing page](https://mailchimp.com/pricing/) for the current numbers.*
+
+## What Mailchimp does well
+
+Mailchimp is genuinely good at the thing it was built for: marketing campaigns and newsletters for small and mid-sized businesses. The campaign editor is mature and forgiving, the template library is broad, and a non-technical marketer can put together a polished, on-brand email in an afternoon without touching code. That accessibility is real, and it shouldn't be dismissed.
+
+The feature set is also wide. Beyond campaigns you get basic "Customer Journeys" automations, landing pages, a light CRM, signup forms, and reporting -- enough to run an entire small-business marketing motion from one place. The integration directory is enormous, so connecting Mailchimp to a store, a CMS, or a CRM is usually a few clicks. And the brand familiarity matters: it's easy to hire for and easy to hand off. For a team whose primary need is "send a good-looking newsletter and a couple of automated follow-ups," Mailchimp is a perfectly reasonable, well-supported choice.
+
+## Where it falls short
+
+The limits show up the moment your needs become event-driven product lifecycle rather than campaigns. Mailchimp's automations are shallow and campaign-oriented: they're built around list membership, tags, and scheduled sends, not around the granular product events that drive SaaS lifecycle ("activated", "hit usage limit", "invited a teammate"). You can approximate some of this, but you'll be fighting the model rather than working with it.
+
+Pricing is the other common friction point. It's contact-based, so your bill scales with audience size regardless of how much you actually send, and Mailchimp has historically counted contacts in ways teams find frustrating -- archived and unsubscribed contacts have a way of staying on the meter. At scale, both pricing and deliverability are recurring complaints.
+
+Finally, it isn't developer-first. There's no code-first authoring, no version control for your flows, no CI/CD story for automation logic. The API exists, but it's an integration surface, not a way to define and own your journeys as code.
+
+## When to pick Mailchimp
+
+There are real cases where Mailchimp is the right call. Pick it if you're an SMB or early-stage team whose main job is newsletters and broadcast campaigns rather than product-triggered lifecycle. Pick it if your automation needs are genuinely simple -- a welcome series, a re-engagement nudge -- and a familiar visual editor outweighs depth. Pick it if a non-technical marketer owns email and there's no developer to maintain code-defined journeys. And pick it if you want one tool that bundles campaigns, forms, landing pages, and a light CRM, with a vast integration directory behind it. If that's your situation, Mailchimp will serve you well.
+
+## Mailchimp vs. Hogsend
+
+These tools point in different directions, and the honest framing is a trade-off, not a winner.
+
+| | Mailchimp | Hogsend |
+|---|---|---|
+| Authoring | Visual editor + automations | Code-first (`defineJourney`, TypeScript) |
+| Pricing model | Per contact (Intuit-owned) | Self-hosted -- infra cost only |
+| Data ownership | Mailchimp's infrastructure | Your own Postgres |
+| Best fit | SMB newsletters + campaigns | Event-driven SaaS lifecycle |
+| Channels | Email + light marketing suite | Email only (today) |
+| Workflow builder | Yes (visual) | No (developer-authored) |
+
+The core difference is who owns the automation. With Hogsend, every journey is a TypeScript file in your repo, and the platform is self-hosted and open source -- your contacts and events live in your own Postgres, with no per-contact or per-email pricing. You pay for infrastructure, full stop. Hogsend is consumed as a versioned engine (`@hogsend/engine`): you scaffold with `pnpm dlx create-hogsend@latest`, own only your content, and upgrade with `pnpm up "@hogsend/*"` -- it is not a fork you maintain a diff against. On depth, you get durable execution via Hatchet (a `ctx.sleep` survives deploys and resumes exactly where it left off), the new `ctx.waitForEvent` durable wait (pause a journey until a user does something, or a timeout wins), native PostHog integration, first-party email open and link-click tracking, and real-time, code-defined [Buckets](/docs/concepts/buckets) that update as events arrive.
+
+But be honest about the gaps. Hogsend is email-only today -- no native SMS, push, or in-app messaging, where Mailchimp's suite is broader. There's no visual workflow builder, so you need a developer to author and change journeys. And it's a younger platform with a smaller community; self-hosting means you own the infrastructure, updates, and monitoring. If your team has no developer to maintain code, Mailchimp's editor is the more pragmatic choice.
+
+<Callout type="info">
+The clean dividing line: Mailchimp is built for marketers running campaigns; Hogsend is built for engineers running event-driven lifecycle on data they own. Mailchimp is not in our [feature matrix](/docs/compare/feature-matrix) -- that table focuses on the event-driven SaaS-lifecycle platforms most directly comparable to Hogsend -- but it is a quick way to see where Hogsend's strengths lie.
+</Callout>
+
+## Migrating from Mailchimp
+
+Migration is a "rewrite the good parts" exercise rather than a config import. Export your contacts from Mailchimp as CSV and bring them over through Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`), mapping fields to `externalId`, `email`, and `properties`. Then translate the automations worth keeping into TypeScript with `defineJourney()` -- usually the welcome series and a re-engagement flow -- and leave the campaign cruft behind. The [Journeys guide](/docs/guides/journeys) covers authoring, and [Migrating to Hogsend](/docs/compare/migration) walks through the whole process step by step.

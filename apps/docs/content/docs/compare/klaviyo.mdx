@@ -1,0 +1,69 @@
+---
+title: Hogsend vs. Klaviyo
+description: An honest comparison for developers on PostHog + Resend. Klaviyo is the dominant ecommerce lifecycle platform -- here is where it shines, where it strains for SaaS, and how it stacks up against Hogsend.
+---
+
+Klaviyo is the lifecycle platform most ecommerce teams converge on, and for good reason -- it is genuinely excellent at what it was built for. This page is a fair look at that strength, the trade-offs that come with it, and how it compares to Hogsend for a developer or technical founder already running PostHog + Resend.
+
+**Free to 250 contacts, then from $20/mo** | active-profile billing (every contact counts, not just the ones you email); SMS sold separately
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Klaviyo's pricing page](https://www.klaviyo.com/pricing) for the current numbers.*
+
+## What Klaviyo does well
+
+Klaviyo is the dominant ecommerce and DTC lifecycle platform, and its depth on the storefront is hard to overstate -- especially on Shopify, where the integration is about as native as it gets.
+
+A few things it does genuinely better than almost anyone:
+
+- **Segmentation.** Klaviyo's segment builder is best-in-class. You can slice audiences by purchase history, predicted behavior, engagement, and event properties with a fluency that most competitors only approximate.
+- **Prebuilt ecommerce flows.** Cart abandonment, browse abandonment, post-purchase sequences, and winback campaigns ship as proven templates. You can have a revenue-generating flow live the same afternoon.
+- **Revenue attribution everywhere.** Every report ties back to dollars. You always know which flow and which message drove which orders -- that closed loop is the core of the product, not a bolt-on.
+- **Native SMS.** Email and SMS live in one platform with shared segments and shared attribution. For a store running both channels, that unification is real value.
+- **Predictive analytics.** Customer lifetime value, churn risk, and predicted next order date come baked in. For a DTC team, those models are a meaningful edge.
+
+If you sell physical or digital products and live in orders, products, and catalogs, Klaviyo is built for your exact mental model.
+
+## Where it falls short
+
+The same assumptions that make Klaviyo great for stores make it awkward elsewhere.
+
+- **Everything is shaped like a store.** Orders, products, catalogs, and revenue are first-class concepts. For SaaS lifecycle -- trials, activation, feature adoption, seat expansion -- you spend real effort bending store-shaped primitives around product-shaped problems.
+- **Pricing scales steeply.** You pay for active profiles -- every contact eligible to be messaged, whether or not you email them this month (Klaviyo moved to all-active-profile billing in 2025) -- and SMS is billed as a separate add-on on top. As your list grows, the bill climbs fast.
+- **Not developer- or code-first.** Flows are authored in a visual builder. There is no code-authored journey, no version control of your automation logic, no self-host. Your lifecycle logic lives inside Klaviyo, not in your repo.
+
+<Callout type="info">
+For SaaS teams on PostHog + Resend, Klaviyo is much like Drip -- a superb tool pointed at a different problem. You can make it work, but you are working against the grain the whole time.
+</Callout>
+
+## When to pick Klaviyo
+
+Be honest with yourself about what you are building. If you run an ecommerce or DTC business -- especially on Shopify -- and you want email and SMS with revenue attribution wired through every report, Klaviyo is very likely the right call. The prebuilt flows alone can pay for the platform, the predictive models are good, and the segmentation will outrun anything you would build yourself in a reasonable timeframe.
+
+Pick Klaviyo when the store is the product, the order is the event that matters most, and you want a managed platform a marketer can own without a developer in the loop.
+
+## Klaviyo vs. Hogsend
+
+These tools barely overlap in intent, so the comparison is really about fit.
+
+| | Klaviyo | Hogsend |
+|---|---|---|
+| Built for | Ecommerce / DTC | SaaS on PostHog + Resend |
+| Authoring | Visual flow builder | Code-first (`defineJourney` TypeScript files) |
+| Pricing | Active profiles + send volume | Infra only -- no per-contact / per-email fees |
+| Hosting | Managed SaaS | Self-hosted, open source (your own Postgres) |
+| Channels | Email + native SMS | Email only (today) |
+| Analytics model | Revenue attribution | PostHog events + first-party open/click tracking |
+| Durability | Managed internally | Hatchet -- `ctx.sleep` survives deploys |
+| Predictive ML | CLV, churn, next-order | None -- defer to PostHog |
+
+Where Hogsend differs in kind: every journey is a TypeScript file, so your automation lives in version control and reviews like any other code. You self-host on your own Postgres, so there is no per-contact or per-email pricing -- you pay for infrastructure, nothing else. Hogsend is consumed as a versioned engine (`@hogsend/engine`): you scaffold with `pnpm dlx create-hogsend@latest` and upgrade with `pnpm up "@hogsend/*"` -- it is a dependency, not a fork to maintain. Durable execution through Hatchet means `ctx.sleep` resumes exactly where it left off across deploys, and [`ctx.waitForEvent`](/docs/guides/journeys) lets a journey pause until the user does something or a timeout wins. PostHog is native, opens and link clicks are tracked first-party, and audiences are expressed as code-defined real-time [Buckets](/docs/concepts/buckets).
+
+The gaps are real and worth stating plainly. Hogsend is email-only today -- no SMS, push, or in-app messaging, so Klaviyo's unified email + SMS is something Hogsend simply does not match. There is no visual builder, so you need a developer to author and change journeys. It is younger, with a smaller community than an incumbent like Klaviyo. And self-hosting means you own the infra, the updates, and the monitoring. There are no predictive models -- if CLV and churn scoring are central to your strategy, that is a clear point for Klaviyo.
+
+Klaviyo's ecommerce focus keeps it off our [feature matrix](/docs/compare/feature-matrix) -- that table compares the SaaS-lifecycle platforms Hogsend goes head to head with most directly (Customer.io, Loops, Brevo, ActiveCampaign) -- but it is still the quickest way to see how Hogsend's capabilities line up.
+
+## Migrating from Klaviyo
+
+Moving off Klaviyo is a "rewrite the good parts" translation rather than a config import. Your best flows -- a welcome sequence, a winback, an activation nudge -- become `defineJourney()` calls in TypeScript, where "wait 3 days" is `ctx.sleep({ duration: days(3) })` and branching is plain `if/else`. Contacts come over via Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`, CSV or JSON), mapping Klaviyo profiles to `externalId`, `email`, and `properties`. Store-specific machinery -- catalogs, native SMS, predictive scores -- does not carry over, so be deliberate about which flows are worth keeping.
+
+See [Migrating to Hogsend](/docs/compare/migration) for the step-by-step path.

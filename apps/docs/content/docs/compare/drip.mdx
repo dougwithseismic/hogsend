@@ -1,0 +1,54 @@
+---
+title: Hogsend vs. Drip
+description: An honest comparison of Drip and Hogsend for lifecycle email -- where Drip's ecommerce focus wins, where it works against SaaS teams, and where Hogsend fits.
+---
+
+Drip and Hogsend are aimed at different worlds, and most of this comparison comes down to that. Drip is an ecommerce lifecycle platform with a visual builder and revenue-aware automation; Hogsend is a code-first, self-hosted engine for teams already running on PostHog and Resend. If you run an online store, Drip is purpose-built for you in ways Hogsend is not. If you run a SaaS product, the fit reverses. This page tries to be fair to both.
+
+**$39/mo for up to 2,500 contacts** | contact-based pricing, all features included
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Drip's pricing page](https://www.drip.com/pricing) for the current numbers.*
+
+## What Drip does well
+
+Drip is genuinely good at the thing it was built for: lifecycle automation for online stores. The ecommerce integrations are deep and well-maintained -- Shopify, WooCommerce, BigCommerce, and others connect with minimal setup, and once connected, your order, product, and customer data flows in without you wiring up an event pipeline by hand.
+
+The automation that sits on top of that data is the real strength. Drip ships ecommerce-native triggers that work out of the box: first purchase, repeat purchase, browse abandonment, and cart abandonment flows you can stand up in an afternoon. Revenue attribution is built in, so you can actually see which flows drive sales rather than guessing. The visual workflow builder is solid and approachable -- a marketer can author, branch, and edit flows without involving an engineer, which for a small ecommerce team is often the whole point.
+
+In short, Drip understands ecommerce concepts at the product level. Carts, orders, products, and revenue are first-class, not things you have to model yourself.
+
+## Where it falls short
+
+Drip's strength is also its constraint: nearly everything assumes you are an online store. For SaaS teams, that assumption works against you at every turn. The triggers, the templates, and the automation primitives are all oriented around ecommerce concepts -- carts, orders, products, revenue. A SaaS lifecycle is built from a different vocabulary: trial started, feature activated, seat invited, plan upgraded, usage threshold crossed. You can model those in Drip, but you are bending an ecommerce tool into a shape it was not designed for, and you feel that friction continuously.
+
+Pricing is contact-based, so your bill scales with the size of your audience rather than your send volume or the value you get. For a growing list, that cost compounds whether or not those contacts are active.
+
+Like every hosted platform here, your contact and event data lives on Drip's infrastructure, and the automation logic lives in their builder -- not in your repo, not in version control, not in a code review.
+
+## When to pick Drip
+
+Pick Drip if -- and realistically, mainly if -- you run an ecommerce business on Shopify, WooCommerce, or BigCommerce. That is not a backhanded recommendation. If you are selling physical or digital products and you want cart abandonment, post-purchase, and win-back flows with revenue attribution working quickly, Drip is one of the strongest options on the market and will beat a code-first engine you have to assemble yourself.
+
+It is also the right call when a non-technical marketer owns lifecycle automation day to day and needs to ship and edit flows without an engineer in the loop. A visual builder with ecommerce triggers baked in is exactly the tool for that person. Hogsend, by contrast, requires a developer to author and change journeys.
+
+If you are a SaaS or product-led team, though, this is where Drip stops being the obvious choice -- keep reading.
+
+## Drip vs. Hogsend
+
+The honest framing is that these tools barely compete. Drip is for ecommerce; Hogsend is for SaaS teams on PostHog. Where they overlap is the question of who owns your lifecycle automation.
+
+With Drip, your flows live in a hosted builder and your data lives on Drip's servers, billed per contact. With Hogsend, every journey is a TypeScript file via `defineJourney()`, your data stays in your own Postgres, and there is no per-contact or per-email pricing -- you pay only for the infrastructure you run it on. Hogsend ships as a versioned engine (`@hogsend/engine`), scaffolded with `pnpm dlx create-hogsend@latest` and upgraded with `pnpm up "@hogsend/*"` -- it is a dependency you pin, not a fork you maintain. Journeys run on durable execution via Hatchet, so a `ctx.sleep` survives deploys and resumes exactly where it left off, and `ctx.waitForEvent` lets a journey pause until the user does something (or a timeout wins). PostHog integration is native, email open and link-click tracking are first-party, and segmentation is expressed as real-time, code-defined [Buckets](/docs/concepts/buckets). See the [Journeys guide](/docs/guides/journeys) for what authoring actually looks like.
+
+Where Hogsend is genuinely weaker: it is email-only today -- no native SMS, push, or in-app messaging. There is no visual builder, so non-developers cannot author or change flows. It is a younger platform with a smaller community than Drip. And self-hosting means you own the infrastructure, the updates, and the monitoring. Notably, Hogsend has no built-in ecommerce concept of carts, orders, or revenue attribution -- if you need those, Drip's out-of-the-box advantage is real and Hogsend offers no equivalent.
+
+Like Klaviyo, Drip's ecommerce focus keeps it off our [feature matrix](/docs/compare/feature-matrix), which compares the SaaS-lifecycle platforms Hogsend competes with most directly -- but that table is still a useful side-by-side for how Hogsend's capabilities stack up.
+
+<Callout type="info">
+The short version: ecommerce store, marketer-owned flows, revenue attribution -- Drip. SaaS product on PostHog, code-first ownership, no per-contact pricing -- Hogsend.
+</Callout>
+
+## Migrating from Drip
+
+Because Hogsend is code-first, moving over is a "rewrite the good parts" exercise, not a config import. You translate the flows worth keeping into TypeScript: a Drip delay becomes `ctx.sleep({ duration: days(2) })`, a "did the user do X" check becomes `ctx.history.hasEvent()`, and visual branches become plain `if/else`. Ecommerce-specific triggers like cart abandonment do not have native equivalents -- you would model the underlying events yourself and react to them in a journey.
+
+Contacts come over via Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`), which accepts CSV or JSON exported from Drip. See [Migrating to Hogsend](/docs/compare/migration) for the field mapping and the full step-by-step.
