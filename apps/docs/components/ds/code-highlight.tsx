@@ -10,10 +10,16 @@ type CodeHighlightProps = {
 /**
  * Server-side Shiki highlighting (reusing the `.shiki` CSS variables that
  * fumadocs-ui's preset already wires up). The highlighted `pre` is wrapped in a
- * dark inset card (`bg-ink`, `rounded-2xl`) so the code reads as a dark inset on
- * the cream page — matching `CodeMock`/`MockupFrame` and Wispr Flow's dark code
- * cards. The `pre` background is forced transparent so the Shiki block blends
- * into the card, and we apply our mono code typography. Async RSC — no hooks,
+ * code window (`bg-code`, `rounded-2xl`) — a fixed espresso surface that stays
+ * DARK in BOTH light and dark themes, matching `CodeMock`/`MockupFrame`. The
+ * `pre` background is forced transparent so the Shiki block blends into the
+ * card, and we apply our mono code typography.
+ *
+ * We pin a single `theme: "github-dark"` (light-on-dark) rather than letting
+ * fumadocs apply its dual github-light/github-dark default. Because the surface
+ * never flips, the code must always render its light-text variant; the dual
+ * default would emit dark (`--shiki-light`) text in the light theme, which would
+ * be unreadable on the always-dark `#1f150f` window. Async RSC — no hooks,
  * no client JS.
  */
 export async function CodeHighlight({
@@ -23,6 +29,7 @@ export async function CodeHighlight({
 }: CodeHighlightProps) {
   return highlight(code, {
     lang,
+    theme: "github-dark",
     components: {
       pre: ({ className, style, ...props }) => (
         <pre
@@ -30,7 +37,7 @@ export async function CodeHighlight({
           style={{ ...style, backgroundColor: "transparent" }}
           className={cn(
             className,
-            "overflow-x-auto rounded-2xl border border-ink/10 bg-ink px-5 py-5 font-mono text-[13.5px] leading-relaxed md:px-6 md:py-6 md:text-[14.5px]",
+            "overflow-x-auto rounded-2xl border border-white/10 bg-code px-5 py-5 font-mono text-[13.5px] leading-relaxed md:px-6 md:py-6 md:text-[14.5px]",
             propClassName,
           )}
         />

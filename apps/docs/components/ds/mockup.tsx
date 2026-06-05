@@ -18,16 +18,17 @@ type MockupFrameProps = {
 };
 
 /**
- * Dark inset mockup panel used to host faux product UI / screenshots. In the
- * cream redesign these stay DARK (`bg-ink`) rounded insets sitting on the cream
- * page — matching Wispr Flow's dark inset cards. The `barcode` prop is retained
- * for compatibility but no longer renders anything.
+ * Dark inset mockup panel used to host faux product UI / screenshots. These are
+ * code-window surfaces, so they use `bg-code` (fixed espresso) + a non-flipping
+ * `border-white/10` hairline and stay DARK in BOTH light and dark themes —
+ * matching Wispr Flow's dark inset cards. The `barcode` prop is retained for
+ * compatibility but no longer renders anything.
  */
 export function MockupFrame({ children, className }: MockupFrameProps) {
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-ink/10 bg-ink",
+        "relative overflow-hidden rounded-2xl border border-white/10 bg-code",
         className,
       )}
     >
@@ -50,16 +51,18 @@ type CodeMockProps = {
 };
 
 /**
- * Code tone palette retuned for the dark (`bg-ink`) inset card: comments fade
- * the cream text, keywords/accents glow amber, strings/plain text read in soft
- * cream. No green anywhere.
+ * Code tone palette for the fixed-dark (`bg-code`) inset card. The surface never
+ * flips, so the cream-ish tones use non-flipping `white/*` (not the `lumen`
+ * token, which would invert to espresso under `.dark` and vanish): comments fade
+ * the text, strings/plain read in soft white, keywords/accents glow raspberry
+ * (`glow`, which stays legible on espresso in both themes).
  */
 const CODE_TONE_CLASS: Record<CodeTone, string> = {
-  comment: "text-lumen/40",
+  comment: "text-white/40",
   keyword: "text-glow",
-  string: "text-lumen/80",
+  string: "text-white/80",
   accent: "text-glow",
-  plain: "text-lumen/80",
+  plain: "text-white/80",
 };
 
 /**
@@ -71,18 +74,18 @@ export function CodeMock({ lines, filename, className }: CodeMockProps) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-2xl border border-ink/10 bg-ink",
+        "overflow-hidden rounded-2xl border border-white/10 bg-code",
         className,
       )}
     >
       {filename ? (
-        <div className="flex items-center gap-3 border-lumen/10 border-b px-4 py-2.5">
+        <div className="flex items-center gap-3 border-white/10 border-b px-4 py-2.5">
           <div aria-hidden="true" className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full bg-lumen/15" />
-            <span className="size-2.5 rounded-full bg-lumen/15" />
-            <span className="size-2.5 rounded-full bg-lumen/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
           </div>
-          <span className="font-mono text-[11px] text-lumen/40 tracking-wide">
+          <span className="font-mono text-[11px] text-white/40 tracking-wide">
             {filename}
           </span>
         </div>
@@ -123,7 +126,9 @@ type IntegrationGridProps = {
 /**
  * Grid of small integration chips — optional leading icon + label
  * (e.g. PostHog, Resend, Slack, GitHub, Stripe, Discord, Webhook). Rendered on
- * the dark inset surface: amber icon accents, soft cream labels.
+ * the fixed-dark inset surface, so it uses non-flipping `white/*` for the chip
+ * borders/wash/labels (raspberry `glow` icon accents) and stays legible in both
+ * themes.
  */
 export function IntegrationGrid({ items, className }: IntegrationGridProps) {
   return (
@@ -131,7 +136,7 @@ export function IntegrationGrid({ items, className }: IntegrationGridProps) {
       {items.map((item) => (
         <li
           key={item.label}
-          className="flex items-center gap-2.5 rounded-lg border border-lumen/10 bg-lumen/[0.04] px-3 py-2.5"
+          className="flex items-center gap-2.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2.5"
         >
           {item.icon ? (
             <span
@@ -141,7 +146,7 @@ export function IntegrationGrid({ items, className }: IntegrationGridProps) {
               {item.icon}
             </span>
           ) : null}
-          <span className="truncate font-mono text-[12px] text-lumen/80 tracking-wide">
+          <span className="truncate font-mono text-[12px] text-white/80 tracking-wide">
             {item.label}
           </span>
         </li>

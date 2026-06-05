@@ -10,8 +10,11 @@ type CopyButtonProps = {
 };
 
 /**
- * Small copy-to-clipboard button styled for a dark surface. Shows a transient
- * "Copied" state (~1.5s) by swapping the Copy icon for a Check icon.
+ * Small copy-to-clipboard button styled for a code window (fixed-dark `bg-code`)
+ * surface, so its `white/*` treatment reads in both themes. Shows a transient
+ * "Copied" state (~1.5s) by swapping the Copy icon for a Check icon. The icons
+ * are decorative (`aria-hidden`); an explicit `aria-label` plus `aria-live`
+ * names the control and announces the copied state to assistive tech.
  */
 export function CopyButton({ value, className }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
@@ -31,6 +34,8 @@ export function CopyButton({ value, className }: CopyButtonProps) {
     <button
       type="button"
       onClick={handleCopy}
+      aria-label={copied ? "Copied to clipboard" : "Copy to clipboard"}
+      aria-live="polite"
       className={cn(
         "inline-flex items-center gap-1.5 font-mono text-[11px] text-white/50 transition-colors hover:text-white",
         className,

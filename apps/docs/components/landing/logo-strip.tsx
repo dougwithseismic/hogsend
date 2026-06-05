@@ -46,7 +46,7 @@ export function LogoStrip() {
             key={brand}
             brand={brand}
             height={30}
-            className="text-lumen/65 transition-colors duration-200 hover:text-lumen"
+            className="text-lumen/80 transition-colors duration-200 hover:text-lumen"
           />
         ))}
         <Sunburst className="-right-1 -bottom-7 absolute size-5 text-glow/70 max-sm:hidden" />

@@ -64,8 +64,13 @@ export function TagPill({
 }: TagPillProps): JSX.Element {
   const onCream = tone === "light";
 
+  // The mint fill never flips (pistachio in both themes), so the success text
+  // must stay dark-green in both. `text-success` (olive) covers light; in dark
+  // the `success` token inverts to light pistachio (designed for dark surfaces)
+  // and would vanish on mint, so we pin the dark override back to the documented
+  // light-mode success olive. No bare/arbitrary hex.
   const fill = success
-    ? "bg-mint text-[#114e0b]"
+    ? "bg-mint text-success dark:text-[#3d5a1f]"
     : onCream
       ? "bg-dawn text-ink"
       : "bg-lumen/10 text-lumen";

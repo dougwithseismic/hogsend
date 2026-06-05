@@ -14,7 +14,10 @@ type ChatDemoProps = {
 /**
  * Animated runtime panel: a dark inset card (matches Wispr's dark code cards on
  * cream) whose messages fade/slide in on a timed, looping reveal. The agent
- * accent is amber (glow), bubbles use lavender (dawn) — no green.
+ * accent is amber (glow), bubbles use lavender (dawn) — no green. Like the other
+ * code-window surfaces it uses `bg-code` (fixed espresso, NON-flipping) so it
+ * stays DARK in both themes — its inner content is all non-flipping `white/*`,
+ * which would vanish if the surface inverted to cream under `.dark`.
  */
 export function ChatDemo({ messages, className }: ChatDemoProps) {
   // Number of messages currently revealed. Starts at 0, climbs to messages.length,
@@ -50,7 +53,7 @@ export function ChatDemo({ messages, className }: ChatDemoProps) {
   return (
     <div
       className={cn(
-        "relative rounded-2xl border border-white/10 bg-ink p-5 md:p-6",
+        "relative rounded-2xl border border-white/10 bg-code p-5 md:p-6",
         className,
       )}
     >
@@ -98,7 +101,7 @@ export function ChatDemo({ messages, className }: ChatDemoProps) {
               {isAgent ? (
                 <span
                   aria-hidden="true"
-                  className="grid size-7 shrink-0 place-items-center rounded-[6px] bg-glow font-display text-[13px] text-ink"
+                  className="grid size-7 shrink-0 place-items-center rounded-[6px] bg-glow font-display text-[13px] text-ink dark:text-[#3a2418]"
                 >
                   H
                 </span>
@@ -109,7 +112,7 @@ export function ChatDemo({ messages, className }: ChatDemoProps) {
                   "max-w-[80%] rounded-[10px] px-3.5 py-2.5 text-[13px] leading-relaxed",
                   isAgent
                     ? "border border-white/[0.08] bg-white/[0.04] text-white/80"
-                    : "bg-dawn text-ink",
+                    : "bg-dawn text-ink dark:text-[#3a2418]",
                 )}
               >
                 {message.text}

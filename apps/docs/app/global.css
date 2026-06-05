@@ -2,6 +2,9 @@
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
 
+/* Enable `dark:` utilities against next-themes' `.dark` class (Tailwind v4). */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ========================================================================== */
 /*  Hogsend design system — warm "Wispr Flow" editorial aesthetic.             */
 /*  Cream canvas, huge light EB Garamond serif headlines, rounded dark/teal    */
@@ -30,6 +33,10 @@
   --color-success: #3d5a1f; /* pistachio-dark — success text                    */
   --color-grape: #8b5cf6; /* saturated grape — links / active accents           */
 
+  /* Code-window surface — fixed espresso, NON-flipping. Code mockups stay dark */
+  /* in BOTH light and dark themes (no .dark override below).                   */
+  --color-code: #1f150f;
+
   /* Legacy alias safety-net: any stray bg-accent / text-accent degrades to    */
   /* the raspberry accent instead of the retired green. */
   --color-accent: #e8688f;
@@ -42,8 +49,7 @@
    Fumadocs token overrides — repaint the docs UI in the LIGHT cream palette.
    These run after the fumadocs imports so they win at equal specificity.
    -------------------------------------------------------------------------- */
-:root,
-.dark {
+:root {
   --color-fd-background: #fbf3e1; /* vanilla */
   --color-fd-foreground: #3a2418; /* chocolate */
   --color-fd-muted: rgba(58, 36, 24, 0.04);
@@ -62,10 +68,52 @@
   --color-fd-ring: #8b5cf6; /* grape purple */
 }
 
+/* --------------------------------------------------------------------------
+   DARK MODE — inverted-panel "dark neapolitan": espresso canvas, cream text +
+   cream panels, deep-berry + brighter grape. Override the SAME token names so
+   the whole token-driven site flips. Light :root values above are untouched.
+   -------------------------------------------------------------------------- */
+.dark {
+  --color-lumen: #251913; /* espresso — primary page background (the canvas)    */
+  --color-lumen-dark: #3a2a1e; /* espresso border / subtle divider on dark      */
+  --color-ink: #f3e9d6; /* warm cream — primary text + the now-light panels     */
+  --color-ink-soft: #ad9a85; /* muted cream — two-tone hero clause              */
+  --color-fathom: #883f56; /* deep strawberry panel (cream text reads on it)    */
+  --color-glow: #f481a4; /* brighter raspberry — doodles, accents               */
+  --color-pulse: #d9708b; /* berry accent for dark                              */
+  --color-dawn: #8c5fd4; /* deeper grape — primary button fill + tag chips      */
+  --color-mint: #cfe6ad; /* keep light pistachio (paired with dark-green text)  */
+  --color-paper: #2f2017; /* dark card surface                                  */
+  --color-success: #cfe6ad; /* pistachio-light — success text on dark           */
+  --color-grape: #c4a7f7; /* brighter grape — links / active accents            */
+
+  /* Fumadocs token overrides for dark (mirrors the light :root block above). */
+  --color-fd-background: #251913; /* espresso */
+  --color-fd-foreground: #f3e9d6; /* cream */
+  --color-fd-muted: rgba(243, 233, 214, 0.04);
+  --color-fd-muted-foreground: rgba(243, 233, 214, 0.6);
+  --color-fd-popover: #2f2017;
+  --color-fd-popover-foreground: #f3e9d6;
+  --color-fd-card: #2f2017;
+  --color-fd-card-foreground: #f3e9d6;
+  --color-fd-border: rgba(243, 233, 214, 0.12); /* cream hairline */
+  --color-fd-primary: #c4a7f7; /* brighter grape — links / active TOC */
+  --color-fd-primary-foreground: #251913;
+  --color-fd-secondary: rgba(243, 233, 214, 0.04);
+  --color-fd-secondary-foreground: #f3e9d6;
+  --color-fd-accent: rgba(243, 233, 214, 0.06);
+  --color-fd-accent-foreground: #f3e9d6;
+  --color-fd-ring: #c4a7f7; /* brighter grape */
+}
+
 html {
   scrollbar-gutter: stable;
   background-color: #fbf3e1; /* vanilla — the warm cream canvas */
   -webkit-font-smoothing: antialiased;
+}
+
+html.dark {
+  background-color: #251913; /* espresso — the dark canvas */
 }
 
 body {
@@ -136,6 +184,37 @@ h4,
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* --------------------------------------------------------------------------
+   Accessibility — a strong, consistent keyboard focus ring (grape, which
+   brightens under .dark via the token) plus a "skip to content" helper that is
+   visually hidden until it receives focus.
+   -------------------------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--color-grape);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Visually-hidden-until-focused skip link. The first body element; jumps to
+   #main-content. When focused it pins to the top-left as a grape pill. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background-color: var(--color-grape);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  left: 1rem;
+  top: 1rem;
 }
 
 /* --------------------------------------------------------------------------

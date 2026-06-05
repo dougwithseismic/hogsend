@@ -4,29 +4,7 @@ import { Squiggle } from "@/components/ds/doodle";
 import { FaqAccordion } from "@/components/ds/faq";
 import { Reveal } from "@/components/ds/reveal";
 import { Section } from "@/components/ds/section";
-
-const FAQ_ITEMS = [
-  {
-    q: "Do I need to replace PostHog or Resend?",
-    a: "No. Hogsend sits between them — it reads PostHog events and sends through Resend. Nothing to rip out.",
-  },
-  {
-    q: "Is it really just TypeScript?",
-    a: "Yes. Journeys and buckets are plain functions with normal control flow — no YAML, no drag-and-drop canvas.",
-  },
-  {
-    q: "Can I self-host it?",
-    a: "That's the default. Run it with Docker or deploy to Railway in one click. Your data stays in your own database.",
-  },
-  {
-    q: "What if I outgrow it?",
-    a: "You own a clean event model and proven journeys. Extend the engine, patch it, or eject to fully own the code.",
-  },
-  {
-    q: "Does it work without PostHog?",
-    a: "PostHog is the primary source, but any system that can send an HTTP webhook (Stripe, your API) can feed events in.",
-  },
-];
+import { FAQ_ITEMS } from "@/lib/faq-data";
 
 export function Faq() {
   return (

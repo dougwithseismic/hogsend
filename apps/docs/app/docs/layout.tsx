@@ -5,12 +5,7 @@ import { source } from "@/lib/source";
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <DocsLayout
-      tree={source.getPageTree()}
-      {...baseOptions()}
-      // Dark-only site — hide the (now no-op) light/dark toggle.
-      themeSwitch={{ enabled: false }}
-    >
+    <DocsLayout tree={source.getPageTree()} {...baseOptions()}>
       {children}
     </DocsLayout>
   );
