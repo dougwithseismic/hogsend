@@ -6,6 +6,11 @@
  * MUST equal the `@hogsend/engine` package version. This is NOT related to
  * `API_VERSION` in `packages/engine/src/env.ts` (the HTTP API contract version),
  * which moves on its own cadence.
+ *
+ * The emitted template uses engine exports (e.g. `reportApiReady` in
+ * `template/src/index.ts`); publishing `create-hogsend` without bumping this to
+ * an engine version that actually exports them yields a scaffold that won't
+ * compile. Bump in lockstep — see the `release` skill.
  */
 export const ENGINE_VERSION = "0.4.0";
 

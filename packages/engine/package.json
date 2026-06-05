@@ -12,7 +12,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./worker": "./src/worker.ts"
+    "./worker": "./src/worker.ts",
+    "./package.json": "./package.json"
   },
   "files": [
     "src",
@@ -42,6 +43,7 @@
     "hono": "^4.12.22",
     "ioredis": "^5.10.1",
     "papaparse": "^5.5.3",
+    "picocolors": "^1.1.1",
     "resend": "^6.12.3",
     "winston": "^3.19.0",
     "zod": "^4.4.3"

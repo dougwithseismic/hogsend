@@ -3,6 +3,7 @@ import { selectBucketTasks } from "./buckets/registry.js";
 import type { HogsendClient } from "./container.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
 import { selectJourneyTasks } from "./journeys/registry.js";
+import { reportWorkerReady } from "./lib/boot.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getPostHog } from "./lib/posthog.js";
 import { getRedisIfConnected } from "./lib/redis.js";
@@ -73,11 +74,22 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
   }
 
   async function start(): Promise<void> {
+    // Emit BEFORE the Hatchet handshake: proves the process booted past init
+    // even while the connection is still establishing (the worker banner /
+    // "ready" line only fires once `hatchet.worker()` resolves).
+    container.logger.info("Hogsend worker starting", {
+      hatchet: container.env.HATCHET_CLIENT_HOST_PORT,
+    });
+
     _worker = await hatchet.worker("hogsend-worker", { workflows });
 
-    container.logger.info(
-      `Hogsend worker started with ${journeyTasks.length} journey task(s)`,
-    );
+    reportWorkerReady({
+      client: container,
+      journeyTasks: journeyTasks.length,
+      bucketTasks: bucketTasks.length,
+      builtinTasks:
+        baseWorkflows.length - journeyTasks.length - bucketTasks.length,
+    });
 
     // Boot-time backfill / criteria-change re-eval (Section 6.6 B): diff each
     // enabled bucket's criteriaHash against bucket_configs and trigger a

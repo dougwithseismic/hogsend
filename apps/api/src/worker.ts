@@ -12,9 +12,9 @@ async function main() {
   const worker = createWorker({ container: client, journeys, buckets });
 
   async function shutdown(signal: string) {
-    console.log(`${signal} received, shutting down worker`);
+    client.logger.info(`${signal} received, shutting down worker`);
     await worker.stop();
-    console.log("Worker stopped");
+    client.logger.info("Worker stopped");
     process.exit(0);
   }
 
