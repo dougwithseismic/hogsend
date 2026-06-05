@@ -26,8 +26,10 @@ type SectionProps = {
   children: ReactNode;
 };
 
+// Uniform inset so every rounded panel is framed by the cream canvas evenly on
+// all four sides (matching horizontal + vertical gutters keep the rhythm even).
 const PANEL_SHELL =
-  "mx-4 overflow-hidden rounded-[2.5rem] md:mx-6 md:rounded-[4rem]";
+  "mx-4 my-3 overflow-hidden rounded-[2.5rem] md:mx-6 md:my-4 md:rounded-[4rem]";
 
 /**
  * Page section. Cream/light tones are transparent over the body and use the
@@ -49,7 +51,9 @@ export function Section({
   const toneClasses = cream
     ? "bg-transparent text-ink"
     : tone === "teal"
-      ? "bg-fathom text-lumen"
+      ? // strawberry panel: pastel pink, so it carries chocolate (ink) text and
+        // light-tone children (white cards), like a tinted cream section.
+        "bg-fathom text-ink"
       : "bg-ink text-lumen";
 
   const inner = (

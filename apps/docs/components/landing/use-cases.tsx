@@ -59,17 +59,17 @@ const USE_CASES: UseCase[] = [
 ];
 
 /**
- * "What you can build" — a DARK rounded panel stacked on the cream canvas,
- * showcasing the lifecycle email flows that ship ready to edit. A centered
- * light-serif heading with a hand-drawn amber squiggle, then a 3-up grid of
- * feature cards with lavender icon chips on the dark surface.
+ * "What you can build" — a STRAWBERRY rounded panel (pastel pink) stacked on the
+ * vanilla canvas, showcasing the lifecycle email flows that ship ready to edit.
+ * A centered light-serif heading with a hand-drawn raspberry squiggle, then a
+ * 3-up grid of white feature cards with chocolate icon chips on the pink surface.
  */
 export function UseCases() {
   return (
-    <Section tone="dark" id="use-cases">
+    <Section tone="teal" id="use-cases">
       <Reveal>
         <SectionHeading
-          tone="dark"
+          tone="light"
           align="center"
           eyebrow="WHAT YOU CAN BUILD"
           title={
@@ -91,7 +91,7 @@ export function UseCases() {
         {USE_CASES.map((useCase, index) => (
           <Reveal key={useCase.title} delay={(index % 3) * 0.08}>
             <FeatureCard
-              tone="dark"
+              tone="light"
               icon={useCase.icon}
               title={useCase.title}
               description={useCase.description}
@@ -102,7 +102,7 @@ export function UseCases() {
       </div>
 
       <Reveal delay={0.12}>
-        <p className="mt-12 flex items-center justify-center gap-2 text-center font-mono text-[0.6875rem] text-lumen/55 uppercase tracking-[0.08em] md:mt-16">
+        <p className="mt-12 flex items-center justify-center gap-2 text-center font-mono text-[0.6875rem] text-ink/55 uppercase tracking-[0.08em] md:mt-16">
           <Star className="size-4 text-glow" />
           Defined in code · versioned in git · observed in Studio
         </p>

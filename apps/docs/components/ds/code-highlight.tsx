@@ -30,7 +30,7 @@ export async function CodeHighlight({
           style={{ ...style, backgroundColor: "transparent" }}
           className={cn(
             className,
-            "overflow-x-auto rounded-2xl border border-ink/10 bg-ink px-4 py-4 font-mono text-[13px] leading-relaxed",
+            "overflow-x-auto rounded-2xl border border-ink/10 bg-ink px-5 py-5 font-mono text-[13.5px] leading-relaxed md:px-6 md:py-6 md:text-[14.5px]",
             propClassName,
           )}
         />

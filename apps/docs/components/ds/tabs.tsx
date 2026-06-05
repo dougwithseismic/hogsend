@@ -82,7 +82,7 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
       </div>
 
       {/* Right active panel */}
-      <div className="relative min-h-[20rem]">
+      <div className="relative min-h-[30rem] md:min-h-[40rem]">
         <AnimatePresence mode="wait">
           <motion.div
             key={active.id}
@@ -112,7 +112,9 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
                 </div>
               ) : null}
             </div>
-            <div className="min-w-0">{active.media}</div>
+            <div className="min-w-0 [&_pre]:min-h-[24rem] md:[&_pre]:min-h-[30rem]">
+              {active.media}
+            </div>
           </motion.div>
         </AnimatePresence>
       </div>

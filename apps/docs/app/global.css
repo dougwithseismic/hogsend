@@ -16,22 +16,23 @@
   --font-sans: var(--ff-body), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--ff-mono), ui-monospace, "SFMono-Regular", monospace;
 
-  /* Brand color tokens → utilities: bg-lumen, text-ink, border-fathom…       */
-  --color-lumen: #ffffeb; /* cream — primary page background (the canvas)      */
-  --color-lumen-dark: #e4e4d0; /* cream borders / subtle dividers on light     */
-  --color-ink: #1a1a1a; /* primary text + dark panel background                */
-  --color-ink-soft: #8a8a80; /* muted serif clause in two-tone hero           */
-  --color-fathom: #034f46; /* teal panel + testimonial cards                   */
-  --color-glow: #ffa946; /* amber — doodles, icon accents, arrows             */
-  --color-pulse: #7f1c34; /* wine — rare deep accent (badges/error-ish)        */
-  --color-dawn: #f0d7ff; /* lavender — primary button fill + tag chips         */
-  --color-mint: #cef5ca; /* success tag fill                                   */
-  --color-paper: #ffffff; /* white cards/buttons on cream                      */
-  --color-success: #114e0b; /* success text (on mint chips)                    */
+  /* Neapolitan-ice-cream + purple palette → utilities bg-lumen, text-ink, …   */
+  --color-lumen: #fbf3e1; /* vanilla — primary page background (the canvas)     */
+  --color-lumen-dark: #ecdcc2; /* vanilla border / subtle divider on light     */
+  --color-ink: #3a2418; /* chocolate — primary text + dark panel background     */
+  --color-ink-soft: #a98d77; /* milk-chocolate — muted clause in two-tone hero  */
+  --color-fathom: #f7adc6; /* strawberry — pastel pink accent panel (ink text)  */
+  --color-glow: #e8688f; /* strawberry-deep / raspberry — doodles, accents      */
+  --color-pulse: #a8385f; /* deep berry — rare strong accent                    */
+  --color-dawn: #c3a0ee; /* grape purple — primary button fill + tag chips      */
+  --color-mint: #cfe6ad; /* pistachio — success tag fill                        */
+  --color-paper: #fffaf0; /* vanilla-white — cards/buttons on the cream         */
+  --color-success: #3d5a1f; /* pistachio-dark — success text                    */
+  --color-grape: #8b5cf6; /* saturated grape — links / active accents           */
 
   /* Legacy alias safety-net: any stray bg-accent / text-accent degrades to    */
-  /* amber instead of the retired green. */
-  --color-accent: #ffa946;
+  /* the raspberry accent instead of the retired green. */
+  --color-accent: #e8688f;
 
   /* Container width matches the reference site (1320px content frame). */
   --spacing-container: 82.5rem; /* 1320px */
@@ -43,27 +44,27 @@
    -------------------------------------------------------------------------- */
 :root,
 .dark {
-  --color-fd-background: #ffffeb; /* lumen */
-  --color-fd-foreground: #1a1a1a; /* ink */
-  --color-fd-muted: rgba(26, 26, 26, 0.04);
-  --color-fd-muted-foreground: rgba(26, 26, 26, 0.6);
-  --color-fd-popover: #ffffff;
-  --color-fd-popover-foreground: #1a1a1a;
-  --color-fd-card: #ffffff;
-  --color-fd-card-foreground: #1a1a1a;
-  --color-fd-border: rgba(26, 26, 26, 0.12); /* #1a1a1a1f-ish hairline */
-  --color-fd-primary: #034f46; /* teal */
-  --color-fd-primary-foreground: #ffffff;
-  --color-fd-secondary: rgba(26, 26, 26, 0.04);
-  --color-fd-secondary-foreground: #1a1a1a;
-  --color-fd-accent: rgba(26, 26, 26, 0.06);
-  --color-fd-accent-foreground: #1a1a1a;
-  --color-fd-ring: #034f46; /* teal */
+  --color-fd-background: #fbf3e1; /* vanilla */
+  --color-fd-foreground: #3a2418; /* chocolate */
+  --color-fd-muted: rgba(58, 36, 24, 0.04);
+  --color-fd-muted-foreground: rgba(58, 36, 24, 0.6);
+  --color-fd-popover: #fffaf0;
+  --color-fd-popover-foreground: #3a2418;
+  --color-fd-card: #fffaf0;
+  --color-fd-card-foreground: #3a2418;
+  --color-fd-border: rgba(58, 36, 24, 0.12); /* chocolate hairline */
+  --color-fd-primary: #8b5cf6; /* grape purple — links / active TOC */
+  --color-fd-primary-foreground: #fffaf0;
+  --color-fd-secondary: rgba(58, 36, 24, 0.04);
+  --color-fd-secondary-foreground: #3a2418;
+  --color-fd-accent: rgba(58, 36, 24, 0.06);
+  --color-fd-accent-foreground: #3a2418;
+  --color-fd-ring: #8b5cf6; /* grape purple */
 }
 
 html {
   scrollbar-gutter: stable;
-  background-color: #ffffeb; /* lumen — cream canvas, no more black */
+  background-color: #fbf3e1; /* vanilla — the warm cream canvas */
   -webkit-font-smoothing: antialiased;
 }
 
@@ -96,13 +97,14 @@ h4,
   padding-inline: 1.5rem;
 }
 
-/* Vertical section rhythm (responsive). */
+/* Vertical section rhythm — one consistent value everywhere so every section
+   (open cream or rounded panel) shares the same internal top/bottom padding. */
 .section-py {
-  padding-block: 6rem;
+  padding-block: 7rem;
 }
 @media (min-width: 768px) {
   .section-py {
-    padding-block: 8rem;
+    padding-block: 9rem;
   }
 }
 
@@ -116,13 +118,13 @@ h4,
   text-transform: uppercase;
 }
 
-/* Soft amber/teal glow used sparingly behind cream sections (replaces the
-   retired green aurora). Keep it subtle — playful punctuation, not a flat fill. */
+/* Soft grape-purple glow used sparingly behind cream sections. Keep it subtle —
+   playful punctuation, not a flat fill. */
 .aurora {
   background: radial-gradient(
     60% 50% at 50% 0%,
-    rgba(255, 169, 70, 0.18),
-    rgba(255, 169, 70, 0) 70%
+    rgba(195, 160, 238, 0.22),
+    rgba(195, 160, 238, 0) 70%
   );
   filter: blur(8px);
 }

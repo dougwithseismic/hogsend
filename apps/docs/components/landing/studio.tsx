@@ -9,11 +9,11 @@ import studioSends from "@/public/images/studio/studio-sends.png";
 import studioTemplates from "@/public/images/studio/studio-templates.png";
 
 /**
- * STUDIO (teal panel). A clean dashboard showcase on a rounded teal panel
- * stacked on the cream canvas: a 2x2 grid of product screenshots, each framed
- * in a dark `MockupFrame` bezel with a small Geist-Mono caption label below the
- * image, prefixed by a tiny amber square. Server component — composes the
- * client `Reveal` and renders static Next images with blur placeholders.
+ * STUDIO (chocolate panel). A clean dashboard showcase on a rounded chocolate
+ * panel stacked on the vanilla canvas: a 2x2 grid of product screenshots, each
+ * framed in a dark `MockupFrame` bezel with a small Geist-Mono caption label
+ * below the image, prefixed by a tiny raspberry square. Server component —
+ * composes the client `Reveal` and renders static Next images with blur.
  */
 
 const SHOTS: Array<{ img: StaticImageData; label: string }> = [
@@ -25,10 +25,10 @@ const SHOTS: Array<{ img: StaticImageData; label: string }> = [
 
 export function Studio({ className }: { className?: string }) {
   return (
-    <Section tone="teal" id="studio" className={className}>
+    <Section tone="dark" id="studio" className={className}>
       <Reveal>
         <SectionHeading
-          tone="teal"
+          tone="dark"
           eyebrow="STUDIO"
           title={
             <span className="relative inline-block">

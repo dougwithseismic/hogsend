@@ -8,7 +8,6 @@ import { LogoStrip } from "@/components/landing/logo-strip";
 import { PoweredByHatchet } from "@/components/landing/powered-by";
 import { SelfHosted } from "@/components/landing/self-hosted";
 import { Studio } from "@/components/landing/studio";
-import { Testimonials } from "@/components/landing/testimonials";
 import { UseCases } from "@/components/landing/use-cases";
 
 export const metadata: Metadata = {
@@ -28,7 +27,6 @@ export default function HomePage() {
       <HowItWorks />
       <Studio />
       <SelfHosted />
-      <Testimonials />
       <Faq />
       <FinalCta />
     </main>
