@@ -4,10 +4,19 @@ import { sql } from "drizzle-orm";
 import type { AppEnv } from "../app.js";
 import { API_VERSION } from "../env.js";
 import { getRedis } from "../lib/redis.js";
+import { getWorkerHeartbeat } from "../lib/worker-heartbeat.js";
 
 const componentSchema = z.object({
   status: z.enum(["up", "down"]),
   latencyMs: z.number().optional(),
+});
+
+// Worker connectivity, derived from the Redis heartbeat. Informational only —
+// the worker is a separate service, so its absence does NOT make the API
+// "degraded" (that would falsely fail the API's own healthcheck).
+const workerComponentSchema = z.object({
+  status: z.enum(["up", "down"]),
+  lastSeenAt: z.string().optional(),
 });
 
 // Per-track schema version block. Two tracks: `engine` (bundled @hogsend/db
@@ -28,6 +37,7 @@ const healthResponseSchema = z.object({
   components: z.object({
     database: componentSchema,
     redis: componentSchema,
+    worker: workerComponentSchema,
   }),
   schema: z.object({
     engine: trackSchema,
@@ -73,7 +83,7 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
   async (c) => {
     const { db, clientJournal } = c.get("container");
 
-    const [dbCheck, redisCheck, engine, client] = await Promise.all([
+    const [dbCheck, redisCheck, heartbeat, engine, client] = await Promise.all([
       checkComponent(async () => {
         await db.execute(sql`SELECT 1`);
       }),
@@ -86,6 +96,7 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
         // host is genuinely unreachable → a truthful "down").
         await getRedis().ping();
       }),
+      getWorkerHeartbeat(),
       getEngineSchemaVersion(db),
       getClientSchemaVersion(db, clientJournal ?? { entries: [] }),
     ]);
@@ -123,6 +134,10 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
         components: {
           database: dbCheck,
           redis: redisCheck,
+          worker: {
+            status: heartbeat.alive ? ("up" as const) : ("down" as const),
+            lastSeenAt: heartbeat.lastSeenAt,
+          },
         },
       },
       200,
