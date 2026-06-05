@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/json-ld";
 import { BuildingBlocks } from "@/components/landing/building-blocks";
+import { BuiltBy } from "@/components/landing/built-by";
+import { EmailFeatures } from "@/components/landing/email-features";
 import { Faq } from "@/components/landing/faq";
 import { FinalCta } from "@/components/landing/final-cta";
 import { Hero } from "@/components/landing/hero";
@@ -62,12 +64,14 @@ export default function HomePage() {
       <Hero />
       <LogoStrip />
       <BuildingBlocks />
+      <EmailFeatures />
       <PoweredByHatchet />
       <UseCases />
       <HowItWorks />
       <Studio />
       <SelfHosted />
       <Faq />
+      <BuiltBy />
       <FinalCta />
     </main>
   );

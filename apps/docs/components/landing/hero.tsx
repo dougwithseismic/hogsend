@@ -36,10 +36,10 @@ export function Hero({ className }: HeroProps): JSX.Element {
           </h1>
 
           <p className="mt-7 max-w-3xl text-lg leading-relaxed text-ink/70">
-            PostHog already knows what your users do. Resend already sends your
-            mail. Hogsend is the piece that connects them — so when someone
-            signs up, hits a milestone, or goes quiet, the right message goes
-            out on its own.
+            PostHog already knows what your users do. Your email provider
+            already sends the mail. Hogsend is the piece that connects them — so
+            when someone signs up, hits a milestone, or goes quiet, the right
+            message goes out on its own.
           </p>
         </Reveal>
 
@@ -74,7 +74,7 @@ export function Hero({ className }: HeroProps): JSX.Element {
 
         <Reveal delay={0.24}>
           <p className="mt-6 font-mono text-[0.75rem] tracking-wide text-ink/50">
-            Open source · self-hosted · PostHog + Resend
+            Open source · self-hosted · works with any email provider
           </p>
         </Reveal>
       </div>

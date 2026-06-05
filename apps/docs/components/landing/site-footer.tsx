@@ -6,6 +6,7 @@ import { cn } from "@/lib/cn";
 const REPO_URL = "https://github.com/dougwithseismic/hogsend";
 const NPM_URL = "https://www.npmjs.com/package/@hogsend/engine";
 const X_URL = "https://x.com/hogsend";
+const MAKER_URL = "https://linkedin.com/in/dougsilkstone";
 
 type FooterLink = {
   label: string;
@@ -161,8 +162,8 @@ export function SiteFooter({ className }: { className?: string }) {
             <div className="max-w-sm">
               <BrandLockup />
               <p className="mt-5 text-sm leading-relaxed text-ink/60">
-                Code-first lifecycle email for teams on PostHog + Resend.
-                Self-hosted and yours to run.
+                Code-first lifecycle email for product teams on PostHog.
+                Provider-agnostic, self-hosted, and yours to run.
               </p>
             </div>
 
@@ -194,6 +195,14 @@ export function SiteFooter({ className }: { className?: string }) {
         <div className="mt-12 flex flex-col items-start gap-5 border-t border-ink/10 pt-8 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <p className="text-sm text-ink/50">© Hogsend 2026</p>
+            <a
+              href={MAKER_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm text-ink/60 transition-colors hover:text-ink"
+            >
+              Built by Doug Silkstone
+            </a>
             {META_LINKS.map((link) => (
               <FooterLinkItem key={link.label} link={link} />
             ))}
