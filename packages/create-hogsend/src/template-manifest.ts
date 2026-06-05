@@ -1,10 +1,11 @@
 /**
  * The engine version line that `create-hogsend` pins into the emitted
- * `package.json`. This is the SINGLE source of truth for the pin — Phase 4
- * changesets bumps it in lockstep with `packages/engine/package.json`
- * (`version`) and `packages/engine/src/env.ts` (`API_VERSION`).
+ * `package.json`. This is the SINGLE source of truth for the pin — bumped on
+ * each release to track the `@hogsend/engine` package `version`.
  *
- * MUST equal the `@hogsend/engine` package version.
+ * MUST equal the `@hogsend/engine` package version. This is NOT related to
+ * `API_VERSION` in `packages/engine/src/env.ts` (the HTTP API contract version),
+ * which moves on its own cadence.
  */
 export const ENGINE_VERSION = "0.4.0";
 

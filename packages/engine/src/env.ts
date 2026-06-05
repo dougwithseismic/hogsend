@@ -1,6 +1,13 @@
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+/**
+ * The HTTP API contract version — surfaced in the OpenAPI document
+ * (`info.version`) and the `GET /v1/health` body. This is the WIRE contract
+ * version and is independent of the `@hogsend/engine` npm package version: bump
+ * it only on an API-breaking change (a new `/vN` route family), NOT on every
+ * package release. The `/v1` route prefix is hardcoded separately.
+ */
 export const API_VERSION = "0.0.1";
 
 export const env = createEnv({
