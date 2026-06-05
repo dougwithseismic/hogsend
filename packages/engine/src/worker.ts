@@ -7,6 +7,7 @@ import { reportWorkerReady } from "./lib/boot.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getPostHog } from "./lib/posthog.js";
 import { getRedisIfConnected } from "./lib/redis.js";
+import { startWorkerHeartbeat } from "./lib/worker-heartbeat.js";
 import {
   bucketBackfillTask,
   enqueueBucketBackfills,
@@ -64,8 +65,12 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
   // Hatchet's worker is created lazily on start so signal wiring can own its
   // lifecycle. `_worker` is captured for stop().
   let _worker: Awaited<ReturnType<typeof hatchet.worker>> | undefined;
+  let _stopHeartbeat: (() => Promise<void>) | undefined;
 
   async function stop(): Promise<void> {
+    // Delete the heartbeat first (an immediate "worker down" signal) before the
+    // Redis connection is torn down below.
+    await _stopHeartbeat?.();
     await Promise.allSettled([
       _worker?.stop(),
       getPostHog()?.shutdown(),
@@ -90,6 +95,10 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
       builtinTasks:
         baseWorkflows.length - journeyTasks.length - bucketTasks.length,
     });
+
+    // Publish liveness so the API + Studio can show "worker connected"
+    // (read via GET /v1/health). Best-effort; never blocks the listener.
+    _stopHeartbeat = startWorkerHeartbeat(container.logger);
 
     // Boot-time backfill / criteria-change re-eval (Section 6.6 B): diff each
     // enabled bucket's criteriaHash against bucket_configs and trigger a
