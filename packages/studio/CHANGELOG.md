@@ -1,5 +1,16 @@
 # @hogsend/studio
 
+## 0.5.0
+
+### Minor Changes
+
+- f4e604e: Version-line alignment — no functional changes. Bumped to keep all
+  scaffold-pinned packages on the engine `0.5.x` minor line so the caret-pinned
+  (`^{{ENGINE_VERSION}}`) `create-hogsend` template resolves every `@hogsend/*`
+  dependency. (`@hogsend/email` also picks up a README refresh documenting that the
+  `EmailProvider` contract now lives in `@hogsend/core`.)
+- 41c4029: Studio onboarding + a Debug (test-event) panel. A new **Debug** view fires events straight into `POST /v1/ingest` — the same path real events take — so journeys can be triggered locally without a PostHog tunnel; event presets are derived from the registered journeys' triggers. Empty states for Journeys and Buckets now link to the guides, the Overview shows a "getting started" card on a fresh install, and the sidebar gains a persistent Docs link.
+
 ## 0.4.0
 
 ### Minor Changes

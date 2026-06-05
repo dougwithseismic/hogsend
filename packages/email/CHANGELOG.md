@@ -1,5 +1,15 @@
 # @hogsend/email
 
+## 0.5.0
+
+### Minor Changes
+
+- f4e604e: Version-line alignment — no functional changes. Bumped to keep all
+  scaffold-pinned packages on the engine `0.5.x` minor line so the caret-pinned
+  (`^{{ENGINE_VERSION}}`) `create-hogsend` template resolves every `@hogsend/*`
+  dependency. (`@hogsend/email` also picks up a README refresh documenting that the
+  `EmailProvider` contract now lives in `@hogsend/core`.)
+
 ## 0.4.0
 
 ### Minor Changes
