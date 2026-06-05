@@ -74,6 +74,13 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
   }
 
   async function start(): Promise<void> {
+    // Emit BEFORE the Hatchet handshake: proves the process booted past init
+    // even while the connection is still establishing (the worker banner /
+    // "ready" line only fires once `hatchet.worker()` resolves).
+    container.logger.info("Hogsend worker starting", {
+      hatchet: container.env.HATCHET_CLIENT_HOST_PORT,
+    });
+
     _worker = await hatchet.worker("hogsend-worker", { workflows });
 
     reportWorkerReady({

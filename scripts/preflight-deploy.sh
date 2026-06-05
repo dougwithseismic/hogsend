@@ -79,7 +79,7 @@ run_mode() { # name  startup-marker-regex(optional)  cmd...
 
 fail=0
 run_mode api     'Hogsend API ready|Server running'         node apps/api/dist/index.js     || fail=1
-run_mode worker  'Hogsend worker ready|worker started'      node apps/api/dist/worker.js    || fail=1
+run_mode worker  'Hogsend worker starting|worker started'   node apps/api/dist/worker.js    || fail=1
 run_mode migrate ''                                         tsx packages/db/src/migrate.ts  || fail=1
 
 echo ""
