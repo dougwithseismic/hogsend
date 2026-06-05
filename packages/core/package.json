@@ -14,6 +14,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types/index.ts",
+    "./providers": "./src/providers/index.ts",
     "./registry": "./src/registry/index.ts",
     "./conditions": "./src/conditions/index.ts",
     "./schedule": "./src/schedule/index.ts",
@@ -41,6 +42,7 @@
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
     "@types/node": "latest",
+    "@types/react": "^19.2.16",
     "vitest": "^4.1.8"
   }
 }

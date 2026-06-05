@@ -1,7 +1,5 @@
-import {
-  createPostHogService,
-  type PostHogService,
-} from "@hogsend/plugin-posthog";
+import type { PostHogService } from "@hogsend/core";
+import { createPostHogService } from "@hogsend/plugin-posthog";
 import { getRedis } from "./redis.js";
 
 let _posthog: PostHogService | undefined;

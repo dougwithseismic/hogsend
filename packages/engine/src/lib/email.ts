@@ -3,21 +3,23 @@ import type {
   EmailService,
   EmailServiceSendOptions,
 } from "./email-service-types.js";
+import { createSingleton } from "./singleton.js";
 
-let _service: EmailService | null = null;
+const _service = createSingleton<EmailService>("Email service");
 
-export function setEmailService(service: EmailService): void {
-  _service = service;
-}
+export const setEmailService = _service.set;
 
-function getService(): EmailService {
-  if (!_service) {
-    throw new Error(
-      "Email service not initialized. Call setEmailService() at startup.",
-    );
-  }
-  return _service;
-}
+/**
+ * The injected {@link EmailService} (set by `createHogsendClient` →
+ * `setEmailService`). Exposed so module-level task-execution sites with no
+ * client reference (the `send-email` Hatchet task, the alerting task) deliver
+ * through the same provider-backed mailer the container built, honoring a
+ * swapped provider instead of constructing a raw Resend client of their own.
+ * Throws if read before the container has installed the service — same
+ * guarantee as the journey/bucket registry singletons (the container always
+ * runs first in both the API and worker processes).
+ */
+export const getEmailService = _service.get;
 
 export interface SendEmailOptions {
   to: string;
@@ -37,7 +39,7 @@ export interface SendEmailResult {
 export async function sendEmail(
   opts: SendEmailOptions,
 ): Promise<SendEmailResult> {
-  const service = getService();
+  const service = getEmailService();
 
   let unsubscribeUrl: string | undefined;
   if (process.env.API_PUBLIC_URL && process.env.BETTER_AUTH_SECRET) {

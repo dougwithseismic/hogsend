@@ -5,7 +5,6 @@ import type { DefinedJourney } from "./journeys/define-journey.js";
 import { selectJourneyTasks } from "./journeys/registry.js";
 import { reportWorkerReady } from "./lib/boot.js";
 import { hatchet } from "./lib/hatchet.js";
-import { getPostHog } from "./lib/posthog.js";
 import { getRedisIfConnected } from "./lib/redis.js";
 import { startWorkerHeartbeat } from "./lib/worker-heartbeat.js";
 import {
@@ -73,7 +72,10 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     await _stopHeartbeat?.();
     await Promise.allSettled([
       _worker?.stop(),
-      getPostHog()?.shutdown(),
+      // Shut down the injected analytics instance (same object the worker's
+      // tasks use), not the module singleton. Undefined when no analytics is
+      // configured — the optional chain makes that a no-op.
+      container.analytics?.shutdown(),
       getRedisIfConnected()?.quit(),
     ]);
   }

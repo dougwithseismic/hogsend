@@ -28,6 +28,7 @@
     "test:watch": "vitest watch"
   },
   "dependencies": {
+    "@hogsend/core": "workspace:^",
     "posthog-node": "^5.35.1"
   },
   "peerDependencies": {

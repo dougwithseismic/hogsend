@@ -1,3 +1,4 @@
+import type { EmailProvider } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import { emailPreferences, emailSends } from "@hogsend/db";
 import type {
@@ -7,7 +8,6 @@ import type {
   TemplateRegistry,
 } from "@hogsend/email";
 import { getTemplate, renderToHtml } from "@hogsend/email";
-import type { EmailProvider } from "@hogsend/plugin-resend";
 import { eq } from "drizzle-orm";
 import type {
   FrequencyCapConfig,

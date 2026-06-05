@@ -24,7 +24,7 @@ A scannable comparison across the platforms most commonly evaluated alongside Ho
 | Push notifications | No | Yes | No | Yes | No |
 | In-app messaging | No | Yes | No | No | No |
 | Webhooks (outbound) | Yes | Yes | Yes (limited) | Yes | Yes |
-| Slack / custom channels | Via plugins | Via integrations | No | No | Via integrations |
+| Slack / custom channels | Via code | Via integrations | No | No | Via integrations |
 
 ## Automation
 
@@ -64,7 +64,7 @@ A scannable comparison across the platforms most commonly evaluated alongside Ho
 | TypeScript / code-first | Yes | No | SDK only | No | No |
 | Consumed as a versioned package | Yes (`@hogsend/engine`) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) |
 | Clean framework upgrades | Yes (`pnpm up "@hogsend/*"`) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) | N/A (SaaS) |
-| Plugin architecture | Yes (`@hogsend/plugin-*`) | No | No | No | No |
+| Swappable email/analytics providers | Yes (`EmailProvider` / `PostHogService` contracts) | No | No | No | No |
 | CI/CD friendly | Yes (content is code) | No | Partially | No | No |
 | React Email templates | Yes (`@hogsend/email`) | No | No | No | No |
 | Version-controlled workflows | Yes (Git) | No | No | No | No |
@@ -91,7 +91,7 @@ A few things to keep in mind:
 
 **"No" doesn't always mean "never"** -- platforms add features regularly. Check current docs before making a decision based on this table alone.
 
-**"Via plugins" / "Via code"** -- some Hogsend capabilities aren't built-in features with UI controls. They're available because your journeys, templates, and routes are code you own and inject into the engine. A/B testing in Hogsend means writing an `if` statement with `Math.random()` or checking a PostHog feature flag. Slack notifications means creating a plugin package and importing it into a journey. This is a strength if your team works in code. It's a gap if your team expects a UI.
+**"Via code"** -- some Hogsend capabilities aren't built-in features with UI controls. They're available because your journeys, templates, and routes are code you own and inject into the engine. A/B testing in Hogsend means writing an `if` statement with `Math.random()` or checking a PostHog feature flag. Slack notifications means installing the Slack SDK and calling it from a journey -- an integration is just code, with no framework to learn. This is a strength if your team works in code. It's a gap if your team expects a UI.
 
 **Owning content vs. owning the framework.** "Self-hosted" and "code-first" don't mean you maintain a fork. The framework is the `@hogsend/engine` package you pin and upgrade like any dependency; the code you own is your *content* -- journeys, templates, webhook sources, custom routes, config, and your own migrations. Framework upgrades are `pnpm up "@hogsend/*"` plus a migration run, not an upstream merge. When you do need to change engine behavior, there's an editability ladder -- extend through injection points, patch in place, or eject a single package into `vendor/` -- rather than an all-or-nothing fork.
 

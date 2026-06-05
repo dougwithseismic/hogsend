@@ -1,11 +1,17 @@
 ---
 title: Integrations & Plugins
-description: Call any external service from a journey — Slack, Twilio, a CRM. Standalone imports, no plugin registry, no lifecycle hooks.
+description: Two kinds of extension — capability providers (email, analytics) behind an engine-owned contract, and integrations (Slack, Twilio, a CRM) as standalone imports with no registry or lifecycle hooks.
 ---
 
-There is no plugin framework to learn. A "plugin" in Hogsend is just well-organized code that wraps an external service and exposes typed functions you call from a journey. The engine ships two such packages — `@hogsend/plugin-posthog` (person properties + event capture) and `@hogsend/plugin-resend` (a dumb email `EmailProvider`) — but you don't need to author a workspace package to integrate something new.
+Extending Hogsend falls into two categories. A handful of **capabilities** the engine itself depends on — sending email, capturing analytics — go through an engine-owned contract, and you swap the implementation behind it. **Everything else you call out to** — Slack, Twilio, a CRM, Stripe — is just code: install the SDK, write a thin wrapper, import it into a journey. There's no plugin framework to learn for that second category, and it's most of what this page covers.
 
 Because journeys are **your content** in your own app, the simplest integration is the best one: install the service's SDK, write a thin service wrapper in your `src/` tree, and import it directly into a journey. There's no plugin registration, no lifecycle hooks, no abstract base classes, and nothing to inject into the engine — the engine never imports your content, and it doesn't need to know about your integrations either.
+
+## Two kinds of extension
+
+**1. Capability providers (email, analytics).** Email and analytics are capabilities the engine drives itself, so each has an engine-owned contract — `EmailProvider` and `PostHogService` — defined in `@hogsend/core` and re-exported from `@hogsend/engine` (the canonical import). You supply an implementation via `createHogsendClient({ email: { provider }, analytics })` and the engine routes to it, including inbound provider webhooks. `@hogsend/plugin-resend` and `@hogsend/plugin-posthog` are the **bundled defaults and reference implementations** of these contracts — not mere "well-organized code" wrappers. To swap email for another provider, implement the `EmailProvider` interface; see [Email](/docs/guides/email#the-emailprovider-contract-swapping-providers).
+
+**2. Integrations (everything you call out to).** Slack, a CRM, Stripe, an internal HTTP API — anything a journey reaches outward to has **no contract** and no engine involvement. You import a function and call it. There's no registry, no auto-discovery, no lifecycle. That's the rest of this page.
 
 ## The model: standalone imports
 
@@ -221,6 +227,8 @@ The option is named **`extraWorkflows`**. The engine always registers its built-
 
 A standalone module in your app is the right default. Author a real workspace package only when an integration is **reusable across multiple apps** or you intend to **contribute it back to the engine**. That is engine-development work — done in a clone of the Hogsend monorepo, not in a scaffolded client app — and the package then ships and versions like any other `@hogsend/*` dependency. (For changing the engine's *existing* packages from a client app, see the Patch/Eject rungs in [Upgrading & Customizing](/docs/operating/upgrading).)
 
+If the package is a **capability provider** (an alternative email or analytics backend, like `@hogsend/plugin-resend` and `@hogsend/plugin-posthog`), its "public contract" is the engine-owned interface — `EmailProvider` / `PostHogService` from `@hogsend/core` (re-exported by `@hogsend/engine`) — not a package-local `types.ts`. The package implements that interface and exports a factory; consumers wire it in via `createHogsendClient({ email: { provider }, analytics })`. For an outbound **integration**, there is no engine contract and the package's `types.ts` defines its own surface.
+
 If you do build one, follow the existing layout:
 
 ```
@@ -228,7 +236,7 @@ packages/plugin-{name}/
   src/
     client.ts       # thin SDK/HTTP client wrapper
     service.ts      # high-level service (caching, retries, convenience methods)
-    types.ts        # config, option, and result interfaces — the public contract
+    types.ts        # config, option, and result interfaces (a capability provider implements the engine-owned contract instead)
     index.ts        # barrel exports — one import path
   package.json
   tsconfig.json

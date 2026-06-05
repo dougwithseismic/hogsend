@@ -17,7 +17,6 @@ async function dispatchAlert(opts: {
   rule: typeof alertRules.$inferSelect;
   message: string;
   payload: Record<string, unknown>;
-  resendApiKey?: string;
 }): Promise<{ deliveryStatus: string; error?: string }> {
   const config = opts.rule.channelConfig as Record<string, string>;
   switch (opts.rule.channel) {
@@ -45,7 +44,6 @@ async function dispatchAlert(opts: {
         to: config.to ?? "",
         subject: `[Hogsend Alert] ${opts.rule.name}`,
         body: `<p>${opts.message}</p><pre>${JSON.stringify(opts.payload, null, 2)}</pre>`,
-        resendApiKey: opts.resendApiKey ?? "",
       });
       return result.ok
         ? { deliveryStatus: "sent" }
@@ -62,7 +60,6 @@ async function dispatchAlert(opts: {
 export async function checkAlertRules(opts: {
   db: Database;
   logger: Logger;
-  resendApiKey?: string;
 }): Promise<void> {
   const { db, logger } = opts;
 
@@ -174,7 +171,6 @@ export async function checkAlertRules(opts: {
         rule,
         message,
         payload,
-        resendApiKey: opts.resendApiKey,
       });
 
       await Promise.all([

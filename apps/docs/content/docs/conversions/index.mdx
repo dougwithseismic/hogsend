@@ -13,7 +13,7 @@ Hogsend's job is to decide *when a conversion happened* and fire a clean, well-n
   This is the **outbound** mirror of [PostHog Webhook Setup](/docs/getting-started/posthog-setup). That guide forwards PostHog events *into* Hogsend to trigger journeys. This one forwards events *out* of PostHog to ad platforms. Same pipeline, opposite direction.
 </Callout>
 
-## Why PostHog, not a Hogsend plugin
+## Why PostHog, not a built-in destination
 
 It's tempting to build a `defineDestination()` that POSTs to Meta's CAPI from the engine. We deliberately don't, because the hard part of conversion tracking is **identity**, and PostHog is structurally better positioned to solve it:
 

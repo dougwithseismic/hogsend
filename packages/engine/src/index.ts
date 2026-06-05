@@ -3,6 +3,22 @@
 // Content (journeys, webhook sources, workflows) is injected into these
 // factories by client app code; the engine never imports content.
 
+// --- Capability-provider contracts (canonical origin: @hogsend/core) ---
+// Email provider contract + analytics contract, re-exported so consumers can
+// import them from `@hogsend/engine`. (`SendEmailOptions` is intentionally
+// omitted here: the engine's public `SendEmailOptions` is the high-level
+// journey-facing send options from `./lib/email.js`; the provider-contract
+// `SendEmailOptions` remains available via `@hogsend/core`.)
+export type {
+  BatchEmailItem,
+  CaptureOptions,
+  EmailProvider,
+  PostHogService,
+  SendResult,
+  WebhookEvent,
+  WebhookEventType,
+  WebhookHandlerMap,
+} from "@hogsend/core";
 // Core helpers used by content journeys (days/hours/minutes, condition + journey
 // types) so content can import everything from `@hogsend/engine`.
 export * from "@hogsend/core";

@@ -1,3 +1,10 @@
+import type {
+  BatchEmailItem,
+  EmailProvider,
+  WebhookEvent,
+  WebhookEventType,
+  WebhookHandlerMap,
+} from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import { emailPreferences, emailSends } from "@hogsend/db";
 import type {
@@ -6,13 +13,6 @@ import type {
   TemplateName,
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
-import type {
-  BatchEmailItem,
-  EmailProvider,
-  WebhookEvent,
-  WebhookEventType,
-  WebhookHandlerMap,
-} from "@hogsend/plugin-resend";
 import { eq, sql } from "drizzle-orm";
 import type {
   EmailService,
@@ -20,7 +20,7 @@ import type {
   EmailServiceSendOptions,
   EmailServiceWebhookOptions,
   EmailServiceWebhookResult,
-  SendEmailOptions,
+  SendRawOptions,
   SendResult,
   TrackedSendResult,
 } from "./email-service-types.js";
@@ -125,7 +125,7 @@ export function createTrackedMailer(
       };
     },
 
-    async sendRaw(options: SendEmailOptions): Promise<SendResult> {
+    async sendRaw(options: SendRawOptions): Promise<SendResult> {
       return provider.send({ ...options, from: resolveFrom(options.from) });
     },
 

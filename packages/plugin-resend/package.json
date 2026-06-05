@@ -28,6 +28,7 @@
     "test:watch": "vitest watch"
   },
   "dependencies": {
+    "@hogsend/core": "workspace:^",
     "@hogsend/email": "workspace:^",
     "resend": "^6.12.3",
     "svix": "^1.94.0"

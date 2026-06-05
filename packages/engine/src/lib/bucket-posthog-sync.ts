@@ -1,12 +1,12 @@
 import type { BucketMeta } from "@hogsend/core";
+import { getAnalytics } from "./analytics-singleton.js";
 import type { Logger } from "./logger.js";
-import { getPostHog } from "./posthog.js";
 
 /**
  * Optional PostHog person-property mirror for a bucket transition (Section 12).
  *
  * OFF BY DEFAULT — a no-op unless `meta.syncToPostHog === true`. Also a no-op
- * without `POSTHOG_API_KEY` (`getPostHog()` returns undefined), so self-host
+ * without `POSTHOG_API_KEY` (the injected analytics is undefined), so self-host
  * setups that omit PostHog silently do nothing — documented, not broken.
  *
  * On JOIN it `$set`s a boolean person property `true`; on LEAVE it `$unset`s the
@@ -32,8 +32,10 @@ export function syncBucketToPostHog(opts: {
 
   if (!bucket.syncToPostHog) return;
 
-  const posthog = getPostHog();
-  if (!posthog) return; // no POSTHOG_API_KEY → silent no-op
+  // The injected analytics instance (set by createHogsendClient). Same object as
+  // container.analytics; undefined when POSTHOG_API_KEY is unset.
+  const posthog = getAnalytics();
+  if (!posthog) return; // no analytics configured → silent no-op
 
   const propertyKey =
     bucket.postHogPropertyKey ?? `hogsend_bucket_${bucket.id}`;

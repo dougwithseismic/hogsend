@@ -7,7 +7,7 @@ import {
   SleepCondition,
   UserEventCondition,
 } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type { DurationObject } from "@hogsend/core";
+import type { DurationObject, PostHogService } from "@hogsend/core";
 import { durationToMs, evaluateEventCondition } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import {
@@ -26,7 +26,6 @@ import type {
   WhenBuilder,
 } from "@hogsend/core/types";
 import { type Database, emailSends, journeyStates } from "@hogsend/db";
-import type { PostHogService } from "@hogsend/plugin-posthog";
 import { and, count, eq, max, notInArray } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { ingestEvent } from "../lib/ingestion.js";

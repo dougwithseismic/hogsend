@@ -121,7 +121,8 @@ on worker start alongside the engine's built-ins.
 
 The default email provider is Resend (built from `RESEND_API_KEY` /
 `RESEND_WEBHOOK_SECRET`). To use Postmark, SES, etc., implement the engine's
-`EmailProvider` contract (`send(msg)` + webhook parse/verify) and pass it as
+`EmailProvider` contract (`import type { EmailProvider } from "@hogsend/engine"`)
+— `send(msg)` + webhook parse/verify — and pass it as
 `createHogsendClient({ email: { provider } })`. Rendering, tracking, preferences, and the
 `email_sends` pipeline are engine-owned and unaffected by the swap.
 

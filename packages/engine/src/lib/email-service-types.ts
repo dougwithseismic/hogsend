@@ -1,4 +1,11 @@
-import type { DurationObject } from "@hogsend/core";
+import type {
+  BatchEmailItem,
+  DurationObject,
+  SendEmailOptions,
+  SendResult,
+  WebhookEventType,
+  WebhookHandlerMap,
+} from "@hogsend/core";
 import type {
   EmailServiceRenderOptions,
   EmailServiceRenderResult,
@@ -7,20 +14,22 @@ import type {
   TemplateRegistry,
   TemplateRegistryMap,
 } from "@hogsend/email";
-import type {
-  BatchEmailItem,
-  SendEmailOptions,
-  SendResult,
-  WebhookEventType,
-  WebhookHandlerMap,
-} from "@hogsend/plugin-resend";
 import type { Logger } from "./logger.js";
 
 export type {
   BatchEmailItem,
   SendEmailOptions,
   SendResult,
-} from "@hogsend/plugin-resend";
+} from "@hogsend/core";
+
+/**
+ * Input to the mailer's low-level {@link EmailService.sendRaw}: the provider
+ * contract's `SendEmailOptions`, but `from` is optional — the mailer resolves it
+ * from `config.defaultFrom` when absent (see `resolveFrom` in mailer.ts). The
+ * wire contract keeps `from` required because the provider always receives a
+ * resolved address.
+ */
+export type SendRawOptions = Omit<SendEmailOptions, "from"> & { from?: string };
 
 // ---------------------------------------------------------------------------
 // Tracked email (high-level API)
@@ -136,7 +145,7 @@ export interface EmailService {
     options: EmailServiceSendOptions<K>,
   ): Promise<TrackedSendResult>;
 
-  sendRaw(options: SendEmailOptions): Promise<SendResult>;
+  sendRaw(options: SendRawOptions): Promise<SendResult>;
 
   sendBatch(options: { emails: BatchEmailItem[] }): Promise<{
     results: SendResult[];

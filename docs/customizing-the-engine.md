@@ -33,9 +33,11 @@ The committed semver surface is exported from `@hogsend/engine`
 ```ts
 createHogsendClient(opts?: {
   journeys?: Journey[];                              // → builds JourneyRegistry
-  templates?: TemplateRegistry;                      // YOUR src/emails registry
-  provider?: EmailProvider;                             // swappable email provider
-  analytics?: PostHogService;                        // default: PostHog (env)
+  email?: {                                          // grouped email config
+    provider?: EmailProvider;                        //   swappable email provider
+    templates?: TemplateRegistry;                    //   YOUR src/emails registry
+  };
+  analytics?: PostHogService;                        // top-level: PostHog (env)
   enabledJourneys?: string;                          // ENABLED_JOURNEYS filter
   clientJournal?: JournalShape;                      // client migration ledger
   overrides?: {                                      // advanced / test-only
@@ -45,6 +47,12 @@ createHogsendClient(opts?: {
     db?: Database;
   };
 }): HogsendClient;
+
+// The capability-provider contracts (EmailProvider, PostHogService, + their
+// supporting types) are owned by @hogsend/core and re-exported from
+// @hogsend/engine — the canonical author surface. (Exception: the contract's
+// SendEmailOptions imports from @hogsend/core, since @hogsend/engine exports a
+// different, higher-level SendEmailOptions.) See docs/adr/0001-provider-boundary.md.
 
 createApp(container: HogsendClient, opts?: {
   routes?: (app: OpenAPIHono<AppEnv>) => void;       // mount custom routers

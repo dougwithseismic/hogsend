@@ -1,5 +1,11 @@
 # Boundary Revision Proposal
 
+> **Superseded in part by [ADR 0001](./adr/0001-provider-boundary.md):** the
+> deferred `@hogsend/plugin-resend` → `provider-resend` rename floated in "Move 2"
+> below is **not** happening (packages keep their `plugin-*` names); ADR 0001
+> instead relocates the capability-provider contracts (`EmailProvider`,
+> `PostHogService`) into `@hogsend/core`, re-exported from `@hogsend/engine`.
+
 **Status:** IMPLEMENTED. Option B (module augmentation) and the
 `createContainer` → `createHogsendClient` rename were adopted; templates are now
 client-owned content in `src/emails`, the provider is a dumb `EmailProvider`, and
