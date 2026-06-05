@@ -3,12 +3,11 @@ import type {
   EmailService,
   EmailServiceSendOptions,
 } from "./email-service-types.js";
+import { createSingleton } from "./singleton.js";
 
-let _service: EmailService | null = null;
+const _service = createSingleton<EmailService>("Email service");
 
-export function setEmailService(service: EmailService): void {
-  _service = service;
-}
+export const setEmailService = _service.set;
 
 /**
  * The injected {@link EmailService} (set by `createHogsendClient` →
@@ -20,14 +19,7 @@ export function setEmailService(service: EmailService): void {
  * guarantee as the journey/bucket registry singletons (the container always
  * runs first in both the API and worker processes).
  */
-export function getEmailService(): EmailService {
-  if (!_service) {
-    throw new Error(
-      "Email service not initialized. Call setEmailService() at startup.",
-    );
-  }
-  return _service;
-}
+export const getEmailService = _service.get;
 
 export interface SendEmailOptions {
   to: string;

@@ -1,4 +1,5 @@
 import type { PostHogService } from "@hogsend/core";
+import { createOptionalSingleton } from "./singleton.js";
 
 /**
  * The injected analytics service, set once by `createHogsendClient` and read by
@@ -14,19 +15,11 @@ import type { PostHogService } from "@hogsend/core";
  *
  * `undefined` is a first-class value: when `POSTHOG_API_KEY` is unset the
  * container resolves `analytics` to `undefined` and installs it here, so every
- * read remains a no-op exactly as before.
+ * read remains a no-op exactly as before — hence the optional singleton variant.
  */
-let _analytics: PostHogService | undefined;
+const singleton = createOptionalSingleton<PostHogService>();
 
-export function setAnalytics(analytics: PostHogService | undefined): void {
-  _analytics = analytics;
-}
-
-export function getAnalytics(): PostHogService | undefined {
-  return _analytics;
-}
-
+export const setAnalytics = singleton.set;
+export const getAnalytics = singleton.get;
 /** Reset the singleton — only for test cleanup. */
-export function resetAnalytics(): void {
-  _analytics = undefined;
-}
+export const resetAnalytics = singleton.reset;

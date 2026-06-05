@@ -1,21 +1,9 @@
 import type { BucketRegistry } from "@hogsend/core/registry";
+import { createSingleton } from "../lib/singleton.js";
 
-let _registry: BucketRegistry | undefined;
+const singleton = createSingleton<BucketRegistry>("Bucket registry");
 
-export function setBucketRegistry(registry: BucketRegistry): void {
-  _registry = registry;
-}
-
-export function getBucketRegistrySingleton(): BucketRegistry {
-  if (!_registry) {
-    throw new Error(
-      "Bucket registry not initialized. Call setBucketRegistry() at startup.",
-    );
-  }
-  return _registry;
-}
-
+export const setBucketRegistry = singleton.set;
+export const getBucketRegistrySingleton = singleton.get;
 /** Reset the singleton — only for test cleanup. */
-export function resetBucketRegistry(): void {
-  _registry = undefined;
-}
+export const resetBucketRegistry = singleton.reset;

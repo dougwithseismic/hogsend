@@ -1,21 +1,9 @@
 import type { JourneyRegistry } from "@hogsend/core/registry";
+import { createSingleton } from "../lib/singleton.js";
 
-let _registry: JourneyRegistry | undefined;
+const singleton = createSingleton<JourneyRegistry>("Journey registry");
 
-export function setJourneyRegistry(registry: JourneyRegistry): void {
-  _registry = registry;
-}
-
-export function getJourneyRegistrySingleton(): JourneyRegistry {
-  if (!_registry) {
-    throw new Error(
-      "Journey registry not initialized. Call setJourneyRegistry() at startup.",
-    );
-  }
-  return _registry;
-}
-
+export const setJourneyRegistry = singleton.set;
+export const getJourneyRegistrySingleton = singleton.get;
 /** Reset the singleton — only for test cleanup. */
-export function resetJourneyRegistry(): void {
-  _registry = undefined;
-}
+export const resetJourneyRegistry = singleton.reset;
