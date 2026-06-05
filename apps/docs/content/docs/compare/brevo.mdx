@@ -1,0 +1,57 @@
+---
+title: Hogsend vs. Brevo
+description: An honest comparison of Brevo (formerly Sendinblue) and Hogsend for developers and technical founders already on PostHog and Resend.
+---
+
+Brevo -- the platform formerly known as Sendinblue -- is the budget end of lifecycle email, and it earns that position honestly. It is one of the few platforms that prices on volume rather than per contact, which changes the economics enough to matter for a lot of teams. This page covers what Brevo does well, where it runs out of room, and how it stacks up against Hogsend if you are a developer already running on PostHog and Resend.
+
+**From $9/mo** | volume-based pricing -- billed on emails sent, not contacts (free tier: 300 emails/day)
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Brevo's pricing page](https://www.brevo.com/pricing/) for the current numbers.*
+
+## What Brevo does well
+
+The pricing model is the headline, and it is a genuine advantage. Most lifecycle platforms charge per contact, so a list of 100,000 people you email once a month costs the same as a list you hammer daily. Brevo charges by email volume instead. If you have a large list and a moderate send cadence, the math comes out meaningfully cheaper -- sometimes by an order of magnitude -- than a per-contact competitor.
+
+The free tier is real, not a teaser. 300 emails a day is enough to get a small product off the ground without paying anything, and the paid tiers stay reasonable as you grow. For early-stage teams watching every dollar, that matters.
+
+Brevo is also a bundle, and the bundle is competent. You get a basic CRM, landing pages, transactional email, SMS, and marketing automation in one place. For a non-technical founder who wants contacts, campaigns, and a sign-up form without stitching three tools together, that consolidation is the whole pitch -- and it works. The automation engine is real: event-triggered flows, time delays, and basic branching are all there and usable through a visual builder, no engineering required.
+
+## Where it falls short
+
+The automation depth is the ceiling you hit first. Brevo's flows are real but shallow compared to Customer.io or ActiveCampaign. Branching, multi-step conditional logic, and event-property filtering cap out faster than a SaaS lifecycle use case usually needs. The "wait until the user does X, otherwise nudge them" pattern -- the backbone of trial and onboarding flows -- is awkward to express and limited in what it can branch on.
+
+It is built for marketers, not developers. There is no code-first authoring, no meaningful way to define automation through an API, and no version control over your flows. Changes happen by clicking through a UI, which is fine until you want review, diffs, or a record of why a journey changed. There is no self-hosting and no open-source path, so your contact data and engagement history live on Brevo's infrastructure.
+
+<Callout type="info">
+Brevo's deliverability and CRM are perfectly good for what they are. The limits are about automation depth and developer control, not whether the emails arrive.
+</Callout>
+
+## When to pick Brevo
+
+Pick Brevo when budget is the primary constraint and your automation will stay straightforward. If you need to send newsletters and a handful of triggered flows, want a CRM and landing pages in the same tool, and do not have -- or do not want to spend -- a developer on lifecycle automation, Brevo is a strong, honest choice. It is also the right call when SMS and email in one bundle matters more to you than the sophistication of either.
+
+If your flows are more "welcome sequence and the occasional re-engagement campaign" than "multi-stage conditional onboarding wired to product events," Brevo will serve you well and cost you very little.
+
+## Brevo vs. Hogsend
+
+These tools sit at opposite ends of the same problem. Brevo is a managed, marketer-facing bundle you rent. Hogsend is a code-first engine you own.
+
+| | Brevo | Hogsend |
+|---|---|---|
+| Pricing | From $9/mo, by email volume | Infra only (no per-contact / per-email fee) |
+| Hosting | Managed SaaS | Self-hosted, open source |
+| Authoring | Visual builder | TypeScript (`defineJourney`) |
+| Channels | Email, SMS, CRM, landing pages | Email only today |
+| Data | On Brevo | Your own Postgres |
+| PostHog | No native integration | Native |
+
+The clearest difference is authoring. In Hogsend every journey is a TypeScript file -- branching is plain `if/else`, delays are `ctx.sleep` (which survives deploys and resumes exactly where it left off, thanks to durable execution via Hatchet), and "pause until the user does something, or a timeout wins" is the built-in [`ctx.waitForEvent`](/docs/guides/journeys) primitive. That is precisely the conditional logic that gets awkward in Brevo. Hogsend also ships native PostHog ingestion, first-party email open and link-click tracking, and real-time, code-defined [Buckets](/docs/concepts/buckets) for segmentation.
+
+The ownership model is the other half. You consume Hogsend as a versioned package -- scaffold with `pnpm dlx create-hogsend@latest`, upgrade with `pnpm up "@hogsend/*"` -- so your data stays in your database and you pay only for infrastructure, not per contact or per email.
+
+Be clear about the trade-offs, because they are real. Hogsend is email-only today -- no SMS, push, or in-app, so Brevo's bundle genuinely covers more channels. There is no visual builder, so you need a developer to author and change journeys; a marketer cannot self-serve. And Hogsend is younger, with a smaller community, and self-hosting means you own the infra, the updates, and the monitoring. Brevo hands all of that to you for a monthly fee. The full breakdown is in [the feature matrix](/docs/compare/feature-matrix).
+
+## Migrating from Brevo
+
+There is no flow-export to import -- moving to Hogsend is a "rewrite the good parts" translation. Each Brevo automation becomes a `defineJourney()` call in TypeScript: a "wait 2 days" step becomes `ctx.sleep({ duration: days(2) })`, a "did the user do X" check becomes `ctx.history.hasEvent()`, and branching becomes ordinary control flow. Contacts come over via Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`, CSV or JSON). Historical open and click stats stay on Brevo; Hogsend tracks from its first send forward. See [Migrating to Hogsend](/docs/compare/migration) for the step-by-step.

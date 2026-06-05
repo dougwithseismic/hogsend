@@ -1,0 +1,54 @@
+---
+title: Hogsend vs. ActiveCampaign
+description: An honest comparison of ActiveCampaign and Hogsend for developers and technical founders on PostHog + Resend evaluating lifecycle email tooling.
+---
+
+ActiveCampaign is one of the most mature marketing-automation platforms you can buy, and it earns that reputation. If you're a technical team on PostHog + Resend, the question isn't whether ActiveCampaign is good -- it is -- but whether a visual, contact-priced SaaS suite is the right shape for how you actually build and ship.
+
+**From $15/mo** (1,000 contacts, billed annually) | contact-based pricing
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [ActiveCampaign's pricing page](https://www.activecampaign.com/pricing) for the current numbers.*
+
+## What ActiveCampaign does well
+
+ActiveCampaign's depth is hard to overstate. It ships with more automation triggers than almost anyone in the category -- 135+ at last count -- so most of the "wait, can it do X?" questions have a built-in answer. The visual automation builder is the most powerful in its class: deep conditional branching, goals, split tests, frequency caps, and audience logic are all there, on a canvas a non-developer can read and edit.
+
+The built-in CRM is genuinely solid, not a bolted-on afterthought. Deals, pipelines, lead scoring, and sales automation live in the same system as your marketing, so a sales team and a marketing team work off one source of truth. And the platform has been around long enough to handle the edge cases -- deliverability tuning, suppression handling, list hygiene -- the unglamorous operational details that newer tools are still figuring out.
+
+If you want the deepest off-the-shelf automation toolkit with the most pre-built triggers, conditions, and actions, and you want a CRM in the same box, ActiveCampaign is a serious, credible choice.
+
+## Where it falls short
+
+The trade-offs are mostly structural, not feature gaps.
+
+Pricing scales aggressively with your contact count rather than your send volume. A large list that you email rarely costs the same as one you email daily. And for accounts created since November 2025, ActiveCampaign bills for *unsubscribed* contacts too (existing accounts were grandfathered onto active-contact billing) -- so on a newer account your cost can keep climbing even as people leave, unless you actively prune lists. For a fast-growing product, that's a line item that grows against you.
+
+The power has a cost in complexity. The UI takes real investment to learn well, and getting the most out of the automation builder usually means someone owns the platform as part of their job. That's fine for a marketing org; it's friction for a small technical team.
+
+Most importantly for this audience: it is decidedly not developer-first. There's no first-class way to author automations as code, no version control over your flows, no diff to review in a pull request, no CI/CD path. Your automation logic lives in a canvas in someone's account, not in your repo.
+
+## When to pick ActiveCampaign
+
+There are real cases where ActiveCampaign is the right call, and you shouldn't talk yourself out of it to chase code-first purity.
+
+Pick it when you need a full CRM *and* marketing-automation suite in one tool, rather than stitching two systems together. Pick it when a non-engineer needs to author and change campaigns without waiting on a deploy. Pick it when you want the broadest set of pre-built triggers, conditions, and actions out of the box. And pick it when you have someone willing to own the platform -- because at that point its maturity becomes a genuine asset rather than overhead.
+
+## ActiveCampaign vs. Hogsend
+
+These tools optimize for different teams. ActiveCampaign optimizes for a marketing org that wants depth and a canvas. Hogsend optimizes for a developer or technical founder who'd rather express lifecycle logic in code.
+
+The clearest divide is authoring. In ActiveCampaign, a journey is a node graph in a hosted account. In Hogsend, every journey is a TypeScript file via `defineJourney()` -- branching is `if/else`, delays are `ctx.sleep()`, and you can call any API or check a feature flag inline. See the [Journeys guide](/docs/guides/journeys). That logic lives in your repo under version control, reviewable in a PR and shippable through CI. Segmentation follows the same model: real-time, code-defined [Buckets](/docs/concepts/buckets) instead of a visual segment editor.
+
+Ownership and pricing diverge just as sharply. ActiveCampaign is contact-priced SaaS that, on accounts opened since November 2025, bills even for unsubscribed contacts. Hogsend is open source and self-hosted -- your contacts and events live in your own Postgres, with no per-contact or per-email pricing. You pay only for infrastructure. And it's consumed as a versioned engine, not a fork you maintain: scaffold with `pnpm dlx create-hogsend@latest`, upgrade with `pnpm up "@hogsend/*"`.
+
+On the technical side, Hogsend has native PostHog integration so your existing events just trigger journeys, first-party email open and link-click tracking, and durable execution via Hatchet -- a `ctx.sleep` survives deploys and resumes exactly where it left off, and the newer `ctx.waitForEvent` pauses a journey until the user does something or a timeout wins.
+
+<Callout type="warn">
+Be candid about Hogsend's gaps. It's email-only today -- no native SMS, push, or in-app messaging, all of which ActiveCampaign offers (SMS as an add-on). There's no visual builder, so you need a developer to author and change journeys -- the opposite of ActiveCampaign's strength. There's no built-in CRM. And it's a younger platform with a smaller community; self-hosting means you own the infra, updates, and monitoring.
+</Callout>
+
+For the full breakdown, see [the feature matrix](/docs/compare/feature-matrix).
+
+## Migrating from ActiveCampaign
+
+There's no workflow-import button, and that's by design -- moving to Hogsend is a "rewrite the good parts" exercise. You translate each automation into a `defineJourney()` file in TypeScript, which is usually a chance to drop the cruft a long-lived flow accumulates. A wait step becomes `ctx.sleep()`, a condition becomes an `if`, a goal becomes an `exitOn` rule. Contacts come over via Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`, CSV or JSON), and templates get rebuilt as React Email components. See [Migrating to Hogsend](/docs/compare/migration) for the field mappings and a worked example.

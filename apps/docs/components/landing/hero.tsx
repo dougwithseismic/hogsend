@@ -1,21 +1,17 @@
 import type { JSX } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
+import { CopyButton } from "@/components/ds/copy-button";
 import { GlowField } from "@/components/ds/fx";
 import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
 
-// The starter's real install → run loop, shown as the hero terminal.
+// The one-liner that scaffolds a new app, shown as the hero terminal.
+const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
+
 const TERMINAL_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
-  { text: "pnpm dlx create-hogsend@latest my-app", tone: "accent" },
-  { text: "cd my-app", tone: "plain" },
-  {
-    text: "docker compose up -d   # Postgres, Redis, Hatchet",
-    tone: "comment",
-  },
-  { text: "pnpm db:migrate", tone: "plain" },
-  { text: "pnpm dev               # API on :3002", tone: "comment" },
+  { text: INSTALL_COMMAND, tone: "accent" },
 ];
 
 type HeroProps = {
@@ -68,11 +64,17 @@ export function Hero({ className }: HeroProps): JSX.Element {
         </Reveal>
 
         <Reveal delay={0.18} className="mt-14 w-full max-w-2xl">
-          <CodeMock
-            lines={TERMINAL_LINES}
-            filename="terminal"
-            className="text-left"
-          />
+          <div className="relative">
+            <CodeMock
+              lines={TERMINAL_LINES}
+              filename="terminal"
+              className="text-left"
+            />
+            <CopyButton
+              value={INSTALL_COMMAND}
+              className="absolute top-2 right-3"
+            />
+          </div>
         </Reveal>
       </div>
     </section>

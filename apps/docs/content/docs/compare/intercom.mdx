@@ -1,0 +1,57 @@
+---
+title: Hogsend vs. Intercom
+description: An honest comparison for PostHog + Resend teams. Intercom is a best-in-class customer messaging platform that also sends email; Hogsend is a code-first, self-hosted email automation engine. Here's where each fits.
+---
+
+Intercom and Hogsend get compared more often than they should, because they solve adjacent but genuinely different problems. Intercom is a customer communication platform -- live chat, in-app messages, product tours, and an AI support agent -- that happens to also send email. Hogsend is a code-first email automation engine that does one channel well and gets out of the way. If you're a developer or technical founder already on PostHog + Resend evaluating lifecycle email, it's worth being clear-eyed about which of those two things you're actually buying.
+
+**$29--132/seat/mo + $0.99/Fin AI resolution + per-send email** | seat subscription plus usage-based AI and messaging
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Intercom's pricing page](https://www.intercom.com/pricing) for the current numbers.*
+
+## What Intercom does well
+
+Intercom is best-in-class at talking to users *inside* your product, and that's not faint praise. The live chat and inbox are mature and polished, the in-app messaging and product-tour builders are some of the best in the category, and Fin -- their AI agent -- is a genuinely useful support deflection tool rather than a checkbox feature. If your primary need is real-time, in-context customer communication, Intercom is the obvious choice and has been for years.
+
+It's also a complete, managed product. Non-engineers can author messages, set up tours, and triage conversations without writing code. The support ecosystem, integrations, and documentation are deep, and the platform handles a lot of the operational surface -- deliverability, scaling, uptime -- so you don't have to. For a support or success team, the day-to-day experience is excellent.
+
+## Where it falls short
+
+The honest gap is that email is an add-on, not the core product. It's billed per send on top of seat-based subscriptions, and the lifecycle-email capabilities are noticeably less developed than the messaging features. You can build event-triggered email flows, but the orchestration depth -- conditional branching, cross-journey logic, time-zone-aware scheduling -- lags behind what dedicated email-automation tools offer.
+
+Cost is the other catch. Between seats, email sends, and add-ons like Fin or product tours, the total bill tends to run 2--4x the sticker price. Pricing scales with team size and send volume rather than with the value of the automation, and there's no self-hosting or open-source option -- your contact data and message history live on Intercom's infrastructure.
+
+<Callout type="info">
+Intercom is a customer-communication platform that also sends email, not an email-automation platform. That framing predicts almost every trade-off below.
+</Callout>
+
+## When to pick Intercom
+
+There are real cases where Intercom is the right call, and you shouldn't talk yourself out of it to save money on a problem it solves better.
+
+Pick Intercom when in-app messaging, live chat, and support are your primary need and email lifecycle is secondary. If you want one tool where your support team lives, where users can chat with you in-product, and where an AI agent deflects a meaningful share of tickets, Intercom earns its price. If you're already on it for support, layering basic email flows on top is a reasonable convenience -- the data is already there. The moment email *automation* becomes the primary use case, though, the calculus flips.
+
+## Intercom vs. Hogsend
+
+These tools barely overlap, so the comparison is mostly about what you're optimizing for.
+
+| | Intercom | Hogsend |
+|---|---|---|
+| Primary purpose | Customer messaging + support | Email lifecycle automation |
+| Channels | Chat, in-app, tours, email, AI agent | Email only |
+| Authoring | Visual, non-technical | Code-first (`defineJourney` in TypeScript) |
+| Pricing | Per seat + per send | Infra cost only (self-hosted, open source) |
+| Data ownership | Intercom's infrastructure | Your own Postgres |
+| Upgrade model | Managed SaaS | Versioned engine (`pnpm up "@hogsend/*"`) |
+
+Hogsend is narrower and deeper on the one thing it does. Every journey is a TypeScript file authored with `defineJourney()`, version-controlled in your repo -- see the [Journeys guide](/docs/guides/journeys). It's self-hosted and open source, so your data stays in your own Postgres and there's no per-contact or per-email pricing; you pay only for infrastructure. It's consumed as a versioned engine package rather than a fork you maintain: scaffold with `pnpm dlx create-hogsend@latest`, upgrade with `pnpm up "@hogsend/*"`. Durable execution via Hatchet means `ctx.sleep` survives deploys and resumes exactly where it left off, and `ctx.waitForEvent` lets a journey pause until a user does something (or a timeout wins). PostHog integration is native, email opens and link clicks are tracked first-party, and audiences are real-time, code-defined [Buckets](/docs/concepts/buckets).
+
+Be clear about Hogsend's gaps, because they're the mirror image of Intercom's strengths. Hogsend is email-only today -- no live chat, in-app messaging, SMS, or push. There's no visual builder, so you need a developer to author and change journeys. It's a younger platform with a smaller community than Intercom, and self-hosting means you own the infrastructure, updates, and monitoring. If you want a managed product a support team can operate without engineering, Intercom is the better fit. If you want lifecycle email you fully own and express in code, Hogsend is.
+
+Intercom is a messaging-first platform rather than a dedicated email-automation tool, so it sits outside our [feature matrix](/docs/compare/feature-matrix) -- but that table is still the quickest way to see how Hogsend compares to the lifecycle-email platforms it competes with directly.
+
+## Migrating from Intercom
+
+If email is the part of Intercom you actually care about, migration is less a port and more a translation. The good parts of your existing flows -- the triggers, the timing, the branching logic -- get rewritten as TypeScript journeys with `defineJourney()`, which usually surfaces a few "why was this so convoluted" simplifications along the way. Most teams keep their chat and support on Intercom and move only the lifecycle email to Hogsend.
+
+Contacts move via Hogsend's bulk import endpoint, and your PostHog events become journey triggers directly -- no re-instrumentation. See [Migrating to Hogsend](/docs/compare/migration) for the step-by-step.

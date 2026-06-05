@@ -1,4 +1,16 @@
 {
   "title": "Compare",
-  "pages": ["index", "feature-matrix", "migration"]
+  "pages": [
+    "index",
+    "feature-matrix",
+    "customer-io",
+    "loops",
+    "brevo",
+    "activecampaign",
+    "klaviyo",
+    "drip",
+    "intercom",
+    "mailchimp",
+    "migration"
+  ]
 }

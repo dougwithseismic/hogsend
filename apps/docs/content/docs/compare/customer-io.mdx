@@ -1,0 +1,70 @@
+---
+title: Hogsend vs. Customer.io
+description: An honest comparison of Customer.io and Hogsend for technical teams on PostHog + Resend. Multi-channel power and a visual builder versus code-first, self-hosted ownership.
+---
+
+Customer.io is the platform most other lifecycle tools get measured against, and for good reason. If you're a developer or technical founder already on PostHog + Resend evaluating where your lifecycle email should live, the honest question isn't whether Customer.io is good -- it clearly is -- but whether you need everything it does, and whether its pricing model fits the way your product grows.
+
+**From $100/mo (5,000 profiles) to $1,000+/mo** | profile-based, high-watermark billing
+
+*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Customer.io's pricing page](https://customer.io/pricing) for the current numbers.*
+
+## What Customer.io does well
+
+Customer.io is, genuinely, the most sophisticated event-triggered automation platform on the market. A few things stand out and are worth real credit:
+
+- **True multi-channel.** Email, push, SMS, and in-app messaging from one system, coordinated within the same workflow. This is not a bolt-on -- it's the core design.
+- **A genuinely good visual workflow builder.** The canvas is one of the better ones in the category. A non-engineer can build and reason about a multi-step flow with branching, waits, and goals, then ship it without touching code.
+- **Deep segmentation.** The segmentation engine handles complex, layered audience logic -- behavioral, attribute-based, and relative-time conditions -- without falling over. This is where it earns its reputation.
+- **Data-warehouse sync.** First-class integrations for piping data in and out, which matters once you're operating at scale and want your messaging data to live alongside everything else.
+
+If you need serious lifecycle marketing across multiple channels, Customer.io is a defensible, mature, well-supported choice. Nothing on this page is an argument that it's a bad tool.
+
+## Where it falls short
+
+The trade-offs are about cost, complexity, and pricing shape rather than capability.
+
+- **Profile-based pricing scales with user count, not value delivered.** You pay for profiles in the system regardless of how much you message them. A team that sends sparingly pays the same as one sending daily at the same profile count. For fast-growing products, the bill climbs with sign-ups whether or not those users ever convert.
+- **A real onboarding curve.** The power has a cost in learning. Most teams that get the most out of Customer.io have a dedicated owner -- someone who lives in the platform. It is not a "set it up in an afternoon" tool.
+- **It's the platform teams most often migrate away from for pricing reasons.** That's not a knock on the product; it's a pattern. Teams outgrow the price before they outgrow the features.
+
+<Callout type="info">
+Profile-based pricing punishes growth in raw user count. If your product acquires a lot of free or low-intent signups, your messaging bill grows with a number that isn't directly tied to revenue.
+</Callout>
+
+## When to pick Customer.io
+
+There are clear, legitimate cases where Customer.io is the right call, and you should pick it without hesitation when they apply:
+
+- You need **true multi-channel automation** -- coordinated email plus push, SMS, and in-app -- not just email.
+- You **have the budget** and expect the value to justify profile-based pricing.
+- You **want a visual builder** because the people authoring flows are marketers or lifecycle specialists, not engineers.
+- You have **someone to own the platform** day to day.
+
+If that describes you, Customer.io is a serious, capable engine and the rest of this page is academic.
+
+## Customer.io vs. Hogsend
+
+Hogsend is a narrower, more opinionated tool, and the differences are real in both directions.
+
+| | Customer.io | Hogsend |
+|---|---|---|
+| Authoring | Visual workflow builder | Code-first -- every journey is a TypeScript file (`defineJourney`) |
+| Channels | Email, push, SMS, in-app | Email only (today) |
+| Pricing | Per profile, from $100/mo to $1,000+/mo | Self-hosted -- you pay for infra only, no per-contact/per-email fee |
+| Hosting | Managed SaaS | Self-hosted, open source -- data in your own Postgres |
+| Delivery model | Vendor platform | Versioned engine package (`@hogsend/engine`) you upgrade with `pnpm up` |
+| Durable execution | Managed | Hatchet -- `ctx.sleep` survives deploys and resumes exactly where it left off |
+| PostHog | Integration | Native -- your existing events drive journeys directly |
+
+The pricing and ownership angle is the sharpest contrast. With Hogsend there is no per-profile or per-email charge -- it's open source, self-hosted, and your contact data lives in your own Postgres. You're not buying access to a platform; you're consuming a versioned engine package. You scaffold with `pnpm dlx create-hogsend@latest`, your journeys and templates are content in your repo, and you upgrade the framework with `pnpm up @hogsend/*` -- it is not a fork you maintain a diff against.
+
+The code-first model is the other half. Every journey is TypeScript, so branching is `if/else`, waits are durable primitives, and the whole thing lives in version control and code review. Durable execution via Hatchet means a `ctx.sleep` of two weeks survives deploys and restarts. [`ctx.waitForEvent`](/docs/guides/journeys) lets a journey pause until the user does something specific or a timeout wins. You also get first-party email open and link-click tracking, and real-time, code-defined [Buckets](/docs/concepts/buckets) for audience membership.
+
+Be clear about Hogsend's gaps, because they're the flip side of Customer.io's strengths. Hogsend is **email-only today** -- no native push, SMS, or in-app. There is **no visual builder**, so authoring and changing journeys requires a developer. It's a **younger platform with a smaller community**. And **self-hosting means you own the infra, updates, and monitoring**. If your team needs multi-channel, a canvas non-engineers can drive, or a fully managed service, Customer.io is the better fit -- that's an honest trade, not a hedge.
+
+For a fuller side-by-side, see [the feature matrix](/docs/compare/feature-matrix).
+
+## Migrating from Customer.io
+
+Moving off Customer.io is a "rewrite the good parts" exercise, not a config import. Each visual workflow becomes a `defineJourney()` call: triggers become `trigger.event`, waits become `ctx.sleep`, branches become `if/else`, and goals become `exitOn`. Contacts move via Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`, CSV or JSON). The result is usually shorter and more maintainable than the canvas it replaces. See [Migrating to Hogsend](/docs/compare/migration) for the field mappings and a worked example, and the [Journeys guide](/docs/guides/journeys) for the authoring reference.

@@ -1,92 +1,41 @@
 ---
-title: Hogsend vs. the Alternatives
-description: An honest comparison of lifecycle email platforms. What they do well, what they don't, and where Hogsend fits in.
+title: Compare
+description: An honest overview of lifecycle email platforms -- what each is best for, how they price, and where Hogsend fits.
 ---
 
 There are a lot of lifecycle email and marketing automation platforms. Most of them are good. Some of them are excellent. The question isn't which one has the most features -- it's which one fits the way your team actually works.
 
-This page walks through the major options, what each does well, and when you'd pick one over another. Hogsend is included at the end, and we'll be honest about its strengths and weaknesses too.
+Every platform below can send a welcome email when someone signs up. Most can do conditional branching, time-delayed sends, and basic segmentation. The features converge more than the marketing pages suggest. What actually differs is who the tool is built for, how it charges you, and whether you rent the automation or own it.
 
-## Customer.io
+Each option has its own page with the full breakdown. Start here, then dig into whichever ones are on your shortlist.
 
-**$100--$1,000+/mo** | Profile-based pricing
+## The alternatives at a glance
 
-Customer.io is probably the most sophisticated event-triggered automation platform on the market right now. If you need multi-channel messaging -- email, push, SMS, in-app -- with a visual workflow builder, deep segmentation, and data warehouse sync, Customer.io is the standard that other platforms are measured against. The visual workflow builder is genuinely good, and the segmentation engine handles complex audience logic without breaking a sweat.
+| Platform | Best for | Pricing model |
+| --- | --- | --- |
+| [Customer.io](/docs/compare/customer-io) | Multi-channel automation, sophisticated journeys | Profile-based |
+| [Loops](/docs/compare/loops) | Best-looking DX for SaaS and PLG teams | Contact-based |
+| [Brevo](/docs/compare/brevo) | Budget pick, CRM + email in one | Email-volume-based |
+| [ActiveCampaign](/docs/compare/activecampaign) | Most automation triggers + built-in CRM | Contact-based |
+| [Klaviyo](/docs/compare/klaviyo) | Ecommerce/DTC with email + SMS | Active-profile (SMS separate) |
+| [Drip](/docs/compare/drip) | Ecommerce on Shopify/WooCommerce | Contact-based |
+| [Intercom](/docs/compare/intercom) | In-app messaging + customer support | Seat + usage (AI + email) |
+| [Mailchimp](/docs/compare/mailchimp) | SMB newsletters and simple campaigns | Contact-based |
 
-The trade-off is cost and complexity. Pricing is profile-based, which means it scales with your user count, not your email volume. A team with 50,000 contacts that sends sparingly pays the same as a team with 50,000 contacts sending daily. For fast-growing SaaS products, that pricing model can get uncomfortable quickly. And while the platform is powerful, there's a real onboarding curve -- most teams need someone dedicated (or at least deeply familiar) to get the most out of it.
+Want a capability-by-capability view? The [feature matrix](/docs/compare/feature-matrix) lays out the SaaS-lifecycle platforms most directly comparable to Hogsend (Customer.io, Loops, Brevo, ActiveCampaign) side by side; the per-platform pages above cover the rest. And [Migrating to Hogsend](/docs/compare/migration) walks through how to move off any of them.
 
-**When to pick Customer.io:** You need multi-channel automation beyond just email, you have the budget, you want a visual workflow builder, and you have someone on the team who can own the platform. Customer.io is the right choice for teams that have outgrown "just email" and need a serious lifecycle marketing engine.
+## Where Hogsend fits
 
-## Brevo (formerly Sendinblue)
+Hogsend is the code-first, self-hosted option built specifically for PostHog teams. Every journey is a TypeScript file in your repo, not a node on a canvas. You deploy it on your own infrastructure, your data stays in your Postgres database, and the entire thing is open source -- so there's no per-contact or per-email pricing scaling against you, and no vendor lock-in.
 
-**$25--65/mo** | Volume-based pricing
+It's also honest about its edges. Hogsend handles email only today -- no push, SMS, or in-app messaging. There's no visual workflow builder, so you need a developer to author and change journeys. And self-hosting means you own the infrastructure, updates, and monitoring.
 
-Brevo is the budget pick, and it's a legitimate one. Unlike most platforms that charge per contact, Brevo charges by email volume, which makes the economics much friendlier for teams with large contact lists but moderate send frequency. The free tier (300 emails/day) is genuinely usable for getting started, and it bundles a basic CRM, landing pages, and transactional email into one platform.
-
-The automation capabilities are real but shallow compared to Customer.io or ActiveCampaign. You can set up event-triggered flows and basic branching, but the logic caps out faster than you'd expect for SaaS lifecycle use cases. The platform is also clearly designed for marketers, not developers -- there's no code-first workflow, no meaningful API-driven automation authoring, and the UI assumes you're building campaigns visually.
-
-**When to pick Brevo:** Budget is your primary constraint, you need CRM and email in one tool, and your automation needs are straightforward. Brevo is excellent for early-stage teams that need to send emails and manage contacts without spending serious money. If your automation complexity will stay low, this is a great deal.
-
-## Loops
-
-**$149+/mo** | Contact-based pricing
-
-Loops is the developer-friendly, beautiful option. The editor feels like Notion, the UI is clean, and it's clearly built for SaaS and product-led growth teams. There's a React/Next.js SDK, API-first design, and the overall developer experience is a cut above the legacy platforms. If you care about how your tools feel to use day-to-day, Loops is hard to beat.
-
-The limitations are in depth and flexibility. Automation is simpler than Customer.io -- you won't find the same level of conditional branching, event-property filtering, or cross-journey orchestration. There's no self-hosting option, which means your contact data lives on their infrastructure. And as a newer platform, the integration ecosystem is thinner than the established players.
-
-**When to pick Loops:** You want the best-looking UI, you're a SaaS or PLG team, and your automation needs are moderate. Loops is excellent for teams that value developer experience and design quality, and whose lifecycle flows are more "welcome sequence and trial nudge" than "multi-stage conditional branching with cross-journey triggers."
-
-## ActiveCampaign
-
-**$29--259/mo** | Contact-based pricing
-
-ActiveCampaign has more automation triggers than probably any other platform -- 135+ at last count. The visual automation builder is the most powerful in the category, the built-in CRM is solid, and the platform has been around long enough that it handles edge cases well. If you want the deepest automation toolkit with the most pre-built triggers, conditions, and actions, ActiveCampaign has it.
-
-The downsides are real. Pricing scales aggressively with contacts, and since November 2025 they charge for unsubscribed contacts too -- so your costs grow even when people leave. The UI is complex enough that it takes real investment to learn. And the platform is decidedly not developer-first. If you want to manage your automation through code, version control, or CI/CD, ActiveCampaign isn't built for that.
-
-**When to pick ActiveCampaign:** You need a full CRM plus marketing automation suite, you want the most automation triggers possible out of the box, and you have someone on the team willing to learn and manage the platform. It's a serious tool for teams that want enterprise-level automation without enterprise-level pricing (at least at lower contact counts).
-
-## Intercom
-
-**$29--132/seat/mo + per-send email**
-
-Intercom is best-in-class for customer messaging -- in-app messages, live chat, product tours, AI chatbot. If your primary need is talking to users inside your product, Intercom is the obvious choice. The messaging UX is excellent, the product tour builder is good, and Fin (their AI chatbot) is genuinely useful for deflecting support tickets.
-
-Email, however, is an add-on. It's billed per send on top of your seat-based subscription, and the lifecycle email capabilities are noticeably less developed than the messaging features. The total cost tends to be 2--4x the sticker price once you factor in seats, email sends, and add-ons. Intercom is a customer communication platform that also sends email, not an email automation platform.
-
-**When to pick Intercom:** Your primary need is in-app messaging, live chat, and customer support. Email lifecycle automation is secondary. If you're already on Intercom for support, adding basic email flows there makes sense. If email automation is your primary use case, look elsewhere.
-
-## Drip
-
-**$39+/mo** | Contact-based pricing
-
-Drip is the ecommerce lifecycle platform. Deep integrations with Shopify, WooCommerce, BigCommerce, and other ecommerce platforms. Revenue attribution, purchase behavior triggers, cart abandonment flows -- it's built specifically for online stores. The visual workflow builder is solid, and the ecommerce-specific triggers (first purchase, repeat purchase, browse abandonment) work well out of the box.
-
-For SaaS teams, Drip is a poor fit. The triggers, templates, and automation logic are all oriented around ecommerce concepts. You can technically use it for SaaS lifecycle flows, but you'll be fighting the platform's assumptions the entire time.
-
-**When to pick Drip:** You run an ecommerce business. Seriously, that's it. If you're selling physical or digital products through Shopify or WooCommerce, Drip is purpose-built for your use case. For SaaS lifecycle automation, keep looking.
-
-## Hogsend
-
-**Free, self-hosted** | Open source, consumed as a versioned engine
-
-Hogsend is the code-first, self-hosted option built specifically for PostHog teams. Every journey is a TypeScript file, not a node on a canvas. You deploy it on your own infrastructure, your data stays in your Postgres database, and the entire thing is open source.
-
-The architecture matters here, because it's different from "fork a repo and maintain a diff forever." Hogsend ships as a **versioned engine** -- the `@hogsend/engine` package (plus a small family of `@hogsend/*` packages). You scaffold a fresh app with `pnpm dlx create-hogsend@latest my-app`, and that app owns **content only**: your journeys, email templates, webhook sources, custom routes, config, and your own database migrations. The engine is a dependency you pin and upgrade with `pnpm up "@hogsend/*"` -- not a codebase you merge upstream changes into.
-
-The strengths are real: zero per-contact or per-email pricing (you only pay for your own infrastructure), full ownership of your content, durable execution through Hatchet that survives deploys and restarts, a composable plugin architecture, and a native PostHog integration that means your existing events just work. The `defineJourney()` pattern with TypeScript control flow lets you express automation logic that would be awkward or impossible in a visual canvas -- loops, external API calls, feature flag checks, dynamic branching based on runtime data. And because the framework is a package, framework upgrades stay clean: there's no merge conflict against your customizations, because your customizations live in your code, injected into the engine's factories.
-
-The weaknesses are also real. Hogsend handles email only -- no push notifications, SMS, or in-app messaging yet. There's no visual workflow builder, so you need a developer to create and modify journeys. It's a younger platform with a smaller community than the established players. And self-hosting means you're responsible for infrastructure, updates, and monitoring.
-
-**When to pick Hogsend:** You're already on PostHog (or moving to it), you have a developer who can maintain the system, you prefer code over canvases, and you want to avoid vendor lock-in and per-profile pricing. Hogsend fits teams that want lifecycle email automation they fully own and control -- not a SaaS they rent access to.
+<Callout>
+Hogsend ships as a versioned engine, not a fork. You pin and upgrade `@hogsend/engine` like any other dependency -- owning your content doesn't mean owning a maintenance burden against upstream.
+</Callout>
 
 ## The real question
 
-Every platform on this page can send a welcome email when someone signs up. Most of them can do conditional branching, time-delayed sends, and basic segmentation. The features converge more than the marketing pages suggest.
-
 The real question isn't which platform has the most features. It's whether you want to rent someone else's automation or own yours.
 
-With Hogsend, every journey is a TypeScript file in your repo. You can extend it through clean injection points, patch the engine in place, or eject a package entirely -- and you can hand any of it to an AI agent and let it write your lifecycle automation. No vendor lock-in, no per-profile pricing that scales against you, no features gated behind enterprise tiers. And because the engine is a versioned package rather than a fork, owning your content doesn't mean owning a maintenance burden against upstream -- you `pnpm up` the framework like any other dependency. See [Migrating to Hogsend](/docs/compare/migration) for how that ownership model works in practice.
-
-If that trade-off -- more control for more responsibility -- sounds right for your team, Hogsend is worth a look. If you'd rather have a managed platform with a visual builder and dedicated support, one of the other options on this page will serve you well. There's no wrong answer, only wrong fits.
+If you want a managed platform with a visual builder and dedicated support, one of the options above will serve you well. If you'd rather have lifecycle automation that lives in your repo -- that you can extend, version, hand to an AI agent, and fully control -- then [get started with Hogsend](/docs/getting-started). There's no wrong answer, only wrong fits.
