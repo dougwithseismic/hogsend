@@ -2,46 +2,51 @@ import type { JSX } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { CopyButton } from "@/components/ds/copy-button";
-import { GlowField } from "@/components/ds/fx";
-import { CodeMock } from "@/components/ds/mockup";
+import { CurvedText } from "@/components/ds/curved-text";
+import { PulsePill } from "@/components/ds/pulse-pill";
 import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
 
-// The one-liner that scaffolds a new app, shown as the hero terminal.
+// The one-liner that scaffolds a new app, shown as the hero terminal chip.
 const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
 
-const TERMINAL_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
-  { text: INSTALL_COMMAND, tone: "accent" },
-];
+// Hogsend's lifecycle vocabulary, laid around the centerpiece ring. The mono
+// caps + bullets read as a slow-drifting "events → journeys → sends" loop.
+const RING_TEXT =
+  "signed_up · welcome journey · milestone_hit · ctx.sleep · trial_ending · re-engage · ";
 
 type HeroProps = {
   className?: string;
 };
 
+/**
+ * Cream, centered hero (Wispr Flow homage). A two-tone light-serif headline
+ * sits over a Figtree subtitle and a lavender/white button pair; the
+ * centerpiece is a slow amber `CurvedText` ring of Hogsend's lifecycle
+ * vocabulary wrapping a `PulsePill` terminal chip for the scaffold command.
+ */
 export function Hero({ className }: HeroProps): JSX.Element {
   return (
-    <section
-      className={cn("relative overflow-hidden bg-ink text-white", className)}
-    >
-      {/* Luminous green hero backdrop behind all content. */}
-      <GlowField />
-
-      <div className="container-page relative z-10 flex flex-col items-center pt-32 pb-20 text-center">
+    <section className={cn("relative overflow-hidden", className)}>
+      <div className="container-page relative z-10 flex flex-col items-center pt-32 pb-24 text-center md:pt-40">
         <Reveal className="flex flex-col items-center">
-          <Eyebrow tone="dark">
-            Open source · self-hosted · yours to run
-          </Eyebrow>
+          <Eyebrow tone="light">Lifecycle email as plain TypeScript</Eyebrow>
 
-          <h1 className="mt-7 max-w-4xl font-display text-5xl leading-[1.05] md:text-7xl">
-            The right email at exactly{" "}
-            <span className="text-white/55">the right moment</span>
+          <h1
+            className="mt-7 max-w-[14ch] font-display font-normal tracking-[-0.04em]"
+            style={{
+              fontSize: "clamp(3.25rem, 9vw, 7.5rem)",
+              lineHeight: 0.9,
+            }}
+          >
+            <span className="text-ink-soft">Don&apos;t drag-and-drop,</span>{" "}
+            <span className="text-ink">just write code.</span>
           </h1>
 
-          <p className="mt-6 max-w-2xl text-lg text-white/60">
-            PostHog already knows what your users do. Resend already sends your
-            mail. Hogsend is the piece that connects them — so when someone
-            signs up, hits a milestone, or goes quiet, the right message goes
-            out on its own. No new platform, no drag-and-drop.
+          <p className="mt-7 max-w-2xl text-lg leading-relaxed text-ink/70">
+            Hogsend turns PostHog events into Resend emails as plain TypeScript
+            — journeys, waits, and buckets are functions you read in your
+            editor, not boxes you wire on a canvas or YAML you hand-edit.
           </p>
         </Reveal>
 
@@ -50,29 +55,39 @@ export function Hero({ className }: HeroProps): JSX.Element {
           className="mt-9 flex flex-wrap items-center justify-center gap-4"
         >
           <Button href="/docs" variant="accent" icon>
-            Read the docs
+            Get started
           </Button>
 
-          <a href="https://railway.com/deploy/LxSCyR" className="inline-flex">
-            {/* biome-ignore lint/performance/noImgElement: external Railway button SVG, not a local asset */}
-            <img
-              src="https://railway.com/button.svg"
-              alt="Deploy on Railway"
-              className="h-[42px]"
-            />
-          </a>
+          <Button href="/docs" variant="outline">
+            Read the docs
+          </Button>
         </Reveal>
 
-        <Reveal delay={0.18} className="mt-14 w-full max-w-2xl">
-          <div className="relative">
-            <CodeMock
-              lines={TERMINAL_LINES}
-              filename="terminal"
-              className="text-left"
-            />
+        <Reveal delay={0.16}>
+          <p className="mt-6 font-mono text-[0.75rem] tracking-wide text-ink/50">
+            Open source · self-hosted · PostHog + Resend
+          </p>
+        </Reveal>
+
+        {/* Centerpiece: an amber ring of lifecycle vocabulary drifting around a
+            terminal chip with the scaffold command. */}
+        <Reveal
+          delay={0.24}
+          className="relative mt-20 flex aspect-square w-full max-w-[26rem] items-center justify-center sm:max-w-[30rem]"
+        >
+          <CurvedText
+            text={RING_TEXT.repeat(2)}
+            radius={150}
+            className="absolute inset-0 h-full w-full opacity-90"
+          />
+
+          <div className="relative flex items-center gap-2 rounded-full border-2 border-ink bg-paper py-1.5 pr-2 pl-4 shadow-[0_2px_0_0_var(--color-ink)]">
+            <PulsePill className="border-0 bg-transparent px-0 py-0">
+              <span className="text-ink/40">$</span> {INSTALL_COMMAND}
+            </PulsePill>
             <CopyButton
               value={INSTALL_COMMAND}
-              className="absolute top-2 right-3"
+              className="text-ink/40 hover:text-ink"
             />
           </div>
         </Reveal>

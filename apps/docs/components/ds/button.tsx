@@ -1,41 +1,56 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
 type ButtonProps = {
   /** Renders <Link>/<a> if set, otherwise <button>. */
   href?: string;
   variant?: "accent" | "outline" | "solid";
-  /** Affects outline/solid colors. */
+  /** Switches the on-cream / on-dark color treatment for solid & outline. */
   tone?: "dark" | "light";
-  /** Show the leading 24x24 arrow icon box (accent variant). */
-  icon?: boolean;
+  /**
+   * Show a leading lucide icon. `true` = the default ArrowRight; pass any node
+   * to use a custom icon (e.g. <Terminal />). Honored on every variant.
+   */
+  icon?: boolean | ReactNode;
   /** target=_blank rel=noreferrer (also forces an <a> for href). */
   external?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 };
 
+/**
+ * Wispr-style bordered rounded-rectangle button: 12px radius, hard 2px ink
+ * border, Figtree 600, sentence case. Never a pill, never sharp, never
+ * mono-uppercase.
+ */
 const BASE =
-  "inline-flex h-10 items-center gap-2.5 rounded-none px-6 font-mono text-xs uppercase tracking-wide transition-[filter,background-color,color] duration-200 select-none";
+  "inline-flex items-center justify-center gap-2 rounded-[12px] border-2 px-6 py-3.5 font-sans font-semibold text-base leading-none transition-[filter,background-color,color,transform] duration-200 select-none hover:-translate-y-px";
 
 function variantClasses(
   variant: NonNullable<ButtonProps["variant"]>,
   tone: NonNullable<ButtonProps["tone"]>,
 ): string {
+  // `light` tone = the button sits on a dark/teal panel (lumen text).
+  const onPanel = tone === "light";
+
   if (variant === "accent") {
-    return "bg-accent text-black hover:brightness-95";
+    // Primary: lavender fill, ink text + border. Identical on cream or panel.
+    return "border-ink bg-dawn text-ink hover:brightness-95";
   }
+
   if (variant === "solid") {
-    return tone === "light"
-      ? "bg-white text-black hover:brightness-95"
-      : "bg-black text-white hover:brightness-110";
+    // Dark fill on cream; inverts to a lumen fill when placed on a dark panel.
+    return onPanel
+      ? "border-lumen bg-lumen text-ink hover:brightness-95"
+      : "border-ink bg-ink text-lumen hover:brightness-110";
   }
-  // outline
-  return tone === "light"
-    ? "border border-black/15 text-current hover:bg-black/5"
-    : "border border-white/15 text-current hover:bg-white/5";
+
+  // outline / secondary: white card on cream; transparent + lumen on panels.
+  return onPanel
+    ? "border-lumen/70 bg-transparent text-lumen hover:bg-lumen/10"
+    : "border-ink bg-paper text-ink hover:bg-ink/[0.04]";
 }
 
 export function Button({
@@ -47,18 +62,21 @@ export function Button({
   children,
   className,
 }: ButtonProps): JSX.Element {
-  const showIcon = icon && variant === "accent";
+  const iconNode: ReactNode = icon ? (
+    icon === true ? (
+      <ArrowRight
+        className="size-[1.05em] shrink-0"
+        strokeWidth={2}
+        aria-hidden="true"
+      />
+    ) : (
+      icon
+    )
+  ) : null;
 
   const content = (
     <>
-      {showIcon ? (
-        <span
-          aria-hidden="true"
-          className="-ml-3 flex size-6 shrink-0 items-center justify-center bg-black"
-        >
-          <ArrowRight className="size-3.5 text-accent" strokeWidth={1.5} />
-        </span>
-      ) : null}
+      {iconNode}
       <span>{children}</span>
     </>
   );
@@ -66,7 +84,7 @@ export function Button({
   const classes = cn(BASE, variantClasses(variant, tone), className);
 
   if (href) {
-    // External link (or explicitly flagged external) → <a>.
+    // Internal app routes use <Link>; everything else is a plain <a>.
     const isInternal = href.startsWith("/") && !external;
     if (isInternal) {
       return (

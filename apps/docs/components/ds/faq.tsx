@@ -12,6 +12,11 @@ type FaqItem = {
 
 type FaqAccordionProps = {
   items: FaqItem[];
+  /**
+   * `light` = on the cream canvas (ink text + ink hairlines). `dark` = on a
+   * dark panel (cream/lumen text + lumen hairlines). Amber (`glow`) is the
+   * open/focus accent in both.
+   */
   tone?: "dark" | "light";
   className?: string;
 };
@@ -28,7 +33,7 @@ export function FaqAccordion({
     <div
       className={cn(
         "border-t",
-        isDark ? "border-white/[0.08]" : "border-black/[0.08]",
+        isDark ? "border-lumen/10" : "border-ink/12",
         className,
       )}
     >
@@ -42,7 +47,7 @@ export function FaqAccordion({
             key={item.q}
             className={cn(
               "border-b",
-              isDark ? "border-white/[0.08]" : "border-black/[0.08]",
+              isDark ? "border-lumen/10" : "border-ink/12",
             )}
           >
             <h3>
@@ -55,11 +60,11 @@ export function FaqAccordion({
                 className={cn(
                   "flex w-full items-center gap-4 py-6 text-left outline-none transition-colors",
                   isDark
-                    ? "text-white focus-visible:text-accent"
-                    : "text-black focus-visible:text-accent-deep",
+                    ? "text-lumen focus-visible:text-glow"
+                    : "text-ink focus-visible:text-glow",
                 )}
               >
-                <span className="flex-1 font-display text-lg leading-snug md:text-xl">
+                <span className="flex-1 font-display text-lg leading-snug tracking-tight md:text-xl">
                   {item.q}
                 </span>
                 <span
@@ -67,10 +72,10 @@ export function FaqAccordion({
                   className={cn(
                     "flex h-6 w-6 shrink-0 items-center justify-center transition-colors",
                     isOpen
-                      ? "text-accent"
+                      ? "text-glow"
                       : isDark
-                        ? "text-white/50"
-                        : "text-black/50",
+                        ? "text-lumen/50"
+                        : "text-ink/50",
                   )}
                 >
                   <Icon size={18} strokeWidth={1.5} />
@@ -93,7 +98,7 @@ export function FaqAccordion({
                   <p
                     className={cn(
                       "max-w-2xl pr-10 pb-6 text-base leading-relaxed",
-                      isDark ? "text-white/60" : "text-black/60",
+                      isDark ? "text-lumen/60" : "text-ink/60",
                     )}
                   >
                     {item.a}

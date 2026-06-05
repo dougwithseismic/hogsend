@@ -7,6 +7,7 @@ import {
   Mail,
 } from "lucide-react";
 import { FeatureCard } from "@/components/ds/card";
+import { Squiggle, Star } from "@/components/ds/doodle";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 
@@ -58,18 +59,31 @@ const USE_CASES: UseCase[] = [
 ];
 
 /**
- * "What you can build" — light section showcasing the lifecycle email flows
- * that ship ready to edit. A 3-up grid of feature cards with corner ticks.
+ * "What you can build" — a DARK rounded panel stacked on the cream canvas,
+ * showcasing the lifecycle email flows that ship ready to edit. A centered
+ * light-serif heading with a hand-drawn amber squiggle, then a 3-up grid of
+ * feature cards with lavender icon chips on the dark surface.
  */
 export function UseCases() {
   return (
-    <Section tone="light" id="use-cases">
+    <Section tone="dark" id="use-cases">
       <Reveal>
         <SectionHeading
-          tone="light"
+          tone="dark"
+          align="center"
           eyebrow="WHAT YOU CAN BUILD"
-          title="The emails every product should send"
+          title={
+            <>
+              The emails every{" "}
+              <span className="relative inline-block">
+                product
+                <Squiggle className="-bottom-3 absolute inset-x-0 mx-auto w-full text-glow" />
+              </span>{" "}
+              should send
+            </>
+          }
           subtitle="Welcome series, trial nudges, win-backs, payment saves — the flows every product needs. Ten ship ready to edit, not blank pages."
+          className="mx-auto"
         />
       </Reveal>
 
@@ -77,8 +91,7 @@ export function UseCases() {
         {USE_CASES.map((useCase, index) => (
           <Reveal key={useCase.title} delay={(index % 3) * 0.08}>
             <FeatureCard
-              tone="light"
-              ticks
+              tone="dark"
               icon={useCase.icon}
               title={useCase.title}
               description={useCase.description}
@@ -87,6 +100,13 @@ export function UseCases() {
           </Reveal>
         ))}
       </div>
+
+      <Reveal delay={0.12}>
+        <p className="mt-12 flex items-center justify-center gap-2 text-center font-mono text-[0.6875rem] text-lumen/55 uppercase tracking-[0.08em] md:mt-16">
+          <Star className="size-4 text-glow" />
+          Defined in code · versioned in git · observed in Studio
+        </p>
+      </Reveal>
     </Section>
   );
 }

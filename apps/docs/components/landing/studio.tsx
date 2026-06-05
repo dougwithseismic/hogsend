@@ -1,4 +1,5 @@
 import Image, { type StaticImageData } from "next/image";
+import { Sunburst } from "@/components/ds/doodle";
 import { MockupFrame } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
@@ -8,10 +9,11 @@ import studioSends from "@/public/images/studio/studio-sends.png";
 import studioTemplates from "@/public/images/studio/studio-templates.png";
 
 /**
- * STUDIO (dark). A clean dashboard showcase: 2x2 grid of product screenshots,
- * each framed in a dark `MockupFrame` with a small mono caption label below the
- * image. Server component — composes the client `Reveal` and renders static
- * Next images with blur placeholders.
+ * STUDIO (teal panel). A clean dashboard showcase on a rounded teal panel
+ * stacked on the cream canvas: a 2x2 grid of product screenshots, each framed
+ * in a dark `MockupFrame` bezel with a small Geist-Mono caption label below the
+ * image, prefixed by a tiny amber square. Server component — composes the
+ * client `Reveal` and renders static Next images with blur placeholders.
  */
 
 const SHOTS: Array<{ img: StaticImageData; label: string }> = [
@@ -23,12 +25,17 @@ const SHOTS: Array<{ img: StaticImageData; label: string }> = [
 
 export function Studio({ className }: { className?: string }) {
   return (
-    <Section tone="dark" id="studio" className={className}>
+    <Section tone="teal" id="studio" className={className}>
       <Reveal>
         <SectionHeading
-          tone="dark"
+          tone="teal"
           eyebrow="STUDIO"
-          title="See everything that goes out"
+          title={
+            <span className="relative inline-block">
+              See everything that goes out
+              <Sunburst className="-top-5 -right-7 absolute size-7 text-glow" />
+            </span>
+          }
           subtitle="A clean dashboard for every email, journey, and contact. Watch what's happening, preview a template, resend a failed message, or pause a sequence — no digging through logs."
         />
       </Reveal>
@@ -48,10 +55,10 @@ export function Studio({ className }: { className?: string }) {
                   placeholder="blur"
                 />
               </MockupFrame>
-              <figcaption className="mt-3 flex items-center gap-2 font-mono text-[11px] text-white/40 uppercase tracking-wide">
+              <figcaption className="mt-3 flex items-center gap-2 font-mono text-[11px] text-lumen/50 uppercase tracking-wide">
                 <span
                   aria-hidden="true"
-                  className="size-[6px] rounded-[2px] bg-accent"
+                  className="size-[6px] rounded-[2px] bg-glow"
                 />
                 {shot.label}
               </figcaption>

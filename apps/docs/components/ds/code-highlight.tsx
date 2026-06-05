@@ -9,9 +9,12 @@ type CodeHighlightProps = {
 
 /**
  * Server-side Shiki highlighting (reusing the `.shiki` CSS variables that
- * fumadocs-ui's preset already wires up). The `pre` background is forced
- * transparent so the code blends into our dark cards, and we apply our mono
- * code typography. Async RSC — no hooks, no client JS.
+ * fumadocs-ui's preset already wires up). The highlighted `pre` is wrapped in a
+ * dark inset card (`bg-ink`, `rounded-2xl`) so the code reads as a dark inset on
+ * the cream page — matching `CodeMock`/`MockupFrame` and Wispr Flow's dark code
+ * cards. The `pre` background is forced transparent so the Shiki block blends
+ * into the card, and we apply our mono code typography. Async RSC — no hooks,
+ * no client JS.
  */
 export async function CodeHighlight({
   code,
@@ -27,7 +30,7 @@ export async function CodeHighlight({
           style={{ ...style, backgroundColor: "transparent" }}
           className={cn(
             className,
-            "overflow-x-auto font-mono text-[13px] leading-relaxed",
+            "overflow-x-auto rounded-2xl border border-ink/10 bg-ink px-4 py-4 font-mono text-[13px] leading-relaxed",
             propClassName,
           )}
         />

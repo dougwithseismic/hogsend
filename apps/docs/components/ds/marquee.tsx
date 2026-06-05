@@ -2,6 +2,13 @@ import { cn } from "@/lib/cn";
 
 type LogoMarqueeProps = {
   items: React.ReactNode[];
+  /**
+   * Base tint for `currentColor`-driven logos that don't set their own color.
+   * `ink` = on the cream canvas (default), `lumen` = on a dark/teal rounded
+   * panel. Items that pass an explicit `text-*` class always win. Additive +
+   * backward-compatible — omitting it keeps the prior default behavior.
+   */
+  tone?: "ink" | "lumen";
   className?: string;
 };
 
@@ -10,15 +17,22 @@ type LogoMarqueeProps = {
  * translated by -50% on a seamless loop, with an edge fade mask so logos
  * dissolve into the section at both ends. Server component (no hooks).
  *
- * Respects prefers-reduced-motion (global CSS pauses/limits animation).
+ * Respects prefers-reduced-motion (the embedded CSS pauses the animation and
+ * resets the transform).
  */
-export function LogoMarquee({ items, className }: LogoMarqueeProps) {
+export function LogoMarquee({
+  items,
+  tone = "ink",
+  className,
+}: LogoMarqueeProps) {
   // Two copies of the track so the -50% translate wraps seamlessly. We mark
   // the duplicate aria-hidden so screen readers only announce one set.
   return (
     <div
       className={cn(
         "no-scrollbar relative w-full overflow-hidden",
+        // base tint inherited by logos that rely on currentColor
+        tone === "lumen" ? "text-lumen/70" : "text-ink/70",
         // edge fade — logos fade out toward both horizontal edges
         "[mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]",
         "[-webkit-mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]",

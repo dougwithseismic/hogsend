@@ -1,30 +1,42 @@
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 
+type Tone = "dark" | "light";
+
 type EyebrowProps = {
-  children: React.ReactNode;
-  tone?: "dark" | "light";
+  children: ReactNode;
+  /** `light` = on cream (ink text, amber square); `dark` = on a panel. */
+  tone?: Tone;
   className?: string;
 };
 
+/**
+ * Mono uppercase micro-label preceded by a small colored square — amber on
+ * cream, lavender on a dark/teal panel. No pill, no border; it reads as a bare
+ * editorial kicker (Wispr style).
+ */
 export function Eyebrow({
   children,
   tone = "dark",
   className,
 }: EyebrowProps): JSX.Element {
+  // `tone="light"` means the eyebrow lives on the cream canvas.
+  const onCream = tone === "light";
+
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-2 rounded px-2 py-1",
-        tone === "light"
-          ? "bg-black text-white"
-          : "border border-white/10 bg-white/5 text-white/80",
+        "inline-flex items-center gap-2",
+        onCream ? "text-ink/70" : "text-lumen/70",
         className,
       )}
     >
       <span
         aria-hidden="true"
-        className="size-[7px] shrink-0 rounded-[2px] bg-accent"
+        className={cn(
+          "size-[7px] shrink-0 rounded-[2px]",
+          onCream ? "bg-glow" : "bg-dawn",
+        )}
       />
       <span className="eyebrow">{children}</span>
     </span>
@@ -32,23 +44,37 @@ export function Eyebrow({
 }
 
 type TagPillProps = {
-  children: React.ReactNode;
-  tone?: "dark" | "light";
+  children: ReactNode;
+  /** `light` = on cream; `dark` = on a panel. */
+  tone?: Tone;
+  /** Mint "success" fill instead of the default lavender/lumen chip. */
+  success?: boolean;
   className?: string;
 };
 
+/**
+ * Rounded-full tag chip. Lavender on cream, faint lumen on dark, or a mint
+ * success variant. Sentence-case Figtree.
+ */
 export function TagPill({
   children,
   tone = "dark",
+  success = false,
   className,
 }: TagPillProps): JSX.Element {
+  const onCream = tone === "light";
+
+  const fill = success
+    ? "bg-mint text-[#114e0b]"
+    : onCream
+      ? "bg-dawn text-ink"
+      : "bg-lumen/10 text-lumen";
+
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-3 py-1.5 text-xs",
-        tone === "light"
-          ? "bg-black/[0.04] text-black/70"
-          : "bg-white/[0.06] text-white/80",
+        "inline-flex items-center rounded-full px-3 py-1 font-sans text-xs leading-none",
+        fill,
         className,
       )}
     >

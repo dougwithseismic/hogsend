@@ -3,55 +3,67 @@
 @import "fumadocs-ui/css/preset.css";
 
 /* ========================================================================== */
-/*  Hogsend design system — dark-first "studio" aesthetic.                     */
-/*  Pure black base, alternating near-white sections, one vivid green accent.  */
-/*  Fonts: Schibsted Grotesk (display) · Cabin (body) · Geist Mono (code).     */
+/*  Hogsend design system — warm "Wispr Flow" editorial aesthetic.             */
+/*  Cream canvas, huge light EB Garamond serif headlines, rounded dark/teal    */
+/*  panel cards stacked on cream, lavender bordered buttons, amber doodles.    */
+/*  Fonts: EB Garamond (display) · Figtree (body) · Geist Mono (code).         */
 /* ========================================================================== */
 
 @theme {
   /* Fonts (sourced from next/font in app/layout.tsx) */
-  --font-display: var(--ff-display), ui-sans-serif, system-ui, sans-serif;
+  --font-display:
+    var(--ff-display), ui-serif, Georgia, "Times New Roman", serif;
   --font-sans: var(--ff-body), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--ff-mono), ui-monospace, "SFMono-Regular", monospace;
 
-  /* Brand color tokens → utilities: bg-accent, text-accent, border-accent… */
-  --color-accent: #9ff690;
-  --color-accent-deep: #3d8e2f;
-  --color-ink: #000000; /* primary dark background */
-  --color-paper: #fafafa; /* light/inverted section background */
-  --color-paper-pure: #ffffff;
+  /* Brand color tokens → utilities: bg-lumen, text-ink, border-fathom…       */
+  --color-lumen: #ffffeb; /* cream — primary page background (the canvas)      */
+  --color-lumen-dark: #e4e4d0; /* cream borders / subtle dividers on light     */
+  --color-ink: #1a1a1a; /* primary text + dark panel background                */
+  --color-ink-soft: #8a8a80; /* muted serif clause in two-tone hero           */
+  --color-fathom: #034f46; /* teal panel + testimonial cards                   */
+  --color-glow: #ffa946; /* amber — doodles, icon accents, arrows             */
+  --color-pulse: #7f1c34; /* wine — rare deep accent (badges/error-ish)        */
+  --color-dawn: #f0d7ff; /* lavender — primary button fill + tag chips         */
+  --color-mint: #cef5ca; /* success tag fill                                   */
+  --color-paper: #ffffff; /* white cards/buttons on cream                      */
+  --color-success: #114e0b; /* success text (on mint chips)                    */
+
+  /* Legacy alias safety-net: any stray bg-accent / text-accent degrades to    */
+  /* amber instead of the retired green. */
+  --color-accent: #ffa946;
 
   /* Container width matches the reference site (1320px content frame). */
   --spacing-container: 82.5rem; /* 1320px */
 }
 
 /* --------------------------------------------------------------------------
-   Fumadocs token overrides — repaint the docs UI in our dark palette.
+   Fumadocs token overrides — repaint the docs UI in the LIGHT cream palette.
    These run after the fumadocs imports so they win at equal specificity.
    -------------------------------------------------------------------------- */
 :root,
 .dark {
-  --color-fd-background: #000000;
-  --color-fd-foreground: #ffffff;
-  --color-fd-muted: rgba(255, 255, 255, 0.04);
-  --color-fd-muted-foreground: rgba(255, 255, 255, 0.6);
-  --color-fd-popover: #0a0a0a;
-  --color-fd-popover-foreground: #ffffff;
-  --color-fd-card: rgba(255, 255, 255, 0.02);
-  --color-fd-card-foreground: #ffffff;
-  --color-fd-border: rgba(255, 255, 255, 0.08);
-  --color-fd-primary: #9ff690;
-  --color-fd-primary-foreground: #00120a;
-  --color-fd-secondary: rgba(255, 255, 255, 0.04);
-  --color-fd-secondary-foreground: #ffffff;
-  --color-fd-accent: rgba(255, 255, 255, 0.06);
-  --color-fd-accent-foreground: #ffffff;
-  --color-fd-ring: #9ff690;
+  --color-fd-background: #ffffeb; /* lumen */
+  --color-fd-foreground: #1a1a1a; /* ink */
+  --color-fd-muted: rgba(26, 26, 26, 0.04);
+  --color-fd-muted-foreground: rgba(26, 26, 26, 0.6);
+  --color-fd-popover: #ffffff;
+  --color-fd-popover-foreground: #1a1a1a;
+  --color-fd-card: #ffffff;
+  --color-fd-card-foreground: #1a1a1a;
+  --color-fd-border: rgba(26, 26, 26, 0.12); /* #1a1a1a1f-ish hairline */
+  --color-fd-primary: #034f46; /* teal */
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: rgba(26, 26, 26, 0.04);
+  --color-fd-secondary-foreground: #1a1a1a;
+  --color-fd-accent: rgba(26, 26, 26, 0.06);
+  --color-fd-accent-foreground: #1a1a1a;
+  --color-fd-ring: #034f46; /* teal */
 }
 
 html {
   scrollbar-gutter: stable;
-  background-color: #000;
+  background-color: #ffffeb; /* lumen — cream canvas, no more black */
   -webkit-font-smoothing: antialiased;
 }
 
@@ -60,7 +72,7 @@ body {
 }
 
 /* All headings render in the display face at the regular (400) weight — the
-   reference site uses huge-but-light Schibsted Grotesk. */
+   reference site uses huge-but-light EB Garamond. Never bold a heading. */
 h1,
 h2,
 h3,
@@ -68,7 +80,8 @@ h4,
 .font-display {
   font-family: var(--font-display);
   font-weight: 400;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
 }
 
 /* --------------------------------------------------------------------------
@@ -85,15 +98,16 @@ h4,
 
 /* Vertical section rhythm (responsive). */
 .section-py {
-  padding-block: 5rem;
+  padding-block: 6rem;
 }
 @media (min-width: 768px) {
   .section-py {
-    padding-block: 7.5rem;
+    padding-block: 8rem;
   }
 }
 
-/* Eyebrow micro-label: UPPERCASE Geist Mono with the signature green square. */
+/* Eyebrow micro-label: UPPERCASE Geist Mono, often paired with a small
+   amber/teal/lavender square. */
 .eyebrow {
   font-family: var(--font-mono);
   font-size: 0.6875rem; /* 11px */
@@ -102,21 +116,13 @@ h4,
   text-transform: uppercase;
 }
 
-/* Faint scattered green-dot grid (CTA backdrop). */
-.dot-grid {
-  background-image: radial-gradient(
-    rgba(159, 246, 144, 0.5) 1px,
-    transparent 1px
-  );
-  background-size: 28px 28px;
-}
-
-/* Soft green aurora beam used across dark sections. */
+/* Soft amber/teal glow used sparingly behind cream sections (replaces the
+   retired green aurora). Keep it subtle — playful punctuation, not a flat fill. */
 .aurora {
   background: radial-gradient(
     60% 50% at 50% 0%,
-    rgba(159, 246, 144, 0.22),
-    rgba(159, 246, 144, 0) 70%
+    rgba(255, 169, 70, 0.18),
+    rgba(255, 169, 70, 0) 70%
   );
   filter: blur(8px);
 }
@@ -132,7 +138,7 @@ h4,
 
 /* --------------------------------------------------------------------------
    Docs-specific theming (Fumadocs DocsLayout): code blocks keep the fumadocs
-   shiki theme but adopt our mono font. Active links/TOC use the green accent
+   shiki theme but adopt our mono font. Active links/TOC use the teal accent
    via the --color-fd-primary override above.
    -------------------------------------------------------------------------- */
 #nd-docs-layout pre {

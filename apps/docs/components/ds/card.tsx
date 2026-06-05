@@ -9,52 +9,44 @@ type CornerTicksProps = {
 };
 
 /**
- * The signature registration motif: four small L-shaped corner marks. Drawn
- * with `border-current` so they inherit the parent's text color, and faded to
- * 40% opacity. Purely decorative — `aria-hidden` + `pointer-events-none`.
+ * Retired "registration" corner-tick motif. Kept as an exported no-op so any
+ * remaining call sites keep compiling; the Wispr Flow system does not use it.
  */
-export function CornerTicks({ className, tone = "dark" }: CornerTicksProps) {
-  const color = tone === "light" ? "text-black" : "text-white";
-  const tick = "pointer-events-none absolute h-2 w-2 border-current opacity-40";
-
-  return (
-    <span aria-hidden className={cn("absolute inset-0", color, className)}>
-      <span className={cn(tick, "left-0 top-0 border-l border-t")} />
-      <span className={cn(tick, "right-0 top-0 border-r border-t")} />
-      <span className={cn(tick, "bottom-0 left-0 border-b border-l")} />
-      <span className={cn(tick, "bottom-0 right-0 border-b border-r")} />
-    </span>
-  );
+export function CornerTicks(_props: CornerTicksProps): null {
+  return null;
 }
 
 type CardProps = {
   children: ReactNode;
+  /** `light` = on cream; `dark` = on a dark/teal panel. */
   tone?: Tone;
+  /** Retained for back-compat; the corner-tick motif is removed. */
   ticks?: boolean;
   className?: string;
 };
 
 /**
- * Generic surface card. 10px radius, subtle fill + border per tone, and an
- * optional set of corner registration ticks.
+ * Generic surface card. On cream: white paper with a hairline ink border. On a
+ * dark/teal panel: a faint lumen wash with a thin lumen border.
  */
 export function Card({
   children,
   tone = "dark",
-  ticks = false,
+  ticks: _ticks = false,
   className,
 }: CardProps) {
+  const onCream = tone === "light";
+
   return (
     <div
       className={cn(
-        "relative rounded-[10px] p-6",
-        tone === "light"
-          ? "border border-black/[0.06] bg-white text-black"
-          : "border border-white/[0.08] bg-white/[0.02] text-white",
+        "relative rounded-3xl p-6",
+        onCream
+          ? "border-2 border-ink/10 bg-paper text-ink"
+          : "border border-lumen/10 bg-lumen/[0.04] text-lumen",
         className,
       )}
     >
-      {ticks ? <CornerTicks tone={tone} /> : null}
       {children}
     </div>
   );
@@ -71,8 +63,9 @@ type FeatureCardProps = {
 };
 
 /**
- * Feature card for 3-up grids: optional top media block, a small icon square,
- * a display title, and a muted description.
+ * Feature card for 3-up grids: optional top media block, a tinted icon chip
+ * (amber on cream / lavender on a panel), a light-serif title, and a Figtree
+ * description.
  */
 export function FeatureCard({
   icon,
@@ -83,6 +76,8 @@ export function FeatureCard({
   ticks = false,
   className,
 }: FeatureCardProps) {
+  const onCream = tone === "light";
+
   return (
     <Card
       tone={tone}
@@ -90,7 +85,7 @@ export function FeatureCard({
       className={cn("flex flex-col gap-5", className)}
     >
       {media ? (
-        <div className="relative -mx-6 -mt-6 mb-1 overflow-hidden rounded-t-[10px]">
+        <div className="relative -mx-6 -mt-6 mb-1 overflow-hidden rounded-t-3xl">
           {media}
         </div>
       ) : null}
@@ -98,10 +93,8 @@ export function FeatureCard({
       {icon ? (
         <span
           className={cn(
-            "inline-flex h-10 w-10 items-center justify-center rounded-md",
-            tone === "light"
-              ? "border border-black/[0.08] bg-black/[0.03] text-black"
-              : "border border-white/[0.08] bg-white/[0.04] text-white",
+            "inline-flex h-11 w-11 items-center justify-center rounded-xl",
+            onCream ? "bg-glow/15 text-ink" : "bg-dawn/15 text-lumen",
           )}
         >
           {icon}
@@ -111,16 +104,16 @@ export function FeatureCard({
       <div className="flex flex-col gap-2.5">
         <h3
           className={cn(
-            "font-display text-xl leading-[1.2]",
-            tone === "light" ? "text-black" : "text-white",
+            "font-display text-2xl leading-[1.15] tracking-tight md:text-[1.75rem]",
+            onCream ? "text-ink" : "text-lumen",
           )}
         >
           {title}
         </h3>
         <p
           className={cn(
-            "text-sm leading-relaxed md:text-base",
-            tone === "light" ? "text-black/60" : "text-white/60",
+            "font-sans text-sm leading-relaxed md:text-base",
+            onCream ? "text-ink/65" : "text-lumen/65",
           )}
         >
           {description}

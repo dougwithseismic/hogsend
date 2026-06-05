@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { Sunburst } from "@/components/ds/doodle";
 import { CodeMock, MockupFrame } from "@/components/ds/mockup";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
@@ -81,14 +82,19 @@ const STEPS = [
 
 export function HowItWorks() {
   return (
-    <Section tone="light" id="how-it-works">
+    <Section tone="cream" id="how-it-works">
       <Reveal>
-        <SectionHeading
-          tone="light"
-          eyebrow="HOW IT WORKS"
-          title="One loop, not another platform"
-          subtitle="Activity comes in from PostHog, the right emails go out through Resend, and what people do with them flows right back. Nothing new to buy or keep in sync."
-        />
+        <div className="relative max-w-3xl">
+          {/* Amber doodle punctuation over the serif heading (decorative;
+              Sunburst is already aria-hidden internally). */}
+          <Sunburst className="-top-3 -right-2 absolute size-7 md:-top-4 md:size-8" />
+          <SectionHeading
+            tone="cream"
+            eyebrow="HOW IT WORKS"
+            title="Three steps, then it just runs"
+            subtitle="Activity comes in from PostHog, the right emails go out through Resend, and what people do with them flows right back. Scaffold, define your journeys in TypeScript, and ship — nothing new to buy or keep in sync."
+          />
+        </div>
       </Reveal>
 
       <Reveal delay={0.1} className="mt-12 md:mt-16">

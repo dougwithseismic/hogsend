@@ -4,7 +4,7 @@ import { SiteNav } from "@/components/landing/site-nav";
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col bg-ink">
+    <div className="flex min-h-screen flex-col bg-lumen text-ink">
       <SiteNav />
       {children}
       <SiteFooter />

@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { Wordmark } from "@/components/ds/decor";
 import { Reveal } from "@/components/ds/reveal";
-import { Logo } from "@/components/landing/logo";
 import { cn } from "@/lib/cn";
 
 const REPO_URL = "https://github.com/dougwithseismic/hogsend";
 const NPM_URL = "https://www.npmjs.com/package/@hogsend/engine";
+const X_URL = "https://x.com/hogsend";
 
 type FooterLink = {
   label: string;
@@ -46,6 +46,12 @@ const COLUMNS: FooterColumn[] = [
   },
 ];
 
+const META_LINKS: FooterLink[] = [
+  { label: "Privacy", href: "/docs/legal/privacy" },
+  { label: "Terms", href: "/docs/legal/terms" },
+  { label: "License", href: REPO_URL, external: true },
+];
+
 function GitHubMark({ className }: { className?: string }) {
   return (
     <svg
@@ -59,24 +65,82 @@ function GitHubMark({ className }: { className?: string }) {
   );
 }
 
-function FooterLinkItem({ link }: { link: FooterLink }) {
-  const className = "text-sm text-white/55 transition-colors hover:text-white";
+function NpmMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M0 2.667h16v10.666H8v1.334H4.667v-1.334H0V2.667Zm1.333 9.333h2V5.333h1.334V12h1.333V4H1.333v8Zm6-8v9.333h2.667V12h2.667V4H7.333Zm4 1.333V12h-1.333V5.333H11.333Z" />
+    </svg>
+  );
+}
+
+function XMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M12.6 1.5h2.18l-4.77 5.45L15.62 14.5h-4.4L7.78 9.99 3.84 14.5H1.66l5.1-5.83L1.13 1.5h4.52l3.11 4.11L12.6 1.5Zm-.77 11.7h1.21L4.43 2.73H3.14l8.69 10.47Z" />
+    </svg>
+  );
+}
+
+type SocialLink = {
+  label: string;
+  href: string;
+  Icon: ({ className }: { className?: string }) => React.JSX.Element;
+};
+
+const SOCIALS: SocialLink[] = [
+  { label: "Hogsend on GitHub", href: REPO_URL, Icon: GitHubMark },
+  { label: "Hogsend on npm", href: NPM_URL, Icon: NpmMark },
+  { label: "Hogsend on X", href: X_URL, Icon: XMark },
+];
+
+/** Ink-toned brand lockup for the cream footer: bar mark + "Hogsend". */
+function BrandLockup() {
+  return (
+    <span className="inline-flex items-center gap-2.5 text-ink">
+      <span aria-hidden className="flex shrink-0 items-end gap-[2px]">
+        <span className="block h-3 w-[3px] rounded-full bg-glow" />
+        <span className="block h-5 w-[3px] rounded-full bg-ink" />
+        <span className="block h-2.5 w-[3px] rounded-full bg-fathom" />
+      </span>
+      <span className="font-display text-xl leading-none tracking-tight">
+        Hogsend
+      </span>
+    </span>
+  );
+}
+
+function FooterLinkItem({
+  link,
+  className,
+}: {
+  link: FooterLink;
+  className?: string;
+}) {
+  const cls = cn(
+    "text-sm text-ink/60 transition-colors hover:text-ink",
+    className,
+  );
 
   if (link.external) {
     return (
-      <a
-        href={link.href}
-        target="_blank"
-        rel="noreferrer"
-        className={className}
-      >
+      <a href={link.href} target="_blank" rel="noreferrer" className={cls}>
         {link.label}
       </a>
     );
   }
 
   return (
-    <Link href={link.href} className={className}>
+    <Link href={link.href} className={cls}>
       {link.label}
     </Link>
   );
@@ -85,24 +149,29 @@ function FooterLinkItem({ link }: { link: FooterLink }) {
 export function SiteFooter({ className }: { className?: string }) {
   return (
     <footer
-      className={cn("relative overflow-hidden bg-ink text-white", className)}
+      className={cn(
+        "relative overflow-hidden bg-transparent text-ink",
+        className,
+      )}
     >
       <div className="container-page relative z-10 pt-20 pb-10 md:pt-28">
         <Reveal>
           <div className="grid gap-12 md:grid-cols-[1.4fr_repeat(3,1fr)] md:gap-8">
             {/* Brand + tagline */}
             <div className="max-w-sm">
-              <Logo />
-              <p className="mt-5 text-sm leading-relaxed text-white/55">
+              <BrandLockup />
+              <p className="mt-5 text-sm leading-relaxed text-ink/60">
                 Code-first lifecycle email for teams on PostHog + Resend.
                 Self-hosted and yours to run.
               </p>
             </div>
 
-            {/* Link columns */}
+            {/* Link columns — serif headings */}
             {COLUMNS.map((column) => (
               <nav key={column.heading} aria-label={column.heading}>
-                <h2 className="eyebrow text-white/40">{column.heading}</h2>
+                <h2 className="font-display text-lg leading-none tracking-tight text-ink">
+                  {column.heading}
+                </h2>
                 <ul className="mt-5 flex flex-col gap-3">
                   {column.links.map((link) => (
                     <li key={link.label}>
@@ -115,26 +184,37 @@ export function SiteFooter({ className }: { className?: string }) {
           </div>
         </Reveal>
 
+        {/* Giant ink wordmark — Hogsend's analog to Wispr's huge "Flow". */}
+        <Wordmark
+          text="Hogsend"
+          className="mt-20 w-full justify-start text-ink md:mt-28"
+        />
+
         {/* Bottom bar */}
-        <div className="mt-16 flex flex-col items-start gap-4 border-t border-white/[0.08] pt-8 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-white/40">© 2026 Hogsend</p>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Hogsend on GitHub"
-            className="inline-flex size-9 items-center justify-center rounded-md border border-white/10 text-white/55 transition-colors hover:border-white/20 hover:text-white"
-          >
-            <GitHubMark className="size-4" />
-          </a>
+        <div className="mt-12 flex flex-col items-start gap-5 border-t border-ink/10 pt-8 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <p className="text-sm text-ink/50">© Hogsend 2026</p>
+            {META_LINKS.map((link) => (
+              <FooterLinkItem key={link.label} link={link} />
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {SOCIALS.map(({ label, href, Icon }) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={label}
+                className="inline-flex size-9 items-center justify-center rounded-[12px] border-2 border-ink/15 text-ink/60 transition-colors hover:border-ink hover:text-ink"
+              >
+                <Icon className="size-4" />
+              </a>
+            ))}
+          </div>
         </div>
       </div>
-
-      {/* Giant faint watermark spanning the full width, anchored to the bottom */}
-      <Wordmark
-        text="HOGSEND"
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 translate-y-[18%] text-center"
-      />
     </footer>
   );
 }

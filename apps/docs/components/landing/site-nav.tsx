@@ -5,7 +5,6 @@ import Link from "next/link";
 import { type JSX, useEffect, useState } from "react";
 import { Button } from "@/components/ds/button";
 import { cn } from "@/lib/cn";
-import { Logo } from "./logo";
 
 const GITHUB_URL = "https://github.com/dougwithseismic/hogsend";
 
@@ -14,6 +13,33 @@ const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Getting Started", href: "/docs/getting-started" },
   { label: "Compare", href: "/docs/compare" },
 ];
+
+/**
+ * Brand lockup for the nav: a tiny ink "bar" mark (three rising bars, echoing
+ * the giant footer wordmark) followed by the "Hogsend" serif wordmark. Stays
+ * monochrome ink so it reads on the cream canvas — no spot color in the nav.
+ */
+function NavBrand(): JSX.Element {
+  return (
+    <span className="inline-flex items-center gap-2.5 text-ink">
+      <svg
+        viewBox="0 0 24 24"
+        fill="currentColor"
+        aria-hidden="true"
+        className="size-5 shrink-0"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {/* Three rising bars — Hogsend's "send" mark in ink. */}
+        <rect x="3" y="13" width="4" height="8" rx="1.5" />
+        <rect x="10" y="8" width="4" height="13" rx="1.5" />
+        <rect x="17" y="3" width="4" height="18" rx="1.5" />
+      </svg>
+      <span className="font-display text-xl leading-none tracking-tight">
+        Hogsend
+      </span>
+    </span>
+  );
+}
 
 /** GitHub mark (inline so we don't pull an icon dep for the wordmark). */
 function GitHubMark({ className }: { className?: string }): JSX.Element {
@@ -35,8 +61,9 @@ function GitHubMark({ className }: { className?: string }): JSX.Element {
 }
 
 /**
- * Sticky homepage navigation. Transparent while over the hero, then fades to a
- * blurred ink bar with a hairline border once the page scrolls past 8px.
+ * Floating homepage navigation. Transparent while over the cream hero, then
+ * fades to a blurred cream bar with an ink hairline border once the page
+ * scrolls past 8px (or while the mobile sheet is open). All ink type on cream.
  */
 export function SiteNav({ className }: { className?: string }): JSX.Element {
   const [scrolled, setScrolled] = useState(false);
@@ -62,55 +89,54 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
   return (
     <header
       className={cn(
-        "fixed inset-x-0 top-0 z-50 text-white transition-[background-color,border-color,backdrop-filter] duration-300",
+        "fixed inset-x-0 top-0 z-50 text-ink transition-[background-color,border-color,backdrop-filter] duration-300",
         scrolled || menuOpen
-          ? "border-b border-white/10 bg-ink/80 backdrop-blur-md"
+          ? "border-b border-ink/10 bg-lumen/80 backdrop-blur-md"
           : "border-b border-transparent bg-transparent",
         className,
       )}
     >
       <nav
         aria-label="Primary"
-        className="container-page flex h-[68px] items-center justify-between"
+        className="container-page flex h-[68px] items-center justify-between gap-6"
       >
         {/* Left: brand */}
         <Link
           href="/"
-          className="rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="rounded-[8px] outline-none focus-visible:ring-2 focus-visible:ring-dawn"
           aria-label="Hogsend home"
         >
-          <Logo />
+          <NavBrand />
         </Link>
 
-        {/* Center/right: desktop links */}
-        <div className="hidden items-center gap-8 md:flex">
-          <ul className="flex items-center gap-7">
-            {NAV_LINKS.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  className="rounded text-sm text-white/70 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
+        {/* Center: desktop links */}
+        <ul className="hidden items-center gap-7 md:flex">
+          {NAV_LINKS.map((link) => (
+            <li key={link.href}>
+              <Link
+                href={link.href}
+                className="rounded text-sm text-ink/70 outline-none transition-colors hover:text-ink focus-visible:ring-2 focus-visible:ring-dawn"
+              >
+                {link.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
 
-          <div className="flex items-center gap-3">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Hogsend on GitHub"
-              className="flex size-9 items-center justify-center rounded-[6px] text-white/70 outline-none transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              <GitHubMark className="size-5" />
-            </a>
-            <Button href="/docs" variant="accent">
-              Get started
-            </Button>
-          </div>
+        {/* Right: GitHub + primary CTA (desktop) */}
+        <div className="hidden items-center gap-3 md:flex">
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Hogsend on GitHub"
+            className="flex size-9 items-center justify-center rounded-[8px] text-ink/70 outline-none transition-colors hover:bg-ink/5 hover:text-ink focus-visible:ring-2 focus-visible:ring-dawn"
+          >
+            <GitHubMark className="size-5" />
+          </a>
+          <Button href="/docs" variant="accent">
+            Get started
+          </Button>
         </div>
 
         {/* Mobile: GitHub + hamburger */}
@@ -120,7 +146,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             target="_blank"
             rel="noreferrer"
             aria-label="Hogsend on GitHub"
-            className="flex size-10 items-center justify-center rounded-[6px] text-white/70 outline-none transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex size-10 items-center justify-center rounded-[8px] text-ink/70 outline-none transition-colors hover:bg-ink/5 hover:text-ink focus-visible:ring-2 focus-visible:ring-dawn"
           >
             <GitHubMark className="size-5" />
           </a>
@@ -130,7 +156,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             aria-expanded={menuOpen}
             aria-controls="site-nav-mobile"
             onClick={() => setMenuOpen((open) => !open)}
-            className="flex size-10 items-center justify-center rounded-[6px] text-white outline-none transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex size-10 items-center justify-center rounded-[8px] text-ink outline-none transition-colors hover:bg-ink/5 focus-visible:ring-2 focus-visible:ring-dawn"
           >
             {menuOpen ? (
               <X className="size-5" strokeWidth={1.5} />
@@ -141,12 +167,12 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
         </div>
       </nav>
 
-      {/* Mobile panel */}
+      {/* Mobile sheet */}
       <div
         id="site-nav-mobile"
         hidden={!menuOpen}
         className={cn(
-          "border-t border-white/10 bg-ink/95 backdrop-blur-md md:hidden",
+          "border-t border-ink/10 bg-lumen backdrop-blur-md md:hidden",
         )}
       >
         <div className="container-page flex flex-col gap-1 py-4">
@@ -155,7 +181,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
               key={link.href}
               href={link.href}
               onClick={() => setMenuOpen(false)}
-              className="rounded-[6px] px-1 py-2.5 text-base text-white/80 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+              className="rounded-[8px] px-1 py-2.5 text-base text-ink/80 outline-none transition-colors hover:text-ink focus-visible:ring-2 focus-visible:ring-dawn"
             >
               {link.label}
             </Link>

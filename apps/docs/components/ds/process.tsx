@@ -13,6 +13,11 @@ type Step = {
 
 type ProcessStepsProps = {
   steps: Step[];
+  /**
+   * `light` = on the cream canvas (ink text, ink hairlines). `dark` = on a dark
+   * rounded panel (cream/lumen text, lumen hairlines). Amber (`glow`) is the
+   * active accent in both.
+   */
   tone?: "dark" | "light";
   className?: string;
 };
@@ -35,10 +40,7 @@ export function ProcessSteps({
     >
       {/* Left numbered accordion */}
       <div
-        className={cn(
-          "border-t",
-          isDark ? "border-white/[0.08]" : "border-black/[0.08]",
-        )}
+        className={cn("border-t", isDark ? "border-lumen/10" : "border-ink/12")}
       >
         {steps.map((step, index) => {
           const isOpen = index === activeIndex;
@@ -47,7 +49,7 @@ export function ProcessSteps({
               key={step.n}
               className={cn(
                 "border-b",
-                isDark ? "border-white/[0.08]" : "border-black/[0.08]",
+                isDark ? "border-lumen/10" : "border-ink/12",
               )}
             >
               <h3>
@@ -58,32 +60,35 @@ export function ProcessSteps({
                   className={cn(
                     "flex w-full items-start gap-4 py-6 text-left outline-none transition-colors",
                     isDark
-                      ? "focus-visible:text-white"
-                      : "focus-visible:text-black",
+                      ? "focus-visible:text-lumen"
+                      : "focus-visible:text-ink",
                   )}
                 >
+                  {/* Amber step-number chip */}
                   <span
                     aria-hidden="true"
                     className={cn(
-                      "mt-[7px] h-[7px] w-[7px] shrink-0 rounded-[2px] transition-colors",
+                      "mt-0.5 grid size-7 shrink-0 place-items-center rounded-md font-mono text-[13px] tabular-nums transition-colors",
                       isOpen
-                        ? "bg-accent"
+                        ? "bg-glow/15 text-glow"
                         : isDark
-                          ? "bg-white/20"
-                          : "bg-black/20",
+                          ? "bg-lumen/[0.06] text-lumen/40"
+                          : "bg-ink/[0.05] text-ink/40",
                     )}
-                  />
+                  >
+                    {step.n}
+                  </span>
                   <span className="flex-1">
                     <span
                       className={cn(
-                        "block font-display text-xl leading-tight transition-colors md:text-2xl",
+                        "block font-display text-xl leading-tight tracking-tight transition-colors md:text-2xl",
                         isOpen
                           ? isDark
-                            ? "text-white"
-                            : "text-black"
+                            ? "text-lumen"
+                            : "text-ink"
                           : isDark
-                            ? "text-white/70"
-                            : "text-black/70",
+                            ? "text-lumen/70"
+                            : "text-ink/70",
                       )}
                     >
                       {step.title}
@@ -101,7 +106,7 @@ export function ProcessSteps({
                           <span
                             className={cn(
                               "block pt-3 text-base leading-relaxed",
-                              isDark ? "text-white/60" : "text-black/60",
+                              isDark ? "text-lumen/60" : "text-ink/60",
                             )}
                           >
                             {step.description}
@@ -109,19 +114,6 @@ export function ProcessSteps({
                         </motion.span>
                       ) : null}
                     </AnimatePresence>
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "shrink-0 font-mono text-sm tabular-nums transition-colors",
-                      isOpen
-                        ? "text-accent"
-                        : isDark
-                          ? "text-white/40"
-                          : "text-black/40",
-                    )}
-                  >
-                    {step.n}
                   </span>
                 </button>
               </h3>

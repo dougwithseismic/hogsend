@@ -19,6 +19,12 @@ type TabbedShowcaseProps = {
   className?: string;
 };
 
+/**
+ * Cream feature showcase: a vertical tab rail on the left (active tab gets an
+ * amber square + ink underline, inactive tabs read in muted ink) and an active
+ * panel on the right with a serif title, Figtree body, and a dark inset media
+ * card (e.g. a `CodeHighlight`/`MockupFrame`).
+ */
 export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
   const [activeId, setActiveId] = useState(tabs[0]?.id);
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0];
@@ -51,15 +57,15 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
               aria-controls={`panel-${tab.id}`}
               onClick={() => setActiveId(tab.id)}
               className={cn(
-                "group relative flex items-center gap-3 border-b border-white/[0.08] py-4 text-left font-mono text-xs uppercase tracking-wide transition-colors outline-none focus-visible:text-white",
-                isActive ? "text-white" : "text-white/40 hover:text-white/70",
+                "group relative flex items-center gap-3 border-b border-ink/12 py-4 text-left font-mono text-xs uppercase tracking-wide transition-colors outline-none focus-visible:text-ink",
+                isActive ? "text-ink" : "text-ink/50 hover:text-ink/80",
               )}
             >
               <span
                 aria-hidden="true"
                 className={cn(
                   "h-[7px] w-[7px] shrink-0 rounded-[2px] transition-colors",
-                  isActive ? "bg-accent" : "bg-white/20",
+                  isActive ? "bg-glow" : "bg-ink/20",
                 )}
               />
               <span>{tab.label}</span>
@@ -67,7 +73,7 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
                 <motion.span
                   layoutId="tabbed-showcase-underline"
                   aria-hidden="true"
-                  className="absolute inset-x-0 -bottom-px h-px bg-accent"
+                  className="absolute inset-x-0 -bottom-px h-px bg-ink"
                 />
               ) : null}
             </button>
@@ -90,16 +96,16 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
             className="flex flex-col gap-6"
           >
             <div className="max-w-xl">
-              <h3 className="font-display text-2xl leading-[1.15] text-white md:text-3xl">
+              <h3 className="font-display text-2xl leading-[1.15] tracking-tight text-ink md:text-3xl">
                 {active.title}
               </h3>
-              <p className="mt-4 text-base text-white/60 md:text-lg">
+              <p className="mt-4 text-base text-ink/65 md:text-lg">
                 {active.description}
               </p>
               {active.tags && active.tags.length > 0 ? (
                 <div className="mt-5 flex flex-wrap gap-2">
                   {active.tags.map((tag) => (
-                    <TagPill key={tag} tone="dark">
+                    <TagPill key={tag} tone="light">
                       {tag}
                     </TagPill>
                   ))}
