@@ -1,7 +1,26 @@
 import { parseArgs } from "node:util";
 import { isHttpError } from "../lib/http.js";
 import { color } from "../lib/output.js";
+import { skillsStaleness } from "../lib/skills.js";
 import type { Command, CommandContext } from "./types.js";
+
+/**
+ * Best-effort nudge: if the cwd is a Hogsend app whose vendored skills were
+ * installed by an OLDER CLI than the one running now, point the user at the
+ * refresh. Silent when there's no stamp (not an app dir / never tracked).
+ */
+function skillsNudge(ctx: CommandContext): void {
+  const verdict = skillsStaleness(process.cwd());
+  if (!verdict?.stale || ctx.json) return;
+  ctx.out.note(
+    [
+      `Vendored Claude skills are from v${verdict.installed}; this CLI is v${verdict.current}.`,
+      "",
+      `Refresh: ${color.cyan("hogsend upgrade")} ${color.dim("(deps + skills)")} or ${color.cyan("hogsend skills add --all --force")}.`,
+    ].join("\n"),
+    "Skills out of date",
+  );
+}
 
 const usage = `hogsend doctor [--url <baseUrl>] [--admin-key <key>] [--json]
 
@@ -159,6 +178,7 @@ async function run(ctx: CommandContext): Promise<void> {
       timestamp: health.timestamp,
       components: health.components,
       schema: health.schema,
+      skills: skillsStaleness(process.cwd()) ?? undefined,
     });
     if (!ok) process.exit(1);
     return;
@@ -199,6 +219,8 @@ async function run(ctx: CommandContext): Promise<void> {
   ];
 
   ctx.out.note(lines.join("\n"), "Doctor");
+
+  skillsNudge(ctx);
 
   if (ok) {
     ctx.out.outro(color.green("doctor: ok"));

@@ -27,6 +27,20 @@ function scriptCmd(pm: CliOptions["packageManager"], script: string): string {
   return pm === "npm" ? `npm run ${script}` : `${pm} ${script}`;
 }
 
+/** Idiomatic "run a published bin without installing it" per pm. */
+function dlxCmd(pm: CliOptions["packageManager"], bin: string): string {
+  switch (pm) {
+    case "npm":
+      return `npx ${bin}`;
+    case "yarn":
+      return `yarn dlx ${bin}`;
+    case "bun":
+      return `bunx ${bin}`;
+    default:
+      return `pnpm dlx ${bin}`;
+  }
+}
+
 async function isNonEmptyDir(dir: string): Promise<boolean> {
   if (!existsSync(dir)) return false;
   const entries = await readdir(dir);
@@ -50,7 +64,10 @@ async function assertWritable(
     }
     return;
   }
-  const names = await emittedTopLevelNames(templateDir());
+  const names = (await emittedTopLevelNames(templateDir())).filter(
+    // Not emitted under --no-skills, so they can't collide.
+    (n) => opts.skills || (n !== ".claude" && n !== "CLAUDE.md"),
+  );
   const collisions = names.filter((n) => existsSync(join(targetDir, n)));
   if (collisions.length > 0) {
     throw new Error(
@@ -104,11 +121,16 @@ function runBootstrap(
 function nextSteps(opts: CliOptions, setupDone: boolean): string {
   const pm = opts.packageManager;
   const cd = isCurrentDir(opts) ? null : color.cyan(`cd ${opts.dir}`);
+  const skillsLine = opts.skills
+    ? `${color.dim("Agent skills:")} ${color.cyan(".claude/skills")}   ${color.dim("· Claude Code discovers them automatically")}`
+    : `${color.dim("Add agent skills later:")} ${color.cyan(dlxCmd(pm, "hogsend skills add"))}`;
+
   const tail = [
     `${color.cyan(scriptCmd(pm, "dev"))}   ${color.dim("# API on :3002")}`,
     `${color.cyan(scriptCmd(pm, "worker:dev"))}   ${color.dim("# Hatchet worker, 2nd terminal")}`,
     "",
     `${color.dim("First journey:")} ${color.cyan("src/journeys/welcome.ts")}   ${color.dim(`· ${DOCS}`)}`,
+    skillsLine,
   ];
 
   const lines = setupDone
@@ -149,6 +171,7 @@ async function main(): Promise<void> {
       templateDir: templateDir(),
       targetDir,
       appName: opts.appName,
+      skills: opts.skills,
       tarballDir,
     });
     s.stop(`${color.green("✓")} Scaffolded ${color.cyan(label)}`);
@@ -158,6 +181,7 @@ async function main(): Promise<void> {
       templateDir: templateDir(),
       targetDir,
       appName: opts.appName,
+      skills: opts.skills,
       tarballDir,
     });
   }
@@ -227,6 +251,9 @@ async function main(): Promise<void> {
     const cd = isCurrentDir(opts) ? "" : `    cd ${opts.dir}\n`;
     const dev = scriptCmd(pm, "dev");
     const worker = scriptCmd(pm, "worker:dev");
+    const skillsNote = opts.skills
+      ? "  Agent skills: .claude/skills (Claude Code discovers them automatically)"
+      : `  Add agent skills later: ${dlxCmd(pm, "hogsend skills add")}`;
     if (setupDone) {
       console.log(`
   Done. Stack is up. Next:
@@ -235,6 +262,7 @@ ${cd}    ${dev}          # HTTP API (port 3002)
     ${worker}   # Hatchet worker (second terminal)
 
   First journey: src/journeys/welcome.ts — docs at ${DOCS}
+${skillsNote}
 `);
     } else {
       console.log(`
@@ -245,6 +273,7 @@ ${cd}${opts.install ? "" : `    ${pm} install\n`}    ${scriptCmd(pm, "bootstrap"
     ${worker}    # Hatchet worker (second terminal)
 
   First journey: src/journeys/welcome.ts — docs at ${DOCS}
+${skillsNote}
 `);
     }
   }

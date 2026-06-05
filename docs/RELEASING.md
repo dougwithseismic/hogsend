@@ -172,6 +172,28 @@ If a future consumer needs prebuilt JS, that's a separate change to `exports` +
 
 ---
 
+## 6b. Vendored agent skills track the CLI line, not the engine line
+
+The Claude Code skills shipped into scaffolded apps live in **one source**,
+`packages/cli/skills/`. `@hogsend/cli` ships it (`files[]`), and
+`create-hogsend`'s `prebuild` (`scripts/sync-skills.mjs`) build-copies it into
+`template/.claude/skills/` (a gitignored artifact that still rides the `template`
+tarball entry; `hogsend skills add` / `hogsend upgrade` install from the same
+source). Two consequences for releases:
+
+- **`@hogsend/cli` is intentionally OFF the engine line** (its own line, currently
+  `0.1.x`). Do **not** add it to `HOGSEND_PACKAGES`, the `linked` group, or pin any
+  `SKILL.md` to `ENGINE_VERSION`. The framework version is pinned only in the
+  scaffold's token-substituted `CLAUDE.md`. The scaffold does not depend on
+  `@hogsend/cli`.
+- **On any engine public-API change, content-audit `packages/cli/skills/*`** for
+  staleness and bump `@hogsend/cli` so the refreshed skills publish. Keep
+  `@hogsend/cli` published — the scaffolded-app refresh path
+  (`pnpm dlx hogsend skills add --all --force`, `hogsend upgrade`) and the
+  `hogsend doctor` staleness nudge resolve it from npm.
+
+---
+
 ## 7. Local dry-run verification (never publish by hand)
 
 Before relying on a release, verify locally **without publishing**:
