@@ -1,7 +1,7 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import type { PostHogService } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, emailSends, journeyStates } from "@hogsend/db";
-import type { PostHogService } from "@hogsend/plugin-posthog";
 import { eq } from "drizzle-orm";
 import { ingestEvent } from "./ingestion.js";
 import type { Logger } from "./logger.js";

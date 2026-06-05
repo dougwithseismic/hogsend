@@ -7,6 +7,7 @@ import type {
 } from "@hogsend/core/types";
 import { contacts, journeyConfigs, journeyStates } from "@hogsend/db";
 import { and, eq, inArray, notInArray } from "drizzle-orm";
+import { getAnalytics } from "../lib/analytics-singleton.js";
 import { getDb } from "../lib/db.js";
 import {
   checkEmailPreferences,
@@ -14,7 +15,6 @@ import {
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
-import { getPostHog } from "../lib/posthog.js";
 import { resolveTimezoneWithSource } from "../lib/timezone.js";
 import { getClientScheduleDefaults } from "./client-defaults-singleton.js";
 import { JOURNEY_EXECUTION_TIMEOUT } from "./constants.js";
@@ -131,7 +131,9 @@ export function defineJourney(options: {
         journeyName: meta.name,
       };
 
-      const posthog = getPostHog();
+      // The injected analytics instance (set by createHogsendClient). Same
+      // object as container.analytics; undefined when POSTHOG_API_KEY is unset.
+      const posthog = getAnalytics();
       const scheduleDefaults = getClientScheduleDefaults();
 
       // Resolve the user's timezone via the precedence chain (explicit is N/A

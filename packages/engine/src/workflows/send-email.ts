@@ -1,18 +1,7 @@
 import { NonRetryableError } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import { createResendClient } from "@hogsend/plugin-resend";
+import { EmailSendError } from "@hogsend/email";
+import { getEmailService } from "../lib/email.js";
 import { hatchet } from "../lib/hatchet.js";
-
-const resend = createResendClient({
-  apiKey: process.env.RESEND_API_KEY ?? "",
-});
-
-const NON_RETRYABLE_CODES = new Set([
-  "validation_error",
-  "missing_required_field",
-  "invalid_api_key",
-  "not_found",
-  "restricted_api_key",
-]);
 
 export const sendEmailTask = hatchet.task({
   name: "send-email",
@@ -28,27 +17,35 @@ export const sendEmailTask = hatchet.task({
     tags?: Array<{ name: string; value: string }>;
     headers?: Record<string, string>;
   }) => {
-    const { data, error } = await resend.emails.send({
-      from:
-        input.from ??
-        process.env.RESEND_FROM_EMAIL ??
-        "Hogsend <noreply@hogsend.com>",
-      to: input.to,
-      subject: input.subject,
-      html: input.html,
-      replyTo: input.replyTo,
-      tags: input.tags,
-      headers: input.headers,
-    });
+    // Deliver through the injected, provider-backed mailer (set by
+    // createHogsendClient → setEmailService). `sendRaw` calls the swappable
+    // EmailProvider's `send`, resolving the default `from` from the mailer
+    // config — so a swapped provider is honored and this task no longer
+    // constructs a raw Resend client of its own. The provider already retries
+    // transient failures internally and surfaces a classified EmailSendError;
+    // map a non-retryable one to Hatchet's NonRetryableError so the task's own
+    // retry/backoff doesn't re-attempt a permanent failure.
+    const emailService = getEmailService();
 
-    if (error) {
-      const name = (error as { name?: string }).name ?? "";
-      if (NON_RETRYABLE_CODES.has(name)) {
-        throw new NonRetryableError(`${name}: ${error.message}`);
+    try {
+      // `from` is optional: when absent the mailer's `resolveFrom` falls back to
+      // its configured defaultFrom (env.RESEND_FROM_EMAIL).
+      const result = await emailService.sendRaw({
+        from: input.from,
+        to: input.to,
+        subject: input.subject,
+        html: input.html,
+        replyTo: input.replyTo,
+        tags: input.tags,
+        headers: input.headers,
+      });
+
+      return { emailId: result.id };
+    } catch (error) {
+      if (error instanceof EmailSendError && !error.retryable) {
+        throw new NonRetryableError(error.message);
       }
-      throw new Error(`Failed to send email: ${error.message}`);
+      throw error;
     }
-
-    return { emailId: data?.id ?? "" };
   },
 });

@@ -1,5 +1,5 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type { TimeZone } from "@hogsend/core";
+import type { EmailProvider, PostHogService, TimeZone } from "@hogsend/core";
 import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
 import type { SendWindow } from "@hogsend/core/schedule";
 import {
@@ -9,11 +9,9 @@ import {
   type JournalShape,
 } from "@hogsend/db";
 import type { TemplateRegistry } from "@hogsend/email";
-import type { PostHogService } from "@hogsend/plugin-posthog";
 import {
   createResendClient,
   createResendProvider,
-  type EmailProvider,
 } from "@hogsend/plugin-resend";
 import type { Resend } from "resend";
 import type { DefinedBucket } from "./buckets/define-bucket.js";
@@ -22,6 +20,7 @@ import { env } from "./env.js";
 import { setClientScheduleDefaults } from "./journeys/client-defaults-singleton.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
 import { buildJourneyRegistry } from "./journeys/registry.js";
+import { setAnalytics } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { setEmailService } from "./lib/email.js";
 import type {
@@ -250,6 +249,13 @@ export function createHogsendClient(
   setEmailService(emailService);
 
   const analytics = opts.analytics ?? getPostHog();
+
+  // Expose the resolved analytics instance to the module-level task-execution
+  // sites that have no client reference (the journey durable task in
+  // define-journey, the bucket PostHog sync). `createHogsendClient` runs in both
+  // the API and worker, so this is installed before any worker task runs. May be
+  // undefined (no POSTHOG_API_KEY) — the reads stay no-ops.
+  setAnalytics(analytics);
 
   // Counts are surfaced by the boot banner / structured ready log (lib/boot.ts);
   // keep these at debug for non-boot contexts (tests, REPL, library use).

@@ -16,7 +16,6 @@ export const checkAlertsTask = hatchet.task({
     await checkAlertRules({
       db,
       logger,
-      resendApiKey: process.env.RESEND_API_KEY,
     });
 
     return { checked: true };
