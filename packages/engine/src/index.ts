@@ -73,6 +73,14 @@ export {
   type BatchedBackfillResult,
   runBatchedBackfill,
 } from "./lib/backfill.js";
+// --- Boot output (engine-owned startup banner / structured ready log) ---
+export {
+  type ApiReadyInfo,
+  getEngineVersion,
+  reportApiReady,
+  reportWorkerReady,
+  type WorkerReadyInfo,
+} from "./lib/boot.js";
 // --- Bucket transition emission (shared by real-time / cron / fast-expiry) ---
 export {
   type BucketTransitionSource,

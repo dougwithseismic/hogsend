@@ -251,8 +251,10 @@ export function createHogsendClient(
 
   const analytics = opts.analytics ?? getPostHog();
 
-  logger.info(`Journey registry loaded: ${registry.count()} journeys`);
-  logger.info(`Bucket registry loaded: ${bucketRegistry.count()} buckets`);
+  // Counts are surfaced by the boot banner / structured ready log (lib/boot.ts);
+  // keep these at debug for non-boot contexts (tests, REPL, library use).
+  logger.debug(`Journey registry loaded: ${registry.count()} journeys`);
+  logger.debug(`Bucket registry loaded: ${bucketRegistry.count()} buckets`);
 
   return {
     env,

@@ -5,6 +5,7 @@ import {
   getEngineSchemaVersion,
   getPostHog,
   getRedisIfConnected,
+  reportApiReady,
 } from "@hogsend/engine";
 import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
@@ -34,6 +35,7 @@ const client = createHogsendClient({
 // (`schema.client.inSync:false` ⇒ status `migration_pending`), the operator's
 // responsibility to resolve. `getEngineSchemaVersion` is the back-compat
 // equivalent of the old `getSchemaVersion`, so behavior here is unchanged.
+let schemaApplied: string | null = null;
 if (process.env.SKIP_SCHEMA_CHECK !== "true") {
   const schema = await getEngineSchemaVersion(client.db);
   if (!schema.inSync) {
@@ -46,7 +48,7 @@ if (process.env.SKIP_SCHEMA_CHECK !== "true") {
     await client.dbClient.end({ timeout: 5 });
     process.exit(1);
   }
-  client.logger.info(`Database schema in sync at ${schema.applied}`);
+  schemaApplied = schema.applied ?? null;
 }
 
 const app = createApp(client, { webhookSources });
@@ -55,9 +57,9 @@ const { logger, env } = client;
 const server = serve(
   { fetch: app.fetch, port: env.PORT, createServer },
   (info) => {
-    logger.info(`Server running on http://localhost:${info.port}`);
-    logger.info(`API docs at http://localhost:${info.port}/docs`);
-    logger.info(`OpenAPI spec at http://localhost:${info.port}/openapi.json`);
+    // Engine-owned boot output: branded banner in an interactive `pnpm dev`,
+    // a single structured `ready` log line everywhere else.
+    reportApiReady({ client, port: info.port, schemaVersion: schemaApplied });
   },
 ) as ReturnType<typeof createServer>;
 

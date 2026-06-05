@@ -103,7 +103,7 @@ export function createApp(
   // No-op when no built dist is present, so an unbuilt studio never crashes boot.
   const studio = mountStudio(app);
   if (studio.mounted) {
-    container.logger.info(
+    container.logger.debug(
       `Studio mounted at /studio (dist: ${studio.distPath})`,
     );
   }
