@@ -40,6 +40,18 @@ export {
 export { type AppEnv, type CreateAppOptions, createApp } from "./app.js";
 // --- Buckets ---
 export {
+  type BucketAccessor,
+  type BucketMemberRow,
+  createBucketAccessor,
+  type MembersResult,
+} from "./buckets/bucket-access.js";
+export type {
+  BucketLeaveReason,
+  DwellOptions,
+  EnterOptions,
+  LeaveOptions,
+} from "./buckets/bucket-reactions.js";
+export {
   type BucketTransition,
   type BucketTransitionKind,
   checkBucketMembership,
@@ -50,6 +62,8 @@ export {
 } from "./buckets/define-bucket.js";
 export {
   buildBucketRegistry,
+  collectBucketReactionJourneys,
+  selectBucketReactionTasks,
   selectBucketTasks,
 } from "./buckets/registry.js";
 export {

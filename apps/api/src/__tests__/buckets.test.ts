@@ -18,25 +18,38 @@ process.env.DATABASE_URL =
 // `checkBucketMembership` transition list + DB rows, and uses the push spy only
 // to demonstrate event routing (a journey bound to `bucket:entered:<id>` is woken
 // by exactly that Hatchet push).
-vi.mock("../lib/hatchet.js", () => ({
-  hatchet: {
-    durableTask: vi.fn(() => ({
-      run: vi.fn(),
-      runNoWait: vi.fn(),
-      runAndWait: vi.fn(),
-    })),
-    task: vi.fn(() => ({
-      run: vi.fn(),
-      runNoWait: vi.fn(),
-    })),
-    events: { push: vi.fn() },
-    runs: {
-      cancel: vi.fn(),
-      get: vi.fn(),
+// Dual mock (config-preserving): the reconcile cron is BUILT inside
+// @hogsend/engine using the ENGINE's own `lib/hatchet.js`, so we mock BOTH that
+// absolute source path AND the API's `../lib/hatchet.js`, sharing ONE hoisted
+// push spy. The `...config` spread keeps `bucketReconcileTask.fn` available so
+// the TTL-leave reason test (Test 11) can invoke the cron body directly, while
+// the `events.push` spy is the SAME object the real-time `check()` seam funnels
+// into.
+const { enginePushSpy, hatchetMock } = vi.hoisted(() => {
+  const push = vi.fn();
+  const factory = () => ({
+    hatchet: {
+      durableTask: vi.fn((config: Record<string, unknown>) => ({
+        ...config,
+        run: vi.fn(),
+        runNoWait: vi.fn(),
+        runAndWait: vi.fn(),
+      })),
+      task: vi.fn((config: Record<string, unknown>) => ({
+        ...config,
+        run: vi.fn(),
+        runNoWait: vi.fn(),
+      })),
+      events: { push },
+      runs: { cancel: vi.fn(), get: vi.fn() },
+      worker: vi.fn(),
     },
-    worker: vi.fn(),
-  },
-}));
+  });
+  return { enginePushSpy: push, hatchetMock: factory };
+});
+
+vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
+vi.mock("../lib/hatchet.js", () => hatchetMock());
 
 const { bucketMemberships, contacts, userEvents } = await import("@hogsend/db");
 const { and, desc, eq } = await import("drizzle-orm");
@@ -44,6 +57,7 @@ const {
   BucketRegistry,
   JourneyRegistry,
   buildBucketRegistry,
+  bucketReconcileTask,
   checkBucketMembership,
   createHogsendClient,
   days,
@@ -56,12 +70,21 @@ const { bucketMetaSchema } = await import("@hogsend/core");
 const container = createHogsendClient();
 const { db, logger } = container;
 
+// `bucketReconcileTask.fn` is the real cron body (the config-preserving mock kept
+// it). Used by the TTL-leave reason test (Test 11). It self-bootstraps db from
+// process.env.DATABASE_URL and reads the process bucket/journey registry
+// singletons — both installed by the beforeEach setBucketRegistry + the
+// file-level createHogsendClient.
+const reconcileTask = bucketReconcileTask as unknown as {
+  fn: () => Promise<{ reconciled: number; joined: number }>;
+};
+
 // `checkBucketMembership` takes the Hatchet client as a parameter and forwards it
 // into the recursive emit → ingestEvent → `hatchet.events.push`. We pass a local
 // spy so the test asserts on what WOULD be routed to journeys (the alias /
 // generic event names) without a live engine. (The `vi.mock("../lib/hatchet.js")`
 // above only stops the engine constructing a real gRPC durableTask at import.)
-const pushSpy = vi.fn();
+const pushSpy = enginePushSpy;
 const hatchet = { events: { push: pushSpy } };
 
 // A namespaced suffix so concurrent runs / leftover rows never collide and so
@@ -1190,5 +1213,141 @@ describe('kind:"manual" guard (Phase 1 #7)', () => {
     expect(() => registry.register(eventBucket.meta)).not.toThrow();
     expect(registry.has(PROP_BUCKET_ID)).toBe(true);
     expect(registry.has(EVENT_BUCKET_ID)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// entryCount + reason threading on emitted transitions (Tests 9, 10, 11)
+//
+// The reaction `run` derives isFirstEntry from `entryCount` and filters on
+// `reason`, both read off the emitted event's properties. These assert the
+// PRODUCER side: a real-time join carries entryCount; a criteria leave carries
+// reason "criteria"; a TTL leave carries reason "maxDwell".
+// ===========================================================================
+
+/** The most recent push payload for a transition event + user. */
+function lastTransitionPush(
+  kind: "entered" | "left",
+  bucketId: string,
+  userId: string,
+):
+  | { userId?: string; properties?: { entryCount?: number; reason?: string } }
+  | undefined {
+  const name = `bucket:${kind}:${bucketId}`;
+  const matches = pushSpy.mock.calls.filter(
+    (c) =>
+      c[0] === name &&
+      (c[1] as { userId?: string } | undefined)?.userId === userId,
+  );
+  return matches[matches.length - 1]?.[1] as
+    | { userId?: string; properties?: { entryCount?: number; reason?: string } }
+    | undefined;
+}
+
+describe("entryCount on a real-time join emit (Test 9)", () => {
+  it("a bucket:entered emit carries properties.entryCount === 1 on first join", async () => {
+    const userId = uid("entrycount-emit");
+    await seedContact(userId, { plan: "pro" });
+
+    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+
+    const payload = lastTransitionPush("entered", PROP_BUCKET_ID, userId);
+    expect(payload).toBeDefined();
+    expect(payload?.properties?.entryCount).toBe(1);
+  });
+});
+
+describe("reason on a real-time criteria leave (Test 10)", () => {
+  it("a criteria leave emits bucket:left with reason 'criteria'", async () => {
+    const userId = uid("reason-criteria-emit");
+    await seedContact(userId, { plan: "pro" });
+
+    // Join.
+    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    pushSpy.mockClear();
+
+    // Flip false → criteria leave.
+    await seedContact(userId, { plan: "free" });
+    await check({
+      userId,
+      event: "user.updated",
+      properties: { plan: "free" },
+    });
+
+    const payload = lastTransitionPush("left", PROP_BUCKET_ID, userId);
+    expect(payload).toBeDefined();
+    expect(payload?.properties?.reason).toBe("criteria");
+  });
+});
+
+describe("reason on a TTL leave via the reconcile cron (Test 11)", () => {
+  it("the TTL pass emits bucket:left with reason 'maxDwell'", async () => {
+    const userId = uid("reason-maxdwell-emit");
+    await seedContact(userId, { plan: "vip" });
+
+    // Join the maxDwell bucket (stamps maxDwellAt = enteredAt + 24h, future).
+    await check({ userId, event: "plan.changed", properties: { plan: "vip" } });
+    const row = await activeRow(userId, TTL_BUCKET_ID);
+    expect(row).toBeDefined();
+
+    // Backdate maxDwellAt into the past so the TTL sweep force-leaves the member.
+    await db
+      .update(bucketMemberships)
+      .set({ maxDwellAt: new Date(Date.now() - 60 * 60 * 1000) })
+      .where(eq(bucketMemberships.userId, userId));
+    pushSpy.mockClear();
+
+    // Drive the reconcile cron body (the config-preserving mock kept `.fn`). It
+    // reads the bucket registry singleton installed by beforeEach.
+    await reconcileTask.fn();
+
+    // The member was force-left with reason "maxDwell".
+    expect(await activeRow(userId, TTL_BUCKET_ID)).toBeUndefined();
+    const payload = lastTransitionPush("left", TTL_BUCKET_ID, userId);
+    expect(payload).toBeDefined();
+    expect(payload?.properties?.reason).toBe("maxDwell");
+  });
+});
+
+// ===========================================================================
+// Schema round-trip strip guard (Test 13b) — the blocker resolution.
+//
+// JourneyRegistry.register runs journeyMetaSchema.parse, a plain z.object that
+// STRIPS unknown keys. The reaction tagging fields (sourceBucketId / reactionKind
+// / dwellSchedule) MUST be declared on the schema or the dwell-cron lookup AND
+// Studio grouping silently break. Register a dwell reaction meta and assert the
+// fields survive the parse.
+// ===========================================================================
+
+describe("journeyMetaSchema reaction-field round-trip (Test 13b)", () => {
+  it("preserves sourceBucketId / reactionKind / dwellSchedule through register()", () => {
+    const dwellBucket = defineBucket({
+      meta: {
+        id: `${RUN}-roundtrip-bucket`,
+        name: "Round-trip bucket",
+        enabled: true,
+        criteria: {
+          type: "property",
+          property: "plan",
+          operator: "eq",
+          value: "pro",
+        },
+      },
+    });
+    dwellBucket.on("dwell", { after: days(7) }, async () => {});
+    const reaction = dwellBucket.reactions[0];
+    if (!reaction) throw new Error("expected a dwell reaction");
+
+    const registry = new JourneyRegistry();
+    registry.register(reaction.meta);
+
+    const stored = registry.getAll()[0];
+    expect(stored).toBeDefined();
+    expect(stored?.sourceBucketId).toBe(dwellBucket.meta.id);
+    expect(stored?.reactionKind).toBe("dwell");
+    expect(stored?.dwellSchedule).toEqual({
+      label: `after-${24 * 7 * 60 * 60 * 1000}`,
+      after: 24 * 7 * 60 * 60 * 1000,
+    });
   });
 });

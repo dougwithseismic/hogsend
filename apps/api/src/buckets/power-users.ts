@@ -14,7 +14,7 @@ export const powerUsers = defineBucket({
     enabled: true,
     timeBased: true,
     entryLimit: "once_per_period",
-    entryPeriod: { hours: 24 * 7 },
+    entryPeriod: days(7),
     criteria: (b) => b.event(Events.KEY_ACTION).within(days(30)).atLeast(10),
   },
 });

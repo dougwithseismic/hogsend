@@ -15,7 +15,7 @@ import {
   importJobs,
   userEvents,
 } from "@hogsend/db";
-import { and, eq, gt, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, isNull, max, sql } from "drizzle-orm";
 import {
   computeExpiresAt,
   computeMaxDwellAt,
@@ -209,6 +209,18 @@ async function backfillJoins(opts: {
   // unset value would never be force-left.
   const maxDwellAt = computeMaxDwellAt(bucket);
 
+  // Historical dwell anchor (Section 6.3 / LOCKED DECISION 1). For a
+  // windowed/event criterion the anchor is `max(occurredAt)` of the qualifying
+  // event = "when they became dormant" (e.g. went-dormant = the last
+  // `app_opened`). The dwell gate reads `coalesce(dwellAnchorAt, enteredAt)`, so
+  // backfilled members start the dwell clock at their real historical instant
+  // rather than the deploy-time `enteredAt`. Shapes with no cheap per-matcher
+  // timestamp leave the anchor NULL (fall back to enteredAt). The live join path
+  // (handleJoin) never sets dwellAnchorAt, so post-deploy joins clock from their
+  // real enteredAt. Computed batched per chunk (one GROUP BY max(occurredAt),
+  // mirroring the priorCounts GROUP BY) — never per-user serial queries.
+  const anchorEvent = resolveDwellAnchorEvent(criteria);
+
   // Fix C (DEFERRED): backfilled fastExpiry rows are NOT armed with a
   // bucket:arm-expiry durable timer here — they are picked up by the next cron
   // sweep instead (reconcileBucketLeaves / reconcileBucketTtlLeaves are the
@@ -253,6 +265,35 @@ async function backfillJoins(opts: {
       priorCounts.map((r) => [r.userId, Number(r.cnt)]),
     );
 
+    // Batched dwell-anchor derivation (LOCKED DECISION 1): one GROUP BY
+    // max(occurredAt) over the qualifying event for THIS chunk, mirroring the
+    // priorCounts GROUP BY above (never per-user serial queries). Only computed
+    // when the criteria shape exposes a cheap per-matcher anchor event; an empty
+    // map leaves dwellAnchorAt NULL → the dwell gate falls back to enteredAt.
+    let anchorByUser = new Map<string, Date>();
+    if (anchorEvent != null) {
+      const anchors = await db
+        .select({
+          userId: userEvents.userId,
+          lastAt: max(userEvents.occurredAt),
+        })
+        .from(userEvents)
+        .where(
+          and(
+            eq(userEvents.event, anchorEvent),
+            inArray(userEvents.userId, chunk),
+          ),
+        )
+        .groupBy(userEvents.userId);
+      anchorByUser = new Map(
+        anchors
+          .filter(
+            (r): r is { userId: string; lastAt: Date } => r.lastAt != null,
+          )
+          .map((r) => [r.userId, r.lastAt]),
+      );
+    }
+
     const rows = chunk.map((userId) => ({
       userId,
       userEmail: emailByUser.get(userId) ?? null,
@@ -262,6 +303,8 @@ async function backfillJoins(opts: {
       entryCount: 1 + (priorByUser.get(userId) ?? 0),
       expiresAt: computeExpiresAt(bucket),
       maxDwellAt,
+      // Historical dwell anchor where derivable; NULL otherwise (→ enteredAt).
+      dwellAnchorAt: anchorByUser.get(userId) ?? null,
       lastEvaluatedAt: new Date(),
     }));
 
@@ -365,6 +408,7 @@ async function reevalLeaves(opts: {
         userEmail: row.userEmail,
         epoch: row.entryCount,
         source: "backfill",
+        reason: "criteria",
       });
     }
     leftCount += flipped.length;
@@ -502,6 +546,51 @@ async function selectCompositeMatchers(
   }
 
   return matchers;
+}
+
+/**
+ * Resolve the event whose `max(occurredAt)` is the historical dwell anchor for a
+ * backfilled member (LOCKED DECISION 1 / Section 6.3) — "when they became
+ * dormant". Returns an event name only for the windowed/event shapes that expose
+ * a cheap per-matcher timestamp; `null` for everything else (the anchor stays
+ * NULL and the dwell gate falls back to `enteredAt`):
+ *
+ *   - a single windowed `event` criterion → its `eventName` (the last qualifying
+ *     occurrence is the window boundary, e.g. the last `app_opened`).
+ *   - the lapsed-active composite `all(event(X).exists(),
+ *     event(X).within(W).not_exists())` → event X (the flagship went-dormant
+ *     shape; the last X is when they lapsed).
+ *
+ * Other shapes (property/count composites, OR-of-absence, multi-event) have no
+ * single cheap per-matcher timestamp, so they keep a NULL anchor.
+ */
+function resolveDwellAnchorEvent(criteria: ConditionEval): string | null {
+  if (criteria.type === "event") {
+    return criteria.within != null ? criteria.eventName : null;
+  }
+  // Lapsed-active composite — two legs on the SAME event X: an unwindowed
+  // exists() anchor and a windowed not_exists() leg. Mirrors
+  // isLapsedActiveComposite in bucket-reconcile.ts.
+  if (
+    criteria.type === "composite" &&
+    criteria.operator === "and" &&
+    criteria.conditions.length === 2
+  ) {
+    const existsLeg = criteria.conditions.find(
+      (c) => c.type === "event" && c.check === "exists" && c.within == null,
+    );
+    const notExistsLeg = criteria.conditions.find(
+      (c) => c.type === "event" && c.check === "not_exists" && c.within != null,
+    );
+    if (
+      existsLeg?.type === "event" &&
+      notExistsLeg?.type === "event" &&
+      existsLeg.eventName === notExistsLeg.eventName
+    ) {
+      return notExistsLeg.eventName;
+    }
+  }
+  return null;
 }
 
 /**

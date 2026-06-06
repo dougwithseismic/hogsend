@@ -85,4 +85,17 @@ export const journeyMetaSchema = z.object({
     minutes: z.number().optional(),
     seconds: z.number().optional(),
   }),
+
+  // Bucket-reaction tagging. journeyMetaSchema.parse runs inside
+  // JourneyRegistry.register and STRIPS unknown keys, so these MUST be declared
+  // here or the dwell-cron lookup + Studio grouping silently break.
+  sourceBucketId: z.string().optional(),
+  reactionKind: z.enum(["enter", "leave", "dwell"]).optional(),
+  dwellSchedule: z
+    .object({
+      label: z.string(),
+      after: z.number().optional(),
+      every: z.number().optional(),
+    })
+    .optional(),
 });

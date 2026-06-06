@@ -7,6 +7,7 @@ import {
   durationToMs,
   evaluateCondition,
 } from "@hogsend/core";
+import type { JourneyMeta } from "@hogsend/core/types";
 import {
   bucketConfigs,
   bucketMemberships,
@@ -27,6 +28,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import type { BucketLeaveReason } from "../buckets/bucket-reactions.js";
 import { shouldEmitJoin } from "../buckets/check-membership.js";
 import {
   BUCKET_EVENT_PREFIX,
@@ -97,12 +99,21 @@ export const bucketReconcileTask = hatchet.task({
       // kind:"manual" buckets are NEVER auto-recomputed (early-continue).
       if (bucket.kind === "manual" || !bucket.criteria) continue;
 
-      // Process a bucket here iff a clock can flip its membership: a TIME-BASED
-      // criteria window (criteria-driven leaves/joins) OR an unconditional
-      // `maxDwell` TTL (membership-age-driven leaves). timeBased is honoured
-      // explicitly OR inferred from a `within` window.
+      // Process a bucket here iff a clock can flip its membership OR fire a
+      // membership-age dwell: a TIME-BASED criteria window (criteria-driven
+      // leaves/joins), an unconditional `maxDwell` TTL (membership-age-driven
+      // leaves), OR a `dwell` reaction (membership-age-driven fire). timeBased is
+      // honoured explicitly OR inferred from a `within` window. The dwell-only
+      // bucket falls through and runs ONLY the dwell pass (the criteria pass is
+      // behind `if (timeBased)`, the TTL pass behind `if (bucket.maxDwell)`).
       const timeBased = isTimeBased(bucket);
-      if (!timeBased && !bucket.maxDwell) continue;
+      const dwellReactions = journeyRegistry
+        .getAll()
+        .filter(
+          (j) => j.sourceBucketId === bucket.id && j.reactionKind === "dwell",
+        );
+      const hasDwell = dwellReactions.length > 0;
+      if (!timeBased && !bucket.maxDwell && !hasDwell) continue;
 
       try {
         if (timeBased) {
@@ -143,6 +154,21 @@ export const bucketReconcileTask = hatchet.task({
             logger,
             journeyRegistry,
             bucket,
+          });
+        }
+
+        // Dwell pass — runs AFTER the TTL pass (ordering is load-bearing: a
+        // member force-left by maxDwell earlier this iteration is status='left'
+        // here, so the dwell scan's status='active' filter excludes it). Fires
+        // `bucket:dwell:<id>:<label>` over the continuously-dwelling active
+        // population at cron resolution (Section 6.4–6.6).
+        if (hasDwell) {
+          reconciled += await reconcileBucketDwell({
+            db,
+            logger,
+            journeyRegistry,
+            bucket,
+            dwellReactions,
           });
         }
       } catch (err) {
@@ -255,6 +281,8 @@ export const bucketExpiryTask = hatchet.durableTask({
       userEmail: input.userEmail,
       epoch: flipped.entryCount,
       source: "reconcile",
+      // Fast-expiry is a criteria re-confirm leave (Section 6.7).
+      reason: "criteria",
     });
 
     return { status: "left", rowId: flipped.id };
@@ -287,6 +315,7 @@ async function reconcileBucketLeaves(opts: {
       journeyRegistry,
       bucket,
       userIds: leaverIds,
+      reason: "criteria",
     });
   }
 
@@ -421,7 +450,14 @@ async function reconcileCompositeLeaves(opts: {
   }
 
   if (leaverIds.length === 0) return 0;
-  return bulkLeave({ db, logger, journeyRegistry, bucket, userIds: leaverIds });
+  return bulkLeave({
+    db,
+    logger,
+    journeyRegistry,
+    bucket,
+    userIds: leaverIds,
+    reason: "criteria",
+  });
 }
 
 /**
@@ -462,6 +498,7 @@ async function reconcileBucketTtlLeaves(opts: {
     journeyRegistry,
     bucket,
     userIds: expired.map((r) => r.userId),
+    reason: "maxDwell",
   });
 }
 
@@ -478,8 +515,10 @@ async function bulkLeave(opts: {
   journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
   bucket: BucketMeta;
   userIds: string[];
+  /** Why these members leave — TTL passes "maxDwell", criteria passes "criteria". */
+  reason: BucketLeaveReason;
 }): Promise<number> {
-  const { db, logger, journeyRegistry, bucket, userIds } = opts;
+  const { db, logger, journeyRegistry, bucket, userIds, reason } = opts;
 
   const dwellMs = bucket.minDwell ? durationToMs(bucket.minDwell) : 0;
   const dwellCutoff = dwellMs > 0 ? new Date(Date.now() - dwellMs) : null;
@@ -524,10 +563,169 @@ async function bulkLeave(opts: {
       userEmail: row.userEmail,
       epoch: row.entryCount,
       source: "reconcile",
+      reason,
     });
   }
 
   return flipped.length;
+}
+
+/**
+ * Dwell pass for one bucket (Section 6.4–6.6). Fires `bucket:dwell:<id>:<label>`
+ * over the EXISTING continuously-dwelling active population at cron resolution —
+ * its unique value over `on("enter") + ctx.sleep`. Idempotent across sweeps,
+ * interoperable with maxDwell/fastExpiry, and routed through
+ * `emitBucketTransition` (NOT a raw push) for `userEvents`/exitOn/history/analytics
+ * parity (Section 6.1):
+ *
+ *  - PUSH FIRST (at-least-once; the deterministic idempotencyKey + the userEvents
+ *    dedup absorb a same-sweep retry), THEN stamp `dwellState` (the inter-sweep
+ *    "already fired this membership" gate). The stamp's `status='active'` clause
+ *    makes the leave/fastExpiry interop correct (a row flipped to `left` between
+ *    SELECT and UPDATE no-ops).
+ *  - The dwell clock is `coalesce(dwellAnchorAt, enteredAt)` — backfilled members
+ *    use their derived historical anchor (LOCKED DECISION 1), live joins use
+ *    enteredAt (anchor NULL).
+ *  - Candidates are ordered `lastEvaluatedAt asc nulls first` (oldest-served-first)
+ *    so a busy `every` bucket cannot starve members past BATCH_SIZE; the stamp
+ *    bumps `lastEvaluatedAt`, advancing the cursor. Hitting BATCH_SIZE is logged
+ *    once per sweep (visibility, not silent).
+ *  - First-deploy quiet window: reuse `firstTimeBackfillIncomplete` so the
+ *    pre-existing/backfilled population is not blasted before the first-time
+ *    backfill has settled.
+ *
+ * `every` is fires-at-most-once-per-sweep, coalescing (one catch-up fire after a
+ * multi-interval outage); `dwellCount` is the deterministic interval ordinal
+ * `floor((sweepInstant - anchor) / offsetMs)` (gap-stable, NOT a fire count). For
+ * `after` the ordinal is always 1 (one-shot).
+ */
+async function reconcileBucketDwell(opts: {
+  db: Database;
+  logger: Logger;
+  journeyRegistry: ReturnType<typeof getJourneyRegistrySingleton>;
+  bucket: BucketMeta;
+  dwellReactions: JourneyMeta[];
+}): Promise<number> {
+  const { db, logger, journeyRegistry, bucket, dwellReactions } = opts;
+
+  // First-deploy quiet window: do not blast the pre-existing/backfilled
+  // population before the first-time backfill has settled (reuse the guard).
+  if (await firstTimeBackfillIncomplete(db, bucket)) return 0;
+
+  // Captured once per invocation and reused for the ordinal. The ordinal is
+  // floor((sweepInstant - anchor) / offsetMs), so it is grid-quantized: a Hatchet
+  // retry (a fresh fn() invocation, seconds–minutes later) lands in the SAME
+  // interval window and recomputes the SAME ordinal → SAME idempotencyKey →
+  // absorbed by the userEvents dedup. `after` is always ordinal 1 (fully stable).
+  // Residual edge: an `every` retry that straddles an interval boundary yields a
+  // new ordinal and thus one extra dwell fire — bounded to a single duplicate by
+  // the key, and only possible for sub-retry-window intervals. Documented, not
+  // load-bearing for the common (hours/days) intervals.
+  const sweepInstant = Date.now();
+  let fired = 0;
+
+  for (const reaction of dwellReactions) {
+    const schedule = reaction.dwellSchedule;
+    if (!schedule) continue;
+    const { label, after, every } = schedule;
+    const offsetMs = after ?? every;
+    if (offsetMs == null) continue;
+    const cutoff = new Date(sweepInstant - offsetMs);
+
+    // Continuous-member gate. coalesce(dwellAnchorAt, enteredAt) is the dwell
+    // clock. Oldest-served-first (Section 6.5).
+    const candidates = await db
+      .select({
+        id: bucketMemberships.id,
+        userId: bucketMemberships.userId,
+        userEmail: bucketMemberships.userEmail,
+        entryCount: bucketMemberships.entryCount,
+        anchor: sql<Date>`coalesce(${bucketMemberships.dwellAnchorAt}, ${bucketMemberships.enteredAt})`,
+        dwellState: bucketMemberships.dwellState,
+      })
+      .from(bucketMemberships)
+      .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+      .where(
+        and(
+          eq(bucketMemberships.bucketId, bucket.id),
+          eq(bucketMemberships.status, "active"),
+          isNull(bucketMemberships.deletedAt),
+          isNull(contacts.deletedAt),
+          // Fold the comparison into the fragment with an explicit cast: a JS
+          // Date passed to lte() against a raw sql`coalesce(...)` fragment has no
+          // column type to drive param encoding, so the pg driver throws on the
+          // Date (and the per-bucket try/catch would silently swallow it → 0
+          // dwell fires). Binding the ISO string + ::timestamptz is well-typed.
+          sql`coalesce(${bucketMemberships.dwellAnchorAt}, ${bucketMemberships.enteredAt}) <= ${cutoff.toISOString()}::timestamptz`,
+        ),
+      )
+      .orderBy(sql`${bucketMemberships.lastEvaluatedAt} asc nulls first`)
+      .limit(BATCH_SIZE);
+
+    if (candidates.length >= BATCH_SIZE) {
+      logger.warn("Bucket dwell pass bounded to BATCH_SIZE/tick", {
+        bucketId: bucket.id,
+        label,
+        batchSize: BATCH_SIZE,
+      });
+    }
+
+    for (const m of candidates) {
+      const state = (m.dwellState ?? {}) as Record<string, string>;
+      const lastFired = state[label] ? Date.parse(state[label]) : null;
+      const anchorMs = new Date(m.anchor).getTime();
+
+      if (after != null) {
+        // one-shot: already fired for this membership → skip.
+        if (lastFired != null) continue;
+      } else {
+        // every: not yet due since the last fire (or the anchor).
+        const since = lastFired ?? anchorMs;
+        if (sweepInstant - since < offsetMs) continue;
+      }
+
+      // Deterministic per (membership, sweepInstant) so a retry recomputes it.
+      const ordinal =
+        after != null ? 1 : Math.floor((sweepInstant - anchorMs) / offsetMs);
+
+      // PUSH FIRST (at-least-once; idempotencyKey + userEvents dedup absorb
+      // retries), THEN stamp. emitBucketTransition handles the
+      // userEvents/exitOn/analytics parity.
+      await emitBucketTransition({
+        db,
+        registry: journeyRegistry,
+        hatchet,
+        logger,
+        kind: "dwell",
+        bucket,
+        userId: m.userId,
+        userEmail: m.userEmail,
+        epoch: m.entryCount,
+        source: "reconcile",
+        dwellLabel: label,
+        dwellOrdinal: ordinal,
+      });
+
+      // Stamp the membership (inter-sweep gate). status='active' clause = leave
+      // interop (a row flipped to 'left' between SELECT and UPDATE no-ops).
+      await db
+        .update(bucketMemberships)
+        .set({
+          dwellState: sql`jsonb_set(coalesce(${bucketMemberships.dwellState}, '{}'::jsonb), ${`{${label}}`}, ${`"${new Date(sweepInstant).toISOString()}"`}::jsonb)`,
+          lastEvaluatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(bucketMemberships.id, m.id),
+            eq(bucketMemberships.status, "active"),
+          ),
+        );
+      fired += 1;
+    }
+  }
+
+  return fired;
 }
 
 /**

@@ -335,6 +335,53 @@ describe("backfill Fix A — entryCount + maxDwellAt parity", () => {
 });
 
 // ===========================================================================
+// Dwell-anchor derivation (Section 6.3 / LOCKED DECISION 1) — the mechanism
+// behind "dwell fires for the genuinely long-dwelling EXISTING population on
+// first deploy": the backfill must clock dwell from the historical qualifying
+// instant, NOT the deploy-time enteredAt.
+// ===========================================================================
+
+describe("backfill dwell-anchor derivation (Section 6.3)", () => {
+  it("derives dwellAnchorAt = max(occurredAt) of the qualifying event, earlier than the deploy-time enteredAt", async () => {
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    const user = uid("anchor-derive");
+    await seedContact(user);
+
+    // 12 KEY_ACTION events, all inside the 30d window (so the user matches the
+    // count criterion), with the LAST one 10 days ago — the historical instant
+    // the user was still active. resolveDwellAnchorEvent(powerBucket.criteria)
+    // returns KEY_ACTION, so the backfill must stamp dwellAnchorAt = that max.
+    const lastAt = new Date(Date.now() - 10 * DAY);
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      userId: user,
+      event: KEY_ACTION,
+      properties: {},
+      occurredAt: new Date(lastAt.getTime() - i * HOUR), // max == lastAt
+    }));
+    await db.insert(userEvents).values(rows);
+
+    const jobId = await createJob(POWER_BUCKET_ID, "bucket-backfill");
+    await runBackfill({
+      jobId,
+      bucketId: POWER_BUCKET_ID,
+      mode: "first-time",
+    });
+
+    const row = await activeRow(user, POWER_BUCKET_ID);
+    expect(row?.dwellAnchorAt).toBeTruthy();
+    if (!row?.dwellAnchorAt) throw new Error("expected dwellAnchorAt derived");
+    // ≈ the last qualifying event (10 days ago), within a few seconds.
+    expect(
+      Math.abs(row.dwellAnchorAt.getTime() - lastAt.getTime()),
+    ).toBeLessThan(5000);
+    // And strictly earlier than the deploy-time enteredAt (DB now()): the dwell
+    // clock starts when they lapsed, not when the backfill ran.
+    expect(row.dwellAnchorAt.getTime()).toBeLessThan(row.enteredAt.getTime());
+  });
+});
+
+// ===========================================================================
 // Fix B — positive event matchers join live contacts only (GDPR)
 // ===========================================================================
 

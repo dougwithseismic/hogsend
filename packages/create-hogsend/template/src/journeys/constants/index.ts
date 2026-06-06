@@ -39,6 +39,10 @@ export type EventName = (typeof Events)[keyof typeof Events];
  * fires. (`defineBucket` widens `meta.id` to `string`, so an array-derived
  * `(typeof buckets)[number]["meta"]["id"]` would collapse to `string` and lose
  * typo-safety — hence this explicit literal union, the source of truth.)
+ *
+ * @deprecated Prefer the per-bucket typed refs `bucket.entered` / `bucket.left`
+ * (e.g. `powerUsers.entered`), which are literal-typed off the bucket's own id
+ * and need no hand-maintained union. Kept for one release for back-compat.
  */
 export type BucketId = "power-users";
 
@@ -46,9 +50,17 @@ export type BucketId = "power-users";
 // `bucketEntered("power-uesrs")` is a compile error rather than a silently
 // never-firing trigger. The return type is the exact literal event name, so it
 // drops straight into a journey's `trigger.event` / `exitOn` rule.
+/**
+ * @deprecated Use the typed ref `bucket.entered` (e.g. `powerUsers.entered`).
+ * For binding to ANY bucket use the generic `Events.BUCKET_ENTERED` constant.
+ */
 export const bucketEntered = <T extends BucketId>(id: T) =>
   `bucket:entered:${id}` as const;
 
+/**
+ * @deprecated Use the typed ref `bucket.left` (e.g. `powerUsers.left`).
+ * For binding to ANY bucket use the generic `Events.BUCKET_LEFT` constant.
+ */
 export const bucketLeft = <T extends BucketId>(id: T) =>
   `bucket:left:${id}` as const;
 

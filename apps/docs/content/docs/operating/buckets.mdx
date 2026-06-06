@@ -166,6 +166,20 @@ Because the cron computes leaves in bulk SQL, its cost scales with active member
 A missed or late cron tick only **delays** a leave — it never corrupts membership. The next tick catches up. Don't set `BUCKET_RECONCILE_CRON` so tight that a sweep can't finish before the next one is due on a large absence bucket; if you need sub-cadence leaves on a specific bucket, use fast-expiry timers instead.
 </Callout>
 
+### Dwell Reactions and the Reconcile Cron
+
+The **same** `bucketReconcileTask` sweep also drives `dwell` reactions — a bucket's `bucket.on("dwell", { after } | { every }, …)` handlers, which fire on *how long a member has stayed in the bucket* rather than on a join or leave. There is no separate dwell cron and nothing extra to wire; dwell rides the existing tick on the `BUCKET_RECONCILE_CRON` cadence.
+
+What an operator should know about it:
+
+- **It runs over the existing population, off the clock.** A dwell fire is computed by comparing each active member's continuous membership age against the reaction's `after` / `every` schedule — there is no inbound event. So, like absence leaves, **dwell-fire latency is bounded by the cadence**: a `{ after: days(7) }` reaction fires within one cron interval of the member crossing 7 days, not to-the-second.
+- **It is continuous-membership-gated.** Dwell measures *uninterrupted* time in the bucket. A leave (and any re-join) resets the clock — a re-join is a brand-new membership row that starts dwell from zero. A member who leaves at day 6 and re-joins never trips a 7-day `after`.
+- **It fires for the population that was already there, honestly.** When a brand-new bucket id first deploys, its members are materialized by backfill (see [Backfill and Re-Evaluation](#backfill-and-re-evaluation)), and a backfilled member's `enteredAt` is the *deploy* instant — so naively a 7-day dwell wouldn't fire until 7 days after deploy. To avoid that, backfill derives a **historical anchor** (`dwellAnchorAt`) per member where one is cheaply available (e.g. for `went-dormant`, the timestamp they actually went dormant), and the dwell gate reads `coalesce(dwellAnchorAt, enteredAt)`. The net effect operators see: dwell reactions fire for the **pre-existing** population shortly after deploy, dated from when each member *really* started dwelling, not from the deploy. Members who join after deploy leave `dwellAnchorAt` null and dwell from their real `enteredAt`.
+- **It is idempotent across sweeps.** Each fire is recorded per membership (`dwell_state`) and emitted through the same ingest path as enter/leave with a deterministic idempotency key, so a `{ after }` reaction fires **once** even across many sweeps, and an `{ every }` reaction coalesces to at most one fire per elapsed interval. A retried or overlapping sweep does not double-fire.
+- **A dwell-only bucket is still swept.** A bucket that has a dwell reaction but no rolling-window criteria is included in the sweep specifically for its dwell pass, even though it would otherwise be skipped as non-`timeBased`.
+
+Two schema columns back this (engine-track, added in migration `0013`): `dwell_state` (per-membership record of which dwell schedules have fired) and `dwell_anchor_at` (the backfill-derived historical dwell start). Both are additive and nullable; your normal pre-deploy `db:migrate` applies them — see [The Migration](#the-migration) below. Dwell reactions themselves are authored in code (`bucket.on("dwell", …)`); like all generated reactions they are `ENABLED_BUCKETS`-gated and grouped under their bucket in Studio (see [Observing Buckets](#observing-buckets-in-studio)).
+
 ### Fast-Expiry Timers
 
 For latency-critical absence buckets, a definition can set `fastExpiry: true` (the `went-dormant` example does). On join, the engine arms a per-user durable timer that fires the leave near the exact expiry deadline instead of waiting for the next cron sweep — so, say, winback eligibility flips within seconds of a user going quiet rather than within the cadence.
@@ -246,11 +260,11 @@ The **Buckets** view in [Studio](/docs/operating/studio) is the operator's windo
 
 - **Current size** per bucket, and a size-over-time chart.
 - **Entered / left** as a funnel and trend, so you can see throughput and churn at a glance.
-- **Which journeys a bucket feeds** — rendered as badges, derived by cross-referencing the bucket's transition events against journey triggers. This is the fastest way to answer "if I disable this bucket, what stops firing?"
+- **Which journeys a bucket feeds** — rendered as badges, grouped into two kinds. **Owned reactions** are journeys the bucket itself authored via `bucket.on("enter" | "leave" | "dwell", …)`; they desugar to durable journeys tagged with the bucket's id (`sourceBucketId`), so Studio groups them under their source bucket and marks them **owned**. **External bindings** are hand-written journeys bound to the bucket's transition events (`bucket:entered:<id>` / `bucket:left:<id>` or the generic forms) via the usual trigger cross-reference; they render plain. This is the fastest way to answer "if I disable this bucket, what stops firing?" — and to tell at a glance which of those flows the bucket owns versus which a teammate wired separately.
 - **Enable / disable** — the one mutation, behind a confirm dialog, hitting the same `PATCH` endpoint above.
 - **A building / live badge** that surfaces backfill progress and cron-cadence lag honestly, so you know whether a size is settled or still catching up.
 
-The bucket detail view also lists `feedsJourneys` and a sample of recent members, mirroring the API's `GET /v1/admin/buckets/{id}` response.
+The bucket detail view also lists `feedsJourneys` and a sample of recent members, mirroring the API's `GET /v1/admin/buckets/{id}` response. In that response, owned reactions carry `sourceBucketId === <bucket id>` and `owned: true`; external bindings carry `owned: false` (and whatever `sourceBucketId` the journey itself declares, usually `null`). On a collision — a reaction that is also reachable via the alias cross-reference — the owned entry wins.
 
 ## The Optional PostHog Sync
 
@@ -269,7 +283,7 @@ This is the **only** external sync target the engine ships. Buckets are not a CD
 
 The `bucket_memberships` and `bucket_configs` tables are **engine-track** — they ship with `@hogsend/engine` and its bundled `@hogsend/db`, not in your own `migrations/` directory. You don't generate or hand-write them.
 
-On the release that introduces buckets, the engine migration (`0011`) is applied by your normal pre-deploy `db:migrate` step — on Railway that runs automatically before the new code goes live. Nothing extra is required: upgrade the engine, run migrations, done. See [Upgrading](/docs/operating/upgrading) for the two migration tracks and the expand → migrate → contract rules around engine schema changes.
+On the release that introduces buckets, the engine migration (`0011`) is applied by your normal pre-deploy `db:migrate` step — on Railway that runs automatically before the new code goes live. Nothing extra is required: upgrade the engine, run migrations, done. The dwell-reaction release adds two more `bucket_memberships` columns in migration `0013` — `dwell_state` and `dwell_anchor_at` (see [Dwell Reactions](#dwell-reactions-and-the-reconcile-cron)). Both are additive and nullable, so the same `db:migrate` step applies them with no downtime. See [Upgrading](/docs/operating/upgrading) for the two migration tracks and the expand → migrate → contract rules around engine schema changes.
 
 ## Debugging Buckets
 

@@ -1,4 +1,4 @@
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 
 // Property inclusion + exclusion — on trial, plan not yet upgraded. Pure
 // property predicates → in-memory, real-time only, NOT time-based. The criteria
@@ -13,26 +13,13 @@ export const trialExpiringSoon = defineBucket({
     // Unconditional time-box: drop them 14 days after joining REGARDLESS of
     // whether they're still on a trial — stop the "expiring soon" nag eventually.
     // The reconcile cron force-leaves them; `entryLimit:"once"` keeps them out.
-    maxDwell: { hours: 24 * 14 },
-    criteria: {
-      type: "composite",
-      operator: "and",
-      conditions: [
-        { type: "property", property: "plan", operator: "eq", value: "trial" },
-        {
-          type: "property",
-          property: "trial_days_left",
-          operator: "lte",
-          value: 3,
-        },
+    maxDwell: days(14),
+    criteria: (b) =>
+      b.all(
+        b.prop("plan").eq("trial"),
+        b.prop("trial_days_left").lte(3),
         // exclusion: not already converted
-        {
-          type: "property",
-          property: "converted",
-          operator: "neq",
-          value: true,
-        },
-      ],
-    },
+        b.prop("converted").neq(true),
+      ),
   },
 });

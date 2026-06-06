@@ -1,9 +1,175 @@
 ---
 title: Buckets API
-description: Bucket listing with live counts, detail with criteria and fed journeys, member listing, and enable/disable.
+description: The defineBucket() object surface (typed refs, on() reactions, member access) plus the admin HTTP endpoints -- listing with live counts, detail with criteria and fed journeys, member listing, and enable/disable.
 ---
 
-Bucket admin endpoints let you see which buckets are registered, inspect their criteria and which journeys they feed, list current and former members, and enable/disable them at runtime. Buckets are real-time, code-defined membership groups (a peer of journeys) — see the [Buckets guide](/docs/guides/buckets) for the `defineBucket()` authoring API. All endpoints below require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+This page has two halves: the **[`DefinedBucket` object](#the-definedbucket-object)** returned by `defineBucket()` (typed transition refs, the `.on()` reaction surface, and in-process member access), and the **[admin HTTP endpoints](#buckets)** for inspecting and toggling buckets at runtime. For the authoring concepts -- criteria, the fluent builder, re-entry, the reconcile cron -- see the [Buckets guide](/docs/guides/buckets). All HTTP endpoints below require the `Authorization: Bearer <ADMIN_API_KEY>` header.
+
+Buckets are real-time, code-defined membership groups (a peer of journeys). The admin endpoints let you see which buckets are registered, inspect their criteria and which journeys they feed, list current and former members, and enable/disable them at runtime.
+
+## The `DefinedBucket` object
+
+`defineBucket({ meta })` returns a `DefinedBucket<Id>` -- the object you export from your bucket file. It is generic over the bucket's id **literal**, so the transition refs and reaction triggers are typed down to the exact string.
+
+```ts
+import { days, defineBucket, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "../journeys/constants/index.js";
+
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    name: "Went dormant",
+    enabled: true,
+    timeBased: true,
+    criteria: (b) =>
+      b.all(
+        b.event(Events.APP_ACTIVE).exists(),
+        b.event(Events.APP_ACTIVE).within(days(7)).notExists(),
+      ),
+  },
+});
+```
+
+```ts
+interface DefinedBucket<Id extends string = string> {
+  meta: BucketMeta;
+
+  // Typed transition refs (literal-typed off `Id`)
+  readonly entered: `bucket:entered:${Id}`;
+  readonly left: `bucket:left:${Id}`;
+
+  // Generated reaction journeys (read by the worker + container)
+  reactions: DefinedJourney[];
+
+  // Member access -- never an unbounded array
+  count(): Promise<{ data: number | null; error: Error | null }>;
+  has(userId: string): Promise<{ data: boolean; error: Error | null }>;
+  members(opts?: { limit?: number; cursor?: string }): Promise<MembersResult>;
+  membersIterator(opts?: { pageSize?: number }): AsyncIterableIterator<BucketMemberRow>;
+
+  // Colocated reactions (returns the bucket, chainable)
+  on(kind: "enter", handler): DefinedBucket<Id>;
+  on(kind: "enter", opts: EnterOptions, handler): DefinedBucket<Id>;
+  on(kind: "leave", handler): DefinedBucket<Id>;
+  on(kind: "leave", opts: LeaveOptions, handler): DefinedBucket<Id>;
+  on(kind: "dwell", opts: DwellOptions, handler): DefinedBucket<Id>;
+}
+```
+
+### Typed transition refs
+
+`bucket.entered` and `bucket.left` are the bucket's two transition event names, computed from `meta.id` synchronously at `defineBucket()` time as pure string concatenation. Because they are typed as the literal `` `bucket:entered:${Id}` `` / `` `bucket:left:${Id}` ``, a typo can't slip past the compiler -- they are the type-safe replacement for hand-written strings.
+
+```ts
+wentDormant.entered; // "bucket:entered:went-dormant"
+wentDormant.left;    // "bucket:left:went-dormant"
+
+// Use them directly as a journey trigger / exit:
+defineJourney({ meta: { trigger: { event: wentDormant.entered }, /* … */ } });
+defineJourney({ meta: { exitOn: [{ event: wentDormant.left }], /* … */ } });
+```
+
+<Callout type="info">
+The typed refs **replace** the `bucketEntered()` / `bucketLeft()` string helpers and the hand-maintained `BucketId` union, which are **deprecated for one release** (still exported, slated for removal). Migrate a journey by importing the bucket from its **leaf module** (e.g. `../buckets/went-dormant.js`, not the barrel) and reading `bucket.left`. The generic `Events.BUCKET_ENTERED` / `Events.BUCKET_LEFT` constants remain for the any-bucket case.
+</Callout>
+
+### `on(kind, opts?, handler)`
+
+`bucket.on(...)` colocates a **reaction** with the bucket. Each call desugars to a real durable journey (full `JourneyContext`, the entire enrollment guard stack, active-state dedup, event routing) tagged with `sourceBucketId` + `reactionKind`, pushed onto `bucket.reactions`. `on()` returns the bucket, so calls chain. Registration is declarative -- there is no `.subscribe()` step.
+
+```ts
+wentDormant
+  .on("enter", async (user, ctx) => {
+    if (!ctx.isFirstEntry) return;            // entryCount / isFirstEntry on ctx
+    await ctx.sleep({ duration: days(1) });
+    await sendEmail({ to: user.email, template: Templates.WINBACK_WE_MISS_YOU });
+  })
+  .on("leave", { reason: "criteria" }, async (user, ctx) => {
+    // ctx.reason is "criteria" | "maxDwell" | "manual"
+  })
+  .on("dwell", { after: days(7) }, async (user, ctx) => {
+    // fires from the reconcile cron for members dormant >= 7 days; ctx.dwellCount
+  });
+```
+
+The first argument is the transition kind; the second is **optional options** for `enter`/`leave` and **mandatory** for `dwell`. The overloads:
+
+| Kind | Signature | `opts` | Trigger event | ctx extras |
+|---|---|---|---|---|
+| `enter` | `on("enter", handler)` or `on("enter", opts, handler)` | `EnterOptions` (optional) | `bucket.entered` | `{ entryCount: number; isFirstEntry: boolean }` |
+| `leave` | `on("leave", handler)` or `on("leave", opts, handler)` | `LeaveOptions` (optional) | `bucket.left` | `{ reason: "criteria" \| "maxDwell" \| "manual" }` |
+| `dwell` | `on("dwell", opts, handler)` | `DwellOptions` (**required**) | `bucket:dwell:<id>:<label>` | `{ dwellCount: number }` |
+
+The handler is `(user: JourneyUser, ctx) => Promise<void>` -- the same shape as a journey `run`, with the kind-specific extras layered onto the canonical `JourneyContext` (built by spread, so the engine's ctx is never mutated).
+
+**Options:**
+
+```ts
+interface EnterOptions {
+  // Only run on the user's FIRST-ever entry to this bucket; re-entries are skipped.
+  firstEntryOnly?: boolean;
+}
+
+interface LeaveOptions {
+  // Only run when the leave matches this reason (or one of these reasons).
+  reason?: BucketLeaveReason | BucketLeaveReason[];
+}
+
+// Exactly one of after / every.
+type DwellOptions =
+  | { after: DurationObject; every?: never }   // one-shot at the threshold
+  | { every: DurationObject; after?: never };  // recurring, once per elapsed interval
+
+type BucketLeaveReason = "criteria" | "maxDwell" | "manual";
+```
+
+- `firstEntryOnly` and `reason` are **filters applied inside `run` after enrollment** -- a filtered-out reaction still writes a short `active`->`completed` `journeyStates` row, it just does no work. Re-entry is never a separate event.
+- `dwell` requires exactly one of `after` / `every`; passing both, neither, or a non-function handler throws a `TypeError` at definition time.
+- Reaction metas are `entryLimit: "unlimited"`, `suppress: { seconds: 0 }` by design -- a reaction has no re-entry cool-down; gate on `ctx.entryCount` / `firstEntryOnly` instead.
+
+<Callout type="info">
+Generated reactions are **`ENABLED_BUCKETS`-gated** (they inherit the bucket's enabled state, not `ENABLED_JOURNEYS`) and are grouped under their bucket in Studio and in `feedsJourneys` as `owned: true`. `dwell` reactions fire from the reconcile cron, not a real-time event -- see [Bucket Operations](/docs/operating/buckets#dwell-reactions-and-the-reconcile-cron).
+</Callout>
+
+### Member access
+
+Four read methods let you query live membership in-process (e.g. from a journey `run` or a custom workflow). They follow a Supabase-shaped `{ data, error }` contract and **never throw on a query failure** (the iterator throws on a page error) -- failures land in `error`. Member access is **never an unbounded array**: `members()` is keyset-paginated and the iterator pages internally. Every query inner-joins live contacts and filters soft-deleted rows on both tables (GDPR parity with the admin/reconcile queries).
+
+```ts
+const { data: total, error } = await wentDormant.count();      // active head-count
+const { data: isMember } = await wentDormant.has(userId);      // O(1) membership probe
+const page = await wentDormant.members({ limit: 50 });         // one keyset page
+for await (const m of wentDormant.membersIterator()) { /* paged internally */ }
+```
+
+| Method | Returns | Notes |
+|---|---|---|
+| `count()` | `{ data: number \| null; error }` | Active, non-deleted members joined to a live contact. The one authoritative count. |
+| `has(userId)` | `{ data: boolean; error }` | O(1) probe on the partial active unique index. |
+| `members(opts?)` | `MembersResult` | One keyset page. `limit` default `50`, hard cap `100`. |
+| `membersIterator(opts?)` | `AsyncIterableIterator<BucketMemberRow>` | Walks the whole active population, page-by-page; `pageSize` default `50`, cap `100`. Throws on a page error. |
+
+```ts
+interface BucketMemberRow {
+  id: string;
+  userId: string;
+  userEmail: string | null;
+  enteredAt: string;   // ISO
+  entryCount: number;
+}
+
+interface MembersResult {
+  data: BucketMemberRow[];
+  error: Error | null;
+  count: number | null;  // per-call snapshot total -- NOT a stable paginated total
+  cursor: string | null; // keyset continuation (last row id); null when exhausted
+}
+```
+
+- **Cursor.** `members()` paginates with a keyset cursor on the row `id` (a stable UUID), not `enteredAt`. Pass the returned `cursor` back as `opts.cursor` for the next page; `null` means the page is exhausted. Order is **opaque (UUID ascending), not chronological** -- a time-ordered walk is not provided.
+- **`count` on a page is a snapshot.** `MembersResult.count` is a per-call head-count; under churn it can drift page-to-page. The cursor itself is churn-safe. Use the standalone `count()` for one authoritative number.
+
+---
 
 ## Buckets
 
@@ -89,9 +255,18 @@ Get full bucket detail including the membership `criteria`, reconciliation knobs
     "counts": { "active": 184, "left": 57 },
     "feedsJourneys": [
       {
+        "id": "bucket-power-users-on-enter",
+        "name": "Power users -- on enter",
+        "trigger": "bucket:entered:power-users",
+        "sourceBucketId": "power-users",
+        "owned": true
+      },
+      {
         "id": "power-user-celebration",
         "name": "Power user -- Celebration",
-        "trigger": "bucket:entered:power-users"
+        "trigger": "bucket:entered:power-users",
+        "sourceBucketId": null,
+        "owned": false
       }
     ],
     "recentMembers": [
@@ -118,7 +293,12 @@ Get full bucket detail including the membership `criteria`, reconciliation knobs
 
 `criteria` is the raw `ConditionEval` tree from the bucket definition (the same condition engine journeys use). `entryPeriod`, `minDwell`, and `reconcileEvery` are returned as their `DurationObject` shape or `null` when unset.
 
-`feedsJourneys` is derived by cross-referencing this bucket's emitted transition events -- `bucket:entered:<id>`, `bucket:left:<id>`, and the generic `bucket:entered` / `bucket:left` -- against the journey registry's trigger index. Any journey bound to one of those events appears here, with the `trigger` field showing the exact event it binds to. This is how you confirm a membership change actually kicks off the journey you expect. `recentMembers` contains up to the 10 most recently entered **active** members.
+`feedsJourneys` lists every journey this bucket drives, from two sources, owned-first:
+
+1. **Owned reactions** -- journeys generated by the bucket's own `.on("enter" | "leave" | "dwell", …)` calls. Each desugars to a durable journey tagged with `sourceBucketId === id`; they are discovered by scanning the registry for that tag and surfaced with `owned: true` (and `sourceBucketId` set to this bucket's id).
+2. **External bindings** -- hand-written journeys bound to the bucket's emitted transition events: the per-bucket alias `bucket:entered:<id>` / `bucket:left:<id>` (the recommended, narrowly-routed binding) or the generic `bucket:entered` / `bucket:left`. These are surfaced with `owned: false`, and `sourceBucketId` is whatever the journey itself carries (`null` for an ordinary journey).
+
+The `trigger` field shows the exact event each journey binds to. On a collision -- a reaction that is also reachable via the alias cross-reference -- the **owned** entry wins. This is how you confirm a membership change actually kicks off the journeys you expect, and which of them the bucket itself authored. `recentMembers` contains up to the 10 most recently entered **active** members.
 
 **Response `404`** -- Bucket not found.
 

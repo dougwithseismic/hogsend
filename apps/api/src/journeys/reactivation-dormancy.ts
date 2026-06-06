@@ -1,6 +1,12 @@
 import { days } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
-import { bucketLeft, Events, Templates } from "./constants/index.js";
+// Import the bucket from its LEAF module, NOT the `../buckets/index.js` barrel:
+// reading `wentDormant.left` at module-eval (inside the `exitOn` literal below)
+// through the barrel would close an ESM cycle (journeys/index → this file →
+// buckets/index → went-dormant → journeys/constants/index). The leaf is acyclic
+// and the typed ref is a pure string derived synchronously at defineBucket time.
+import { wentDormant } from "../buckets/went-dormant.js";
+import { Events, Templates } from "./constants/index.js";
 
 export const reactivationDormancy = defineJourney({
   meta: {
@@ -17,10 +23,11 @@ export const reactivationDormancy = defineJourney({
       { event: Events.FEATURE_USED },
       // Bucket → journey composition (Section 7): when the user leaves the
       // `went-dormant` bucket they have become active again, so auto-exit the
-      // winback sequence. `bucketLeft` is the id-validated alias helper, so a
-      // typo here is a compile error. This proves the end-to-end bucket-leave →
-      // `exitOn` path through `ingestEvent`'s `checkExits`.
-      { event: bucketLeft("went-dormant") },
+      // winback sequence. `wentDormant.left` is the bucket's typed transition ref
+      // ("bucket:left:went-dormant"), literal-typed off its own id — a typo is a
+      // compile error. This proves the end-to-end bucket-leave → `exitOn` path
+      // through `ingestEvent`'s `checkExits`.
+      { event: wentDormant.left },
     ],
   },
 
