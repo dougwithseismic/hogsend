@@ -109,9 +109,10 @@ Setting up lifecycle email from scratch means building a lot of plumbing. Here's
 
 ### Buckets (real-time membership)
 - [`defineBucket()`](/docs/concepts/buckets) — a peer primitive to journeys: code-defined, real-time membership groups
-- Joins and leaves are evaluated inside the same ingest pipeline, emitting `bucket:entered:<id>` / `bucket:left:<id>` events that journeys can trigger and exit on
+- Joins and leaves are evaluated inside the same ingest pipeline, emitting `bucket:entered:<id>` / `bucket:left:<id>` events that journeys can trigger and exit on (bind them with the typed `bucket.entered` / `bucket.left` refs)
 - Criteria reuse the same condition engine as journey triggers and exit rules
-- An engine-owned cron reconciles time-based and absence-based leaves PostHog's batch cohorts can't serve in real time
+- Colocated reactions via `bucket.on("enter" | "leave" | "dwell", …)` — each desugars to a real durable journey tagged to its bucket, so it gets the full enrollment guards and `JourneyContext`
+- An engine-owned cron reconciles time-based and absence-based leaves PostHog's batch cohorts can't serve in real time, and on the same sweep fires `dwell` reactions for members who have stayed in a bucket for a set duration — including the existing population on first deploy
 
 ### Email delivery
 - React Email templates with a type-safe registry

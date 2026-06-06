@@ -3,7 +3,7 @@ title: Buckets
 description: Real-time, code-defined membership groups — power users, trials expiring soon, users who went dormant. Joining or leaving a bucket fires an event that can trigger a journey.
 ---
 
-Buckets are named, real-time groups of users you define in code — *power users*, *trials expiring soon*, *users who went dormant*. A user **joins** the bucket the moment their data satisfies its criteria, and **leaves** when it stops. Every join and leave fires a first-class event through the same ingestion pipeline that powers journeys, so **a bucket membership change can trigger a journey** — bind a journey's `trigger.event` to `bucketEntered("went-dormant")` and it runs the instant someone goes dormant.
+Buckets are named, real-time groups of users you define in code — *power users*, *trials expiring soon*, *users who went dormant*. A user **joins** the bucket the moment their data satisfies its criteria, and **leaves** when it stops. Every join and leave fires a first-class event through the same ingestion pipeline that powers journeys, so **a bucket membership change can trigger a journey** — bind a journey's `trigger.event` to the bucket's typed `wentDormant.entered` ref and it runs the instant someone goes dormant. A bucket is also the place you attach *behavior*: `bucket.on("enter" | "leave" | "dwell", …)` colocates a reaction right next to the criteria, and `bucket.count()` / `.has()` / `.members()` query who's in it.
 
 Buckets are a **peer of journeys**, authored the exact same way. You write a `defineBucket()` call — no `run` function, just criteria — and register it in an array that *you* own. The engine never imports your buckets; you inject them into the same factories that take your journeys. If you've written a journey, you already know how to write a bucket.
 
@@ -51,7 +51,13 @@ export const myBucket = defineBucket({
 });
 ```
 
-`defineBucket()` returns a `DefinedBucket` (`{ meta }`). You export it from your bucket file and add it to the `buckets` array in your `src/buckets/index.ts` (see [Adding a bucket](#adding-a-bucket)). The membership engine — real-time joins/leaves on ingest, plus a cron reconcile for time-based leaves — is engine-owned. You only declare the criteria.
+`defineBucket()` returns a `DefinedBucket<Id>` — and that object is more than just `{ meta }`. It carries:
+
+- **Typed transition refs** — `bucket.entered` / `bucket.left`, literal-typed off the bucket's own id (`"bucket:entered:<id>"` / `"bucket:left:<id>"`). Hand them to a journey's `trigger`/`exitOn` (see [Typed transition refs](#typed-transition-refs)).
+- **Colocated reactions** — `bucket.on("enter" | "leave" | "dwell", …)` attaches behavior next to the criteria (see [Reactions](#reactions-bucketon)).
+- **Member access** — `bucket.count()` / `.has(userId)` / `.members({…})` / `.membersIterator()` query the membership (see [Member access](#member-access)).
+
+You export the bucket from your bucket file and add it to the `buckets` array in your `src/buckets/index.ts` (see [Adding a bucket](#adding-a-bucket)). The membership engine — real-time joins/leaves on ingest, plus a cron reconcile for time-based leaves — is engine-owned. You only declare the criteria (and, optionally, the reactions).
 
 ## `BucketMeta`
 
@@ -357,31 +363,34 @@ All four carry the same flat properties: `{ bucketId, bucketName, userId, transi
 
 > **Prefer the aliased form.** Hatchet routes by exact event-name match. A journey bound to the *generic* `bucket:entered` is woken on **every** bucket's joins and must filter with `trigger.where` on `bucketId` — a wasted task start per irrelevant transition. The aliased `bucket:entered:<id>` lets a journey bind to exactly one bucket. Reserve the generic form for a deliberate all-buckets handler.
 
-### Typed alias helpers
+### Typed transition refs
 
-Build the alias event names with the `bucketEntered` / `bucketLeft` helpers from your constants, not hand-written strings. They only accept a registered `BucketId`, so a typo like `bucketEntered("went-dorment")` is a **compile error** rather than a trigger that silently never fires. (`JourneyMeta.trigger.event` is typed `string`, so without this guard a typo would compile.)
+The bucket object exposes its two transition event names directly as `bucket.entered` and `bucket.left` — literal-typed off the bucket's own `meta.id`:
 
 ```ts
-// src/journeys/constants/buckets.ts
-export type BucketId = "power-users" | "trial-expiring-soon" | "went-dormant";
-
-export const bucketEntered = <T extends BucketId>(id: T) =>
-  `bucket:entered:${id}` as const;
-export const bucketLeft = <T extends BucketId>(id: T) =>
-  `bucket:left:${id}` as const;
+wentDormant.entered; // "bucket:entered:went-dormant"
+wentDormant.left;    // "bucket:left:went-dormant"
 ```
 
-`BucketId` is the union of the ids in your `src/buckets/index.ts`. Keep it in sync when you add a bucket — it's step 2 of the [checklist](#adding-a-bucket). The generic `Events.BUCKET_ENTERED` / `Events.BUCKET_LEFT` constants are there too, for the all-buckets case.
+These are pure strings, derived synchronously at `defineBucket()` time, so a journey can use them as a `trigger.event` or in an `exitOn` rule (see [A bucket triggers a journey](#a-bucket-triggers-a-journey)). Because the type is the *exact literal* `` `bucket:entered:${Id}` ``, a typo can't survive — `wentDormant.entred` is a compile error, not a trigger that silently never fires. (`JourneyMeta.trigger.event` is typed `string`, so without this the typo would compile.) No hand-maintained union to keep in sync, no helper to import — the ref lives on the bucket you already have.
+
+> **Import the bucket from its leaf module** (`../buckets/went-dormant.js`), not the `../buckets/index.js` barrel, when you read a typed ref inside a journey's `meta`. Reading `wentDormant.left` at module-eval through the barrel closes an ESM cycle (journeys → buckets/index → went-dormant → constants → journeys). The leaf module is acyclic and the ref is a pure synchronous string.
+
+> **Deprecated: the `bucketEntered("id")` / `bucketLeft("id")` helpers.** Earlier versions built alias event names with `bucketEntered`/`bucketLeft` string helpers backed by a hand-maintained `BucketId` literal union in `src/journeys/constants/buckets.ts`. The typed refs replace both. The helpers and the `BucketId` type are kept **for one release** with a `@deprecated` JSDoc, then removed — migrate `bucketLeft("went-dormant")` → `wentDormant.left` (byte-identical event name) and drop the union.
+
+The typed refs cover the **per-bucket** alias only. For an **any-bucket** binding — one journey woken by *every* bucket's joins — keep using the generic `Events.BUCKET_ENTERED` / `Events.BUCKET_LEFT` constants; those are **not** deprecated. See [Emitted events](#emitted-events) for when the generic form is the right call.
 
 ## A bucket triggers a journey
 
-This is the point of buckets: membership-change-as-a-trigger. Bind a journey's `trigger.event` to `bucketEntered("went-dormant")` and it starts the moment a user goes dormant. Bind `exitOn` to `bucketLeft("went-dormant")` and it ends the moment they come back — no polling, no manual cleanup.
+This is the point of buckets: membership-change-as-a-trigger. Bind a journey's `trigger.event` to `wentDormant.entered` and it starts the moment a user goes dormant. Bind `exitOn` to `wentDormant.left` and it ends the moment they come back — no polling, no manual cleanup.
 
 ```ts
 // src/journeys/dormancy-winback.ts
 import { days, hours } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
-import { bucketEntered, bucketLeft } from "./constants/buckets.js";
+// Import the bucket from its LEAF module, not ../buckets/index.js — reading a
+// typed ref inside meta through the barrel would close an ESM cycle.
+import { wentDormant } from "../buckets/went-dormant.js";
 import { Templates } from "./constants/index.js";
 
 export const dormancyWinback = defineJourney({
@@ -390,12 +399,12 @@ export const dormancyWinback = defineJourney({
     name: "Dormancy — Win-back",
     enabled: true,
     // Triggered by the bucket join, not a raw product event:
-    trigger: { event: bucketEntered("went-dormant") },
+    trigger: { event: wentDormant.entered },
     entryLimit: "once_per_period",
     entryPeriod: days(30),
     suppress: hours(12),
     // Auto-exit the instant the user comes back and leaves the bucket:
-    exitOn: [{ event: bucketLeft("went-dormant") }],
+    exitOn: [{ event: wentDormant.left }],
   },
 
   run: async (user, ctx) => {
@@ -425,9 +434,157 @@ export const dormancyWinback = defineJourney({
 
 Key patterns:
 
-- **`trigger.event: bucketEntered("went-dormant")`** — the journey is driven by a bucket join, computed by the engine, not a product event you have to fire yourself.
-- **`exitOn: [{ event: bucketLeft("went-dormant") }]`** — when the user returns and leaves the bucket, the `bucket:left:went-dormant` event flows through ingest and terminates the journey, even mid-sleep. No bucket-side code needed; it's the ordinary exit path.
+- **`trigger.event: wentDormant.entered`** — the journey is driven by a bucket join, computed by the engine, not a product event you have to fire yourself. The typed ref resolves to `"bucket:entered:went-dormant"`.
+- **`exitOn: [{ event: wentDormant.left }]`** — when the user returns and leaves the bucket, the `bucket:left:went-dormant` event flows through ingest and terminates the journey, even mid-sleep. No bucket-side code needed; it's the ordinary exit path.
 - The journey itself is unchanged otherwise — buckets compose with journeys through the existing event spine, with zero journey-side machinery.
+
+> **One canonical reaction vs. a separate journey.** A bucket's `.on()` reaction (next section) is the *colocated, canonical* answer to a transition. When you want a **second** reaction to the same transition — or a divergent one with its own `entryLimit`/`suppress`/`trigger.where` — write it as a plain `defineJourney({ meta: { trigger: { event: wentDormant.entered } } })` like the one above. Buckets are not a listener pile: one canonical reaction per transition lives on the bucket; everything else is an ordinary journey bound to the typed ref.
+
+## Reactions (`bucket.on`)
+
+Triggering a *separate* journey on a bucket join (above) is the loose-coupling path. The tighter one is a **colocated reaction**: attach behavior right next to the criteria with `bucket.on(kind, opts?, handler)`. The handler runs against the **full `JourneyContext`** — sleep, `when`, `waitForEvent`, `guard`, `history`, `trigger`, `identify`, the lot — because each `.on()` **desugars to a real durable journey** under the hood, tagged with `sourceBucketId` so Studio groups it under the bucket. It inherits the whole enrollment guard stack, the active-state dedup, the durable context, and event routing — there is no parallel execution path.
+
+```ts
+import { days, defineBucket, sendEmail } from "@hogsend/engine";
+
+export const wentDormant = defineBucket({ meta: { /* ... */ } });
+
+wentDormant
+  .on("enter", async (user, ctx) => {
+    if (!ctx.isFirstEntry) return;            // entryCount / isFirstEntry on ctx
+    await ctx.sleep({ duration: days(1) });
+    await sendEmail({ /* ... */ });
+  })
+  .on("leave", { reason: "criteria" }, async (user, ctx) => {
+    // ctx.reason is "criteria" | "maxDwell" | "manual"
+  })
+  .on("dwell", { after: days(30) }, async (user, ctx) => {
+    // fires from the cron after 30 days of continuous membership; ctx.dwellCount
+  });
+```
+
+`.on()` **returns the bucket**, so chain as many as you like. There's no separate registration step — reactions ride along on `bucket.reactions` automatically (the worker and container read them off the bucket), gated by `ENABLED_BUCKETS` like the bucket itself. You define them at module load; that's the whole wiring.
+
+> **One canonical reaction per transition.** `.on("enter")` / `.on("leave")` is the *single* colocated answer to that transition. Need a second reaction, or one with a different `entryLimit`/`trigger.where`? Write a plain `defineJourney({ trigger: { event: bucket.entered } })` instead — see [the note above](#a-bucket-triggers-a-journey). Reactions are not a listener pile.
+
+### The three kinds
+
+The `kind` argument selects the transition and the shape of `opts` and the handler's `ctx` extras:
+
+| `kind` | Fires when | `opts` | `ctx` extras |
+|---|---|---|---|
+| `"enter"` | the user joins the bucket | **optional** — `{ firstEntryOnly?: boolean }` | `entryCount: number`, `isFirstEntry: boolean` |
+| `"leave"` | the user leaves the bucket | **optional** — `{ reason?: "criteria" \| "maxDwell" \| "manual" }` (single or array) | `reason: "criteria" \| "maxDwell" \| "manual"` |
+| `"dwell"` | a member stays continuously for a duration | **required** — exactly one of `{ after }` / `{ every }` | `dwellCount: number` |
+
+The reaction-specific extras are layered onto the canonical `JourneyContext` (read-only), so `ctx.sleep`, `ctx.history`, etc. are *also* present — `ctx` is `JourneyContext & { …extras }`.
+
+### Filters: `firstEntryOnly` and `reason`
+
+The `opts` on `enter`/`leave` are **filters that run inside the desugared `run` after enrollment** — they're not separate events:
+
+- **`firstEntryOnly: true`** (enter) — only run the body on the user's *first-ever* entry; re-entries are skipped. Equivalent to an early `if (!ctx.isFirstEntry) return;`. Note a filtered-out entry still enrolls and writes a short `active → completed` `journeyStates` row (the filter is in the body, not the guard).
+- **`reason`** (leave) — only run when the leave's reason matches. `"criteria"` = the user stopped matching; `"maxDwell"` = the unconditional TTL force-left them; `"manual"` is reserved for a future force-leave path. Pass one (`{ reason: "criteria" }`) or an array (`{ reason: ["criteria", "maxDwell"] }`).
+
+```ts
+// Only react to the user's first time entering the bucket.
+wentDormant.on("enter", { firstEntryOnly: true }, async (user, ctx) => {
+  // ctx.entryCount === 1, ctx.isFirstEntry === true
+});
+
+// Only react when the criteria stopped matching, not when maxDwell force-left them.
+trialExpiringSoon.on("leave", { reason: "criteria" }, async (user, ctx) => {
+  // ctx.reason === "criteria"
+});
+```
+
+### `dwell`: continuous membership
+
+`dwell` is the headline reaction — there's no clean way to express "has been in this group for N days" with enter/leave alone, because no inbound event marks the anniversary. It fires from the **reconcile cron** (so it's cron-resolution, not to-the-second) for members who have been **continuously** in the bucket for the configured duration. `opts` is required and carries **exactly one** of:
+
+- **`{ after }`** — one-shot. Fires once when the member has dwelt continuously for the duration. `ctx.dwellCount` is `1`.
+- **`{ every }`** — recurring. Fires once per elapsed interval (coalescing — a sweep that finds several intervals due fires once). `ctx.dwellCount` is the elapsed-interval ordinal (`1`, `2`, `3`, …).
+
+Passing both, or neither, throws at definition time.
+
+This is the real reaction the scaffold ships on `went-dormant` — a final win-back after a month of continuous dormancy:
+
+```ts
+// src/buckets/went-dormant.ts
+import { days, defineBucket, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "../journeys/constants/index.js";
+
+export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    name: "Went dormant",
+    enabled: true,
+    timeBased: true,
+    fastExpiry: true,
+    criteria: (b) =>
+      b.all(
+        b.event(Events.APP_ACTIVE).exists(),
+        b.event(Events.APP_ACTIVE).within(days(7)).notExists(),
+      ),
+  },
+});
+
+// When a user has been CONTINUOUSLY in `went-dormant` for 30 days, send a final
+// win-back. This colocated reaction desugars to a durable journey owned by the
+// bucket (grouped under it in Studio via sourceBucketId); `.on(...)` returns the
+// bucket, so it ships with `wentDormant` in buckets/index — no separate wiring.
+wentDormant.on("dwell", { after: days(30) }, async (user) => {
+  await sendEmail({
+    to: user.email,
+    userId: user.id,
+    journeyStateId: user.stateId,
+    template: Templates.REACTIVATION_FINAL_NUDGE,
+    subject: "Still here whenever you're ready",
+    journeyName: user.journeyName,
+  });
+});
+```
+
+Why `dwell` and not `on("enter") + ctx.sleep(days(30))`? Because `dwell` is driven by the cron over the **existing active population** and clocks off a backfill-derived historical anchor (`dwellAnchorAt`), not a per-user sleep started at enrollment. On first deploy it fires for people **already** long dormant, rather than 30 days from now — `enter + sleep` only ever covers users who join *after* the journey is live.
+
+A few semantics worth knowing:
+
+- **Continuous membership.** The dwell clock measures one *uninterrupted* stretch in the bucket. A leave-then-rejoin is a new membership row and resets the clock.
+- **Existing population via backfill.** For a brand-new bucket, the historical cohort is backfilled with a derived `dwellAnchorAt` (e.g. for `went-dormant`, when they actually became dormant) where one is cheaply derivable, so dwell honors real elapsed time rather than "clock starts at deploy". Live joins after deploy leave the anchor null and the clock starts at their real `enteredAt`.
+- **`ctx.dwellCount`.** The elapsed-interval ordinal — `1` for an `after` one-shot, the running interval index for `every`.
+- **Idempotent.** Sweep-level serialization plus a deterministic idempotency key (routed through the same `ingestEvent` path as enter/leave, so it's also visible to `ctx.history`, `exitOn`, and analytics) mean a retried or repeated sweep won't double-fire a given interval. The one residual edge — an `every` interval landing exactly on a retry boundary — is handled by the per-membership dwell stamp; you don't need to guard for it.
+
+## Member access
+
+The bucket object also queries its own membership. None of these are unbounded arrays — every read is capped or paged.
+
+```ts
+const { data: total } = await wentDormant.count();            // { data, error }
+const { data: isMember } = await wentDormant.has(userId);     // { data, error }
+const page = await wentDormant.members({ limit: 50 });        // { data, error, count, cursor }
+for await (const m of wentDormant.membersIterator()) { /* paged internally */ }
+```
+
+| Method | Returns | Notes |
+|---|---|---|
+| `count()` | `{ data: number \| null, error }` | One authoritative head-count of active members (joined to live, non-deleted contacts). |
+| `has(userId)` | `{ data: boolean, error }` | O(1) probe on the active-membership index. |
+| `members({ limit?, cursor? })` | `{ data, error, count, cursor }` | One keyset page. `limit` defaults to 50, **hard-capped at 100**. `cursor` is the last row's `id`; pass it back for the next page, `null` when exhausted. |
+| `membersIterator({ pageSize? })` | `AsyncIterableIterator<BucketMemberRow>` | The only full-population walk — composes `members()` page by page internally. |
+
+Each `BucketMemberRow` is `{ id, userId, userEmail, enteredAt, entryCount }`.
+
+These follow the Supabase-shaped **no-throw** convention: a failure lands in `error` rather than throwing (the one exception is `membersIterator`, which throws on a page error so a `for await` loop fails loudly). A couple of caveats:
+
+- **`members().count` is a per-call snapshot**, not a consistent paginated total — under churn it can drift page-to-page. The keyset cursor itself is churn-safe; use `count()` when you need one authoritative number.
+- **Order is opaque** (`id` ascending, a UUID), **not chronological**. Don't read `members()` as "oldest first".
+
+```ts
+// Walk the whole bucket, bounded page-by-page.
+for await (const member of wentDormant.membersIterator({ pageSize: 100 })) {
+  console.log(member.userId, member.enteredAt);
+}
+```
 
 ## Enabling buckets at runtime
 
@@ -473,41 +630,30 @@ export const highValue = defineBucket({
 });
 ```
 
-### 2. Add the id to `BucketId`
+### 2. Add it to your `buckets` array
 
-So the typed alias helpers stay in sync, add the new id to the `BucketId` union in `src/journeys/constants/buckets.ts`:
-
-```ts
-export type BucketId =
-  | "power-users"
-  | "trial-expiring-soon"
-  | "went-dormant"
-  | "high-value"; // <- new
-```
-
-### 3. Add it to your `buckets` array
-
-Import it and add it to the exported `buckets` array in your `src/buckets/index.ts`:
+Import it and add it to the exported `buckets` array in your `src/buckets/index.ts`. **Don't annotate the array `DefinedBucket[]`** — that base type re-widens each bucket's `id` literal back to `string` and erases the typed `bucket.entered` / `bucket.left` refs. Let the array infer; a `DefinedBucket<Id>` is still assignable to the `DefinedBucket[]` the factories accept.
 
 ```ts
 // src/buckets/index.ts
-import type { DefinedBucket } from "@hogsend/engine";
 import { highValue } from "./high-value.js";
 import { powerUsers } from "./power-users.js";
 import { trialExpiringSoon } from "./trial-expiring-soon.js";
 import { wentDormant } from "./went-dormant.js";
 
-export const buckets: DefinedBucket[] = [
-  powerUsers,
-  trialExpiringSoon,
-  wentDormant,
-  highValue,
-];
+// No DefinedBucket[] annotation — let the array infer so each bucket keeps its
+// literal id (and its typed entered/left refs).
+export const buckets = [powerUsers, trialExpiringSoon, wentDormant, highValue];
+
+// Re-export for direct reference (typed refs in journeys, tests, custom wiring).
+export { highValue, powerUsers, trialExpiringSoon, wentDormant };
 ```
 
-### 4. (Already wired) the array flows into the engine
+There's no `BucketId` union to maintain anymore — `bucket.entered` / `bucket.left` are derived from each bucket's own `meta.id` automatically. Just reference `highValue.entered` wherever you need the event name.
 
-Your two thin entry files pass the same `buckets` array into both factories — you wire this once and don't touch it per-bucket:
+### 3. (Already wired) the array flows into the engine
+
+Your two thin entry files pass the same `buckets` array into both factories — you wire this once and don't touch it per-bucket. Any `.on()` reactions ride along on the buckets automatically, so they need no separate registration:
 
 ```ts
 // src/index.ts (HTTP)
@@ -536,10 +682,9 @@ Once a bucket is in the array (and enabled via `ENABLED_BUCKETS`), the engine ev
 ### Checklist
 
 1. **Create the file** in `src/buckets/` with `defineBucket()` and your `criteria`.
-2. **Add the id** to the `BucketId` union in `src/journeys/constants/buckets.ts`.
-3. **Add it** to the `buckets` array in `src/buckets/index.ts`.
-4. **Bind a journey** (optional) to `bucketEntered("<id>")` / `bucketLeft("<id>")`.
-5. **Enable it** via `ENABLED_BUCKETS` (or leave the default `*`).
+2. **Add it** to the (un-annotated) `buckets` array in `src/buckets/index.ts`.
+3. **React** (optional) — colocate a `bucket.on("enter" \| "leave" \| "dwell", …)`, or bind a journey's `trigger`/`exitOn` to `bucket.entered` / `bucket.left`.
+4. **Enable it** via `ENABLED_BUCKETS` (or leave the default `*`).
 
 ## Optional: sync to PostHog
 
@@ -553,7 +698,7 @@ meta: {
 }
 ```
 
-It's **off by default** and a **no-op without `POSTHOG_API_KEY`** (so it silently does nothing in self-host setups that omit PostHog). This is the *only* blessed external sync — buckets are not a destination-sync surface. To reach Braze/HubSpot/Segment, do it the way journeys reach any destination: a journey triggered on `bucket:entered:<id>` calling out from its `run`. See [Buckets concepts](/docs/concepts/buckets) for why that line exists.
+It's **off by default** and a **no-op without `POSTHOG_API_KEY`** (so it silently does nothing in self-host setups that omit PostHog). This is the *only* blessed external sync — buckets are not a destination-sync surface. To reach Braze/HubSpot/Segment, do it the way journeys reach any destination: a colocated `bucket.on("enter", …)` reaction (or a journey bound to `bucket.entered`) calling out from its handler. See [Buckets concepts](/docs/concepts/buckets) for why that line exists.
 
 ## Observing buckets
 

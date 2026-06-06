@@ -1,4 +1,4 @@
-# The `BucketId` union + `bucketEntered` / `bucketLeft` ritual
+# Binding a journey to a bucket — typed refs (and the deprecated ritual)
 
 When a user joins or leaves a bucket the engine emits a per-bucket ALIAS event:
 `bucket:entered:<id>` / `bucket:left:<id>` (e.g. `bucket:entered:power-users`).
@@ -6,62 +6,29 @@ Journeys bind to those alias strings via `trigger.event`. The problem: a
 journey's `trigger.event` is typed `string`, so a misspelled alias compiles fine
 and the journey just silently never fires.
 
-The fix is a hand-maintained literal union plus two typed helper functions, in
-the CONSUMER's `src/journeys/constants/index.ts`. This is the ritual you MUST
-keep in sync whenever you add or rename a bucket.
-
-## The constants block
-
-```ts
-// src/journeys/constants/index.ts
-
-/**
- * The union of bucket ids registered in src/buckets/index.ts. Keep this in sync
- * with the `buckets` array — it is what makes the alias helpers catch a typo at
- * COMPILE time.
- */
-export type BucketId = "power-users";
-
-// Narrow-alias helpers — ONLY accept a registered BucketId, so a typo such as
-// bucketEntered("power-uesrs") is a compile error rather than a silently
-// never-firing trigger. The return type is the EXACT literal event name, so it
-// drops straight into a journey's trigger.event / exitOn rule.
-export const bucketEntered = <T extends BucketId>(id: T) =>
-  `bucket:entered:${id}` as const;
-
-export const bucketLeft = <T extends BucketId>(id: T) =>
-  `bucket:left:${id}` as const;
-```
-
-When you add a second bucket, the union grows by hand:
+The fix is no longer a hand-maintained union — it is built into the bucket
+object. `defineBucket` is generic over the id literal (`DefinedBucket<Id>`), so
+the bucket exposes two **typed transition refs** computed synchronously at
+`defineBucket` time:
 
 ```ts
-export type BucketId = "power-users" | "went-dormant";
+wentDormant.entered; // typed `"bucket:entered:went-dormant"`
+wentDormant.left;    // typed `"bucket:left:went-dormant"`
 ```
 
-## Why it MUST be a hand-written literal union
+These are literal-typed off the bucket's own `meta.id`, so binding to them is
+typo-safe by construction — there is nothing to keep in sync. This is THE way to
+bind a journey to a bucket.
 
-You might be tempted to derive the union from the `buckets` array:
+## Use the typed refs in `trigger.event` / `exitOn`
 
-```ts
-// DON'T — this collapses to `string` and loses all typo-safety.
-type BucketId = (typeof buckets)[number]["meta"]["id"];
-```
-
-`defineBucket` widens `meta.id` to `string` (`BucketMeta.id: string`), so an
-array-derived union evaluates to `string`. Then `bucketEntered("anything")`
-type-checks, and the whole guard is gone. The explicit literal union is the
-source of truth precisely because it can't be widened.
-
-## How journeys consume the helpers
-
-The helpers return the exact literal, so they drop straight into a journey's
-`trigger.event` (and `exitOn`):
+Import the bucket and read `.entered` / `.left` directly:
 
 ```ts
 import { hours } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
-import { bucketEntered, bucketLeft, Templates } from "./constants/index.js";
+import { wentDormant } from "../buckets/went-dormant.js"; // leaf module — see below
+import { Templates } from "./constants/index.js";
 
 export const winback = defineJourney({
   meta: {
@@ -69,12 +36,12 @@ export const winback = defineJourney({
     name: "Win-back",
     enabled: true,
     // Enroll the moment a user lands in the went-dormant bucket.
-    trigger: { event: bucketEntered("went-dormant") },
+    trigger: { event: wentDormant.entered },
     entryLimit: "once_per_period",
     // `suppress` is REQUIRED on every JourneyMeta — the re-entry cool-down.
     suppress: hours(24),
     // Pull them out the instant they re-activate (leave the bucket).
-    exitOn: [{ event: bucketLeft("went-dormant") }],
+    exitOn: [{ event: wentDormant.left }],
   },
   run: async (user) => {
     await sendEmail({
@@ -89,9 +56,23 @@ export const winback = defineJourney({
 });
 ```
 
-A typo'd id — `bucketEntered("went-dorment")` — is now a compile error.
+The refs are byte-identical to the alias the engine emits, so this is a drop-in
+for the old helper return value — only typo-safer. A typo'd ref —
+`wentDormant.entred` — is now a compile error.
 
-## Generic forms vs aliases
+## Import the bucket from its LEAF module, not the barrel
+
+When you read `wentDormant.left` at module-eval inside a top-level
+`defineJourney({ exitOn: [{ event: wentDormant.left }] })`, importing the bucket
+from the `../buckets/index.js` barrel creates a real ESM cycle
+(`journeys/index → this-journey → buckets/index → went-dormant → journeys/constants`).
+Import the bucket from its **leaf module** (`../buckets/went-dormant.js`)
+instead — that keeps the whole bucket barrel out of the journey-barrel cycle. The
+refs themselves are safe to read at module-eval because they are pure string
+concatenation of `meta.id` with no live cross-module value binding, but the leaf
+import keeps the cycle from forming at all.
+
+## Generic forms vs per-bucket refs
 
 The constants file also defines the GENERIC events:
 
@@ -103,15 +84,49 @@ export const Events = {
 } as const;
 ```
 
-These fire for ANY bucket. The engine only emits the generic `bucket:entered` /
-`bucket:left` when a journey actually binds to it (otherwise it's not written at
-all). Prefer the narrowly-routed per-bucket aliases (`bucketEntered(id)`) for
-real journey bindings — bind to the generic forms only if you genuinely want
-"any bucket transition" routing.
+These fire for ANY bucket and are the **sanctioned generic-binding surface — NOT
+deprecated**. The engine only emits the generic `bucket:entered` / `bucket:left`
+when a journey actually binds to it (otherwise it's not written at all). The rule:
+
+- **Per-bucket** (this audience specifically) → `bucket.entered` / `bucket.left`.
+- **Any-bucket** (any transition, whichever bucket) → `Events.BUCKET_ENTERED` /
+  `Events.BUCKET_LEFT`.
+
+## DEPRECATED — the `BucketId` union + `bucketEntered`/`bucketLeft` helpers
+
+The old path was a hand-maintained literal union plus two helper functions in
+`src/journeys/constants/`:
+
+```ts
+/** @deprecated Use the typed ref `bucket.entered` / `bucket.left`. */
+export type BucketId = "power-users" | "went-dormant";
+/** @deprecated Use `bucket.entered` (e.g. `wentDormant.entered`). */
+export const bucketEntered = <T extends BucketId>(id: T) =>
+  `bucket:entered:${id}` as const;
+/** @deprecated Use `bucket.left` (e.g. `wentDormant.left`). */
+export const bucketLeft = <T extends BucketId>(id: T) =>
+  `bucket:left:${id}` as const;
+```
+
+These are **deprecated and kept for ONE release for back-compat, then removed.**
+They still work and return the byte-identical alias, but they require you to
+hand-maintain the `BucketId` union in lockstep with the `buckets` array — exactly
+the chore the typed refs eliminate. Do NOT reach for them in new code; migrate
+existing `bucketEntered("id")` / `bucketLeft("id")` bindings to `bucket.entered` /
+`bucket.left` (importing the bucket from its leaf module).
+
+> Why the union could never just be derived from the array:
+> `defineBucket` widens `meta.id` to `string` on the base `DefinedBucket` type, so
+> `(typeof buckets)[number]["meta"]["id"]` collapses to `string` and loses all
+> typo-safety. The typed refs sidestep this entirely by keeping the `Id` literal
+> on `DefinedBucket<Id>` and deriving the ref type from it — provided the consumer
+> doesn't re-widen the array with a `DefinedBucket[]` annotation (see
+> register-a-bucket).
 
 ## The checklist when adding a bucket
 
 1. Add the `defineBucket(...)` in `src/buckets/`.
-2. Add its `meta.id` literal to the `BucketId` union.
-3. Register it in `src/buckets/index.ts` (see register-a-bucket).
-4. Bind journeys with `bucketEntered("<id>")` / `bucketLeft("<id>")`.
+2. Register it in `src/buckets/index.ts` (see register-a-bucket).
+3. Bind journeys with the typed refs `bucket.entered` / `bucket.left` (import the
+   bucket from its leaf module), or `Events.BUCKET_ENTERED`/`BUCKET_LEFT` for an
+   any-bucket binding.

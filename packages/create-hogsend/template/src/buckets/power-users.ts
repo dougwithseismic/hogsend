@@ -46,3 +46,47 @@ export const powerUsers = defineBucket({
     },
   },
 });
+
+// ---------------------------------------------------------------------------
+// Reacting to a bucket — colocated `.on()` handlers + member access.
+//
+// A bucket isn't just a group: each membership change fires a first-class event,
+// and `bucket.on(...)` attaches behavior that desugars to a real durable journey
+// (full JourneyContext: sleep / when / waitForEvent / guard / history). Uncomment
+// to use — a fresh app ships these OFF so it doesn't email power users by default.
+//
+//   import { days, sendEmail } from "@hogsend/engine";
+//   import { Templates } from "../journeys/constants/index.js";
+//
+//   powerUsers
+//     // when they JOIN — ctx.entryCount / ctx.isFirstEntry distinguish re-joins
+//     .on("enter", async (user, ctx) => {
+//       if (!ctx.isFirstEntry) return;
+//       await sendEmail({
+//         to: user.email,
+//         userId: user.id,
+//         journeyStateId: user.stateId,
+//         template: Templates.WELCOME, // your template key
+//         subject: "You're flying — here's a power tip",
+//         journeyName: user.journeyName,
+//       });
+//     })
+//     // every 7 continuous days in the bucket — driven by the reconcile cron
+//     .on("dwell", { every: days(7) }, async (user) => {
+//       /* weekly power-user digest — ctx.dwellCount = the interval ordinal */
+//     })
+//     // when they LEAVE — ctx.reason is "criteria" | "maxDwell" | "manual"
+//     .on("leave", async (_user, ctx) => {
+//       if (ctx.reason === "criteria") {
+//         /* they cooled off */
+//       }
+//     });
+//
+// Bind another journey to this bucket with the TYPED refs (no string helpers):
+//   defineJourney({ meta: { trigger: { event: powerUsers.entered },
+//                           exitOn: [{ event: powerUsers.left }] }, run });
+//
+// Query members anywhere (never an unbounded array):
+//   const { data: total } = await powerUsers.count();
+//   const { data: isMember } = await powerUsers.has(userId);
+//   const page = await powerUsers.members({ limit: 50 }); // { data, cursor, ... }

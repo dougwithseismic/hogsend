@@ -167,7 +167,7 @@ trigger: {
 
 See the [Conditions guide](/docs/guides/conditions) for the full operator reference and the richer condition types available to `ctx.history` and exit rules.
 
-> A journey doesn't have to start from a raw product event. A [Bucket](/docs/guides/buckets) emits `bucket:entered:<id>` when a user joins it and `bucket:left:<id>` when they leave, both through the same ingest pipeline — so `trigger.event: bucketEntered("went-dormant")` starts a journey on a membership change, and `exitOn: [bucketLeft("went-dormant")]` exits it when the user no longer qualifies.
+> A journey doesn't have to start from a raw product event. A [Bucket](/docs/guides/buckets) emits `bucket:entered:<id>` when a user joins it and `bucket:left:<id>` when they leave, both through the same ingest pipeline. Each bucket exposes those as **typed refs** — `wentDormant.entered` / `wentDormant.left` — so `trigger: { event: wentDormant.entered }` starts a journey on a membership change, and `exitOn: [{ event: wentDormant.left }]` exits it when the user no longer qualifies. Import the bucket from its leaf module (`../buckets/went-dormant.js`) to read the ref. To bind to *any* bucket's joins instead of one, use the generic `Events.BUCKET_ENTERED` / `Events.BUCKET_LEFT` constants and filter on the `bucketId` property with `trigger.where`. (The old `bucketEntered("id")` / `bucketLeft("id")` string helpers are deprecated in favor of the typed refs.)
 
 ### Exit conditions
 

@@ -5,13 +5,12 @@ declaration — the engine derives everything (registry indexes, reconcile
 behavior, Studio size) from it. This is the field-by-field guide.
 
 ```ts
-import { defineBucket } from "@hogsend/engine";
-import { days } from "@hogsend/core";
+import { days, defineBucket } from "@hogsend/engine";
 import { Events } from "../journeys/constants/index.js";
 
 export const powerUsers = defineBucket({
   meta: {
-    id: "power-users",                 // also the alias suffix: bucket:entered:power-users
+    id: "power-users",                 // also the alias suffix → powerUsers.entered === "bucket:entered:power-users"
     name: "Power users",
     description: "Used the key feature 10+ times in the last 30 days.",
     enabled: true,
@@ -34,7 +33,7 @@ export const powerUsers = defineBucket({
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `id` | `string` (required) | Stable identity AND the alias suffix. Changing it makes a NEW bucket. Keep it in the `BucketId` union (see bucket-id-aliases). |
+| `id` | `string` (required) | Stable identity AND the alias suffix — also the literal baked into the typed refs `bucket.entered` / `bucket.left` (see bucket-id-aliases). Changing it makes a NEW bucket. No hand-maintained union to update anymore. |
 | `name` | `string` (required) | Human label, surfaced in Studio + the emitted `bucketName`. |
 | `description` | `string?` | Free text. |
 | `enabled` | `boolean` (required) | Static load-time on/off (guard #1), mirrors a journey's `enabled`. A disabled bucket is not registered. |
@@ -50,6 +49,22 @@ export const powerUsers = defineBucket({
 | `fastExpiry` | `boolean?` | Opt-in per-user durable timer for sub-second absence leaves. Defaults `false`; cron is the backstop. Requires worker wiring. |
 | `syncToPostHog` | `boolean?` | Mirror membership to a PostHog person property on join/leave. Off by default; no-op without `POSTHOG_API_KEY`. |
 | `postHogPropertyKey` | `string?` | Override the synced property name (default `hogsend_bucket_<id>`). |
+
+## Beyond `meta` — the bucket object surface
+
+`defineBucket` returns a `DefinedBucket<Id>` generic over the id literal. Besides
+`meta`, the returned object carries everything you author or query AGAINST the
+bucket — none of it lives in `meta`:
+
+| On the bucket object | What it is |
+|----------------------|------------|
+| `bucket.entered` / `bucket.left` | Typed transition refs (`` `bucket:entered:${Id}` `` / `` `bucket:left:${Id}` ``), literal-typed off `meta.id`, derived synchronously at `defineBucket` time. Use as a journey `trigger.event` / `exitOn` (see bucket-id-aliases). |
+| `bucket.on(kind, opts?, handler)` | Colocated reaction — `"enter"` / `"leave"` / `"dwell"`. Each desugars to a real durable journey tagged `sourceBucketId`, pushed onto `bucket.reactions`. Returns the bucket, so calls chain. See the main SKILL for kinds, ctx extras, and dwell semantics. |
+| `bucket.reactions` | The array of generated reaction journeys (read by the client + worker). Ships automatically — you never register it. |
+| `bucket.count()` / `has(userId)` / `members({...})` / `membersIterator()` | Member-access read surface. `{ data, error }`-shaped, GDPR-joined, paged (hard cap 100), never an unbounded array. |
+
+So `meta` shapes WHO is in the bucket and HOW membership flips; the rest of the
+object is how you BIND to it, attach behavior, and read it.
 
 ## `criteria` — two authoring forms
 
