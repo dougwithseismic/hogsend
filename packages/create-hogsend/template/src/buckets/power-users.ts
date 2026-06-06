@@ -1,4 +1,4 @@
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 import { Events } from "../journeys/constants/index.js";
 
 /**
@@ -35,15 +35,8 @@ export const powerUsers = defineBucket({
     // when the window rolls past, since no event signals it.
     timeBased: true,
     entryLimit: "once_per_period",
-    entryPeriod: { hours: 24 * 7 },
-    criteria: {
-      type: "event",
-      eventName: Events.FEATURE_USED,
-      check: "count",
-      operator: "gte",
-      value: 10,
-      within: { hours: 24 * 30 }, // days(30)
-    },
+    entryPeriod: days(7),
+    criteria: (b) => b.event(Events.FEATURE_USED).within(days(30)).atLeast(10),
   },
 });
 

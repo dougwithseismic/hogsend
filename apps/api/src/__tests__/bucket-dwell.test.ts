@@ -206,12 +206,7 @@ function makeDwellBucket(id: string) {
       id,
       name: "Dwell bucket",
       enabled: true,
-      criteria: {
-        type: "property",
-        property: "plan",
-        operator: "eq",
-        value: "x",
-      },
+      criteria: (b) => b.prop("plan").eq("x"),
     },
   });
 }
@@ -397,13 +392,8 @@ describe("dwell maxDwell interop (Test 19)", () => {
         id: bucketId,
         name: "MaxDwell vs dwell",
         enabled: true,
-        maxDwell: { hours: 24 },
-        criteria: {
-          type: "property",
-          property: "plan",
-          operator: "eq",
-          value: "x",
-        },
+        maxDwell: days(1),
+        criteria: (b) => b.prop("plan").eq("x"),
       },
     });
     bucket.on("dwell", { after: days(7) }, async () => {});

@@ -176,7 +176,7 @@ The three buckets the starter app ships — one behavioral, one property-based, 
 
 ```ts
 // src/buckets/power-users.ts — behavioral, time-based (30-day rolling window)
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 import { Events } from "../journeys/constants/index.js";
 
 export const powerUsers = defineBucket({
@@ -187,15 +187,8 @@ export const powerUsers = defineBucket({
     enabled: true,
     timeBased: true,
     entryLimit: "once_per_period",
-    entryPeriod: { hours: 24 * 7 },
-    criteria: {
-      type: "event",
-      eventName: Events.KEY_ACTION,
-      check: "count",
-      operator: "gte",
-      value: 10,
-      within: { hours: 24 * 30 }, // days(30)
-    },
+    entryPeriod: days(7),
+    criteria: (b) => b.event(Events.KEY_ACTION).within(days(30)).atLeast(10),
   },
 });
 ```

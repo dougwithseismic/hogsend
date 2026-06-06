@@ -235,7 +235,7 @@ A behavioral inclusion: fired a key action 10+ times in the last 30 days. Becaus
 ```ts
 // src/buckets/power-users.ts
 import { days } from "@hogsend/core";
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 import { Events } from "../journeys/constants/index.js";
 
 export const powerUsers = defineBucket({
@@ -247,14 +247,7 @@ export const powerUsers = defineBucket({
     timeBased: true,
     entryLimit: "once_per_period",
     entryPeriod: days(7),
-    criteria: {
-      type: "event",
-      eventName: Events.KEY_ACTION,
-      check: "count",
-      operator: "gte",
-      value: 10,
-      within: days(30),
-    },
+    criteria: (b) => b.event(Events.KEY_ACTION).within(days(30)).atLeast(10),
   },
 });
 ```
@@ -265,7 +258,7 @@ Pure property predicates: on a trial, ≤3 days left, not already converted. The
 
 ```ts
 // src/buckets/trial-expiring-soon.ts
-import { defineBucket } from "@hogsend/engine";
+import { days, defineBucket } from "@hogsend/engine";
 
 export const trialExpiringSoon = defineBucket({
   meta: {
@@ -274,17 +267,14 @@ export const trialExpiringSoon = defineBucket({
     enabled: true,
     entryLimit: "once",
     // Unconditional time-box: out 14 days after joining, no matter what.
-    maxDwell: { hours: 24 * 14 },
-    criteria: {
-      type: "composite",
-      operator: "and",
-      conditions: [
-        { type: "property", property: "plan", operator: "eq", value: "trial" },
-        { type: "property", property: "trial_days_left", operator: "lte", value: 3 },
+    maxDwell: days(14),
+    criteria: (b) =>
+      b.all(
+        b.prop("plan").eq("trial"),
+        b.prop("trial_days_left").lte(3),
         // exclusion: not already converted
-        { type: "property", property: "converted", operator: "neq", value: true },
-      ],
-    },
+        b.prop("converted").neq(true),
+      ),
   },
 });
 ```
@@ -618,14 +608,7 @@ export const highValue = defineBucket({
     name: "High value",
     enabled: true,
     timeBased: true,
-    criteria: {
-      type: "event",
-      eventName: Events.VALUE_DELIVERED,
-      check: "count",
-      operator: "gte",
-      value: 25,
-      within: days(30),
-    },
+    criteria: (b) => b.event(Events.VALUE_DELIVERED).within(days(30)).atLeast(25),
   },
 });
 ```
