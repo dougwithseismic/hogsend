@@ -293,6 +293,8 @@ export type BucketFeedJourney = {
   id: string;
   name: string;
   trigger: string;
+  sourceBucketId: string | null;
+  owned: boolean;
 };
 
 export type BucketDetail = {

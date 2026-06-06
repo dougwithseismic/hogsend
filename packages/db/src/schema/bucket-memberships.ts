@@ -39,6 +39,18 @@ export const bucketMemberships = pgTable(
     entryCount: integer("entry_count").notNull().default(1),
     source: text("source"), // "event" | "reconcile" | "backfill" | "manual"
     context: jsonb("context").$type<Record<string, unknown>>().default({}),
+    // Per-membership dwell bookkeeping. JSON map keyed by dwellLabel → ISO of
+    // last dwell fire for THIS continuous membership. A re-join is a NEW row
+    // (empty map). NULL/{} = never fired.
+    dwellState: jsonb("dwell_state")
+      .$type<Record<string, string>>()
+      .default({}),
+    // Historical dwell anchor for backfilled members (NULL for live joins → use
+    // enteredAt). The dwell gate reads coalesce(dwellAnchorAt, enteredAt) so the
+    // dwell clock starts at the derived historical instant, not the backfill
+    // instant. Kept separate from enteredAt (which minDwell/maxDwellAt/criteria
+    // cron key on) — strictly additive.
+    dwellAnchorAt: timestamp("dwell_anchor_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -68,5 +80,23 @@ export const bucketMemberships = pgTable(
     index("bucket_memberships_expires_at_idx").on(table.expiresAt),
     // the cron TTL sweep: active rows past their max_dwell_at
     index("bucket_memberships_max_dwell_at_idx").on(table.maxDwellAt),
+    // dwell continuous-member scan anchor
+    index("bucket_memberships_dwell_idx").on(
+      table.bucketId,
+      table.status,
+      table.enteredAt,
+    ),
+    // keyset member-access pagination (ordered by id)
+    index("bucket_memberships_bucket_id_status_id_idx").on(
+      table.bucketId,
+      table.status,
+      table.id,
+    ),
+    // every-dwell oldest-served-first ordering (§6.5)
+    index("bucket_memberships_dwell_lastfired_idx").on(
+      table.bucketId,
+      table.status,
+      table.lastEvaluatedAt,
+    ),
   ],
 );

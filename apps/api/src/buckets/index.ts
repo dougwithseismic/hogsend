@@ -1,4 +1,3 @@
-import type { DefinedBucket } from "@hogsend/engine";
 import { powerUsers } from "./power-users.js";
 import { trialExpiringSoon } from "./trial-expiring-soon.js";
 import { wentDormant } from "./went-dormant.js";
@@ -7,15 +6,13 @@ import { wentDormant } from "./went-dormant.js";
  * All defined buckets for this app. Passed to `createHogsendClient({ buckets })`
  * and `createWorker({ buckets })`. Edit freely — this is your content.
  *
- * The `BucketId` union in `journeys/constants/buckets.ts` is derived from this
- * array (`(typeof buckets)[number]["meta"]["id"]`), so adding a bucket here keeps
- * the typed `bucketEntered`/`bucketLeft` alias helpers in sync automatically.
+ * No `DefinedBucket[]` annotation: that base type re-widens each bucket's `id`
+ * literal back to `string` and erases the typed `bucket.entered` / `bucket.left`
+ * refs. Letting the array infer keeps every member's literal id, so
+ * `wentDormant.left` stays `"bucket:left:went-dormant"`. A `DefinedBucket<Id>` is
+ * still assignable to the base `DefinedBucket[]` that the factories accept.
  */
-export const buckets: DefinedBucket[] = [
-  powerUsers,
-  trialExpiringSoon,
-  wentDormant,
-];
+export const buckets = [powerUsers, trialExpiringSoon, wentDormant];
 
 // Re-export individual buckets for direct reference (tests, custom wiring).
 export { powerUsers, trialExpiringSoon, wentDormant };

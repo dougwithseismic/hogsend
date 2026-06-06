@@ -21,6 +21,13 @@ export interface JourneyMeta {
   }>;
 
   suppress: DurationObject;
+
+  // Bucket-reaction tagging (set by buildBucketReaction). Generated reactions
+  // carry these so the worker's dwell-cron lookup and Studio bucket-detail
+  // grouping can discover owned reactions by sourceBucketId.
+  sourceBucketId?: string;
+  reactionKind?: "enter" | "leave" | "dwell";
+  dwellSchedule?: { label: string; after?: number; every?: number };
 }
 
 export interface JourneyUser {

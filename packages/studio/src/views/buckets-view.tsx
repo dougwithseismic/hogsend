@@ -318,19 +318,36 @@ function BucketFeeds({ bucketId }: { bucketId: string }) {
       ) : null}
 
       {feeds.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No journeys are bound to this bucket's transitions yet. Bind a journey
-          with <code className="text-xs">bucketEntered("{bucketId}")</code>.
-        </p>
+        <div className="space-y-1 text-sm text-muted-foreground">
+          <p>
+            No journeys are bound to this bucket's transitions yet. Bind one to
+            THIS bucket with the typed refs{" "}
+            <code className="text-xs">bucket.entered</code> /{" "}
+            <code className="text-xs">bucket.left</code> (e.g.{" "}
+            <code className="text-xs">{`{ trigger: { event: bucket.entered } }`}</code>
+            ), or colocate a reaction with{" "}
+            <code className="text-xs">{`bucket.on("enter", ...)`}</code>.
+          </p>
+          <p>
+            To react to ANY bucket, use the generic{" "}
+            <code className="text-xs">Events.BUCKET_ENTERED</code> /{" "}
+            <code className="text-xs">Events.BUCKET_LEFT</code> constants.
+          </p>
+        </div>
       ) : (
         <div className="flex flex-wrap gap-2">
           {feeds.map((j) => (
             <Badge
               key={`${j.id}-${j.trigger}`}
-              variant="secondary"
+              variant={j.owned ? "default" : "secondary"}
               title={j.trigger}
             >
               {j.name}
+              {j.owned ? (
+                <span className="ml-1.5 text-[10px] uppercase tracking-wide opacity-70">
+                  owned
+                </span>
+              ) : null}
             </Badge>
           ))}
         </div>

@@ -379,6 +379,7 @@ async function handleLeave(opts: {
     userEmail,
     epoch: flipped.entryCount,
     source: "event",
+    reason: "criteria",
   });
 
   return { bucketId: bucket.id, transition: "left" };
