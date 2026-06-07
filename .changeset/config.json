@@ -3,15 +3,7 @@
   "changelog": "@changesets/cli/changelog",
   "commit": false,
   "fixed": [],
-  "linked": [
-    [
-      "@hogsend/engine",
-      "@hogsend/db",
-      "@hogsend/core",
-      "@hogsend/cli",
-      "@hogsend/client"
-    ]
-  ],
+  "linked": [],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
