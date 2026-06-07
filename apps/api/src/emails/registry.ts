@@ -9,11 +9,19 @@ import ConversionUsageMilestoneEmail from "./conversion-usage-milestone.js";
 import ConversionWinbackOfferEmail from "./conversion-winback-offer.js";
 import FeedbackNpsSurveyEmail from "./feedback-nps-survey.js";
 import JourneyNotificationEmail from "./journey-notification.js";
+import LifecycleFeatureAnnouncementEmail from "./lifecycle-feature-announcement.js";
+import LifecycleTrialExpiringEmail from "./lifecycle-trial-expiring.js";
+import LifecycleWinBackEmail from "./lifecycle-win-back.js";
+import MarketingProductUpdateEmail from "./marketing-product-update.js";
 import PasswordResetEmail from "./password-reset.js";
 import ReactivationCheckinEmail from "./reactivation-checkin.js";
 import ReactivationFinalNudgeEmail from "./reactivation-final-nudge.js";
 import RetentionAchievementEmail from "./retention-achievement.js";
 import RetentionWeeklyDigestEmail from "./retention-weekly-digest.js";
+import TransactionalMagicLinkEmail from "./transactional-magic-link.js";
+import TransactionalPasswordResetEmail from "./transactional-password-reset.js";
+import TransactionalReceiptEmail from "./transactional-receipt.js";
+import TransactionalVerifyEmailEmail from "./transactional-verify-email.js";
 import WelcomeEmail from "./welcome.js";
 
 // This app's template registry — CONTENT. Maps each template key to its
@@ -127,5 +135,96 @@ export const templates: TemplateRegistry = {
     defaultSubject: "Your payment didn't go through",
     category: "transactional",
     preview: (props) => `${props.name}, action needed on your billing`,
+  },
+
+  // --- Transactional (Loops: transactional emails) — sent one-off via
+  // hs.emails.send / POST /v1/emails. No list, no unsubscribe.
+  "transactional/verify-email": {
+    component: TransactionalVerifyEmailEmail,
+    defaultSubject: "Verify your email address",
+    category: "transactional",
+    preview: () => "Confirm your email to finish setting up your account",
+    examples: {
+      name: "Ada",
+      verifyUrl: "https://app.hogsend.com/verify?token=demo",
+      expiresIn: "24 hours",
+    },
+  },
+  "transactional/password-reset": {
+    component: TransactionalPasswordResetEmail,
+    defaultSubject: "Reset your password",
+    category: "transactional",
+    preview: () => "Use the secure link to reset your password",
+    examples: {
+      name: "Ada",
+      resetUrl: "https://app.hogsend.com/reset-password?token=demo",
+      expiresIn: "1 hour",
+    },
+  },
+  "transactional/magic-link": {
+    component: TransactionalMagicLinkEmail,
+    defaultSubject: "Your sign-in link",
+    category: "transactional",
+    preview: () => "Tap to sign in — no password needed",
+    examples: {
+      name: "Ada",
+      magicLinkUrl: "https://app.hogsend.com/auth/magic?token=demo",
+      expiresIn: "15 minutes",
+    },
+  },
+  "transactional/receipt": {
+    component: TransactionalReceiptEmail,
+    defaultSubject: "Your receipt",
+    category: "transactional",
+    preview: (props) => `Receipt for order ${props.orderId} — ${props.total}`,
+    examples: {
+      name: "Ada",
+      orderId: "HS-10428",
+      items: [
+        { description: "Hogsend Cloud — Team plan", amount: "$49.00" },
+        { description: "Additional seats (2)", amount: "$20.00" },
+      ],
+      total: "$69.00",
+      purchasedAt: "June 7, 2026",
+    },
+  },
+
+  // --- Product / lifecycle (Loops: loops / workflows) — sent from journeys.
+  "lifecycle/trial-expiring": {
+    component: LifecycleTrialExpiringEmail,
+    defaultSubject: "Your trial is ending soon",
+    category: "lifecycle",
+    preview: (props) =>
+      `${props.name}, your trial ends in ${props.daysLeft ?? 3} days`,
+    examples: { name: "Ada", daysLeft: 3 },
+  },
+  "lifecycle/feature-announcement": {
+    component: LifecycleFeatureAnnouncementEmail,
+    defaultSubject: "Something new in Hogsend",
+    category: "lifecycle",
+    preview: (props) =>
+      `${props.name}, ${props.featureName ?? "a new feature"} just shipped`,
+    examples: { name: "Ada", featureName: "Audience buckets" },
+  },
+  "lifecycle/win-back": {
+    component: LifecycleWinBackEmail,
+    defaultSubject: "It's been a while",
+    category: "lifecycle",
+    preview: (props) => `${props.name}, here's what's new since you left`,
+    examples: { name: "Ada", daysSinceActive: 30 },
+  },
+
+  // --- Marketing (Loops: campaigns) — broadcast to a list via
+  // hs.campaigns.send. Category is the real `product-updates` list id, so the
+  // mailer's suppression check + preference center gate it.
+  "marketing/product-update": {
+    component: MarketingProductUpdateEmail,
+    defaultSubject: "What's new in Hogsend",
+    category: "product-updates",
+    preview: (props) => props.headline ?? "What's new in Hogsend this month",
+    examples: {
+      name: "Ada",
+      headline: "What shipped in Hogsend this month",
+    },
   },
 };

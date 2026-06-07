@@ -85,6 +85,63 @@ await hs.lists.subscribe({ list: "product-updates", userId: "user_123" });
 for the full surface, and the `hogsend` CLI (`pnpm hogsend events send …`,
 `pnpm hogsend contacts upsert …`) for the same operations from a shell.
 
+## Examples included
+
+A fresh app ships with a small, curated example set spanning the three ways to
+send — each maps to a Loops use case. Everything is **content**: edit, rename,
+or delete freely.
+
+| Send mode | How it's sent | Templates | Loops equivalent |
+| --- | --- | --- | --- |
+| **Transactional** | one-off, `hs.emails.send` / `POST /v1/emails` | `transactional/magic-link`, `transactional/receipt` | Transactional emails |
+| **Lifecycle** | from a journey | `activation/welcome`, `activation/nudge`, `lifecycle/trial-expiring` | Loops / workflows |
+| **Marketing** | broadcast to a list, `hs.campaigns.send` | `marketing/product-update` | Campaigns |
+
+- **Journeys** (`src/journeys/`): `welcome` (a trimmed welcome series),
+  `trial-expiring` (waits out a trial, then reminds — unless the user converts),
+  and `test-onboarding` (the no-email smoke journey).
+- **Lists** (`src/lists/index.ts`): `product-updates` — the marketing template's
+  `category` matches this list id, so a broadcast only reaches subscribers.
+- **Buckets** (`src/buckets/`): `power-users` — a real-time audience.
+
+### Send a one-off transactional email
+
+```ts
+import { hs } from "./lib/hogsend.js";
+
+await hs.emails.send({
+  to: "ada@example.com",
+  template: "transactional/magic-link",
+  props: { loginUrl: "https://app.example.com/auth/magic?token=abc" },
+});
+```
+
+### Broadcast a marketing campaign to a list
+
+`hs.campaigns.send` durably sends one template to every **subscribed** member of
+a list (the engine enqueues; the worker fans out the sends). The
+`marketing/product-update` template's `category` is `product-updates`, so this
+respects each contact's opt-in to that list.
+
+```ts
+import { hs } from "./lib/hogsend.js";
+
+const { campaignId } = await hs.campaigns.send({
+  name: "June product update",
+  list: "product-updates", // defined in src/lists/index.ts
+  template: "marketing/product-update",
+  props: {
+    headline: "What's new in June",
+    highlights: ["Faster enrollment", "New webhook sources"],
+  },
+});
+
+// Poll for delivery counts.
+const campaign = await hs.campaigns.get(campaignId);
+```
+
+Contacts opt into a list with `hs.lists.subscribe({ list: "product-updates", userId })`.
+
 ## Dev loop
 
 - `pnpm dev` — API with hot reload (tsx watch)

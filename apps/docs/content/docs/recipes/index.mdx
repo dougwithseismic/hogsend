@@ -1,0 +1,66 @@
+---
+title: Recipes
+description: Loops → Hogsend mappings for the three messaging modes — transactional, lifecycle, and marketing — and which Hogsend primitive each one maps to.
+---
+
+If you're coming from Loops, you've been thinking in three modes: **transactional emails**, **Loops/workflows**, and **campaigns**. Hogsend has a first-class primitive for each — the difference is that the *logic* lives in your repo as code, not behind a builder UI. These recipes are real, copy-pasteable mappings: the Loops call on one side, the exact Hogsend call on the other.
+
+## The three messaging modes
+
+| Mode | What it is | Loops surface | Hogsend primitive |
+|---|---|---|---|
+| **Transactional** | One-off, system-triggered mail to a single person — verify your email, reset your password, a receipt | Transactional emails (`POST /transactional`) | [`hs.emails.send()`](/docs/recipes/transactional-emails) → `POST /v1/emails` |
+| **Lifecycle** | Multi-step, behaviour-driven sequences — onboarding, trial nudges, win-back | Loops / Workflows (the visual builder) | [`defineJourney()`](/docs/recipes/lifecycle-journeys) — durable TypeScript |
+| **Marketing** | A one-time broadcast of one template to an audience | Campaigns | [`hs.campaigns.send()`](/docs/recipes/marketing-campaigns) → `POST /v1/campaigns` |
+
+Underneath all three, two more primitives carry the data that drives everything:
+
+- [`hs.contacts.upsert()`](/docs/recipes/events-and-contacts) — the durable contact record (Loops' `updateContact`).
+- [`hs.events.send()`](/docs/recipes/events-and-contacts) — the behaviour stream that triggers journeys (Loops' `sendEvent`).
+
+## Which primitive do I reach for?
+
+```text
+Sending one email to one person because the system did something?
+  → hs.emails.send()           (transactional)        recipes/transactional-emails
+
+Reacting to behaviour over time, with delays and branches?
+  → defineJourney()            (lifecycle)            recipes/lifecycle-journeys
+
+Blasting one template to a whole audience, once?
+  → hs.campaigns.send()        (marketing)            recipes/marketing-campaigns
+
+Recording who someone is, or what they just did?
+  → hs.contacts.upsert() / hs.events.send()           recipes/events-and-contacts
+```
+
+## What carries over from Loops 1:1
+
+The shapes deliberately mirror Loops so migration is mostly a search-and-replace:
+
+- `updateContact` → `hs.contacts.upsert({ email, userId, properties })`
+- `sendEvent` → `hs.events.send({ name, email, eventProperties })`
+- transactional `POST /transactional` → `hs.emails.send({ to, template, props })`
+- a Campaign → `hs.campaigns.send({ list, template, props })`
+- a Loop / workflow → `defineJourney({ meta, run })` (this is the one that becomes *code* instead of a canvas)
+
+## What's different (and better)
+
+<Callout type="info">
+  Three things Hogsend gives you that Loops can't, all of which show up in these recipes:
+
+  - **Typed templates.** `template` and `props` are type-checked against your own React Email registry — Loops' `dataVariables` are untyped strings.
+  - **Tracking on transactional mail.** Every send (including one-off transactional) flows through the same tracked mailer, so opens and clicks are recorded *and loop back into the engine as events* that can trigger journeys.
+  - **The split.** `contactProperties` (who they are) and `eventProperties` (what happened) are separate bags — see [Events & contacts](/docs/recipes/events-and-contacts).
+</Callout>
+
+## The recipes
+
+<Cards>
+  <Card title="Transactional emails" href="/docs/recipes/transactional-emails" />
+  <Card title="Lifecycle journeys" href="/docs/recipes/lifecycle-journeys" />
+  <Card title="Marketing campaigns" href="/docs/recipes/marketing-campaigns" />
+  <Card title="Events & contacts" href="/docs/recipes/events-and-contacts" />
+</Cards>
+
+All four use the typed [`@hogsend/client`](/docs/data-api/client-sdk) SDK. The underlying HTTP endpoints are documented in the [Data API](/docs/data-api) reference; journeys are documented in the [Journeys guide](/docs/guides/journeys).

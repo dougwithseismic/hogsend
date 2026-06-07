@@ -4,4 +4,11 @@
 
 export { templates } from "./registry.js";
 
-export type { ActivationNudgeEmailProps, WelcomeEmailProps } from "./types.js";
+export type {
+  ActivationNudgeEmailProps,
+  MagicLinkEmailProps,
+  ProductUpdateEmailProps,
+  ReceiptEmailProps,
+  TrialExpiringEmailProps,
+  WelcomeEmailProps,
+} from "./types.js";

@@ -1,0 +1,10 @@
+{
+  "title": "Recipes",
+  "pages": [
+    "index",
+    "transactional-emails",
+    "lifecycle-journeys",
+    "marketing-campaigns",
+    "events-and-contacts"
+  ]
+}

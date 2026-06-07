@@ -1,5 +1,9 @@
 import type { TemplateRegistry } from "@hogsend/email";
 import ActivationNudgeEmail from "./activation-nudge.js";
+import MagicLinkEmail from "./magic-link.js";
+import ProductUpdateEmail from "./product-update.js";
+import ReceiptEmail from "./receipt.js";
+import TrialExpiringEmail from "./trial-expiring.js";
 import WelcomeEmail from "./welcome.js";
 
 // Your app's template registry — CONTENT. Maps each template key to its
@@ -12,8 +16,15 @@ import WelcomeEmail from "./welcome.js";
 // to type-check. They also match the `Templates` constants journeys send with
 // (see `src/journeys/constants/index.ts`).
 //
-// These two are starters — add, delete, or rename freely.
+// These are starters covering the three send modes — add, delete, or rename
+// freely. The `category` is what the mailer's suppression + frequency-cap checks
+// key off:
+//   - "transactional"  always delivers (exempt from list/category suppression)
+//   - "journey"        normal lifecycle category
+//   - a LIST id (e.g. "product-updates")  ties a broadcast to that list's opt-in
+//     (see `productUpdates` in `src/lists/index.ts`)
 export const templates: TemplateRegistry = {
+  // Activation (sent from the bundled `welcome` journey).
   "activation/welcome": {
     component: WelcomeEmail,
     defaultSubject: "Welcome to {{APP_NAME}}",
@@ -25,5 +36,37 @@ export const templates: TemplateRegistry = {
     defaultSubject: "You haven't tried the key feature yet",
     category: "journey",
     preview: (props) => `${props.name}, you're missing out`,
+  },
+
+  // Transactional — sent one-off via `hs.emails.send` (Loops: transactional).
+  "transactional/magic-link": {
+    component: MagicLinkEmail,
+    defaultSubject: "Your sign-in link",
+    category: "transactional",
+    preview: () => "Your one-tap sign-in link (expires soon)",
+  },
+  "transactional/receipt": {
+    component: ReceiptEmail,
+    defaultSubject: "Your receipt",
+    category: "transactional",
+    preview: (props) => `Receipt ${props.invoiceNumber} — ${props.amount}`,
+  },
+
+  // Lifecycle — sent from the bundled `trial-expiring` journey (Loops: workflows).
+  "lifecycle/trial-expiring": {
+    component: TrialExpiringEmail,
+    defaultSubject: "Your trial is ending soon",
+    category: "journey",
+    preview: (props) =>
+      `${props.daysLeft ?? 3} day${(props.daysLeft ?? 3) === 1 ? "" : "s"} left in your trial`,
+  },
+
+  // Marketing — broadcast to a list via `hs.campaigns.send` (Loops: campaigns).
+  // `category` MUST match the list id so suppression respects the opt-in.
+  "marketing/product-update": {
+    component: ProductUpdateEmail,
+    defaultSubject: "What's new at {{APP_NAME}}",
+    category: "product-updates",
+    preview: (props) => props.headline,
   },
 };

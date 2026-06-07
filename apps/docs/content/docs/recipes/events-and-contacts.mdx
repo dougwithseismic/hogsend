@@ -1,0 +1,173 @@
+---
+title: Events & contacts
+description: Loops' updateContact/sendEvent → Hogsend's hs.contacts.upsert and hs.events.send. Identify and track patterns, and the contactProperties vs eventProperties split that makes them work.
+---
+
+Underneath every email mode is the data that drives it: **who someone is** (contacts) and **what they just did** (events). In Loops you `updateContact` and `sendEvent`. In Hogsend:
+
+```ts
+await hs.contacts.upsert({ email, userId, properties });   // identify
+await hs.events.send({ name, email, eventProperties });    // track
+```
+
+Events are the journey trigger — `hs.events.send({ name: "user.signed_up" })` is what starts a [lifecycle journey](/docs/recipes/lifecycle-journeys). Contacts are the durable record that [buckets](/docs/guides/buckets) segment on. Both take an **identity** (at least one of `email` or `userId`).
+
+## Loops → Hogsend
+
+```ts
+// Loops: identify / update a contact
+await loops.updateContact("ada@example.com", { firstName: "Ada", plan: "pro" });
+// Hogsend
+await hs.contacts.upsert({ email: "ada@example.com", properties: { firstName: "Ada", plan: "pro" } });
+
+// Loops: record an event
+await loops.sendEvent({ email: "ada@example.com", eventName: "signup" });
+// Hogsend
+await hs.events.send({ name: "signup", email: "ada@example.com" });
+```
+
+`hs.events.track(...)` is an alias of `hs.events.send(...)` if you prefer the verb.
+
+## Setup
+
+```ts
+import { Hogsend } from "@hogsend/client";
+
+export const hs = new Hogsend({
+  baseUrl: process.env.HOGSEND_BASE_URL!,
+  apiKey: process.env.HOGSEND_DATA_KEY!,   // hsk_… key with the `ingest` scope
+});
+```
+
+`upsert` maps to [`PUT /v1/contacts`](/docs/data-api/contacts); `send` maps to [`POST /v1/events`](/docs/data-api/events).
+
+## Identity: email and/or userId
+
+Every write takes at least one of `email` or `userId` (your external id); both may be supplied. The SDK enforces this at the type level and with a runtime guard.
+
+```ts
+await hs.contacts.upsert({ email: "ada@example.com" });                 // email-only
+await hs.contacts.upsert({ userId: "user_123" });                      // userId-only
+await hs.contacts.upsert({ email: "ada@example.com", userId: "user_123" }); // both → links them
+```
+
+Hogsend resolves to one canonical contact. An email-only contact created today can be **linked** to a `userId` later — `upsert` returns `{ id, created, linked }`, where `linked: true` means an existing contact just gained a missing key. See [Identity](/docs/data-api/identity) for the resolver semantics.
+
+## Identify — `hs.contacts.upsert`
+
+Use it when you learn or change *who someone is*. The merge is additive — set one key without disturbing the others — and an explicit `null` clears a key.
+
+```ts
+// on signup
+await hs.contacts.upsert({
+  email: user.email,
+  userId: user.id,
+  properties: { firstName: user.firstName, plan: "free", company: "Acme" },
+});
+
+// later, when they upgrade — additive merge, other props untouched
+await hs.contacts.upsert({ userId: user.id, properties: { plan: "pro" } });
+
+// clear a property
+await hs.contacts.upsert({ userId: user.id, properties: { company: null } });
+```
+
+You can also apply list membership inline (the same `lists` bag used in [campaigns](/docs/recipes/marketing-campaigns)):
+
+```ts
+await hs.contacts.upsert({
+  email: user.email,
+  properties: { plan: "pro" },
+  lists: { "product-updates": true },
+});
+```
+
+Find and delete round it out:
+
+```ts
+const contacts = await hs.contacts.find({ email: "ada@example.com" }); // Contact[]
+await hs.contacts.delete({ userId: "user_123" });                      // soft delete
+```
+
+## Track — `hs.events.send`
+
+Use it when *something happened*. The event name is the journey trigger — Hatchet routes it to any journey whose `meta.trigger.event` matches.
+
+```ts
+await hs.events.send({
+  name: "user.signed_up",
+  email: user.email,
+  userId: user.id,
+  eventProperties: { source: "landing-page", plan_selected: "pro" },
+});
+// → { stored: true, exits: [ … ] }
+```
+
+The response tells you it was stored and lists every active journey state that was evaluated against `exitOn` (`exited: true` means this event removed the user from that journey).
+
+## The split: `contactProperties` vs `eventProperties`
+
+This is the one thing to internalize, and it's where Hogsend diverges from Loops' single property bag. An event carries **two** distinct bags:
+
+| Bag | Lands on | Describes | Read by |
+|---|---|---|---|
+| `eventProperties` | the event row (`user_events`) | *what happened* — `source`, `amount`, `referrer` | a journey's `trigger.where` / `exitOn` |
+| `contactProperties` | the contact record (`contacts.properties`) | *who they are* — `plan`, `company`, `country` | buckets + contact-state conditions |
+
+```ts
+await hs.events.send({
+  name: "subscription.created",
+  userId: user.id,
+  eventProperties: { amount: 4900, interval: "month" },  // → the event, → trigger.where / exitOn
+  contactProperties: { plan: "pro" },                    // → the contact record only
+});
+```
+
+**Event properties never leak onto the contact, and contact properties never end up on the event.** A journey that needs to branch on "was this a pro signup?" keys its `trigger.where` on an `eventProperty`; a bucket that segments "all pro users" reads the `contactProperty`. So one `events.send` can both *trigger* a journey (via `eventProperties`) and *update the segment* a user belongs to (via `contactProperties`) in a single call.
+
+<Callout type="info">
+  This split is a deliberate behavior change from Loops' single bag (and from the old `/v1/ingest`, which has been removed). If you're porting Loops `sendEvent` calls: anything a journey *filters on* goes in `eventProperties`; anything that describes the person and should *persist on the contact* goes in `contactProperties`. See [Events](/docs/data-api/events#the-property-split) for the full model.
+</Callout>
+
+## Idempotency
+
+Both writes are safe to retry. Pass an `idempotencyKey` on an event and a replay within the window returns `{ stored: false }` without re-ingesting (the `Idempotency-Key` header wins over the body field if both are set):
+
+```ts
+await hs.events.send({
+  name: "subscription.created",
+  userId: user.id,
+  eventProperties: { amount: 4900 },
+  idempotencyKey: `sub_created_${subscriptionId}`,
+});
+```
+
+## How it fits together
+
+A single signup flow usually touches all three primitives:
+
+```ts
+// 1. who they are
+await hs.contacts.upsert({
+  email: user.email,
+  userId: user.id,
+  properties: { firstName: user.firstName, plan: "free" },
+});
+
+// 2. what they did — triggers the onboarding journey
+await hs.events.send({
+  name: "user.signed_up",
+  userId: user.id,
+  email: user.email,
+  eventProperties: { source: "web" },
+});
+
+// 3. (later, system-triggered) a one-off transactional email
+await hs.emails.send({
+  to: user.email,
+  template: "transactional/verify-email",
+  props: { firstName: user.firstName, verifyUrl },
+});
+```
+
+From here, the [onboarding journey](/docs/recipes/lifecycle-journeys) takes over on the `user.signed_up` event, buckets re-evaluate as `contactProperties` change, and you can broadcast to anyone subscribed to a [list](/docs/recipes/marketing-campaigns). The full endpoint reference lives in the [Data API](/docs/data-api).

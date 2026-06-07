@@ -1,0 +1,141 @@
+---
+title: Marketing campaigns
+description: Loops' Campaigns → Hogsend's hs.campaigns.send({ list, template, props }). Define a list, subscribe contacts, and broadcast marketing/product-update — list vs bucket audiences, polarity, and the durable/idempotent/preference-checked send.
+---
+
+A marketing campaign is a one-time broadcast of a single template to a whole audience. In Loops you create a Campaign in the UI, pick an audience, and hit send. In Hogsend you call:
+
+```ts
+await hs.campaigns.send({ list: "product-updates", template: "marketing/product-update", props });
+```
+
+It queues a durable broadcast that sends the template to every subscribed member of the list, asynchronously, in the worker. Exactly one of `list` or `bucket` is the audience.
+
+## Loops → Hogsend
+
+```ts
+// Loops: create a Campaign in the UI → pick the "Product updates" audience → send
+
+// Hogsend: one call, audience is a code-defined list
+await hs.campaigns.send({
+  list: "product-updates",
+  template: "marketing/product-update",
+  props: { version: "2.4", headline: "Saved views are here" },
+});
+// → { campaignId, status: "queued" }
+```
+
+`hs.campaigns.send` maps to [`POST /v1/campaigns`](/docs/data-api). The 202 you get back is an *enqueue ack* — the actual sends run in the worker. Poll `hs.campaigns.get(campaignId)` for live counts (`totalRecipients`, `sentCount`, `skippedCount`, `failedCount`).
+
+## 1. Define the list
+
+Lists are **code-defined** with `defineList()`, authored in `src/lists/` next to your journeys and buckets. Membership rides the existing `email_preferences.categories` store — no new table.
+
+```ts
+// src/lists/index.ts
+import { defineList } from "@hogsend/engine";
+
+export const productUpdates = defineList({
+  id: "product-updates",
+  name: "Product updates",
+  description: "Announcements about new features.",
+  defaultOptIn: false,   // opt-in: a contact is a member only if they explicitly joined
+});
+
+export const lists = [productUpdates];
+```
+
+Thread the array into `createHogsendClient` (so the API knows the catalog) and `createWorker` (so the broadcast resolves membership on send):
+
+```ts
+const container = createHogsendClient({ journeys, lists });
+const worker = createWorker({ container, journeys, lists });
+```
+
+See the [Lists reference](/docs/data-api/lists) for the full `defineList()` option table and the reserved-id rules.
+
+## 2. Subscribe contacts
+
+Flip a contact's membership on. In Loops you'd toggle a mailing list on the contact; here it's a one-liner (or part of an `upsert`/`events.send` call via the `lists` bag).
+
+```ts
+// explicit subscribe
+await hs.lists.subscribe({ list: "product-updates", email: "ada@example.com" });
+
+// or fold it into a contact upsert
+await hs.contacts.upsert({
+  email: "ada@example.com",
+  properties: { plan: "pro" },
+  lists: { "product-updates": true },
+});
+
+// unsubscribe is the mirror
+await hs.lists.unsubscribe({ list: "product-updates", userId: "user_123" });
+```
+
+Subscribe/unsubscribe resolve (or create) the contact first, then flip the membership key. List writes need a **resolvable email** — `email_preferences` is keyed on the email column — so a `userId`-only contact with no email on record returns `400`.
+
+## 3. Broadcast
+
+```ts
+const { campaignId } = await hs.campaigns.send({
+  list: "product-updates",
+  template: "marketing/product-update",
+  props: { version: "2.4", headline: "Saved views are here" },
+  subject: "What's new in 2.4",            // optional override
+  idempotencyKey: "product-update-2.4",    // safe to retry — see below
+});
+
+// later — poll for progress
+const campaign = await hs.campaigns.get(campaignId);
+// { status, totalRecipients, sentCount, skippedCount, failedCount, … }
+```
+
+`template`/`props` are type-checked against your registry exactly like [transactional sends](/docs/recipes/transactional-emails). `marketing/product-update` is the canonical marketing template key in the docs taxonomy.
+
+## List vs bucket audience — and polarity
+
+A campaign's audience is **exactly one** of `list` or `bucket` (passing both, or neither, is a `400`). The difference is the audience *model*:
+
+| | `list` | `bucket` |
+|---|---|---|
+| What it is | A named subscription a contact opts in/out of | A real-time [segment](/docs/guides/buckets) defined by `criteria` over contact state |
+| Membership | Explicit — the contact chose to be on it | Computed — the contact *matches the rules* right now |
+| Recipients | Every **subscribed** member | Every **active** member |
+| Loops analogue | A mailing list | A filtered audience |
+
+```ts
+// broadcast to a code-defined list (opt-in subscription)
+await hs.campaigns.send({ list: "product-updates", template: "marketing/product-update", props });
+
+// broadcast to a computed segment instead
+await hs.campaigns.send({ bucket: "power-users", template: "marketing/product-update", props });
+```
+
+### Polarity: what "subscribed" means
+
+A list's `defaultOptIn` decides what an *absent* membership key means — the heart of who counts as a recipient:
+
+- **`defaultOptIn: false`** (opt-in, like `product-updates`) — a contact is a member only if `categories["product-updates"] === true`. They had to explicitly join. New contacts are **not** broadcast to until they subscribe.
+- **`defaultOptIn: true`** (opt-out) — a contact is a member unless `categories[id] === false`. Membership is the default; they have to explicitly leave.
+
+This single rule (`ListRegistry.isSubscribed`) is the one source of truth shared by the broadcast's recipient resolution *and* the preference center, so a campaign and the preference UI always agree. See [Lists](/docs/data-api/lists#defaultoptin-polarity) for the full polarity table.
+
+## Durable, idempotent, preference-checked
+
+Three guarantees the broadcast gives you out of the box:
+
+<Callout type="info">
+  - **Durable.** `send()` inserts a `queued` campaign row and enqueues a Hatchet `send-campaign` task. If the enqueue transiently fails, the row is already committed and a reaper cron re-enqueues it — the request still returns `202` rather than 500-ing after a committed row.
+  - **Idempotent.** Pass an `idempotencyKey` (or the `Idempotency-Key` header, which wins). A retried `send()` with the same key resolves to the **existing** campaign instead of spawning a second broadcast — so a network retry never double-sends to your whole list.
+  - **Preference-checked.** Each recipient flows through the same tracked mailer as every other send, so unsubscribed/suppressed contacts are skipped (counted in `skippedCount`, not emailed), and links + opens are tracked and loop back as events — just like [transactional](/docs/recipes/transactional-emails) and [lifecycle](/docs/recipes/lifecycle-journeys) sends.
+</Callout>
+
+## Response
+
+```ts
+const { campaignId, status } = await hs.campaigns.send({ /* … */ });
+// status: "queued" | "sending" | "sent" | "failed"
+```
+
+The send is asynchronous: `status` starts `queued` and the worker advances it as it broadcasts. Use `hs.campaigns.get(campaignId)` to watch `sentCount` / `skippedCount` / `failedCount` climb to completion.

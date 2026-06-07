@@ -1,0 +1,275 @@
+---
+title: Lifecycle journeys
+description: Loops' visual Loops/workflows → Hogsend's defineJourney(). An onboarding series, a bucket-triggered trial-expiring journey, and a win-back journey — durable sleeps, branching, and tracked sends with the lifecycle/* templates.
+---
+
+A lifecycle message is a multi-step, behaviour-driven sequence: onboard a new user, nudge a trial that's about to expire, win back someone who's gone quiet. In Loops you'd open the visual builder and drag nodes onto a canvas. In Hogsend you write a `defineJourney()` — a durable TypeScript function:
+
+```ts
+export const onboarding = defineJourney({
+  meta: { /* when + how it runs */ },
+  run: async (user, ctx) => { /* the flow, as code */ },
+});
+```
+
+`await ctx.sleep(days(3))` literally pauses the function for three days and resumes exactly where it left off — surviving restarts and deploys — because [Hatchet](https://hatchet.run) makes it durable. The branches are `if` statements. The "wait for them to do X" node is `ctx.waitForEvent()`. See the [Journeys guide](/docs/guides/journeys) for the full primitive reference; this page maps three common Loops shapes.
+
+## Loops → Hogsend at a glance
+
+| Loops canvas node | Hogsend |
+|---|---|
+| Trigger (event / filter) | `meta.trigger: { event, where? }` |
+| Wait / delay | `await ctx.sleep({ duration: days(2) })` |
+| Wait for event | `await ctx.waitForEvent({ event, timeout })` |
+| Branch (if/else) | a plain `if` on `ctx.history` / the event |
+| Send email | `await sendEmail({ to, template, … })` (tracked) |
+| Exit / goal met | `meta.exitOn` + early `return` |
+| Enter-once / re-entry rules | `meta.entryLimit` (`once` / `once_per_period` / `unlimited`) |
+
+`sendEmail` is imported from `@hogsend/engine`, takes a registry `template` key (the `lifecycle/*` keys below), and is **tracked automatically** — the same open/click pipeline transactional sends get. Pass `journeyStateId: user.stateId` on every send so clicks and opens resolve back to this run.
+
+## 1. Onboarding series
+
+The classic welcome flow: greet on signup, wait, then branch on whether they activated.
+
+```ts
+// src/journeys/onboarding.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const onboarding = defineJourney({
+  meta: {
+    id: "onboarding",
+    name: "Onboarding series",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    // Day 0 — welcome
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ACTIVATION_WELCOME,   // "activation/welcome"
+      subject: "Welcome — let's get you set up",
+      journeyName: user.journeyName,
+    });
+
+    // Give them two days to try the product
+    await ctx.sleep({ duration: days(2), label: "post-welcome" });
+
+    // Branch on actual behaviour
+    const { found: activated } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+    });
+
+    if (activated) return; // goal met — stop here
+
+    // Still cold? Nudge them.
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ACTIVATION_NUDGE,     // "activation/nudge"
+      subject: "You haven't tried the key feature yet",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+The two `activation/welcome` and `activation/nudge` templates already ship in the scaffold. Reach for [`ctx.waitForEvent()`](/docs/guides/journeys#ctxwaitforevent) instead of `sleep` + `hasEvent` when you want to resume *the instant* they activate rather than after a fixed delay.
+
+## 2. Trial-expiring journey (triggered by a bucket)
+
+This is the pattern Loops can't do cleanly: trigger a journey off **audience membership** rather than a single raw event. A [Bucket](/docs/guides/buckets) maintains a real-time segment; when a user enters it, it emits a typed `bucket:entered:<id>` event through the same ingest pipeline, which a journey can trigger on.
+
+The scaffold ships a `trial-expiring-soon` bucket — on trial, ≤3 days left, not yet converted:
+
+```ts
+// src/buckets/trial-expiring-soon.ts (already in the scaffold)
+export const trialExpiringSoon = defineBucket({
+  meta: {
+    id: "trial-expiring-soon",
+    name: "Trial expiring soon",
+    enabled: true,
+    entryLimit: "once",
+    maxDwell: days(14),
+    criteria: (b) =>
+      b.all(
+        b.prop("plan").eq("trial"),
+        b.prop("trial_days_left").lte(3),
+        b.prop("converted").neq(true),
+      ),
+  },
+});
+```
+
+Now trigger a journey on its `entered` ref and exit on `left` (which fires the moment they convert, because the criteria stop matching):
+
+```ts
+// src/journeys/trial-expiring.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { trialExpiringSoon } from "../buckets/trial-expiring-soon.js";
+import { Events, Templates } from "./constants/index.js";
+
+export const trialExpiring = defineJourney({
+  meta: {
+    id: "trial-expiring",
+    name: "Lifecycle — trial expiring",
+    enabled: true,
+    // typed refs off the bucket — a typo is a compile error
+    trigger: { event: trialExpiringSoon.entered },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [
+      { event: trialExpiringSoon.left },     // they converted / trial ended
+      { event: Events.SUBSCRIPTION_CREATED },
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    // First touch — your trial is ending
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.LIFECYCLE_TRIAL_EXPIRING,   // "lifecycle/trial-expiring"
+      subject: "Your trial ends soon",
+      journeyName: user.journeyName,
+      props: { daysLeft: user.properties.trial_days_left ?? 3 },
+    });
+
+    // Wait two days for them to upgrade on their own
+    const { timedOut } = await ctx.waitForEvent({
+      event: Events.SUBSCRIPTION_CREATED,
+      timeout: days(2),
+      label: "await-upgrade",
+    });
+
+    if (!timedOut) return; // they upgraded — exitOn already handled it
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // Final reminder with an incentive
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.LIFECYCLE_TRIAL_EXPIRING,
+      subject: "Last day — here's 20% off your first month",
+      journeyName: user.journeyName,
+      props: { daysLeft: 0, discountPercent: 20 },
+    });
+  },
+});
+```
+
+<Callout type="info">
+  Import the bucket from its **leaf module** (`../buckets/trial-expiring-soon.js`) to read its `.entered` / `.left` typed refs. These are literal-typed off the bucket's own id, so binding to a misspelled bucket is caught at compile time — see the [Buckets guide](/docs/guides/buckets).
+</Callout>
+
+## 3. Win-back journey
+
+For users who've gone dormant. Trigger on your own re-engagement event (or a `went-dormant` bucket), space out the touches over a week, and stop the moment they come back.
+
+```ts
+// src/journeys/win-back.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const winBack = defineJourney({
+  meta: {
+    id: "win-back",
+    name: "Lifecycle — win-back",
+    enabled: true,
+    trigger: { event: Events.USER_DORMANCY_DETECTED },
+    entryLimit: "once_per_period",   // let them re-enter if they lapse again
+    entryPeriod: days(30),
+    suppress: hours(24),
+    exitOn: [
+      { event: Events.APP_ACTIVE },  // they came back — stop immediately
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    // "We miss you"
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.LIFECYCLE_WIN_BACK,   // "lifecycle/win-back"
+      subject: "We miss you — here's what's new",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(3), label: "win-back-followup" });
+
+    // Came back during the wait? exitOn handled it. Double-check anyway.
+    const { found: returned } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.APP_ACTIVE,
+      within: days(3),
+    });
+    if (returned) return;
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // Final, stronger nudge — surface a new feature
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.LIFECYCLE_FEATURE_ANNOUNCEMENT,  // "lifecycle/feature-announcement"
+      subject: "One thing that's changed since you left",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+`entryLimit: "once_per_period"` is the equivalent of Loops' "can re-enter every N days" — a user who lapses, returns, and lapses again can run the win-back flow a second time once `entryPeriod` has elapsed. `exitOn: APP_ACTIVE` is the goal-met exit: the journey stops the instant they return, even mid-sleep, and no further mail fires.
+
+## Add the template keys to your constants
+
+The `lifecycle/*` keys above belong in your `src/journeys/constants/` (and must each resolve to a template in your email registry):
+
+```ts
+// src/journeys/constants/templates.ts
+export const Templates = {
+  // shipped in the scaffold
+  ACTIVATION_WELCOME: "activation/welcome",
+  ACTIVATION_NUDGE: "activation/nudge",
+
+  // lifecycle additions
+  LIFECYCLE_TRIAL_EXPIRING: "lifecycle/trial-expiring",
+  LIFECYCLE_FEATURE_ANNOUNCEMENT: "lifecycle/feature-announcement",
+  LIFECYCLE_WIN_BACK: "lifecycle/win-back",
+} as const;
+```
+
+## Register the journeys
+
+Add each to your `journeys` array — there's no engine code to touch:
+
+```ts
+// src/journeys/index.ts
+import type { DefinedJourney } from "@hogsend/engine";
+import { onboarding } from "./onboarding.js";
+import { trialExpiring } from "./trial-expiring.js";
+import { winBack } from "./win-back.js";
+
+export const journeys: DefinedJourney[] = [onboarding, trialExpiring, winBack];
+```
+
+That same array is already passed into both `createHogsendClient({ journeys })` and `createWorker({ container, journeys })` in your thin entry files — wired once when the app was scaffolded. Buckets thread into both factories too, so the `trialExpiringSoon` trigger works end to end. The full lifecycle (durable sleeps, `ctx.when` timezone scheduling, the enrollment guards, state transitions) lives in the [Journeys guide](/docs/guides/journeys).

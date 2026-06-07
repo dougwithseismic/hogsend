@@ -165,3 +165,82 @@ export interface ChurnPaymentFailedEmailProps {
   gracePeriodDays?: number;
   unsubscribeUrl?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Transactional templates (sent one-off via hs.emails.send / POST /v1/emails).
+// The Loops "transactional emails" equivalent — no unsubscribe, no list.
+// ---------------------------------------------------------------------------
+
+export interface TransactionalVerifyEmailProps {
+  name?: string;
+  verifyUrl: string;
+  expiresIn?: string;
+}
+
+export interface TransactionalPasswordResetProps {
+  name?: string;
+  resetUrl: string;
+  expiresIn?: string;
+}
+
+export interface TransactionalMagicLinkProps {
+  name?: string;
+  magicLinkUrl: string;
+  expiresIn?: string;
+}
+
+export interface TransactionalReceiptProps {
+  name?: string;
+  orderId: string;
+  items: Array<{ description: string; amount: string }>;
+  total: string;
+  receiptUrl?: string;
+  purchasedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Product / lifecycle templates (sent from journeys). The Loops
+// "loops / workflows" equivalent.
+// ---------------------------------------------------------------------------
+
+export interface LifecycleTrialExpiringProps {
+  name: string;
+  daysLeft?: number;
+  upgradeUrl?: string;
+  valueSummary?: string[];
+  unsubscribeUrl?: string;
+}
+
+export interface LifecycleFeatureAnnouncementProps {
+  name: string;
+  featureName?: string;
+  featureDescription?: string;
+  benefits?: string[];
+  ctaUrl?: string;
+  ctaText?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface LifecycleWinBackProps {
+  name: string;
+  daysSinceActive?: number;
+  whatsNew?: string[];
+  returnUrl?: string;
+  incentive?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Marketing templates (broadcast to a list via hs.campaigns.send). The Loops
+// "campaigns" equivalent — gated on the `product-updates` list category.
+// ---------------------------------------------------------------------------
+
+export interface MarketingProductUpdateProps {
+  name?: string;
+  headline?: string;
+  body?: string;
+  ctaUrl?: string;
+  ctaText?: string;
+  unsubscribeUrl?: string;
+  preferencesUrl?: string;
+}

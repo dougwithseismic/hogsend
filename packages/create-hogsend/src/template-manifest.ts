@@ -58,6 +58,8 @@ export const TOKEN_FILES = [
   "welcome.tsx",
   "logo.tsx",
   "registry.ts",
+  // Starter email templates that reference the app name in their copy.
+  "magic-link.tsx",
   // Matched on the RENAMED basename (CLAUDE.template.md -> CLAUDE.md), so the
   // {{APP_NAME}}/{{ENGINE_VERSION}} tokens in the orientation file resolve.
   "CLAUDE.md",
