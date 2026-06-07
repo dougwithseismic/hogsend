@@ -10,6 +10,14 @@ major bumps, see [engine-boundary.md](./engine-boundary.md).
 > `pnpm -r publish --dry-run`) but you must **never** `npm publish` by hand or
 > `git push` a tag. The real publish runs in `.github/workflows/release.yml`.
 
+> **`release-doctor` enforces the integrity rules below.** `pnpm release-doctor`
+> (the **Release integrity** CI job, and a gate at the top of `release.yml`)
+> asserts the version-line invariants in this doc; `pnpm version-packages` runs
+> `release-doctor --sync` to auto-bump `ENGINE_VERSION` (§5) into the Version PR;
+> and `release.yml` runs `scripts/verify-published.mjs` after publish to confirm
+> every package actually resolves on npm (§1/§8). The sections below remain the
+> source of *why* — the doctor is the *enforcement*.
+
 ---
 
 ## 1. What publishes, and what stays private

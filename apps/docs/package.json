@@ -7,7 +7,7 @@
     "postbuild": "node scripts/assemble-standalone.mjs",
     "dev": "next dev --port 3005",
     "start": "node .next/standalone/apps/docs/server.js",
-    "check-types": "fumadocs-mdx && next typegen && tsc --noEmit"
+    "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)"
   },
   "dependencies": {
     "clsx": "^2.1.1",

@@ -13,7 +13,8 @@
     "gen:secret": "openssl rand -base64 32",
     "preflight": "bash scripts/preflight-deploy.sh",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "release-doctor": "node scripts/release-doctor.mjs",
+    "version-packages": "changeset version && node scripts/release-doctor.mjs --sync",
     "release": "pnpm build && changeset publish",
     "prepare": "lefthook install || true"
   },
