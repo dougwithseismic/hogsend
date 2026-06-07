@@ -25,6 +25,8 @@ import { journeyStates } from "./journey-states.js";
 import { linkClicks } from "./link-clicks.js";
 import { trackedLinks } from "./tracked-links.js";
 import { userEvents } from "./user-events.js";
+import { webhookDeliveries } from "./webhook-deliveries.js";
+import { webhookEndpoints } from "./webhook-endpoints.js";
 
 export const alertRulesRelations = relations(alertRules, ({ many }) => ({
   history: many(alertHistory),
@@ -141,6 +143,23 @@ export const linkClicksRelations = relations(linkClicks, ({ one }) => ({
     references: [trackedLinks.id],
   }),
 }));
+
+export const webhookEndpointsRelations = relations(
+  webhookEndpoints,
+  ({ many }) => ({
+    deliveries: many(webhookDeliveries),
+  }),
+);
+
+export const webhookDeliveriesRelations = relations(
+  webhookDeliveries,
+  ({ one }) => ({
+    endpoint: one(webhookEndpoints, {
+      fields: [webhookDeliveries.endpointId],
+      references: [webhookEndpoints.id],
+    }),
+  }),
+);
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),

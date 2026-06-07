@@ -24,8 +24,17 @@ import type {
   SendResult,
   TrackedSendResult,
 } from "./email-service-types.js";
+import { hatchet } from "./hatchet.js";
+import { createLogger } from "./logger.js";
+import { emitOutbound } from "./outbound.js";
 import type { PrepareTrackedHtmlFn } from "./tracked.js";
 import { sendTrackedEmail } from "./tracked.js";
+import { resolveEmailSendContextByResendId } from "./tracking-events.js";
+
+// Fallback logger for the provider-webhook outbound emit — `config.logger` is
+// optional, but `emitOutbound` requires one. Mirrors the engine-lib singleton
+// pattern (define-journey, preferences, tracked).
+const emitLogger = createLogger(process.env.LOG_LEVEL);
 
 const WEBHOOK_TO_STATUS_FIELD: Partial<
   Record<WebhookEventType, keyof typeof emailSends.$inferSelect>
@@ -187,13 +196,32 @@ export function createTrackedMailer(
   ): Promise<boolean> {
     switch (event.type) {
       case "email.sent":
+        // `email.sent` is emitted FIRST-PARTY from the tracked mailer's
+        // provider-accepted branch (lib/tracked.ts) with the rich payload — the
+        // provider-webhook echo only updates the DB status, it does NOT emit.
+        await updateEmailStatus(event.type, event.data.email_id);
+        break;
       case "email.delivered":
+        await updateEmailStatus(event.type, event.data.email_id);
+        // OUTBOUND `email.delivered` — the provider webhook is the SINGLE source
+        // for delivered/bounced (these have no first-party signal).
+        await emitProviderEmailEvent("email.delivered", event.data.email_id);
+        break;
       case "email.opened":
       case "email.clicked":
+        // First-party pixel/redirect is the SINGLE outbound emitter for
+        // open/click (gated on the first-touch null→set UPDATE in the tracking
+        // routes — risk 4). The provider-webhook echo is SUPPRESSED here: it only
+        // updates the DB status, it does NOT emit outbound (no double-source).
         await updateEmailStatus(event.type, event.data.email_id);
         break;
       case "email.bounced":
         await updateEmailStatus(event.type, event.data.email_id, {
+          bounceType: event.data.bounce?.type,
+          bounceReason: event.data.bounce?.message,
+        });
+        // OUTBOUND `email.bounced` with the bounce detail.
+        await emitProviderEmailEvent("email.bounced", event.data.email_id, {
           bounceType: event.data.bounce?.type,
           bounceReason: event.data.bounce?.message,
         });
@@ -248,6 +276,65 @@ export function createTrackedMailer(
         updatedAt: new Date(),
       })
       .where(eq(emailPreferences.email, email));
+  }
+
+  /**
+   * Emit the provider-funnel outbound event (`email.delivered` / `email.bounced`)
+   * for a Resend `email_id`. Enriches via {@link resolveEmailSendContextByResendId}
+   * (the only handle a provider webhook holds is the Resend id). Fire-and-forget:
+   * a missing context (webhook racing the send-row commit) or a transient outbound
+   * error is logged and swallowed — never failing the webhook handler. No
+   * `dedupeKey`: the provider path is not a Hatchet-retryable producer, and the
+   * shared `Webhook-Id` is the subscriber-side dedup for any provider redelivery.
+   */
+  function emitProviderEmailEvent(
+    event: "email.delivered" | "email.bounced",
+    resendId: string,
+    bounce?: { bounceType?: string; bounceReason?: string },
+  ): void {
+    if (!db) return;
+    const log = config.logger ?? emitLogger;
+    const database = db;
+    void resolveEmailSendContextByResendId(database, resendId)
+      .then((ctx) => {
+        if (!ctx) return;
+        const base = {
+          emailSendId: ctx.emailSendId,
+          resendId,
+          templateKey: ctx.templateKey,
+          userId: ctx.userId,
+          to: ctx.to,
+          at: new Date().toISOString(),
+        };
+        if (event === "email.bounced") {
+          return emitOutbound({
+            db: database,
+            hatchet,
+            logger: log,
+            event: "email.bounced",
+            payload: {
+              ...base,
+              ...(bounce?.bounceType ? { bounceType: bounce.bounceType } : {}),
+              ...(bounce?.bounceReason
+                ? { bounceReason: bounce.bounceReason }
+                : {}),
+            },
+          });
+        }
+        return emitOutbound({
+          db: database,
+          hatchet,
+          logger: log,
+          event: "email.delivered",
+          payload: base,
+        });
+      })
+      .catch((err: unknown) => {
+        log.warn(`emitOutbound ${event} failed`, {
+          resendId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
   async function updateEmailStatus(

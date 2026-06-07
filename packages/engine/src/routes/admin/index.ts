@@ -20,6 +20,7 @@ import { reportingRouter } from "./reporting.js";
 import { suppressionsRouter } from "./suppressions.js";
 import { templatesRouter } from "./templates.js";
 import { timelineRouter } from "./timeline.js";
+import { webhooksRouter } from "./webhooks.js";
 
 export const adminRouter = new OpenAPIHono<AppEnv>();
 adminRouter.use("*", requireAdmin);
@@ -39,6 +40,7 @@ adminRouter.route("/reporting", reportingRouter);
 adminRouter.route("/templates", templatesRouter);
 adminRouter.route("/suppressions", suppressionsRouter);
 adminRouter.route("/api-keys", apiKeysRouter);
+adminRouter.route("/webhooks", webhooksRouter);
 adminRouter.route("/audit-logs", auditLogsRouter);
 adminRouter.route("/alerts", alertsRouter);
 adminRouter.route("/dlq", dlqRouter);

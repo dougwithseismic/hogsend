@@ -4,6 +4,7 @@ import { ContactsResource } from "./resources/contacts.js";
 import { EmailsResource } from "./resources/emails.js";
 import { EventsResource } from "./resources/events.js";
 import { ListsResource } from "./resources/lists.js";
+import { WebhooksResource } from "./resources/webhooks.js";
 import type { HogsendOptions } from "./types.js";
 
 /**
@@ -21,6 +22,13 @@ export class Hogsend {
   readonly emails: EmailsResource;
   readonly lists: ListsResource;
   readonly campaigns: CampaignsResource;
+  /**
+   * Manage outbound webhook endpoints (the signed event stream Hogsend emits to
+   * subscriber URLs). REQUIRES a full-admin `apiKey` — this resource hits the
+   * admin plane (`/v1/admin/webhooks`), NOT the ingest data plane the other
+   * resources use. See {@link WebhooksResource}.
+   */
+  readonly webhooks: WebhooksResource;
 
   constructor(opts: HogsendOptions) {
     if (!opts.baseUrl) {
@@ -43,5 +51,6 @@ export class Hogsend {
     this.emails = new EmailsResource(http);
     this.lists = new ListsResource(http);
     this.campaigns = new CampaignsResource(http);
+    this.webhooks = new WebhooksResource(http);
   }
 }

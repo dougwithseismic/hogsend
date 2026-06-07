@@ -2,10 +2,12 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import {
   findContacts,
+  resolveContact,
   resolveOrCreateContact,
   serializeContact,
   softDeleteContact,
 } from "../../lib/contacts.js";
+import { emitOutbound } from "../../lib/outbound.js";
 import { applyListMembership } from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { listMembershipError, requireIdentity } from "../_shared.js";
@@ -130,18 +132,43 @@ const deleteRoute = createRoute({
 
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(upsertRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const body = c.req.valid("json");
 
     const guard = requireIdentity(c, body);
     if (guard) return guard;
 
-    const { id, created, linked } = await resolveOrCreateContact({
+    const { id, created, linked, merged } = await resolveOrCreateContact({
       db,
       userId: body.userId,
       email: body.email,
       contactProperties: body.properties,
     });
+
+    // INTENT-LAYER outbound emit (decision #3): fire `contact.created` on a real
+    // creation, `contact.updated` only when an existing contact was linked/merged
+    // AND the request carried a non-empty property delta — NEVER inside
+    // `resolveOrCreateContact` (which runs on every event → would emit on every
+    // pageview). The emit is fire-and-forget; a read-back serializes the full
+    // contact payload the catalog expects.
+    const hadPropertyDelta = Boolean(
+      body.properties && Object.keys(body.properties).length > 0,
+    );
+    if (created || (linked || merged ? hadPropertyDelta : false)) {
+      const event = created ? "contact.created" : "contact.updated";
+      void resolveContact({ db, id })
+        .then((row) => {
+          if (!row) return;
+          return emitOutbound({
+            db,
+            hatchet,
+            logger,
+            event,
+            payload: serializeContact(row),
+          });
+        })
+        .catch(logger.warn);
+    }
 
     // Lists applied AFTER the resolve so the contact exists (§2.5 lists
     // ordering). `applyListMembership` requires a resolvable email — surface the
@@ -173,15 +200,31 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     return c.json({ contacts: rows.map((row) => serializeContact(row)) }, 200);
   })
   .openapi(deleteRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const { email, userId } = c.req.valid("json");
 
     const guard = requireIdentity(c, { email, userId });
     if (guard) return guard;
 
-    const deleted = await softDeleteContact({ db, email, userId });
-    if (!deleted) {
+    const result = await softDeleteContact({ db, email, userId });
+    if (!result.deleted) {
       return c.json({ error: "Contact not found" }, 404);
+    }
+
+    // The widened `softDeleteContact` returns the deleted row's identity so the
+    // `contact.deleted` outbound webhook carries it without a second read-back.
+    if (result.id) {
+      void emitOutbound({
+        db,
+        hatchet,
+        logger,
+        event: "contact.deleted",
+        payload: {
+          id: result.id,
+          externalId: result.externalId ?? null,
+          email: result.email ?? null,
+        },
+      }).catch(logger.warn);
     }
 
     return c.json({ deleted: true as const }, 200);

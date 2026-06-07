@@ -168,6 +168,84 @@ export interface UnsubscribeResult {
 }
 
 // ---------------------------------------------------------------------------
+// Outbound webhooks (hs.webhooks.*) — targets the ADMIN plane (full-admin key).
+// ---------------------------------------------------------------------------
+
+/**
+ * The 12-event outbound catalog. MIRRORS the engine's `WEBHOOK_EVENT_TYPES`
+ * (`@hogsend/engine` lib/webhook-signing.ts) — the client cannot import the
+ * engine, so the union is re-declared here. A drift check keeps them in sync.
+ * The `webhook.test` sentinel is NOT a member (out-of-band).
+ */
+export type OutboundEventType =
+  | "contact.created"
+  | "contact.updated"
+  | "contact.deleted"
+  | "contact.unsubscribed"
+  | "email.sent"
+  | "email.delivered"
+  | "email.opened"
+  | "email.clicked"
+  | "email.bounced"
+  | "journey.completed"
+  | "bucket.entered"
+  | "bucket.left";
+
+/**
+ * A managed outbound webhook endpoint as returned by `/v1/admin/webhooks` list
+ * + get. NEVER carries the full signing `secret` — only its display
+ * `secretPrefix`. The full secret is returned exactly once, on create and
+ * rotate-secret, as {@link CreatedWebhookEndpoint} / {@link RotateWebhookSecretResult}.
+ */
+export interface WebhookEndpoint {
+  id: string;
+  url: string;
+  description: string | null;
+  eventTypes: OutboundEventType[];
+  /** Safe-to-display prefix, e.g. `whsec_AbCd`. The full secret is never here. */
+  secretPrefix: string;
+  status: "enabled" | "disabled";
+  organizationId: string | null;
+  /** ISO string of the last delivery attempt, or null if never delivered. */
+  lastDeliveryAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The create / rotate response: a {@link WebhookEndpoint} PLUS the full signing
+ * `secret` (`whsec_…`). Returned ONCE — store it now, it is never recoverable
+ * from list/get.
+ */
+export type CreatedWebhookEndpoint = WebhookEndpoint & { secret: string };
+
+/** Body for `hs.webhooks.create`. At least one event type is required. */
+export interface CreateWebhookInput {
+  url: string;
+  eventTypes: OutboundEventType[];
+  description?: string;
+  disabled?: boolean;
+}
+
+/**
+ * Body for `hs.webhooks.update` (PATCH semantics — only provided fields change).
+ * `description: null` clears the description.
+ */
+export interface UpdateWebhookInput {
+  url?: string;
+  eventTypes?: OutboundEventType[];
+  description?: string | null;
+  disabled?: boolean;
+}
+
+/** Result of `hs.webhooks.rotateSecret` — the NEW full secret, returned once. */
+export interface RotateWebhookSecretResult {
+  id: string;
+  secret: string;
+  secretPrefix: string;
+}
+
+// ---------------------------------------------------------------------------
 // emails.send — typed against the augmented TemplateRegistryMap, degrading to
 // `template: string` + permissive props when un-augmented.
 // ---------------------------------------------------------------------------

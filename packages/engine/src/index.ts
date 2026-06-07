@@ -16,7 +16,6 @@ export type {
   PostHogService,
   SendResult,
   WebhookEvent,
-  WebhookEventType,
   WebhookHandlerMap,
 } from "@hogsend/core";
 // Core helpers used by content journeys (days/hours/minutes, condition + journey
@@ -150,6 +149,13 @@ export {
 // --- Logging ---
 export { createLogger, type Logger } from "./lib/logger.js";
 export { createTrackedMailer } from "./lib/mailer.js";
+// --- Outbound webhooks: emit spine (Section 1.4) ---
+export {
+  emitOutbound,
+  OUTBOUND_EVENTS,
+  type OutboundEventName,
+  type OutboundPayloads,
+} from "./lib/outbound.js";
 export { getPostHog } from "./lib/posthog.js";
 export { getRedisIfConnected } from "./lib/redis.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
@@ -174,7 +180,17 @@ export {
 export {
   pushTrackingEvent,
   resolveEmailSendContext,
+  resolveEmailSendContextByResendId,
 } from "./lib/tracking-events.js";
+// --- Outbound webhooks: signing core (Section 1.2) ---
+export {
+  generateWebhookSecret,
+  type SignedWebhook,
+  signWebhook,
+  verifyWebhookSignature,
+  WEBHOOK_EVENT_TYPES,
+  type WebhookEventType,
+} from "./lib/webhook-signing.js";
 // --- Lists (D3) ---
 export {
   type DefinedList,
@@ -191,9 +207,21 @@ export {
 export {
   type DefinedWebhookSource,
   defineWebhookSource,
+  verifySignature,
+  type WebhookSourceAuth,
   type WebhookSourceCtx,
   type WebhookSourceMeta,
 } from "./webhook-sources/define-webhook-source.js";
+// --- Integration presets (Section 2.3/2.4) ---
+export {
+  clerkSource,
+  PRESET_SOURCES,
+  type PresetId,
+  presetsFromEnv,
+  segmentSource,
+  stripeSource,
+  supabaseSource,
+} from "./webhook-sources/presets/index.js";
 export {
   type CreateWorkerOptions,
   createWorker,
@@ -211,6 +239,11 @@ export {
   bucketReconcileTask,
 } from "./workflows/bucket-reconcile.js";
 export { checkAlertsTask } from "./workflows/check-alerts.js";
+// --- Outbound webhooks: durable delivery task + reaper (Section 1.5) ---
+export {
+  deliverWebhookTask,
+  reapDueWebhookDeliveriesTask,
+} from "./workflows/deliver-webhook.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
 export { sendCampaignTask } from "./workflows/send-campaign.js";
 // --- Built-in Hatchet workflow tasks ---

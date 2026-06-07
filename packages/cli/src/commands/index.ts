@@ -12,6 +12,7 @@ import { statsCommand } from "./stats.js";
 import { studioCommand } from "./studio.js";
 import type { Command } from "./types.js";
 import { upgradeCommand } from "./upgrade.js";
+import { webhooksCommand } from "./webhooks.js";
 
 /**
  * The command registry. The router (src/bin.ts) matches the leading argv token
@@ -29,6 +30,7 @@ export const commands: Command[] = [
   eventsCommand,
   emailsCommand,
   campaignsCommand,
+  webhooksCommand,
   studioCommand,
   setupCommand,
   skillsCommand,

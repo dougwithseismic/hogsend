@@ -4,6 +4,14 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // All DB-backed suites share ONE docker TimescaleDB. Most isolate via
+    // RUN-namespaced rows, but outbound-webhook emit is a GLOBAL fan-out: it
+    // selects every `organizationId IS NULL` endpoint and writes a delivery row
+    // per match. So a contact upsert / email send in one file can write rows to
+    // a webhook endpoint another file is asserting on (and vice-versa) — a
+    // side effect RUN-namespacing cannot scope. Run test files sequentially so
+    // no two files mutate the shared webhook tables concurrently.
+    fileParallelism: false,
     // `@hogsend/engine` ships raw `.ts` and uses `.js` extensions in its
     // relative imports (ESM resolution). Inlining it lets Vite's transform
     // pipeline resolve those `.js` specifiers to their `.ts` sources instead

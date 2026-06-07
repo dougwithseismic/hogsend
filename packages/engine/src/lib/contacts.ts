@@ -38,7 +38,7 @@ export async function resolveContact(opts: { db: Database; id: string }) {
   return rows[0] ?? null;
 }
 
-interface SerializedContact {
+export interface SerializedContact {
   id: string;
   externalId: string | null;
   email: string | null;
@@ -1007,13 +1007,23 @@ export async function findContacts(opts: {
 
 /**
  * Soft-delete a contact resolved by email or external id (sets `deletedAt`).
- * Returns true iff a live row was found and soft-deleted.
+ *
+ * Returns `{ deleted }` plus the soft-deleted row's identity (`id`,
+ * `externalId`, `email`) so the delete route can both make its 404 decision
+ * (`deleted`) AND emit the `contact.deleted` outbound webhook with the real
+ * identity — without a second read-back. `deleted` is false (and the identity
+ * fields absent) when no live row matched.
  */
 export async function softDeleteContact(opts: {
   db: Database;
   email?: string;
   userId?: string;
-}): Promise<boolean> {
+}): Promise<{
+  deleted: boolean;
+  id?: string;
+  externalId?: string | null;
+  email?: string | null;
+}> {
   const { db } = opts;
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
   const userId = opts.userId?.trim() || undefined;
@@ -1021,15 +1031,27 @@ export async function softDeleteContact(opts: {
   const clauses = [];
   if (email) clauses.push(eq(contacts.email, email));
   if (userId) clauses.push(eq(contacts.externalId, userId));
-  if (clauses.length === 0) return false;
+  if (clauses.length === 0) return { deleted: false };
 
   const updated = await db
     .update(contacts)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(and(or(...clauses), isNull(contacts.deletedAt)))
-    .returning({ id: contacts.id });
+    .returning({
+      id: contacts.id,
+      externalId: contacts.externalId,
+      email: contacts.email,
+    });
 
-  return updated.length > 0;
+  const row = updated[0];
+  if (!row) return { deleted: false };
+
+  return {
+    deleted: true,
+    id: row.id,
+    externalId: row.externalId,
+    email: row.email,
+  };
 }
 
 /**

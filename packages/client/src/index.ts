@@ -1,10 +1,13 @@
 export { HogsendAPIError, RateLimitError } from "./errors.js";
 export { Hogsend } from "./hogsend.js";
+export { verifyHogsendWebhook } from "./internal/verify.js";
 export type {
   Campaign,
   CampaignAudienceKind,
   CampaignStatus,
   Contact,
+  CreatedWebhookEndpoint,
+  CreateWebhookInput,
   DeleteContactInput,
   DeleteContactResult,
   ExitResult,
@@ -13,6 +16,8 @@ export type {
   Identity,
   IngestResult,
   ListSummary,
+  OutboundEventType,
+  RotateWebhookSecretResult,
   SendCampaignInput,
   SendCampaignResult,
   SendEmailInput,
@@ -21,6 +26,8 @@ export type {
   SubscribeInput,
   SubscribeResult,
   UnsubscribeResult,
+  UpdateWebhookInput,
   UpsertContactInput,
   UpsertContactResult,
+  WebhookEndpoint,
 } from "./types.js";
