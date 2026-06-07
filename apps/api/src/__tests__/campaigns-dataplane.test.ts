@@ -52,7 +52,7 @@ const {
   emailPreferences,
   emailSends,
 } = await import("@hogsend/db");
-const { and, eq, like } = await import("drizzle-orm");
+const { eq, like } = await import("drizzle-orm");
 const {
   buildBucketRegistry,
   createApp,

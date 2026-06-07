@@ -2,13 +2,13 @@ import {
   bucketMemberships,
   campaigns,
   contacts,
-  createDatabase,
   type Database,
   emailPreferences,
 } from "@hogsend/db";
 import type { TemplateName } from "@hogsend/email";
 import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { normalizeEmail } from "../lib/contacts.js";
+import { getDb } from "../lib/db.js";
 import { getEmailService } from "../lib/email.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
@@ -58,7 +58,7 @@ export const sendCampaignTask = hatchet.task({
   retries: 1,
   executionTimeout: "600s",
   fn: async (input: { campaignId: string }) => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
     const emailService = getEmailService();
 
@@ -137,7 +137,19 @@ export const sendCampaignTask = hatchet.task({
               userEmail: r.email,
               subject: campaign?.subject ?? undefined,
               from: campaign?.fromEmail ?? undefined,
-              category: campaign?.audienceId,
+              // A list's audienceId IS a real subscription category, so pass it
+              // through for suppression + the unsubscribe link. A bucket's
+              // audienceId is NOT a category — forcing it here would mint an
+              // unsubscribe link keyed on the bucket id (`categories[bucketId] =
+              // false`) that the bucket resolver never honors (it only checks
+              // unsubscribedAll/suppressed), silently no-op'ing the unsubscribe.
+              // For a bucket, pass undefined so the template's OWN declared
+              // category (e.g. `product-updates`) drives both suppression and a
+              // real, honored List-Unsubscribe target.
+              category:
+                campaign?.audienceKind === "bucket"
+                  ? undefined
+                  : campaign?.audienceId,
               // The idempotency key dedupes a retried send to its prior row.
               idempotencyKey: `campaign:${input.campaignId}:${r.email}`,
             }),
@@ -255,9 +267,10 @@ const GIVE_UP_AFTER_MS = Number(
  * unsent tail). A campaign that stays stuck past `GIVE_UP_AFTER_MS` is declared
  * `failed` so it stops being re-driven and surfaces to operators.
  *
- * Self-bootstraps `db`/`logger` from `process.env` (cron runs have no request
- * container), cloned from `bucket-reconcile.ts`. NON-cancelling single-flight
- * concurrency so an overrunning sweep finishes rather than being cancelled.
+ * Self-bootstraps `db` (memoized `getDb()` singleton) / `logger` from
+ * `process.env` (cron runs have no request container), cloned from
+ * `bucket-reconcile.ts`. NON-cancelling single-flight concurrency so an
+ * overrunning sweep finishes rather than being cancelled.
  */
 export const reapStuckCampaignsTask = hatchet.task({
   name: "reap-stuck-campaigns",
@@ -265,7 +278,7 @@ export const reapStuckCampaignsTask = hatchet.task({
   retries: 1,
   executionTimeout: "120s",
   fn: async () => {
-    const { db } = createDatabase({ url: process.env.DATABASE_URL ?? "" });
+    const db = getDb();
     const logger = createLogger(process.env.LOG_LEVEL ?? "info");
 
     const now = Date.now();
@@ -326,6 +339,38 @@ export const reapStuckCampaignsTask = hatchet.task({
 });
 
 /**
+ * Single-sourced keyset-pagination control flow shared by every recipient
+ * resolver. Owns the cursor lifecycle (init → page → empty/short-page break →
+ * advance) so the paging invariants live in ONE place; each resolver supplies
+ * only its `page(cursor)` query (which owns its own `where`/`orderBy`/`limit`),
+ * a `cursorOf(row)` extractor for the keyset column, and a `map(row)` that turns
+ * a row into a recipient (or `undefined` to skip it, e.g. a null email or an
+ * opt-in row that isn't actually subscribed). Breaks on an empty page OR a page
+ * shorter than `CHUNK_SIZE` (the last page), then advances to the last row's
+ * cursor — bailing if that cursor is missing to avoid an infinite loop.
+ */
+async function* keysetPaginate<Row>(opts: {
+  page: (cursor: string | undefined) => Promise<Row[]>;
+  cursorOf: (row: Row) => string | undefined;
+  map: (row: Row) => CampaignRecipient | undefined;
+}): AsyncGenerator<CampaignRecipient> {
+  let cursor: string | undefined;
+  while (true) {
+    const rows = await opts.page(cursor);
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      const recipient = opts.map(row);
+      if (recipient) yield recipient;
+    }
+
+    if (rows.length < CHUNK_SIZE) break;
+    cursor = opts.cursorOf(rows[rows.length - 1] as Row);
+    if (!cursor) break;
+  }
+}
+
+/**
  * Active, non-deleted members of a bucket, joined to a live contact for the
  * email — mirrors the bucket-access member query. Paged by the keyset cursor on
  * `bucket_memberships.id`.
@@ -353,56 +398,52 @@ async function* resolveBucketRecipients(
   // (written verbatim from the raw event), the contact email is the fallback.
   const recipientEmail = sql<string>`lower(trim(coalesce(${bucketMemberships.userEmail}, ${contacts.email})))`;
 
-  let cursor: string | undefined;
-  while (true) {
-    const conditions = [
-      eq(bucketMemberships.bucketId, bucketId),
-      eq(bucketMemberships.status, "active"),
-      isNull(bucketMemberships.deletedAt),
-      isNull(contacts.deletedAt),
-      // Exclude globally-unsubscribed / suppressed members up front via a
-      // correlated NOT EXISTS (an EXISTS subquery, NOT a JOIN, so a member with
-      // two prefs rows sharing the email is not fanned out into duplicate
-      // recipients). An absent prefs row matches nothing → the member is
-      // included (subscribed-by-default), mirroring the list resolver's stance.
-      // Keyed on lower(email) so a mixed-case membership email still matches its
-      // normalized prefs row (CAN-SPAM/GDPR: see the fn docstring).
-      sql`not exists (
+  yield* keysetPaginate({
+    page: (cursor) => {
+      const conditions = [
+        eq(bucketMemberships.bucketId, bucketId),
+        eq(bucketMemberships.status, "active"),
+        isNull(bucketMemberships.deletedAt),
+        isNull(contacts.deletedAt),
+        // Exclude globally-unsubscribed / suppressed members up front via a
+        // correlated NOT EXISTS (an EXISTS subquery, NOT a JOIN, so a member
+        // with two prefs rows sharing the email is not fanned out into
+        // duplicate recipients). An absent prefs row matches nothing → the
+        // member is included (subscribed-by-default), mirroring the list
+        // resolver's stance. Keyed on lower(email) so a mixed-case membership
+        // email still matches its normalized prefs row (CAN-SPAM/GDPR: see the
+        // fn docstring).
+        sql`not exists (
         select 1 from ${emailPreferences}
         where lower(${emailPreferences.email}) = ${recipientEmail}
           and (${emailPreferences.unsubscribedAll} = true
                or ${emailPreferences.suppressed} = true)
       )`,
-    ];
-    if (cursor) conditions.push(gt(bucketMemberships.id, cursor));
+      ];
+      if (cursor) conditions.push(gt(bucketMemberships.id, cursor));
 
-    const page = await db
-      .select({
-        id: bucketMemberships.id,
-        userId: bucketMemberships.userId,
-        membershipEmail: bucketMemberships.userEmail,
-        contactEmail: contacts.email,
-      })
-      .from(bucketMemberships)
-      .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
-      .where(and(...conditions))
-      .orderBy(bucketMemberships.id)
-      .limit(CHUNK_SIZE);
-
-    if (page.length === 0) break;
-
-    for (const row of page) {
+      return db
+        .select({
+          id: bucketMemberships.id,
+          userId: bucketMemberships.userId,
+          membershipEmail: bucketMemberships.userEmail,
+          contactEmail: contacts.email,
+        })
+        .from(bucketMemberships)
+        .innerJoin(contacts, eq(contacts.externalId, bucketMemberships.userId))
+        .where(and(...conditions))
+        .orderBy(bucketMemberships.id)
+        .limit(CHUNK_SIZE);
+    },
+    cursorOf: (row) => row.id,
+    map: (row) => {
       const raw = row.membershipEmail ?? row.contactEmail;
-      if (!raw) continue;
+      if (!raw) return undefined;
       // Normalize so the recipient matches the normalized email_preferences
       // keyspace the mailer's suppression check queries (see fn docstring).
-      yield { email: normalizeEmail(raw), userId: row.userId };
-    }
-
-    if (page.length < CHUNK_SIZE) break;
-    cursor = page[page.length - 1]?.id;
-    if (!cursor) break;
-  }
+      return { email: normalizeEmail(raw), userId: row.userId };
+    },
+  });
 }
 
 /**
@@ -458,38 +499,33 @@ async function* resolveOptInListRecipients(
   listId: string,
 ): AsyncGenerator<CampaignRecipient> {
   const listRegistry = getListRegistry();
-  let cursor: string | undefined;
-  while (true) {
-    const conditions = [
-      eq(emailPreferences.unsubscribedAll, false),
-      eq(emailPreferences.suppressed, false),
-    ];
-    if (cursor) conditions.push(gt(emailPreferences.id, cursor));
+  yield* keysetPaginate({
+    page: (cursor) => {
+      const conditions = [
+        eq(emailPreferences.unsubscribedAll, false),
+        eq(emailPreferences.suppressed, false),
+      ];
+      if (cursor) conditions.push(gt(emailPreferences.id, cursor));
 
-    const page = await db
-      .select({
-        id: emailPreferences.id,
-        userId: emailPreferences.userId,
-        email: emailPreferences.email,
-        categories: emailPreferences.categories,
-      })
-      .from(emailPreferences)
-      .where(and(...conditions))
-      .orderBy(emailPreferences.id)
-      .limit(CHUNK_SIZE);
-
-    if (page.length === 0) break;
-
-    for (const row of page) {
+      return db
+        .select({
+          id: emailPreferences.id,
+          userId: emailPreferences.userId,
+          email: emailPreferences.email,
+          categories: emailPreferences.categories,
+        })
+        .from(emailPreferences)
+        .where(and(...conditions))
+        .orderBy(emailPreferences.id)
+        .limit(CHUNK_SIZE);
+    },
+    cursorOf: (row) => row.id,
+    map: (row) => {
       const categories = (row.categories ?? {}) as Record<string, boolean>;
-      if (!listRegistry.isSubscribed(categories, listId)) continue;
-      yield { email: normalizeEmail(row.email), userId: row.userId };
-    }
-
-    if (page.length < CHUNK_SIZE) break;
-    cursor = page[page.length - 1]?.id;
-    if (!cursor) break;
-  }
+      if (!listRegistry.isSubscribed(categories, listId)) return undefined;
+      return { email: normalizeEmail(row.email), userId: row.userId };
+    },
+  });
 }
 
 /**
@@ -504,55 +540,50 @@ async function* resolveOptOutListRecipients(
   listId: string,
 ): AsyncGenerator<CampaignRecipient> {
   const contactEmail = sql<string>`lower(${contacts.email})`;
-  let cursor: string | undefined;
-  while (true) {
-    const conditions = [
-      isNull(contacts.deletedAt),
-      sql`${contacts.email} is not null`,
-      // Exclude opted-out / globally-unsubscribed / suppressed via a correlated
-      // NOT EXISTS (an EXISTS subquery, NOT a JOIN, so a contact whose email
-      // maps to multiple prefs rows is not fanned out into duplicate
-      // recipients). An absent prefs row matches nothing → the contact is
-      // included (subscribed by default — exactly the case the prior
-      // email_preferences-only scan silently dropped). "Opted out" of THIS list
-      // means categories[listId] === false.
-      sql`not exists (
+  yield* keysetPaginate({
+    page: (cursor) => {
+      const conditions = [
+        isNull(contacts.deletedAt),
+        sql`${contacts.email} is not null`,
+        // Exclude opted-out / globally-unsubscribed / suppressed via a
+        // correlated NOT EXISTS (an EXISTS subquery, NOT a JOIN, so a contact
+        // whose email maps to multiple prefs rows is not fanned out into
+        // duplicate recipients). An absent prefs row matches nothing → the
+        // contact is included (subscribed by default — exactly the case the
+        // prior email_preferences-only scan silently dropped). "Opted out" of
+        // THIS list means categories[listId] === false.
+        sql`not exists (
         select 1 from ${emailPreferences}
         where lower(${emailPreferences.email}) = ${contactEmail}
           and (${emailPreferences.unsubscribedAll} = true
                or ${emailPreferences.suppressed} = true
                or (${emailPreferences.categories} ->> ${listId})::boolean = false)
       )`,
-    ];
-    if (cursor) conditions.push(gt(contacts.id, cursor));
+      ];
+      if (cursor) conditions.push(gt(contacts.id, cursor));
 
-    const page = await db
-      .select({
-        id: contacts.id,
-        userId: contacts.externalId,
-        contactId: contacts.id,
-        email: contacts.email,
-      })
-      .from(contacts)
-      .where(and(...conditions))
-      .orderBy(contacts.id)
-      .limit(CHUNK_SIZE);
-
-    if (page.length === 0) break;
-
-    for (const row of page) {
-      if (!row.email) continue;
+      return db
+        .select({
+          id: contacts.id,
+          userId: contacts.externalId,
+          contactId: contacts.id,
+          email: contacts.email,
+        })
+        .from(contacts)
+        .where(and(...conditions))
+        .orderBy(contacts.id)
+        .limit(CHUNK_SIZE);
+    },
+    cursorOf: (row) => row.id,
+    map: (row) => {
+      if (!row.email) return undefined;
       // The send identity key mirrors the email_sends user_id fallback
       // (externalId ?? contactId) so the per-recipient idempotency namespace +
       // unsubscribe token stay consistent for a contact with no external id.
-      yield {
+      return {
         email: normalizeEmail(row.email),
         userId: row.userId ?? row.contactId,
       };
-    }
-
-    if (page.length < CHUNK_SIZE) break;
-    cursor = page[page.length - 1]?.id;
-    if (!cursor) break;
-  }
+    },
+  });
 }
