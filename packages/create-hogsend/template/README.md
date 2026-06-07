@@ -88,14 +88,13 @@ for the full surface, and the `hogsend` CLI (`pnpm hogsend events send …`,
 ## Examples included
 
 A fresh app ships with a small, curated example set spanning the three ways to
-send — each maps to a Loops use case. Everything is **content**: edit, rename,
-or delete freely.
+send. Everything is **content**: edit, rename, or delete freely.
 
-| Send mode | How it's sent | Templates | Loops equivalent |
-| --- | --- | --- | --- |
-| **Transactional** | one-off, `hs.emails.send` / `POST /v1/emails` | `transactional/magic-link`, `transactional/receipt` | Transactional emails |
-| **Lifecycle** | from a journey | `activation/welcome`, `activation/nudge`, `lifecycle/trial-expiring` | Loops / workflows |
-| **Marketing** | broadcast to a list, `hs.campaigns.send` | `marketing/product-update` | Campaigns |
+| Send mode | How it's sent | Templates |
+| --- | --- | --- |
+| **Transactional** | one-off, `hs.emails.send` / `POST /v1/emails` | `transactional/magic-link`, `transactional/receipt` |
+| **Lifecycle** | from a journey | `activation/welcome`, `activation/nudge`, `lifecycle/trial-expiring` |
+| **Marketing** | broadcast to a list, `hs.campaigns.send` | `marketing/product-update` |
 
 - **Journeys** (`src/journeys/`): `welcome` (a trimmed welcome series),
   `trial-expiring` (waits out a trial, then reminds — unless the user converts),
