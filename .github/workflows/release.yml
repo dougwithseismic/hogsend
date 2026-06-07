@@ -69,12 +69,6 @@ jobs:
           title: "chore(release): version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # CI green != published: a brand-new package's first publish can be reported
-      # as success while the registry 404s. Verify every just-published version
-      # actually resolves on npm and fail loudly if not.
-      - name: Verify published packages resolve on npm
-        if: steps.changesets.outputs.published == 'true'
-        run: node scripts/verify-published.mjs '${{ steps.changesets.outputs.publishedPackages }}'
           # NPM_TOKEN: an npm token with publish rights to the public packages,
           # stored as a repo secret. changeset publish reads NODE_AUTH_TOKEN for
           # npm auth; we mirror NPM_TOKEN into it.
@@ -85,3 +79,9 @@ jobs:
           # a Trusted Publisher, delete this secret and drop these two env lines.
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # CI green != published: a brand-new package's first publish can be reported
+      # as success while the registry 404s. Verify every just-published version
+      # actually resolves on npm and fail loudly if not.
+      - name: Verify published packages resolve on npm
+        if: steps.changesets.outputs.published == 'true'
+        run: node scripts/verify-published.mjs '${{ steps.changesets.outputs.publishedPackages }}'
