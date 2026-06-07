@@ -6,6 +6,7 @@ import type { BucketLeaveReason } from "../buckets/bucket-reactions.js";
 import { syncBucketToPostHog } from "./bucket-posthog-sync.js";
 import { ingestEvent } from "./ingestion.js";
 import type { Logger } from "./logger.js";
+import { emitOutbound } from "./outbound.js";
 
 export type BucketTransitionKind = "entered" | "left" | "dwell";
 
@@ -145,5 +146,49 @@ export async function emitBucketTransition(opts: {
         idempotencyKey: `bucket:${bucket.id}:${userId}:${kind}:${epoch}:generic`,
       },
     });
+  }
+
+  // OUTBOUND `bucket.entered` / `bucket.left` — this is the SINGLE producer for
+  // all three transition origins (real-time / reconcile / fast-expiry), so the
+  // emit lives here once. GATED to enter/leave (dwell is a recurring membership
+  // tick, not in the catalog — same gate as the PostHog mirror above). The
+  // `dedupeKey` is the SAME deterministic `idempotencyKey` all three producers
+  // compute, so a Hatchet re-execution converges to ONE emission via the unique
+  // `(endpointId, dedupeKey)` index (risk 3). Fire-and-forget.
+  if (kind === "entered") {
+    void emitOutbound({
+      db,
+      hatchet,
+      logger,
+      event: "bucket.entered",
+      dedupeKey: idempotencyKey,
+      payload: {
+        bucketId: bucket.id,
+        bucketName: bucket.name,
+        userId,
+        userEmail,
+        transition: "entered",
+        entryCount: epoch,
+        source,
+      },
+    }).catch(logger.warn);
+  } else if (kind === "left") {
+    void emitOutbound({
+      db,
+      hatchet,
+      logger,
+      event: "bucket.left",
+      dedupeKey: idempotencyKey,
+      payload: {
+        bucketId: bucket.id,
+        bucketName: bucket.name,
+        userId,
+        userEmail,
+        transition: "left",
+        entryCount: epoch,
+        source,
+        ...(reason != null ? { reason } : {}),
+      },
+    }).catch(logger.warn);
   }
 }

@@ -20,3 +20,5 @@ export * from "./link-clicks.js";
 export * from "./relations.js";
 export * from "./tracked-links.js";
 export * from "./user-events.js";
+export * from "./webhook-deliveries.js";
+export * from "./webhook-endpoints.js";

@@ -207,7 +207,11 @@ Webhook sources let any external system push events into Hogsend through dedicat
 
 ### Example: adding Stripe as a webhook source
 
-Stripe is the most common second event source after PostHog. Here's how to add it — the same pattern works for any system that can send webhooks.
+<Callout type="info">
+  Stripe — along with Clerk, Supabase, and Segment — ships as a **built-in preset**. If one of those covers your need, you don't write any of the code below: set the provider's signing secret (`STRIPE_WEBHOOK_SECRET`, `CLERK_WEBHOOK_SECRET`, `SUPABASE_WEBHOOK_SECRET`, or `SEGMENT_WEBHOOK_SECRET`) and the source mounts itself with signature verification already wired. See [Integrations](/docs/integrations). You only hand-roll a `defineWebhookSource` for systems without a preset — the Stripe example below is the teaching template for building your own.
+</Callout>
+
+Stripe is the most common second event source after PostHog. Here's how to build a custom source for it — the same pattern works for any system that can send webhooks.
 
 #### 1. Define the source
 
@@ -299,6 +303,7 @@ import {
   defineWebhookSource,
   type DefinedWebhookSource,
   type WebhookSourceCtx,
+  type VerifySignatureArgs,
 } from "@hogsend/engine";
 ```
 
@@ -309,15 +314,27 @@ interface WebhookSourceMeta {
   description?: string;
 }
 
-interface WebhookSourceAuth {
-  header: string;      // HTTP header containing the secret
-  envKey: string;      // Environment variable name for the expected secret
-  type: "match";       // Auth strategy (exact string match)
-}
+// Auth is a discriminated union on `type`.
+type WebhookSourceAuth =
+  | {
+      type: "match";        // plain shared-secret equality
+      header: string;       // HTTP header carrying the secret (or Authorization: Bearer)
+      envKey: string;       // env var holding the expected secret
+    }
+  | {
+      type: "signature";    // provider HMAC signature verification
+      scheme: "svix" | "stripe" | "hmac-hex";
+      envKey: string;       // env var holding the signing secret
+      header: string;       // signature header (e.g. svix-signature, stripe-signature)
+      fallbackMatchHeader?: string; // optional plain-secret header that also passes
+      verify?(args: VerifySignatureArgs): boolean | Promise<boolean>; // optional per-source override
+    };
 
 interface WebhookSourceCtx {
-  db: Database;        // Drizzle database instance
-  logger: Logger;      // Structured logger
+  db: Database;          // Drizzle database instance
+  logger: Logger;        // Structured logger
+  rawBody?: string;      // exact raw request body bytes — signature schemes verify over these
+  headers?: Record<string, string>; // inbound request headers (lowercased keys)
 }
 
 function defineWebhookSource<T>(def: {
@@ -331,7 +348,22 @@ function defineWebhookSource<T>(def: {
 }): DefinedWebhookSource<T>;
 ```
 
-The `transform` function receives the validated payload and a context object with database and logger access. Return an `IngestEvent` to process the event, or `null` to silently skip it.
+The `transform` function receives the validated payload and a context object with database, logger, and — when present — the raw body and headers. Return an `IngestEvent` to process the event, or `null` to silently skip it.
+
+`auth` picks how the route authenticates the request:
+
+| Variant | When to use | Behavior when the secret is unset |
+|---|---|---|
+| `type: "match"` | A simple shared-secret header. The route compares the configured secret against `header` (or `Authorization: Bearer`). | **Open** — the source still accepts requests. This is the legacy variant (PostHog uses it). |
+| `type: "signature"` | Provider HMAC verification. The route reads the exact raw body once and verifies it against the signing secret using `scheme`. | **Fail-closed** — returns `401` and never reaches `transform`. |
+
+For `type: "signature"`, `scheme` is one of:
+
+- `"svix"` — Standard Webhooks / Svix signatures (the `svix-signature` header). Set `fallbackMatchHeader` if the provider can also send a plain shared-secret header.
+- `"stripe"` — Stripe's `t=...,v1=...` signature format with a 5-minute timestamp tolerance.
+- `"hmac-hex"` — a plain HMAC-SHA256 hex digest of the raw body.
+
+The route reads the raw request body **once** and hands the exact bytes to both the signature verifier and your `transform`, so the signature always covers what you parse. Supply `verify` only when you need to override the built-in scheme verification for a source.
 
 ### The `IngestEvent` type
 

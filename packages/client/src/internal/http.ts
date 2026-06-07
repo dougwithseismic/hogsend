@@ -30,6 +30,11 @@ export interface HttpClient {
     body: unknown,
     extras?: RequestExtras,
   ): Promise<T>;
+  patch<T = unknown>(
+    path: string,
+    body: unknown,
+    extras?: RequestExtras,
+  ): Promise<T>;
   del<T = unknown>(path: string, body?: unknown): Promise<T>;
 }
 
@@ -164,6 +169,8 @@ export function createHttpClient(config: HttpClientConfig): HttpClient {
       request<T>("POST", path, { body, extras }),
     put: <T>(path: string, body: unknown, extras?: RequestExtras) =>
       request<T>("PUT", path, { body, extras }),
+    patch: <T>(path: string, body: unknown, extras?: RequestExtras) =>
+      request<T>("PATCH", path, { body, extras }),
     del: <T>(path: string, body?: unknown) =>
       request<T>("DELETE", path, { body }),
   };

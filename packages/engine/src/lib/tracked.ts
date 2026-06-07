@@ -20,7 +20,15 @@ import type {
   TrackedSendResult,
 } from "./email-service-types.js";
 import { isFrequencyCapped } from "./frequency-cap.js";
-import type { Logger } from "./logger.js";
+import { hatchet } from "./hatchet.js";
+import { createLogger, type Logger } from "./logger.js";
+import { emitOutbound } from "./outbound.js";
+
+// Module-level fallback logger for the outbound emit — the tracked-mailer's
+// `logger` dep is optional, but `emitOutbound` requires one. Mirrors the
+// `createLogger(process.env.LOG_LEVEL)` singleton pattern used elsewhere in the
+// engine libs (define-journey, preferences).
+const emitLogger = createLogger(process.env.LOG_LEVEL);
 
 export type PrepareTrackedHtmlFn = (opts: {
   html: string;
@@ -270,15 +278,49 @@ export async function sendTrackedEmail<K extends TemplateName>(
       replyTo: options.replyTo,
     });
 
+    const sentAt = new Date();
     await db
       .update(emailSends)
       .set({
         resendId: result.id,
         status: "sent",
-        sentAt: new Date(),
-        updatedAt: new Date(),
+        sentAt,
+        updatedAt: sentAt,
       })
       .where(eq(emailSends.id, emailSendId));
+
+    // OUTBOUND `email.sent` — fired ONLY on a real provider-accepted send (this
+    // success branch). Suppressed/frequency-capped/failed branches and the
+    // `db === undefined` mailer fallback do NOT reach here, so they never emit.
+    // `dedupeKey` = `email.sent:<emailSendId>`: this runs inside the tracked
+    // mailer which a journey (a Hatchet-retryable durable task) invokes, so a
+    // re-execution recomputes the identical key and the unique
+    // `(endpointId, dedupeKey)` index absorbs the duplicate. STRICTLY
+    // fire-and-forget: an un-caught reject here would bubble into the catch below
+    // and wrongly re-mark the (already sent) row `failed` (risk 2).
+    void emitOutbound({
+      db,
+      hatchet,
+      logger: logger ?? emitLogger,
+      event: "email.sent",
+      dedupeKey: `email.sent:${emailSendId}`,
+      payload: {
+        emailSendId,
+        resendId: result.id,
+        templateKey: options.templateKey,
+        to: options.to,
+        userId: options.userId ?? null,
+        category: effectiveCategory ?? null,
+        journeyStateId: options.journeyStateId ?? null,
+        subject,
+        sentAt: sentAt.toISOString(),
+      },
+    }).catch((err: unknown) => {
+      (logger ?? emitLogger).warn("emitOutbound email.sent failed", {
+        emailSendId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     return {
       emailSendId,

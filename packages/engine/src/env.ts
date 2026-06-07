@@ -71,6 +71,31 @@ export const env = createEnv({
     ENABLED_LISTS: z.string().default("*"),
     // Cadence for the engine-owned bucket reconcile cron (time-based leaves).
     BUCKET_RECONCILE_CRON: z.string().default("*/5 * * * *"),
+    // --- Outbound webhooks (Section 1.5/1.8) ---
+    // Cadence for the engine-owned outbound-delivery reaper cron (the retry
+    // scheduler + orphan-`sending` recovery). Declared for parity with
+    // BUCKET_RECONCILE_CRON; the delivery task also reads it raw off process.env.
+    OUTBOUND_WEBHOOK_REAPER_CRON: z.string().optional(),
+    // Delivery tunables — read raw off process.env inside the durable task;
+    // declared here so they are part of the validated env contract. All optional
+    // with task-internal defaults (MAX_ATTEMPTS 8, TIMEOUT 15s, BASE 5s,
+    // MAX_DELAY 6h, STUCK_AFTER 5min).
+    OUTBOUND_WEBHOOK_MAX_ATTEMPTS: z.coerce.number().optional(),
+    OUTBOUND_WEBHOOK_TIMEOUT_MS: z.coerce.number().optional(),
+    OUTBOUND_WEBHOOK_BASE_DELAY_MS: z.coerce.number().optional(),
+    OUTBOUND_WEBHOOK_MAX_DELAY_MS: z.coerce.number().optional(),
+    OUTBOUND_WEBHOOK_STUCK_AFTER_MS: z.coerce.number().optional(),
+    // --- Integration presets (Section 2.2) ---
+    // Signature-source secrets. The webhook route resolves a preset's secret via
+    // env[source.auth.envKey]; a signature source FAILS CLOSED when its secret is
+    // unset. Setting one auto-enables that preset at POST /v1/webhooks/<id>.
+    CLERK_WEBHOOK_SECRET: z.string().min(1).optional(),
+    SUPABASE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    SEGMENT_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Preset enablement override: csv of preset ids, `"*"` (all with a secret),
+    // or `"none"`. Absent → auto-enable any preset whose secret is set.
+    ENABLED_WEBHOOK_PRESETS: z.string().optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

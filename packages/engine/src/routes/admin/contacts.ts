@@ -9,6 +9,7 @@ import {
   serializeContact as serializeContactRow,
   serializePrefs,
 } from "../../lib/contacts.js";
+import { emitOutbound } from "../../lib/outbound.js";
 
 const contactSchema = z.object({
   id: z.string(),
@@ -262,13 +263,18 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(createRoute_, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const body = c.req.valid("json");
 
     // Delegate to the identity resolver (D1): it upserts/merges on the provided
     // identity keys (externalId and/or email), so the hand-rolled existence
     // check + raw insert + 409 are gone (§5). Read the row back to serialize.
-    const { id } = await resolveOrCreateContact({
+    const {
+      id,
+      created: wasCreated,
+      linked,
+      merged,
+    } = await resolveOrCreateContact({
       db,
       userId: body.externalId,
       email: body.email,
@@ -280,10 +286,26 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       throw new Error("Failed to create contact");
     }
 
+    // INTENT-LAYER outbound emit (decision #3): admin upsert mirrors the public
+    // route — `contact.created` on a real creation, `contact.updated` when an
+    // existing contact was linked/merged with a non-empty property delta.
+    const hadPropertyDelta = Boolean(
+      body.properties && Object.keys(body.properties).length > 0,
+    );
+    if (wasCreated || (linked || merged ? hadPropertyDelta : false)) {
+      void emitOutbound({
+        db,
+        hatchet,
+        logger,
+        event: wasCreated ? "contact.created" : "contact.updated",
+        payload: serializeContactRow(created),
+      }).catch(logger.warn);
+    }
+
     return c.json({ contact: serializeContact(created) }, 201);
   })
   .openapi(updateRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
 
@@ -329,6 +351,24 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const updated = await resolveContact({ db, id });
     if (!updated) {
       throw new Error("Failed to update contact");
+    }
+
+    // INTENT-LAYER outbound emit (decision #3): the admin update is an explicit
+    // edit — emit `contact.updated` on a non-empty property delta or a filled
+    // email (a newly-attached identity). Fire-and-forget; the serialized updated
+    // row is the catalog payload.
+    const hadPropertyDelta = Boolean(
+      body.properties && Object.keys(body.properties).length > 0,
+    );
+    const filledEmail = Boolean(body.email && body.email !== current.email);
+    if (hadPropertyDelta || filledEmail) {
+      void emitOutbound({
+        db,
+        hatchet,
+        logger,
+        event: "contact.updated",
+        payload: serializeContactRow(updated),
+      }).catch(logger.warn);
     }
 
     return c.json({ contact: serializeContact(updated) }, 200);

@@ -15,6 +15,7 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
 import type { DefinedWebhookSource } from "./webhook-sources/define-webhook-source.js";
+import { presetsFromEnv } from "./webhook-sources/presets/index.js";
 
 type AuthSession = Awaited<ReturnType<Auth["api"]["getSession"]>>;
 
@@ -35,8 +36,30 @@ export interface CreateAppOptions {
   middleware?: MiddlewareHandler[];
   /** Webhook sources served at `/v1/webhooks/:sourceId`. */
   webhookSources?: DefinedWebhookSource[];
+  /**
+   * Auto-enable the shipped integration presets (Clerk, Supabase, Stripe,
+   * Segment) for every preset whose env secret is configured (gated further by
+   * `ENABLED_WEBHOOK_PRESETS`). Consumer-supplied `webhookSources` always win on
+   * an id collision. Set `false` to opt out entirely. Default `true`.
+   */
+  enablePresets?: boolean;
   /** Override the default error handler. */
   onError?: ErrorHandler<AppEnv>;
+}
+
+/**
+ * Merge env-enabled presets with the consumer's explicit sources. The
+ * consumer-supplied source WINS on an id collision (so a hand-tuned override of
+ * a preset replaces the shipped one rather than registering a duplicate route).
+ */
+function dedupeById(sources: DefinedWebhookSource[]): DefinedWebhookSource[] {
+  const byId = new Map<string, DefinedWebhookSource>();
+  for (const source of sources) {
+    // Last write wins; callers order presets BEFORE consumer sources so the
+    // consumer override lands last.
+    byId.set(source.meta.id, source);
+  }
+  return [...byId.values()];
 }
 
 export function createApp(
@@ -96,7 +119,19 @@ export function createApp(
     return c.json({ needsSetup: existing.length === 0 });
   });
 
-  registerRoutes(app, { webhookSources: opts.webhookSources ?? [] });
+  // Merge env-enabled presets ahead of the consumer's explicit sources so a
+  // consumer override of a preset id wins (decision #13). `enablePresets`
+  // defaults true; setting only `STRIPE_WEBHOOK_SECRET` auto-mounts Stripe at
+  // `POST /v1/webhooks/stripe` and nothing else.
+  const enablePresets = opts.enablePresets ?? true;
+  const webhookSources = enablePresets
+    ? dedupeById([
+        ...presetsFromEnv(container.env),
+        ...(opts.webhookSources ?? []),
+      ])
+    : (opts.webhookSources ?? []);
+
+  registerRoutes(app, { webhookSources });
 
   // Serve the Studio SPA at /studio/* (static layer, no auth — the SPA gates
   // itself via /v1/auth/status + login; data endpoints stay behind requireAdmin).

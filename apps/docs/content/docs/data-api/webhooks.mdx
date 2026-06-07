@@ -1,0 +1,350 @@
+---
+title: Outbound webhooks
+description: Subscribe to Hogsend's signed event stream — a Standard Webhooks HMAC-SHA256 feed of contact, email, journey, and bucket events delivered at-least-once with durable retries.
+---
+
+Outbound webhooks let your systems **react to what happens inside Hogsend**. When a contact is created, an email is clicked, a journey completes, or a contact enters a bucket, Hogsend POSTs a signed JSON event to the HTTPS endpoints you've subscribed. It's the push side of the engine — the inverse of [inbound integrations](/docs/integrations), which push *into* Hogsend.
+
+Every delivery is HMAC-SHA256 signed using the [Standard Webhooks](https://www.standardwebhooks.com) spec (the same scheme `svix` implements), so you can verify authenticity before trusting a payload.
+
+## The delivery contract
+
+Delivery is **at-least-once**. Each logical event fans out to one delivery per subscribed endpoint, and a transient failure (network blip, your `5xx`, a timeout) is retried with backoff. That means an endpoint can legitimately receive the **same event more than once**.
+
+Every delivery carries a `Webhook-Id` header. All deliveries that belong to one logical event — including every retry of it — share the **same** `Webhook-Id`. Your handler **must dedupe on `Webhook-Id`**: record the ids you've processed and treat a repeat as a no-op.
+
+<Callout type="info">
+  Process each `Webhook-Id` exactly once. Treat your handler as idempotent on it, return `2xx` quickly, and do the real work asynchronously — a slow handler is a timeout, and a timeout is a retry.
+</Callout>
+
+<Callout type="warn">
+  Managing webhook endpoints is an **admin-plane** operation. The `/v1/admin/webhooks/*` routes require a **full-admin** bearer key — **not** the `ingest` data key you use for [contacts](/docs/data-api/contacts), [events](/docs/data-api/events), and [emails](/docs/data-api/emails). The two scopes are orthogonal: an ingest key cannot manage endpoints, and an admin key is what mints and rotates signing secrets. See [Authentication](/docs/data-api/authentication).
+</Callout>
+
+## The event catalog
+
+Hogsend emits a fixed catalog of **12 event types**. When you create an endpoint you subscribe it to one or more of these — only the events you list are delivered.
+
+| Event type | Fires when |
+|---|---|
+| `contact.created` | A contact record is first created |
+| `contact.updated` | An existing contact's properties or email change |
+| `contact.deleted` | A contact is deleted |
+| `contact.unsubscribed` | A contact opts out (all mail, or a single category) |
+| `email.sent` | A transactional or journey email is dispatched |
+| `email.delivered` | The provider confirms delivery to the inbox |
+| `email.opened` | The open pixel fires for a sent email |
+| `email.clicked` | A tracked link in an email is clicked |
+| `email.bounced` | A send hard/soft bounces |
+| `journey.completed` | A contact finishes a journey run |
+| `bucket.entered` | A contact enters a real-time audience bucket |
+| `bucket.left` | A contact leaves a bucket |
+
+There is one event Hogsend emits that is **not** in this catalog: `webhook.test`. It's delivered out-of-band by the [`/test` endpoint](#send-a-test-event) regardless of an endpoint's subscriptions, so you can confirm signing and connectivity. You can't subscribe to it.
+
+## The signed envelope
+
+Every delivery body is the same envelope, sent **verbatim** (these exact bytes are what's signed):
+
+```json
+{
+  "id": "msg_4f1d2e8a-1c3b-4a7e-9f0a-2b8c1d3e4f5a",
+  "type": "contact.created",
+  "timestamp": "2026-06-07T12:34:56.789Z",
+  "data": { }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The shared `Webhook-Id` — your dedupe key. Stable across retries of the same event |
+| `type` | `string` | The event name from the catalog (or `webhook.test`) |
+| `timestamp` | `string` | ISO-8601 logical-event time |
+| `data` | `object` | The per-event payload — shape depends on `type` (below) |
+
+The `data` shape is fully determined by `type`. A few representative payloads:
+
+```json title="contact.created — data carries the serialized contact"
+{
+  "id": "msg_4f1d2e8a-1c3b-4a7e-9f0a-2b8c1d3e4f5a",
+  "type": "contact.created",
+  "timestamp": "2026-06-07T12:34:56.789Z",
+  "data": {
+    "id": "c_01HZ...",
+    "externalId": "user_123",
+    "email": "ada@example.com",
+    "properties": { "plan": "pro", "country": "GB" },
+    "firstSeenAt": "2026-06-07T12:34:56.700Z",
+    "lastSeenAt": "2026-06-07T12:34:56.700Z",
+    "createdAt": "2026-06-07T12:34:56.700Z",
+    "updatedAt": "2026-06-07T12:34:56.700Z"
+  }
+}
+```
+
+```json title="email.clicked — emailSendId / resendId / templateKey / to / linkUrl / linkId"
+{
+  "id": "msg_9a2b...",
+  "type": "email.clicked",
+  "timestamp": "2026-06-07T13:01:22.004Z",
+  "data": {
+    "emailSendId": "550e8400-e29b-41d4-a716-446655440000",
+    "resendId": "re_abc123",
+    "templateKey": "welcome",
+    "userId": "user_123",
+    "to": "ada@example.com",
+    "at": "2026-06-07T13:01:21.900Z",
+    "linkUrl": "https://example.com/getting-started",
+    "linkId": "lnk_77f0"
+  }
+}
+```
+
+```json title="bucket.entered — bucketId / bucketName / transition / entryCount"
+{
+  "id": "msg_1c3e...",
+  "type": "bucket.entered",
+  "timestamp": "2026-06-07T13:05:00.000Z",
+  "data": {
+    "bucketId": "power_users",
+    "bucketName": "Power users",
+    "userId": "user_123",
+    "userEmail": "ada@example.com",
+    "transition": "entered",
+    "entryCount": 1,
+    "source": "reconcile"
+  }
+}
+```
+
+The full per-event field lists are the `OutboundPayloads` interface in `packages/engine/src/lib/outbound.ts`. In brief:
+
+- **`contact.created` / `contact.updated`** carry the full serialized contact (`id`, `externalId`, `email`, `properties`, timestamps).
+- **`contact.deleted`** carries `{ id, externalId, email }`.
+- **`contact.unsubscribed`** carries `{ externalId, email, category, scope }` where `scope` is `"all"` or `"category"`.
+- **`email.sent`** carries `{ emailSendId, resendId, templateKey, to, userId, category, journeyStateId, subject, sentAt }`.
+- **`email.delivered` / `email.opened`** carry the common email shape `{ emailSendId, resendId, templateKey, userId, to, at }`.
+- **`email.clicked`** adds `linkUrl` and `linkId`; **`email.bounced`** adds `bounceType` and `bounceReason`.
+- **`journey.completed`** carries `{ journeyId, journeyName, stateId, userId, userEmail, completedAt }`.
+- **`bucket.entered` / `bucket.left`** carry `{ bucketId, bucketName, userId, userEmail, transition, entryCount, source }`; `bucket.left` adds `reason`.
+
+## Managing endpoints
+
+Endpoints live under `/v1/admin/webhooks` and require a **full-admin** key. The base URL is `http://localhost:3002` in dev, `https://api.hogsend.com` in production.
+
+An endpoint serializes as:
+
+```json
+{
+  "id": "we_8c1d3e4f5a6b",
+  "url": "https://yourapp.com/webhooks/hogsend",
+  "description": "Sync to internal CRM",
+  "eventTypes": ["contact.created", "contact.updated", "email.bounced"],
+  "secretPrefix": "whsec_AbCd",
+  "status": "enabled",
+  "organizationId": null,
+  "lastDeliveryAt": "2026-06-07T13:05:00.000Z",
+  "createdAt": "2026-06-07T12:00:00.000Z",
+  "updatedAt": "2026-06-07T12:00:00.000Z"
+}
+```
+
+<Callout type="warn">
+  The full signing secret (`whsec_…`) is returned **only once** — on **create** and on **rotate-secret**. Every other response (`list` / `get` / `update`) returns only `secretPrefix` (the first 12 characters). Store the secret the moment you receive it; if you lose it, rotate to mint a new one.
+</Callout>
+
+### Create an endpoint
+
+```bash title="POST /v1/admin/webhooks"
+curl -X POST http://localhost:3002/v1/admin/webhooks \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://yourapp.com/webhooks/hogsend",
+    "eventTypes": ["contact.created", "contact.updated", "email.bounced"],
+    "description": "Sync to internal CRM"
+  }'
+```
+
+```json title="201 Created — secret shown once"
+{
+  "id": "we_8c1d3e4f5a6b",
+  "url": "https://yourapp.com/webhooks/hogsend",
+  "description": "Sync to internal CRM",
+  "eventTypes": ["contact.created", "contact.updated", "email.bounced"],
+  "secretPrefix": "whsec_AbCd",
+  "secret": "whsec_AbCdEf0123456789aBcDeF0123456789aBcDeF0123456789=",
+  "status": "enabled",
+  "organizationId": null,
+  "lastDeliveryAt": null,
+  "createdAt": "2026-06-07T12:00:00.000Z",
+  "updatedAt": "2026-06-07T12:00:00.000Z"
+}
+```
+
+Body fields: `url` (required, must be a valid URL), `eventTypes` (required, at least one catalog event), `description` (optional, ≤500 chars), `disabled` (optional — create the endpoint disabled).
+
+### List endpoints
+
+```bash title="GET /v1/admin/webhooks"
+curl http://localhost:3002/v1/admin/webhooks \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY"
+```
+
+```json
+{
+  "endpoints": [ { "id": "we_8c1d3e4f5a6b", "secretPrefix": "whsec_AbCd", "...": "..." } ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Query params: `limit` (1–100, default 50), `offset` (default 0), `includeDisabled` (`"true"`/`"false"`, default `"true"`).
+
+### Get one endpoint
+
+```bash title="GET /v1/admin/webhooks/{id}"
+curl http://localhost:3002/v1/admin/webhooks/we_8c1d3e4f5a6b \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY"
+```
+
+Returns the endpoint shape (no `secret`), or `404` if not found.
+
+### Update an endpoint
+
+```bash title="PATCH /v1/admin/webhooks/{id}"
+curl -X PATCH http://localhost:3002/v1/admin/webhooks/we_8c1d3e4f5a6b \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "eventTypes": ["email.bounced"], "disabled": true }'
+```
+
+Every field is optional: `url`, `eventTypes` (replaces the set; at least one), `description` (pass `null` to clear it), `disabled`. Returns the updated endpoint (no `secret`).
+
+### Delete an endpoint
+
+```bash title="DELETE /v1/admin/webhooks/{id}"
+curl -X DELETE http://localhost:3002/v1/admin/webhooks/we_8c1d3e4f5a6b \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY"
+```
+
+```json
+{ "deleted": true }
+```
+
+This is a hard delete — the endpoint's delivery rows cascade away with it.
+
+### Rotate the signing secret
+
+```bash title="POST /v1/admin/webhooks/{id}/rotate-secret"
+curl -X POST http://localhost:3002/v1/admin/webhooks/we_8c1d3e4f5a6b/rotate-secret \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY"
+```
+
+```json title="200 — new secret shown once"
+{
+  "id": "we_8c1d3e4f5a6b",
+  "secret": "whsec_Zz99...newsecret...==",
+  "secretPrefix": "whsec_Zz99"
+}
+```
+
+Rotation is a **hard cutover**: the old secret is invalid immediately, and in-flight retries re-sign with the new secret on their next attempt. Update your verifier's secret in the same deploy.
+
+### Send a test event
+
+```bash title="POST /v1/admin/webhooks/{id}/test"
+curl -X POST http://localhost:3002/v1/admin/webhooks/we_8c1d3e4f5a6b/test \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY"
+```
+
+```json
+{ "enqueued": true, "eventType": "webhook.test" }
+```
+
+Returns `202` and enqueues a `webhook.test` delivery to that endpoint **regardless** of its subscriptions — a quick way to confirm signing and connectivity end-to-end.
+
+## Signature headers
+
+Every POST Hogsend sends carries these headers:
+
+| Header | Value |
+|---|---|
+| `Webhook-Id` | The shared message id (your dedupe key) |
+| `Webhook-Timestamp` | Unix time in **seconds** |
+| `Webhook-Signature` | `v1,<base64-hmac>` — space-separated `v1,…` candidates during a secret rotation |
+| `Content-Type` | `application/json` |
+
+The signing scheme is Standard Webhooks: `HMAC_SHA256(base64decode(secret without "whsec_"), "{id}.{timestamp}.{body}")`, base64-encoded, prefixed with `v1,`. The secret is `whsec_<base64(32 bytes)>` using **standard** base64. Verifiers also accept the `svix-id` / `svix-timestamp` / `svix-signature` header aliases.
+
+## Verifying a delivery
+
+The simplest path is `verifyHogsendWebhook` from [`@hogsend/client`](/docs/data-api/client-sdk). Pass the **raw request body bytes** (never a re-stringified object), the request headers, and the endpoint's `whsec_…` secret. It returns the parsed envelope, and **throws** on a bad signature, a missing signature header, or a timestamp outside the 5-minute tolerance window.
+
+```ts title="Verifying a Hogsend webhook (Express)"
+import { verifyHogsendWebhook } from "@hogsend/client";
+
+app.post("/webhooks/hogsend", express.raw({ type: "application/json" }), (req, res) => {
+  let event;
+  try {
+    event = verifyHogsendWebhook({
+      payload: req.body.toString("utf8"), // the EXACT signed bytes
+      headers: req.headers as Record<string, string>,
+      secret: process.env.HOGSEND_WEBHOOK_SECRET!, // whsec_…
+    });
+  } catch {
+    return res.sendStatus(401); // bad signature, missing header, or stale timestamp
+  }
+
+  // Dedupe on the shared message id before doing any work.
+  if (alreadyProcessed(event.id)) return res.sendStatus(200);
+
+  switch (event.type) {
+    case "contact.created":
+      // event.data is the serialized contact
+      break;
+    case "email.clicked":
+      // event.data.linkUrl, event.data.emailSendId, …
+      break;
+  }
+
+  res.sendStatus(200);
+});
+```
+
+<Callout type="info">
+  You don't have to use `@hogsend/client`. Because the stream is Standard Webhooks, **any** Standard Webhooks / `svix` verifier works — point it at the `whsec_…` secret and the `Webhook-Id` / `Webhook-Timestamp` / `Webhook-Signature` headers. `verifyHogsendWebhook` uses `svix` under the hood with a pure `node:crypto` fallback, so it needs no extra dependency.
+</Callout>
+
+## Delivery and retries
+
+Each `(event × endpoint)` pair is its own durable delivery with independent retry state. Delivery proceeds as:
+
+1. **POST** the signed envelope with a per-attempt timeout (`OUTBOUND_WEBHOOK_TIMEOUT_MS`, default 15s).
+2. A **`2xx`** marks the delivery `delivered` and stamps the endpoint's `lastDeliveryAt`.
+3. A **retryable** failure schedules the next attempt with exponential backoff + jitter, capped at `OUTBOUND_WEBHOOK_MAX_DELAY_MS` (6h). Retryable = HTTP `408`, `429`, any `>= 500`, or any network/timeout error.
+4. A **persistent non-retryable 4xx** (e.g. `410 Gone`, `400 Bad Request`) **fast-fails** after 2 attempts — a misconfigured endpoint isn't worth 8 tries.
+5. On **exhaustion** (`OUTBOUND_WEBHOOK_MAX_ATTEMPTS`, default 8) the delivery becomes `failed` and a `dead_letter_queue` row is written for forensics.
+6. If the endpoint is **disabled or deleted** mid-flight, the delivery becomes `discarded` — an operator action, not an error, so it's **not** dead-lettered.
+
+A **1-minute reaper cron** (`OUTBOUND_WEBHOOK_REAPER_CRON`) is the retry scheduler: it re-drives deliveries whose backoff deadline has passed and recovers any rows orphaned in a `sending` state (e.g. a worker that died mid-POST). The reaper, plus Hogsend's own enqueue, is why a broker hiccup only ever *delays* a delivery — it never drops one.
+
+## Environment tunables
+
+All optional, with sane defaults:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OUTBOUND_WEBHOOK_REAPER_CRON` | `*/1 * * * *` | Retry scheduler + orphan-recovery cron schedule |
+| `OUTBOUND_WEBHOOK_MAX_ATTEMPTS` | `8` | Attempts before a delivery is dead-lettered |
+| `OUTBOUND_WEBHOOK_TIMEOUT_MS` | `15000` | Per-attempt POST timeout |
+| `OUTBOUND_WEBHOOK_BASE_DELAY_MS` | `5000` | Exponential backoff base — `delay = BASE × 2^attempt + jitter` |
+| `OUTBOUND_WEBHOOK_MAX_DELAY_MS` | `21600000` (6h) | Backoff ceiling |
+| `OUTBOUND_WEBHOOK_STUCK_AFTER_MS` | `300000` (5min) | Age after which a `sending` row is treated as orphaned and re-driven |
+
+## Next steps
+
+- [Client SDK](/docs/data-api/client-sdk) — `hs.webhooks.create` / `list` / `get` / `update` / `delete` / `rotateSecret` / `sendTest`, plus `verifyHogsendWebhook` for the subscriber side.
+- [CLI: webhooks](/docs/cli/webhooks) — manage endpoints from the terminal with `hogsend webhooks`.
+- [Integrations](/docs/integrations) — the inbound side: provider webhooks (Clerk, Supabase, Stripe, Segment) that push events *into* Hogsend.

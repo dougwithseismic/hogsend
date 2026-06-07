@@ -15,6 +15,7 @@ import {
 } from "../lib/enrollment-guards.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
+import { emitOutbound } from "../lib/outbound.js";
 import { resolveTimezoneWithSource } from "../lib/timezone.js";
 import { getClientScheduleDefaults } from "./client-defaults-singleton.js";
 import { JOURNEY_EXECUTION_TIMEOUT } from "./constants.js";
@@ -190,12 +191,13 @@ export function defineJourney(options: {
       try {
         await options.run(user, ctx);
 
+        const completedAt = new Date();
         await db
           .update(journeyStates)
           .set({
             status: "completed",
-            completedAt: new Date(),
-            updatedAt: new Date(),
+            completedAt,
+            updatedAt: completedAt,
           })
           .where(eq(journeyStates.id, stateId));
 
@@ -204,6 +206,28 @@ export function defineJourney(options: {
           stateId,
           userId,
         });
+
+        // OUTBOUND `journey.completed` — fired alongside the internal
+        // `journey:completed` push. Runs in the WORKER (this durable task), so it
+        // uses the engine `db`/`hatchet`/`logger` singletons. `dedupeKey` =
+        // `journey.completed:<stateId>`: a Hatchet re-execution recomputes the
+        // identical key and the unique `(endpointId, dedupeKey)` index absorbs the
+        // duplicate (risk 3). `journey:failed` is NOT in the catalog → no emit.
+        void emitOutbound({
+          db,
+          hatchet,
+          logger,
+          event: "journey.completed",
+          dedupeKey: `journey.completed:${stateId}`,
+          payload: {
+            journeyId: meta.id,
+            journeyName: meta.name,
+            stateId,
+            userId,
+            userEmail,
+            completedAt: completedAt.toISOString(),
+          },
+        }).catch(logger.warn);
 
         return { stateId, status: "completed" };
       } catch (err) {

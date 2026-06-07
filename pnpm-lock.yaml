@@ -208,6 +208,10 @@ importers:
         version: 4.1.7(@types/node@25.9.1)(vite@8.0.14(@types/node@25.9.1)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/client:
+    dependencies:
+      svix:
+        specifier: ^1.95.1
+        version: 1.95.1
     devDependencies:
       '@hogsend/email':
         specifier: workspace:^
@@ -386,6 +390,9 @@ importers:
       resend:
         specifier: ^6.12.3
         version: 6.12.3(@react-email/render@2.0.8(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
+      svix:
+        specifier: ^1.95.1
+        version: 1.95.1
       winston:
         specifier: ^3.19.0
         version: 3.19.0
@@ -5332,6 +5339,9 @@ packages:
 
   svix@1.94.0:
     resolution: {integrity: sha512-FuP5nJez1P/SeK+4zOBI8RrNhtrzMTBSvwuD4yGGsn+Af2yQazid6OwPu3fpZpMifOJxrJua0su/dYB5fe4v9Q==}
+
+  svix@1.95.1:
+    resolution: {integrity: sha512-Vtsbzsvs4lzXJneruB5HiZmV7dlhAjbo6dGid2Qxi9bv+LutLz7Yt3NORI4SYqRTNWPhVoFAA8TG/WXB+mIzNQ==}
 
   tagged-tag@1.0.0:
     resolution: {integrity: sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng==}
@@ -10697,6 +10707,10 @@ snapshots:
       standardwebhooks: 1.0.0
 
   svix@1.94.0:
+    dependencies:
+      standardwebhooks: 1.0.0
+
+  svix@1.95.1:
     dependencies:
       standardwebhooks: 1.0.0
 

@@ -1,0 +1,101 @@
+---
+title: Integrations
+description: Built-in webhook presets that turn Clerk, Supabase, Stripe, and Segment webhooks into Hogsend events — signature-verified, env-driven, and served at /v1/webhooks/{id}.
+---
+
+**Integration presets** are inbound webhook sources that ship inside the engine. Each one receives a provider's webhook, verifies its signature, and transforms the payload into a Hogsend event that flows straight through the [ingestion pipeline](/docs/api/ingestion) — so a Clerk signup, a Stripe payment, or a Segment track call can trigger a journey without you writing any glue code.
+
+A preset is a `defineWebhookSource()` the engine already wrote for you. You don't import it, register it, or build it. You set one env var (the provider's signing secret) and the route appears.
+
+## What a preset does
+
+Each preset is served at:
+
+```
+POST /v1/webhooks/{id}
+```
+
+The `id` is the route segment. The engine reads the raw request body **once**, verifies the provider's signature over those exact bytes, parses the payload against a Zod schema, and runs the preset's `transform()` to produce a Hogsend [`IngestEvent`](/docs/api/ingestion). From there it's an ordinary ingested event: it's stored, it routes to matching journeys, and it upserts the contact.
+
+```
+Provider webhook  →  POST /v1/webhooks/{id}
+                  →  verify signature (raw body)
+                  →  transform() → IngestEvent
+                  →  ingestEvent() → journeys + contact upsert
+```
+
+## The presets
+
+| Provider | Route | Secret env var | Signature scheme |
+|---|---|---|---|
+| [Clerk](/docs/integrations/clerk) | `POST /v1/webhooks/clerk` | `CLERK_WEBHOOK_SECRET` | `svix` |
+| [Supabase](/docs/integrations/supabase) | `POST /v1/webhooks/supabase` | `SUPABASE_WEBHOOK_SECRET` | `svix` (+ plain-secret fallback) |
+| [Stripe](/docs/integrations/stripe) | `POST /v1/webhooks/stripe` | `STRIPE_WEBHOOK_SECRET` | `stripe` |
+| [Segment](/docs/integrations/segment) | `POST /v1/webhooks/segment` | `SEGMENT_WEBHOOK_SECRET` | `hmac-hex` |
+
+Each provider's exact event mapping — which provider events become which Hogsend events, and how each field is split — lives on its own page. Start with the one you use.
+
+## Enabling presets
+
+Two things gate every preset, and **both** must hold for it to mount:
+
+1. **Its secret is set.** A preset reads its signing secret from its env var (e.g. `STRIPE_WEBHOOK_SECRET`). With no secret, the preset is never mounted.
+2. **`ENABLED_WEBHOOK_PRESETS` allows it.** This env var is the master switch.
+
+`ENABLED_WEBHOOK_PRESETS` resolves as:
+
+| Value | Behavior |
+|---|---|
+| `*` or absent | **Auto** — mount every preset whose secret is set |
+| `clerk,stripe` (a csv of ids) | Mount exactly those ids, still only if their secret is set |
+| `none` | All presets off, regardless of secrets |
+
+The common case is to set nothing. Then setting only `STRIPE_WEBHOOK_SECRET` auto-mounts Stripe at `POST /v1/webhooks/stripe` and nothing else. Add `CLERK_WEBHOOK_SECRET` later and Clerk appears too.
+
+<Callout type="warn">
+  A preset with no secret is **never mounted** — in every resolution branch, the secret must be present. There is no "enabled but unconfigured" state: you can't accidentally expose a route that would always reject. Listing an id in `ENABLED_WEBHOOK_PRESETS` without setting its secret simply does nothing.
+</Callout>
+
+To opt out of presets entirely (regardless of secrets), pass `enablePresets: false` to `createApp`. To turn them all off via env without touching code, set `ENABLED_WEBHOOK_PRESETS=none`.
+
+## Signatures are fail-closed
+
+Presets verify provider signatures, and they **fail closed**: if the secret is unset, or the signature header is missing, or the signature doesn't match, the request gets a `401` and never reaches `transform()`. The engine resolves the secret from the preset's env var, reads the exact raw body bytes, and verifies before parsing anything.
+
+There are three schemes:
+
+| Scheme | How it verifies | Used by |
+|---|---|---|
+| `svix` | [Standard Webhooks](/docs/data-api/webhooks) header set (`svix-id` / `svix-timestamp` / `svix-signature`) | Clerk, Supabase |
+| `stripe` | `stripe-signature: t=…,v1=…` — HMAC-SHA256 over `${t}.${rawBody}`, 5-minute tolerance, accepts rotation candidates | Stripe |
+| `hmac-hex` | HMAC-SHA256 of the raw body as lowercase hex, compared against the header (`x-signature`) | Segment |
+
+This is a deliberate divergence from the legacy `"match"` auth (plain shared-secret equality), which stays **open** when its secret is unset. Signature schemes are security-sensitive, so an unconfigured signature secret is a hard `401`, never a pass-through. The signing concept — the envelope, headers, and verification model — is covered in [Outbound Webhooks](/docs/data-api/webhooks).
+
+<Callout type="info">
+  Supabase additionally accepts a plain-secret fallback header (`x-supabase-webhook-secret`) that matches the secret verbatim, so its Svix mode and Supabase's simpler shared-secret mode can coexist. See the [Supabase page](/docs/integrations/supabase).
+</Callout>
+
+## How the payload becomes a contact and an event
+
+Every preset's `transform()` splits the provider payload across the same two property bags Hogsend uses everywhere — see [Events](/docs/data-api/events) for the full model:
+
+- **`contactProperties`** describe *who the person is* (name, plan, avatar, provider id). They merge onto the durable contact record. Buckets segment on these.
+- **`eventProperties`** describe *what happened* (the source, the provider's event name, amounts). They live on the event row and are what a journey `trigger.where` / `exitOn` evaluates.
+
+The two bags are never merged — a profile field never leaks onto the event, and an event field never lands on the contact. For example, a Clerk `user.created` puts `firstName`, `lastName`, `avatarUrl`, and `clerkUserId` on the contact, while `source: "clerk"` and the raw provider event name go on the event. Each provider page lists its exact split.
+
+## Overriding a preset
+
+A preset is just a `defineWebhookSource()` with a known id. If you supply your **own** `defineWebhookSource()` with the same id (e.g. `id: "stripe"`) in your app's `webhookSources`, the consumer source **wins** — your version replaces the shipped preset at that route, rather than registering a duplicate. This lets you start with a preset and graduate to a hand-tuned source for the same provider without changing the route.
+
+Building a webhook source from scratch — auth, schema, and `transform()` — is covered in the [Events guide](/docs/guides/events) and the [Ingestion reference](/docs/api/ingestion).
+
+## Per-provider pages
+
+<Cards>
+  <Card title="Clerk" href="/docs/integrations/clerk" />
+  <Card title="Supabase" href="/docs/integrations/supabase" />
+  <Card title="Stripe" href="/docs/integrations/stripe" />
+  <Card title="Segment" href="/docs/integrations/segment" />
+</Cards>

@@ -1,0 +1,109 @@
+---
+title: hogsend webhooks
+description: Manage outbound webhook endpoints — create, list, update, rotate signing secrets, and send test deliveries from the CLI.
+---
+
+`hogsend webhooks` manages your outbound webhook endpoints — the Svix-style signed event stream Hogsend emits to your URLs. It wraps the admin routes (`/v1/admin/webhooks`).
+
+```bash
+hogsend webhooks <subcommand> [options]
+```
+
+<Callout type="warn">
+This command targets the **admin** plane. It requires an admin key (`--admin-key` or `HOGSEND_ADMIN_KEY`), **not** your ingest data key. Calls authenticated with a data key are rejected.
+</Callout>
+
+## Subcommands
+
+| Subcommand | What it does |
+|---|---|
+| `list` | List endpoints. |
+| `get <id>` | Show one endpoint. |
+| `create` | Register an endpoint (prints the secret **once**). |
+| `update <id>` | Patch an endpoint. |
+| `delete <id>` | Hard-delete an endpoint (drops its deliveries). |
+| `rotate-secret <id>` | Issue a new signing secret (prints it **once**). |
+| `test <id>` | Enqueue an out-of-band `webhook.test` delivery. |
+
+## Options
+
+`create` (`--url` required, plus at least one event):
+
+| Option | Description |
+|---|---|
+| `--url <url>` | Destination URL. **Required.** |
+| `--event <type>` | Subscribe to an event; repeatable. |
+| `--all-events` | Subscribe to all 12 event types. |
+| `--description <text>` | Human label. |
+| `--disabled` | Create the endpoint disabled. |
+
+`update` (only the provided fields change):
+
+| Option | Description |
+|---|---|
+| `--url <url>` | New destination URL. |
+| `--event <type>` | Replace the subscribed events; repeatable. |
+| `--all-events` | Subscribe to all 12 event types. |
+| `--description <text>` | New description. |
+| `--disabled` / `--enabled` | Disable or enable the endpoint. |
+
+`list`:
+
+| Option | Description |
+|---|---|
+| `--include-disabled` | Include disabled endpoints. |
+| `--limit <n>` | Page size. |
+| `--offset <n>` | Page offset. |
+
+The `--url`, `--admin-key`, and `--json` flags are the shared global flags handled by the router. See the [CLI Reference](/docs/cli) for full connection details.
+
+## Event types
+
+`--event` accepts any of the 12 catalog events:
+
+```text
+contact.created, contact.updated, contact.deleted, contact.unsubscribed,
+email.sent, email.delivered, email.opened, email.clicked, email.bounced,
+journey.completed, bucket.entered, bucket.left
+```
+
+An unknown event type fails fast before any request is sent.
+
+## The signing secret
+
+<Callout type="warn">
+The signing secret is shown **once** — on `create` and on `rotate-secret`. It is never recoverable afterward. Store it immediately; `list` and `get` only ever return the `secretPrefix` (the first 12 characters). Rotating issues a brand-new secret and invalidates the old one, so update every subscriber.
+</Callout>
+
+## Examples
+
+```bash
+# Create an endpoint subscribed to specific events (prints the secret once)
+hogsend webhooks create \
+  --url https://x.com/hook \
+  --event contact.created \
+  --event email.sent
+
+# Create an endpoint subscribed to every event, as JSON
+hogsend webhooks create --url https://x.com/hook --all-events --json
+
+# List endpoints, including disabled ones
+hogsend webhooks list --include-disabled
+
+# Inspect one endpoint
+hogsend webhooks get we_123
+
+# Replace the subscribed events and re-enable an endpoint
+hogsend webhooks update we_123 --event email.opened --event email.clicked --enabled
+
+# Rotate the signing secret (prints the new secret once)
+hogsend webhooks rotate-secret we_123
+
+# Send an out-of-band webhook.test delivery
+hogsend webhooks test we_123
+
+# Hard-delete an endpoint and all of its delivery rows
+hogsend webhooks delete we_123
+```
+
+For the full event catalog, signed envelope, signing headers, and subscriber verification, see [Outbound webhooks](/docs/data-api/webhooks).

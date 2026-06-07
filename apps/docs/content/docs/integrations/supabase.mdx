@@ -1,0 +1,148 @@
+---
+title: Supabase
+description: Turn Supabase auth.users INSERT/UPDATE/DELETE mutations into Hogsend contact lifecycle events with a built-in webhook preset.
+---
+
+Hogsend ships a built-in **Supabase** webhook source that maps `auth.users` mutations to contact lifecycle events. Point a Supabase Database Webhook at `/v1/webhooks/supabase`, set `SUPABASE_WEBHOOK_SECRET`, and every signup, profile change, and deletion flows straight into the ingestion pipeline — creating and updating contacts, and triggering journeys.
+
+This preset lives **in the engine** — it's not consumer content you author. You don't write a `defineWebhookSource()`; you set one env var and configure Supabase.
+
+## What it does
+
+Hogsend watches your Supabase `auth.users` table and turns each row mutation into a Hogsend event:
+
+| Supabase mutation | Hogsend event |
+|---|---|
+| `INSERT` | `contact.created` |
+| `UPDATE` | `contact.updated` |
+| `DELETE` | `contact.deleted` |
+
+Only `schema === "auth"` and `table === "users"` rows are processed — payloads for any other table or schema are skipped (the endpoint returns `200` with `skipped: true`). The Supabase user `id` becomes the Hogsend `userId`, and the row's `email` becomes the contact email used for sending.
+
+## Setup
+
+### 1. Set the secret
+
+Add `SUPABASE_WEBHOOK_SECRET` to your Hogsend environment. The preset mounts at `POST /v1/webhooks/supabase` only when this is set.
+
+```bash title=".env"
+SUPABASE_WEBHOOK_SECRET=whsec_your_secret_value
+```
+
+### 2. Create the webhook in Supabase
+
+In the Supabase dashboard, go to **Database → Webhooks → Create a new hook** and configure:
+
+| Setting | Value |
+|---|---|
+| **Table** | `auth.users` |
+| **Events** | `Insert`, `Update`, `Delete` |
+| **Type** | HTTP Request |
+| **Method** | `POST` |
+| **URL** | `https://api.hogsend.com/v1/webhooks/supabase` |
+
+In dev, point it at `http://localhost:3002/v1/webhooks/supabase`.
+
+### 3. Authenticate the request
+
+The preset uses the **svix** signature scheme, with a shared-secret fallback. You can use either path:
+
+- **Svix-signed** (recommended) — when Supabase's hook is configured with a signing secret, it sends `svix-signature` (plus `svix-id` / `svix-timestamp`). Hogsend verifies the signature against `SUPABASE_WEBHOOK_SECRET`.
+- **Shared-secret fallback** — when the svix headers are absent (the plain database-webhook trigger path), send the secret as a header instead:
+
+```
+x-supabase-webhook-secret: whsec_your_secret_value
+```
+
+Add the `x-supabase-webhook-secret` header in the webhook's **HTTP Headers** section. Its value must exactly equal `SUPABASE_WEBHOOK_SECRET`.
+
+<Callout type="info">
+  Supabase webhooks built with `pg_net` (the standard Database Webhook UI) send a JSON body with `type`, `table`, `schema`, `record`, and `old_record` fields — exactly what this preset expects. Configure a custom header for the shared-secret path, or set a signing secret for the svix path.
+</Callout>
+
+## Event mapping
+
+### INSERT and UPDATE
+
+For `INSERT` and `UPDATE`, the user row arrives in `record`. Hogsend splits the row into two bags:
+
+- **`contactProperties`** — profile data merged onto the durable contact record. This is everything in `raw_user_meta_data`, plus:
+  - `phone` — included only when present as a string
+  - `emailVerified` — `Boolean(email_confirmed_at)`
+  - `supabaseUserId` — the Supabase user `id`
+- **`eventProperties`** — behavioral / source data that stays on the event row (and is what a journey `trigger.where` sees):
+  - `source: "supabase"`
+  - `supabaseUserId` — the Supabase user `id`
+  - `_supabaseEvent` — the raw mutation type (`"INSERT"` or `"UPDATE"`)
+
+```ts title="contact.created → ingested event"
+{
+  event: "contact.created",
+  userId: "<auth.users.id>",
+  userEmail: "<auth.users.email>",
+  contactProperties: {
+    // ...raw_user_meta_data spread in
+    phone: "+15551234567",       // only if present
+    emailVerified: true,         // Boolean(email_confirmed_at)
+    supabaseUserId: "<auth.users.id>"
+  },
+  eventProperties: {
+    source: "supabase",
+    supabaseUserId: "<auth.users.id>",
+    _supabaseEvent: "INSERT"
+  }
+}
+```
+
+`raw_user_meta_data` is spread directly into `contactProperties`, so whatever you store there in Supabase (e.g. `full_name`, `avatar_url`, `plan`) lands on the Hogsend contact.
+
+### DELETE
+
+For `DELETE`, the row arrives in `old_record`. A delete carries no profile to merge, so Hogsend emits the **event only** — `contactProperties` is empty:
+
+```ts title="contact.deleted → ingested event"
+{
+  event: "contact.deleted",
+  userId: "<auth.users.id>",
+  userEmail: "<auth.users.email>",
+  contactProperties: {},
+  eventProperties: {
+    source: "supabase",
+    supabaseUserId: "<auth.users.id>",
+    _supabaseEvent: "DELETE"
+  }
+}
+```
+
+The split between `contactProperties` and `eventProperties` follows the same model the rest of the engine uses — see [Events & Ingestion](/docs/guides/events) and [Identity](/docs/data-api/identity).
+
+### Skipped rows
+
+A row is skipped (no event emitted) when:
+
+- `schema` is not `"auth"` or `table` is not `"users"`
+- the row is missing entirely (no `record` for INSERT/UPDATE, no `old_record` for DELETE)
+- the row has no `id`
+
+## Enablement & fail-closed
+
+<Callout type="warn">
+  This preset is **fail-closed**. The svix signature source requires `SUPABASE_WEBHOOK_SECRET` — if it's unset, every request returns `401` and never reaches the transform. A preset whose secret is unset is **never mounted** at all.
+</Callout>
+
+A preset mounts only when **both** conditions hold:
+
+1. Its secret env var (`SUPABASE_WEBHOOK_SECRET`) is set, **and**
+2. `ENABLED_WEBHOOK_PRESETS` allows it.
+
+`ENABLED_WEBHOOK_PRESETS` controls which presets are eligible:
+
+| Value | Behavior |
+|---|---|
+| `*` or unset | Auto — every preset whose secret is set is mounted |
+| `supabase,clerk` | Exactly those ids (each still requires its secret) |
+| `none` | All presets off |
+
+## Overriding the preset
+
+If you author your own `defineWebhookSource()` with the id `"supabase"` in your app's `src/webhook-sources/`, **your source wins** — it overrides the built-in preset entirely. Use this when you need a different auth scheme, a different table, or a custom transform. Otherwise, the built-in preset is all you need.

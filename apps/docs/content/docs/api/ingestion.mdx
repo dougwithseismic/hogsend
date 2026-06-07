@@ -107,7 +107,18 @@ Generic webhook ingestion endpoint. Each registered webhook source has its own `
 |---|---|---|
 | `sourceId` | `string` | Registered webhook source identifier |
 
-**Authentication** -- Each source defines its own auth header. The value is matched against the corresponding environment variable.
+**Authentication** -- Each source declares how it authenticates inbound requests via a discriminated union on `auth.type`:
+
+| `auth.type` | Behavior | Secret unset |
+|---|---|---|
+| `"match"` | Plain shared-secret equality. The configured secret is compared against the request `header` (or `Authorization: Bearer`). | **Open** — the source stays unauthenticated (legacy parity). |
+| `"signature"` | Provider HMAC verification (`scheme: "svix" \| "stripe" \| "hmac-hex"`). The route reads the **exact raw body bytes** and verifies the signature before the payload reaches `transform`. | **401** — fail-closed. A signature source whose secret is unset is rejected, never an open pass-through. |
+
+A `"signature"` source resolves its secret from `env[envKey]` and reads its scheme's well-known headers (`svix-*`, `stripe-signature`, or — for `hmac-hex` — the configured `header`). An optional `fallbackMatchHeader` lets a Svix source also accept a plain shared-secret header (this is how Supabase's `x-supabase-webhook-secret` mode coexists with its Svix mode). The 5-minute timestamp tolerance applies to the Stripe and Svix schemes.
+
+**Integration presets**
+
+Hogsend ships built-in inbound sources in `@hogsend/engine` for **Clerk**, **Supabase**, **Stripe**, and **Segment**, each served at `POST /v1/webhooks/{id}` (`clerk`, `supabase`, `stripe`, `segment`). Each preset uses a `"signature"` source — so it fails closed when its secret is unset — and transforms the provider payload into a Hogsend event. A preset mounts only when both its secret env var is set and `ENABLED_WEBHOOK_PRESETS` allows it. A consumer's own `defineWebhookSource` with the same `id` overrides the preset. See [Integrations](/docs/integrations) for the per-provider event mappings and enablement.
 
 **Available Sources**
 
@@ -163,7 +174,7 @@ If the source's `transform` function returns `null`, the event is skipped:
 { "ok": true, "skipped": true }
 ```
 
-**Response `401`** -- `{ "error": "Invalid webhook secret" }`. Auth is only enforced when the source's secret env var is configured; an unconfigured source is treated as open.
+**Response `401`** -- `{ "error": "Invalid webhook secret" }` for a `"match"` source, or `{ "error": "Invalid webhook signature" }` / `{ "error": "Webhook signature not configured" }` for a `"signature"` source. A `"match"` source is only enforced when its secret env var is configured (unconfigured = open); a `"signature"` source fails closed and returns `401` whenever its secret is unset or the signature does not verify.
 
 **Response `404`** -- `{ "error": "Unknown webhook source" }`.
 
@@ -226,7 +237,23 @@ export const mySource = defineWebhookSource({
 });
 ```
 
-The `transform` function receives the validated payload and a context object (`{ db, logger }`), and returns an `IngestEvent` (or `null` to skip the event). The `IngestEvent` carries two property bags — `eventProperties` (the event row + journey triggers) and the optional `contactProperties` (merged onto the contact). See [Identity](/docs/data-api/identity) for the split.
+The `transform` function receives the validated payload and a context object (`{ db, logger, rawBody, headers }`), and returns an `IngestEvent` (or `null` to skip the event). The `IngestEvent` carries two property bags — `eventProperties` (the event row + journey triggers) and the optional `contactProperties` (merged onto the contact). See [Identity](/docs/data-api/identity) for the split.
+
+The `auth` block is a discriminated union. The example above uses `type: "match"` (shared-secret equality, open when the secret is unset). For provider-signed webhooks, use `type: "signature"` with a `scheme`:
+
+```ts
+auth: {
+  type: "signature",
+  scheme: "hmac-hex",            // "svix" | "stripe" | "hmac-hex"
+  envKey: "MY_SOURCE_WEBHOOK_SECRET",
+  header: "x-signature",         // header carrying the hex digest (hmac-hex)
+  // fallbackMatchHeader: "x-plain-secret", // optional plain-secret fallback
+},
+```
+
+<Callout type="warn">
+  A `"signature"` source **fails closed**: if its secret env var is unset, the endpoint returns `401` — it never falls back to an open pass-through. Only `"match"` sources stay open when unconfigured.
+</Callout>
 
 Collect your sources into the array your app owns in `src/webhook-sources/index.js`:
 
@@ -251,3 +278,13 @@ const app = createApp(container, { webhookSources });
 ```
 
 The source is now served at `POST /v1/webhooks/my-source`. See the [Events & webhook sources guide](/docs/guides/events) for more.
+
+---
+
+## Outbound webhooks
+
+The sources above are **inbound** — they receive events from other systems. Hogsend also **emits** a signed event stream of its own: contact, email, journey, and bucket lifecycle events delivered to your HTTPS endpoints with Standard Webhooks (Svix-style) HMAC-SHA256 signatures, at-least-once delivery, and durable retries.
+
+You manage outbound endpoints on the admin plane at `POST /v1/admin/webhooks` (create, rotate the signing secret, send a test) and verify deliveries on the subscriber side with `verifyHogsendWebhook` from [`@hogsend/client`](/docs/data-api/client-sdk).
+
+See [Outbound webhooks](/docs/data-api/webhooks) for the full event catalog, signed envelope, signature verification, and delivery semantics.

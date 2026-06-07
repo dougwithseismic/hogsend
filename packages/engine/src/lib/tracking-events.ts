@@ -10,6 +10,8 @@ interface EmailSendContext {
   userId: string;
   userEmail: string;
   templateKey: string | null;
+  resendId: string | null;
+  to: string;
 }
 
 export async function resolveEmailSendContext(
@@ -20,6 +22,7 @@ export async function resolveEmailSendContext(
     .select({
       toEmail: emailSends.toEmail,
       templateKey: emailSends.templateKey,
+      resendId: emailSends.resendId,
       userId: journeyStates.userId,
       userEmail: journeyStates.userEmail,
     })
@@ -35,6 +38,58 @@ export async function resolveEmailSendContext(
     userId: row.userId ?? row.toEmail,
     userEmail: row.userEmail ?? row.toEmail,
     templateKey: row.templateKey,
+    resendId: row.resendId,
+    to: row.toEmail,
+  };
+}
+
+export interface ResendEmailSendContext {
+  emailSendId: string;
+  userId: string;
+  userEmail: string;
+  templateKey: string | null;
+  to: string;
+}
+
+/**
+ * Mirror of {@link resolveEmailSendContext} that resolves by the provider's
+ * `resendId` instead of the internal `email_sends.id`. Used by the
+ * provider-webhook enrichment path (`email.delivered`/`email.bounced`) where the
+ * only handle we hold is the Resend `email_id`.
+ *
+ * Returns the internal `emailSendId` plus the same denormalized identity
+ * (`userId`/`userEmail` fall back to the recipient address, exactly like the
+ * id-keyed resolver) and `to` recipient. Returns null when no send row carries
+ * that `resendId` yet (e.g. a webhook arriving before the send row is committed).
+ */
+export async function resolveEmailSendContextByResendId(
+  db: Database,
+  resendId: string,
+): Promise<ResendEmailSendContext | null> {
+  const rows = await db
+    .select({
+      emailSendId: emailSends.id,
+      toEmail: emailSends.toEmail,
+      templateKey: emailSends.templateKey,
+      userId: journeyStates.userId,
+      userEmail: journeyStates.userEmail,
+      sendUserId: emailSends.userId,
+      sendUserEmail: emailSends.userEmail,
+    })
+    .from(emailSends)
+    .leftJoin(journeyStates, eq(emailSends.journeyStateId, journeyStates.id))
+    .where(eq(emailSends.resendId, resendId))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) return null;
+
+  return {
+    emailSendId: row.emailSendId,
+    userId: row.userId ?? row.sendUserId ?? row.toEmail,
+    userEmail: row.userEmail ?? row.sendUserEmail ?? row.toEmail,
+    templateKey: row.templateKey,
+    to: row.toEmail,
   };
 }
 
@@ -47,6 +102,13 @@ export interface PushTrackingEventOpts {
   event: string;
   emailSendId: string;
   properties?: Record<string, unknown>;
+  /**
+   * Pre-resolved send context. When provided (including `null`), the duplicate
+   * `resolveEmailSendContext` read is skipped — the tracking routes resolve once
+   * and share the result with the outbound emit on the hot path. Omit to resolve
+   * lazily.
+   */
+  resolvedContext?: EmailSendContext | null;
 }
 
 export async function pushTrackingEvent(
@@ -54,7 +116,10 @@ export async function pushTrackingEvent(
 ): Promise<void> {
   const { db, hatchet, registry, logger, posthog, event, emailSendId } = opts;
 
-  const ctx = await resolveEmailSendContext(db, emailSendId);
+  const ctx =
+    opts.resolvedContext !== undefined
+      ? opts.resolvedContext
+      : await resolveEmailSendContext(db, emailSendId);
   if (!ctx) return;
 
   const properties: Record<string, unknown> = {

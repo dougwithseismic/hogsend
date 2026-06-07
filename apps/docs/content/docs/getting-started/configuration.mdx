@@ -85,6 +85,35 @@ Public URL configuration and admin access.
   `ADMIN_API_KEY` gates all admin operations — viewing contacts, managing journeys, metrics, and the CLI's `contacts` / `journeys` commands. Generate a strong key: `openssl rand -hex 32`.
 </Callout>
 
+### Integration presets
+
+Hogsend ships built-in inbound webhook sources for Clerk, Supabase, Stripe, and Segment, served at `POST /v1/webhooks/{id}`. Setting a preset's signing secret auto-enables that source — no code change. A signature-verified preset **fails closed**: if its secret is unset, the source is never mounted; a request with a bad signature is rejected with `401`. See [Integrations](/docs/integrations) for the per-provider event mappings.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `CLERK_WEBHOOK_SECRET` | No | — | API | Svix signing secret for the Clerk preset (`POST /v1/webhooks/clerk`). Setting it mounts the source. From Clerk → Webhooks. Starts with `whsec_`. |
+| `SUPABASE_WEBHOOK_SECRET` | No | — | API | Signing secret for the Supabase preset (`POST /v1/webhooks/supabase`). Verified as Svix, with a plain-equality `x-supabase-webhook-secret` header fallback. Setting it mounts the source. |
+| `STRIPE_WEBHOOK_SECRET` | No | — | API | Stripe endpoint signing secret for the Stripe preset (`POST /v1/webhooks/stripe`). Verified against the `stripe-signature` header (5-minute tolerance). Setting it mounts the source. Starts with `whsec_`. |
+| `SEGMENT_WEBHOOK_SECRET` | No | — | API | Shared secret for the Segment preset (`POST /v1/webhooks/segment`). Verified as an HMAC-SHA256 hex digest of the raw body in the `x-signature` header. Setting it mounts the source. |
+| `ENABLED_WEBHOOK_PRESETS` | No | — | API | Preset enablement override. Absent or `*` auto-enables every preset whose secret is set. A comma-separated list of ids (e.g. `stripe,clerk`) mounts exactly those (each still requires its secret). `none` disables all presets. |
+
+<Callout type="info">
+  A preset never mounts without its secret. `ENABLED_WEBHOOK_PRESETS` only *narrows* the auto-enabled set — it can't turn on a preset whose signing secret is missing. A consumer-defined `defineWebhookSource` with the same id overrides the built-in preset.
+</Callout>
+
+### Outbound webhooks
+
+Hogsend emits a signed event stream to your subscriber URLs and delivers it with a durable, at-least-once retry task. Endpoints are managed through the admin API — these variables only tune the delivery engine. All are optional; the durable task carries the listed defaults. See [Outbound webhooks](/docs/data-api/webhooks) for the event catalog and signing scheme.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `OUTBOUND_WEBHOOK_REAPER_CRON` | No | `*/1 * * * *` | Worker | Cadence for the engine-owned delivery reaper — re-drives due retries and recovers orphaned `sending` rows. |
+| `OUTBOUND_WEBHOOK_MAX_ATTEMPTS` | No | `8` | Worker | Maximum delivery attempts per `(event × endpoint)` before the delivery is marked `failed` and dead-lettered. |
+| `OUTBOUND_WEBHOOK_TIMEOUT_MS` | No | `15000` | Worker | Per-request HTTP timeout (ms) for a delivery POST. A timeout is retryable. |
+| `OUTBOUND_WEBHOOK_BASE_DELAY_MS` | No | `5000` | Worker | Base delay (ms) for the exponential-backoff-with-jitter retry schedule. |
+| `OUTBOUND_WEBHOOK_MAX_DELAY_MS` | No | `21600000` | Worker | Ceiling (ms) on the backoff delay between retries. Default is 6 hours. |
+| `OUTBOUND_WEBHOOK_STUCK_AFTER_MS` | No | `300000` | Worker | Age (ms) after which a `sending` row is considered orphaned and recovered by the reaper. Default is 5 minutes. |
+
 ### Features
 
 | Variable | Required | Default | Process | Description |

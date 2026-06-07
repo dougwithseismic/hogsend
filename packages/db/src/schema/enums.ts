@@ -50,3 +50,11 @@ export const bucketMembershipStatusEnum = pgEnum("bucket_membership_status", [
   "active",
   "left",
 ]);
+
+export const webhookDeliveryStatusEnum = pgEnum("webhook_delivery_status", [
+  "pending", // enqueued, awaiting first attempt OR a scheduled retry (nextRetryAt)
+  "sending", // a delivery run CAS'd the row and is mid-POST (orphan-recovery sentinel)
+  "delivered", // 2xx received — TERMINAL
+  "failed", // attempts exhausted — TERMINAL, mirrored to dead_letter_queue
+  "discarded", // endpoint disabled/deleted mid-flight — TERMINAL, NOT an error, NOT dead-lettered
+]);

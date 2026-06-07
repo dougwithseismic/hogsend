@@ -157,6 +157,105 @@ For how `subscribe`/`unsubscribe` interact with a list's `defaultOptIn` polarity
 (opt-in needs an exact `true`, opt-out is blocked only on an exact `false`), see
 the hogsend-authoring-lists skill.
 
+## `hs.webhooks` (ADMIN plane — full-admin key required)
+
+Manage **outbound** webhook endpoints (the Svix-style signed event stream Hogsend
+emits to subscriber URLs). Every method targets `/v1/admin/webhooks` and requires
+a **full-admin** `apiKey` — NOT the ingest data key the resources above use.
+Signing-secret management is the same trust class as API-key management.
+
+### `webhooks.create(input) → CreatedWebhookEndpoint`
+
+`POST /v1/admin/webhooks`. Register an endpoint subscribed to one or more of the
+12 outbound event types. Returns the endpoint INCLUDING the full signing
+`secret` (`whsec_…`) — shown ONLY here and on `rotateSecret`. Store it now.
+
+```ts
+type CreateWebhookInput = {
+  url: string;
+  eventTypes: OutboundEventType[]; // contact.* | email.* | journey.completed | bucket.*
+  description?: string;
+  disabled?: boolean;
+};
+
+interface WebhookEndpoint {
+  id: string;                         // we_…
+  url: string;
+  description: string | null;
+  eventTypes: OutboundEventType[];
+  secretPrefix: string;               // first 12 chars, e.g. whsec_AbCd
+  status: "enabled" | "disabled";
+  organizationId: string | null;
+  lastDeliveryAt: string | null;      // ISO
+  createdAt: string;                  // ISO
+  updatedAt: string;                  // ISO
+}
+
+type CreatedWebhookEndpoint = WebhookEndpoint & { secret: string }; // full secret ONCE
+```
+
+### `webhooks.list(opts?) → WebhookEndpoint[]`
+
+`GET /v1/admin/webhooks`. Newest first; `opts` = `{ limit?, offset?,
+includeDisabled? }`. Returns the endpoints array (unwrapped from the
+`{ endpoints, total, limit, offset }` envelope). No `secret` — `secretPrefix` only.
+
+### `webhooks.get(id) → WebhookEndpoint`
+
+`GET /v1/admin/webhooks/{id}`. One endpoint (404 → `HogsendAPIError`). No secret.
+
+### `webhooks.update(id, input) → WebhookEndpoint`
+
+`PATCH /v1/admin/webhooks/{id}`. Only the provided fields change;
+`description: null` clears it. Does NOT return or rotate the secret.
+
+```ts
+type UpdateWebhookInput = {
+  url?: string;
+  eventTypes?: OutboundEventType[];
+  description?: string | null;
+  disabled?: boolean;
+};
+```
+
+### `webhooks.delete(id) → { deleted }`
+
+`DELETE /v1/admin/webhooks/{id}`. Hard-delete; cascade drops its deliveries.
+
+### `webhooks.rotateSecret(id) → { id, secret, secretPrefix }`
+
+`POST /v1/admin/webhooks/{id}/rotate-secret`. Hard cutover — the OLD secret is
+invalidated immediately; in-flight retries re-sign with the new one. The new
+`secret` is returned ONCE. Update every subscriber.
+
+### `webhooks.sendTest(id) → { enqueued, eventType: "webhook.test" }`
+
+`POST /v1/admin/webhooks/{id}/test`. Enqueues an out-of-band `webhook.test`
+delivery, sent regardless of the endpoint's subscribed `eventTypes`.
+
+## `verifyHogsendWebhook(opts)` — the subscriber side
+
+A standalone helper exported from `@hogsend/client` (not on the `Hogsend`
+instance) for the handler that RECEIVES Hogsend's signed POSTs.
+
+```ts
+import { verifyHogsendWebhook } from "@hogsend/client";
+
+const event = verifyHogsendWebhook({
+  payload: rawBody,   // the EXACT raw request body bytes — never a re-stringified object
+  headers: req.headers,
+  secret: "whsec_…",  // the endpoint secret from create / rotateSecret
+});
+// event === { id, type, timestamp, data }
+```
+
+- Returns the parsed envelope (`{ id, type, timestamp, data }`) on success.
+- **THROWS** on a bad signature, a missing signature header, or a timestamp
+  outside the 5-minute tolerance — wrap in `try/catch` and reply `401` on throw.
+- Accepts both the `Webhook-*` and `svix-*` header aliases (case-insensitive).
+  Uses svix when available, with a pure `node:crypto` HMAC-SHA256 fallback.
+- Deliveries are **at-least-once** — dedupe on the `Webhook-Id` (`event.id`).
+
 ## Construction options (recap)
 
 ```ts

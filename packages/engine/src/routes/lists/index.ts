@@ -1,7 +1,14 @@
+import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { Database } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
-import { resolveOrCreateContact } from "../../lib/contacts.js";
+import {
+  resolveContact,
+  resolveOrCreateContact,
+  serializeContact,
+} from "../../lib/contacts.js";
+import type { Logger } from "../../lib/logger.js";
+import { emitOutbound } from "../../lib/outbound.js";
 import { applyListMembership } from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { getListRegistry } from "../../lists/registry-singleton.js";
@@ -122,6 +129,8 @@ const unsubscribeRoute = createRoute({
  */
 async function applyListSubscription(opts: {
   db: Database;
+  hatchet: HatchetClient;
+  logger: Logger;
   id: string;
   email?: string;
   userId?: string;
@@ -132,7 +141,7 @@ async function applyListSubscription(opts: {
   | { kind: "failed"; message: string }
   | { kind: "ok" }
 > {
-  const { db, id, email, userId, subscribed } = opts;
+  const { db, hatchet, logger, id, email, userId, subscribed } = opts;
 
   if (!getListRegistry().has(id)) {
     return { kind: "unknown_list" };
@@ -143,7 +152,30 @@ async function applyListSubscription(opts: {
   }
 
   try {
-    await resolveOrCreateContact({ db, userId, email });
+    const { id: contactId, created } = await resolveOrCreateContact({
+      db,
+      userId,
+      email,
+    });
+
+    // INTENT-LAYER outbound emit (decision #3): the lists route emits
+    // `contact.created` ONLY on first creation (a list flip is not a contact
+    // property delta, so no `contact.updated`). Fire-and-forget after a read-back.
+    if (created) {
+      void resolveContact({ db, id: contactId })
+        .then((row) => {
+          if (!row) return;
+          return emitOutbound({
+            db,
+            hatchet,
+            logger,
+            event: "contact.created",
+            payload: serializeContact(row),
+          });
+        })
+        .catch(logger.warn);
+    }
+
     await applyListMembership({
       db,
       userId,
@@ -175,12 +207,14 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
     return c.json({ lists }, 200);
   })
   .openapi(subscribeRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const { id } = c.req.valid("param");
     const { email, userId } = c.req.valid("json");
 
     const result = await applyListSubscription({
       db,
+      hatchet,
+      logger,
       id,
       email,
       userId,
@@ -198,12 +232,14 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
     return c.json({ list: id, subscribed: true as const }, 200);
   })
   .openapi(unsubscribeRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, hatchet, logger } = c.get("container");
     const { id } = c.req.valid("param");
     const { email, userId } = c.req.valid("json");
 
     const result = await applyListSubscription({
       db,
+      hatchet,
+      logger,
       id,
       email,
       userId,

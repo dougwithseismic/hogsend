@@ -1,6 +1,8 @@
+import { createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HogsendAPIError, RateLimitError } from "../errors.js";
 import { Hogsend } from "../hogsend.js";
+import { verifyHogsendWebhook } from "../internal/verify.js";
 
 // ---------------------------------------------------------------------------
 // Fetch mock harness
@@ -367,6 +369,198 @@ describe("campaigns", () => {
     expect(res).toEqual(campaign);
     expect(calls[0]?.method).toBe("GET");
     expect(calls[0]?.url).toBe("https://api.test.local/v1/campaigns/cmp%2F1");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// webhooks (admin plane)
+// ---------------------------------------------------------------------------
+
+describe("webhooks", () => {
+  const endpoint = {
+    id: "we_1",
+    url: "https://example.com/hook",
+    description: null,
+    eventTypes: ["contact.created", "email.sent"],
+    secretPrefix: "whsec_AbCd",
+    status: "enabled",
+    organizationId: null,
+    lastDeliveryAt: null,
+    createdAt: "2026-06-01T00:00:00.000Z",
+    updatedAt: "2026-06-01T00:00:00.000Z",
+  };
+
+  it("create POSTs /v1/admin/webhooks and returns the endpoint + secret", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { ...endpoint, secret: "whsec_AbCdFullSecret" },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).webhooks.create({
+      url: "https://example.com/hook",
+      eventTypes: ["contact.created", "email.sent"],
+    });
+    expect(res.secret).toBe("whsec_AbCdFullSecret");
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/admin/webhooks");
+    expect(calls[0]?.body).toMatchObject({
+      url: "https://example.com/hook",
+      eventTypes: ["contact.created", "email.sent"],
+    });
+  });
+
+  it("list GETs /v1/admin/webhooks and unwraps endpoints", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { endpoints: [endpoint], total: 1, limit: 50, offset: 0 },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).webhooks.list({ includeDisabled: true });
+    expect(res).toEqual([endpoint]);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/webhooks?includeDisabled=true",
+    );
+  });
+
+  it("get GETs /v1/admin/webhooks/{id} and url-encodes the id", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: endpoint });
+    const res = await client(fetchImpl as unknown as typeof fetch).webhooks.get(
+      "we/1",
+    );
+    expect(res).toEqual(endpoint);
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/webhooks/we%2F1",
+    );
+  });
+
+  it("update PATCHes /v1/admin/webhooks/{id}", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { ...endpoint, status: "disabled" },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).webhooks.update("we_1", { disabled: true });
+    expect(res.status).toBe("disabled");
+    expect(calls[0]?.method).toBe("PATCH");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/admin/webhooks/we_1");
+    expect(calls[0]?.body).toMatchObject({ disabled: true });
+  });
+
+  it("delete DELETEs /v1/admin/webhooks/{id}", async () => {
+    const { fetchImpl, calls } = makeFetch({ body: { deleted: true } });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).webhooks.delete("we_1");
+    expect(res).toEqual({ deleted: true });
+    expect(calls[0]?.method).toBe("DELETE");
+  });
+
+  it("rotateSecret POSTs /{id}/rotate-secret and returns the new secret", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: {
+        id: "we_1",
+        secret: "whsec_NewSecret",
+        secretPrefix: "whsec_NewS",
+      },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).webhooks.rotateSecret("we_1");
+    expect(res.secret).toBe("whsec_NewSecret");
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/webhooks/we_1/rotate-secret",
+    );
+  });
+
+  it("sendTest POSTs /{id}/test and returns the enqueue ack", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { enqueued: true, eventType: "webhook.test" },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).webhooks.sendTest("we_1");
+    expect(res).toEqual({ enqueued: true, eventType: "webhook.test" });
+    expect(calls[0]?.url).toBe(
+      "https://api.test.local/v1/admin/webhooks/we_1/test",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// verifyHogsendWebhook (subscriber-side)
+// ---------------------------------------------------------------------------
+
+describe("verifyHogsendWebhook", () => {
+  // whsec_<base64(32 bytes)>; the signing key is the base64-decoded body.
+  const secret = `whsec_${Buffer.alloc(32, 7).toString("base64")}`;
+
+  function sign(id: string, ts: number, body: string): string {
+    const key = Buffer.from(secret.slice(6), "base64");
+    const sig = createHmac("sha256", key)
+      .update(`${id}.${ts}.${body}`)
+      .digest("base64");
+    return `v1,${sig}`;
+  }
+
+  it("verifies a valid signature with Title-Case headers", () => {
+    const id = "msg_abc";
+    const ts = Math.floor(Date.now() / 1000);
+    const body = JSON.stringify({ id, type: "contact.created", data: {} });
+    const event = verifyHogsendWebhook({
+      payload: body,
+      headers: {
+        "Webhook-Id": id,
+        "Webhook-Timestamp": String(ts),
+        "Webhook-Signature": sign(id, ts, body),
+      },
+      secret,
+    });
+    expect(event).toMatchObject({ type: "contact.created" });
+  });
+
+  it("verifies with lowercase header keys too", () => {
+    const id = "msg_def";
+    const ts = Math.floor(Date.now() / 1000);
+    const body = JSON.stringify({ id, type: "email.sent", data: {} });
+    const event = verifyHogsendWebhook({
+      payload: body,
+      headers: {
+        "webhook-id": id,
+        "webhook-timestamp": String(ts),
+        "webhook-signature": sign(id, ts, body),
+      },
+      secret,
+    });
+    expect(event).toMatchObject({ type: "email.sent" });
+  });
+
+  it("throws on a tampered body", () => {
+    const id = "msg_ghi";
+    const ts = Math.floor(Date.now() / 1000);
+    const body = JSON.stringify({ id, type: "contact.created", data: {} });
+    expect(() =>
+      verifyHogsendWebhook({
+        payload: `${body} `, // mutated bytes
+        headers: {
+          "Webhook-Id": id,
+          "Webhook-Timestamp": String(ts),
+          "Webhook-Signature": sign(id, ts, body),
+        },
+        secret,
+      }),
+    ).toThrow();
+  });
+
+  it("throws when a signature header is missing", () => {
+    expect(() =>
+      verifyHogsendWebhook({
+        payload: "{}",
+        headers: { "Webhook-Id": "x", "Webhook-Timestamp": "1" },
+        secret,
+      }),
+    ).toThrow(/missing/i);
   });
 });
 

@@ -74,6 +74,7 @@ Most commands READ (admin API). A handful WRITE through the data plane — marke
 | `hogsend events <userId>` | Raw event stream for one user (READ — `<userId>` stays the read path). |
 | `hogsend events send <name>` | **(write)** Push an event → `POST /v1/events`. `--email`/`--user-id` (≥1 required), `--prop`/`--props` (event props), `--contact-prop`/`--contact-props` (contact props), `--list`/`--unlist`, `--idempotency-key`, `--timestamp`. |
 | `hogsend emails send <template>` | **(write)** Send a transactional email → `POST /v1/emails`. `--to`/`--user-id` (≥1 required), `--prop`/`--props`, `--subject`, `--from`, `--reply-to`, `--category`, `--idempotency-key`, `--skip-preference-check` (needs full-admin). |
+| `hogsend webhooks list/get/create/update/delete/rotate-secret/test` | Manage **outbound** signed webhook endpoints (the event stream Hogsend emits to your URLs) → `/v1/admin/webhooks`. Needs the **admin key**, not the data key. `create --url <url>` + repeatable `--event <type>` or `--all-events`; the signing secret prints ONCE on `create` + `rotate-secret`. |
 | `hogsend skills list/add` | Manage these bundled agent skills. |
 | `hogsend upgrade` | Bump `@hogsend/*` deps to latest + refresh vendored skills. |
 | `hogsend setup` | Interactive LOCAL onboarding (docker, secret, migrate). |

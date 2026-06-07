@@ -1,0 +1,142 @@
+---
+title: Stripe
+description: Turn Stripe's billing lifecycle into Hogsend events — signups, subscriptions, and invoices — with a built-in, signature-verified webhook source.
+---
+
+Stripe is a built-in **inbound webhook source** that ships inside `@hogsend/engine`. Point a Stripe webhook endpoint at `/v1/webhooks/stripe`, set one environment variable, and your customer, subscription, and invoice events flow straight into the ingestion pipeline — ready to trigger journeys, update contacts, and evaluate exit conditions.
+
+<Callout type="info">
+  This is engine-owned content. You do **not** write a `defineWebhookSource()` for Stripe — mounting the preset replaces hand-rolling your own. If you previously authored a custom Stripe source, see [Override the preset](#override-the-preset) below.
+</Callout>
+
+## What it does
+
+The Stripe preset maps the billing lifecycle to Hogsend's event vocabulary so your journeys react to revenue moments:
+
+- A new customer enters Hogsend as a contact, so a welcome or onboarding journey can fire on `contact.created`.
+- A subscription change emits `subscription.created` / `subscription.updated` / `subscription.deleted`, so plan-change and cancellation flows have a trigger.
+- An invoice event emits `invoice.<action>` (e.g. `invoice.payment_failed`, `invoice.paid`), so a dunning / churn-recovery journey can run when a charge fails.
+
+Every transformed event runs through the same [ingestion pipeline](/docs/guides/events) as PostHog and the REST API — store, route to journeys, exit-check, contact upsert.
+
+## Setup
+
+### 1. Create the Stripe webhook endpoint
+
+In the Stripe Dashboard, go to **Developers → Webhooks → Add endpoint** and set the URL to your Hogsend API:
+
+```
+https://api.hogsend.com/v1/webhooks/stripe
+```
+
+Select the events you want to forward (see [Event mapping](#event-mapping) below). At minimum, subscribe to `customer.created` so later subscription/invoice events can resolve to a known contact.
+
+### 2. Set the signing secret
+
+Copy the endpoint's **Signing secret** (the `whsec_…` value Stripe shows for that endpoint) and set it in your Hogsend environment:
+
+```bash title=".env"
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+That's it — no Stripe SDK, no extra dependencies. Hogsend verifies the `stripe-signature` header itself using `node:crypto`:
+
+- It parses the `t=<timestamp>,v1=<hex>` header, recomputes the HMAC-SHA256 over `<timestamp>.<raw body>`, and constant-time compares against the `v1` signature.
+- The signed timestamp must be within a **5-minute tolerance** of now.
+- During secret rotation, multiple candidate secrets are accepted, so an in-progress rollover doesn't drop events.
+
+The route reads the raw request body **once** and passes those exact bytes to both signature verification and the transform — so the signature checks the same payload Hogsend parses.
+
+## Event mapping
+
+The preset normalizes Stripe event names into Hogsend's outbound vocabulary. Anything outside these prefixes is ignored (the transform returns `null` and the event is skipped):
+
+| Stripe event | Hogsend event | Carries a contact profile? |
+|---|---|---|
+| `customer.created` | `contact.created` | Yes |
+| `customer.updated` | `contact.updated` | Yes |
+| `customer.deleted` | `contact.deleted` | No (event only) |
+| `customer.subscription.<action>` | `subscription.<action>` | No (event only) |
+| `invoice.<action>` | `invoice.<action>` | No (event only) |
+
+`<action>` is passed through verbatim — `customer.subscription.deleted` becomes `subscription.deleted`, `invoice.payment_failed` becomes `invoice.payment_failed`.
+
+### Identity
+
+Hogsend keys every Stripe event to the **Stripe customer id**:
+
+- For **customer** events, the `userId` is the customer object's own `id` (e.g. `cus_…`).
+- For **subscription** and **invoice** events, the `userId` is `data.object.customer` — the customer the subscription/invoice belongs to.
+
+The `userEmail` is taken from `data.object.email` **when present**. The Stripe event id (`payload.id`) becomes the `idempotencyKey`, so Stripe's at-least-once redelivery dedupes on `user_events.idempotencyKey` rather than re-firing your journeys.
+
+<Callout type="warn">
+  Subscription and invoice objects usually **don't carry an email** — only the customer id. Hogsend resolves the contact by the Stripe customer id, so make sure `customer.created` (which does carry the email) arrives first. Subscribe to it on the same endpoint and a prior `contact.created` will have established the email-to-customer link before billing events reference it.
+</Callout>
+
+### Property split
+
+The preset follows Hogsend's [`contactProperties` vs `eventProperties` split](/docs/data-api/identity). Only `customer.created` / `customer.updated` carry a durable profile to merge — deletes and subscription/invoice events are **event-only** (their `contactProperties` is empty).
+
+**`eventProperties`** (every Stripe event — lands on the `user_events` row, what a journey `trigger.where` / `exitOn` sees):
+
+| Key | Value |
+|---|---|
+| `source` | `"stripe"` |
+| `stripeCustomerId` | the resolved customer id (the `userId`) |
+| `stripeEventId` | `payload.id` (the Stripe event id) |
+| `_stripeEvent` | the original Stripe event type, e.g. `customer.subscription.updated` |
+| `stripeObject` | `data.object.object`, e.g. `customer`, `subscription`, `invoice` |
+
+**`contactProperties`** (only on `customer.created` / `customer.updated` — merged onto the durable contact record):
+
+| Key | Value |
+|---|---|
+| *(spread)* | every key from the customer object's `metadata` |
+| `name` | `data.object.name`, when it's a string |
+| `phone` | `data.object.phone`, when it's a string |
+| `stripeCustomerId` | the customer id |
+
+Customer `metadata` is spread first, so the explicit `name` / `phone` / `stripeCustomerId` keys win if your metadata happens to use those names.
+
+## Enablement
+
+A preset mounts only when **both** conditions hold: its secret env var is set **and** `ENABLED_WEBHOOK_PRESETS` allows it.
+
+| `ENABLED_WEBHOOK_PRESETS` | Behavior |
+|---|---|
+| unset or `*` | Auto — every preset whose secret is set mounts |
+| comma-separated ids (e.g. `stripe,clerk`) | Exactly those ids mount (still requires the secret) |
+| `none` | All presets off |
+
+So with `STRIPE_WEBHOOK_SECRET` set and `ENABLED_WEBHOOK_PRESETS` unset, `/v1/webhooks/stripe` is live automatically. If `STRIPE_WEBHOOK_SECRET` is missing, the preset is **never mounted** regardless of the allow-list.
+
+<Callout type="warn">
+  The Stripe scheme is **fail-closed**. If a request reaches `/v1/webhooks/stripe` but the secret is unset, it returns `401` and the transform never runs — there is no "open when unconfigured" mode for signature-verified sources. Set `STRIPE_WEBHOOK_SECRET` before pointing Stripe at the endpoint.
+</Callout>
+
+## Override the preset
+
+The preset registers under the id `stripe`. If you author your own `defineWebhookSource({ meta: { id: "stripe" } })` in your app's `src/webhook-sources/` and pass it to `createApp`, **your source wins** — the built-in preset is replaced for that id. Use this only when you need transform behavior the preset doesn't cover; for most apps, setting `STRIPE_WEBHOOK_SECRET` is the whole integration.
+
+## Using Stripe events in a journey
+
+Once events are flowing, trigger a journey on any mapped event name. For example, a dunning flow on a failed payment:
+
+```ts title="src/journeys/dunning.ts"
+import { defineJourney, days } from "@hogsend/engine";
+
+export const dunning = defineJourney({
+  meta: {
+    id: "dunning",
+    trigger: { event: "invoice.payment_failed" },
+    // leave the journey if a later invoice succeeds for this customer
+    exitOn: [{ event: "invoice.paid" }],
+  },
+  async run(user, ctx) {
+    // ...send a "your payment failed" email, wait, escalate
+  },
+});
+```
+
+The `eventProperties` above (`stripeCustomerId`, `_stripeEvent`, `stripeObject`, …) are exactly what a `trigger.where` or `exitOn.where` evaluates — see [Events & Ingestion](/docs/guides/events) and [Conditions](/docs/guides/conditions) for the matching rules.

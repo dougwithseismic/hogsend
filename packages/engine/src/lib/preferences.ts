@@ -2,6 +2,11 @@ import type { Database } from "@hogsend/db";
 import { emailPreferences } from "@hogsend/db";
 import { sql } from "drizzle-orm";
 import { resolveRecipient } from "./contacts.js";
+import { hatchet } from "./hatchet.js";
+import { createLogger } from "./logger.js";
+import { emitOutbound } from "./outbound.js";
+
+const logger = createLogger(process.env.LOG_LEVEL);
 
 /**
  * Single source of truth for an `email_preferences` upsert: the `(user_id, email)`
@@ -61,6 +66,32 @@ export async function upsertEmailPreference(opts: {
       target: [emailPreferences.userId, emailPreferences.email],
       set: setClause,
     });
+
+  // OUTBOUND `contact.unsubscribed` — this is the SINGLE choke for ALL preference
+  // writes (token unsub, preference center, list-membership flips), so the emit
+  // lives here once. GATED to a genuine opt-OUT only: a full unsubscribe
+  // (`unsubscribedAll === true`) or a category flip to false. A resubscribe
+  // (`unsubscribedAll === false` / `categoryValue === true`) does NOT emit. Uses
+  // the engine `hatchet`/`logger` singletons (this lib has no request container);
+  // fire-and-forget so a transient outbound error never fails the pref write.
+  const isUnsubscribe =
+    update.unsubscribedAll === true || update.categoryValue === false;
+  if (isUnsubscribe) {
+    const scope: "all" | "category" =
+      update.unsubscribedAll === true ? "all" : "category";
+    void emitOutbound({
+      db,
+      hatchet,
+      logger,
+      event: "contact.unsubscribed",
+      payload: {
+        externalId,
+        email,
+        category: update.categoryKey ?? null,
+        scope,
+      },
+    }).catch(logger.warn);
+  }
 }
 
 /**
