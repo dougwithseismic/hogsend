@@ -1,28 +1,22 @@
 ---
 title: Events & contacts
-description: Loops' updateContact/sendEvent → Hogsend's hs.contacts.upsert and hs.events.send. Identify and track patterns, and the contactProperties vs eventProperties split that makes them work.
+description: Identify and track with hs.contacts.upsert and hs.events.send. The identify/track patterns, and the contactProperties vs eventProperties split that makes them work.
 ---
 
-Underneath every email mode is the data that drives it: **who someone is** (contacts) and **what they just did** (events). In Loops you `updateContact` and `sendEvent`. In Hogsend:
+Underneath every email mode is the data that drives it: **who someone is** (contacts) and **what they just did** (events). You write both with two calls:
 
 ```ts
 await hs.contacts.upsert({ email, userId, properties });   // identify
 await hs.events.send({ name, email, eventProperties });    // track
 ```
 
-Events are the journey trigger — `hs.events.send({ name: "user.signed_up" })` is what starts a [lifecycle journey](/docs/recipes/lifecycle-journeys). Contacts are the durable record that [buckets](/docs/guides/buckets) segment on. Both take an **identity** (at least one of `email` or `userId`).
-
-## Loops → Hogsend
+Events are the journey trigger — `hs.events.send({ name: "user.signed_up" })` is what starts a [lifecycle journey](/docs/recipes/lifecycle-journeys). Contacts are the durable record that [buckets](/docs/guides/buckets) segment on. Both take an **identity** (at least one of `email` or `userId`):
 
 ```ts
-// Loops: identify / update a contact
-await loops.updateContact("ada@example.com", { firstName: "Ada", plan: "pro" });
-// Hogsend
+// identify / update a contact
 await hs.contacts.upsert({ email: "ada@example.com", properties: { firstName: "Ada", plan: "pro" } });
 
-// Loops: record an event
-await loops.sendEvent({ email: "ada@example.com", eventName: "signup" });
-// Hogsend
+// record an event
 await hs.events.send({ name: "signup", email: "ada@example.com" });
 ```
 
@@ -107,7 +101,7 @@ The response tells you it was stored and lists every active journey state that w
 
 ## The split: `contactProperties` vs `eventProperties`
 
-This is the one thing to internalize, and it's where Hogsend diverges from Loops' single property bag. An event carries **two** distinct bags:
+This is the one thing to internalize. An event carries **two** distinct bags:
 
 | Bag | Lands on | Describes | Read by |
 |---|---|---|---|
@@ -126,7 +120,7 @@ await hs.events.send({
 **Event properties never leak onto the contact, and contact properties never end up on the event.** A journey that needs to branch on "was this a pro signup?" keys its `trigger.where` on an `eventProperty`; a bucket that segments "all pro users" reads the `contactProperty`. So one `events.send` can both *trigger* a journey (via `eventProperties`) and *update the segment* a user belongs to (via `contactProperties`) in a single call.
 
 <Callout type="info">
-  This split is a deliberate behavior change from Loops' single bag (and from the old `/v1/ingest`, which has been removed). If you're porting Loops `sendEvent` calls: anything a journey *filters on* goes in `eventProperties`; anything that describes the person and should *persist on the contact* goes in `contactProperties`. See [Events](/docs/data-api/events#the-property-split) for the full model.
+  Keep the two bags straight and everything downstream falls into place: anything a journey *filters on* goes in `eventProperties`; anything that describes the person and should *persist on the contact* goes in `contactProperties`. See [Events](/docs/data-api/events#the-property-split) for the full model.
 </Callout>
 
 ## Idempotency

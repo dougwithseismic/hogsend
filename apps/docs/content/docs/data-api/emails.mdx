@@ -31,7 +31,7 @@ One of `to` or `userId` is required.
 | `to` | `string` | one of to/userId | Recipient email |
 | `userId` | `string` | one of to/userId | External user id — the recipient email is resolved from the contact record |
 | `template` | `string` | Yes | Registry key (your email template name). Validated server-side against the wired registry |
-| `props` | `Record<string, unknown>` | No | Template props (Loops' `dataVariables`). Typed by the SDK |
+| `props` | `Record<string, unknown>` | No | Template props (the template's variables). Typed by the SDK |
 | `from` | `string` | No | Sender override (defaults to the template / `RESEND_FROM_EMAIL`) |
 | `subject` | `string` | No | Subject override (defaults to the template) |
 | `replyTo` | `string \| string[]` | No | Reply-to override |

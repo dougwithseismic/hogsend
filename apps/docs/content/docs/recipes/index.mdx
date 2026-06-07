@@ -1,22 +1,22 @@
 ---
 title: Recipes
-description: Loops → Hogsend mappings for the three messaging modes — transactional, lifecycle, and marketing — and which Hogsend primitive each one maps to.
+description: The three messaging modes Hogsend gives you — transactional, lifecycle, and marketing — plus the two data primitives that drive them. Real, copy-pasteable how-tos.
 ---
 
-If you're coming from Loops, you've been thinking in three modes: **transactional emails**, **Loops/workflows**, and **campaigns**. Hogsend has a first-class primitive for each — the difference is that the *logic* lives in your repo as code, not behind a builder UI. These recipes are real, copy-pasteable mappings: the Loops call on one side, the exact Hogsend call on the other.
+Hogsend sends mail in three modes — **transactional**, **lifecycle**, and **marketing** — and each one is a first-class primitive you reach for directly in code. The logic lives in your repo as TypeScript, not behind a builder UI. These recipes are real, copy-pasteable how-tos: the exact Hogsend call for each job, plus the data primitives that feed all three.
 
 ## The three messaging modes
 
-| Mode | What it is | Loops surface | Hogsend primitive |
-|---|---|---|---|
-| **Transactional** | One-off, system-triggered mail to a single person — verify your email, reset your password, a receipt | Transactional emails (`POST /transactional`) | [`hs.emails.send()`](/docs/recipes/transactional-emails) → `POST /v1/emails` |
-| **Lifecycle** | Multi-step, behaviour-driven sequences — onboarding, trial nudges, win-back | Loops / Workflows (the visual builder) | [`defineJourney()`](/docs/recipes/lifecycle-journeys) — durable TypeScript |
-| **Marketing** | A one-time broadcast of one template to an audience | Campaigns | [`hs.campaigns.send()`](/docs/recipes/marketing-campaigns) → `POST /v1/campaigns` |
+| Mode | What it is | Hogsend primitive |
+|---|---|---|
+| **Transactional** | One-off, system-triggered mail to a single person — verify your email, reset your password, a receipt | [`hs.emails.send()`](/docs/recipes/transactional-emails) → `POST /v1/emails` |
+| **Lifecycle** | Multi-step, behaviour-driven sequences — onboarding, trial nudges, win-back | [`defineJourney()`](/docs/recipes/lifecycle-journeys) — durable TypeScript |
+| **Marketing** | A one-time broadcast of one template to an audience | [`hs.campaigns.send()`](/docs/recipes/marketing-campaigns) → `POST /v1/campaigns` |
 
 Underneath all three, two more primitives carry the data that drives everything:
 
-- [`hs.contacts.upsert()`](/docs/recipes/events-and-contacts) — the durable contact record (Loops' `updateContact`).
-- [`hs.events.send()`](/docs/recipes/events-and-contacts) — the behaviour stream that triggers journeys (Loops' `sendEvent`).
+- [`hs.contacts.upsert()`](/docs/recipes/events-and-contacts) — the durable contact record: who someone is.
+- [`hs.events.send()`](/docs/recipes/events-and-contacts) — the behaviour stream that triggers journeys: what they just did.
 
 ## Which primitive do I reach for?
 
@@ -34,24 +34,29 @@ Recording who someone is, or what they just did?
   → hs.contacts.upsert() / hs.events.send()           recipes/events-and-contacts
 ```
 
-## What carries over from Loops 1:1
+## How the pieces fit
 
-The shapes deliberately mirror Loops so migration is mostly a search-and-replace:
+A single signup touches every primitive: you `upsert` a contact (who they are), `events.send` a `user.signed_up` event (what they did, which triggers the onboarding journey), and `emails.send` a transactional verify-email. From there the journey takes over, buckets re-segment as contact properties change, and you can broadcast a campaign to anyone subscribed to a list.
 
-- `updateContact` → `hs.contacts.upsert({ email, userId, properties })`
-- `sendEvent` → `hs.events.send({ name, email, eventProperties })`
-- transactional `POST /transactional` → `hs.emails.send({ to, template, props })`
-- a Campaign → `hs.campaigns.send({ list, template, props })`
-- a Loop / workflow → `defineJourney({ meta, run })` (this is the one that becomes *code* instead of a canvas)
+```ts
+// 1. who they are
+await hs.contacts.upsert({ email, userId, properties: { plan: "free" } });
 
-## What's different (and better)
+// 2. what they did — triggers the onboarding journey
+await hs.events.send({ name: "user.signed_up", userId, eventProperties: { source: "web" } });
+
+// 3. a one-off transactional email
+await hs.emails.send({ to: email, template: "transactional/verify-email", props: { verifyUrl } });
+```
+
+## What you get across all three modes
 
 <Callout type="info">
-  Three things Hogsend gives you that Loops can't, all of which show up in these recipes:
+  Three guarantees that hold for every send Hogsend makes, and that show up throughout these recipes:
 
-  - **Typed templates.** `template` and `props` are type-checked against your own React Email registry — Loops' `dataVariables` are untyped strings.
-  - **Tracking on transactional mail.** Every send (including one-off transactional) flows through the same tracked mailer, so opens and clicks are recorded *and loop back into the engine as events* that can trigger journeys.
-  - **The split.** `contactProperties` (who they are) and `eventProperties` (what happened) are separate bags — see [Events & contacts](/docs/recipes/events-and-contacts).
+  - **Typed templates.** `template` and `props` are type-checked against your own React Email registry — a renamed or missing prop is a build failure, not a broken email in production.
+  - **Automatic tracking.** Every send — including one-off transactional — flows through the same tracked mailer, so opens and clicks are recorded *and loop back into the engine as events* that can trigger journeys or move bucket membership.
+  - **The property split.** `contactProperties` (who they are) and `eventProperties` (what happened) are separate bags — see [Events & contacts](/docs/recipes/events-and-contacts).
 </Callout>
 
 ## The recipes

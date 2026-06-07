@@ -1,9 +1,9 @@
 ---
 title: Lifecycle journeys
-description: Loops' visual Loops/workflows → Hogsend's defineJourney(). An onboarding series, a bucket-triggered trial-expiring journey, and a win-back journey — durable sleeps, branching, and tracked sends with the lifecycle/* templates.
+description: Build behaviour-driven sequences with defineJourney(). An onboarding series, a bucket-triggered trial-expiring journey, and a win-back journey — durable sleeps, branching, and tracked sends with the lifecycle/* templates.
 ---
 
-A lifecycle message is a multi-step, behaviour-driven sequence: onboard a new user, nudge a trial that's about to expire, win back someone who's gone quiet. In Loops you'd open the visual builder and drag nodes onto a canvas. In Hogsend you write a `defineJourney()` — a durable TypeScript function:
+A lifecycle message is a multi-step, behaviour-driven sequence: onboard a new user, nudge a trial that's about to expire, win back someone who's gone quiet. You write each one as a `defineJourney()` — a durable TypeScript function:
 
 ```ts
 export const onboarding = defineJourney({
@@ -12,21 +12,19 @@ export const onboarding = defineJourney({
 });
 ```
 
-`await ctx.sleep(days(3))` literally pauses the function for three days and resumes exactly where it left off — surviving restarts and deploys — because [Hatchet](https://hatchet.run) makes it durable. The branches are `if` statements. The "wait for them to do X" node is `ctx.waitForEvent()`. See the [Journeys guide](/docs/guides/journeys) for the full primitive reference; this page maps three common Loops shapes.
+`await ctx.sleep(days(3))` literally pauses the function for three days and resumes exactly where it left off — surviving restarts and deploys — because [Hatchet](https://hatchet.run) makes it durable. Branches are `if` statements. "Wait for them to do X" is `ctx.waitForEvent()`. The trigger, delays, exit conditions, and re-entry rules are all metadata on the journey:
 
-## Loops → Hogsend at a glance
-
-| Loops canvas node | Hogsend |
+| Concept | How you express it |
 |---|---|
-| Trigger (event / filter) | `meta.trigger: { event, where? }` |
+| Trigger (event + filter) | `meta.trigger: { event, where? }` |
 | Wait / delay | `await ctx.sleep({ duration: days(2) })` |
-| Wait for event | `await ctx.waitForEvent({ event, timeout })` |
-| Branch (if/else) | a plain `if` on `ctx.history` / the event |
+| Wait for behaviour | `await ctx.waitForEvent({ event, timeout })` |
+| Branch | a plain `if` on `ctx.history` / the event |
 | Send email | `await sendEmail({ to, template, … })` (tracked) |
 | Exit / goal met | `meta.exitOn` + early `return` |
-| Enter-once / re-entry rules | `meta.entryLimit` (`once` / `once_per_period` / `unlimited`) |
+| Enter-once / re-entry | `meta.entryLimit` (`once` / `once_per_period` / `unlimited`) |
 
-`sendEmail` is imported from `@hogsend/engine`, takes a registry `template` key (the `lifecycle/*` keys below), and is **tracked automatically** — the same open/click pipeline transactional sends get. Pass `journeyStateId: user.stateId` on every send so clicks and opens resolve back to this run.
+`sendEmail` is imported from `@hogsend/engine`, takes a registry `template` key (the `lifecycle/*` keys below), and is **tracked automatically** — the same open/click pipeline every send gets. Pass `journeyStateId: user.stateId` on every send so clicks and opens resolve back to this run. See the [Journeys guide](/docs/guides/journeys) for the full primitive reference; this page walks three common shapes.
 
 ## 1. Onboarding series
 
@@ -90,7 +88,7 @@ The two `activation/welcome` and `activation/nudge` templates already ship in th
 
 ## 2. Trial-expiring journey (triggered by a bucket)
 
-This is the pattern Loops can't do cleanly: trigger a journey off **audience membership** rather than a single raw event. A [Bucket](/docs/guides/buckets) maintains a real-time segment; when a user enters it, it emits a typed `bucket:entered:<id>` event through the same ingest pipeline, which a journey can trigger on.
+Trigger a journey off **audience membership** rather than a single raw event. A [Bucket](/docs/guides/buckets) maintains a real-time segment; when a user enters it, it emits a typed `bucket:entered:<id>` event through the same ingest pipeline, which a journey can trigger on.
 
 The scaffold ships a `trial-expiring-soon` bucket — on trial, ≤3 days left, not yet converted:
 
@@ -238,7 +236,7 @@ export const winBack = defineJourney({
 });
 ```
 
-`entryLimit: "once_per_period"` is the equivalent of Loops' "can re-enter every N days" — a user who lapses, returns, and lapses again can run the win-back flow a second time once `entryPeriod` has elapsed. `exitOn: APP_ACTIVE` is the goal-met exit: the journey stops the instant they return, even mid-sleep, and no further mail fires.
+`entryLimit: "once_per_period"` with `entryPeriod: days(30)` lets a user who lapses, returns, and lapses again run the win-back flow a second time once the period has elapsed. `exitOn: APP_ACTIVE` is the goal-met exit: the journey stops the instant they return, even mid-sleep, and no further mail fires.
 
 ## Add the template keys to your constants
 

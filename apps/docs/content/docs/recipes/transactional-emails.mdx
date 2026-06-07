@@ -1,35 +1,23 @@
 ---
 title: Transactional emails
-description: Loops' POST /transactional → Hogsend's hs.emails.send({ to, template, props }). Verify-email, password-reset, magic-link, and receipt — with typed props, automatic tracking, and unsubscribe handling.
+description: Send a transactional email with hs.emails.send({ to, template, props }). Verify-email, password-reset, magic-link, and receipt — with typed props, automatic tracking, and unsubscribe handling.
 ---
 
-A transactional email is a one-off, system-triggered message to a single person: verify your address, reset your password, here's your magic link, here's your receipt. In Loops you `POST /transactional` with a `transactionalId` and `dataVariables`. In Hogsend you call:
+A transactional email is a one-off, system-triggered message to a single person: verify your address, reset your password, here's your magic link, here's your receipt. You send one with a single call:
 
 ```ts
 await hs.emails.send({ to, template, props });
 ```
 
-`template` is a key in your own React Email registry (the equivalent of Loops' `transactionalId`), and `props` are the template's variables (Loops' `dataVariables`) — except they're **type-checked**.
-
-## Loops → Hogsend
+`template` is a key in your own React Email registry, and `props` are that template's variables — **type-checked** against the template you reference. The registry key is readable and stable (no opaque server-side id to keep in sync), and `props` is autocompleted: pass an unknown key and `tsc` fails before you ship.
 
 ```ts
-// Loops
-await loops.sendTransactionalEmail({
-  transactionalId: "clfq...",
-  email: "ada@example.com",
-  dataVariables: { firstName: "Ada", url: "https://app.example.com/verify?t=…" },
-});
-
-// Hogsend
 await hs.emails.send({
   to: "ada@example.com",
   template: "transactional/verify-email",
   props: { firstName: "Ada", verifyUrl: "https://app.example.com/verify?t=…" },
 });
 ```
-
-The Loops opaque `transactionalId` becomes a readable, typed registry key. `props` is autocompleted and prop-checked against the template you reference — pass an unknown key and `tsc` fails before you ship.
 
 ## Setup
 
@@ -119,7 +107,7 @@ await hs.emails.send({
 });
 ```
 
-This is the concrete win over Loops' untyped `dataVariables`: a renamed or missing prop is a build failure, not a broken email in production. (Without `@hogsend/email` the shape degrades to `{ template: string; props? }` — see the [client SDK reference](/docs/data-api/client-sdk).)
+A renamed or missing prop is a build failure, not a broken email in production. (Without `@hogsend/email` the shape degrades to `{ template: string; props? }` — see the [client SDK reference](/docs/data-api/client-sdk).)
 
 ## Tracking and unsubscribe are automatic
 
@@ -129,7 +117,7 @@ Because `/v1/emails` flows through the **same tracked mailer as every journey se
 - An **open pixel** (`/v1/t/o/:id`) is injected, so opens are recorded and re-ingested as `email.opened` events.
 - **Unsubscribe** headers (`List-Unsubscribe`, one-click) and preference-center links are added automatically — and those links are deliberately *not* rewritten for click tracking.
 
-This means a transactional open or click is a first-class event in the engine — it can trigger a journey or move bucket membership (a "clicked the receipt but never returned" segment, say). Loops does not expose tracking on transactional mail at all.
+This means a transactional open or click is a first-class event in the engine — it can trigger a journey or move bucket membership (a "clicked the receipt but never returned" segment, say). Every send Hogsend makes is tracked the same way, transactional included.
 
 ## Preference checks
 

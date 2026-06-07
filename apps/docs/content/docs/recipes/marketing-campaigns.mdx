@@ -1,22 +1,17 @@
 ---
 title: Marketing campaigns
-description: Loops' Campaigns → Hogsend's hs.campaigns.send({ list, template, props }). Define a list, subscribe contacts, and broadcast marketing/product-update — list vs bucket audiences, polarity, and the durable/idempotent/preference-checked send.
+description: Broadcast a template to an audience with hs.campaigns.send({ list, template, props }). Define a list, subscribe contacts, and broadcast marketing/product-update — list vs bucket audiences, polarity, and the durable/idempotent/preference-checked send.
 ---
 
-A marketing campaign is a one-time broadcast of a single template to a whole audience. In Loops you create a Campaign in the UI, pick an audience, and hit send. In Hogsend you call:
+A marketing campaign is a one-time broadcast of a single template to a whole audience. You send one with:
 
 ```ts
 await hs.campaigns.send({ list: "product-updates", template: "marketing/product-update", props });
 ```
 
-It queues a durable broadcast that sends the template to every subscribed member of the list, asynchronously, in the worker. Exactly one of `list` or `bucket` is the audience.
-
-## Loops → Hogsend
+It queues a durable broadcast that sends the template to every subscribed member of the list, asynchronously, in the worker. Exactly one of `list` or `bucket` is the audience, and the whole audience is code-defined:
 
 ```ts
-// Loops: create a Campaign in the UI → pick the "Product updates" audience → send
-
-// Hogsend: one call, audience is a code-defined list
 await hs.campaigns.send({
   list: "product-updates",
   template: "marketing/product-update",
@@ -56,7 +51,7 @@ See the [Lists reference](/docs/data-api/lists) for the full `defineList()` opti
 
 ## 2. Subscribe contacts
 
-Flip a contact's membership on. In Loops you'd toggle a mailing list on the contact; here it's a one-liner (or part of an `upsert`/`events.send` call via the `lists` bag).
+Flip a contact's membership on — a one-liner, or part of an `upsert`/`events.send` call via the `lists` bag.
 
 ```ts
 // explicit subscribe
@@ -102,7 +97,6 @@ A campaign's audience is **exactly one** of `list` or `bucket` (passing both, or
 | What it is | A named subscription a contact opts in/out of | A real-time [segment](/docs/guides/buckets) defined by `criteria` over contact state |
 | Membership | Explicit — the contact chose to be on it | Computed — the contact *matches the rules* right now |
 | Recipients | Every **subscribed** member | Every **active** member |
-| Loops analogue | A mailing list | A filtered audience |
 
 ```ts
 // broadcast to a code-defined list (opt-in subscription)

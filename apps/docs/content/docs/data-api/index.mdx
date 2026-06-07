@@ -3,7 +3,7 @@ title: Data API
 description: The public front door — write contacts, events, transactional emails, and list membership from your app code with a single ingest-scoped API key.
 ---
 
-The **Data API** is Hogsend's public front door. It's the surface your product code calls to push the data that drives lifecycle: contacts, events, transactional emails, and list membership. Everything lives under `/v1`, is authenticated with a single bearer key, and mirrors the shapes you'd reach for in any Loops-style SDK — but the journey logic stays in your repo as code.
+The **Data API** is Hogsend's public front door. It's the surface your product code calls to push the data that drives lifecycle: contacts, events, transactional emails, and list membership. Everything lives under `/v1`, is authenticated with a single bearer key, and exposes the clean, predictable shapes you'd want from any messaging SDK — while the journey logic stays in your repo as code.
 
 ## Two planes, one engine
 
@@ -16,7 +16,7 @@ Hogsend exposes two distinct HTTP surfaces. They share the same contact store an
 | Who calls it | Your application code (via the SDK or direct HTTP) | Operators, Studio, the CLI, dashboards |
 | Purpose | **Write** the data that drives journeys | **Observe and operate** — list, inspect, export, replay, manage keys |
 
-The data plane is the equivalent of Loops' contacts / events / transactional API. The admin plane is documented separately under the [API Reference](/docs/api).
+The data plane is the surface for writing contacts, events, and transactional emails from your app. The admin plane is documented separately under the [API Reference](/docs/api).
 
 <Callout type="info">
   The data-plane routes are bearer-authed but they are **not** under `/v1/admin`. A data key (scope `ingest`) opens the data plane; it does **not** open `/v1/admin/*`. See [Authentication](/docs/data-api/authentication) for why the `ingest` scope is orthogonal, not hierarchical.
