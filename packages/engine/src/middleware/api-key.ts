@@ -16,6 +16,38 @@ const SCOPE_HIERARCHY: Record<string, number> = {
   "full-admin": 2,
 };
 
+/**
+ * Single source of truth for scope checks.
+ *
+ * - Hierarchical scopes (`read` < `journey-admin` < `full-admin`): the key
+ *   passes when the MAX hierarchical rank it holds is >= the required rank.
+ * - Orthogonal scopes (e.g. `ingest`): NOT part of the hierarchy. A key must
+ *   either be granted the scope explicitly OR hold `full-admin` (which implies
+ *   every orthogonal data-plane scope).
+ *
+ * This fixes the latent bug where an orthogonal required scope was looked up in
+ * SCOPE_HIERARCHY (`?? 0`), letting ANY authenticated key satisfy it.
+ */
+export function hasScope(keyScopes: string[], required: string): boolean {
+  const requiredRank = SCOPE_HIERARCHY[required];
+
+  if (requiredRank === undefined) {
+    // Orthogonal scope (e.g. "ingest"): explicit grant or full-admin implies it.
+    return keyScopes.includes(required) || keyScopes.includes("full-admin");
+  }
+
+  // Hierarchical scope: highest rank held must clear the required rank.
+  let maxRank = Number.NEGATIVE_INFINITY;
+  for (const scope of keyScopes) {
+    const rank = SCOPE_HIERARCHY[scope];
+    if (rank !== undefined && rank > maxRank) {
+      maxRank = rank;
+    }
+  }
+
+  return maxRank >= requiredRank;
+}
+
 const KEY_CACHE = new Map<
   string,
   {
@@ -108,19 +140,13 @@ export const requireApiKey = createMiddleware<AppEnv>(async (c, next) => {
 });
 
 export function requireScope(scope: string) {
-  const required = SCOPE_HIERARCHY[scope] ?? 0;
-
   return createMiddleware<AppEnv>(async (c, next) => {
     const apiKey = c.get("apiKey");
     if (!apiKey) {
       return c.json({ error: "Unauthorized" }, 401);
     }
 
-    const maxScope = Math.max(
-      ...apiKey.scopes.map((s: string) => SCOPE_HIERARCHY[s] ?? 0),
-    );
-
-    if (maxScope < required) {
+    if (!hasScope(apiKey.scopes, scope)) {
       return c.json({ error: "Forbidden: insufficient scope" }, 403);
     }
 

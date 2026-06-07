@@ -165,3 +165,44 @@ export interface ChurnPaymentFailedEmailProps {
   gracePeriodDays?: number;
   unsubscribeUrl?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Transactional templates (sent one-off via hs.emails.send / POST /v1/emails).
+// One-off, system-triggered mail — no unsubscribe, no list.
+// ---------------------------------------------------------------------------
+
+export interface TransactionalVerifyEmailProps {
+  name?: string;
+  verifyUrl: string;
+  expiresIn?: string;
+}
+
+export interface TransactionalMagicLinkProps {
+  name?: string;
+  magicLinkUrl: string;
+  expiresIn?: string;
+}
+
+export interface TransactionalReceiptProps {
+  name?: string;
+  orderId: string;
+  items: Array<{ description: string; amount: string }>;
+  total: string;
+  receiptUrl?: string;
+  purchasedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Marketing templates (broadcast to a list via hs.campaigns.send).
+// Gated on the `product-updates` list category.
+// ---------------------------------------------------------------------------
+
+export interface MarketingProductUpdateProps {
+  name?: string;
+  headline?: string;
+  body?: string;
+  ctaUrl?: string;
+  ctaText?: string;
+  unsubscribeUrl?: string;
+  preferencesUrl?: string;
+}

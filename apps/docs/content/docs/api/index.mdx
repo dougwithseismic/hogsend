@@ -35,11 +35,11 @@ Dashboard and user-facing endpoints use [Better Auth](https://www.better-auth.co
 - Session-based auth with 7-day expiry (refreshed daily)
 - Organization plugin (up to 5 orgs, 100 members each)
 
-### Admin API Keys (bearer token)
+### API Keys (bearer token)
 
-All `/v1/admin/*` endpoints require a bearer token. Hogsend supports two auth modes:
+Both the admin plane (`/v1/admin/*`) and the public **data plane** (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`) use bearer-token API keys. The data plane is bearer-authed but it is **not** under `/v1/admin` — it's a separate surface gated by a separate scope (see below and the [Data API](/docs/data-api/authentication)). Hogsend supports two auth modes:
 
-1. **Legacy key** -- A static key from the `ADMIN_API_KEY` environment variable (full admin access)
+1. **Legacy key** -- A static key from the `ADMIN_API_KEY` environment variable (full admin access; implies `ingest`)
 2. **Database-backed keys** -- Generated via `POST /v1/admin/api-keys` with scoped permissions
 
 ```bash
@@ -47,13 +47,16 @@ curl -H "Authorization: Bearer your-api-key" \
   http://localhost:3002/v1/admin/contacts
 ```
 
-Keys are SHA-256 hashed before storage -- the raw key is only shown once at creation time. Keys support three scope levels:
+Keys are SHA-256 hashed before storage -- the raw key is only shown once at creation time. Scopes come in **two kinds**:
 
-| Scope | Access |
-|---|---|
-| `read` | GET endpoints only |
-| `journey-admin` | Read + journey management |
-| `full-admin` | All operations |
+| Scope | Kind | Access |
+|---|---|---|
+| `read` | hierarchical | GET admin endpoints only |
+| `journey-admin` | hierarchical | Read + journey management |
+| `full-admin` | hierarchical | All admin operations. **Also implies `ingest`** |
+| `ingest` | **orthogonal** | The data plane (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`). No `/v1/admin/*` access |
+
+The three admin scopes are **hierarchical**: `read < journey-admin < full-admin`, each implying the ones below it. `ingest` is **orthogonal** — it sits outside that ladder. A `read` or `journey-admin` key does **not** get `ingest`, and an `ingest`-only key does **not** get admin access. The only ways to reach the data plane are an explicit `ingest` grant or `full-admin`. Combine scopes (e.g. `["read", "ingest"]`) for a key that needs both planes.
 
 Keys can be revoked and have optional expiry dates. Active keys are cached in memory for 60 seconds.
 

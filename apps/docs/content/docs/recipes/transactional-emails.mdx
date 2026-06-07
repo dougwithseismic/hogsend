@@ -1,0 +1,148 @@
+---
+title: Transactional emails
+description: Send a transactional email with hs.emails.send({ to, template, props }). Verify-email, password-reset, magic-link, and receipt — with typed props, automatic tracking, and unsubscribe handling.
+---
+
+A transactional email is a one-off, system-triggered message to a single person: verify your address, reset your password, here's your magic link, here's your receipt. You send one with a single call:
+
+```ts
+await hs.emails.send({ to, template, props });
+```
+
+`template` is a key in your own React Email registry, and `props` are that template's variables — **type-checked** against the template you reference. The registry key is readable and stable (no opaque server-side id to keep in sync), and `props` is autocompleted: pass an unknown key and `tsc` fails before you ship.
+
+```ts
+await hs.emails.send({
+  to: "ada@example.com",
+  template: "transactional/verify-email",
+  props: { firstName: "Ada", verifyUrl: "https://app.example.com/verify?t=…" },
+});
+```
+
+## Setup
+
+```ts
+import { Hogsend } from "@hogsend/client";
+
+export const hs = new Hogsend({
+  baseUrl: process.env.HOGSEND_BASE_URL!,   // e.g. https://api.example.com
+  apiKey: process.env.HOGSEND_DATA_KEY!,    // hsk_… key with the `ingest` scope
+});
+```
+
+`hs.emails.send` maps directly to [`POST /v1/emails`](/docs/data-api/emails). Default `from`/`subject` come from the template registry, so you only pass them to override.
+
+## The four transactional recipes
+
+### Verify email
+
+```ts
+await hs.emails.send({
+  to: user.email,
+  template: "transactional/verify-email",
+  props: {
+    firstName: user.firstName,
+    verifyUrl: `https://app.example.com/verify?token=${token}`,
+  },
+});
+```
+
+### Password reset
+
+```ts
+await hs.emails.send({
+  to: user.email,
+  template: "transactional/password-reset",
+  props: {
+    resetUrl: `https://app.example.com/reset?token=${token}`,
+    expiresInMinutes: 30,
+  },
+});
+```
+
+### Magic link
+
+```ts
+await hs.emails.send({
+  to: email,
+  template: "transactional/magic-link",
+  props: {
+    magicUrl: `https://app.example.com/auth/magic?token=${token}`,
+    expiresInMinutes: 15,
+  },
+});
+```
+
+### Receipt
+
+```ts
+await hs.emails.send({
+  to: customer.email,
+  template: "transactional/receipt",
+  props: {
+    amount: 4900,            // cents
+    currency: "usd",
+    invoiceUrl: "https://app.example.com/invoices/inv_123",
+    items: [{ name: "Pro plan — monthly", amount: 4900 }],
+  },
+});
+```
+
+You can also address the recipient by `userId` instead of `to` — the mailer resolves the email off the contact record:
+
+```ts
+await hs.emails.send({ userId: "user_123", template: "transactional/receipt", props: { /* … */ } });
+```
+
+## Typed props
+
+Each template key is mapped to a props type via your app's `TemplateRegistryMap` augmentation. With `@hogsend/email` installed, `hs.emails.send` is a discriminated union over your registry — pick `transactional/verify-email` and `props` is exactly that template's props, autocompleted:
+
+```ts
+// ✗ compile error — `receipt` has no `magicUrl` prop
+await hs.emails.send({
+  to: "ada@example.com",
+  template: "transactional/receipt",
+  props: { magicUrl: "…" },
+});
+```
+
+A renamed or missing prop is a build failure, not a broken email in production. (Without `@hogsend/email` the shape degrades to `{ template: string; props? }` — see the [client SDK reference](/docs/data-api/client-sdk).)
+
+## Tracking and unsubscribe are automatic
+
+Because `/v1/emails` flows through the **same tracked mailer as every journey send**, there is zero extra wiring:
+
+- **Links** in the rendered HTML are rewritten to `/v1/t/c/:id`, so clicks are recorded and re-ingested as `email.link_clicked` events.
+- An **open pixel** (`/v1/t/o/:id`) is injected, so opens are recorded and re-ingested as `email.opened` events.
+- **Unsubscribe** headers (`List-Unsubscribe`, one-click) and preference-center links are added automatically — and those links are deliberately *not* rewritten for click tracking.
+
+This means a transactional open or click is a first-class event in the engine — it can trigger a journey or move bucket membership (a "clicked the receipt but never returned" segment, say). Every send Hogsend makes is tracked the same way, transactional included.
+
+## Preference checks
+
+By default the send respects the recipient's subscription and suppression state — an unsubscribed or suppressed recipient is **not** emailed, and the call returns a `suppressed` / `unsubscribed` status (a successful no-op, not an error).
+
+For genuinely critical mail (password reset, security) where you must bypass that, pass `skipPreferenceCheck: true`. It is a privileged operation: the data-plane `ingest` scope is **not** enough — the key must hold `full-admin`, or the request returns `403`.
+
+```ts
+await hs.emails.send({
+  to: user.email,
+  template: "transactional/password-reset",
+  props: { resetUrl, expiresInMinutes: 30 },
+  skipPreferenceCheck: true,   // requires a full-admin key
+});
+```
+
+## Response
+
+```ts
+const { emailSendId, status } = await hs.emails.send({ /* … */ });
+// status: "queued" | "sent" | "suppressed" | "unsubscribed" | "skipped"
+```
+
+Use `emailSendId` (the `email_sends` row id) to correlate later delivery and engagement. See [`POST /v1/emails`](/docs/data-api/emails) for the full field and error reference, and the [tracking reference](/docs/api/tracking) for the collection endpoints.
+
+<Callout type="info">
+  These four template keys (`transactional/verify-email`, `transactional/password-reset`, `transactional/magic-link`, `transactional/receipt`) are the canonical examples used across the docs. To author the actual `.tsx` templates behind them, see the [Email guide](/docs/guides/email) — each is a component plus a `registry.ts` entry plus a `templates.d.ts` augmentation.
+</Callout>

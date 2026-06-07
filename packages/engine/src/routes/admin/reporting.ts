@@ -12,7 +12,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { resolveContact } from "../../lib/contacts.js";
+import { contactKey, resolveContact } from "../../lib/contacts.js";
 import { rate, TRUNC_SQL } from "../../lib/metrics-sql.js";
 import { errorSchema } from "../../lib/schemas.js";
 
@@ -109,7 +109,7 @@ const contactActivityRoute = createRoute({
         "application/json": {
           schema: z.object({
             contact: z.object({
-              externalId: z.string(),
+              externalId: z.string().nullable(),
               email: z.string().nullable(),
             }),
             sends: z.array(
@@ -244,7 +244,7 @@ export const reportingRouter = new OpenAPIHono<AppEnv>()
 
     // Denormalized identity makes this single-table; fall back to the contact's
     // email so journeyless sends still surface.
-    const idConds = [eq(emailSends.userId, contact.externalId)];
+    const idConds = [eq(emailSends.userId, contactKey(contact))];
     if (contact.email) idConds.push(eq(emailSends.userEmail, contact.email));
     const where = or(...idConds);
 

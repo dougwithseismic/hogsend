@@ -98,6 +98,7 @@ export function createTrackedMailer(
             headers: options.headers,
             replyTo: options.replyTo,
             skipPreferenceCheck: options.skipPreferenceCheck,
+            idempotencyKey: options.idempotencyKey,
             baseUrl: config.baseUrl,
           },
         });

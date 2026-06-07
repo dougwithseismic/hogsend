@@ -43,7 +43,7 @@ vi.mock("../lib/hatchet.js", () => hatchetMock());
 
 const { bucketConfigs, bucketMemberships, contacts, importJobs, userEvents } =
   await import("@hogsend/db");
-const { and, eq } = await import("drizzle-orm");
+const { and, eq, sql } = await import("drizzle-orm");
 const {
   buildBucketRegistry,
   bucketBackfillTask,
@@ -131,6 +131,7 @@ async function seedContact(
     })
     .onConflictDoUpdate({
       target: contacts.externalId,
+      targetWhere: sql`${contacts.externalId} is not null and ${contacts.deletedAt} is null`,
       set: { deletedAt: opts?.deleted ? new Date() : null },
     });
 }

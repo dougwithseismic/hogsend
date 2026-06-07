@@ -2,7 +2,7 @@ import { emailSends, journeyStates, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { resolveContact } from "../../lib/contacts.js";
+import { contactKey, resolveContact } from "../../lib/contacts.js";
 
 const timelineEntrySchema = z.object({
   type: z.enum(["event", "journey", "email"]),
@@ -64,7 +64,10 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    const externalId = contact.externalId;
+    // Resolved string key the history tables (user_events/journey_states/
+    // email_sends) were written under: external_id, else anonymous_id, else the
+    // contact uuid (matches ingestEvent's resolvedKey).
+    const externalId = contactKey(contact);
     const entries: TimelineEntry[] = [];
 
     const shouldFetch = (t: string) => !type || type === t;

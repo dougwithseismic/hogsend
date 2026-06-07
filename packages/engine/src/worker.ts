@@ -17,6 +17,10 @@ import {
 import { bucketReconcileTask } from "./workflows/bucket-reconcile.js";
 import { checkAlertsTask } from "./workflows/check-alerts.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
+import {
+  reapStuckCampaignsTask,
+  sendCampaignTask,
+} from "./workflows/send-campaign.js";
 import { sendEmailTask } from "./workflows/send-email.js";
 
 export interface CreateWorkerOptions {
@@ -62,6 +66,8 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
   const baseWorkflows = [
     sendEmailTask,
     importContactsTask,
+    sendCampaignTask,
+    reapStuckCampaignsTask,
     checkAlertsTask,
     bucketReconcileTask,
     bucketBackfillTask,

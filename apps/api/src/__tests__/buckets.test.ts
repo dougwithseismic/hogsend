@@ -52,7 +52,7 @@ vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
 vi.mock("../lib/hatchet.js", () => hatchetMock());
 
 const { bucketMemberships, contacts, userEvents } = await import("@hogsend/db");
-const { and, desc, eq } = await import("drizzle-orm");
+const { and, desc, eq, sql } = await import("drizzle-orm");
 const {
   BucketRegistry,
   JourneyRegistry,
@@ -285,6 +285,7 @@ async function seedContact(
     })
     .onConflictDoUpdate({
       target: contacts.externalId,
+      targetWhere: sql`${contacts.externalId} is not null and ${contacts.deletedAt} is null`,
       set: { properties },
     });
 }
@@ -356,7 +357,15 @@ function emptyJourneyRegistry() {
 function check(opts: {
   userId: string;
   event: string;
-  properties?: Record<string, unknown>;
+  /**
+   * D2: the event payload — candidate-narrowing ONLY (it no longer participates
+   * in property eval). Most tests pass the criteria property here purely so the
+   * registry's property index routes the bucket; the authoritative property
+   * state is the seeded `contacts` row (see `seedContact`).
+   */
+  eventProperties?: Record<string, unknown>;
+  /** D2: this-ingest contact-property patch, overlaid on the read contact row. */
+  contactProperties?: Record<string, unknown>;
   userEmail?: string | null;
   journeyRegistry?: InstanceType<typeof JourneyRegistry>;
 }) {
@@ -369,7 +378,8 @@ function check(opts: {
     userId: opts.userId,
     userEmail: opts.userEmail ?? `${opts.userId}@example.com`,
     event: opts.event,
-    properties: opts.properties ?? {},
+    eventProperties: opts.eventProperties ?? {},
+    contactProperties: opts.contactProperties ?? {},
   });
 }
 
@@ -422,7 +432,7 @@ describe("recursion guard (Phase 1 #5)", () => {
     const transitions = await check({
       userId,
       event: `bucket:entered:${PROP_BUCKET_ID}`,
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
 
     expect(transitions).toEqual([]);
@@ -437,7 +447,7 @@ describe("recursion guard (Phase 1 #5)", () => {
     const transitions = await check({
       userId,
       event: `bucket:left:${PROP_BUCKET_ID}`,
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
 
     expect(transitions).toEqual([]);
@@ -466,7 +476,7 @@ describe("criteria builder (function form)", () => {
     const transitions = await check({
       userId,
       event: "user.updated",
-      properties: { tier: "vip" },
+      eventProperties: { tier: "vip" },
     });
 
     expect(transitions).toContainEqual({
@@ -489,7 +499,7 @@ describe("maxDwell TTL stamping", () => {
     const transitions = await check({
       userId,
       event: "plan.changed",
-      properties: { plan: "vip" },
+      eventProperties: { plan: "vip" },
     });
 
     expect(transitions).toContainEqual({
@@ -511,7 +521,11 @@ describe("maxDwell TTL stamping", () => {
     const userId = uid("no-ttl");
     await seedContact(userId, { plan: "pro" });
 
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
 
     const row = await activeRow(userId, PROP_BUCKET_ID);
     expect(row?.maxDwellAt ?? null).toBeNull();
@@ -530,7 +544,7 @@ describe("enter / leave / stable (Phase 1 #1)", () => {
     const transitions = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
 
     // Exactly the prop-bucket entered transition (the property index routes the
@@ -556,14 +570,18 @@ describe("enter / leave / stable (Phase 1 #1)", () => {
     await seedContact(userId, { plan: "pro" });
 
     // First event → join.
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
     pushSpy.mockClear();
 
     // Second event, still pro → stable member, no transition, no emit.
     const transitions = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
 
     expect(
@@ -583,7 +601,11 @@ describe("enter / leave / stable (Phase 1 #1)", () => {
     await seedContact(userId, { plan: "pro" });
 
     // Join.
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
     pushSpy.mockClear();
 
     // Flip the merged contact state false (downgrade), then re-evaluate.
@@ -591,7 +613,7 @@ describe("enter / leave / stable (Phase 1 #1)", () => {
     const transitions = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "free" },
+      eventProperties: { plan: "free" },
     });
 
     const propLeave = transitions.filter(
@@ -623,7 +645,7 @@ describe("re-entrant cycle (Phase 1 #2)", () => {
       const joinTransitions = await check({
         userId,
         event: "user.updated",
-        properties: { plan: "pro" },
+        eventProperties: { plan: "pro" },
       });
       expect(
         joinTransitions.filter(
@@ -641,7 +663,7 @@ describe("re-entrant cycle (Phase 1 #2)", () => {
       const leaveTransitions = await check({
         userId,
         event: "user.updated",
-        properties: { plan: "free" },
+        eventProperties: { plan: "free" },
       });
       expect(
         leaveTransitions.filter(
@@ -661,57 +683,129 @@ describe("re-entrant cycle (Phase 1 #2)", () => {
 });
 
 // ===========================================================================
-// Phase 1 acceptance #3 — event omitting a referenced property still evaluates
-// against MERGED contact state (no spurious join/leave)
+// Phase 1 acceptance #3 (D2 MIGRATED) — property predicates evaluate against
+// CONTACT STATE ONLY. The raw event payload is REMOVED from property eval (the
+// old `{ ...contactProperties, ...(properties ?? {}) }` overlay is gone — risk
+// 8). `eventProperties` survives ONLY as candidate-narrowing; the authoritative
+// value comes from the contacts row (⊕ this-ingest contactProperties patch).
+// Each test DELIBERATELY makes the event payload value DIVERGE from the contact
+// state so a regression that re-introduces the payload overlay flips the result.
 // ===========================================================================
 
-describe("merged contact state (Phase 1 #3)", () => {
-  it("a join holds on an event that does NOT carry the referenced property", async () => {
-    const userId = uid("merged-join");
-    // The contact row carries plan=pro; the event carries an unrelated property.
+describe("contact-state-only property eval (Phase 1 #3, D2)", () => {
+  it("joins on contact state even when the event payload value CONTRADICTS the criteria", async () => {
+    const userId = uid("contact-authoritative-join");
+    // Contact says plan=pro (criteria SATISFIED). The event payload deliberately
+    // carries plan=free (criteria NOT satisfied) purely to narrow the candidate.
     await seedContact(userId, { plan: "pro" });
 
-    // The triggering event omits `plan` entirely — it only carries a property
-    // referenced by the prop bucket so candidate narrowing still picks it up, OR
-    // we drive it via the event bucket. Here we route via the prop bucket using a
-    // property key it references (plan absent from payload, present on contact).
     const transitions = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" }, // routes candidate; value matches contact too
+      eventProperties: { plan: "free" }, // narrows the candidate; eval IGNORES it
     });
 
-    // The merged context = { ...contact (plan:pro), ...event } → membership holds.
+    // If the payload still leaked into eval, plan=free would fail the criteria
+    // and there would be NO join. The contact row (plan=pro) is authoritative →
+    // the member joins.
     expect(
       transitions.filter(
         (t) => t.bucketId === PROP_BUCKET_ID && t.transition === "entered",
       ),
     ).toHaveLength(1);
+    expect(await activeRow(userId, PROP_BUCKET_ID)).toBeDefined();
   });
 
-  it("does NOT spuriously leave when a later event omits the criteria property", async () => {
-    const userId = uid("merged-no-leave");
+  it("does NOT spuriously leave when a later event payload would fail the criteria but contact state still holds", async () => {
+    const userId = uid("contact-authoritative-no-leave");
     await seedContact(userId, { plan: "pro" });
 
-    // Join.
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    // Join on contact state.
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
     pushSpy.mockClear();
 
-    // A later event that carries `plan` (so the prop bucket is a candidate) but
-    // the contact state is unchanged (still pro). The merged state still
-    // satisfies the criteria → NO spurious bucket:left. (Evaluating against the
-    // bare event payload alone would still pass here; the stronger guarantee is
-    // that the contact row, not the transient payload, is authoritative.)
+    // A later event whose PAYLOAD carries plan=free (would fail the criteria if
+    // the payload were consulted). The contact row is unchanged (still pro), so
+    // the member must NOT leave. Under the old payload-overlay this would have
+    // spuriously emitted bucket:left.
     const transitions = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "free" },
     });
 
     expect(
       transitions.filter((t) => t.bucketId === PROP_BUCKET_ID),
     ).toHaveLength(0);
     expect(aliasPushCount("left", PROP_BUCKET_ID)).toBe(0);
+    expect(await activeRow(userId, PROP_BUCKET_ID)).toBeDefined();
+  });
+
+  it("leaves when CONTACT state flips false even though the event payload still carries the old satisfying value", async () => {
+    const userId = uid("contact-authoritative-leave");
+    await seedContact(userId, { plan: "pro" });
+
+    // Join.
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
+    pushSpy.mockClear();
+
+    // Downgrade the CONTACT to free, but the event payload still carries the
+    // stale plan=pro. Eval reads contact state (free) → the member LEAVES; a
+    // stale payload value can never keep a member in.
+    await seedContact(userId, { plan: "free" });
+    const transitions = await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
+
+    expect(
+      transitions.filter(
+        (t) => t.bucketId === PROP_BUCKET_ID && t.transition === "left",
+      ),
+    ).toHaveLength(1);
+    expect(aliasPushCount("left", PROP_BUCKET_ID)).toBe(1);
+    expect(await activeRow(userId, PROP_BUCKET_ID)).toBeUndefined();
+  });
+
+  it("overlays the this-ingest contactProperties patch on the read contact row (risk 7)", async () => {
+    const userId = uid("contact-patch-overlay");
+    // The persisted contact is plan=free (criteria NOT satisfied). The patch
+    // carries plan=pro — the read-after-write overlay that covers the first
+    // event after a contact-property change.
+    await seedContact(userId, { plan: "free" });
+
+    const transitions = await checkBucketMembership({
+      db,
+      registry: emptyJourneyRegistry(),
+      // biome-ignore lint/suspicious/noExplicitAny: mocked hatchet client
+      hatchet: hatchet as any,
+      logger,
+      userId,
+      userEmail: `${userId}@example.com`,
+      event: "user.updated",
+      // Event payload does NOT carry plan at all — it only narrows the candidate
+      // via the contactProperties patch key below.
+      eventProperties: {},
+      // The patch overlays the stored contact state for THIS eval → plan=pro.
+      contactProperties: { plan: "pro" },
+    });
+
+    // The eval context = { ...contact(plan:free), ...patch(plan:pro) } → pro →
+    // the member joins despite the persisted row still reading free.
+    expect(
+      transitions.filter(
+        (t) => t.bucketId === PROP_BUCKET_ID && t.transition === "entered",
+      ),
+    ).toHaveLength(1);
     expect(await activeRow(userId, PROP_BUCKET_ID)).toBeDefined();
   });
 
@@ -729,7 +823,7 @@ describe("merged contact state (Phase 1 #3)", () => {
     const transitions = await check({
       userId,
       event: SIGNUP_EVENT,
-      properties: {},
+      eventProperties: {},
     });
 
     // The event bucket's check:"exists" reads userEvents (count > 0) → join,
@@ -757,7 +851,7 @@ describe('entryLimit:"once" (Phase 1 #4)', () => {
     const first = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
     expect(
       first.filter(
@@ -771,7 +865,7 @@ describe('entryLimit:"once" (Phase 1 #4)', () => {
     await check({
       userId,
       event: "user.updated",
-      properties: { plan: "free" },
+      eventProperties: { plan: "free" },
     });
     pushSpy.mockClear();
 
@@ -779,7 +873,7 @@ describe('entryLimit:"once" (Phase 1 #4)', () => {
     const second = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
 
     // The JOIN transition is still reported AND the active row is written (Studio
@@ -815,7 +909,7 @@ describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
     const first = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
     expect(
       first.filter(
@@ -829,7 +923,7 @@ describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
     await check({
       userId,
       event: "user.updated",
-      properties: { plan: "free" },
+      eventProperties: { plan: "free" },
     });
     expect(aliasPushCount("left", PERIOD_BUCKET_ID)).toBe(1);
 
@@ -847,7 +941,7 @@ describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
     const second = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
 
     // The JOIN transition is still reported AND the active row is written +
@@ -872,12 +966,16 @@ describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
     await seedContact(userId, { plan: "pro" });
 
     // Join → leave (first cycle).
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
     await seedContact(userId, { plan: "free" });
     await check({
       userId,
       event: "user.updated",
-      properties: { plan: "free" },
+      eventProperties: { plan: "free" },
     });
 
     // Pin the prior leave to 25h ago — PAST the 24h entryPeriod.
@@ -894,7 +992,7 @@ describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
     const second = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
     });
 
     expect(
@@ -915,7 +1013,11 @@ describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
     await seedContact(userId, { plan: "pro" });
 
     // First join → emits.
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
     expect(aliasPushCount("entered", PERIOD_NOCFG_BUCKET_ID)).toBe(1);
 
     // Leave then immediately re-join (no time passes); the prior leave is
@@ -925,12 +1027,16 @@ describe('entryLimit:"once_per_period" precise cooldown (STEP 2)', () => {
     await check({
       userId,
       event: "user.updated",
-      properties: { plan: "free" },
+      eventProperties: { plan: "free" },
     });
     pushSpy.mockClear();
 
     await seedContact(userId, { plan: "pro" });
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
 
     const active = await activeRow(userId, PERIOD_NOCFG_BUCKET_ID);
     expect(active?.entryCount).toBe(2);
@@ -967,7 +1073,7 @@ describe("journey bound to bucket:entered:<id> (Phase 1 #6)", () => {
     const transitions = await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
       journeyRegistry,
     });
 
@@ -1010,7 +1116,7 @@ describe("journey bound to bucket:entered:<id> (Phase 1 #6)", () => {
     await check({
       userId,
       event: "user.updated",
-      properties: { plan: "pro" },
+      eventProperties: { plan: "pro" },
       journeyRegistry,
     });
 
@@ -1249,7 +1355,11 @@ describe("entryCount on a real-time join emit (Test 9)", () => {
     const userId = uid("entrycount-emit");
     await seedContact(userId, { plan: "pro" });
 
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
 
     const payload = lastTransitionPush("entered", PROP_BUCKET_ID, userId);
     expect(payload).toBeDefined();
@@ -1263,7 +1373,11 @@ describe("reason on a real-time criteria leave (Test 10)", () => {
     await seedContact(userId, { plan: "pro" });
 
     // Join.
-    await check({ userId, event: "user.updated", properties: { plan: "pro" } });
+    await check({
+      userId,
+      event: "user.updated",
+      eventProperties: { plan: "pro" },
+    });
     pushSpy.mockClear();
 
     // Flip false → criteria leave.
@@ -1271,7 +1385,7 @@ describe("reason on a real-time criteria leave (Test 10)", () => {
     await check({
       userId,
       event: "user.updated",
-      properties: { plan: "free" },
+      eventProperties: { plan: "free" },
     });
 
     const payload = lastTransitionPush("left", PROP_BUCKET_ID, userId);
@@ -1286,7 +1400,11 @@ describe("reason on a TTL leave via the reconcile cron (Test 11)", () => {
     await seedContact(userId, { plan: "vip" });
 
     // Join the maxDwell bucket (stamps maxDwellAt = enteredAt + 24h, future).
-    await check({ userId, event: "plan.changed", properties: { plan: "vip" } });
+    await check({
+      userId,
+      event: "plan.changed",
+      eventProperties: { plan: "vip" },
+    });
     const row = await activeRow(userId, TTL_BUCKET_ID);
     expect(row).toBeDefined();
 

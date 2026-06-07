@@ -32,9 +32,14 @@ interface JourneyMeta {
 ### `trigger.event`
 
 The event name that enrolls a user. Each journey declares `onEvents:
-[trigger.event]` on its Hatchet durable task, so when `POST /v1/ingest` (or a
-webhook source) pushes that event, Hatchet routes it straight to this journey.
-Use a constant from your `src/journeys/constants/`:
+[trigger.event]` on its Hatchet durable task, so when that event is pushed,
+Hatchet routes it straight to this journey. The event can originate from any of
+the ingestion spine's entry points: the data-plane `POST /v1/events` endpoint
+(the public event API, also driven by `@hogsend/client`'s `hs.events.send()`), a
+registered webhook source (`POST /v1/webhooks/:sourceId`), or `ctx.trigger()`
+fired from inside another journey. All three funnel through the same
+`ingestEvent()` pipeline, so any of them can enroll a user. Use a constant from
+your `src/journeys/constants/`:
 
 ```ts
 trigger: { event: Events.USER_CREATED },

@@ -5,11 +5,22 @@
 // keys in sync with `./registry.ts` and the `Templates` constants in
 // `src/journeys/constants/index.ts`.
 
-import type { ActivationNudgeEmailProps, WelcomeEmailProps } from "./types.js";
+import type {
+  ActivationNudgeEmailProps,
+  MagicLinkEmailProps,
+  ProductUpdateEmailProps,
+  ReceiptEmailProps,
+  TrialExpiringEmailProps,
+  WelcomeEmailProps,
+} from "./types.js";
 
 declare module "@hogsend/email" {
   interface TemplateRegistryMap {
     "activation/welcome": WelcomeEmailProps;
     "activation/nudge": ActivationNudgeEmailProps;
+    "transactional/magic-link": MagicLinkEmailProps;
+    "transactional/receipt": ReceiptEmailProps;
+    "lifecycle/trial-expiring": TrialExpiringEmailProps;
+    "marketing/product-update": ProductUpdateEmailProps;
   }
 }

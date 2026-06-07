@@ -1,0 +1,56 @@
+{
+  "name": "@hogsend/client",
+  "version": "0.6.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Typed HTTP client for the Hogsend data plane (contacts, events, emails, lists).",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dougwithseismic/hogsend.git",
+    "directory": "packages/client"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "clean": "rm -rf node_modules dist .turbo",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "peerDependencies": {
+    "@hogsend/email": "workspace:^"
+  },
+  "peerDependenciesMeta": {
+    "@hogsend/email": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@hogsend/email": "workspace:^",
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.15.3",
+    "tsup": "^8.5.1",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

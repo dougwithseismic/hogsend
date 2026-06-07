@@ -127,21 +127,24 @@ async function main() {
 
   const userId = `smoke-${process.pid}-${process.hrtime.bigint()}`;
   console.log(`  firing test.signup for ${userId}…`);
-  const ingestRes = await app.request("/v1/ingest", {
+  // POST /v1/events replaces the deleted /v1/ingest (D2 split + D5 scope). The
+  // body is the new shape ({ name, userId|email, eventProperties }); the legacy
+  // ADMIN_API_KEY carries full-admin, which implies the required `ingest` scope.
+  const ingestRes = await app.request("/v1/events", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       Authorization: `Bearer ${client.env.ADMIN_API_KEY}`,
     },
     body: JSON.stringify({
-      event: "test.signup",
+      name: "test.signup",
       userId,
-      userEmail: `${userId}@smoke.test`,
-      properties: { plan: "pro" },
+      email: `${userId}@smoke.test`,
+      eventProperties: { plan: "pro" },
     }),
   });
   check(
-    `ingest accepted test.signup (${ingestRes.status})`,
+    `events accepted test.signup (${ingestRes.status})`,
     ingestRes.status === 202,
   );
 

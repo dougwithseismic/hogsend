@@ -46,7 +46,7 @@ Hogsend is everything on top of Hatchet that makes it a lifecycle automation pla
 
 | Concern | Hatchet alone | Hogsend |
 |---|---|---|
-| Event ingestion | You build it | `POST /v1/ingest/` + `defineWebhookSource()` (PostHog source ships as starter content) |
+| Event ingestion | You build it | `POST /v1/events` + `defineWebhookSource()` (PostHog source ships as starter content) |
 | Journey definition | Raw Hatchet task API | `defineJourney()` with metadata, guards, and typed context |
 | Enrollment guards | You build it | Automatic: entry limits, trigger conditions, subscription checks |
 | Exit conditions | You build it | Declarative `exitOn` rules evaluated on every incoming event |

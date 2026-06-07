@@ -15,11 +15,15 @@ import type {
   ConversionWinbackOfferEmailProps,
   FeedbackNpsSurveyEmailProps,
   JourneyNotificationEmailProps,
+  MarketingProductUpdateProps,
   PasswordResetEmailProps,
   ReactivationCheckinEmailProps,
   ReactivationFinalNudgeEmailProps,
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
+  TransactionalMagicLinkProps,
+  TransactionalReceiptProps,
+  TransactionalVerifyEmailProps,
   WelcomeEmailProps,
 } from "./types.js";
 
@@ -41,5 +45,9 @@ declare module "@hogsend/email" {
     "reactivation-final-nudge": ReactivationFinalNudgeEmailProps;
     "feedback-nps-survey": FeedbackNpsSurveyEmailProps;
     "churn-payment-failed": ChurnPaymentFailedEmailProps;
+    "transactional/verify-email": TransactionalVerifyEmailProps;
+    "transactional/magic-link": TransactionalMagicLinkProps;
+    "transactional/receipt": TransactionalReceiptProps;
+    "marketing/product-update": MarketingProductUpdateProps;
   }
 }

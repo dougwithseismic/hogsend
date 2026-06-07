@@ -126,21 +126,32 @@ You want `"status": "healthy"` with both `schema.engine.inSync` and `schema.clie
 
 The scaffold ships a `test-onboarding` journey that runs to completion with **no email and no external accounts** — it exists to prove the pipeline end-to-end, and to show off the whole point of code-first lifecycle. Its `run()` branches on `user.properties.plan` and fires internal events with `ctx.trigger` along the way (open `src/journeys/test-onboarding.ts` and read it — it's ~30 lines of plain TypeScript).
 
-Fire its trigger — `test.signup` — **twice**, with a different `plan` each time and a distinct `userId`. With both processes running:
+Events are sent through the public data plane (`POST /v1/events`), which is authenticated — so first **mint an ingest key**. Use your `ADMIN_API_KEY` to create one and capture it into a shell variable:
+
+```bash title="mint a data key"
+HOGSEND_DATA_KEY=$(curl -s -XPOST http://localhost:3002/v1/admin/api-keys \
+  -H "authorization: Bearer $ADMIN_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"name":"local quickstart","scopes":["ingest"]}' | jq -r .key)
+```
+
+The `ingest` scope is what opens the data plane — see [data-plane authentication](/docs/data-api/authentication). Now fire the trigger — `test.signup` — **twice**, with a different `plan` each time and a distinct `userId`. With both processes running:
 
 ```bash title="pro run"
-curl -XPOST http://localhost:3002/v1/ingest \
+curl -XPOST http://localhost:3002/v1/events \
+  -H "authorization: Bearer $HOGSEND_DATA_KEY" \
   -H 'content-type: application/json' \
-  -d '{"event":"test.signup","userId":"smoke-pro","userEmail":"pro@example.com","properties":{"plan":"pro"}}'
+  -d '{"name":"test.signup","userId":"smoke-pro","email":"pro@example.com","contactProperties":{"plan":"pro"}}'
 ```
 
 ```bash title="free run"
-curl -XPOST http://localhost:3002/v1/ingest \
+curl -XPOST http://localhost:3002/v1/events \
+  -H "authorization: Bearer $HOGSEND_DATA_KEY" \
   -H 'content-type: application/json' \
-  -d '{"event":"test.signup","userId":"smoke-free","userEmail":"free@example.com","properties":{"plan":"free"}}'
+  -d '{"name":"test.signup","userId":"smoke-free","email":"free@example.com","contactProperties":{"plan":"free"}}'
 ```
 
-`POST /v1/ingest` requires `event` + `userId` (`userEmail` and `properties` are optional). Each call returns `202` and pushes the event to Hatchet, which routes it to the `test-onboarding` journey (its `trigger.event` is `test.signup`).
+`POST /v1/events` requires `name` + one of `email`/`userId`. `plan` goes in `contactProperties` because the journey branches on `user.properties.plan` (contact state). Each call returns `202` and pushes the event to Hatchet, which routes it to the `test-onboarding` journey (its `trigger.event` is `test.signup`).
 
 ### Read the divergence
 
@@ -174,9 +185,10 @@ The `welcome` example journey (`src/journeys/welcome.ts`) is the one that talks 
 Fire its trigger:
 
 ```bash
-curl -XPOST http://localhost:3002/v1/ingest \
+curl -XPOST http://localhost:3002/v1/events \
+  -H "authorization: Bearer $HOGSEND_DATA_KEY" \
   -H 'content-type: application/json' \
-  -d '{"event":"user.created","userId":"welcome-1","userEmail":"you@yourdomain.com","properties":{"plan":"free"}}'
+  -d '{"name":"user.created","userId":"welcome-1","email":"you@yourdomain.com","contactProperties":{"plan":"free"}}'
 ```
 
 Only the **first** welcome email (subject `Welcome — let's get you set up`) is sent right away. The follow-up nudge sits behind a **2-day durable sleep**, so assert success on the first email only — don't wait around for the second.

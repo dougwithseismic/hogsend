@@ -104,7 +104,7 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
     const rows = await db
       .select()
       .from(emailPreferences)
-      .where(eq(emailPreferences.userId, contact.externalId))
+      .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
       .limit(1);
 
     if (rows.length === 0) {
@@ -131,7 +131,7 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
     const [upserted] = await db
       .insert(emailPreferences)
       .values({
-        userId: contact.externalId,
+        userId: contact.externalId ?? contact.id,
         email: contact.email,
         unsubscribedAll: body.unsubscribedAll ?? false,
         suppressed: body.suppressed ?? false,

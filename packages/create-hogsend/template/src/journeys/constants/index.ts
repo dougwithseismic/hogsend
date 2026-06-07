@@ -10,6 +10,13 @@ export const Events = {
   USER_DELETED: "user.deleted",
   FEATURE_USED: "feature.used",
 
+  // Billing lifecycle — drives the bundled `trial-expiring` journey. Emit
+  // `trial.started` from your signup/billing code (e.g. `hs.events.send`); the
+  // journey waits out the trial and emails before it ends. `subscription.started`
+  // pulls a user OUT (they converted) so the reminder never fires.
+  TRIAL_STARTED: "trial.started",
+  SUBSCRIPTION_STARTED: "subscription.started",
+
   // Built-in journey lifecycle events (emitted by the engine).
   JOURNEY_WELCOME_FIRED: "journey.welcome_fired",
   JOURNEY_PRO_PATH: "journey.pro_path",
@@ -68,6 +75,16 @@ export const Templates = {
   // Email template keys resolved by @hogsend/email's registry.
   ACTIVATION_WELCOME: "activation/welcome",
   ACTIVATION_NUDGE: "activation/nudge",
+
+  // Transactional — sent one-off via hs.emails.send.
+  TRANSACTIONAL_MAGIC_LINK: "transactional/magic-link",
+  TRANSACTIONAL_RECEIPT: "transactional/receipt",
+
+  // Lifecycle — sent from journeys.
+  LIFECYCLE_TRIAL_EXPIRING: "lifecycle/trial-expiring",
+
+  // Marketing — broadcast to a list via hs.campaigns.send.
+  MARKETING_PRODUCT_UPDATE: "marketing/product-update",
 } as const;
 
 export type TemplateName = (typeof Templates)[keyof typeof Templates];

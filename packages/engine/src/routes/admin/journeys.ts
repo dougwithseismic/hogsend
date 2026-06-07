@@ -662,7 +662,9 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
         event: meta.trigger.event,
         userId: body.userId,
         userEmail: body.userEmail,
-        properties: body.properties ?? {},
+        // Public request field stays `properties` (decision #14); it maps to
+        // the event-property bag of the IngestEvent (D2 split).
+        eventProperties: body.properties ?? {},
       },
     });
 

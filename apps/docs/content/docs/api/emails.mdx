@@ -3,6 +3,10 @@ title: Emails API
 description: Email send history, delivery details, tracked links, unsubscribe handling, and the preference center.
 ---
 
+<Callout type="info">
+  These are the **admin/ops** email endpoints (browse send history, inspect delivery — admin-scoped). To **send** a transactional email from your application code, use the public data plane: [`POST /v1/emails`](/docs/data-api/emails), authed with an `ingest`-scoped key. Tracking and unsubscribe are inherited automatically.
+</Callout>
+
 ## Admin -- Email Sends
 
 Browse email send history and inspect delivery details. All require the `Authorization: Bearer <ADMIN_API_KEY>` header.

@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PKG_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$PKG_DIR/../.." && pwd)"
 
-PACKAGES=(core db email engine plugin-posthog plugin-resend studio)
+PACKAGES=(cli client core db email engine plugin-posthog plugin-resend studio)
 
 TARBALLS=""
 APP_PARENT=""
@@ -38,10 +38,16 @@ head -1 "$CLI" | grep -q '#!/usr/bin/env node' || fail "missing shebang in $CLI"
 # --- 2. pack @hogsend/* into a /tmp tarball dir ---------------------------
 echo "==> [2/8] pack @hogsend/* tarballs"
 TARBALLS="$(mktemp -d /tmp/hogsend-tarballs.XXXXXX)"
-# studio ships a built `dist` bundle (files: ["dist"]) — the engine serves the
-# Studio UI from it. Build it first so its tarball isn't empty. The other
-# packages ship raw `src/**` and need no build.
+# Some packages ship a built `dist` bundle and must be built before packing or
+# their tarballs are empty:
+#   - studio (files: ["dist"]) — the engine serves the Studio UI from it.
+#   - cli + client — both ship dist/ and are now on the engine version line, so
+#     the scaffold depends on them (^{{ENGINE_VERSION}}). client ships only
+#     dist; cli ships dist + src. Build all three first. The remaining packages
+#     ship raw `src/**` and need no build.
 pnpm --filter @hogsend/studio build >/dev/null
+pnpm --filter @hogsend/cli build >/dev/null
+pnpm --filter @hogsend/client build >/dev/null
 for pkg in "${PACKAGES[@]}"; do
   # `pnpm pack` works on private packages. Run with --dir on the package path:
   # `--filter ... pack` is a recursive run, which pnpm's `pack` rejects.
@@ -51,11 +57,15 @@ for pkg in "${PACKAGES[@]}"; do
   # match the glob rather than hardcoding a version that drifts each release.
   tgz="$(echo "$TARBALLS"/hogsend-"$pkg"-*.tgz)"
   [ -f "$tgz" ] || fail "tarball not produced for $pkg (no hogsend-$pkg-*.tgz)"
-  if [ "$pkg" = "studio" ]; then
-    tar -tzf "$tgz" | grep -q 'package/dist/' || fail "$tgz missing package/dist/**"
-  else
-    tar -tzf "$tgz" | grep -q 'package/src/' || fail "$tgz missing package/src/**"
-  fi
+  case "$pkg" in
+    studio | cli | client)
+      # These ship a built dist/ — assert it travelled in the tarball.
+      tar -tzf "$tgz" | grep -q 'package/dist/' || fail "$tgz missing package/dist/**"
+      ;;
+    *)
+      tar -tzf "$tgz" | grep -q 'package/src/' || fail "$tgz missing package/src/**"
+      ;;
+  esac
 done
 echo "    packed: $(ls "$TARBALLS" | tr '\n' ' ')"
 

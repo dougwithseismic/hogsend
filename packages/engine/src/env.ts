@@ -65,6 +65,10 @@ export const env = createEnv({
     // Evaluated at worker boot — a toggle requires a worker restart; only the
     // bucket_configs DB override is hot.
     ENABLED_BUCKETS: z.string().default("*"),
+    // Email lists (D3): same `"*"`-or-csv contract as ENABLED_JOURNEYS /
+    // ENABLED_BUCKETS. Filters which `defineList()` lists are registered into the
+    // process ListRegistry (the suppression-polarity + preference-center source).
+    ENABLED_LISTS: z.string().default("*"),
     // Cadence for the engine-owned bucket reconcile cron (time-based leaves).
     BUCKET_RECONCILE_CRON: z.string().default("*/5 * * * *"),
   },

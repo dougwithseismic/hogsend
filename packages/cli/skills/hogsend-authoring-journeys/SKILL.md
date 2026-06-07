@@ -4,7 +4,7 @@ description: Use when adding or editing a lifecycle journey in src/journeys/ —
 license: MIT
 metadata:
   author: withSeismic
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Authoring Hogsend journeys

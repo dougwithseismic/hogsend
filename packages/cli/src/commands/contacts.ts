@@ -5,12 +5,14 @@ import type { Command, CommandContext } from "./types.js";
 
 const usage = `hogsend contacts <subcommand> [options]
 
-Inspect contacts via the running app's admin API (/v1/admin/contacts).
+Inspect contacts via the admin API (/v1/admin/contacts) and upsert them via the
+data plane (PUT /v1/contacts).
 
 Subcommands:
   list                  List contacts (newest activity first).
   get <id>              Get one contact (by id or externalId) + preferences.
   timeline <id>        Merged event/email/journey activity for a contact.
+  upsert                Create or update a contact (PUT /v1/contacts).
 
 list options:
   --search <q>          Filter by email/externalId substring.
@@ -22,12 +24,24 @@ timeline options:
   --limit <n>           Page size (1-100, default 50).
   --offset <n>          Page offset (default 0).
 
-Global options (handled by the router): --url, --admin-key, --json, -h/--help.
+upsert options (at least one of --email / --user-id required):
+  --email <addr>        Contact email (a resolvable identity key).
+  --user-id <id>        External (distinct) id.
+  --prop <key=value>    Contact property; repeatable. Value parsed as JSON,
+                        falling back to a string. Uses the data plane (ingest key).
+  --props <json>        Contact properties as one JSON object (merged with --prop).
+  --list <id>           Subscribe to a list; repeatable.
+  --unlist <id>         Unsubscribe from a list; repeatable.
+
+Global options (handled by the router): --url, --admin-key, --data-key, --json,
+-h/--help.
 
 Examples:
   hogsend contacts list --search acme@ --json
   hogsend contacts get user_123
-  hogsend contacts timeline user_123 --type email --json`;
+  hogsend contacts timeline user_123 --type email --json
+  hogsend contacts upsert --email a@b.com --user-id user_123 --prop plan=pro
+  hogsend contacts upsert --user-id user_123 --props '{"plan":"pro","seats":5}'`;
 
 type ContactRecord = {
   id: string;
@@ -75,7 +89,93 @@ type TimelineResponse = {
   offset: number;
 };
 
+/** Shape returned by PUT /v1/contacts. */
+type UpsertResponse = {
+  id: string;
+  created: boolean;
+  linked: boolean;
+};
+
 const badge = `${color.bgMagenta(color.black(" hogsend "))} contacts`;
+
+/**
+ * Parse `--prop key=value` (repeatable) + an optional `--props <json>` object
+ * into a single properties record. Each `--prop` value is JSON-parsed when it
+ * is valid JSON (numbers/booleans/null/objects), else kept as a string. The
+ * explicit `--props` object is applied first, so later `--prop` flags win.
+ */
+function parseProps(
+  ctx: CommandContext,
+  propsJson: string | undefined,
+  propPairs: string[] | undefined,
+): Record<string, unknown> | undefined {
+  const out: Record<string, unknown> = {};
+  let any = false;
+
+  if (propsJson !== undefined) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(propsJson);
+    } catch {
+      ctx.out.fail(`--props must be valid JSON, got: ${propsJson}`);
+    }
+    if (
+      parsed === null ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      ctx.out.fail("--props must be a JSON object");
+    }
+    Object.assign(out, parsed as Record<string, unknown>);
+    any = true;
+  }
+
+  for (const pair of propPairs ?? []) {
+    const eq = pair.indexOf("=");
+    if (eq === -1) {
+      ctx.out.fail(`--prop must be key=value, got: ${pair}`);
+    }
+    const key = pair.slice(0, eq).trim();
+    if (key === "") {
+      ctx.out.fail(`--prop key cannot be empty, got: ${pair}`);
+    }
+    const raw = pair.slice(eq + 1);
+    out[key] = coerceValue(raw);
+    any = true;
+  }
+
+  return any ? out : undefined;
+}
+
+/** JSON-parse a flag value, falling back to the raw string. */
+function coerceValue(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Build a `lists` map from repeatable `--list <id>` (true) / `--unlist <id>`
+ * (false) flags. Returns undefined when neither was passed.
+ */
+function parseLists(
+  subscribe: string[] | undefined,
+  unsubscribe: string[] | undefined,
+): Record<string, boolean> | undefined {
+  const out: Record<string, boolean> = {};
+  let any = false;
+  for (const id of subscribe ?? []) {
+    out[id] = true;
+    any = true;
+  }
+  for (const id of unsubscribe ?? []) {
+    out[id] = false;
+    any = true;
+  }
+  return any ? out : undefined;
+}
 
 /** Run an HTTP call, mapping HttpError into a clean ctx.out.fail message. */
 async function fetchOrFail<T>(
@@ -286,6 +386,73 @@ function summarizeTimelineEntry(entry: TimelineEntry): string {
   return `${subject} [${String(d.status ?? "")}]`;
 }
 
+async function runUpsert(ctx: CommandContext, argv: string[]): Promise<void> {
+  const { values } = parseArgs({
+    args: argv,
+    allowPositionals: true,
+    options: {
+      email: { type: "string" },
+      "user-id": { type: "string" },
+      prop: { type: "string", multiple: true },
+      props: { type: "string" },
+      list: { type: "string", multiple: true },
+      unlist: { type: "string", multiple: true },
+      help: { type: "boolean", short: "h", default: false },
+    },
+  });
+
+  if (values.help) {
+    ctx.out.log(usage);
+    return;
+  }
+
+  const email = values.email;
+  const userId = values["user-id"];
+  if (!email && !userId) {
+    ctx.out.fail(
+      "contacts upsert requires at least one of --email or --user-id",
+    );
+  }
+
+  const properties = parseProps(ctx, values.props, values.prop);
+  const lists = parseLists(values.list, values.unlist);
+
+  const body: {
+    email?: string;
+    userId?: string;
+    properties?: Record<string, unknown>;
+    lists?: Record<string, boolean>;
+  } = {};
+  if (email) body.email = email;
+  if (userId) body.userId = userId;
+  if (properties) body.properties = properties;
+  if (lists) body.lists = lists;
+
+  if (!ctx.json) ctx.out.intro(`${badge} upsert`);
+
+  const res = await fetchOrFail<UpsertResponse>(ctx, "Upserting contact", () =>
+    ctx.dataHttp.put<UpsertResponse>("/v1/contacts", body),
+  );
+
+  if (ctx.json) {
+    ctx.out.json(res);
+    return;
+  }
+
+  ctx.out.kv(
+    {
+      id: res.id,
+      created: res.created,
+      linked: res.linked,
+      email: email ?? color.dim("(none)"),
+      userId: userId ?? color.dim("(none)"),
+    },
+    "Contact",
+  );
+  const verb = res.created ? "created" : "updated";
+  ctx.out.outro(`Contact ${color.cyan(res.id)} ${verb}.`);
+}
+
 async function run(ctx: CommandContext): Promise<void> {
   const sub = ctx.argv[0];
 
@@ -296,21 +463,24 @@ async function run(ctx: CommandContext): Promise<void> {
       return runGet(ctx, ctx.argv);
     case "timeline":
       return runTimeline(ctx, ctx.argv);
+    case "upsert":
+      // Strip the leading "upsert" token; the rest is upsert's own flags.
+      return runUpsert(ctx, ctx.argv.slice(1));
     case undefined:
       ctx.out.fail(
-        "contacts requires a subcommand: list, get, or timeline (see hogsend contacts --help)",
+        "contacts requires a subcommand: list, get, timeline, or upsert (see hogsend contacts --help)",
       );
       break;
     default:
       ctx.out.fail(
-        `unknown contacts subcommand "${sub}" — expected list, get, or timeline`,
+        `unknown contacts subcommand "${sub}" — expected list, get, timeline, or upsert`,
       );
   }
 }
 
 export const contactsCommand: Command = {
   name: "contacts",
-  summary: "List, inspect, and trace contact activity",
+  summary: "List, inspect, trace, and upsert contacts",
   usage,
   run,
 };

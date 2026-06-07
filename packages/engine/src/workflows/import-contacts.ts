@@ -1,10 +1,16 @@
 import { createDatabase, importJobs } from "@hogsend/db";
 import { eq } from "drizzle-orm";
 import Papa from "papaparse";
-import { upsertContact } from "../lib/contacts.js";
+import { resolveOrCreateContact } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 
 const BATCH_SIZE = 500;
+
+interface ImportRow {
+  externalId?: string;
+  email?: string;
+  properties?: Record<string, unknown>;
+}
 
 export const importContactsTask = hatchet.task({
   name: "import-contacts",
@@ -20,11 +26,7 @@ export const importContactsTask = hatchet.task({
       .set({ status: "processing", updatedAt: new Date() })
       .where(eq(importJobs.id, input.jobId));
 
-    let rows: Array<{
-      externalId: string;
-      email?: string;
-      properties?: Record<string, unknown>;
-    }>;
+    let rows: ImportRow[];
 
     try {
       if (input.format === "json") {
@@ -61,14 +63,22 @@ export const importContactsTask = hatchet.task({
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
-        batch.map((row, idx) =>
-          upsertContact({
+        batch.map((row, idx) => {
+          // Accept email-only rows (D1): require AT LEAST one identity key,
+          // not externalId specifically. The resolver upserts/merges on
+          // whichever keys are present.
+          if (!row.externalId && !row.email) {
+            return Promise.reject(
+              new Error("Row has neither externalId nor email"),
+            );
+          }
+          return resolveOrCreateContact({
             db,
-            externalId: row.externalId,
+            userId: row.externalId,
             email: row.email,
-            properties: row.properties,
-          }).then(() => ({ index: i + idx, ok: true })),
-        ),
+            contactProperties: row.properties,
+          }).then(() => ({ index: i + idx, ok: true }));
+        }),
       );
 
       results.forEach((result, batchIdx) => {
@@ -108,25 +118,23 @@ export const importContactsTask = hatchet.task({
   },
 });
 
-function parseCsv(data: string): Array<{
-  externalId: string;
-  email?: string;
-  properties?: Record<string, unknown>;
-}> {
+function parseCsv(data: string): ImportRow[] {
   const result = Papa.parse<Record<string, string>>(data, {
     header: true,
     skipEmptyLines: true,
   });
 
-  if (!result.meta.fields?.includes("externalId")) {
-    throw new Error("CSV must have an externalId column");
+  const fields = result.meta.fields ?? [];
+  // Accept email-only imports (D1): require AT LEAST one identity column.
+  if (!fields.includes("externalId") && !fields.includes("email")) {
+    throw new Error("CSV must have an externalId or email column");
   }
 
   return result.data.map((row) => {
     const { externalId, email, ...rest } = row;
     const properties = Object.keys(rest).length > 0 ? rest : undefined;
     return {
-      externalId: externalId ?? "",
+      externalId: externalId || undefined,
       email: email || undefined,
       properties: properties as Record<string, unknown> | undefined,
     };

@@ -19,6 +19,8 @@
   },
   "dependencies": {
     "@hatchet-dev/typescript-sdk": "^1.22.3",
+    "@hogsend/cli": "^{{ENGINE_VERSION}}",
+    "@hogsend/client": "^{{ENGINE_VERSION}}",
     "@hogsend/core": "^{{ENGINE_VERSION}}",
     "@hogsend/db": "^{{ENGINE_VERSION}}",
     "@hogsend/email": "^{{ENGINE_VERSION}}",

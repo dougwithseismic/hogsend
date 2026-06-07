@@ -9,8 +9,12 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { htmlPage } from "../../lib/html.js";
+import { getListRegistry } from "../../lists/registry-singleton.js";
 
-const EMAIL_CATEGORIES = [
+// The built-in journey/lifecycle category is always shown. Defined lists (D3)
+// are appended from the registry so the preference center and the mailer's
+// suppression check share ONE polarity source (`ListRegistry.isSubscribed`).
+const BUILTIN_CATEGORIES = [
   { id: "journey", label: "Journey & lifecycle emails" },
 ] as const;
 
@@ -91,9 +95,29 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
       return `${env.API_PUBLIC_URL}/v1/email/unsubscribe?token=${encodeURIComponent(actionToken)}`;
     }
 
+    // Built-in journey category + every enabled defined list, deduped by id
+    // (a list MAY NOT reuse a reserved category id, but guard anyway).
+    const listRegistry = getListRegistry();
+    const seen = new Set<string>();
+    const renderableCategories: { id: string; label: string }[] = [];
+    for (const cat of BUILTIN_CATEGORIES) {
+      seen.add(cat.id);
+      renderableCategories.push({ id: cat.id, label: cat.label });
+    }
+    for (const list of listRegistry.getEnabled()) {
+      if (seen.has(list.id)) continue;
+      seen.add(list.id);
+      renderableCategories.push({ id: list.id, label: list.name });
+    }
+
     let categoryRows = "";
-    for (const cat of EMAIL_CATEGORIES) {
-      const isSubscribed = categories[cat.id] !== false && !globalUnsub;
+    for (const cat of renderableCategories) {
+      // Registry-driven polarity (§2.6): defined lists honour their
+      // `defaultOptIn`; unknown ids (e.g. the built-in `journey`) fall through
+      // to opt-in default (blocked only on explicit `false`). A global
+      // unsubscribe overrides every per-category state.
+      const isSubscribed =
+        listRegistry.isSubscribed(categories, cat.id) && !globalUnsub;
       const statusClass = isSubscribed ? "subscribed" : "unsubscribed";
       const statusText = isSubscribed ? "Subscribed" : "Unsubscribed";
       const actionLabel = isSubscribed ? "Unsubscribe" : "Resubscribe";

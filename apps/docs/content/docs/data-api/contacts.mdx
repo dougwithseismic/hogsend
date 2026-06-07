@@ -1,0 +1,125 @@
+---
+title: Contacts
+description: Upsert, find, and delete contacts on the public data plane — keyed by email and/or userId, with properties and list membership.
+---
+
+The contacts endpoints write and read Hogsend's authoritative contact store. A contact is keyed by **email and/or userId** (your external id) — not by an immutable id — so you can create email-only contacts and link them to a `userId` later. See [Identity](/docs/data-api/identity) for the full model.
+
+All three endpoints require a bearer key with the `ingest` scope.
+
+## `PUT /v1/contacts` — upsert
+
+Resolves a contact (create, fill-in-link, or merge), merges `properties` onto it, and optionally writes list membership.
+
+**Request body** — one of `email` or `userId` is required.
+
+```jsonc
+{
+  "email": "ada@example.com",
+  "userId": "user_123",
+  "properties": { "plan": "pro", "company": "Acme" },
+  "lists": { "product-updates": true }
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `email` | `string` | one of email/userId | Email address (normalized: trimmed + lowercased) |
+| `userId` | `string` | one of email/userId | Your external user identifier (maps to `external_id`) |
+| `properties` | `Record<string, unknown>` | No | Merged onto `contacts.properties` (additive; explicit `null` clears a key) |
+| `lists` | `Record<string, boolean>` | No | List membership to apply after the upsert (requires a resolvable email) |
+
+**Response `200`**
+
+```json
+{ "id": "550e8400-e29b-41d4-a716-446655440000", "created": false, "linked": true }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | The canonical contact uuid |
+| `created` | `boolean` | `true` if this call created a new contact |
+| `linked` | `boolean` | `true` if an existing contact gained a missing key (e.g. an email-only contact just got its `userId`) |
+
+The property merge is additive — passing `{ "plan": "pro" }` sets `plan` without touching other keys. Passing `{ "plan": null }` clears `plan`.
+
+Lists are applied **after** the resolve, so the contact exists first. List writes need a resolvable email; if you upsert a `userId`-only contact with `lists` and no email anywhere on record, the call returns `400`.
+
+```bash
+curl -X PUT http://localhost:3002/v1/contacts \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "ada@example.com",
+    "userId": "user_123",
+    "properties": { "plan": "pro" }
+  }'
+```
+
+## `GET /v1/contacts/find`
+
+Look up non-deleted contacts by `email` or `userId`. Exactly one query key is required.
+
+```bash
+curl "http://localhost:3002/v1/contacts/find?email=ada@example.com" \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY"
+```
+
+**Response `200`**
+
+```json
+{
+  "contacts": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "externalId": "user_123",
+      "email": "ada@example.com",
+      "properties": { "plan": "pro" },
+      "firstSeenAt": "2026-01-10T08:00:00.000Z",
+      "lastSeenAt": "2026-01-15T10:30:00.000Z",
+      "createdAt": "2026-01-10T08:00:00.000Z",
+      "updatedAt": "2026-01-15T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+The serialized contact's `externalId` is **nullable** — email-only (anonymous) contacts have no `external_id` until they're linked to a `userId`. `email` is likewise nullable for the (rare) anonymous-only case. Timestamps are ISO 8601 strings.
+
+A `find` by email and a `find` by the linked userId return the same contact — that's the identity model working.
+
+## `DELETE /v1/contacts`
+
+Soft-deletes a contact (sets `deletedAt`; the row is retained for history). One of `email` or `userId` is required.
+
+```bash
+curl -X DELETE http://localhost:3002/v1/contacts \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": "user_123" }'
+```
+
+**Response `200`**
+
+```json
+{ "deleted": true }
+```
+
+Returns `404` if no matching contact exists, `400` if neither key is supplied.
+
+## The serialized contact shape
+
+Every contacts endpoint (and the admin plane) serializes a contact the same way:
+
+```ts
+{
+  id: string;
+  externalId: string | null;   // null for anonymous / not-yet-linked contacts
+  email: string | null;
+  properties: Record<string, unknown>;
+  firstSeenAt: string;          // ISO
+  lastSeenAt: string;           // ISO
+  createdAt: string;            // ISO
+  updatedAt: string;            // ISO
+}
+```

@@ -539,7 +539,7 @@ export function revokeApiKey(id: string) {
   );
 }
 
-// --- Ingest (test events) ------------------------------------------------
+// --- Events (test events) ------------------------------------------------
 
 export type IngestExit = {
   journeyId: string;
@@ -553,8 +553,17 @@ export type IngestResult = {
 };
 
 /**
- * Fire an event through the public ingest pipeline (POST /v1/ingest) — the same
- * path real events take. Powers the Debug panel's test-event sender.
+ * Fire an event through the ingest pipeline — the same path real events take —
+ * via the session-authed admin endpoint (POST /v1/admin/events). Powers the
+ * Debug panel's test-event sender.
+ *
+ * Studio authenticates with Better Auth session cookies, not an hsk_ API key,
+ * so it cannot use the public data-plane `/v1/events` route (which sits behind
+ * requireApiKey + requireScope("ingest")). Letting session cookies through that
+ * public guard would be a CSRF risk; instead the admin router exposes this
+ * session-authed ingest. Per the D2 property split, the Debug panel only sends
+ * `eventProperties` (here `properties`) — contact-property writes are not
+ * exposed.
  */
 export function ingestEvent(body: {
   event: string;
@@ -562,7 +571,14 @@ export function ingestEvent(body: {
   userEmail?: string;
   properties?: Record<string, unknown>;
 }) {
-  return api.post<IngestResult>("/v1/ingest", { json: body });
+  return api.post<IngestResult>("/v1/admin/events", {
+    json: {
+      event: body.event,
+      userId: body.userId,
+      userEmail: body.userEmail,
+      properties: body.properties ?? {},
+    },
+  });
 }
 
 // --- Query keys ----------------------------------------------------------

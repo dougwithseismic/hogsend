@@ -41,6 +41,7 @@ import {
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
+import { contactKeySql } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
@@ -841,18 +842,27 @@ async function reconcileBucketJoins(opts: {
     ? selectPresentInAllWindows(db, absenceLegs)
     : null;
 
+  // The membership/event tables key on the RESOLVED string key (external_id ??
+  // anonymous_id ?? contact.id), NOT necessarily external_id — email-only /
+  // anonymous contacts have a NULL external_id and are keyed on their uuid /
+  // anonymous_id. Joining on contacts.externalId would force external_id NOT NULL
+  // for every candidate (the coalesce would collapse to external_id) and silently
+  // drop exactly the dormant email-only contacts this cron exists to reconcile.
+  // Join on the SAME coalesce expression so the projected key matches the join.
+  const contactKey = contactKeySql();
+
   const baseQuery = db
     .select({
-      userId: contacts.externalId,
+      userId: contactKey,
       email: contacts.email,
     })
     .from(contacts)
-    .innerJoin(everFired, eq(everFired.userId, contacts.externalId))
-    .leftJoin(activeMembers, eq(activeMembers.userId, contacts.externalId));
+    .innerJoin(everFired, eq(everFired.userId, contactKey))
+    .leftJoin(activeMembers, eq(activeMembers.userId, contactKey));
 
   const candidates = await (presentInAll
     ? baseQuery
-        .leftJoin(presentInAll, eq(presentInAll.userId, contacts.externalId))
+        .leftJoin(presentInAll, eq(presentInAll.userId, contactKey))
         .where(
           and(
             isNull(contacts.deletedAt),
@@ -864,7 +874,12 @@ async function reconcileBucketJoins(opts: {
         and(isNull(contacts.deletedAt), isNull(activeMembers.userId)),
       )
   )
-    .orderBy(sql`${contacts.externalId} asc`)
+    // Deterministic scan order for the bounded re-run (no keyset cursor; the
+    // scan advances as reconciled matchers become active members and drop out).
+    // Order by contacts.id (the non-null unique PK) so the scan is null-safe and
+    // stable even for null-external_id contacts now that the join is on the
+    // coalesce key.
+    .orderBy(sql`${contacts.id} asc`)
     .limit(BATCH_SIZE);
 
   // SET-BASED / EXACT shapes (Fix #3) — every candidate row is a true matcher,

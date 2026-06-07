@@ -175,6 +175,18 @@ export {
   pushTrackingEvent,
   resolveEmailSendContext,
 } from "./lib/tracking-events.js";
+// --- Lists (D3) ---
+export {
+  type DefinedList,
+  defineList,
+  type ListMeta,
+} from "./lists/define-list.js";
+export { buildListRegistry, ListRegistry } from "./lists/registry.js";
+export {
+  getListRegistry,
+  resetListRegistry,
+  setListRegistry,
+} from "./lists/registry-singleton.js";
 // --- Webhook sources ---
 export {
   type DefinedWebhookSource,
@@ -200,5 +212,6 @@ export {
 } from "./workflows/bucket-reconcile.js";
 export { checkAlertsTask } from "./workflows/check-alerts.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
+export { sendCampaignTask } from "./workflows/send-campaign.js";
 // --- Built-in Hatchet workflow tasks ---
 export { sendEmailTask } from "./workflows/send-email.js";

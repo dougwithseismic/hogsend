@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
  *   4. brings up Postgres + Redis + Hatchet-Lite and waits for health
  *   5. mints a Hatchet API token and writes it to `.env`
  *   6. runs the two-track database migrations
+ *   7. mints an ingest-scoped data-plane API key and writes it to `.env`
  *
  * After this, the `dev` + `worker:dev` scripts just work. Docs: docs.hogsend.com
  */
@@ -43,7 +44,7 @@ const cyan = paint("36");
 const magenta = paint("35");
 
 let stepNo = 0;
-const TOTAL = 6;
+const TOTAL = 7;
 function step(label: string): void {
   stepNo += 1;
   process.stdout.write(
@@ -372,6 +373,75 @@ function runMigrations(): void {
   ok("Database migrated");
 }
 
+// --- 7. data-plane api key -------------------------------------------------
+/**
+ * Mint a data-plane API key with the `ingest` scope and write it to `.env` as
+ * `HOGSEND_API_KEY`. This is the key the `@hogsend/client` instance in
+ * `src/lib/hogsend.ts` (and the `hogsend` CLI) authenticate with against the
+ * guarded `/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` routes.
+ *
+ * Mirrors the engine's `generateApiKey`/`hashApiKey` (sha256 hex of the raw
+ * `hsk_` key; only the hash is stored). Idempotent: a real `hsk_` key already
+ * in `.env` is kept as-is (re-running never creates a duplicate). If the DB is
+ * unreachable it WARNS and continues — the rest of the stack is up, and you can
+ * re-run `bootstrap` (or create a key via `POST /v1/admin/api-keys`) later.
+ */
+async function ensureDataPlaneKey(): Promise<void> {
+  const env = readFileSync(ENV_PATH, "utf8");
+  const current = getEnv(env, "HOGSEND_API_KEY") ?? "";
+  if (current.startsWith("hsk_")) {
+    ok("HOGSEND_API_KEY already set — keeping it");
+    return;
+  }
+
+  const databaseUrl = getEnv(env, "DATABASE_URL");
+  if (!databaseUrl) {
+    warn("DATABASE_URL is not set in .env — skipping data-plane key mint.");
+    info("Set DATABASE_URL and re-run bootstrap to mint HOGSEND_API_KEY.");
+    return;
+  }
+
+  // hsk_<32 random bytes, base64url>; store only the sha256 hex of the full key.
+  const key = `hsk_${randomBytes(32).toString("base64url")}`;
+  const keyPrefix = key.slice(0, 8);
+  const keyHash = createHash("sha256").update(key).digest("hex");
+
+  // Dynamic import: `postgres` is a runtime dep, but only this step needs it, so
+  // a non-DB bootstrap path never pays for it. Any failure (module/connection)
+  // is treated as warn-not-die — the local stack is otherwise fully usable.
+  let sql: import("postgres").Sql | undefined;
+  try {
+    const { default: postgres } = await import("postgres");
+    sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+    await sql`
+      INSERT INTO api_keys (name, key_prefix, key_hash, scopes)
+      VALUES (
+        ${"local-bootstrap"},
+        ${keyPrefix},
+        ${keyHash},
+        ${JSON.stringify(["ingest"])}::jsonb
+      )
+    `;
+  } catch (err) {
+    warn(
+      `Couldn't mint a data-plane key: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    info("Is the database reachable? Re-run bootstrap once it is.");
+    return;
+  } finally {
+    await sql?.end({ timeout: 5 }).catch(() => {});
+  }
+
+  writeFileSync(
+    ENV_PATH,
+    setEnv(readFileSync(ENV_PATH, "utf8"), "HOGSEND_API_KEY", key),
+  );
+  ok("Minted an ingest-scoped data-plane key → HOGSEND_API_KEY in .env");
+  info(`Key (shown once): ${key}`);
+}
+
 // --- orchestration ---------------------------------------------------------
 async function main(): Promise<void> {
   process.stdout.write(
@@ -395,6 +465,9 @@ async function main(): Promise<void> {
 
   step("Running migrations");
   runMigrations();
+
+  step("Minting data-plane API key");
+  await ensureDataPlaneKey();
 
   const dash = `http://localhost:${ports.dash}`;
   process.stdout.write(

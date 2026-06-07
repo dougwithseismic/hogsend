@@ -5,6 +5,8 @@ process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
+const { contacts, journeyStates, userEvents } = await import("@hogsend/db");
+const { eq } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
 
 // Hatchet now lives inside @hogsend/engine, so it is injected via the container
@@ -33,10 +35,15 @@ const container = createHogsendClient({
   overrides: { hatchet: mockHatchet },
 });
 const app = createApp(container);
+const { db } = container;
 
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.ADMIN_API_KEY}`,
 };
+
+// The enroll endpoint drives the real ingest pipeline (resolveOrCreateContact +
+// user_events insert) against the docker DB; clean up the rows it creates.
+const ENROLL_USER = "test-enroll-user";
 
 describe("GET /v1/admin/journeys", () => {
   it("returns 401 without auth", async () => {
@@ -212,6 +219,12 @@ describe("DELETE /v1/admin/journeys/:id/states/:stateId", () => {
 });
 
 describe("POST /v1/admin/journeys/:id/enroll", () => {
+  afterAll(async () => {
+    await db.delete(userEvents).where(eq(userEvents.userId, ENROLL_USER));
+    await db.delete(journeyStates).where(eq(journeyStates.userId, ENROLL_USER));
+    await db.delete(contacts).where(eq(contacts.externalId, ENROLL_USER));
+  });
+
   it("returns 404 for unknown journey", async () => {
     const res = await app.request("/v1/admin/journeys/nonexistent/enroll", {
       method: "POST",
@@ -225,13 +238,15 @@ describe("POST /v1/admin/journeys/:id/enroll", () => {
   });
 
   it("enrolls a user by dispatching the trigger event", async () => {
+    (mockHatchet.events.push as ReturnType<typeof vi.fn>).mockClear();
+
     const res = await app.request(
       "/v1/admin/journeys/activation-welcome/enroll",
       {
         method: "POST",
         headers: { ...AUTH_HEADER, "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "test-enroll-user",
+          userId: ENROLL_USER,
           userEmail: "enroll@example.com",
           properties: { source: "admin" },
         }),
@@ -242,6 +257,21 @@ describe("POST /v1/admin/journeys/:id/enroll", () => {
     const body = await res.json();
     expect(body.enrolled).toBe(true);
     expect(body.event).toBeTruthy();
-    expect(body.userId).toBe("test-enroll-user");
+    expect(body.userId).toBe(ENROLL_USER);
+
+    // The public `properties` request field (decision #14) maps to the
+    // IngestEvent's `eventProperties` bag, which `ingestEvent` forwards onto the
+    // Hatchet push under the (unchanged) `properties` wire key. Assert the
+    // trigger event was dispatched carrying the supplied property — proving the
+    // public-name → eventProperties mapping survived the D2 split.
+    const push = mockHatchet.events.push as ReturnType<typeof vi.fn>;
+    const triggerCall = push.mock.calls.find((call) => call[0] === body.event);
+    expect(triggerCall).toBeDefined();
+    const payload = triggerCall?.[1] as {
+      userId?: string;
+      properties?: Record<string, unknown>;
+    };
+    expect(payload?.userId).toBe(ENROLL_USER);
+    expect(payload?.properties?.source).toBe("admin");
   });
 });

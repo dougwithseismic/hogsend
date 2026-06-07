@@ -5,12 +5,15 @@ import type { AppEnv } from "../../app.js";
 import {
   contactSearchFilter,
   resolveContact,
+  resolveOrCreateContact,
+  serializeContact as serializeContactRow,
   serializePrefs,
 } from "../../lib/contacts.js";
 
 const contactSchema = z.object({
   id: z.string(),
-  externalId: z.string(),
+  externalId: z.string().nullable(),
+  anonymousId: z.string().nullable(),
   email: z.string().nullable(),
   properties: z.record(z.string(), z.unknown()),
   firstSeenAt: z.string(),
@@ -95,16 +98,20 @@ const createRoute_ = createRoute({
   method: "post",
   path: "/",
   tags: ["Admin"],
-  summary: "Create a contact",
+  summary: "Create or upsert a contact",
   request: {
     body: {
       content: {
         "application/json": {
-          schema: z.object({
-            externalId: z.string().min(1),
-            email: z.string().email().optional(),
-            properties: z.record(z.string(), z.unknown()).optional(),
-          }),
+          schema: z
+            .object({
+              externalId: z.string().min(1).optional(),
+              email: z.string().email().optional(),
+              properties: z.record(z.string(), z.unknown()).optional(),
+            })
+            .refine((b) => Boolean(b.externalId || b.email), {
+              message: "Provide at least one of externalId or email",
+            }),
         },
       },
     },
@@ -116,15 +123,15 @@ const createRoute_ = createRoute({
           schema: z.object({ contact: contactSchema }),
         },
       },
-      description: "Contact created",
+      description: "Contact created or upserted",
     },
-    409: {
+    400: {
       content: {
         "application/json": {
           schema: z.object({ error: z.string() }),
         },
       },
-      description: "Contact with this externalId already exists",
+      description: "Missing identity (externalId or email required)",
     },
   },
 });
@@ -195,18 +202,8 @@ const deleteRoute = createRoute({
   },
 });
 
-function serializeContact(row: typeof contacts.$inferSelect) {
-  return {
-    id: row.id,
-    externalId: row.externalId,
-    email: row.email,
-    properties: (row.properties ?? {}) as Record<string, unknown>,
-    firstSeenAt: row.firstSeenAt.toISOString(),
-    lastSeenAt: row.lastSeenAt.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
+const serializeContact = (row: typeof contacts.$inferSelect) =>
+  serializeContactRow(row, { includeAnonymousId: true });
 
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
@@ -249,10 +246,12 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
+    // email_preferences.user_id uses external_id when present, else the contact
+    // uuid as the deterministic fallback (risk 10 — email-only contacts).
     const prefRows = await db
       .select()
       .from(emailPreferences)
-      .where(eq(emailPreferences.userId, contact.externalId))
+      .where(eq(emailPreferences.userId, contact.externalId ?? contact.id))
       .limit(1);
 
     const prefs = prefRows[0] ? serializePrefs(prefRows[0]) : null;
@@ -266,28 +265,17 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const body = c.req.valid("json");
 
-    const existing = await db
-      .select({ id: contacts.id })
-      .from(contacts)
-      .where(eq(contacts.externalId, body.externalId))
-      .limit(1);
+    // Delegate to the identity resolver (D1): it upserts/merges on the provided
+    // identity keys (externalId and/or email), so the hand-rolled existence
+    // check + raw insert + 409 are gone (§5). Read the row back to serialize.
+    const { id } = await resolveOrCreateContact({
+      db,
+      userId: body.externalId,
+      email: body.email,
+      contactProperties: body.properties,
+    });
 
-    if (existing.length > 0) {
-      return c.json(
-        { error: "Contact with this externalId already exists" },
-        409,
-      );
-    }
-
-    const [created] = await db
-      .insert(contacts)
-      .values({
-        externalId: body.externalId,
-        email: body.email ?? null,
-        properties: body.properties ?? {},
-      })
-      .returning();
-
+    const created = await resolveContact({ db, id });
     if (!created) {
       throw new Error("Failed to create contact");
     }
@@ -304,20 +292,41 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    const [updated] = await db
-      .update(contacts)
-      .set({
-        ...(body.email !== undefined ? { email: body.email } : {}),
-        ...(body.properties
-          ? {
-              properties: sql`COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(body.properties)}::jsonb`,
-            }
-          : {}),
-        updatedAt: new Date(),
-      })
-      .where(eq(contacts.id, current.id))
-      .returning();
+    const hasIdentityKey = Boolean(
+      current.externalId || current.anonymousId || body.email || current.email,
+    );
 
+    if (hasIdentityKey) {
+      // Delegate the email-fill + property merge to the resolver, keyed on the
+      // contact's canonical identity so the COALESCE||patch merge lives in one
+      // place (§5). Passing the existing externalId/anonymousId/email keeps the
+      // resolver on the fill-in-link path; a NEW email that already belongs to
+      // another contact correctly merges (the partial-unique index would have
+      // rejected a blind set anyway).
+      await resolveOrCreateContact({
+        db,
+        userId: current.externalId ?? undefined,
+        email: body.email ?? current.email ?? undefined,
+        anonymousId: current.anonymousId ?? undefined,
+        contactProperties: body.properties,
+      });
+    } else {
+      // Degenerate contact with no identity keys (resolver requires >=1 key):
+      // update it directly by uuid.
+      await db
+        .update(contacts)
+        .set({
+          ...(body.properties
+            ? {
+                properties: sql`COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(body.properties)}::jsonb`,
+              }
+            : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(contacts.id, current.id));
+    }
+
+    const updated = await resolveContact({ db, id });
     if (!updated) {
       throw new Error("Failed to update contact");
     }

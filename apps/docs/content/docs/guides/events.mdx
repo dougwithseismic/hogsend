@@ -24,23 +24,28 @@ All events — regardless of source — flow through the same pipeline. When an 
 
 This all happens in a single request — the API returns the result synchronously.
 
-## Ingest API
+## Events API
 
-### `POST /v1/ingest`
+### `POST /v1/events`
 
-Send events directly from your application code.
+Send events directly from your application code. This is the public **data-plane** endpoint (the replacement for the removed `/v1/ingest`) — it requires a bearer key with the `ingest` scope.
 
 #### Request body
 
 ```ts
 {
-  event: string;        // required -- event name (e.g. "user:signed_up")
-  userId: string;       // required -- unique user identifier
-  userEmail?: string;   // optional -- user's email address
-  properties?: Record<string, unknown>; // optional -- arbitrary event data
-  timestamp?: string;   // optional -- ISO 8601 datetime
+  name: string;          // required -- event name (e.g. "user.signed_up")
+  email?: string;        // email OR userId required
+  userId?: string;       // email OR userId required -- your external user id
+  eventProperties?: Record<string, unknown>;   // → the event row + journey trigger.where
+  contactProperties?: Record<string, unknown>; // → the contact record only
+  lists?: Record<string, boolean>; // optional -- list membership
+  idempotencyKey?: string;         // optional (or the Idempotency-Key header, which wins)
+  timestamp?: string;              // optional -- ISO 8601 datetime
 }
 ```
+
+Event properties and contact properties are **separate bags**: `eventProperties` are what a journey `trigger.where` / `exitOn` evaluates, while `contactProperties` merge onto the durable contact record. See the [Data API events reference](/docs/data-api/events) and [Identity](/docs/data-api/identity) for the full model.
 
 #### Response `202 Accepted`
 
@@ -52,6 +57,7 @@ Send events directly from your application code.
     stateId: string;
     exited: boolean;
   }>;
+  listsError?: string; // present only if a post-ingest list write failed
 }
 ```
 
@@ -60,16 +66,15 @@ The `exits` array reports every active journey state that was evaluated. Entries
 #### Example
 
 ```bash
-curl -X POST https://api.hogsend.com/v1/ingest \
+curl -X POST https://api.hogsend.com/v1/events \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "event": "user:signed_up",
+    "name": "user.signed_up",
+    "email": "alice@example.com",
     "userId": "user_abc123",
-    "userEmail": "alice@example.com",
-    "properties": {
-      "plan": "pro",
-      "source": "landing-page"
-    }
+    "eventProperties": { "source": "landing-page" },
+    "contactProperties": { "plan": "pro" }
   }'
 ```
 
@@ -125,7 +130,7 @@ If the ingested event name matches and all `where` conditions pass (or none are 
 
 ## Contact upsert
 
-Every ingested event upserts a record in the `contacts` table using `userId` as the external identifier. This ensures contact records are created automatically the first time a user triggers any event. The contact's `email`, `properties`, and `lastSeenAt` fields are updated on each event. If the upsert fails, it logs a warning but does not block the event from being processed.
+Every ingested event resolves a contact in the `contacts` table by `userId` and/or `email` (creating one the first time a user is seen). The contact's `lastSeenAt` is updated on each event, and only the event's **`contactProperties`** are merged onto `contacts.properties` — `eventProperties` stay on the event row and never touch the contact. If the resolve fails, it logs a warning but does not block the event from being processed. See [Identity](/docs/data-api/identity) for the resolution and merge rules.
 
 ## Connecting PostHog (recommended)
 
@@ -150,8 +155,11 @@ https://your-hogsend-api.com/v1/webhooks/posthog
 | `event.event` | Event name | Used as-is (e.g., `user_signed_up`) |
 | `event.distinct_id` | `userId` | Your user identifier |
 | `person.properties.email` | `userEmail` | Used for sending emails |
-| `event.properties` + `person.properties` | `properties` | Merged into a single object |
-| `event.uuid` | `properties._posthogEventId` | Preserved for deduplication |
+| `event.properties` | `eventProperties` | The event's own data — what journey `trigger.where` sees |
+| `person.properties` | `contactProperties` | Person attributes — merged onto the contact record |
+| `event.uuid` | `eventProperties._posthogEventId` | Preserved for deduplication |
+
+The scaffold's PostHog source keeps these two bags **separate** (person → `contactProperties`, event → `eventProperties`), matching the [property split](/docs/data-api/identity) the rest of the engine uses.
 
 ### PostHog payload format
 
@@ -181,7 +189,7 @@ For reference, here's the full payload structure PostHog sends:
 }
 ```
 
-The transform merges `event.properties` and `person.properties` into a single properties object.
+The transform routes `event.properties` to `eventProperties` and `person.properties` to `contactProperties` — keeping them in separate bags rather than merging them.
 
 ## Other webhook sources
 
@@ -235,7 +243,7 @@ export const stripeSource = defineWebhookSource({
       event: `stripe:${payload.type}`,
       userId,
       userEmail: (payload.data.object.email as string) ?? "",
-      properties: {
+      eventProperties: {
         stripeEventId: payload.id,
         ...payload.data.object,
       },
@@ -331,12 +339,17 @@ Every event -- whether from the API or a webhook source -- must conform to this 
 
 ```ts
 interface IngestEvent {
-  event: string;                     // event name
-  userId: string;                    // unique user identifier
-  userEmail: string;                 // user email (empty string if unknown)
-  properties: Record<string, unknown>; // arbitrary event data
+  event: string;                                  // event name
+  userId?: string;                                // external user id (optional — email-only / anon)
+  userEmail?: string;                             // user email
+  anonymousId?: string;                           // stable anonymous id (future anon path)
+  eventProperties: Record<string, unknown>;       // → user_events + journey trigger.where / exitOn
+  contactProperties?: Record<string, unknown>;    // → contacts.properties merge only
+  idempotencyKey?: string;
 }
 ```
+
+`userId` is now optional (a contact can be keyed by `email` alone), and the single `properties` bag is gone — replaced by `eventProperties` (required) and the optional `contactProperties`. See [Identity](/docs/data-api/identity) for the split.
 
 ## Best practices
 

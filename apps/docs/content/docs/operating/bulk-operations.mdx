@@ -207,20 +207,21 @@ Maximum 500 users per batch. Users who fail entry guards (already enrolled, unsu
 
 ## Event Deduplication
 
-The ingest endpoint supports idempotency keys to prevent duplicate event processing. Pass an `idempotencyKey` in the request body:
+The events endpoint ([`POST /v1/events`](/docs/data-api/events)) supports idempotency keys to prevent duplicate event processing. Supply the key either in the body as `idempotencyKey` **or** as an `Idempotency-Key` HTTP header — when both are present, **the header wins**:
 
 ```bash
-curl -X POST http://localhost:3002/v1/ingest \
+curl -X POST http://localhost:3002/v1/events \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
   -H "Content-Type: application/json" \
+  -H "Idempotency-Key: signup_user_abc123_2025-01-15" \
   -d '{
-    "event": "user:signed_up",
+    "name": "user.signed_up",
     "userId": "user_abc123",
-    "userEmail": "user@example.com",
-    "idempotencyKey": "signup_user_abc123_2025-01-15"
+    "email": "user@example.com"
   }'
 ```
 
-If the same `idempotencyKey` has been seen before, the event is silently dropped:
+If the same idempotency key has been seen before, the event is silently dropped:
 
 ```json
 {
