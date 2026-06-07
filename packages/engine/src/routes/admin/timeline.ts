@@ -64,7 +64,10 @@ export const timelineRouter = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "Contact not found" }, 404);
     }
 
-    const externalId = contact.externalId;
+    // Resolved string key the history tables (user_events/journey_states/
+    // email_sends) were written under: external_id, else anonymous_id, else the
+    // contact uuid (matches ingestEvent's resolvedKey).
+    const externalId = contact.externalId ?? contact.anonymousId ?? contact.id;
     const entries: TimelineEntry[] = [];
 
     const shouldFetch = (t: string) => !type || type === t;

@@ -1,5 +1,5 @@
 import type { ResolvedConfig } from "../lib/config.js";
-import type { AdminClient } from "../lib/http.js";
+import type { AdminClient, DataPlaneClient } from "../lib/http.js";
 import type { Output } from "../lib/output.js";
 
 /**
@@ -17,8 +17,14 @@ export interface CommandContext {
   argv: string[];
   /** Base URL + admin key, already resolved via flags > env > .env. */
   cfg: ResolvedConfig;
-  /** Pre-built admin HTTP client, bound to `cfg`. */
+  /** Pre-built admin HTTP client, bound to `cfg` (admin key). */
   http: AdminClient;
+  /**
+   * Pre-built data-plane HTTP client, bound to `cfg.dataKey` (ingest key). Used
+   * by the write commands (`contacts upsert`, `events send`, `emails send`)
+   * that hit the authed `/v1/contacts`, `/v1/events`, `/v1/emails` routes.
+   */
+  dataHttp: DataPlaneClient;
   /** Output sink — human (TTY clack) vs json, already mode-selected. */
   out: Output;
   /** True when the global `--json` flag was passed. Mirrors `out.isJson`. */

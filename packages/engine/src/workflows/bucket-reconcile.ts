@@ -843,7 +843,7 @@ async function reconcileBucketJoins(opts: {
 
   const baseQuery = db
     .select({
-      userId: contacts.externalId,
+      userId: sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id})`,
       email: contacts.email,
     })
     .from(contacts)
@@ -864,7 +864,7 @@ async function reconcileBucketJoins(opts: {
         and(isNull(contacts.deletedAt), isNull(activeMembers.userId)),
       )
   )
-    .orderBy(sql`${contacts.externalId} asc`)
+    .orderBy(sql`${contacts.id} asc`)
     .limit(BATCH_SIZE);
 
   // SET-BASED / EXACT shapes (Fix #3) — every candidate row is a true matcher,

@@ -1,17 +1,28 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import { type Database, journeyStates, userEvents } from "@hogsend/db";
+import {
+  contacts,
+  type Database,
+  journeyStates,
+  userEvents,
+} from "@hogsend/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { checkBucketMembership } from "../buckets/check-membership.js";
-import { upsertContact } from "./contacts.js";
+import { resolveOrCreateContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
 
 export interface IngestEvent {
   event: string;
-  userId: string;
-  userEmail: string;
-  properties: Record<string, unknown>;
+  /** D1: optional — email-only / anonymous events resolve a key downstream. */
+  userId?: string;
+  userEmail?: string;
+  /** D1: future anonymous→identified path. Threaded into the resolver. */
+  anonymousId?: string;
+  /** D2: → `user_events` + Hatchet `trigger.where`/`exitOn` ONLY. */
+  eventProperties: Record<string, unknown>;
+  /** D2: → `contacts.properties` merge ONLY. */
+  contactProperties?: Record<string, unknown>;
   idempotencyKey?: string;
 }
 
@@ -35,13 +46,42 @@ export async function ingestEvent(opts: {
 }): Promise<IngestResult> {
   const { db, registry, hatchet, logger, event } = opts;
 
+  // (1) Resolve identity FIRST (awaited — no longer fire-and-forget). The
+  // contact-referencing tables join on a NOT NULL text key, so an email-only /
+  // anonymous event (D1 optional userId) needs a canonical key resolved before
+  // any insert (risk 2). The resolver applies ONLY contactProperties to
+  // `contacts.properties` (D2 split) and returns the canonical contact id; we
+  // read back the row to derive the resolved string key
+  // (external_id ?? anonymous_id ?? contact.id — risk 1/6).
+  const { id: contactId } = await resolveOrCreateContact({
+    db,
+    userId: event.userId,
+    email: event.userEmail || undefined,
+    anonymousId: event.anonymousId,
+    contactProperties: event.contactProperties,
+  });
+
+  const [resolved] = await db
+    .select({
+      externalId: contacts.externalId,
+      anonymousId: contacts.anonymousId,
+    })
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .limit(1);
+
+  const resolvedKey =
+    resolved?.externalId ?? resolved?.anonymousId ?? contactId;
+
+  // (2) Idempotency dedup + `user_events` insert keyed on the resolved key, with
+  // ONLY eventProperties in the properties bag (D2).
   if (event.idempotencyKey) {
     const result = await db
       .insert(userEvents)
       .values({
-        userId: event.userId,
+        userId: resolvedKey,
         event: event.event,
-        properties: event.properties,
+        properties: event.eventProperties,
         idempotencyKey: event.idempotencyKey,
       })
       .onConflictDoNothing({
@@ -54,14 +94,16 @@ export async function ingestEvent(opts: {
     }
   } else {
     await db.insert(userEvents).values({
-      userId: event.userId,
+      userId: resolvedKey,
       event: event.event,
-      properties: event.properties,
+      properties: event.eventProperties,
     });
   }
 
+  // (3) Build the JSON-serializable subset of eventProperties for the Hatchet
+  // push payload (scalars only — the SDK serializes the envelope).
   const serializableProperties = Object.fromEntries(
-    Object.entries(event.properties).filter(
+    Object.entries(event.eventProperties).filter(
       ([, v]) =>
         typeof v === "string" ||
         typeof v === "number" ||
@@ -70,57 +112,50 @@ export async function ingestEvent(opts: {
     ),
   ) as Record<string, string | number | boolean | null>;
 
+  // (4) Hatchet push + (5) checkExits, both keyed on the resolved key. The push
+  // payload wire key STAYS `properties` (bucket tests assert on it — risk 9).
   const [, exits] = await Promise.all([
     hatchet.events.push(event.event, {
-      userId: event.userId,
-      userEmail: event.userEmail,
+      userId: resolvedKey,
+      userEmail: event.userEmail ?? "",
       properties: serializableProperties,
     }),
     checkExits(db, registry, hatchet, logger, {
-      userId: event.userId,
+      userId: resolvedKey,
       eventName: event.event,
-      properties: event.properties,
-    }),
-    upsertContact({
-      db,
-      externalId: event.userId,
-      email: event.userEmail || undefined,
-      properties: event.properties,
-    }).catch((err) => {
-      logger.warn("Contact upsert failed", {
-        userId: event.userId,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      properties: event.eventProperties,
     }),
   ]);
 
-  // Real-time bucket membership re-evaluation (Section 6.1). NOT part of the
-  // Promise.all above: its property eval reads MERGED contact state, and its
-  // bucket:entered/left emissions recurse back into ingestEvent (the recursion
-  // guard in checkBucketMembership bounds them). Best-effort: a bucket failure
-  // must not fail the ingest of the originating event.
+  // (6) Real-time bucket membership re-evaluation (Section 6.1). NOT part of the
+  // Promise.all above: its property eval reads contact state ⊕ this-ingest
+  // contactProperties patch, and its bucket:entered/left emissions recurse back
+  // into ingestEvent (the recursion guard in checkBucketMembership bounds them).
+  // Best-effort: a bucket failure must not fail the ingest of the originating
+  // event.
   try {
     await checkBucketMembership({
       db,
       registry,
       hatchet,
       logger,
-      userId: event.userId,
+      userId: resolvedKey,
       userEmail: event.userEmail || null,
       event: event.event,
-      properties: event.properties,
+      eventProperties: event.eventProperties,
+      contactProperties: event.contactProperties ?? {},
     });
   } catch (err) {
     logger.warn("Bucket membership check failed", {
       event: event.event,
-      userId: event.userId,
+      userId: resolvedKey,
       error: err instanceof Error ? err.message : String(err),
     });
   }
 
   logger.info("Event ingested", {
     event: event.event,
-    userId: event.userId,
+    userId: resolvedKey,
     exits: exits.filter((e) => e.exited).length,
   });
 

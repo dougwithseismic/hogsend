@@ -13,6 +13,7 @@ import {
 } from "./auth.js";
 import { bucketConfigs } from "./bucket-configs.js";
 import { bucketMemberships } from "./bucket-memberships.js";
+import { contactAliases } from "./contact-aliases.js";
 import { contacts } from "./contacts.js";
 import { deadLetterQueue } from "./dead-letter-queue.js";
 import { emailPreferences } from "./email-preferences.js";
@@ -49,10 +50,24 @@ export const journeyConfigsRelations = relations(journeyConfigs, () => ({}));
 export const bucketConfigsRelations = relations(bucketConfigs, () => ({}));
 
 export const contactsRelations = relations(contacts, ({ many }) => ({
+  // NOTE: the logical joins below (emailPreferences/userEvents/journeyStates/
+  // bucketMemberships) reference contacts.externalId — anonymous-only contacts
+  // (external_id NULL) won't resolve through Drizzle relational queries until
+  // identified. Acceptable (anon contacts have no prefs/journeys yet); see
+  // risk 22. contacts.id is NOT the relational key for those tables.
   emailPreferences: many(emailPreferences),
   userEvents: many(userEvents),
   journeyStates: many(journeyStates),
   bucketMemberships: many(bucketMemberships),
+  // contact_aliases joins on the contacts.id UUID (real FK).
+  aliases: many(contactAliases),
+}));
+
+export const contactAliasesRelations = relations(contactAliases, ({ one }) => ({
+  contact: one(contacts, {
+    fields: [contactAliases.contactId],
+    references: [contacts.id],
+  }),
 }));
 
 export const bucketMembershipsRelations = relations(

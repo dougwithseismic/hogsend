@@ -123,7 +123,7 @@ export async function emitBucketTransition(opts: {
       event: eventName,
       userId,
       userEmail: userEmail ?? "",
-      properties,
+      eventProperties: properties,
       idempotencyKey,
     },
   });
@@ -141,7 +141,7 @@ export async function emitBucketTransition(opts: {
         event: genericEvent,
         userId,
         userEmail: userEmail ?? "",
-        properties,
+        eventProperties: properties,
         idempotencyKey: `bucket:${bucket.id}:${userId}:${kind}:${epoch}:generic`,
       },
     });

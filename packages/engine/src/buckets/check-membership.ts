@@ -51,7 +51,16 @@ export async function checkBucketMembership(opts: {
   userId: string;
   userEmail: string | null;
   event: string;
-  properties: Record<string, unknown>;
+  /**
+   * D2: the event payload — candidate-narrowing ONLY. It NO LONGER participates
+   * in property eval (the raw-payload overlay was the bucket-side conflation).
+   */
+  eventProperties: Record<string, unknown>;
+  /**
+   * D2: this-ingest contact-property patch, overlaid on the read contact row so
+   * the very first event after a property change evaluates correctly (risk 7).
+   */
+  contactProperties?: Record<string, unknown>;
   /** Optional override; defaults to the process bucket-registry singleton. */
   bucketRegistry?: ReturnType<typeof getBucketRegistrySingleton>;
 }): Promise<BucketTransition[]> {
@@ -63,7 +72,8 @@ export async function checkBucketMembership(opts: {
     userId,
     userEmail,
     event,
-    properties,
+    eventProperties,
+    contactProperties: contactPropertiesPatch,
   } = opts;
 
   // (1) Recursion guard — MUST be first. bucket:-prefixed events are transition
@@ -81,12 +91,18 @@ export async function checkBucketMembership(opts: {
 
   // (2) Candidate narrowing — the UNION of buckets referencing this event name
   // (eventIndex + the degenerate wildcard set) and buckets referencing any
-  // property present in this payload (propertyIndex). Section 6.2.
+  // property present in EITHER bag (propertyIndex): the eventProperties drive
+  // event-shaped criteria narrowing, the contactProperties patch surfaces a
+  // contact-property change so a property-criteria bucket is re-checked on the
+  // first event that mutates it. Section 6.2.
   const candidateMap = new Map<string, BucketMeta>();
   for (const bucket of bucketRegistry.getByReferencedEvent(event)) {
     candidateMap.set(bucket.id, bucket);
   }
-  for (const key of Object.keys(properties ?? {})) {
+  for (const key of [
+    ...Object.keys(eventProperties ?? {}),
+    ...Object.keys(contactPropertiesPatch ?? {}),
+  ]) {
     for (const bucket of bucketRegistry.getByReferencedProperty(key)) {
       candidateMap.set(bucket.id, bucket);
     }
@@ -109,19 +125,20 @@ export async function checkBucketMembership(opts: {
     return [];
   }
 
-  // (3) Property predicates evaluate against MERGED contact state, NOT the bare
-  // event payload (Section 6.1 rule #3). Read the EXISTING contacts row ONCE iff
-  // any surviving candidate references a property — pure event/count buckets skip
-  // the read entirely. We read the row that already exists (not the one
-  // upsertContact is concurrently writing) so we do not depend on the
-  // fire-and-forget upsert having run.
+  // (3) Property predicates evaluate against contact state ⊕ this-ingest
+  // contactProperties patch — NOT the raw event payload (Section 6.1 rule #3 /
+  // D2). Read the EXISTING contacts row ONCE iff any surviving candidate
+  // references a property — pure event/count buckets skip the read entirely.
+  // `ingestEvent` already awaited `resolveOrCreateContact` before us, so the row
+  // exists by the resolved key; the patch overlay still covers the read-after-
+  // write gap on a contact's very first event (risk 7).
   const needsContactState = candidates.some(
     (bucket) =>
       bucket.criteria != null &&
       collectPropertyNames(bucket.criteria).length > 0,
   );
 
-  let contactProperties: Record<string, unknown> = {};
+  let storedContactProps: Record<string, unknown> = {};
   let contactDeleted = false;
   if (needsContactState) {
     const [contact] = await db
@@ -133,7 +150,7 @@ export async function checkBucketMembership(opts: {
       .where(eq(contacts.externalId, userId))
       .limit(1);
     if (contact) {
-      contactProperties =
+      storedContactProps =
         (contact.properties as Record<string, unknown> | null) ?? {};
       contactDeleted = contact.deletedAt != null;
     }
@@ -144,10 +161,12 @@ export async function checkBucketMembership(opts: {
     return [];
   }
 
-  // event payload overlays cumulative contact state.
+  // this-ingest contactProperties patch overlays stored contact state. The raw
+  // event payload is REMOVED from property eval (D2 — bucket prop-criteria see
+  // contact state only).
   const journeyContext: Record<string, unknown> = {
-    ...contactProperties,
-    ...(properties ?? {}),
+    ...storedContactProps,
+    ...(contactPropertiesPatch ?? {}),
   };
 
   const transitions: BucketTransition[] = [];

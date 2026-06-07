@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { commands } from "./commands/index.js";
 import type { Command } from "./commands/types.js";
 import { parseGlobalFlags, resolveConfig } from "./lib/config.js";
-import { createAdminClient } from "./lib/http.js";
+import { createAdminClient, createDataPlaneClient } from "./lib/http.js";
 import { color, createOutput } from "./lib/output.js";
 
 function version(): string {
@@ -31,6 +31,7 @@ ${list}
 ${color.dim("Global options:")}
   --url <baseUrl>     Target instance (default HOGSEND_API_URL or http://localhost:3002)
   --admin-key <key>   Admin bearer token (default HOGSEND_ADMIN_KEY / ADMIN_API_KEY)
+  --data-key <key>    Ingest bearer token for writes (default HOGSEND_DATA_KEY / HOGSEND_API_KEY)
   --json              Emit machine-readable JSON only (for agents)
   -h, --help          Show help (use after a command for command help)
   -v, --version       Show version
@@ -80,11 +81,13 @@ async function main(): Promise<void> {
 
   const cfg = resolveConfig(flags);
   const http = createAdminClient(cfg);
+  const dataHttp = createDataPlaneClient(cfg);
 
   await command.run({
     argv: flags.rest,
     cfg,
     http,
+    dataHttp,
     out,
     json: flags.json,
   });

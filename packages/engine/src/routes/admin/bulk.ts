@@ -308,7 +308,7 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
       const header = "externalId,email,properties,firstSeenAt,lastSeenAt";
       const csvRows = rows.map(
         (r) =>
-          `${r.externalId},${r.email ?? ""},${JSON.stringify(r.properties ?? {}).replace(/,/g, ";")},${r.firstSeenAt.toISOString()},${r.lastSeenAt.toISOString()}`,
+          `${r.externalId ?? ""},${r.email ?? ""},${JSON.stringify(r.properties ?? {}).replace(/,/g, ";")},${r.firstSeenAt.toISOString()},${r.lastSeenAt.toISOString()}`,
       );
       const csv = [header, ...csvRows].join("\n");
 
@@ -389,7 +389,9 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
               event: event.event,
               userId: event.userId,
               userEmail: "",
-              properties: (event.properties as Record<string, unknown>) ?? {},
+              // Stored `user_events.properties` is the event-property bag (D2).
+              eventProperties:
+                (event.properties as Record<string, unknown>) ?? {},
             },
           }),
         ),
@@ -481,7 +483,9 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
               event: journey.trigger.event,
               userId: user.userId,
               userEmail: user.userEmail,
-              properties: user.properties ?? {},
+              // Public batch-enroll request field stays `properties`
+              // (decision #14); maps to the event-property bag (D2).
+              eventProperties: user.properties ?? {},
             },
           }),
         ),

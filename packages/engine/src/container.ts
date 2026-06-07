@@ -36,6 +36,8 @@ import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
 import { getPostHog } from "./lib/posthog.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
+import type { DefinedList } from "./lists/define-list.js";
+import { buildListRegistry, type ListRegistry } from "./lists/registry.js";
 
 export interface HogsendDefaults {
   /** Global fallback IANA timezone for scheduling. Defaults to "UTC". */
@@ -70,6 +72,14 @@ export interface HogsendClient {
    * Empty when no buckets are wired.
    */
   bucketRegistry: BucketRegistry;
+  /**
+   * The email-list registry (D3): code-defined subscription categories layered
+   * on `email_preferences.categories`, with the LOCKED polarity rule that is the
+   * single source of truth for the mailer's suppression check AND the preference
+   * center. Built and installed as the process singleton at client build (read
+   * elsewhere via `getListRegistry()`). Empty when no lists are wired.
+   */
+  listRegistry: ListRegistry;
   hatchet: HatchetClient;
   /**
    * The client repo's migration journal (`migrations/meta/_journal.json`),
@@ -91,6 +101,13 @@ export interface HogsendClientOptions {
   journeys?: DefinedJourney[];
   /** Buckets to register in the {@link BucketRegistry}. Defaults to none. */
   buckets?: DefinedBucket[];
+  /**
+   * Email lists (D3) to register in the {@link ListRegistry}. Each is a
+   * `defineList()` subscription category (id + name + `defaultOptIn`). The
+   * registry drives the mailer's list-aware suppression check and the
+   * preference center. Defaults to none (empty registry ⇒ legacy opt-in).
+   */
+  lists?: DefinedList[];
   /**
    * Email is a first-class channel. Its config is grouped here rather than
    * spread across top-level args — the engine owns the cohesive email pipeline
@@ -131,6 +148,11 @@ export interface HogsendClientOptions {
    * `env.ENABLED_BUCKETS`.
    */
   enabledBuckets?: string;
+  /**
+   * Comma-separated ids (or `*`) controlling which lists load. Defaults to
+   * `env.ENABLED_LISTS`.
+   */
+  enabledLists?: string;
   /**
    * The client repo's migration journal for the `schema.client` health block.
    * Defaults to `{ entries: [] }` (empty client track ⇒ trivially in sync).
@@ -237,6 +259,15 @@ export function createHogsendClient(
     bucket.membersIterator = accessor.membersIterator;
   }
 
+  // Build + install the list registry singleton (D3). Runs in BOTH the API and
+  // worker (both call createHogsendClient), so `getListRegistry()` resolves the
+  // wired lists in the mailer's suppression check and the preference center in
+  // either process. `buildListRegistry` installs the process singleton.
+  const listRegistry = buildListRegistry(
+    opts.lists ?? [],
+    opts.enabledLists ?? env.ENABLED_LISTS,
+  );
+
   const provider =
     opts.email?.provider ??
     createResendProvider({
@@ -293,6 +324,7 @@ export function createHogsendClient(
   // keep these at debug for non-boot contexts (tests, REPL, library use).
   logger.debug(`Journey registry loaded: ${registry.count()} journeys`);
   logger.debug(`Bucket registry loaded: ${bucketRegistry.count()} buckets`);
+  logger.debug(`List registry loaded: ${listRegistry.count()} lists`);
 
   return {
     env,
@@ -306,6 +338,7 @@ export function createHogsendClient(
     analytics,
     registry,
     bucketRegistry,
+    listRegistry,
     hatchet: opts.overrides?.hatchet ?? hatchet,
     clientJournal: opts.clientJournal ?? { entries: [] },
     defaults,

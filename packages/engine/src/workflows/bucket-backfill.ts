@@ -456,7 +456,9 @@ async function selectEventMatchers(
       .as("present");
 
     const rows = await db
-      .select({ userId: contacts.externalId })
+      .select({
+        userId: sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id})`,
+      })
       .from(contacts)
       .innerJoin(everFired, eq(everFired.userId, contacts.externalId))
       .leftJoin(present, eq(present.userId, contacts.externalId))
@@ -513,17 +515,18 @@ async function selectCompositeMatchers(
   for (;;) {
     const page = await db
       .select({
-        externalId: contacts.externalId,
+        id: contacts.id,
+        userId: sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id})`,
         properties: contacts.properties,
       })
       .from(contacts)
       .where(
         and(
           isNull(contacts.deletedAt),
-          cursor != null ? gt(contacts.externalId, cursor) : undefined,
+          cursor != null ? gt(contacts.id, cursor) : undefined,
         ),
       )
-      .orderBy(sql`${contacts.externalId} asc`)
+      .orderBy(sql`${contacts.id} asc`)
       .limit(BATCH_SIZE);
 
     for (const contact of page) {
@@ -531,17 +534,17 @@ async function selectCompositeMatchers(
         condition: criteria,
         ctx: {
           db,
-          userId: contact.externalId,
+          userId: contact.userId,
           journeyContext:
             (contact.properties as Record<string, unknown> | null) ?? {},
         },
       });
-      if (isMember) matchers.push(contact.externalId);
+      if (isMember) matchers.push(contact.userId);
     }
 
     // A short page (fewer than a full batch) means the scan is exhausted.
     if (page.length < BATCH_SIZE) break;
-    cursor = page[page.length - 1]?.externalId ?? null;
+    cursor = page[page.length - 1]?.id ?? null;
     if (cursor == null) break;
   }
 

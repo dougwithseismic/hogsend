@@ -9,6 +9,7 @@ import type {
 } from "@hogsend/email";
 import { getTemplate, renderToHtml } from "@hogsend/email";
 import { eq } from "drizzle-orm";
+import { getListRegistry } from "../lists/registry-singleton.js";
 import type {
   FrequencyCapConfig,
   SendTrackedEmailOptions,
@@ -211,7 +212,16 @@ async function checkSuppression(
 
   if (category && prefs.categories) {
     const categories = prefs.categories as Record<string, boolean>;
-    if (categories[category] === false) return "category_unsubscribed";
+    // Registry-aware polarity (§2.6, D3). A defined list resolves its own
+    // `defaultOptIn`; non-list categories (`transactional`/`journey`) and any
+    // unknown id resolve to `defaultOptIn true`, so the block condition reduces
+    // to the legacy `=== false` check for them.
+    const list = getListRegistry().get(category);
+    const defaultOptIn = list?.defaultOptIn ?? true;
+    const blocked = defaultOptIn
+      ? categories[category] === false
+      : categories[category] !== true;
+    if (blocked) return "category_unsubscribed";
   }
 
   return null;

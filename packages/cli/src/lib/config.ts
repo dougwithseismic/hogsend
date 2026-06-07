@@ -8,12 +8,19 @@ export interface ResolvedConfig {
   baseUrl: string;
   /** Admin bearer token, if resolvable. `doctor`/health works without it. */
   adminKey: string | undefined;
+  /**
+   * Data-plane bearer token (an `ingest`-scoped key), if resolvable. Used by the
+   * write commands (`contacts upsert`, `events send`, `emails send`). Falls back
+   * to the admin key since `full-admin` implies `ingest`.
+   */
+  dataKey: string | undefined;
 }
 
 /** Global flags parsed off the front of any command's argv. */
 export interface GlobalFlags {
   url?: string;
   adminKey?: string;
+  dataKey?: string;
   json: boolean;
   help: boolean;
   /** The remaining args after global flags are stripped. */
@@ -39,6 +46,7 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
     options: {
       url: { type: "string" },
       "admin-key": { type: "string" },
+      "data-key": { type: "string" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -47,7 +55,7 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
   // Rebuild `rest` from the token stream, dropping only the global flags we
   // own (and their values). Everything else — positionals and unknown option
   // tokens — is preserved verbatim for the command's own parser.
-  const owned = new Set(["url", "admin-key", "json", "help", "h"]);
+  const owned = new Set(["url", "admin-key", "data-key", "json", "help", "h"]);
   const rest: string[] = [];
   for (const token of tokens) {
     if (token.kind === "positional") {
@@ -68,6 +76,8 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
     url: typeof values.url === "string" ? values.url : undefined,
     adminKey:
       typeof values["admin-key"] === "string" ? values["admin-key"] : undefined,
+    dataKey:
+      typeof values["data-key"] === "string" ? values["data-key"] : undefined,
     json: values.json === true,
     help: values.help === true,
     rest,
@@ -120,6 +130,7 @@ export function loadDotEnv(
  *
  *   baseUrl: --url > HOGSEND_API_URL (env) > HOGSEND_API_URL (.env) > localhost:3002
  *   adminKey: --admin-key > HOGSEND_ADMIN_KEY|ADMIN_API_KEY (env) > (.env equiv)
+ *   dataKey: --data-key > HOGSEND_DATA_KEY > HOGSEND_API_KEY (env then .env)
  */
 export function resolveConfig(
   flags: GlobalFlags,
@@ -140,8 +151,19 @@ export function resolveConfig(
     dotenv.HOGSEND_ADMIN_KEY ??
     dotenv.ADMIN_API_KEY;
 
+  // Data-plane (ingest-scoped) key. Precedence is independent of adminKey:
+  // explicit data key first, then a dedicated env/.env var, then the generic
+  // HOGSEND_API_KEY (which a fresh scaffold mints as an ingest key).
+  const dataKey =
+    flags.dataKey ??
+    process.env.HOGSEND_DATA_KEY ??
+    process.env.HOGSEND_API_KEY ??
+    dotenv.HOGSEND_DATA_KEY ??
+    dotenv.HOGSEND_API_KEY;
+
   return {
     baseUrl: baseUrlRaw.replace(/\/+$/, ""),
     adminKey: adminKey && adminKey.length > 0 ? adminKey : undefined,
+    dataKey: dataKey && dataKey.length > 0 ? dataKey : undefined,
   };
 }

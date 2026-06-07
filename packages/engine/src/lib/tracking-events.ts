@@ -78,7 +78,7 @@ export async function pushTrackingEvent(
       event,
       userId: ctx.userId,
       userEmail: ctx.userEmail,
-      properties,
+      eventProperties: properties,
     },
   });
 }

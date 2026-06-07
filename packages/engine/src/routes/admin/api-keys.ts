@@ -58,7 +58,7 @@ const createKeyRoute = createRoute({
           schema: z.object({
             name: z.string().min(1).max(100),
             scopes: z
-              .array(z.enum(["read", "journey-admin", "full-admin"]))
+              .array(z.enum(["read", "journey-admin", "full-admin", "ingest"]))
               .min(1)
               .default(["read"]),
             expiresAt: z.string().datetime().optional(),

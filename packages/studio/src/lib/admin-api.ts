@@ -539,7 +539,7 @@ export function revokeApiKey(id: string) {
   );
 }
 
-// --- Ingest (test events) ------------------------------------------------
+// --- Events (test events) ------------------------------------------------
 
 export type IngestExit = {
   journeyId: string;
@@ -553,8 +553,14 @@ export type IngestResult = {
 };
 
 /**
- * Fire an event through the public ingest pipeline (POST /v1/ingest) — the same
- * path real events take. Powers the Debug panel's test-event sender.
+ * Fire an event through the public data-plane pipeline (POST /v1/events) — the
+ * same path real events take. Powers the Debug panel's test-event sender.
+ *
+ * The Debug form still supplies the studio-friendly `{ event, userId,
+ * userEmail, properties }` shape; we map it onto the data-plane body
+ * (`name`/`email`/`eventProperties`). Per the D2 property split, the Debug
+ * panel only sends `eventProperties` — contact-property writes are not exposed
+ * here.
  */
 export function ingestEvent(body: {
   event: string;
@@ -562,7 +568,14 @@ export function ingestEvent(body: {
   userEmail?: string;
   properties?: Record<string, unknown>;
 }) {
-  return api.post<IngestResult>("/v1/ingest", { json: body });
+  return api.post<IngestResult>("/v1/events", {
+    json: {
+      name: body.event,
+      userId: body.userId,
+      email: body.userEmail,
+      eventProperties: body.properties ?? {},
+    },
+  });
 }
 
 // --- Query keys ----------------------------------------------------------

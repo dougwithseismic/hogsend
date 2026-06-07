@@ -298,6 +298,10 @@ export function createJourneyContext(
       userEmail: targetEmail,
       properties,
     }) {
+      // Keep the PUBLIC `TriggerOptions.properties` field name (decision #13 —
+      // renaming it would break consumer journeys + scaffold). Map it to the
+      // engine-internal `eventProperties` bag here; no `contactProperties` by
+      // default (a future `TriggerOptions.contactProperties` is deferred).
       await ingestEvent({
         db,
         registry,
@@ -307,7 +311,7 @@ export function createJourneyContext(
           event,
           userId: targetUserId,
           userEmail: targetEmail ?? userEmail,
-          properties: properties ?? {},
+          eventProperties: properties ?? {},
         },
       });
     },
