@@ -58,11 +58,23 @@ rm -rf /tmp/hs-verify
 
 - The scaffold template `packages/create-hogsend/template/_package.json` pins **`^{{ENGINE_VERSION}}`** (caret), consistent with `RELEASING.md §5`. `ENGINE_VERSION` and the `HOGSEND_PACKAGES` list both live in `packages/create-hogsend/src/template-manifest.ts` — keep `ENGINE_VERSION` equal to `@hogsend/engine`'s version, and **add any new scaffold-pinned package to `HOGSEND_PACKAGES`**.
 - **Why caret, not exact:** bumping a package that `@hogsend/engine` depends on (`email`, `plugin-posthog`, `plugin-resend`) cascades engine to a *patch* (e.g. `0.1.0 → 0.1.1`) via `updateInternalDependencies: "patch"`, and drags its `linked` siblings (`db`, `core`). An exact pin can't equal both `0.1.0` and `0.1.1` and the scaffold breaks. A caret (`^0.1.0`) absorbs same-minor drift, so all deps just need to land on the same minor line.
-- Changeset *bump types* (patch/minor) cannot align two packages that start on different version lines (e.g. `0.0.1` vs `0.1.0`) onto one number — caret pinning is what makes the single `ENGINE_VERSION` token work across the drift. The `linked` group is `[engine, db, core, cli, client]` — all five move together on the engine line.
+- Changeset *bump types* (patch/minor) cannot align two packages that start on different version lines (e.g. `0.0.1` vs `0.1.0`) onto one number — caret pinning is what makes the single `ENGINE_VERSION` token work across the drift.
+
+### 🚨 The `linked` group is DISBANDED (`linked: []`) — declare every engine-line package explicitly (2026-06-07 learnings)
+
+The changeset `linked` group used to be `[engine, db, core, cli, client]`, but it caused TWO broken releases and was removed:
+1. **`linked` does NOT auto-bump siblings.** Bumping only `engine` in a linked group leaves `db/core/cli/client` un-bumped — `linked` merely forces *already-bumped* members to share one number. So you must list every engine-line package in the changeset anyway.
+2. **A brand-new member (no release history) corrupts the linked math** — it jumped `engine` to `1.0.0` on a `minor` changeset.
+
+**The discipline now:** each release, write a changeset that EXPLICITLY bumps all nine engine-line packages (`engine, db, core, cli, client, email, plugin-posthog, plugin-resend, studio`) to the same bump type. They all start uniform, so they land uniform. `verify-scaffold.sh` catches any drift.
+
+🚨 **Peer-dependency = forced MAJOR bump.** changesets force-bumps a package to **major** whenever one of its `peerDependencies` is bumped. `@hogsend/client` peer-depended on `@hogsend/email` (bumped every release) → it computed `1.0.0` every time. Fixed by moving `@hogsend/email` to `client`'s `devDependencies` only (it's an optional, type-only peer; every consumer has it via `@hogsend/engine`). **Do NOT re-add `@hogsend/email` (or any frequently-bumped `@hogsend/*`) to `peerDependencies`.**
+
+**Always sanity-check with a throwaway `pnpm changeset version` (then `git reset --hard`)** — `changeset status` bump-type labels lie for these cases; only the computed numbers tell the truth.
 
 ## `@hogsend/cli` + `@hogsend/client` — ON the engine line, scaffold dependencies
 
-Both `@hogsend/cli` and `@hogsend/client` are now **on the engine version line** (currently `0.6.0`). They are in the `linked` changeset group alongside `[engine, db, core]`, listed in `HOGSEND_PACKAGES`, and pinned by the scaffold as `^{{ENGINE_VERSION}}` — so all five bump together on every release and the scaffold's caret pin resolves. The `linked` group is now `[engine, db, core, cli, client]`.
+Both `@hogsend/cli` and `@hogsend/client` are now **on the engine version line** (shipped at `0.7.0`). They're listed in `HOGSEND_PACKAGES` and pinned by the scaffold as `^{{ENGINE_VERSION}}`. They must be bumped to the engine version every release — but via EXPLICIT changeset entries, NOT the `linked` group (which is disbanded — see the gotcha above).
 
 - **The scaffold DEPENDS on `@hogsend/cli` and `@hogsend/client`.** Keep them in `template/_package.json` deps (`^{{ENGINE_VERSION}}`) and in `HOGSEND_PACKAGES` (`template-manifest.ts`). The verification harness (`packages/create-hogsend/scripts/verify-scaffold.sh`) packs both — they're in its `PACKAGES=(...)` array — and **builds them before packing** (`pnpm --filter @hogsend/cli build`, `pnpm --filter @hogsend/client build`) because both ship `dist/` (client ships only `dist`; cli ships `dist` + `src`). With cli on `0.6.0` the produced tarball is `hogsend-cli-0.6.0.tgz`, matching `copy.ts`'s `rewriteTarballDeps` (`hogsend-<name>-${ENGINE_VERSION}.tgz`).
 - 🚨 **`@hogsend/client`'s FIRST npm publish must be MANUAL.** It's a brand-new `@hogsend/*` package, so the CI publish token cannot CREATE it (see the New-package gotcha above). Publish it by hand once — `cd packages/client && pnpm --filter @hogsend/client build && npm publish --access public` — and verify it on the registry **before** `create-hogsend` ships with the `^{{ENGINE_VERSION}}` pin that depends on it. Otherwise a public scaffold install 404s. After it exists once, future versions publish via CI on the engine line.
