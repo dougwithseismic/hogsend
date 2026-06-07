@@ -1,4 +1,11 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
 import { emailSendStatusEnum } from "./enums.js";
 import { journeyStates } from "./journey-states.js";
@@ -30,6 +37,11 @@ export const emailSends = pgTable(
     // Bounce classification from the Resend webhook (hard/soft/transient + reason).
     bounceType: text("bounce_type"),
     bounceReason: text("bounce_reason"),
+    // Caller-supplied idempotency key (POST /v1/emails). A retry with the same
+    // key short-circuits to the prior send instead of dispatching a duplicate —
+    // mirrors the user_events idempotency pattern. Nullable: journey/system sends
+    // don't set it.
+    idempotencyKey: text("idempotency_key"),
     ...timestamps,
   },
   (table) => [
@@ -45,5 +57,8 @@ export const emailSends = pgTable(
       table.createdAt,
       table.category,
     ),
+    // Idempotency dedup for POST /v1/emails (NULLs are distinct in Postgres, so
+    // unkeyed journey/system sends never collide).
+    uniqueIndex("email_sends_idempotency_key_idx").on(table.idempotencyKey),
   ],
 );

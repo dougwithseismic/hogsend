@@ -132,8 +132,8 @@ describe("contacts", () => {
       externalId: "u_1",
       email: "a@b.com",
       properties: {},
-      firstSeenAt: null,
-      lastSeenAt: null,
+      firstSeenAt: "2026-01-01T00:00:00.000Z",
+      lastSeenAt: "2026-01-01T00:00:00.000Z",
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     };

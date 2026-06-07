@@ -48,15 +48,28 @@ export const posthogSource = defineWebhookSource({
     const rawEmail = payload.person?.properties?.email;
     const userEmail = typeof rawEmail === "string" ? rawEmail : "";
 
-    const properties: Record<string, unknown> = {
+    // D2 property split: PostHog event properties (behavioral) feed
+    // `eventProperties` (→ user_events + Hatchet trigger.where/exitOn ONLY);
+    // PostHog person properties (identity/profile) feed `contactProperties`
+    // (→ contacts.properties merge ONLY). The two bags are NEVER merged.
+    const eventProperties: Record<string, unknown> = {
       ...payload.event.properties,
-      ...payload.person?.properties,
     };
 
     if (payload.event.uuid) {
-      properties._posthogEventId = payload.event.uuid;
+      eventProperties._posthogEventId = payload.event.uuid;
     }
 
-    return { event: eventName, userId, userEmail, properties };
+    const contactProperties: Record<string, unknown> = {
+      ...payload.person?.properties,
+    };
+
+    return {
+      event: eventName,
+      userId,
+      userEmail,
+      eventProperties,
+      contactProperties,
+    };
   },
 });

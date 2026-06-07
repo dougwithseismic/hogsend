@@ -20,7 +20,7 @@ describe("defineWebhookSource", () => {
           event: payload.foo,
           userId: "u1",
           userEmail: "",
-          properties: {},
+          eventProperties: {},
         };
       },
     });
@@ -51,7 +51,7 @@ describe("defineWebhookSource", () => {
 describe("PostHog source transform (unit)", () => {
   const ctx = { db: {} as never, logger: {} as never };
 
-  it("maps PostHog payload to IngestEvent", async () => {
+  it("maps PostHog payload to the two-bag IngestEvent (D2 split)", async () => {
     const result = await posthogSource.transform(
       {
         event: {
@@ -71,11 +71,19 @@ describe("PostHog source transform (unit)", () => {
     expect(result?.event).toBe("user.created");
     expect(result?.userId).toBe("user-456");
     expect(result?.userEmail).toBe("test@example.com");
-    expect(result?.properties).toEqual({
+
+    // Event (behavioral) properties + the posthog event id → eventProperties
+    // (→ user_events + Hatchet trigger.where/exitOn ONLY).
+    expect(result?.eventProperties).toEqual({
       plan: "pro",
+      _posthogEventId: "evt-123",
+    });
+
+    // Person (identity/profile) properties → contactProperties
+    // (→ contacts.properties merge ONLY). The two bags are NEVER merged.
+    expect(result?.contactProperties).toEqual({
       email: "test@example.com",
       name: "Test User",
-      _posthogEventId: "evt-123",
     });
   });
 
@@ -94,9 +102,10 @@ describe("PostHog source transform (unit)", () => {
     expect(result?.event).toBe("page.viewed");
     expect(result?.userId).toBe("user-789");
     expect(result?.userEmail).toBe("");
+    expect(result?.contactProperties).toEqual({});
   });
 
-  it("merges event and person properties", async () => {
+  it("keeps event and person properties in SEPARATE bags (no merge)", async () => {
     const result = await posthogSource.transform(
       {
         event: {
@@ -111,12 +120,18 @@ describe("PostHog source transform (unit)", () => {
       ctx,
     );
 
-    expect(result?.properties.source).toBe("google");
-    expect(result?.properties.plan).toBe("pro");
-    expect(result?.properties.email).toBe("a@b.com");
+    // The behavioral `plan: "free"` lives ONLY on eventProperties; the profile
+    // `plan: "pro"` lives ONLY on contactProperties — the conflation is gone.
+    expect(result?.eventProperties.source).toBe("google");
+    expect(result?.eventProperties.plan).toBe("free");
+    expect(result?.eventProperties.email).toBeUndefined();
+
+    expect(result?.contactProperties?.plan).toBe("pro");
+    expect(result?.contactProperties?.email).toBe("a@b.com");
+    expect(result?.contactProperties?.source).toBeUndefined();
   });
 
-  it("includes posthog event uuid when present", async () => {
+  it("includes posthog event uuid on eventProperties when present", async () => {
     const result = await posthogSource.transform(
       {
         event: { uuid: "abc-123", event: "test", distinct_id: "u1" },
@@ -124,7 +139,7 @@ describe("PostHog source transform (unit)", () => {
       ctx,
     );
 
-    expect(result?.properties._posthogEventId).toBe("abc-123");
+    expect(result?.eventProperties._posthogEventId).toBe("abc-123");
   });
 
   it("excludes posthog event uuid when absent", async () => {
@@ -135,7 +150,7 @@ describe("PostHog source transform (unit)", () => {
       ctx,
     );
 
-    expect(result?.properties._posthogEventId).toBeUndefined();
+    expect(result?.eventProperties._posthogEventId).toBeUndefined();
   });
 });
 

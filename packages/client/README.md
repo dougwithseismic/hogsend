@@ -12,7 +12,14 @@ pnpm add @hogsend/client
 
 For fully type-checked `emails.send`, also install `@hogsend/email` (a
 **type-only optional peer**) and augment its template registry in your app.
-Without it, `emails.send` degrades gracefully to `{ template: string; props? }`.
+Without it, the `emails.send` _shape_ degrades to `{ template: string; props? }`.
+
+> Note: the shipped `.d.ts` references `@hogsend/email` by module name. If you
+> do NOT install the optional peer, keep `skipLibCheck: true` in your tsconfig
+> (the default for most app scaffolds) — otherwise `tsc` emits `TS2307: Cannot
+> find module '@hogsend/email'` from this package's declarations. Installing the
+> peer (even for types only) removes the caveat entirely. The runtime JS has no
+> dependency on `@hogsend/email`.
 
 ## Usage
 

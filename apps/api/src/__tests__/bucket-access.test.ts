@@ -23,7 +23,7 @@ vi.mock("../lib/hatchet.js", () => ({
 }));
 
 const { bucketMemberships, contacts } = await import("@hogsend/db");
-const { like } = await import("drizzle-orm");
+const { like, sql } = await import("drizzle-orm");
 const { createBucketAccessor, createHogsendClient, defineBucket } =
   await import("@hogsend/engine");
 
@@ -52,6 +52,7 @@ async function seedContact(
     })
     .onConflictDoUpdate({
       target: contacts.externalId,
+      targetWhere: sql`${contacts.externalId} is not null and ${contacts.deletedAt} is null`,
       set: { deletedAt: opts?.deletedAt ?? null },
     });
 }

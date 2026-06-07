@@ -6,6 +6,7 @@ import {
   contactSearchFilter,
   resolveContact,
   resolveOrCreateContact,
+  serializeContact as serializeContactRow,
   serializePrefs,
 } from "../../lib/contacts.js";
 
@@ -201,19 +202,8 @@ const deleteRoute = createRoute({
   },
 });
 
-function serializeContact(row: typeof contacts.$inferSelect) {
-  return {
-    id: row.id,
-    externalId: row.externalId,
-    anonymousId: row.anonymousId,
-    email: row.email,
-    properties: (row.properties ?? {}) as Record<string, unknown>,
-    firstSeenAt: row.firstSeenAt.toISOString(),
-    lastSeenAt: row.lastSeenAt.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
+const serializeContact = (row: typeof contacts.$inferSelect) =>
+  serializeContactRow(row, { includeAnonymousId: true });
 
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {

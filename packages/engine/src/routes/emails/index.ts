@@ -2,9 +2,9 @@ import { getTemplateNames, type TemplateName } from "@hogsend/email";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import { resolveRecipient } from "../../lib/contacts.js";
+import { errorSchema } from "../../lib/schemas.js";
 import { hasScope } from "../../middleware/api-key.js";
-
-const errorSchema = z.object({ error: z.string() });
+import { requireIdentity } from "../_shared.js";
 
 const emailRequestSchema = z.object({
   to: z.string().email().optional(),
@@ -68,12 +68,15 @@ export const emailsRouter = new OpenAPIHono<AppEnv>().openapi(
     const apiKey = c.get("apiKey");
     const body = c.req.valid("json");
 
-    if (!body.to && !body.userId) {
-      return c.json({ error: "to or userId is required" }, 400);
-    }
+    const guard = requireIdentity(
+      c,
+      { email: body.to, userId: body.userId },
+      { field: "to" },
+    );
+    if (guard) return guard;
 
     // `skipPreferenceCheck` is a privileged bypass — gate it on full-admin
-    // (§2.5). The sub-app guard already required the `ingest` scope.
+    // (§2.5). The data-plane prefix guard already required the `ingest` scope.
     if (body.skipPreferenceCheck) {
       if (!apiKey || !hasScope(apiKey.scopes, "full-admin")) {
         return c.json(
@@ -97,6 +100,10 @@ export const emailsRouter = new OpenAPIHono<AppEnv>().openapi(
       return c.json({ error: "No resolvable email for recipient" }, 404);
     }
 
+    // The `Idempotency-Key` header wins over the body field (mirrors /v1/events).
+    const headerKey = c.req.header("idempotency-key");
+    const idempotencyKey = headerKey ?? body.idempotencyKey;
+
     // Journeyless send (no journeyStateId) so §5 tracking runs. The
     // denormalized `userId` on the send row is external_id when present, else
     // the contact id fallback (§2.5).
@@ -111,6 +118,7 @@ export const emailsRouter = new OpenAPIHono<AppEnv>().openapi(
       userId: recipient.externalId ?? recipient.contactId,
       userEmail: recipient.email,
       skipPreferenceCheck: body.skipPreferenceCheck,
+      idempotencyKey,
     });
 
     return c.json(

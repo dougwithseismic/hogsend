@@ -7,7 +7,11 @@ import type {
   TemplateName,
   TemplateRegistry,
 } from "@hogsend/email";
-import { getTemplate, renderToHtml } from "@hogsend/email";
+import {
+  generateUnsubscribeUrl,
+  getTemplate,
+  renderToHtml,
+} from "@hogsend/email";
 import { eq } from "drizzle-orm";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import type {
@@ -51,11 +55,55 @@ export async function sendTrackedEmail<K extends TemplateName>(
     options,
   } = opts;
 
+  // The idempotency-collision result, built identically whether the prior row is
+  // found by the up-front short-circuit select OR the concurrent-insert loser
+  // path below: surface the winner's send id, mapping "sent" → sent and anything
+  // else → a skipped/"frequency_capped" placeholder.
+  const idempotentResult = (prior: {
+    id: string;
+    status: string;
+  }): TrackedSendResult =>
+    ({
+      emailSendId: prior.id,
+      resendId: "",
+      status: prior.status === "sent" ? "sent" : "skipped",
+      ...(prior.status === "sent" ? {} : { reason: "frequency_capped" }),
+    }) as TrackedSendResult;
+
+  // Idempotency short-circuit (POST /v1/emails): a retry with the same key
+  // returns the prior send instead of dispatching a duplicate provider call /
+  // tracking artifacts (mirrors the user_events idempotency pattern).
+  if (options.idempotencyKey) {
+    const existing = await db
+      .select({ id: emailSends.id, status: emailSends.status })
+      .from(emailSends)
+      .where(eq(emailSends.idempotencyKey, options.idempotencyKey))
+      .limit(1);
+    const prior = existing[0];
+    if (prior) {
+      return idempotentResult(prior);
+    }
+  }
+
+  // Resolve the template ONCE up front so its default category is available to
+  // the suppression check (a public /v1/emails send may omit `category`, in
+  // which case the per-category suppression must still consult the template's
+  // own category — otherwise an unsubscribed recipient leaks the mail while the
+  // row is stamped with that very category — risk 6 / §2.6).
+  const {
+    element,
+    subject: defaultSubject,
+    category: templateCategory,
+  } = getTemplate({ key: options.templateKey, props: options.props, registry });
+
+  const effectiveCategory = options.category ?? templateCategory;
+  const subject = options.subject ?? defaultSubject;
+
   if (!options.skipPreferenceCheck) {
     const suppression = await checkSuppression(
       db,
       options.to,
-      options.category,
+      effectiveCategory,
     );
     if (suppression) {
       const rows = await db
@@ -65,11 +113,14 @@ export async function sendTrackedEmail<K extends TemplateName>(
           fromEmail: options.from,
           toEmail: options.to,
           subject: options.subject ?? "",
-          category: options.category,
+          category: effectiveCategory,
           journeyStateId: options.journeyStateId,
           userId: options.userId,
           userEmail: options.userEmail ?? options.to,
           status: "failed",
+          // A suppressed send does NOT consume the idempotency key — leaving it
+          // unset lets a later retry (e.g. after the recipient re-subscribes)
+          // actually attempt the send rather than dedup to the suppressed row.
         })
         .returning({ id: emailSends.id });
 
@@ -90,6 +141,10 @@ export async function sendTrackedEmail<K extends TemplateName>(
     // Frequency cap — consulted only for non-system sends (system mail sets
     // skipPreferenceCheck and bypasses both suppression and the cap). On a cap
     // hit: no provider call, no row inserted, no throw — the journey continues.
+    // Keyed on the caller-supplied `options.category` (NOT the template default)
+    // so the cap's byCategory/exempt rules apply exactly to what the caller
+    // asked to cap — distinct from suppression, which needs the template default
+    // to honor a per-category unsubscribe even when the caller omits `category`.
     if (frequencyCap) {
       const capped = await isFrequencyCapped({
         db,
@@ -112,37 +167,91 @@ export async function sendTrackedEmail<K extends TemplateName>(
     }
   }
 
-  const {
-    element,
-    subject: defaultSubject,
-    category,
-  } = getTemplate({ key: options.templateKey, props: options.props, registry });
+  // Unsubscribe surface (RFC 8058 / CAN-SPAM): generate the per-recipient
+  // unsubscribe URL ONCE and inject it both as the in-body template prop AND the
+  // List-Unsubscribe / List-Unsubscribe-Post: One-Click headers, so EVERY send
+  // through the tracked mailer — journey AND public /v1/emails — carries it
+  // uniformly. Suppressed only for true system mail (skipPreferenceCheck). Built
+  // from the SAME user_id fallback (externalId ?? contactId) the email_sends row
+  // uses, keeping the token externalId consistent with the preference-center key.
+  const secret = process.env.BETTER_AUTH_SECRET;
+  let unsubscribeUrl: string | undefined;
+  if (!options.skipPreferenceCheck && options.baseUrl && secret) {
+    unsubscribeUrl = generateUnsubscribeUrl({
+      baseUrl: options.baseUrl,
+      secret,
+      externalId: options.userId ?? options.to,
+      email: options.to,
+      category: effectiveCategory,
+    });
+  }
 
-  const subject = options.subject ?? defaultSubject;
+  const sendHeaders: Record<string, string> = { ...(options.headers ?? {}) };
+  if (unsubscribeUrl && !("List-Unsubscribe" in sendHeaders)) {
+    sendHeaders["List-Unsubscribe"] = `<${unsubscribeUrl}>`;
+    sendHeaders["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+  }
 
-  const insertRows = await db
-    .insert(emailSends)
-    .values({
-      templateKey: options.templateKey,
-      fromEmail: options.from,
-      toEmail: options.to,
-      subject,
-      category: options.category ?? category,
-      journeyStateId: options.journeyStateId,
-      userId: options.userId,
-      userEmail: options.userEmail ?? options.to,
-      status: "queued",
-    })
-    .returning({ id: emailSends.id });
+  // Re-render the template element with the unsubscribe URL merged into props so
+  // the in-body footer link renders for journeyless public sends too. Journey
+  // sends already pass `unsubscribeUrl` in props (lib/email.ts); only set it when
+  // the caller didn't, so we never clobber an explicitly-passed value.
+  const propsRecord = options.props as unknown as
+    | Record<string, unknown>
+    | undefined;
+  const sendElement =
+    unsubscribeUrl && propsRecord?.unsubscribeUrl == null
+      ? getTemplate({
+          key: options.templateKey,
+          props: {
+            ...(propsRecord ?? {}),
+            unsubscribeUrl,
+          } as unknown as typeof options.props,
+          registry,
+        }).element
+      : element;
+
+  const baseInsert = db.insert(emailSends).values({
+    templateKey: options.templateKey,
+    fromEmail: options.from,
+    toEmail: options.to,
+    subject,
+    category: effectiveCategory,
+    journeyStateId: options.journeyStateId,
+    userId: options.userId,
+    userEmail: options.userEmail ?? options.to,
+    status: "queued",
+    idempotencyKey: options.idempotencyKey,
+  });
+
+  // With an idempotency key, swallow a concurrent-insert collision on the unique
+  // index (the select-then-insert above is not atomic) and return the winner.
+  const insertRows = options.idempotencyKey
+    ? await baseInsert
+        .onConflictDoNothing({ target: emailSends.idempotencyKey })
+        .returning({ id: emailSends.id })
+    : await baseInsert.returning({ id: emailSends.id });
 
   const insertedRow = insertRows[0];
+  if (!insertedRow && options.idempotencyKey) {
+    // A concurrent send claimed the key first — return its row.
+    const winner = await db
+      .select({ id: emailSends.id, status: emailSends.status })
+      .from(emailSends)
+      .where(eq(emailSends.idempotencyKey, options.idempotencyKey))
+      .limit(1);
+    const won = winner[0];
+    if (won) {
+      return idempotentResult(won);
+    }
+  }
   if (!insertedRow) throw new Error("Failed to insert email_sends row");
   const emailSendId = insertedRow.id;
 
   try {
     let html: string | undefined;
     if (options.baseUrl && prepareTrackedHtml) {
-      const rawHtml = await renderToHtml(element);
+      const rawHtml = await renderToHtml(sendElement);
       html = await prepareTrackedHtml({
         html: rawHtml,
         emailSendId,
@@ -155,9 +264,9 @@ export async function sendTrackedEmail<K extends TemplateName>(
       from: options.from,
       to: options.to,
       subject,
-      ...(html ? { html } : { react: element }),
+      ...(html ? { html } : { react: sendElement }),
       tags: options.tags,
-      headers: options.headers,
+      headers: sendHeaders,
       replyTo: options.replyTo,
     });
 
@@ -202,26 +311,24 @@ async function checkSuppression(
     .where(eq(emailPreferences.email, email))
     .limit(1);
 
-  if (rows.length === 0) return null;
-
   const prefs = rows[0];
-  if (!prefs) return null;
 
-  if (prefs.suppressed) return "suppressed";
-  if (prefs.unsubscribedAll) return "unsubscribed";
+  if (prefs?.suppressed) return "suppressed";
+  if (prefs?.unsubscribedAll) return "unsubscribed";
 
-  if (category && prefs.categories) {
-    const categories = prefs.categories as Record<string, boolean>;
-    // Registry-aware polarity (§2.6, D3). A defined list resolves its own
-    // `defaultOptIn`; non-list categories (`transactional`/`journey`) and any
-    // unknown id resolve to `defaultOptIn true`, so the block condition reduces
-    // to the legacy `=== false` check for them.
-    const list = getListRegistry().get(category);
-    const defaultOptIn = list?.defaultOptIn ?? true;
-    const blocked = defaultOptIn
-      ? categories[category] === false
-      : categories[category] !== true;
-    if (blocked) return "category_unsubscribed";
+  // Registry-aware polarity (§2.6, D3) — applied through the SINGLE source of
+  // truth `ListRegistry.isSubscribed` so it matches the preference center EXACTLY
+  // (categories default to `{}` when there is NO prefs row or NO categories map).
+  // This MUST run even when the row is absent/empty: an opt-out list
+  // (`defaultOptIn:false`) requires `categories[id] === true` to be subscribed,
+  // so absence-of-true (the common "never opted in" case) MUST block — otherwise
+  // a contact the preference center shows as "Unsubscribed" would still receive
+  // the mail (the two surfaces would disagree, which §2.6 forbids).
+  if (category) {
+    const categories = (prefs?.categories ?? {}) as Record<string, boolean>;
+    if (!getListRegistry().isSubscribed(categories, category)) {
+      return "category_unsubscribed";
+    }
   }
 
   return null;

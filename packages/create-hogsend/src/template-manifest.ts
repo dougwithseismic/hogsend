@@ -16,6 +16,8 @@ export const ENGINE_VERSION = "0.6.0";
 
 /** Every `@hogsend/*` package the scaffolded app depends on. */
 export const HOGSEND_PACKAGES = [
+  "cli",
+  "client",
   "core",
   "db",
   "email",

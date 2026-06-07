@@ -1,12 +1,14 @@
-import type { contacts as contactsTable } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import {
   findContacts,
   resolveOrCreateContact,
+  serializeContact,
   softDeleteContact,
 } from "../../lib/contacts.js";
 import { applyListMembership } from "../../lib/preferences.js";
+import { errorSchema } from "../../lib/schemas.js";
+import { listMembershipError, requireIdentity } from "../_shared.js";
 
 // The public, serialized contact shape (§2.5). `externalId` is nullable (D1 —
 // email-only / anonymous contacts) and timestamps are ISO strings.
@@ -20,8 +22,6 @@ const contactSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-
-const errorSchema = z.object({ error: z.string() });
 
 const upsertRoute = createRoute({
   method: "put",
@@ -128,27 +128,13 @@ const deleteRoute = createRoute({
   },
 });
 
-function serializeContact(row: typeof contactsTable.$inferSelect) {
-  return {
-    id: row.id,
-    externalId: row.externalId,
-    email: row.email,
-    properties: (row.properties ?? {}) as Record<string, unknown>,
-    firstSeenAt: row.firstSeenAt.toISOString(),
-    lastSeenAt: row.lastSeenAt.toISOString(),
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
-
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(upsertRoute, async (c) => {
     const { db } = c.get("container");
     const body = c.req.valid("json");
 
-    if (!body.email && !body.userId) {
-      return c.json({ error: "email or userId is required" }, 400);
-    }
+    const guard = requireIdentity(c, body);
+    if (guard) return guard;
 
     const { id, created, linked } = await resolveOrCreateContact({
       db,
@@ -169,15 +155,7 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
           lists: body.lists,
         });
       } catch (err) {
-        return c.json(
-          {
-            error:
-              err instanceof Error
-                ? err.message
-                : "Failed to apply list membership",
-          },
-          400,
-        );
+        return c.json({ error: listMembershipError(err) }, 400);
       }
     }
 
@@ -187,21 +165,19 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { email, userId } = c.req.valid("query");
 
-    if (!email && !userId) {
-      return c.json({ error: "email or userId is required" }, 400);
-    }
+    const guard = requireIdentity(c, { email, userId });
+    if (guard) return guard;
 
     const rows = await findContacts({ db, email, userId });
 
-    return c.json({ contacts: rows.map(serializeContact) }, 200);
+    return c.json({ contacts: rows.map((row) => serializeContact(row)) }, 200);
   })
   .openapi(deleteRoute, async (c) => {
     const { db } = c.get("container");
     const { email, userId } = c.req.valid("json");
 
-    if (!email && !userId) {
-      return c.json({ error: "email or userId is required" }, 400);
-    }
+    const guard = requireIdentity(c, { email, userId });
+    if (guard) return guard;
 
     const deleted = await softDeleteContact({ db, email, userId });
     if (!deleted) {

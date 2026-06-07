@@ -38,6 +38,49 @@ export async function resolveContact(opts: { db: Database; id: string }) {
   return rows[0] ?? null;
 }
 
+interface SerializedContact {
+  id: string;
+  externalId: string | null;
+  email: string | null;
+  properties: Record<string, unknown>;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Serialize a contact row to its JSON shape (timestamps → ISO strings). The
+ * PUBLIC `/v1/contacts` Contact shape (§2.5 / `@hogsend/client`) does NOT include
+ * `anonymousId`; the admin surface does. `includeAnonymousId` toggles that single
+ * field (and the return type) so both routes share one serializer without
+ * diverging the public type.
+ */
+export function serializeContact(
+  row: ContactRow,
+  opts: { includeAnonymousId: true },
+): SerializedContact & { anonymousId: string | null };
+export function serializeContact(
+  row: ContactRow,
+  opts?: { includeAnonymousId?: false },
+): SerializedContact;
+export function serializeContact(
+  row: ContactRow,
+  opts?: { includeAnonymousId?: boolean },
+): SerializedContact & { anonymousId?: string | null } {
+  return {
+    id: row.id,
+    externalId: row.externalId,
+    ...(opts?.includeAnonymousId ? { anonymousId: row.anonymousId } : {}),
+    email: row.email,
+    properties: (row.properties ?? {}) as Record<string, unknown>,
+    firstSeenAt: row.firstSeenAt.toISOString(),
+    lastSeenAt: row.lastSeenAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 export function serializePrefs(row: typeof emailPreferences.$inferSelect) {
   return {
     id: row.id,
@@ -121,13 +164,30 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
 }
 
 /**
- * Merge `patch` onto the existing jsonb properties: `COALESCE(existing,'{}') ||
- * patch` (the patch wins on key conflict; an explicit `null` value in the patch
- * sets that key to JSON null, it does not delete it — matching the prior
- * upsert's `||` semantics). Returns the SQL fragment for the `properties` set.
+ * Merge `patch` onto the existing jsonb properties (§2.1 contract): additive
+ * `COALESCE(existing,'{}') || patch` where the patch wins on key conflict AND an
+ * explicit `null` value in the patch CLEARS that key (it is not stored as JSON
+ * null). `jsonb_strip_nulls` over the merged result drops every null-valued key
+ * — so `{ plan: null }` removes `plan` rather than leaving `"plan": null`.
+ *
+ * Caveat: `jsonb_strip_nulls` also strips any PRE-EXISTING null-valued keys on
+ * the contact, which is the intended "null === unset" model (the condition
+ * engine already treats JSON null and absent identically).
  */
 function mergePropertiesSql(patch: Record<string, unknown>) {
-  return sql`COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`;
+  return sql`jsonb_strip_nulls(COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`;
+}
+
+/**
+ * The JS analogue of {@link mergePropertiesSql} for the in-memory merge-fold:
+ * spread-merge then drop null-valued keys so explicit null clears a key (§2.1).
+ */
+function stripNulls(props: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (v !== null) out[k] = v;
+  }
+  return out;
 }
 
 /** SURVIVOR RULE: identified (has external_id) > anonymous; then OLDEST
@@ -155,8 +215,19 @@ function pickSurvivor(rows: ContactRow[]): {
 
 /** The canonical text user_id key for a contact: external_id ?? anonymous_id ??
  * id. This is what the 5 contact-referencing tables join on (risk 1). */
-function contactKey(row: ContactRow): string {
+export function contactKey(row: ContactRow): string {
   return row.externalId ?? row.anonymousId ?? row.id;
+}
+
+/**
+ * The SQL analogue of {@link contactKey}: the canonical text user_id key as a
+ * `coalesce(external_id, anonymous_id, id::text)` fragment. The `::text` cast on
+ * `id` (uuid) is required — `coalesce(text, text, uuid)` is rejected by Postgres
+ * (42804). Used by every set-based query that projects/joins on the resolved key
+ * (bucket backfill + reconcile) so the cast lives in exactly one place.
+ */
+export function contactKeySql() {
+  return sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id}::text)`;
 }
 
 /**
@@ -185,6 +256,13 @@ export async function resolveOrCreateContact(opts: {
   contactProperties?: Record<string, unknown>;
 }): Promise<{
   id: string;
+  /**
+   * The contact's canonical text user_id key AFTER this resolve
+   * (`external_id ?? anonymous_id ?? id`), i.e. {@link contactKey} of the final
+   * row — for a merge, the SURVIVOR's key. Lets callers (ingestEvent) key the
+   * history tables without a second read-back of the contact row.
+   */
+  resolvedKey: string;
   created: boolean;
   linked: boolean;
   merged: boolean;
@@ -236,13 +314,15 @@ export async function resolveOrCreateContact(opts: {
           externalId: userId ?? null,
           email: email ?? null,
           anonymousId: anonymousId ?? null,
-          properties: patch,
+          // §2.1: explicit null clears a key — never persist a null-valued prop.
+          properties: stripNulls(patch),
         })
         .returning();
       const createdRow = inserted[0];
       if (!createdRow) throw new Error("Contact insert returned no row");
       return {
         id: createdRow.id,
+        resolvedKey: contactKey(createdRow),
         created: true,
         linked: false,
         merged: false,
@@ -252,25 +332,25 @@ export async function resolveOrCreateContact(opts: {
     // --- CASE: fill-in-link (single existing row) ---
     const single = candidates[0];
     if (candidates.length === 1 && single) {
-      const id = await fillInLink(tx, single, {
+      const { id, resolvedKey } = await fillInLink(tx, single, {
         userId,
         email,
         anonymousId,
         patch,
         hasPatch,
       });
-      return { id, created: false, linked: true, merged: false };
+      return { id, resolvedKey, created: false, linked: true, merged: false };
     }
 
     // --- CASE: collide-MERGE (2-3 distinct rows) ---
-    const id = await mergeContacts(tx, candidates, {
+    const { id, resolvedKey } = await mergeContacts(tx, candidates, {
       userId,
       email,
       anonymousId,
       patch,
       hasPatch,
     });
-    return { id, created: false, linked: true, merged: true };
+    return { id, resolvedKey, created: false, linked: true, merged: true };
   });
 }
 
@@ -291,15 +371,25 @@ async function fillInLink(
   tx: Tx,
   row: ContactRow,
   ctx: ResolveCtx,
-): Promise<string> {
+): Promise<{ id: string; resolvedKey: string }> {
   const set: Record<string, unknown> = {
     lastSeenAt: new Date(),
     updatedAt: new Date(),
   };
   const promoted: ResolveKey[] = [];
 
+  // The contact's canonical string key BEFORE this fill (external_id ??
+  // anonymous_id ?? id). Attaching an external_id (or anonymous_id where none
+  // existed) flips this key — its existing string-keyed history must follow
+  // (risk 1), else entry-limit guards / history checks query under the new key
+  // and silently miss the pre-link history.
+  const oldKey = contactKey(row);
+  let nextExternalId = row.externalId;
+  let nextAnonymousId = row.anonymousId;
+
   if (ctx.userId && !row.externalId) {
     set.externalId = ctx.userId;
+    nextExternalId = ctx.userId;
     promoted.push({ kind: "external", value: ctx.userId });
   }
   if (ctx.email && !row.email) {
@@ -308,6 +398,7 @@ async function fillInLink(
   }
   if (ctx.anonymousId && !row.anonymousId) {
     set.anonymousId = ctx.anonymousId;
+    nextAnonymousId = ctx.anonymousId;
     promoted.push({ kind: "anonymous", value: ctx.anonymousId });
   }
   if (ctx.hasPatch) {
@@ -315,6 +406,20 @@ async function fillInLink(
   }
 
   await tx.update(contacts).set(set).where(eq(contacts.id, row.id));
+
+  // Re-point the contact's own history if the canonical key flipped. The
+  // updated row (with its new email/keys) is what foldJourneyStates/email_sends
+  // denormalize into.
+  const newKey = nextExternalId ?? nextAnonymousId ?? row.id;
+  if (newKey !== oldKey) {
+    const updatedRow: ContactRow = {
+      ...row,
+      externalId: nextExternalId,
+      anonymousId: nextAnonymousId,
+      email: (set.email as string | undefined) ?? row.email,
+    };
+    await repointOwnHistory(tx, oldKey, newKey, updatedRow);
+  }
 
   for (const key of promoted) {
     await tx
@@ -331,7 +436,9 @@ async function fillInLink(
       });
   }
 
-  return row.id;
+  // `newKey` IS the post-fill canonical key (external_id ?? anonymous_id ?? id) —
+  // the same value the old read-back derived.
+  return { id: row.id, resolvedKey: newKey };
 }
 
 /**
@@ -342,7 +449,7 @@ async function mergeContacts(
   tx: Tx,
   candidates: ContactRow[],
   ctx: ResolveCtx,
-): Promise<string> {
+): Promise<{ id: string; resolvedKey: string }> {
   const { survivor, losers } = pickSurvivor(candidates);
   const survivorKey = contactKey(survivor);
 
@@ -380,7 +487,7 @@ async function mergeContacts(
     await foldBucketMemberships(tx, survivorKey, loserKeysToRewrite);
 
     // (vi) email_preferences FOLD (never blind-rewrite — risk 6).
-    await foldEmailPreferences(tx, loser, survivorKey);
+    await foldEmailPreferences(tx, loserKeysToRewrite, survivorKey);
 
     // (ix) RECORD aliases for each loser key → survivor.
     await recordMergeAliases(tx, survivor.id, loser);
@@ -396,6 +503,9 @@ async function mergeContacts(
   if (ctx.hasPatch) {
     foldedProps = { ...foldedProps, ...ctx.patch };
   }
+  // §2.1: an explicit null in the call's patch clears a key — drop null-valued
+  // keys from the folded result (matching mergePropertiesSql's strip-nulls).
+  foldedProps = stripNulls(foldedProps);
 
   const survivorTimezone =
     survivor.timezone ?? losers.find((l) => l.timezone)?.timezone ?? null;
@@ -447,15 +557,51 @@ async function mergeContacts(
     .set(survivorSet)
     .where(eq(contacts.id, survivor.id));
 
-  return survivor.id;
+  // If the survivor's canonical key flipped (it had no external_id/anonymous_id
+  // and the merge promoted one from the call/loser), re-point the survivor's OWN
+  // history — including everything the loser rewrites just pointed at the old
+  // survivorKey — onto the new key (risk 1). Without this, a survivor whose
+  // history was keyed on its uuid/anonymous_id is orphaned the moment it gains
+  // an external_id mid-merge.
+  const newSurvivorKey =
+    (survivorSet.externalId as string | undefined) ??
+    survivor.externalId ??
+    (survivorSet.anonymousId as string | undefined) ??
+    survivor.anonymousId ??
+    survivor.id;
+  if (newSurvivorKey !== survivorKey) {
+    const updatedSurvivor: ContactRow = {
+      ...survivor,
+      externalId:
+        (survivorSet.externalId as string | undefined) ?? survivor.externalId,
+      anonymousId:
+        (survivorSet.anonymousId as string | undefined) ?? survivor.anonymousId,
+      email: (survivorSet.email as string | undefined) ?? survivor.email,
+    };
+    await repointOwnHistory(tx, survivorKey, newSurvivorKey, updatedSurvivor);
+  }
+
+  // `newSurvivorKey` IS the post-merge canonical key of the survivor — the same
+  // value the old read-back derived for the merged row.
+  return { id: survivor.id, resolvedKey: newSurvivorKey };
 }
 
 /**
- * journey_states fold: if the survivor already holds an active/waiting row in a
- * journey where a loser key also holds one, EXIT the loser's row first (the
- * partial-unique uq_user_journey_active forbids two active rows for the same
- * (user_id, journey, status)), then rewrite the remaining loser rows onto the
- * survivor key + survivor email.
+ * journey_states fold. `uq_user_journey_active` is a FULL (non-partial) unique
+ * index on `(user_id, journey_id, status)` — it constrains EVERY status, not
+ * just active/waiting. So a blind rewrite of loser rows onto the survivor key
+ * collides whenever the survivor already holds a row for the SAME
+ * (journey_id, status) — including the common terminal case where both
+ * identities completed/failed/exited the same journey.
+ *
+ * Fix: build the survivor's occupied (journey_id|status) set over ALL statuses.
+ * For active/waiting collisions, EXIT the loser's row first (preserve the
+ * survivor's live run). For any OTHER collision (terminal, or an active row that
+ * collides after exiting), DELETE the loser's duplicate — the survivor already
+ * records that state. Rewrite only the non-colliding remainder onto the survivor
+ * key (+ survivor email). Re-check 'exited' occupancy after exiting so a
+ * just-exited loser row that would now duplicate a pre-existing survivor
+ * 'exited' row is dropped rather than rewritten.
  */
 async function foldJourneyStates(
   tx: Tx,
@@ -463,9 +609,10 @@ async function foldJourneyStates(
   loserKeys: string[],
   survivor: ContactRow,
 ): Promise<void> {
-  const ACTIVE = ["active", "waiting"] as const;
+  const ACTIVE = new Set<string>(["active", "waiting"]);
 
-  const survivorActive = await tx
+  // Every (journey_id|status) pair the survivor already holds (ALL statuses).
+  const survivorRows = await tx
     .select({
       journeyId: journeyStates.journeyId,
       status: journeyStates.status,
@@ -474,18 +621,16 @@ async function foldJourneyStates(
     .where(
       and(
         eq(journeyStates.userId, survivorKey),
-        inArray(journeyStates.status, [...ACTIVE]),
         isNull(journeyStates.deletedAt),
       ),
     );
-
-  // (journeyId|status) pairs the survivor already occupies — a loser row sharing
-  // one would violate uq_user_journey_active on rewrite.
+  // Running occupied set — mutated as we exit/rewrite loser rows so two loser
+  // rows in the same journey/status (3-way merge) can't collide with each other.
   const occupied = new Set(
-    survivorActive.map((s) => `${s.journeyId}|${s.status}`),
+    survivorRows.map((s) => `${s.journeyId}|${s.status}`),
   );
 
-  const loserActive = await tx
+  const loserRows = await tx
     .select({
       id: journeyStates.id,
       journeyId: journeyStates.journeyId,
@@ -495,14 +640,46 @@ async function foldJourneyStates(
     .where(
       and(
         inArray(journeyStates.userId, loserKeys),
-        inArray(journeyStates.status, [...ACTIVE]),
         isNull(journeyStates.deletedAt),
       ),
     );
 
-  const idsToExit = loserActive
-    .filter((l) => occupied.has(`${l.journeyId}|${l.status}`))
-    .map((l) => l.id);
+  const idsToExit: string[] = [];
+  const idsToDelete: string[] = [];
+  const idsToRewrite: string[] = [];
+
+  for (const l of loserRows) {
+    const key = `${l.journeyId}|${l.status}`;
+    if (occupied.has(key)) {
+      if (ACTIVE.has(l.status)) {
+        // Survivor (or a prior loser) already holds a live row in this
+        // journey/status — exit the loser's so the live run continues. Only do
+        // so if the resulting 'exited' slot is itself free; otherwise drop it.
+        const exitedKey = `${l.journeyId}|exited`;
+        if (occupied.has(exitedKey)) {
+          idsToDelete.push(l.id);
+        } else {
+          idsToExit.push(l.id);
+          occupied.add(exitedKey);
+        }
+      } else {
+        // Terminal collision (both completed/failed/exited the same journey) —
+        // the survivor already records this state; drop the loser duplicate.
+        idsToDelete.push(l.id);
+      }
+    } else {
+      // Free slot — rewrite onto the survivor key. Claim it so a sibling loser
+      // row in the same journey/status routes to exit/delete instead.
+      idsToRewrite.push(l.id);
+      occupied.add(key);
+    }
+  }
+
+  if (idsToDelete.length > 0) {
+    await tx
+      .delete(journeyStates)
+      .where(inArray(journeyStates.id, idsToDelete));
+  }
 
   if (idsToExit.length > 0) {
     await tx
@@ -511,17 +688,19 @@ async function foldJourneyStates(
       .where(inArray(journeyStates.id, idsToExit));
   }
 
-  // Rewrite the rest (non-conflicting active rows + all terminal rows) onto the
-  // survivor key. The just-exited rows are now 'exited' (terminal, re-entrant)
-  // so they no longer collide on the active-partial index.
-  await tx
-    .update(journeyStates)
-    .set({
-      userId: survivorKey,
-      ...(survivor.email ? { userEmail: survivor.email } : {}),
-      updatedAt: new Date(),
-    })
-    .where(inArray(journeyStates.userId, loserKeys));
+  // Rewrite both the originally non-colliding rows AND the just-exited rows onto
+  // the survivor key (the exited rows now sit in claimed-free 'exited' slots).
+  const rewriteIds = [...idsToRewrite, ...idsToExit];
+  if (rewriteIds.length > 0) {
+    await tx
+      .update(journeyStates)
+      .set({
+        userId: survivorKey,
+        ...(survivor.email ? { userEmail: survivor.email } : {}),
+        updatedAt: new Date(),
+      })
+      .where(inArray(journeyStates.id, rewriteIds));
+  }
 }
 
 /**
@@ -592,12 +771,10 @@ async function foldBucketMemberships(
  */
 async function foldEmailPreferences(
   tx: Tx,
-  loser: ContactRow,
+  loserKeys: string[],
   survivorKey: string,
 ): Promise<void> {
-  const loserKeys = [loser.externalId, loser.anonymousId, loser.id].filter(
-    (k): k is string => Boolean(k),
-  );
+  if (loserKeys.length === 0) return;
 
   const loserPrefs = await tx
     .select()
@@ -665,6 +842,51 @@ async function foldEmailPreferences(
     // re-pointed — its data is folded in, so drop it.
     await tx.delete(emailPreferences).where(eq(emailPreferences.id, lp.id));
   }
+}
+
+/**
+ * Re-point a contact's OWN string-keyed history when its canonical key flips
+ * (risk 1). resolvedKey downstream is `external_id ?? anonymous_id ?? id`, so
+ * when fill-in-link attaches an external_id to a previously email-only/anon
+ * contact (or merge promotes the survivor's external_id), the contact's
+ * canonical key changes and its existing user_events/journey_states/email_sends/
+ * bucket_memberships/email_preferences rows (keyed on the OLD key) would be
+ * silently orphaned. Rewrite them from `oldKey` to `newKey`, applying the SAME
+ * active/terminal dedupe as the merge fold so the rewrite can't violate
+ * uq_user_journey_active / uq_user_bucket_active / uq(user_id,email).
+ *
+ * No-op when oldKey === newKey (the canonical key did not change).
+ */
+async function repointOwnHistory(
+  tx: Tx,
+  oldKey: string,
+  newKey: string,
+  row: ContactRow,
+): Promise<void> {
+  if (oldKey === newKey) return;
+
+  // user_events: no unique constraint on user_id — blind rewrite.
+  await tx
+    .update(userEvents)
+    .set({ userId: newKey })
+    .where(eq(userEvents.userId, oldKey));
+
+  // journey_states + bucket_memberships: dedupe against the survivor/new key's
+  // existing rows (the folds already handle the collision logic).
+  await foldJourneyStates(tx, newKey, [oldKey], row);
+  await foldBucketMemberships(tx, newKey, [oldKey]);
+
+  // email_sends: no unique constraint on user_id — blind rewrite.
+  await tx
+    .update(emailSends)
+    .set({
+      userId: newKey,
+      ...(row.email ? { userEmail: row.email } : {}),
+    })
+    .where(eq(emailSends.userId, oldKey));
+
+  // email_preferences: FOLD into the new key's rows (uq(user_id, email)).
+  await foldEmailPreferences(tx, [oldKey], newKey);
 }
 
 /** RECORD a contact_aliases row per loser key → survivor (reason 'merge'). */
@@ -745,6 +967,7 @@ export async function upsertContact(opts: {
   properties?: Record<string, unknown>;
 }): Promise<{
   id: string;
+  resolvedKey: string;
   created: boolean;
   linked: boolean;
   merged: boolean;

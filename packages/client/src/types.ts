@@ -1,8 +1,15 @@
 // `@hogsend/email` is a TYPE-ONLY optional peer dependency. We reference its
 // augmentable `TemplateRegistryMap` purely for compile-time typing of
-// `emails.send`; nothing here is emitted at runtime. When the consumer has NOT
-// installed/augmented `@hogsend/email`, this resolves to an empty interface and
-// `emails.send` degrades to a permissive `{ template: string; props? }` shape.
+// `emails.send`; nothing here is emitted at runtime (the import is fully erased
+// from the JS dist).
+//
+// SHAPE degradation: when the consumer has NOT augmented `TemplateRegistryMap`,
+// `IsEmptyRegistry` below picks the permissive `{ template: string; props? }`
+// variant. RESOLUTION caveat: the emitted `.d.ts` still carries a top-level
+// `import ... from "@hogsend/email"`, so a consumer who installs @hogsend/client
+// WITHOUT the optional @hogsend/email peer AND type-checks with
+// `skipLibCheck: false` gets TS2307 from this line. Install the peer (even just
+// for types) or keep `skipLibCheck: true` (the common default). See README.
 import type { TemplateRegistryMap } from "@hogsend/email";
 
 // ---------------------------------------------------------------------------
@@ -45,8 +52,10 @@ export interface Contact {
   externalId: string | null;
   email: string | null;
   properties: Record<string, unknown>;
-  firstSeenAt: string | null;
-  lastSeenAt: string | null;
+  // The server serializes these from `.notNull()` columns via `.toISOString()`,
+  // so they are always present ISO strings — never null (§2.5 Contact shape).
+  firstSeenAt: string;
+  lastSeenAt: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +71,11 @@ export interface ExitResult {
 export interface IngestResult {
   stored: boolean;
   exits: ExitResult[];
+  /**
+   * Present only when the event was ingested but the (non-atomic, post-ingest)
+   * list-membership write failed. The event itself is durably stored.
+   */
+  listsError?: string;
 }
 
 /** Result of `contacts.upsert`. */

@@ -2,6 +2,7 @@ import { userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, gte, lte } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { ingestEvent } from "../../lib/ingestion.js";
 
 const eventSchema = z.object({
   id: z.string(),
@@ -79,7 +80,71 @@ const getRoute = createRoute({
   },
 });
 
+const exitSchema = z.object({
+  journeyId: z.string(),
+  stateId: z.string(),
+  exited: z.boolean(),
+});
+
+const ingestRoute = createRoute({
+  method: "post",
+  path: "/",
+  tags: ["Admin — Events"],
+  summary: "Ingest a test event",
+  description:
+    "Session-authed ingest for the Studio Debug panel. Runs an event " +
+    "through the full ingest pipeline (stores it, routes it to journeys, " +
+    "evaluates exits). Inherits requireAdmin session auth from the admin " +
+    "mount — does NOT accept an hsk_ API key.",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            event: z.string().min(1),
+            userId: z.string().optional(),
+            userEmail: z.string().optional(),
+            properties: z.record(z.string(), z.unknown()).optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    202: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            stored: z.boolean(),
+            exits: z.array(exitSchema),
+          }),
+        },
+      },
+      description: "Event accepted and ingested",
+    },
+  },
+});
+
 export const eventsRouter = new OpenAPIHono<AppEnv>()
+  .openapi(ingestRoute, async (c) => {
+    const { db, registry, hatchet, logger } = c.get("container");
+    const { event, userId, userEmail, properties } = c.req.valid("json");
+
+    const result = await ingestEvent({
+      db,
+      registry,
+      hatchet,
+      logger,
+      event: {
+        event,
+        userId,
+        userEmail,
+        eventProperties: properties ?? {},
+      },
+    });
+
+    return c.json(result, 202);
+  })
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
     const { limit, offset, userId, event, from, to } = c.req.valid("query");

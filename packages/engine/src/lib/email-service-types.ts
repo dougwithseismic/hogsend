@@ -53,6 +53,12 @@ export interface SendTrackedEmailOptions<
   replyTo?: string | string[];
   skipPreferenceCheck?: boolean;
   baseUrl?: string;
+  /**
+   * Caller-supplied idempotency key (POST /v1/emails). A retry with the same key
+   * short-circuits to the prior `email_sends` row instead of dispatching a
+   * duplicate provider send.
+   */
+  idempotencyKey?: string;
 }
 
 export interface TrackedSendResult {
@@ -128,6 +134,8 @@ export interface EmailServiceSendOptions<
   headers?: Record<string, string>;
   replyTo?: string | string[];
   skipPreferenceCheck?: boolean;
+  /** Caller-supplied idempotency key (POST /v1/emails) — dedups duplicate sends. */
+  idempotencyKey?: string;
 }
 
 export interface EmailServiceWebhookOptions {

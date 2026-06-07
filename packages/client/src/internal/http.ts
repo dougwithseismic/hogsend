@@ -47,13 +47,24 @@ function buildUrl(baseUrl: string, path: string, query?: Query): string {
 }
 
 function bodyMessage(status: number, body: unknown): string {
-  if (
-    body &&
-    typeof body === "object" &&
-    "error" in body &&
-    typeof (body as { error: unknown }).error === "string"
-  ) {
-    return `${status}: ${(body as { error: string }).error}`;
+  if (body && typeof body === "object") {
+    // Application-handler envelope: `{ error: "human message" }`.
+    const errField = (body as { error?: unknown }).error;
+    if (typeof errField === "string") {
+      return `${status}: ${errField}`;
+    }
+    // @hono/zod-openapi default-hook validation envelope:
+    // `{ success: false, error: <ZodError> }` (no defaultHook configured). The
+    // structured ZodError is preserved on `err.body`; surface a short, readable
+    // summary for `err.message` instead of the generic fallback.
+    if (
+      (body as { success?: unknown }).success === false &&
+      errField &&
+      typeof errField === "object"
+    ) {
+      const summary = JSON.stringify(errField).slice(0, 200);
+      return `${status}: validation failed ${summary}`;
+    }
   }
   return `request failed with status ${status}`;
 }

@@ -52,7 +52,7 @@ The 7 designers assumed slightly different names/signatures/return-shapes for sh
 
 15. **`/v1/ingest` fate.** Auth + routes + cleanup modules all converge: DELETE `routes/ingest.ts` outright, `POST /v1/events` is the replacement. **RESOLVED:** delete the file, no shim. The Studio Debug sender (`packages/studio/src/lib/admin-api.ts:559`) is the ONLY live caller of the old shape and MUST be repointed to `POST /v1/events` before/with the deletion.
 
-16. **Data-plane mount style.** Two phrasings: per-router auth vs a shared guarded sub-app. **RESOLVED:** one guarded `dataPlane` sub-app in `routes/index.ts` applies `requireApiKey` then `requireScope("ingest")` for all of `/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`; `/v1/emails/*` layers the per-key email rate-limit on top. The lists router does NOT re-apply auth internally (avoid double middleware) — it relies on the sub-app guard. (Designer sketches that put `use('*', requireApiKey...)` inside the lists router are superseded: auth lives only at the sub-app.)
+16. **Data-plane mount style.** Two phrasings: per-router auth vs a shared guarded sub-app. **RESOLVED (canonical, ratified post-build):** in `routes/index.ts`, guard EACH data-plane prefix EXPLICITLY — for each of `/contacts`, `/events`, `/emails`, `/lists`, register `v1.use(base, requireApiKey, requireScope("ingest"))` AND `v1.use(`${base}/*`, requireApiKey, requireScope("ingest"))` (Hono treats bare and `/*` as distinct match patterns). The per-key email rate-limit is registered ONCE on `/emails/*` (the wildcard matches the bare `POST /v1/emails` too, so a single registration covers the whole emails surface — registering both bare and wildcard with the same stateful limiter double-counts and halves the budget). The lists router does NOT re-apply auth internally — it relies on the prefix guards. (NOTE: an earlier draft of this plan specified a single root-mounted `dataPlane` sub-app with `use("*")`; that form was REJECTED because a `/`-mounted sub-app also intercepts sibling paths like `/v1/webhooks` and 401s them before their own handlers. The explicit-prefix form is leak-free and is the shipped contract.)
 
 17. **`@hogsend/client` HTTP core sharing.** SDK module ports a self-contained core into `client/src/internal/http.ts` (NOT a shared package); CLI keeps its own `lib/http.ts`. **RESOLVED:** accept this — no shared `@hogsend/http-core` package in phase 1 (conflict-safe for parallel work). The CLI gets a second `createDataPlaneClient(cfg)` factory inside its existing `lib/http.ts`, reusing its private `request()`. The two cores stay independent.
 
@@ -188,7 +188,7 @@ export const rateLimit: MiddlewareHandler<AppEnv>;  // = createRateLimit() (100/
 
 ### 2.5 Public data-plane routes (D1/D2/D5)
 
-All under the guarded `dataPlane` sub-app (`requireApiKey` + `requireScope("ingest")`); `/v1/emails/*` additionally rate-limited per-key.
+All under explicit per-prefix data-plane guards (`requireApiKey` + `requireScope("ingest")` on each of `/contacts`, `/events`, `/emails`, `/lists`, bare + `/*`); `/v1/emails/*` additionally rate-limited per-key (single registration on the wildcard).
 
 ```
 PUT    /v1/contacts        body { email?, userId?, properties?, lists? }  (email|userId req)
@@ -201,7 +201,11 @@ DELETE /v1/contacts        body { email?, userId? }  (one req)
 POST   /v1/events          body { name, email?, userId?, eventProperties?, contactProperties?,
                                   lists?, idempotencyKey?, timestamp? }  (email|userId req)
                            honors Idempotency-Key header (header wins over body field)
-                           -> 202 { stored, exits: { journeyId, stateId, exited }[] } | 400
+                           timestamp (ISO) backdates user_events.occurred_at (backfill/replay)
+                           -> 202 { stored, exits: { journeyId, stateId, exited }[], listsError? } | 400
+                           (the post-ingest list write is non-atomic; a list failure
+                            surfaces as `listsError` on the 202, NOT a 400 that would
+                            mask the durable ingest and tempt a retry double-ingest)
 
 POST   /v1/emails          body { to?, userId?, template, props?, from?, subject?, replyTo?,
                                   category?, skipPreferenceCheck?, idempotencyKey? }  (to|userId req)

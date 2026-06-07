@@ -24,6 +24,7 @@ import {
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
+import { contactKeySql } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
@@ -231,16 +232,20 @@ async function backfillJoins(opts: {
   for (let i = 0; i < matcherIds.length; i += BATCH_SIZE) {
     const chunk = matcherIds.slice(i, i + BATCH_SIZE);
 
-    // userEmail backfilled from the contacts row where available.
+    // userEmail backfilled from the contacts row where available. The chunk
+    // holds the RESOLVED key (coalesce(external_id, anonymous_id, id)) — for an
+    // email-only / anonymous contact that is the anonymous_id or the uuid id, NOT
+    // the (null) external_id. Looking up by `contacts.externalId` would miss
+    // those rows and write a NULL userEmail despite the contact having an email,
+    // so we key the lookup + the map by the SAME coalesce expression the chunk
+    // carries (matches reconcileBucketJoins, which reads userId + email off one
+    // contacts row).
+    const resolvedKey = contactKeySql();
     const chunkContacts = await db
-      .select({ externalId: contacts.externalId, email: contacts.email })
+      .select({ userKey: resolvedKey, email: contacts.email })
       .from(contacts)
-      .where(
-        and(inArray(contacts.externalId, chunk), isNull(contacts.deletedAt)),
-      );
-    const emailByUser = new Map(
-      chunkContacts.map((c) => [c.externalId, c.email]),
-    );
+      .where(and(inArray(resolvedKey, chunk), isNull(contacts.deletedAt)));
+    const emailByUser = new Map(chunkContacts.map((c) => [c.userKey, c.email]));
 
     // Fix A: entryCount = 1 + prior memberships for each (user, bucket), the
     // same monotonic ordinal the live join computes (check-membership.ts). On a
@@ -457,7 +462,7 @@ async function selectEventMatchers(
 
     const rows = await db
       .select({
-        userId: sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id})`,
+        userId: contactKeySql(),
       })
       .from(contacts)
       .innerJoin(everFired, eq(everFired.userId, contacts.externalId))
@@ -498,12 +503,15 @@ async function selectEventMatchers(
  * a per-contact `evaluateCondition` loop over live contacts. Property
  * sub-conditions evaluate against the contact's merged properties.
  *
- * KEYSET PAGINATION by `contacts.externalId` in BATCH_SIZE pages (mirrors
- * reconcileBucketJoins' `externalId asc` paging): each page selects
- * `WHERE externalId > :cursor ORDER BY externalId ASC LIMIT BATCH_SIZE`,
- * evaluates the criteria per contact, then advances the cursor to the last
- * externalId of the page — repeating until a short page ends the scan. The whole
- * contacts table is never held in memory at once.
+ * KEYSET PAGINATION by `contacts.id` in BATCH_SIZE pages: each page selects
+ * `WHERE id > :cursor ORDER BY id ASC LIMIT BATCH_SIZE`, evaluates the criteria
+ * per contact, then advances the cursor to the last `id` of the page — repeating
+ * until a short page ends the scan. The whole contacts table is never held in
+ * memory at once. Paging on `id` (the non-null unique PK) — NOT `external_id`,
+ * which is nullable (email-only / anonymous contacts) and would drop every
+ * null-external_id row and order NULLs unstably. (reconcileBucketJoins is not a
+ * keyset scan — it relies on matchers dropping out as they become active
+ * members — so this no longer mirrors it.)
  */
 async function selectCompositeMatchers(
   db: Database,
@@ -516,7 +524,7 @@ async function selectCompositeMatchers(
     const page = await db
       .select({
         id: contacts.id,
-        userId: sql<string>`coalesce(${contacts.externalId}, ${contacts.anonymousId}, ${contacts.id})`,
+        userId: contactKeySql(),
         properties: contacts.properties,
       })
       .from(contacts)

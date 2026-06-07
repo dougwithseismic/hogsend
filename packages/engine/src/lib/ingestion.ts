@@ -1,12 +1,7 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import {
-  contacts,
-  type Database,
-  journeyStates,
-  userEvents,
-} from "@hogsend/db";
+import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { checkBucketMembership } from "../buckets/check-membership.js";
 import { resolveOrCreateContact } from "./contacts.js";
@@ -24,6 +19,12 @@ export interface IngestEvent {
   /** D2: → `contacts.properties` merge ONLY. */
   contactProperties?: Record<string, unknown>;
   idempotencyKey?: string;
+  /**
+   * Caller-supplied event time (§2.5 `timestamp`). When set, `user_events`
+   * `occurred_at` is stamped from it (backfill/replay) instead of defaulting to
+   * the ingest instant. Accepts a `Date` or an ISO-8601 string.
+   */
+  occurredAt?: Date | string;
 }
 
 export interface ExitResult {
@@ -50,10 +51,10 @@ export async function ingestEvent(opts: {
   // contact-referencing tables join on a NOT NULL text key, so an email-only /
   // anonymous event (D1 optional userId) needs a canonical key resolved before
   // any insert (risk 2). The resolver applies ONLY contactProperties to
-  // `contacts.properties` (D2 split) and returns the canonical contact id; we
-  // read back the row to derive the resolved string key
-  // (external_id ?? anonymous_id ?? contact.id — risk 1/6).
-  const { id: contactId } = await resolveOrCreateContact({
+  // `contacts.properties` (D2 split) and returns BOTH the canonical contact id
+  // AND its resolved string key (external_id ?? anonymous_id ?? contact.id —
+  // risk 1/6), so no second read-back of the contact row is needed.
+  const { resolvedKey } = await resolveOrCreateContact({
     db,
     userId: event.userId,
     email: event.userEmail || undefined,
@@ -61,17 +62,9 @@ export async function ingestEvent(opts: {
     contactProperties: event.contactProperties,
   });
 
-  const [resolved] = await db
-    .select({
-      externalId: contacts.externalId,
-      anonymousId: contacts.anonymousId,
-    })
-    .from(contacts)
-    .where(eq(contacts.id, contactId))
-    .limit(1);
-
-  const resolvedKey =
-    resolved?.externalId ?? resolved?.anonymousId ?? contactId;
+  // Caller-supplied event time (backfill/replay). Coerced to a Date; undefined
+  // falls back to the `occurred_at` DB default (ingest instant).
+  const occurredAt = event.occurredAt ? new Date(event.occurredAt) : undefined;
 
   // (2) Idempotency dedup + `user_events` insert keyed on the resolved key, with
   // ONLY eventProperties in the properties bag (D2).
@@ -83,6 +76,7 @@ export async function ingestEvent(opts: {
         event: event.event,
         properties: event.eventProperties,
         idempotencyKey: event.idempotencyKey,
+        ...(occurredAt ? { occurredAt } : {}),
       })
       .onConflictDoNothing({
         target: userEvents.idempotencyKey,
@@ -97,6 +91,7 @@ export async function ingestEvent(opts: {
       userId: resolvedKey,
       event: event.event,
       properties: event.eventProperties,
+      ...(occurredAt ? { occurredAt } : {}),
     });
   }
 

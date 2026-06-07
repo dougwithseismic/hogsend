@@ -11,11 +11,13 @@ import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
+import { lists } from "./lists/index.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
 const client = createHogsendClient({
   journeys,
   buckets,
+  lists,
   email: { templates },
 });
 

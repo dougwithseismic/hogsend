@@ -38,25 +38,33 @@ export function registerRoutes(
   v1.route("/admin", adminRouter);
   v1.route("/t", trackingRouter);
 
-  // The guarded data plane (D5 / decision #16). ONE sub-app applies
-  // `requireApiKey` → `requireScope("ingest")` for the whole data plane
-  // (`/contacts`, `/events`, `/emails`, `/lists`); the child routers do NOT
-  // re-apply auth. `/emails/*` layers the per-key email rate-limit on top, in
-  // strict order auth → scope → rateLimit (never a shared "anonymous" bucket).
-  const dataPlane = new OpenAPIHono<AppEnv>();
-  dataPlane.use("*", requireApiKey);
-  dataPlane.use("*", requireScope("ingest"));
-  dataPlane.use(
-    "/emails/*",
-    createRateLimit({ prefix: "ratelimit:emails", max: EMAIL_RATE_LIMIT_MAX }),
-  );
+  // The guarded data plane (D5 / decision #16): `requireApiKey` →
+  // `requireScope("ingest")` on `/contacts`, `/events`, `/emails`, `/lists`.
+  // Each prefix is guarded EXPLICITLY rather than via a root-mounted catch-all
+  // sub-app — a sub-app at "/" with `use("*")` also intercepts sibling paths
+  // (e.g. `/v1/webhooks`) and 401s them before they reach their own handlers.
+  // Both the bare path and its `/*` subtree are covered (Hono treats them as
+  // distinct match patterns). `/emails` layers the per-key email rate-limit on
+  // top, in strict order auth → scope → rateLimit.
+  const emailRateLimit = createRateLimit({
+    prefix: "ratelimit:emails",
+    max: EMAIL_RATE_LIMIT_MAX,
+  });
+  for (const base of ["/contacts", "/events", "/emails", "/lists"]) {
+    v1.use(base, requireApiKey, requireScope("ingest"));
+    v1.use(`${base}/*`, requireApiKey, requireScope("ingest"));
+  }
+  // Register the email rate-limit ONCE. The wildcard pattern `/emails/*` matches
+  // BOTH the bare `POST /v1/emails` and any subtree, so a single registration
+  // covers the whole emails surface. Registering both bare AND wildcard with the
+  // SAME stateful instance double-counts every send (two sliding-window entries
+  // per request), halving the effective per-key budget (decision #16 / risk 15).
+  v1.use("/emails/*", emailRateLimit);
 
-  dataPlane.route("/contacts", contactsRouter);
-  dataPlane.route("/events", eventsRouter);
-  dataPlane.route("/emails", emailsRouter);
-  dataPlane.route("/lists", listsRouter);
-
-  v1.route("/", dataPlane);
+  v1.route("/contacts", contactsRouter);
+  v1.route("/events", eventsRouter);
+  v1.route("/emails", emailsRouter);
+  v1.route("/lists", listsRouter);
 
   app.route("/v1", v1);
 
