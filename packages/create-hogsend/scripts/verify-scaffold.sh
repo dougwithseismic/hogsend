@@ -28,6 +28,18 @@ fail() {
   exit 1
 }
 
+# Assert a tarball contains a path matching a pattern. CRITICAL: capture the
+# `tar` listing into a variable FIRST, then `grep` the string. Piping
+# `tar -tzf … | grep -q …` instead lets grep's first-match early-exit close the
+# pipe, sending GNU tar a SIGPIPE (exit 141); under `set -o pipefail` that
+# propagates as a pipeline failure and FALSELY trips the check. (BSD/macOS tar
+# does not exit non-zero on SIGPIPE, so this only ever bit CI, never local.)
+tar_has() {
+  local listing
+  listing="$(tar -tzf "$1")"
+  grep -q "$2" <<<"$listing"
+}
+
 # --- 1. build the CLI -----------------------------------------------------
 echo "==> [1/8] build CLI"
 pnpm --filter create-hogsend build >/dev/null
@@ -60,10 +72,10 @@ for pkg in "${PACKAGES[@]}"; do
   case "$pkg" in
     studio | cli | client)
       # These ship a built dist/ — assert it travelled in the tarball.
-      tar -tzf "$tgz" | grep -q 'package/dist/' || fail "$tgz missing package/dist/**"
+      tar_has "$tgz" 'package/dist/' || fail "$tgz missing package/dist/**"
       ;;
     *)
-      tar -tzf "$tgz" | grep -q 'package/src/' || fail "$tgz missing package/src/**"
+      tar_has "$tgz" 'package/src/' || fail "$tgz missing package/src/**"
       ;;
   esac
 done
@@ -77,9 +89,9 @@ echo "==> [2b] assert create-hogsend pack carries template/.claude + CLAUDE.temp
 pnpm --dir "$PKG_DIR" pack --pack-destination "$TARBALLS" >/dev/null
 chtgz="$(echo "$TARBALLS"/create-hogsend-*.tgz)"
 [ -f "$chtgz" ] || fail "create-hogsend tarball not produced"
-tar -tzf "$chtgz" | grep -q 'package/template/.claude/skills/.*/SKILL.md' \
+tar_has "$chtgz" 'package/template/.claude/skills/.*/SKILL.md' \
   || fail "create-hogsend pack missing template/.claude/skills/**/SKILL.md"
-tar -tzf "$chtgz" | grep -q 'package/template/CLAUDE.template.md' \
+tar_has "$chtgz" 'package/template/CLAUDE.template.md' \
   || fail "create-hogsend pack missing template/CLAUDE.template.md"
 
 # --- 3. scaffold into a clean /tmp dir ------------------------------------
