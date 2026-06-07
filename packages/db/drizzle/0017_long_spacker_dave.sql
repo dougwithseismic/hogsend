@@ -1,0 +1,2 @@
+ALTER TABLE "campaigns" ADD COLUMN "idempotency_key" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "campaigns_idempotency_key_idx" ON "campaigns" USING btree ("idempotency_key") WHERE idempotency_key IS NOT NULL;

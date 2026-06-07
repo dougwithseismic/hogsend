@@ -1,6 +1,9 @@
 export { HogsendAPIError, RateLimitError } from "./errors.js";
 export { Hogsend } from "./hogsend.js";
 export type {
+  Campaign,
+  CampaignAudienceKind,
+  CampaignStatus,
   Contact,
   DeleteContactInput,
   DeleteContactResult,
@@ -10,6 +13,8 @@ export type {
   Identity,
   IngestResult,
   ListSummary,
+  SendCampaignInput,
+  SendCampaignResult,
   SendEmailInput,
   SendEmailResult,
   SendEventInput,

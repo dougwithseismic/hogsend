@@ -212,5 +212,6 @@ export {
 } from "./workflows/bucket-reconcile.js";
 export { checkAlertsTask } from "./workflows/check-alerts.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
+export { sendCampaignTask } from "./workflows/send-campaign.js";
 // --- Built-in Hatchet workflow tasks ---
 export { sendEmailTask } from "./workflows/send-email.js";

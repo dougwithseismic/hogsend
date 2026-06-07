@@ -105,6 +105,36 @@ export interface SendEmailResult {
   reason?: string;
 }
 
+/** Lifecycle status of a campaign (broadcast). */
+export type CampaignStatus = "queued" | "sending" | "sent" | "failed";
+
+/** Whether a campaign targets a list or a bucket. */
+export type CampaignAudienceKind = "list" | "bucket";
+
+/** Result of `campaigns.send` (the 202 enqueue ack from `POST /v1/campaigns`). */
+export interface SendCampaignResult {
+  campaignId: string;
+  status: CampaignStatus;
+}
+
+/** A campaign as returned by `GET /v1/campaigns/{id}`. */
+export interface Campaign {
+  id: string;
+  name: string;
+  status: CampaignStatus;
+  audienceKind: CampaignAudienceKind;
+  audienceId: string;
+  templateKey: string;
+  totalRecipients: number;
+  sentCount: number;
+  skippedCount: number;
+  failedCount: number;
+  // ISO strings while pending; null until the worker sets them.
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Resource inputs
 // ---------------------------------------------------------------------------
@@ -185,3 +215,53 @@ type UntypedTemplateVariant = SendEmailEnvelope & {
 export type SendEmailInput = IsEmptyRegistry extends true
   ? UntypedTemplateVariant
   : TypedTemplateVariant;
+
+// ---------------------------------------------------------------------------
+// campaigns.send — exactly one of `list` | `bucket`, with `template`/`props`
+// typed against the augmented TemplateRegistryMap (same degradation as emails).
+// ---------------------------------------------------------------------------
+
+/**
+ * Audience selector: exactly one of `list` or `bucket` (a list id or a bucket
+ * id). Modelled as a union so passing both is a type error, mirroring the
+ * server's "exactly one of list|bucket required" validation.
+ */
+type CampaignAudience =
+  | { list: string; bucket?: never }
+  | { bucket: string; list?: never };
+
+/** Envelope fields shared by every `campaigns.send` call. */
+type CampaignEnvelope = {
+  /** Human label for the campaign. Server defaults it when omitted. */
+  name?: string;
+  /** Override the default From address for this broadcast. */
+  from?: string;
+  /** Override the rendered subject for this broadcast. */
+  subject?: string;
+};
+
+/** One `{ template, props }` variant for a single known template key. */
+type TypedCampaignTemplate = {
+  [K in keyof TemplateRegistryMap]: CampaignEnvelope &
+    CampaignAudience & {
+      template: K;
+      props: TemplateRegistryMap[K];
+    };
+}[keyof TemplateRegistryMap];
+
+/** Fallback shape when `@hogsend/email` is absent/un-augmented. */
+type UntypedCampaignTemplate = CampaignEnvelope &
+  CampaignAudience & {
+    template: string;
+    props?: Record<string, unknown>;
+  };
+
+/**
+ * Input to `campaigns.send`. Requires exactly one of `list` | `bucket` plus a
+ * `template`. When the consumer augments `TemplateRegistryMap`,
+ * `template`/`props` are fully type-checked per known key; otherwise it degrades
+ * to a permissive `{ template: string; props? }`.
+ */
+export type SendCampaignInput = IsEmptyRegistry extends true
+  ? UntypedCampaignTemplate
+  : TypedCampaignTemplate;

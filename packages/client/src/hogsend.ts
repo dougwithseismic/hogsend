@@ -1,4 +1,5 @@
 import { createHttpClient } from "./internal/http.js";
+import { CampaignsResource } from "./resources/campaigns.js";
 import { ContactsResource } from "./resources/contacts.js";
 import { EmailsResource } from "./resources/emails.js";
 import { EventsResource } from "./resources/events.js";
@@ -19,6 +20,7 @@ export class Hogsend {
   readonly events: EventsResource;
   readonly emails: EmailsResource;
   readonly lists: ListsResource;
+  readonly campaigns: CampaignsResource;
 
   constructor(opts: HogsendOptions) {
     if (!opts.baseUrl) {
@@ -40,5 +42,6 @@ export class Hogsend {
     this.events = new EventsResource(http);
     this.emails = new EmailsResource(http);
     this.lists = new ListsResource(http);
+    this.campaigns = new CampaignsResource(http);
   }
 }

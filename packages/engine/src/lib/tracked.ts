@@ -286,10 +286,18 @@ export async function sendTrackedEmail<K extends TemplateName>(
       status: "sent",
     };
   } catch (error) {
+    // A provider send failed (transient SMTP/network/429). Stamp `failed` AND
+    // RELEASE the idempotency key (set it null), exactly like the suppression
+    // path deliberately never consumes it: this lets a retry genuinely
+    // RE-ATTEMPT the send rather than dedup to this failed row. Without the
+    // release, the up-front short-circuit would return this `failed` row mapped
+    // to `skipped`, so a real delivery failure would (a) never be re-sent and
+    // (b) silently vanish from the campaign's failedCount into skippedCount.
     await db
       .update(emailSends)
       .set({
         status: "failed",
+        idempotencyKey: null,
         updatedAt: new Date(),
       })
       .where(eq(emailSends.id, emailSendId));

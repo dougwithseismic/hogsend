@@ -4,6 +4,7 @@ import { requireApiKey, requireScope } from "../middleware/api-key.js";
 import { createRateLimit } from "../middleware/rate-limit.js";
 import type { DefinedWebhookSource } from "../webhook-sources/define-webhook-source.js";
 import { adminRouter } from "./admin/index.js";
+import { campaignsRouter } from "./campaigns/index.js";
 import { contactsRouter } from "./contacts/index.js";
 import { emailRouter } from "./email/index.js";
 import { emailsRouter } from "./emails/index.js";
@@ -50,7 +51,13 @@ export function registerRoutes(
     prefix: "ratelimit:emails",
     max: EMAIL_RATE_LIMIT_MAX,
   });
-  for (const base of ["/contacts", "/events", "/emails", "/lists"]) {
+  for (const base of [
+    "/contacts",
+    "/events",
+    "/emails",
+    "/lists",
+    "/campaigns",
+  ]) {
     v1.use(base, requireApiKey, requireScope("ingest"));
     v1.use(`${base}/*`, requireApiKey, requireScope("ingest"));
   }
@@ -65,6 +72,7 @@ export function registerRoutes(
   v1.route("/events", eventsRouter);
   v1.route("/emails", emailsRouter);
   v1.route("/lists", listsRouter);
+  v1.route("/campaigns", campaignsRouter);
 
   app.route("/v1", v1);
 

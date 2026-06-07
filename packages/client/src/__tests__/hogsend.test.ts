@@ -299,6 +299,78 @@ describe("lists", () => {
 });
 
 // ---------------------------------------------------------------------------
+// campaigns
+// ---------------------------------------------------------------------------
+
+describe("campaigns", () => {
+  it("send POSTs /v1/campaigns for a list audience and returns the ack", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { campaignId: "cmp_1", status: "queued" },
+    });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).campaigns.send({
+      name: "June newsletter",
+      list: "newsletter",
+      template: "welcome",
+      props: { name: "Ada" },
+    });
+    expect(res).toEqual({ campaignId: "cmp_1", status: "queued" });
+    expect(calls[0]?.method).toBe("POST");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/campaigns");
+    expect(calls[0]?.body).toMatchObject({
+      name: "June newsletter",
+      list: "newsletter",
+      template: "welcome",
+      props: { name: "Ada" },
+    });
+    // A list send never carries a bucket selector.
+    expect((calls[0]?.body as { bucket?: string }).bucket).toBeUndefined();
+  });
+
+  it("send POSTs /v1/campaigns for a bucket audience", async () => {
+    const { fetchImpl, calls } = makeFetch({
+      body: { campaignId: "cmp_2", status: "queued" },
+    });
+    await client(fetchImpl as unknown as typeof fetch).campaigns.send({
+      bucket: "power-users",
+      template: "welcome",
+      props: {},
+    });
+    expect(calls[0]?.body).toMatchObject({
+      bucket: "power-users",
+      template: "welcome",
+    });
+    expect((calls[0]?.body as { list?: string }).list).toBeUndefined();
+  });
+
+  it("get GETs /v1/campaigns/{id} and url-encodes the id", async () => {
+    const campaign = {
+      id: "cmp_1",
+      name: "June newsletter",
+      status: "sent",
+      audienceKind: "list",
+      audienceId: "newsletter",
+      templateKey: "welcome",
+      totalRecipients: 100,
+      sentCount: 98,
+      skippedCount: 2,
+      failedCount: 0,
+      startedAt: "2026-06-01T00:00:00.000Z",
+      completedAt: "2026-06-01T00:01:00.000Z",
+      createdAt: "2026-06-01T00:00:00.000Z",
+    };
+    const { fetchImpl, calls } = makeFetch({ body: campaign });
+    const res = await client(
+      fetchImpl as unknown as typeof fetch,
+    ).campaigns.get("cmp/1");
+    expect(res).toEqual(campaign);
+    expect(calls[0]?.method).toBe("GET");
+    expect(calls[0]?.url).toBe("https://api.test.local/v1/campaigns/cmp%2F1");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Error mapping
 // ---------------------------------------------------------------------------
 
