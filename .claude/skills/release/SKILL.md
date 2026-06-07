@@ -7,6 +7,17 @@ description: Cut a Hogsend npm release — the two-phase changesets flow, caret/
 
 Canonical reference: `docs/RELEASING.md`. This skill is the **operational runbook + the gotchas that doc doesn't cover yet**. Read the 🚨 section first if you are shipping a *new* package — it has caused a broken public release.
 
+## 🤖 `release-doctor` enforces most of this now (added 2026-06-07)
+
+Much of the discipline below is no longer manual — `scripts/release-doctor.mjs` makes it executable:
+
+- **`pnpm release-doctor`** (the `--check` default) ASSERTS the version-line invariants: `ENGINE_VERSION` ↔ engine version, all engine-line packages on one version, the three scaffold lists agreeing (`HOGSEND_PACKAGES` ≡ `verify-scaffold.sh` PACKAGES ≡ template `@hogsend` deps), caret pins, no force-major peer trap, no migration-number collision, public/private publishConfig. It runs as the **Release integrity** CI job (every PR) and at the top of `release.yml`.
+- **`pnpm version-packages`** = `changeset version && release-doctor --sync` — so the Version PR now **auto-bumps `ENGINE_VERSION`** to match the freshly-bumped engine. The old manual "hand-edit ENGINE_VERSION on the version PR branch" step is GONE.
+- **`release.yml` post-publish** runs `scripts/verify-published.mjs` — GETs every just-published `name@version` from the registry and **fails loudly if any 404s** (the new-package gotcha).
+- **`verify-scaffold.sh`** is now wired into the Release integrity CI job (path-gated to packaging changes), not just a manual harness.
+
+The runbook below is still the source of *why*; the doctor is the *enforcement*. If you add a new engine-line package, update `HOGSEND_PACKAGES` + `verify-scaffold.sh` PACKAGES + the template deps (the doctor's 3-way check fails until they agree) — the doctor derives its engine-line set from `HOGSEND_PACKAGES`, so there's no fourth list.
+
 ## The flow (two-phase changesets)
 
 1. Make your code/doc changes.

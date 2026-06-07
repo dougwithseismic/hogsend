@@ -179,3 +179,42 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build prod image and boot api/worker/migrate
         run: bash scripts/preflight-deploy.sh
+
+  release-integrity:
+    name: Release integrity
+    runs-on: ubuntu-latest
+    # The version-line + publish-shape invariants that otherwise live only in
+    # docs/RELEASING.md and the release skill — turned into a gate. Catches the
+    # silent ways a release degrades: ENGINE_VERSION drifting from the engine
+    # line (fresh scaffolds stuck a minor behind), the three scaffold package
+    # lists disagreeing, a force-major peer trap, a migration-number collision,
+    # or a built-dist package missing from its tarball.
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Fast, deterministic version-line invariants (pure file reads, ~1s).
+      - run: pnpm release-doctor
+      # Real pack -> scaffold -> install -> build smoke. Heavier (~minutes), so
+      # skip it only when we can PROVE no packaging surface changed (fail-open:
+      # run when the base sha is unavailable or any packaging path changed).
+      - name: Scope the scaffold smoke
+        id: scope
+        run: |
+          run=true
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
+            if ! git diff --name-only "$base"...HEAD | grep -qE '^(packages/|\.changeset/|pnpm-lock\.yaml)'; then
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+      - name: Verify scaffold (pack, install, build a real app)
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm --filter create-hogsend verify
