@@ -53,6 +53,13 @@ The key must hold the **`ingest`** scope (or `full-admin`, which implies it). Mi
 | [`/v1/lists`](/docs/data-api/lists) | `GET` | Enumerate the code-defined email lists |
 | [`/v1/lists/:id/subscribe`](/docs/data-api/lists) | `POST` | Subscribe a contact to a list |
 | [`/v1/lists/:id/unsubscribe`](/docs/data-api/lists) | `POST` | Unsubscribe a contact from a list |
+| [`/v1/admin/webhooks`](/docs/data-api/webhooks) | `POST` `GET` | Manage outbound webhook endpoints (admin plane) — subscribe a URL to the lifecycle event stream |
+
+## Subscribe to events
+
+The Data API isn't just inbound. Hogsend can emit a signed webhook stream of the 12 lifecycle events — `contact.created`, `email.delivered`, `journey.completed`, `bucket.entered`, and the rest — to any HTTPS URL you register. Each delivery is HMAC-SHA256 signed (Standard Webhooks), retried with backoff, and dead-lettered on exhaustion, so your downstream systems stay in sync without polling.
+
+You register and rotate endpoints through the admin plane (`POST /v1/admin/webhooks`), since outbound subscriptions are an operator concern, not an ingest one. See [Webhooks](/docs/data-api/webhooks) for the event catalog, the signed envelope, and the management API.
 
 ## The property model
 

@@ -91,6 +91,124 @@ await hs.lists.subscribe({ list: "newsletter", email: "ada@example.com" });
 await hs.lists.unsubscribe({ list: "newsletter", userId: "u_1" });
 ```
 
+### Webhooks
+
+`hs.webhooks.*` manages outbound webhook endpoints — the signed event stream Hogsend POSTs to your subscriber URLs.
+
+<Callout type="warn">
+  Unlike every other resource on this page, `hs.webhooks.*` targets the **admin plane** (`/v1/admin/webhooks`) and requires the client be constructed with a **full-admin** `apiKey` — **not** the `ingest` data key used by `contacts` / `events` / `emails` / `lists`. Signing-secret management is the same trust class as API-key management: a leaked ingest key must never be able to register an exfiltration endpoint. Construct a separate admin-scoped client for these calls.
+</Callout>
+
+```ts
+const admin = new Hogsend({
+  baseUrl: "https://api.hogsend.com",
+  apiKey: process.env.HOGSEND_ADMIN_KEY!, // a full-admin hsk_… key
+});
+
+// Create — returns the FULL signing secret. This is the only time (besides
+// rotateSecret) the secret is returned. Store it now.
+const endpoint = await admin.webhooks.create({
+  url: "https://yourapp.com/webhooks/hogsend",
+  eventTypes: ["contact.created", "email.delivered", "journey.completed"],
+  description: "prod subscriber",
+  disabled: false,
+}); // → WebhookEndpoint & { secret: "whsec_…" }
+
+await admin.webhooks.list({ limit: 50, offset: 0, includeDisabled: true }); // → WebhookEndpoint[]
+
+await admin.webhooks.get(endpoint.id); // → WebhookEndpoint (no secret)
+
+await admin.webhooks.update(endpoint.id, {
+  eventTypes: ["email.delivered", "email.bounced"],
+  description: null, // null clears the description
+  disabled: true,
+}); // → WebhookEndpoint
+
+await admin.webhooks.delete(endpoint.id); // → { deleted: true }
+
+// Rotate — hard cutover. The OLD secret is invalidated immediately; update
+// every subscriber with the returned new secret (returned ONCE).
+await admin.webhooks.rotateSecret(endpoint.id); // → { id, secret: "whsec_…", secretPrefix }
+
+// Enqueue an out-of-band webhook.test delivery, sent regardless of eventTypes.
+await admin.webhooks.sendTest(endpoint.id); // → { enqueued: true, eventType: "webhook.test" }
+```
+
+| Method | Returns | Notes |
+|---|---|---|
+| `create(input)` | `WebhookEndpoint & { secret }` | Returns the full `whsec_…` secret — **once**. `eventTypes` requires ≥ 1 type |
+| `list(opts?)` | `WebhookEndpoint[]` | Newest first. `includeDisabled` defaults to `true`. No secrets |
+| `get(id)` | `WebhookEndpoint` | No secret (only `secretPrefix`) |
+| `update(id, input)` | `WebhookEndpoint` | PATCH — only provided fields change; `description: null` clears it |
+| `delete(id)` | `{ deleted }` | Hard delete; cascades the endpoint's deliveries |
+| `rotateSecret(id)` | `{ id, secret, secretPrefix }` | New secret returned **once**; old secret invalid immediately |
+| `sendTest(id)` | `{ enqueued, eventType }` | Out-of-band `webhook.test`, delivered regardless of subscription |
+
+`list` / `get` only ever expose the display `secretPrefix` (e.g. `whsec_AbCd`); the full secret is recoverable only from `create` and `rotateSecret`. See [Outbound webhooks](/docs/data-api/webhooks) for the event catalog, envelope, and delivery semantics.
+
+## Verifying inbound webhooks
+
+When your app **receives** Hogsend's signed POSTs, `verifyHogsendWebhook` is the subscriber-side counterpart of the engine's signing. Call it before trusting the body — it confirms the request really came from Hogsend.
+
+```ts
+import { verifyHogsendWebhook } from "@hogsend/client";
+
+const event = verifyHogsendWebhook({
+  payload: rawBody,                          // RAW request body bytes (string)
+  headers: req.headers,                      // the request headers
+  secret: process.env.HOGSEND_WEBHOOK_SECRET!, // the endpoint's whsec_… secret
+}); // → { id, type, timestamp, data }
+```
+
+<Callout type="warn">
+  Pass the **raw request body bytes** — the exact string Hogsend signed. A re-stringified JSON object (e.g. the parsed `req.body` run back through `JSON.stringify`) will not match the signature. Read the raw body before any JSON body parser consumes it.
+</Callout>
+
+It returns the parsed event envelope (`{ id, type, timestamp, data }`) on success, and **throws** on:
+
+- a bad signature,
+- a missing signature header (`Webhook-Id` / `Webhook-Timestamp` / `Webhook-Signature`, or their `svix-*` aliases), or
+- a timestamp outside the 5-minute tolerance window.
+
+Wrap the call in a `try`/`catch` and return `401` on failure:
+
+```ts title="express handler"
+import express from "express";
+import { verifyHogsendWebhook } from "@hogsend/client";
+
+const app = express();
+
+app.post(
+  "/webhooks/hogsend",
+  express.raw({ type: "application/json" }), // keep the raw bytes
+  (req, res) => {
+    let event: { id: string; type: string; timestamp: string; data: unknown };
+    try {
+      event = verifyHogsendWebhook({
+        payload: req.body.toString("utf8"),
+        headers: req.headers as Record<string, string>,
+        secret: process.env.HOGSEND_WEBHOOK_SECRET!,
+      }) as typeof event;
+    } catch {
+      return res.sendStatus(401);
+    }
+
+    switch (event.type) {
+      case "contact.created":
+        // handle event.data …
+        break;
+      // …
+    }
+
+    res.sendStatus(200);
+  },
+);
+```
+
+<Callout type="info">
+  Delivery is at-least-once, so dedupe on the `Webhook-Id` header (the same value as `event.id`) — a retried delivery of one logical event reuses its id. Verification uses `svix` when available and falls back to a pure `node:crypto` HMAC-SHA256 check, so it works with or without `svix` installed.
+</Callout>
+
 ## The identity rule
 
 Every write takes an **identity** — at least one of `email` or `userId` (your external id). Both may be supplied. The type union encodes "≥ 1 key", and a runtime guard (`assertIdentity`) enforces it, so a call with neither throws before any request is made.

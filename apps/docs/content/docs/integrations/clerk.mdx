@@ -1,0 +1,92 @@
+---
+title: Clerk
+description: Turn Clerk user lifecycle and waitlist webhooks into Hogsend contacts and events with a built-in, signature-verified preset.
+---
+
+Clerk ships a built-in **inbound webhook source** in `@hogsend/engine` — no consumer code to write. Point a Clerk webhook endpoint at `https://api.hogsend.com/v1/webhooks/clerk`, set `CLERK_WEBHOOK_SECRET`, and Clerk's user lifecycle and waitlist events are normalized into Hogsend's contact/event vocabulary: `user.created` becomes `contact.created`, profile fields land on the durable contact record, and behavioral fields land on the event row — ready to trigger journeys, update contacts, and evaluate exit conditions.
+
+## Setup
+
+### 1. Create the endpoint in Clerk
+
+In the **Clerk Dashboard** → **Webhooks** → **Add Endpoint**, set the endpoint URL to:
+
+```
+https://api.hogsend.com/v1/webhooks/clerk
+```
+
+Subscribe to the events you want forwarded — `user.created`, `user.updated`, `user.deleted`, and (if you use waitlists) `waitlistEntry.created`.
+
+### 2. Copy the signing secret
+
+Clerk shows a signing secret for the endpoint — a `whsec_…` value. Copy it into your Hogsend environment as:
+
+```bash title=".env"
+CLERK_WEBHOOK_SECRET=whsec_...
+```
+
+Clerk signs every delivery with [Svix](https://www.svix.com/), so the preset verifies the `svix-id` / `svix-timestamp` / `svix-signature` headers against this secret before the payload is processed.
+
+### 3. Send a test event
+
+Use Clerk's **Send Example** button on the endpoint, or update a user. A `200` with `skipped: false` means the event was ingested; `skipped: true` means the event type isn't one the preset maps (see the table below).
+
+## Event mapping
+
+The preset normalizes Clerk's event types to Hogsend's outbound vocabulary. Any Clerk type not listed here is skipped (the transform returns `null`).
+
+| Clerk event | Hogsend event |
+|---|---|
+| `user.created` | `contact.created` |
+| `user.updated` | `contact.updated` |
+| `user.deleted` | `contact.deleted` |
+| `waitlistEntry.created` | `waitlist.joined` |
+
+### Identity resolution
+
+- **`userId`** comes from the Clerk record's `id` (`data.id`). For a `user.*` event without an `id`, the event is skipped.
+- **`userEmail`** for `user.*` events is resolved from `data.email_addresses`: the address whose `id` matches `data.primary_email_address_id` wins; otherwise the first address in the array is used. If neither resolves, the email is an empty string.
+- For `waitlistEntry.created`, `userEmail` is `data.email_address` and `userId` falls back to that email when `data.id` is absent.
+
+### Field split: contactProperties vs eventProperties
+
+Identity and profile fields go to `contactProperties` (merged onto the durable contact record). Behavioral and source fields go to `eventProperties` (stored on the event row, seen by journey `trigger.where` / `exitOn`). The two bags are never merged.
+
+| Field | Bag | Source | Notes |
+|---|---|---|---|
+| `firstName` | `contactProperties` | `data.first_name` | Only when present |
+| `lastName` | `contactProperties` | `data.last_name` | Only when present |
+| `avatarUrl` | `contactProperties` | `data.image_url`, else `data.profile_image_url` | Only when one resolves |
+| `clerkUserId` | `contactProperties` | `data.id` | The Clerk user id |
+| _(public metadata)_ | `contactProperties` | `data.public_metadata` | Spread in as top-level keys |
+| `source` | `eventProperties` | constant `"clerk"` | Marks the event's origin |
+| `clerkUserId` | `eventProperties` | `data.id` | Mirrored onto the event |
+| `_clerkEvent` | `eventProperties` | the raw Clerk type | e.g. `user.created` |
+
+<Callout type="info">
+  A `contact.deleted` event carries **no** profile to merge — the preset emits the event with `eventProperties` (`source`, `clerkUserId`, `_clerkEvent`) and an empty `contactProperties` bag, so no stale profile fields are written.
+</Callout>
+
+For `waitlistEntry.created`, `eventProperties` are `source: "clerk"` and `_clerkEvent: "waitlistEntry.created"`, with an empty `contactProperties` bag.
+
+## Enablement
+
+The Clerk preset is signature-verified and **fails closed**.
+
+<Callout type="warn">
+  `CLERK_WEBHOOK_SECRET` is **required**. Without it the preset is never mounted, and a signed request to `/v1/webhooks/clerk` is rejected with `401` before reaching the transform — it never runs unauthenticated.
+</Callout>
+
+Whether the preset mounts depends on both the secret **and** `ENABLED_WEBHOOK_PRESETS`:
+
+| `ENABLED_WEBHOOK_PRESETS` | Behavior |
+|---|---|
+| absent or `*` | **Auto** — every preset whose secret is set mounts. Clerk mounts when `CLERK_WEBHOOK_SECRET` is set. |
+| comma-separated ids (e.g. `clerk,stripe`) | Exactly those presets mount — and still only if the secret is set. |
+| `none` | All presets off, regardless of secrets. |
+
+So Clerk mounts only when its secret is set **and** the allowlist permits it.
+
+<Callout type="info">
+  Want to customize the mapping? Author your own `defineWebhookSource()` with `id: "clerk"` in your app's `src/webhook-sources/`. A consumer source with the same id **overrides** the built-in preset — your transform wins. See [Events &amp; Ingestion](/docs/guides/events) for the `defineWebhookSource()` API.
+</Callout>

@@ -1,6 +1,6 @@
 ---
 name: hogsend-webhooks-and-workflows
-description: Use when adding an inbound webhook source in src/webhook-sources/ (defineWebhookSource — auth header + envKey, optional Zod schema, transform(payload, ctx) -> IngestEvent | null, served at POST /v1/webhooks/:id) or a custom Hatchet task in src/workflows/ passed as extraWorkflows (NOT workflows) to createWorker, including the idempotent batched expand→migrate→contract backfill pattern.
+description: Use when adding an inbound webhook source in src/webhook-sources/ (defineWebhookSource — auth as a match|signature discriminated union, optional Zod schema, transform(payload, ctx) -> IngestEvent | null, served at POST /v1/webhooks/:id), reaching for a built-in integration preset (Clerk/Supabase/Stripe/Segment), or a custom Hatchet task in src/workflows/ passed as extraWorkflows (NOT workflows) to createWorker, including the idempotent batched expand→migrate→contract backfill pattern. Outbound signed webhooks are managed separately (hogsend webhooks CLI / hs.webhooks).
 license: MIT
 metadata:
   author: withSeismic
@@ -25,10 +25,20 @@ Relative imports use the ESM `.js` extension.
 
 - **`defineWebhookSource({ meta, auth, schema?, transform })`** (from
   `@hogsend/engine`) — declares one source served at `POST /v1/webhooks/:id`.
-  `auth` matches a request header against an env secret; `schema` is an optional
-  Zod validator; `transform(payload, ctx)` returns an `IngestEvent | null`
-  (`null` = accept-and-skip). Register sources in `src/webhook-sources/index.ts`
-  and pass them to `createApp(client, { webhookSources })` in `src/index.ts`.
+  `auth` is a **discriminated union on `type`**: `"match"` (shared-secret
+  equality against a header/`Authorization: Bearer`; OPEN when the secret is
+  unset) or `"signature"` (`scheme: "svix" | "stripe" | "hmac-hex"`, with an
+  `envKey`, optional `header`/`fallbackMatchHeader`; FAILS CLOSED with 401 when
+  the secret is unset). `schema` is an optional Zod validator; `transform(payload,
+  ctx)` returns an `IngestEvent | null` (`null` = accept-and-skip). Register
+  sources in `src/webhook-sources/index.ts` and pass them to
+  `createApp(client, { webhookSources })` in `src/index.ts`.
+- **Built-in integration presets** — the engine ships four ready-made inbound
+  sources (Clerk, Supabase, Stripe, Segment) served at
+  `POST /v1/webhooks/{clerk,supabase,stripe,segment}` with no code to write. Each
+  mounts only when its secret env var is set AND `ENABLED_WEBHOOK_PRESETS`
+  allows it (`"*"`/absent = auto, a csv of ids = exactly those, `"none"` = off).
+  Defining your own source with the SAME id overrides the preset (you win).
 - **`IngestEvent`** — the shape `transform` must return:
   `{ event, userId, userEmail, properties, idempotencyKey? }`. The route feeds it
   straight into `ingestEvent()`, so a webhook can enroll users into journeys.
@@ -66,3 +76,8 @@ Relative imports use the ESM `.js` extension.
   helpers.
 - To verify a webhook or task against a running instance (events landing,
   contacts upserted, journeys firing), see the **hogsend-cli** skill.
+- **Inbound vs outbound:** this skill is about *inbound* sources (HTTP → engine).
+  The engine also emits an *outbound* signed event stream (`contact.*`,
+  `email.*`, `journey.completed`, `bucket.*`) to subscriber URLs — manage those
+  endpoints with `hogsend webhooks …` (hogsend-cli skill) or `hs.webhooks.*`
+  (hogsend-client-sdk skill), and verify deliveries with `verifyHogsendWebhook`.

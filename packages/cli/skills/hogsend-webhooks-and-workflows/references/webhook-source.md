@@ -18,19 +18,40 @@ You write the source files; the engine owns the route. Edit only
 | `meta.id` | `string` | The `:sourceId` segment in the URL. Keep it URL-safe. |
 | `meta.name` | `string` | Human label. |
 | `meta.description?` | `string` | Optional. |
-| `auth.header` | `string` | Request header carrying the shared secret. |
-| `auth.envKey` | `string` | Env var holding the expected secret value. |
-| `auth.type` | `"match"` | Only mode today: header value must equal the env value. |
+| `auth` | discriminated union on `type` | `"match"` or `"signature"` — see below. |
 | `schema?` | `z.ZodSchema<T>` | Optional Zod validator; on success `payload` is typed `T`. |
 | `transform(payload, ctx)` | `=> Promise<IngestEvent \| null>` | Map payload → event. Return `null` to accept-and-skip. |
 
-### Auth behaviour (important)
+### Auth: a discriminated union on `type`
 
-The route enforces auth **only when the env secret is set**. If
-`process.env[auth.envKey]` is empty/undefined the source is treated as **open**
-(no auth). When the secret is present, the request must send it either in
-`auth.header` or as `Authorization: Bearer <secret>`; otherwise the route returns
-`401`. Always set the env secret in any non-local environment.
+`auth` is a discriminated union — pick the variant that matches your provider:
+
+```ts
+// "match" — plain shared-secret equality (the PostHog scaffold source uses this)
+auth: { type: "match"; header: string; envKey: string }
+
+// "signature" — provider HMAC verification over the EXACT raw body bytes
+auth: {
+  type: "signature";
+  scheme: "svix" | "stripe" | "hmac-hex";
+  envKey: string;
+  header?: string;             // the signature header to read
+  fallbackMatchHeader?: string; // e.g. Supabase's plain x-supabase-webhook-secret
+  verify?(args): boolean | Promise<boolean>; // optional override of the scheme
+}
+```
+
+**Auth behaviour (important — the two variants differ on the unset-secret case):**
+
+- **`"match"`** enforces auth **only when the env secret is set**. If
+  `process.env[envKey]` is empty/undefined the source is treated as **open** (no
+  auth). When the secret is present, the request must send it in `header` or as
+  `Authorization: Bearer <secret>`, else the route returns `401`. Always set the
+  secret in any non-local environment.
+- **`"signature"`** **FAILS CLOSED** — when its secret is unset the route returns
+  `401` and never reaches `transform`. The route reads the EXACT raw body once
+  and verifies the HMAC (Svix / Stripe `t=…,v1=…` with 5-min tolerance / generic
+  hex HMAC) over those bytes. The raw bytes are also exposed as `ctx.rawBody`.
 
 ### Validation
 
@@ -52,9 +73,11 @@ interface IngestEvent {
 }
 ```
 
-`ctx` is `{ db, logger }` — a Drizzle `Database` and the engine logger — for
-lookups/diagnostics inside the transform. It does **not** carry `hatchet` or the
-registry; those are applied by the route when it calls `ingestEvent`.
+`ctx` is `{ db, logger, rawBody?, headers? }` — a Drizzle `Database`, the engine
+logger, and (populated by the route) the EXACT raw request body bytes and the
+lowercased request headers, for lookups/diagnostics or provider-specific raw
+access inside the transform. It does **not** carry `hatchet` or the registry;
+those are applied by the route when it calls `ingestEvent`.
 
 Notes that match the engine's behaviour:
 
@@ -159,6 +182,28 @@ const app = createApp(client, { webhookSources });
 ```
 
 That's it. Your source is now live at `POST /v1/webhooks/stripe`.
+
+## Built-in integration presets (no code)
+
+Before writing a source, check whether the engine already ships one. Four
+presets are built into `@hogsend/engine` and served with no consumer code:
+
+| Preset | Route | Scheme | Secret env var |
+|--------|-------|--------|----------------|
+| `clerk` | `POST /v1/webhooks/clerk` | `svix` | `CLERK_WEBHOOK_SECRET` |
+| `supabase` | `POST /v1/webhooks/supabase` | `svix` (+ plain `x-supabase-webhook-secret` fallback) | `SUPABASE_WEBHOOK_SECRET` |
+| `stripe` | `POST /v1/webhooks/stripe` | `stripe` | `STRIPE_WEBHOOK_SECRET` |
+| `segment` | `POST /v1/webhooks/segment` | `hmac-hex` | `SEGMENT_WEBHOOK_SECRET` |
+
+A preset mounts only when **both** its secret env var is set **and**
+`ENABLED_WEBHOOK_PRESETS` allows it: `"*"`/absent = auto (every preset whose
+secret is set), a comma-separated list of ids = exactly those (still requires the
+secret), `"none"` = all off. A preset with no secret is never mounted (signature
+sources fail closed). Defining your own `defineWebhookSource` with the SAME id
+**overrides** the preset — the consumer always wins. Each preset's exact
+provider-event → Hogsend-event mapping (and the `contactProperties` vs
+`eventProperties` split) lives in its source file under
+`packages/engine/src/webhook-sources/presets/`.
 
 ## Authoring a new source — checklist
 

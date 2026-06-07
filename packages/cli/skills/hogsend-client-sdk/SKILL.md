@@ -1,6 +1,6 @@
 ---
 name: hogsend-client-sdk
-description: Use when calling Hogsend from your own product/app code (a signup handler, a billing webhook, a cron) via the @hogsend/client SDK + public data-plane API — new Hogsend({ baseUrl, apiKey }), then contacts.upsert/find/delete, events.send (alias .track), emails.send, lists.list/subscribe/unsubscribe. Teaches the contactProperties-vs-eventProperties split on POST /v1/events, the ingest-scoped HOGSEND_API_KEY, the 202 + listsError warning, and HogsendAPIError/RateLimitError. NOT for use inside a journey (there, use sendEmail()/ctx.trigger()). The scaffold ships a preconfigured `hs` at src/lib/hogsend.ts.
+description: Use when calling Hogsend from your own product/app code (a signup handler, a billing webhook, a cron) via the @hogsend/client SDK + public data-plane API — new Hogsend({ baseUrl, apiKey }), then contacts.upsert/find/delete, events.send (alias .track), emails.send, lists.list/subscribe/unsubscribe, webhooks.create/list/get/update/delete/rotateSecret/sendTest (ADMIN plane — needs a full-admin key), and verifyHogsendWebhook for the subscriber side. Teaches the contactProperties-vs-eventProperties split on POST /v1/events, the ingest-scoped HOGSEND_API_KEY, the 202 + listsError warning, and HogsendAPIError/RateLimitError. NOT for use inside a journey (there, use sendEmail()/ctx.trigger()). The scaffold ships a preconfigured `hs` at src/lib/hogsend.ts.
 license: MIT
 metadata:
   author: withSeismic
@@ -103,6 +103,45 @@ await hs.emails.send({                          // POST /v1/emails
 await hs.lists.list();                          // GET  /v1/lists -> ListSummary[]
 await hs.lists.subscribe({ list: "newsletter", email: "ada@example.com" });
 await hs.lists.unsubscribe({ list: "newsletter", userId: "u_1" });
+
+// Webhooks (ADMIN plane — needs a full-admin apiKey, NOT the ingest key) ---
+await hs.webhooks.create({                      // POST /v1/admin/webhooks
+  url: "https://your.app/hooks",
+  eventTypes: ["contact.created", "email.sent"],
+});                                             // -> endpoint incl. full `secret` (shown ONCE)
+await hs.webhooks.list();                        // -> WebhookEndpoint[]
+await hs.webhooks.rotateSecret("we_123");        // -> { id, secret, secretPrefix } (secret ONCE)
+```
+
+## `hs.webhooks` — outbound endpoints (DIFFERENT plane + key)
+
+`hs.webhooks.*` manages the **outbound** signed event stream Hogsend emits to
+your URLs (`contact.*`, `email.*`, `journey.completed`, `bucket.*`). Unlike every
+other resource above, it targets the **ADMIN plane** (`/v1/admin/webhooks`) and
+**requires a full-admin `apiKey`** — a leaked ingest key must never register an
+exfiltration endpoint. Construct a separate `Hogsend` instance with an admin key
+if your data-plane `hs` only holds an ingest key.
+
+`create`/`list`/`get`/`update`/`delete`/`rotateSecret`/`sendTest`. The full
+signing secret (`whsec_…`) is returned **only once** — on `create` and
+`rotateSecret`; `list`/`get` only expose `secretPrefix`. Store it on create.
+
+**Subscriber side:** in the handler that RECEIVES Hogsend's signed POSTs, call
+`verifyHogsendWebhook({ payload, headers, secret })` (also exported from
+`@hogsend/client`). Pass the **raw request body bytes** (never a re-stringified
+object); it returns the parsed `{ id, type, timestamp, data }` envelope and
+THROWS on a bad/missing signature or a timestamp outside the 5-minute tolerance.
+Deliveries are at-least-once — dedupe on the `Webhook-Id` header.
+
+```ts
+import { verifyHogsendWebhook } from "@hogsend/client";
+
+const event = verifyHogsendWebhook({
+  payload: rawBody,        // the EXACT bytes Hogsend signed
+  headers: req.headers,
+  secret: process.env.HOGSEND_WEBHOOK_SECRET!, // whsec_… from create / rotate
+});
+// switch on event.type …
 ```
 
 ## `eventProperties` vs `contactProperties` (the split that trips people up)

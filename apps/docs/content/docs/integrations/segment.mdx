@@ -1,0 +1,138 @@
+---
+title: Segment
+description: Receive Segment identify and track events at /v1/webhooks/segment, HMAC-hex signed, and turn them into Hogsend contacts and events.
+---
+
+Hogsend ships a built-in **Segment** webhook source. Point a Segment **Webhook** destination at `POST /v1/webhooks/segment`, set one signing secret, and Segment's `identify` and `track` calls become Hogsend contact updates and events — ready to trigger journeys, update contacts, and evaluate exit conditions.
+
+This source is part of `@hogsend/engine`. You don't author it — set its env var and it mounts itself.
+
+## What it does
+
+- **`identify` → `contact.updated`.** Segment traits are identity, so they merge onto the contact record as `contactProperties` only.
+- **`track` → the literal event name.** A `track` call named `Order Completed` ingests as a Hogsend event `Order Completed`; its `properties` become `eventProperties` only.
+- **`page` / `screen` / `group` / `alias` → skipped.** The transform returns `null` and the endpoint responds `200` with `skipped: true`.
+
+Every ingested event flows through the same pipeline as any other Hogsend event — store, route to Hatchet, exit-condition scan, contact upsert. See [Events & Ingestion](/docs/guides/events) for the full path.
+
+## Setup
+
+### 1. Set the signing secret
+
+Add `SEGMENT_WEBHOOK_SECRET` to your Hogsend environment. This is both the enablement switch and the verification key.
+
+```bash title=".env"
+SEGMENT_WEBHOOK_SECRET=your-segment-shared-secret
+```
+
+### 2. Create the Segment Webhook destination
+
+In Segment: **Connections → Destinations → Add Destination**, search **Webhooks (Actions)**, connect it to your source, and set the webhook URL to your Hogsend endpoint.
+
+```text
+https://api.hogsend.com/v1/webhooks/segment
+```
+
+For local development the endpoint is `http://localhost:3002/v1/webhooks/segment`.
+
+### 3. Configure the signature header
+
+The source uses the **`hmac-hex`** scheme: Segment signs the **raw request body** with HMAC-SHA256 using your shared secret and sends the result as a lowercase hex string in the **`x-signature`** header. Set the same secret on both sides — `SEGMENT_WEBHOOK_SECRET` in Hogsend and Segment's webhook **Shared Secret** — so the signatures match.
+
+| Setting | Value |
+|---|---|
+| URL | `https://api.hogsend.com/v1/webhooks/segment` |
+| Header | `x-signature` |
+| Scheme | HMAC-SHA256 hex of the raw body |
+| Secret env | `SEGMENT_WEBHOOK_SECRET` |
+
+The route reads the raw body **once** and passes the exact bytes to both signature verification and `transform`, so the hash you compute is the hash Hogsend verifies.
+
+## How Segment payloads map to Hogsend
+
+The source reads the standard Segment payload shape and routes each `type` differently. Identity is resolved as `userId = userId ?? anonymousId`, and `email` is lifted from `traits.email` (falling back to `context.traits.email`). The Segment `messageId` becomes the `idempotencyKey`, so a redelivery dedupes on `user_events.idempotencyKey`.
+
+### `identify`
+
+Traits are treated as profile/identity data and land in `contactProperties` only. A `source: "segment"` marker is added to both bags.
+
+| Segment field | Hogsend field |
+|---|---|
+| `type: "identify"` | event name `contact.updated` |
+| `userId` (or `anonymousId`) | `userId` |
+| `traits.email` (or `context.traits.email`) | `userEmail` |
+| `traits` (or `context.traits`) | `contactProperties` |
+| — | `eventProperties: { source: "segment", _segmentType: "identify" }` |
+| `messageId` | `idempotencyKey` |
+
+```json title="Segment identify"
+{
+  "type": "identify",
+  "userId": "user_abc123",
+  "messageId": "msg_01H...",
+  "traits": {
+    "email": "alice@example.com",
+    "plan": "pro",
+    "company": "Acme"
+  }
+}
+```
+
+This ingests as `contact.updated` for `user_abc123`, merging `{ plan: "pro", company: "Acme", source: "segment" }` onto the contact and setting its email to `alice@example.com`.
+
+### `track`
+
+The Hogsend event name is the literal Segment `event` name (a `track` with no `event` is skipped). Properties are behavioral and land in `eventProperties` only — the contact bag stays empty.
+
+| Segment field | Hogsend field |
+|---|---|
+| `type: "track"` | — |
+| `event` | event name (used as-is) |
+| `userId` (or `anonymousId`) | `userId` |
+| `traits.email` (or `context.traits.email`) | `userEmail` |
+| `properties` (plus `source: "segment"`) | `eventProperties` |
+| — | `contactProperties: {}` |
+| `messageId` | `idempotencyKey` |
+
+```json title="Segment track"
+{
+  "type": "track",
+  "event": "Order Completed",
+  "userId": "user_abc123",
+  "messageId": "msg_02H...",
+  "properties": {
+    "orderId": "ord_991",
+    "total": 49.0
+  }
+}
+```
+
+This ingests as a Hogsend event named `Order Completed` with `eventProperties` `{ orderId: "ord_991", total: 49.0, source: "segment" }`. A journey whose `trigger.event` is `Order Completed` runs; its `trigger.where` evaluates these `eventProperties`.
+
+<Callout type="info">
+  Use the Segment event name directly as your journey trigger. A `track` named `Order Completed` triggers a journey with `trigger: { event: "Order Completed" }` — no renaming or namespacing needed.
+</Callout>
+
+### Skipped types
+
+`page`, `screen`, `group`, and `alias` are not mapped — the transform returns `null` and Hogsend responds `200 { "skipped": true }`. Nothing is stored and no journey runs.
+
+## Enablement & fail-closed
+
+<Callout type="warn">
+  This source is **fail-closed**. If `SEGMENT_WEBHOOK_SECRET` is unset, the endpoint is **never mounted** — and any request that does reach a signature source with no configured secret is rejected with `401` before `transform` runs. There is no "open" mode for signed presets.
+</Callout>
+
+A preset mounts only when **both** conditions hold: its secret env var is set, **and** `ENABLED_WEBHOOK_PRESETS` allows it.
+
+| `ENABLED_WEBHOOK_PRESETS` | Effect |
+|---|---|
+| unset or `*` | Auto — every preset whose secret is set is mounted |
+| `segment` (comma-separated list) | Only the listed presets mount — still requires the secret |
+| `none` | All presets off |
+
+So with `SEGMENT_WEBHOOK_SECRET` set and `ENABLED_WEBHOOK_PRESETS` unset, Segment is live at `/v1/webhooks/segment` with no further config.
+
+## Overriding the preset
+
+If you author your own webhook source with the id `segment`, your source **wins** — it replaces the built-in preset entirely. Use this when you need a different identity resolution, a different signing scheme, or to map `page`/`group` events the preset skips. Define it under `src/webhook-sources/`, register it in your `webhookSources` array, and Hogsend serves yours instead. See [Events & Ingestion](/docs/guides/events) for the `defineWebhookSource` API.

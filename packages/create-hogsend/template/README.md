@@ -184,7 +184,32 @@ Studio — there is no visual builder; they live in code, like journeys.
 2. Register it in `src/webhook-sources/index.ts`.
 
 It is served at `POST /v1/webhooks/:sourceId`; the `transform` result feeds the
-same ingestion pipeline that drives journeys.
+same ingestion pipeline that drives journeys. `auth` is a discriminated union:
+`type: "match"` (shared-secret equality; open when the secret is unset) or
+`type: "signature"` (`svix` / `stripe` / `hmac-hex` — fails closed when the
+secret is unset).
+
+The engine also ships **built-in integration presets** — Clerk, Supabase,
+Stripe, and Segment — served at `POST /v1/webhooks/{clerk,supabase,stripe,segment}`
+with no code to write. Each mounts when its secret env var is set
+(`CLERK_WEBHOOK_SECRET`, `SUPABASE_WEBHOOK_SECRET`, `STRIPE_WEBHOOK_SECRET`,
+`SEGMENT_WEBHOOK_SECRET`) and `ENABLED_WEBHOOK_PRESETS` allows it. Defining your
+own source with the same id overrides the preset.
+
+## Outbound webhooks
+
+The engine emits a signed (Standard Webhooks / Svix-style HMAC-SHA256) event
+stream — `contact.*`, `email.*`, `journey.completed`, `bucket.*` — to your
+HTTPS endpoints. Manage subscriptions with the CLI or the admin API:
+
+```bash
+pnpm hogsend webhooks create --url https://your.app/hooks --all-events
+pnpm hogsend webhooks list
+```
+
+The CLI wraps `POST /v1/admin/webhooks` (admin key required). The signing secret
+is shown once on create + rotate. On the subscriber side, verify deliveries with
+`verifyHogsendWebhook({ payload, headers, secret })` from `@hogsend/client`.
 
 ## Customizing emails
 
