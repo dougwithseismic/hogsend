@@ -15,9 +15,6 @@ import type {
   ConversionWinbackOfferEmailProps,
   FeedbackNpsSurveyEmailProps,
   JourneyNotificationEmailProps,
-  LifecycleFeatureAnnouncementProps,
-  LifecycleTrialExpiringProps,
-  LifecycleWinBackProps,
   MarketingProductUpdateProps,
   PasswordResetEmailProps,
   ReactivationCheckinEmailProps,
@@ -25,7 +22,6 @@ import type {
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
   TransactionalMagicLinkProps,
-  TransactionalPasswordResetProps,
   TransactionalReceiptProps,
   TransactionalVerifyEmailProps,
   WelcomeEmailProps,
@@ -50,12 +46,8 @@ declare module "@hogsend/email" {
     "feedback-nps-survey": FeedbackNpsSurveyEmailProps;
     "churn-payment-failed": ChurnPaymentFailedEmailProps;
     "transactional/verify-email": TransactionalVerifyEmailProps;
-    "transactional/password-reset": TransactionalPasswordResetProps;
     "transactional/magic-link": TransactionalMagicLinkProps;
     "transactional/receipt": TransactionalReceiptProps;
-    "lifecycle/trial-expiring": LifecycleTrialExpiringProps;
-    "lifecycle/feature-announcement": LifecycleFeatureAnnouncementProps;
-    "lifecycle/win-back": LifecycleWinBackProps;
     "marketing/product-update": MarketingProductUpdateProps;
   }
 }

@@ -9,9 +9,6 @@ import ConversionUsageMilestoneEmail from "./conversion-usage-milestone.js";
 import ConversionWinbackOfferEmail from "./conversion-winback-offer.js";
 import FeedbackNpsSurveyEmail from "./feedback-nps-survey.js";
 import JourneyNotificationEmail from "./journey-notification.js";
-import LifecycleFeatureAnnouncementEmail from "./lifecycle-feature-announcement.js";
-import LifecycleTrialExpiringEmail from "./lifecycle-trial-expiring.js";
-import LifecycleWinBackEmail from "./lifecycle-win-back.js";
 import MarketingProductUpdateEmail from "./marketing-product-update.js";
 import PasswordResetEmail from "./password-reset.js";
 import ReactivationCheckinEmail from "./reactivation-checkin.js";
@@ -19,7 +16,6 @@ import ReactivationFinalNudgeEmail from "./reactivation-final-nudge.js";
 import RetentionAchievementEmail from "./retention-achievement.js";
 import RetentionWeeklyDigestEmail from "./retention-weekly-digest.js";
 import TransactionalMagicLinkEmail from "./transactional-magic-link.js";
-import TransactionalPasswordResetEmail from "./transactional-password-reset.js";
 import TransactionalReceiptEmail from "./transactional-receipt.js";
 import TransactionalVerifyEmailEmail from "./transactional-verify-email.js";
 import WelcomeEmail from "./welcome.js";
@@ -150,17 +146,6 @@ export const templates: TemplateRegistry = {
       expiresIn: "24 hours",
     },
   },
-  "transactional/password-reset": {
-    component: TransactionalPasswordResetEmail,
-    defaultSubject: "Reset your password",
-    category: "transactional",
-    preview: () => "Use the secure link to reset your password",
-    examples: {
-      name: "Ada",
-      resetUrl: "https://app.hogsend.com/reset-password?token=demo",
-      expiresIn: "1 hour",
-    },
-  },
   "transactional/magic-link": {
     component: TransactionalMagicLinkEmail,
     defaultSubject: "Your sign-in link",
@@ -187,31 +172,6 @@ export const templates: TemplateRegistry = {
       total: "$69.00",
       purchasedAt: "June 7, 2026",
     },
-  },
-
-  // --- Product / lifecycle — sent from journeys.
-  "lifecycle/trial-expiring": {
-    component: LifecycleTrialExpiringEmail,
-    defaultSubject: "Your trial is ending soon",
-    category: "lifecycle",
-    preview: (props) =>
-      `${props.name}, your trial ends in ${props.daysLeft ?? 3} days`,
-    examples: { name: "Ada", daysLeft: 3 },
-  },
-  "lifecycle/feature-announcement": {
-    component: LifecycleFeatureAnnouncementEmail,
-    defaultSubject: "Something new in Hogsend",
-    category: "lifecycle",
-    preview: (props) =>
-      `${props.name}, ${props.featureName ?? "a new feature"} just shipped`,
-    examples: { name: "Ada", featureName: "Audience buckets" },
-  },
-  "lifecycle/win-back": {
-    component: LifecycleWinBackEmail,
-    defaultSubject: "It's been a while",
-    category: "lifecycle",
-    preview: (props) => `${props.name}, here's what's new since you left`,
-    examples: { name: "Ada", daysSinceActive: 30 },
   },
 
   // --- Marketing — broadcast to a list via

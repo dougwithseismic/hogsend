@@ -177,12 +177,6 @@ export interface TransactionalVerifyEmailProps {
   expiresIn?: string;
 }
 
-export interface TransactionalPasswordResetProps {
-  name?: string;
-  resetUrl: string;
-  expiresIn?: string;
-}
-
 export interface TransactionalMagicLinkProps {
   name?: string;
   magicLinkUrl: string;
@@ -196,37 +190,6 @@ export interface TransactionalReceiptProps {
   total: string;
   receiptUrl?: string;
   purchasedAt?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Product / lifecycle templates (sent from journeys).
-// ---------------------------------------------------------------------------
-
-export interface LifecycleTrialExpiringProps {
-  name: string;
-  daysLeft?: number;
-  upgradeUrl?: string;
-  valueSummary?: string[];
-  unsubscribeUrl?: string;
-}
-
-export interface LifecycleFeatureAnnouncementProps {
-  name: string;
-  featureName?: string;
-  featureDescription?: string;
-  benefits?: string[];
-  ctaUrl?: string;
-  ctaText?: string;
-  unsubscribeUrl?: string;
-}
-
-export interface LifecycleWinBackProps {
-  name: string;
-  daysSinceActive?: number;
-  whatsNew?: string[];
-  returnUrl?: string;
-  incentive?: string;
-  unsubscribeUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
