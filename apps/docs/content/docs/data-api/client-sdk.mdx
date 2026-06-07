@@ -1,0 +1,129 @@
+---
+title: Client SDK
+description: "@hogsend/client — the typed HTTP client for the data plane. Install, configure, every method, identity rules, and typed errors."
+---
+
+`@hogsend/client` is the typed HTTP client for the Data API — contacts, events, transactional emails, and lists. It's a thin wrapper over native `fetch` with no heavy dependencies, and ships compiled ESM + CJS + `.d.ts`. It is distinct from `@hogsend/cli` (the read-only operator tool): the client is for your **application code** writing the data plane.
+
+## Install
+
+```bash
+pnpm add @hogsend/client
+```
+
+### The optional type-only `@hogsend/email` peer
+
+For fully type-checked `emails.send` — autocomplete on `template` names and prop-checking on `props` — also install `@hogsend/email` and augment its template registry in your app. It is a **type-only optional peer**: the runtime JS of `@hogsend/client` has no dependency on it. Without the peer, the `emails.send` shape degrades gracefully to `{ template: string; props? }`.
+
+<Callout type="warn">
+  The shipped `.d.ts` references `@hogsend/email` by module name. If you do **not** install the optional peer, keep `skipLibCheck: true` in your `tsconfig` (the default for most app scaffolds) — otherwise `tsc` emits `TS2307: Cannot find module '@hogsend/email'` from this package's declarations. Installing the peer (even for types only) removes the caveat entirely.
+</Callout>
+
+## Configure
+
+```ts
+import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({
+  baseUrl: "https://api.example.com",
+  apiKey: process.env.HOGSEND_DATA_KEY!, // hsk_… key with the `ingest` scope
+});
+```
+
+### Options
+
+| Option | Type | Default | Notes |
+|---|---|---|---|
+| `baseUrl` | `string` | — | API base, e.g. `https://api.example.com` |
+| `apiKey` | `string` | — | Data-plane `hsk_…` key with the `ingest` scope |
+| `fetch` | `typeof fetch` | global | Override for tests / custom agents |
+| `timeoutMs` | `number` | `30000` | Per-request timeout (aborts the request) |
+| `headers` | `Record<string, string>` | `{}` | Extra headers on every request |
+
+## Methods
+
+### Contacts
+
+```ts
+await hs.contacts.upsert({
+  email: "ada@example.com",
+  userId: "u_1",
+  properties: { plan: "pro" },
+  lists: { newsletter: true },
+}); // → { id, created, linked }
+
+const found = await hs.contacts.find({ email: "ada@example.com" }); // → Contact[]
+
+await hs.contacts.delete({ userId: "u_1" }); // → { deleted }
+```
+
+### Events
+
+```ts
+await hs.events.send({
+  userId: "u_1",
+  name: "signup",
+  eventProperties: { source: "landing" }, // → trigger.where / exitOn
+  contactProperties: { country: "GB" },   // → contact record
+  idempotencyKey: "evt_abc",
+}); // → { stored, exits: [{ journeyId, stateId, exited }] }
+
+hs.events.track(/* … */); // alias of events.send
+```
+
+### Emails
+
+```ts
+await hs.emails.send({
+  to: "ada@example.com",
+  template: "welcome",
+  props: { name: "Ada" },
+}); // → { emailSendId, status }
+```
+
+`template` and `props` are typed against your augmented `TemplateRegistryMap` (re-exported via the `@hogsend/email` peer), so an unknown template key is a **compile-time** error.
+
+### Lists
+
+```ts
+await hs.lists.list(); // → ListSummary[]
+await hs.lists.subscribe({ list: "newsletter", email: "ada@example.com" });
+await hs.lists.unsubscribe({ list: "newsletter", userId: "u_1" });
+```
+
+## The identity rule
+
+Every write takes an **identity** — at least one of `email` or `userId` (your external id). Both may be supplied. The type union encodes "≥ 1 key", and a runtime guard (`assertIdentity`) enforces it, so a call with neither throws before any request is made.
+
+```ts
+type Identity =
+  | { email: string; userId?: string }
+  | { email?: string; userId: string };
+```
+
+## Error types
+
+All non-2xx responses (and transport failures) throw typed errors:
+
+```ts
+import { HogsendAPIError, RateLimitError } from "@hogsend/client";
+
+try {
+  await hs.emails.send({ to: "x@y.com", template: "welcome", props: {} });
+} catch (err) {
+  if (err instanceof RateLimitError) {
+    // 429 — back off for err.retryAfter seconds
+  } else if (err instanceof HogsendAPIError) {
+    // err.status (0 = transport failure), err.body (parsed JSON or raw text)
+  }
+}
+```
+
+| Error | Shape | When |
+|---|---|---|
+| `HogsendAPIError` | `{ status, body }` | Any non-2xx. `status === 0` means the request never reached the server (DNS / connect / timeout); `body` is parsed JSON or raw text |
+| `RateLimitError extends HogsendAPIError` | adds `retryAfter?` | `status === 429`; `retryAfter` (seconds) is read from the `Retry-After` header when present |
+
+## Where the key comes from
+
+The `apiKey` is a data-plane key with the `ingest` scope — see [Authentication](/docs/data-api/authentication) for how to mint one. A scaffolded app generates a first ingest key during bootstrap and wires a configured `Hogsend` instance into `src/lib/hogsend.ts` for you.

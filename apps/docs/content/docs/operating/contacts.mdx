@@ -7,17 +7,28 @@ Contacts are the people in your system. Every PostHog event, every journey enrol
 
 ## How contacts work
 
-A contact is identified by its `externalId` — which maps to the `distinct_id` from PostHog (or whatever user identifier your events include). When a PostHog event or any other event arrives, Hogsend automatically upserts a contact record using the `userId` from the event payload.
+A contact is **not** keyed solely by an immutable `externalId`. The canonical identity is an internal `id` (uuid) that never changes; both **`email`** and **`externalId`** (your `userId`, e.g. the PostHog `distinct_id`) are *resolvable keys* into it. The data plane and the event pipeline accept `{ email }`, `{ userId }`, or both, and `externalId` is **nullable** — so a contact can exist with only an email and gain a `userId` later.
 
-This means contacts are typically created automatically as PostHog events flow in. You only need to create contacts manually when pre-loading data (e.g., importing from another tool) or when you want to set properties before any events arrive.
+When an event arrives, Hogsend resolves (or creates) a contact from whatever keys it carries. This means contacts are typically created automatically as events flow in. You only need to create contacts manually when pre-loading data (e.g., importing from another tool) or when you want to set properties before any events arrive.
 
 Each contact has:
 
-- `externalId` -- your user identifier (immutable after creation)
-- `email` -- email address (used for journey emails and unsubscribe management)
-- `properties` -- a JSON object of arbitrary key-value pairs (plan, company, role, etc.)
+- `id` -- the canonical internal uuid (never changes)
+- `externalId` -- your user identifier (`distinct_id`), **nullable** for email-only / not-yet-identified contacts
+- `email` -- email address (used for journey emails and unsubscribe management), nullable for anonymous contacts
+- `properties` -- a JSON object of arbitrary key-value pairs (plan, company, role, etc.), merged from `contactProperties` only
 - `firstSeenAt` / `lastSeenAt` -- auto-updated timestamps tracking activity
 - `deletedAt` -- set when soft-deleted, null otherwise
+
+### Email-only contacts, linking, and merge
+
+Because identity resolves on multiple keys, the contact store supports the **anonymous → identified** flow:
+
+- **Email-only / anonymous** — capture a contact with just an email (a waitlist form) before you have a `userId`.
+- **Fill-in-link** — when the same person later arrives with a `userId`, the existing contact is *linked* (gains the missing key) rather than duplicated. The resolve reports `linked: true`.
+- **Merge** — if two keys end up pointing at two different rows, Hogsend **merges** them: a deterministic survivor absorbs the loser's events, journey states, email sends, bucket memberships, and preferences; the loser is soft-deleted; and the loser's keys become **aliases** that keep resolving to the survivor. Suppression/unsubscribe flags are folded so an opt-out is never lost.
+
+The full identity model — resolution order, the `created` / `linked` flags, aliases, and the `contactProperties` vs `eventProperties` split — is documented in [Data API → Identity](/docs/data-api/identity).
 
 ## Listing and Searching Contacts
 

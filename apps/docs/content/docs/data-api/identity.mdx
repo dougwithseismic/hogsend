@@ -1,0 +1,85 @@
+---
+title: Identity
+description: The anonymous → identified model — email-only contacts, a nullable externalId, fill-in-link, merge/alias, and the contactProperties vs eventProperties split.
+---
+
+Hogsend's contact identity is a **canonical id + resolvable keys** model. This is what lets you create an email-only contact today and link it to a `userId` tomorrow without splitting their history. This page explains how identity resolves, what the `created` / `linked` flags mean, and how the property split interacts with it.
+
+## Contacts are not keyed solely by an immutable id
+
+The old model keyed a contact on an immutable `externalId` (your user id). The Data API model is different:
+
+- **`contacts.id`** — an internal uuid — stays the single canonical identity. It never changes.
+- **`email`** and **`externalId`** (your `userId`) are both **resolvable keys**. The API accepts `{ email }`, `{ userId }`, or both.
+- **`externalId` is nullable.** A contact can exist with only an email (an anonymous-but-emailed contact) and gain its `userId` later.
+
+So you can do this:
+
+```bash
+# 1. A marketing form captures just an email — no userId yet.
+curl -X PUT /v1/contacts -d '{ "email": "ada@example.com", "properties": { "source": "waitlist" } }'
+# → { "id": "…", "created": true, "linked": false }
+
+# 2. Later they sign up and you finally have a userId.
+curl -X PUT /v1/contacts -d '{ "email": "ada@example.com", "userId": "user_123" }'
+# → { "id": "…", "created": false, "linked": true }   ← same contact, now linked
+```
+
+A subsequent `find` by `email` and a `find` by `userId` both return that single contact.
+
+## The `created` and `linked` flags
+
+Every upsert / resolve returns two booleans that tell you what happened:
+
+| Flag | Meaning |
+|---|---|
+| `created` | A brand-new contact row was inserted |
+| `linked` | An existing contact gained a key it was missing (e.g. an email-only contact just received its `userId`, or vice versa) |
+
+The four common outcomes:
+
+| Scenario | `created` | `linked` |
+|---|---|---|
+| First time you've seen this email/userId | `true` | `false` |
+| Known contact, same keys, just a property update | `false` | `false` |
+| Email-only contact now linked to a userId (fill-in) | `false` | `true` |
+| New key resolves an alias from a prior merge | `false` | `true` |
+
+## Resolution: create → fill-in-link → merge
+
+`resolveOrCreateContact` (the engine function behind every write) resolves identity in one transaction:
+
+1. **Look up** by `userId` (external id) if present, else by `email` (and consult the alias table for keys that belonged to a since-merged contact).
+2. **Not found** → insert a new contact with whatever keys you supplied (email-only, userId-only, or both).
+3. **Found, missing the other key** → fill it in and record the link (`linked: true`).
+4. **Found by two keys that point at two different rows** → **merge**: a deterministic survivor absorbs the loser's history (events, journey states, email sends, bucket memberships, preferences), the loser is soft-deleted, and the loser's keys are recorded as **aliases** pointing at the survivor.
+
+### Aliases keep stale keys resolving
+
+After a merge, the loser's old keys live on a soft-deleted row. The resolver consults a `contact_aliases` table on a miss, so the next event arriving under a stale key resolves to the survivor instead of minting a fresh contact and re-splitting history.
+
+### Anonymous → identified
+
+The model is built to support a future anonymous path: a contact can be keyed on an `anonymousId` (a stable distinct id) before any email or userId exists, then promoted/merged into an identified contact. The machinery is wired internally; the public `/v1/events` and `/v1/contacts` bodies expose `email` and `userId` today.
+
+## `contactProperties` merge vs `eventProperties`
+
+Identity and the property split are two halves of the same idea: a contact accumulates *who they are*, while events record *what happened*.
+
+- **`contactProperties`** are merged onto the durable contact via `COALESCE(properties, '{}') || patch`:
+  - Merge is **additive** — supplying `{ "plan": "pro" }` updates `plan` and leaves every other key intact.
+  - An explicit **`null` clears** a key (`{ "plan": null }` removes `plan`).
+  - On merge, the survivor's properties win conflicts, then the current call's `contactProperties` are applied last.
+- **`eventProperties`** are written to the event row only and are what journey `trigger.where` / `exitOn` evaluate. They are **never** merged onto the contact.
+
+```jsonc
+// POST /v1/events
+{
+  "name": "upgrade",
+  "userId": "user_123",
+  "eventProperties": { "from_plan": "free", "to_plan": "pro" }, // event row + trigger.where
+  "contactProperties": { "plan": "pro" }                         // contact record only
+}
+```
+
+After this event: `user_events` carries `from_plan` / `to_plan`; the contact's `properties.plan` is now `"pro"`; and the event's properties never leaked onto the contact. Buckets that segment on `plan` will re-evaluate against the updated contact state. See [Events](/docs/data-api/events) for the full request shape.

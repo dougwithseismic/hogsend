@@ -1,0 +1,130 @@
+---
+title: Authentication
+description: Data-plane API keys and the ingest scope — orthogonal, not hierarchical. How to mint and use an ingest key.
+---
+
+Every Data API request carries a bearer token in the `Authorization` header:
+
+```
+Authorization: Bearer hsk_...
+```
+
+The token must be a Hogsend API key holding the **`ingest`** scope. This page explains how the `ingest` scope works (it is **not** a tier of the admin hierarchy), how to mint a data key, and the per-endpoint rate budget.
+
+## The `ingest` scope is orthogonal, not hierarchical
+
+Hogsend has two kinds of scope, and the distinction is load-bearing:
+
+- **Hierarchical scopes** — `read` < `journey-admin` < `full-admin`. These stack: a `journey-admin` key implicitly has `read`; a `full-admin` key has everything. This is the admin/ops plane.
+- **The orthogonal `ingest` scope** — the data plane. It sits *outside* the hierarchy. A key gets `ingest` access **only** if it was granted `ingest` explicitly, **or** it holds `full-admin`.
+
+The consequence is the part teams most often get wrong:
+
+<Callout type="warn">
+  A `read` or `journey-admin` key does **NOT** get `ingest`. Holding an admin tier — even `journey-admin` — grants you nothing on the data plane. The only keys that can write contacts/events/emails/lists are an explicit `ingest` grant or a `full-admin` key.
+</Callout>
+
+This is enforced by `hasScope()` in the engine's `middleware/api-key.ts`:
+
+```ts
+// hierarchical (read < journey-admin < full-admin): max-rank-held >= required
+// orthogonal (ingest): keyScopes.includes("ingest") || keyScopes.includes("full-admin")
+export function hasScope(keyScopes: string[], required: string): boolean;
+```
+
+When the required scope (`ingest`) isn't found in the hierarchy table, the check falls through to the orthogonal branch: an explicit `ingest` grant, or `full-admin`. Anything else — including a `journey-admin` key — fails the check and the request returns `403 Forbidden`.
+
+The matrix:
+
+| Key scopes | Reach `/v1/admin/*` | Reach data plane (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`) |
+|---|---|---|
+| `["read"]` | GET admin only | No (403) |
+| `["journey-admin"]` | Read + journey ops | **No (403)** |
+| `["full-admin"]` | Everything | **Yes** (implied) |
+| `["ingest"]` | No (403) | **Yes** |
+| `["read", "ingest"]` | GET admin only | Yes |
+
+A pure `ingest` key is the recommended least-privilege credential for your application: it can write the data plane and nothing else. It cannot list contacts, read metrics, or manage keys.
+
+## Minting an ingest key
+
+Data keys are created the same way as any Hogsend API key — through the admin endpoint — but you pass `"ingest"` in `scopes`. You need a `full-admin` key (or the legacy `ADMIN_API_KEY`) to bootstrap one.
+
+```bash
+curl -X POST http://localhost:3002/v1/admin/api-keys \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production app (data plane)",
+    "scopes": ["ingest"]
+  }'
+```
+
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "name": "Production app (data plane)",
+  "key": "hsk_abc123def456ghi789jkl012mno345pqr678",
+  "keyPrefix": "hsk_abc1",
+  "scopes": ["ingest"],
+  "createdAt": "2026-01-15T10:30:00.000Z"
+}
+```
+
+**Save the `key` value immediately.** It is SHA-256 hashed before storage and is shown only once. Store it as `HOGSEND_DATA_KEY` (or whatever your app expects) in your application's environment.
+
+<Callout type="info">
+  A freshly scaffolded app mints a first ingest key for you during `bootstrap` and prints it. You only need to mint keys by hand for additional environments or to rotate.
+</Callout>
+
+The `scopes` enum on `POST /v1/admin/api-keys` accepts `["read", "journey-admin", "full-admin", "ingest"]`. You can combine them — e.g. `["read", "ingest"]` for a key that both writes the data plane and reads the admin plane.
+
+## Using the key
+
+Pass it as a bearer token on every data-plane call:
+
+```bash
+curl -X POST http://localhost:3002/v1/events \
+  -H "Authorization: Bearer hsk_abc123def456ghi789..." \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "signup", "email": "ada@example.com" }'
+```
+
+Or hand it to the SDK once:
+
+```ts
+const hs = new Hogsend({
+  baseUrl: "https://api.hogsend.com",
+  apiKey: process.env.HOGSEND_DATA_KEY!,
+});
+```
+
+## Caching and revocation
+
+Active keys are cached in memory for 60 seconds (same as the admin plane). A newly created key works immediately (a cache miss triggers a DB lookup). A revoked or edited key may keep working for up to 60 seconds in a multi-instance deployment until the cache entry expires — revocation is **not** instant.
+
+## Rate limits
+
+The data plane shares the standard sliding-window limiter (100 requests/min per key, Redis-backed with an in-memory fallback). On top of that, **`/v1/emails` has its own separate budget**:
+
+| Surface | Window | Max per key |
+|---|---|---|
+| Data plane (general) | 1 minute | 100 |
+| `/v1/emails` | 1 minute | **30** |
+
+The email budget uses a distinct rate-limit prefix, so transactional sends do **not** share the sliding window with your contact/event writes — bursting events won't eat into your send budget, and vice versa. A `429` carries a `Retry-After` header (seconds); the SDK maps it to `RateLimitError.retryAfter`.
+
+```
+HTTP/1.1 429 Too Many Requests
+Retry-After: 32
+```
+
+## Error shapes
+
+| Status | Meaning |
+|---|---|
+| `401` | Missing or malformed bearer token, or unknown/expired/revoked key |
+| `403` | Valid key, but it lacks the `ingest` scope (e.g. a `read` or `journey-admin` key) |
+| `429` | Rate limit exceeded — back off using `Retry-After` |
+
+All errors return `{ "error": "..." }`.

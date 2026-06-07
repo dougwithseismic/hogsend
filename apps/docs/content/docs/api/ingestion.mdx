@@ -63,70 +63,13 @@ curl http://localhost:3002/v1/health
 
 ---
 
-## Ingestion
+## Event Ingestion
 
-### `POST /v1/ingest`
+<Callout type="info">
+  The old unauthenticated `POST /v1/ingest` endpoint has been **removed**. Direct event ingestion now lives on the public data plane at **[`POST /v1/events`](/docs/data-api/events)** — authenticated with an `ingest`-scoped key, using `name` (not `event`), the `contactProperties` / `eventProperties` split, and `email` or `userId`. See the [Data API](/docs/data-api) section for the full surface and the [`@hogsend/client`](/docs/data-api/client-sdk) SDK.
+</Callout>
 
-Receives events from direct API calls. Stores the event in `userEvents`, pushes it to Hatchet for journey routing, processes exit conditions on active journeys, and upserts the contact record.
-
-**Request Body**
-
-```json
-{
-  "event": "user:signed_up",
-  "userId": "user_abc123",
-  "userEmail": "user@example.com",
-  "properties": {
-    "plan": "pro",
-    "source": "website"
-  },
-  "timestamp": "2025-01-15T10:30:00.000Z",
-  "idempotencyKey": "evt_abc123_signup_2025"
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `event` | `string` | Yes | Event name (min 1 char) |
-| `userId` | `string` | Yes | External user identifier (min 1 char) |
-| `userEmail` | `string` | No | User email address (validated format) |
-| `properties` | `Record<string, unknown>` | No | Arbitrary event properties |
-| `timestamp` | `string` | No | ISO 8601 datetime (defaults to now) |
-| `idempotencyKey` | `string` | No | Unique key for deduplication. If a duplicate key is sent, the event is silently dropped and `stored: false` is returned |
-
-**Response `202`**
-
-```json
-{
-  "stored": true,
-  "exits": [
-    {
-      "journeyId": "onboarding-welcome",
-      "stateId": "550e8400-e29b-41d4-a716-446655440000",
-      "exited": false
-    }
-  ]
-}
-```
-
-| Field | Type | Description |
-|---|---|---|
-| `stored` | `boolean` | Whether the event was persisted. Returns `false` when a duplicate `idempotencyKey` is detected |
-| `exits` | `ExitResult[]` | Exit condition evaluation results for active journeys |
-| `exits[].journeyId` | `string` | Journey that was checked |
-| `exits[].stateId` | `string` | Journey state ID |
-| `exits[].exited` | `boolean` | Whether the user exited this journey |
-
-```bash
-curl -X POST http://localhost:3002/v1/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "event": "user:signed_up",
-    "userId": "user_abc123",
-    "userEmail": "user@example.com",
-    "properties": { "plan": "pro" }
-  }'
-```
+Events still flow into the same `ingestEvent()` pipeline (store → route to Hatchet → check exits → upsert contact); only the public entry point changed. Webhook sources (below) feed that same pipeline.
 
 ---
 
@@ -276,13 +219,14 @@ export const mySource = defineWebhookSource({
       event: `my_source:${payload.action}`,
       userId: payload.user_id,
       userEmail: payload.user_email ?? "",
-      properties: {},
+      eventProperties: {},   // → user_events + journey trigger.where
+      // contactProperties: {}, // → contacts.properties (optional)
     };
   },
 });
 ```
 
-The `transform` function receives the validated payload and a context object (`{ db, logger }`), and returns an `IngestEvent` (or `null` to skip the event).
+The `transform` function receives the validated payload and a context object (`{ db, logger }`), and returns an `IngestEvent` (or `null` to skip the event). The `IngestEvent` carries two property bags — `eventProperties` (the event row + journey triggers) and the optional `contactProperties` (merged onto the contact). See [Identity](/docs/data-api/identity) for the split.
 
 Collect your sources into the array your app owns in `src/webhook-sources/index.js`:
 

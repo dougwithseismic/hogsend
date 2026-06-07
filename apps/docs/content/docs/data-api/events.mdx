@@ -1,0 +1,117 @@
+---
+title: Events
+description: POST /v1/events — the journey trigger. The canonical replacement for the old /v1/ingest, with the contactProperties / eventProperties split.
+---
+
+`POST /v1/events` is the heart of the Data API. It ingests an event, which: stores the event row, merges contact properties onto the contact, pushes to Hatchet for journey routing, processes exit conditions on the user's active journeys, and (optionally) applies list membership.
+
+<Callout type="info">
+  This endpoint is the **canonical replacement for the deleted `/v1/ingest`**. The old route used a single `properties` bag and a required `userId`; it has been removed with no compatibility shim. Move to `POST /v1/events` with `name` (not `event`), the two-bag property split, `email` or `userId`, and an `ingest`-scoped key.
+</Callout>
+
+Requires a bearer key with the `ingest` scope.
+
+## Request
+
+One of `email` or `userId` is required.
+
+```jsonc
+{
+  "name": "signup",
+  "email": "ada@example.com",
+  "userId": "user_123",
+  "eventProperties": { "source": "web" },     // → the event row + journey trigger.where / exitOn
+  "contactProperties": { "plan": "pro" },      // → the contact record only
+  "lists": { "product-updates": true },
+  "idempotencyKey": "evt_signup_user_123",
+  "timestamp": "2026-01-15T10:30:00.000Z"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Event name (this is the journey trigger; replaces the old `event` field) |
+| `email` | `string` | one of email/userId | Recipient email (normalized) |
+| `userId` | `string` | one of email/userId | Your external user identifier |
+| `eventProperties` | `Record<string, unknown>` | No | Stored on the event row; what `trigger.where` and `exitOn` evaluate. **Does not touch the contact.** |
+| `contactProperties` | `Record<string, unknown>` | No | Merged onto `contacts.properties`. **Does not touch the event.** What buckets segment on. |
+| `lists` | `Record<string, boolean>` | No | List membership applied after ingest (requires a resolvable email) |
+| `idempotencyKey` | `string` | No | Dedup key. A replay within the window returns `stored: false` and does not re-ingest |
+| `timestamp` | `string` | No | ISO 8601. Backdates `user_events.occurred_at` for backfill / replay (defaults to now) |
+
+### The property split
+
+This is the most important thing to internalize about events:
+
+- **`eventProperties`** describe *what happened*. They live on `user_events` and feed Hatchet, so a journey `trigger.where` or `exitOn` rule sees them. They never reach the contact.
+- **`contactProperties`** describe *who the person is*. They merge onto the durable contact record. Buckets and contact-state conditions see them. They never reach the event.
+
+This is a deliberate split — and a behavior change from the old single-`properties` `/v1/ingest`. A journey that used to read a contact attribute off the event payload must now key its `trigger.where` on an `eventProperty`, and a bucket must read contact state. See [Identity](/docs/data-api/identity) for the merge semantics.
+
+### Idempotency-Key header precedence
+
+You can supply the idempotency key either in the body (`idempotencyKey`) or as an `Idempotency-Key` HTTP header. **The header wins** when both are present.
+
+```bash
+curl -X POST http://localhost:3002/v1/events \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: evt_signup_user_123" \
+  -d '{ "name": "signup", "userId": "user_123" }'
+```
+
+## Response `202`
+
+```json
+{
+  "stored": true,
+  "exits": [
+    {
+      "journeyId": "onboarding-welcome",
+      "stateId": "550e8400-e29b-41d4-a716-446655440000",
+      "exited": false
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `stored` | `boolean` | `false` when a duplicate `idempotencyKey` was already seen (no re-ingest) |
+| `exits` | `ExitResult[]` | Every active journey state evaluated against `exitOn`; `exited: true` means this event removed the user from that journey |
+| `listsError` | `string` (optional) | Present **only** when the durable ingest succeeded but the (non-atomic, post-ingest) list write failed |
+
+### Why a list failure is not a 400
+
+List membership is written **after** the event is durably ingested. The event store, Hatchet dispatch, and exit processing have all already succeeded by then. If the list write fails, returning a `400` would (a) hide a successful ingest behind a "nothing happened" status and (b) tempt a retry that double-ingests the event. Instead the response stays `202` and surfaces a non-fatal `listsError` warning:
+
+```json
+{ "stored": true, "exits": [], "listsError": "Contact has no email; cannot manage list membership" }
+```
+
+## Errors
+
+| Status | Meaning |
+|---|---|
+| `400` | Neither `email` nor `userId` supplied |
+| `401` | Missing/invalid key |
+| `403` | Key lacks the `ingest` scope |
+
+## Example
+
+```bash
+curl -X POST http://localhost:3002/v1/events \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "user.signed_up",
+    "email": "ada@example.com",
+    "userId": "user_123",
+    "eventProperties": { "source": "landing-page" },
+    "contactProperties": { "plan": "pro" }
+  }'
+```
+
+```json
+{ "stored": true, "exits": [] }
+```

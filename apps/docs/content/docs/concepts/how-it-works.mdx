@@ -97,7 +97,7 @@ Setting up lifecycle email from scratch means building a lot of plumbing. Here's
 ### Event ingestion
 - A central `ingestEvent()` pipeline both the ingest endpoint and webhook sources feed into
 - `defineWebhookSource()` for any inbound source (PostHog and others ship as starter content)
-- REST API for direct event pushing (`POST /v1/ingest/`, returns `202`)
+- Public data-plane REST API for direct event pushing (`POST /v1/events`, returns `202`)
 - Webhook sources served at `POST /v1/webhooks/:sourceId`
 
 ### Journey orchestration

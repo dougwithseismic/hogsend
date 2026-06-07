@@ -1,0 +1,131 @@
+---
+title: Lists
+description: Code-defined email lists with defineList(), plus the GET /v1/lists and subscribe/unsubscribe data-plane endpoints.
+---
+
+Lists are Hogsend's named, opt-in/opt-out subscription categories — newsletters, product updates, digests. They are **code-defined** with `defineList()` and stored as keys in the existing `email_preferences.categories` JSONB. There is no new table; lists ride the same preference store, unsubscribe tokens, and preference center that journey emails already use.
+
+## Authoring a list with `defineList()`
+
+You author lists in `src/lists/` in your app, mirroring how you author journeys and buckets:
+
+```ts title="src/lists/index.ts"
+import { defineList } from "@hogsend/engine";
+
+export const productUpdates = defineList({
+  id: "product-updates",
+  name: "Product updates",
+  description: "Announcements about new features.",
+  defaultOptIn: false,
+});
+
+export const lists = [productUpdates];
+```
+
+Then thread the array into both `createHogsendClient` (so the API knows the catalog) and `createWorker` (so the worker resolves polarity on send):
+
+```ts
+const container = createHogsendClient({ journeys, lists });
+```
+
+### `defineList()` options
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | Yes | The category key. Must match `/^[a-z0-9_-]+$/i` |
+| `name` | `string` | Yes | Human-readable name |
+| `description` | `string` | No | Shown in the catalog and preference center |
+| `defaultOptIn` | `boolean` | Yes | The default membership polarity (see below) |
+| `enabled` | `boolean` | No | Defaults to `true` |
+
+### `id` rules and reserved ids
+
+- The id must match `/^[a-z0-9_-]+$/i` (letters, digits, `-`, `_`).
+- The id shares the `email_preferences.categories` key namespace, so two ids are **reserved** and rejected by `defineList()`: **`transactional`** and **`journey`**. These are the engine's own built-in non-list categories.
+
+`defineList()` throws at authoring time if the id is empty, malformed, or reserved.
+
+### `defaultOptIn` polarity
+
+`defaultOptIn` decides what an *absent* category key means — this is the heart of how a contact is considered subscribed:
+
+- **`defaultOptIn: true`** (opt-out list) — a contact is subscribed unless `categories[id] === false`. Membership is the default; they have to explicitly leave.
+- **`defaultOptIn: false`** (opt-in list) — a contact is subscribed only if `categories[id] === true`. They have to explicitly join.
+
+This single rule (`ListRegistry.isSubscribed`) is the one source of truth consumed by the mailer's suppression check **and** the preference center render, so a list send and the preference UI always agree. Non-list categories (`transactional`, `journey`) resolve to `defaultOptIn: true`, i.e. blocked only on an explicit `false` — identical to legacy behavior.
+
+## Where membership lives
+
+Membership is a boolean key in `email_preferences.categories`:
+
+```jsonc
+// email_preferences.categories
+{ "product-updates": true, "weekly-digest": false }
+```
+
+Subscribe/unsubscribe just flip that JSONB key through the existing preference path. No schema change, no new table — which is why lists inherit unsubscribe tokens and the preference center for free.
+
+## `GET /v1/lists`
+
+Enumerates the **enabled** code-defined lists (the catalog — it does not return per-contact membership). No identity required, but the `ingest` scope still applies.
+
+```bash
+curl http://localhost:3002/v1/lists \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY"
+```
+
+**Response `200`**
+
+```json
+{
+  "lists": [
+    { "id": "product-updates", "name": "Product updates", "description": "Announcements about new features.", "defaultOptIn": false }
+  ]
+}
+```
+
+## `POST /v1/lists/:id/subscribe`
+
+Subscribes a contact to a list. One of `email` or `userId` is required. The contact is resolved/created first (so a real row exists), then the membership key is set.
+
+```bash
+curl -X POST http://localhost:3002/v1/lists/product-updates/subscribe \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "email": "ada@example.com" }'
+```
+
+**Response `200`**
+
+```json
+{ "list": "product-updates", "subscribed": true }
+```
+
+## `POST /v1/lists/:id/unsubscribe`
+
+The mirror image — flips the same key to opt-out polarity.
+
+```bash
+curl -X POST http://localhost:3002/v1/lists/product-updates/unsubscribe \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": "user_123" }'
+```
+
+**Response `200`**
+
+```json
+{ "list": "product-updates", "subscribed": false }
+```
+
+## Errors
+
+| Status | Meaning |
+|---|---|
+| `400` | Missing recipient, or the contact has no resolvable email (membership requires an email) |
+| `403` | Key lacks the `ingest` scope |
+| `404` | Unknown list id |
+
+<Callout type="info">
+  List/preference writes require a **resolvable email** — `email_preferences` is keyed on `(user_id, email)` and the email column is `NOT NULL`. A `userId`-only contact with no email on record cannot have list membership written and returns `400`.
+</Callout>

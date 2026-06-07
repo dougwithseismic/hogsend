@@ -3,7 +3,11 @@ title: "Authentication"
 description: "API key management — quick-start legacy key or scoped database-backed keys for production"
 ---
 
-Every request to the admin API requires a bearer token in the `Authorization` header. Hogsend supports two authentication modes — a legacy environment-variable key for quick setup, and database-backed keys with scoped permissions for production use.
+Hogsend API keys are bearer tokens in the `Authorization` header. They guard two surfaces: the **admin/ops plane** (`/v1/admin/*`, this page's focus) and the public **data plane** (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` — see the [Data API](/docs/data-api/authentication)). Hogsend supports two authentication modes — a legacy environment-variable key for quick setup, and database-backed keys with scoped permissions for production use.
+
+<Callout type="info">
+  Both planes are bearer-authed, but the data plane is **not** under `/v1/admin`. A key reaches the data plane only via the `ingest` scope (or `full-admin`), and an `ingest`-only key reaches nothing on `/v1/admin/*`. See [Key Scopes](#key-scopes) below for why `ingest` is orthogonal, not hierarchical.
+</Callout>
 
 ## How Auth Works
 
@@ -13,7 +17,7 @@ When a request hits any `/v1/admin/*` endpoint, the auth middleware runs this se
 2. Check if the token matches the `ADMIN_API_KEY` environment variable (legacy key, full access)
 3. If no match, SHA-256 hash the token and look it up in the `apiKeys` database table
 4. Verify the key is not revoked and not expired
-5. Check that the key's scopes permit the requested operation (GET requires `read`, mutations require `journey-admin` or `full-admin`)
+5. Check that the key's scopes permit the requested operation. For admin routes this is hierarchical (GET requires `read`, mutations require `journey-admin` or `full-admin`); the data-plane routes require the orthogonal `ingest` scope instead (see [Key Scopes](#key-scopes))
 6. If neither mode matches, return `401 Unauthorized`
 
 If no admin key is configured at all (no `ADMIN_API_KEY` env var, no database keys), admin endpoints return `503 Service Unavailable`.
@@ -69,15 +73,24 @@ The `keyPrefix` field (first 8 characters) is stored in plaintext so you can ide
 
 ## Key Scopes
 
-Each database-backed key has one or more scopes that control what it can do:
+Each database-backed key has one or more scopes that control what it can do. There are **two kinds** of scope:
 
-| Scope | What it allows |
-|---|---|
-| `read` | All GET endpoints -- list contacts, view metrics, browse events, inspect journeys |
-| `journey-admin` | Everything in `read`, plus journey management -- enable/disable journeys, enroll users, cancel instances |
-| `full-admin` | Everything -- key management, bulk imports/exports, alert configuration, event replay, email resend |
+| Scope | Kind | What it allows |
+|---|---|---|
+| `read` | hierarchical | All GET admin endpoints -- list contacts, view metrics, browse events, inspect journeys |
+| `journey-admin` | hierarchical | Everything in `read`, plus journey management -- enable/disable journeys, enroll users, cancel instances |
+| `full-admin` | hierarchical | Everything admin -- key management, bulk imports/exports, alerts, event replay, email resend. **Also implies `ingest`** |
+| `ingest` | **orthogonal** | The public data plane -- write `/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`. Grants **nothing** on `/v1/admin/*` |
 
-Scopes are cumulative -- a key with `["journey-admin"]` implicitly has `read` access. A key with `["full-admin"]` can do everything.
+The three admin scopes are **hierarchical and cumulative** -- a key with `["journey-admin"]` implicitly has `read`; a key with `["full-admin"]` can do everything on the admin plane.
+
+`ingest` is different: it is **orthogonal, not hierarchical**. It is the data-plane scope, and it sits entirely outside the `read < journey-admin < full-admin` ladder.
+
+<Callout type="warn">
+  A `read` or `journey-admin` key does **NOT** get `ingest`. Holding an admin tier grants nothing on the data plane. A key reaches the data plane only with an explicit `ingest` grant or `full-admin` (which implies it). Conversely, an `ingest`-only key reaches nothing on `/v1/admin/*`. Combine them (e.g. `["read", "ingest"]`) when a single key needs both planes.
+</Callout>
+
+This is enforced by `hasScope()` in the engine's `middleware/api-key.ts`: a required orthogonal scope (`ingest`) is satisfied only by `keyScopes.includes("ingest") || keyScopes.includes("full-admin")` — never by a hierarchical rank. The full data-plane key story lives in the [Data API authentication](/docs/data-api/authentication) page.
 
 ### Which scope do I need?
 
@@ -97,6 +110,7 @@ Scopes are cumulative -- a key with `["journey-admin"]` implicitly has `read` ac
 | Replay events | `full-admin` |
 | Resend failed emails | `full-admin` |
 | Retry DLQ entries | `full-admin` |
+| Write contacts/events/emails/lists (data plane) | `ingest` |
 
 A request with insufficient scope returns `403 Forbidden`:
 

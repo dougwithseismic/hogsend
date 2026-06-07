@@ -1,0 +1,93 @@
+---
+title: Data API
+description: The public front door — write contacts, events, transactional emails, and list membership from your app code with a single ingest-scoped API key.
+---
+
+The **Data API** is Hogsend's public front door. It's the surface your product code calls to push the data that drives lifecycle: contacts, events, transactional emails, and list membership. Everything lives under `/v1`, is authenticated with a single bearer key, and mirrors the shapes you'd reach for in any Loops-style SDK — but the journey logic stays in your repo as code.
+
+## Two planes, one engine
+
+Hogsend exposes two distinct HTTP surfaces. They share the same contact store and the same engine, but they're authed differently and used by different callers.
+
+| | Data plane (this section) | Admin / ops plane |
+|---|---|---|
+| Paths | `/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` | `/v1/admin/*` |
+| Auth | Bearer key with the `ingest` scope | Bearer key with `read` / `journey-admin` / `full-admin`, or Better Auth session |
+| Who calls it | Your application code (via the SDK or direct HTTP) | Operators, Studio, the CLI, dashboards |
+| Purpose | **Write** the data that drives journeys | **Observe and operate** — list, inspect, export, replay, manage keys |
+
+The data plane is the equivalent of Loops' contacts / events / transactional API. The admin plane is documented separately under the [API Reference](/docs/api).
+
+<Callout type="info">
+  The data-plane routes are bearer-authed but they are **not** under `/v1/admin`. A data key (scope `ingest`) opens the data plane; it does **not** open `/v1/admin/*`. See [Authentication](/docs/data-api/authentication) for why the `ingest` scope is orthogonal, not hierarchical.
+</Callout>
+
+## Base URL
+
+```
+http://localhost:3002   # local development
+https://api.hogsend.com # production (your deployed engine)
+```
+
+All data-plane endpoints are versioned under `/v1`.
+
+## The ingest-scoped key
+
+Every data-plane request carries a bearer token:
+
+```
+Authorization: Bearer hsk_...
+```
+
+The key must hold the **`ingest`** scope (or `full-admin`, which implies it). Mint one with `POST /v1/admin/api-keys` and `"scopes": ["ingest"]`. Crucially, `ingest` is **orthogonal** to the admin tiers: a `read` or `journey-admin` key does **not** get ingest access, and an ingest key does **not** get admin access. The full reasoning and minting steps are in [Authentication](/docs/data-api/authentication).
+
+## The endpoints
+
+| Endpoint | Method | What it does |
+|---|---|---|
+| [`/v1/contacts`](/docs/data-api/contacts) | `PUT` | Upsert a contact by email and/or userId, with properties and list membership |
+| [`/v1/contacts/find`](/docs/data-api/contacts) | `GET` | Look up contacts by email or userId |
+| [`/v1/contacts`](/docs/data-api/contacts) | `DELETE` | Soft-delete a contact |
+| [`/v1/events`](/docs/data-api/events) | `POST` | Ingest an event — the journey trigger and the canonical replacement for the old `/v1/ingest` |
+| [`/v1/emails`](/docs/data-api/emails) | `POST` | Send a transactional email through the tracked mailer |
+| [`/v1/lists`](/docs/data-api/lists) | `GET` | Enumerate the code-defined email lists |
+| [`/v1/lists/:id/subscribe`](/docs/data-api/lists) | `POST` | Subscribe a contact to a list |
+| [`/v1/lists/:id/unsubscribe`](/docs/data-api/lists) | `POST` | Unsubscribe a contact from a list |
+
+## The property model
+
+The single most important data-modelling decision in the Data API is that **contact properties and event properties are separate bags**.
+
+- **`contactProperties`** are merged onto the durable contact record (`contacts.properties`). They describe *who the person is* — `plan`, `company`, `country`. Buckets segment on these.
+- **`eventProperties`** are stored on the event row (`user_events`) and are what a journey `trigger.where` / `exitOn` rule evaluates. They describe *what happened* — `source`, `amount`, `referrer`.
+
+```jsonc
+// POST /v1/events
+{
+  "name": "signup",
+  "email": "ada@example.com",
+  "eventProperties": { "source": "landing" },  // → the event, → trigger.where
+  "contactProperties": { "plan": "pro" }        // → the contact record only
+}
+```
+
+Event properties never leak into the contact, and contact properties never end up on the event. This is a deliberate split (and a behavior change from the old single-bag `/v1/ingest`). See [Events](/docs/data-api/events) and [Identity](/docs/data-api/identity) for the full model.
+
+## The typed SDK
+
+You don't have to hand-roll HTTP. [`@hogsend/client`](/docs/data-api/client-sdk) is a thin, typed wrapper over the same endpoints:
+
+```ts
+import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({
+  baseUrl: "https://api.hogsend.com",
+  apiKey: process.env.HOGSEND_DATA_KEY!, // hsk_… key with the `ingest` scope
+});
+
+await hs.contacts.upsert({ email: "ada@example.com", properties: { plan: "pro" } });
+await hs.events.send({ name: "signup", email: "ada@example.com", eventProperties: { source: "web" } });
+await hs.emails.send({ to: "ada@example.com", template: "welcome", props: { name: "Ada" } });
+```
+
+The SDK gives you typed templates, identity guards, and typed error classes. Read the [client SDK reference](/docs/data-api/client-sdk) to get going.

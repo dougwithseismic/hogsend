@@ -171,6 +171,6 @@ export function reportWorkerReady(info: WorkerReadyInfo): void {
     `  ${ok} ${tasks}`,
     "",
     `  ${dim("Listening — journeys fire as events arrive.")}`,
-    `  ${dim("Send one:")} ${color.cyan("POST /v1/ingest")} ${dim("· or Studio › Debug")}`,
+    `  ${dim("Send one:")} ${color.cyan("POST /v1/events")} ${dim("· or Studio › Debug")}`,
   ]);
 }

@@ -1,0 +1,99 @@
+---
+title: Emails
+description: POST /v1/emails — send a transactional email through the engine-owned tracked mailer. Link-click + open tracking and unsubscribe are inherited automatically.
+---
+
+`POST /v1/emails` sends a one-off transactional email. It resolves a recipient, renders a named template from your registry, and dispatches through the engine-owned tracked mailer — so **link-click tracking, open tracking, and unsubscribe handling all apply automatically**, exactly as they do for journey sends.
+
+Requires a bearer key with the `ingest` scope.
+
+## Request
+
+One of `to` or `userId` is required.
+
+```jsonc
+{
+  "to": "ada@example.com",
+  "userId": "user_123",
+  "template": "welcome",
+  "props": { "firstName": "Ada" },
+  "from": "team@example.com",
+  "subject": "Welcome aboard",
+  "replyTo": "support@example.com",
+  "category": "onboarding",
+  "skipPreferenceCheck": false,
+  "idempotencyKey": "email_welcome_user_123"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `to` | `string` | one of to/userId | Recipient email |
+| `userId` | `string` | one of to/userId | External user id — the recipient email is resolved from the contact record |
+| `template` | `string` | Yes | Registry key (your email template name). Validated server-side against the wired registry |
+| `props` | `Record<string, unknown>` | No | Template props (Loops' `dataVariables`). Typed by the SDK |
+| `from` | `string` | No | Sender override (defaults to the template / `RESEND_FROM_EMAIL`) |
+| `subject` | `string` | No | Subject override (defaults to the template) |
+| `replyTo` | `string \| string[]` | No | Reply-to override |
+| `category` | `string` | No | Send category (for preference / suppression grouping) |
+| `skipPreferenceCheck` | `boolean` | No | Bypass the subscription/suppression check. **Requires a `full-admin` key** |
+| `idempotencyKey` | `string` | No | Dedup key (or the `Idempotency-Key` header, which wins) |
+
+### Recipient resolution
+
+If you pass `userId` instead of `to`, the mailer resolves the recipient email from the contact record. If that contact has no resolvable email, the call returns `404`.
+
+### `skipPreferenceCheck` is gated to full-admin
+
+By default the send respects the recipient's subscription and suppression state — an unsubscribed or suppressed recipient is not emailed. `skipPreferenceCheck: true` bypasses that, and it is a privileged operation: the data-plane `ingest` scope is **not** enough. The key must hold `full-admin`, or the request returns `403`.
+
+## Response `202`
+
+```json
+{ "emailSendId": "550e8400-e29b-41d4-a716-446655440000", "status": "queued" }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `emailSendId` | `string` | The `email_sends` row id — use it to track delivery/engagement |
+| `status` | `"queued" \| "sent" \| "suppressed" \| "unsubscribed" \| "skipped"` | Outcome of the send |
+| `reason` | `string` (optional) | Present when the send was suppressed/skipped, explaining why |
+
+A `suppressed` or `unsubscribed` status means the recipient was on the suppression list or had opted out — the send was correctly withheld (a successful no-op, not an error).
+
+## Tracking and unsubscribe are inherited
+
+Because `/v1/emails` flows through the same tracked mailer as every journey send, there is **no extra wiring** to get tracking:
+
+- **Links** in the rendered HTML are rewritten to `/v1/t/c/:id`, so clicks are recorded and re-ingested as `email.link_clicked` events.
+- An **open pixel** (`/v1/t/o/:id`) is injected, so opens are recorded and re-ingested as `email.opened` events.
+- **Unsubscribe** headers (`List-Unsubscribe`, one-click) and the preference center links are added; those links are deliberately **not** rewritten for click tracking.
+
+Opens and clicks loop back into the engine as first-class events — they can trigger journeys and move bucket membership. See the [tracking reference](/docs/api/tracking) for the collection endpoints.
+
+## Errors
+
+| Status | Meaning |
+|---|---|
+| `400` | Missing recipient, or unknown template |
+| `401` | Missing/invalid key |
+| `403` | `skipPreferenceCheck` requested without a `full-admin` key |
+| `404` | `userId` has no resolvable email |
+| `429` | Per-key email rate limit exceeded (30/min) — separate from the general data-plane budget |
+
+## Example
+
+```bash
+curl -X POST http://localhost:3002/v1/emails \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "ada@example.com",
+    "template": "welcome",
+    "props": { "firstName": "Ada" }
+  }'
+```
+
+```json
+{ "emailSendId": "…", "status": "queued" }
+```
