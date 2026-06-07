@@ -168,7 +168,7 @@ export interface ChurnPaymentFailedEmailProps {
 
 // ---------------------------------------------------------------------------
 // Transactional templates (sent one-off via hs.emails.send / POST /v1/emails).
-// The Loops "transactional emails" equivalent — no unsubscribe, no list.
+// One-off, system-triggered mail — no unsubscribe, no list.
 // ---------------------------------------------------------------------------
 
 export interface TransactionalVerifyEmailProps {
@@ -199,8 +199,7 @@ export interface TransactionalReceiptProps {
 }
 
 // ---------------------------------------------------------------------------
-// Product / lifecycle templates (sent from journeys). The Loops
-// "loops / workflows" equivalent.
+// Product / lifecycle templates (sent from journeys).
 // ---------------------------------------------------------------------------
 
 export interface LifecycleTrialExpiringProps {
@@ -231,8 +230,8 @@ export interface LifecycleWinBackProps {
 }
 
 // ---------------------------------------------------------------------------
-// Marketing templates (broadcast to a list via hs.campaigns.send). The Loops
-// "campaigns" equivalent — gated on the `product-updates` list category.
+// Marketing templates (broadcast to a list via hs.campaigns.send).
+// Gated on the `product-updates` list category.
 // ---------------------------------------------------------------------------
 
 export interface MarketingProductUpdateProps {
