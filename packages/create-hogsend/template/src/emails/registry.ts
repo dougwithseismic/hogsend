@@ -38,7 +38,7 @@ export const templates: TemplateRegistry = {
     preview: (props) => `${props.name}, you're missing out`,
   },
 
-  // Transactional — sent one-off via `hs.emails.send` (Loops: transactional).
+  // Transactional — sent one-off via `hs.emails.send`.
   "transactional/magic-link": {
     component: MagicLinkEmail,
     defaultSubject: "Your sign-in link",
@@ -52,7 +52,7 @@ export const templates: TemplateRegistry = {
     preview: (props) => `Receipt ${props.invoiceNumber} — ${props.amount}`,
   },
 
-  // Lifecycle — sent from the bundled `trial-expiring` journey (Loops: workflows).
+  // Lifecycle — sent from the bundled `trial-expiring` journey.
   "lifecycle/trial-expiring": {
     component: TrialExpiringEmail,
     defaultSubject: "Your trial is ending soon",
@@ -61,7 +61,7 @@ export const templates: TemplateRegistry = {
       `${props.daysLeft ?? 3} day${(props.daysLeft ?? 3) === 1 ? "" : "s"} left in your trial`,
   },
 
-  // Marketing — broadcast to a list via `hs.campaigns.send` (Loops: campaigns).
+  // Marketing — broadcast to a list via `hs.campaigns.send`.
   // `category` MUST match the list id so suppression respects the opt-in.
   "marketing/product-update": {
     component: ProductUpdateEmail,

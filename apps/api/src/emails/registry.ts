@@ -137,7 +137,7 @@ export const templates: TemplateRegistry = {
     preview: (props) => `${props.name}, action needed on your billing`,
   },
 
-  // --- Transactional (Loops: transactional emails) — sent one-off via
+  // --- Transactional — sent one-off via
   // hs.emails.send / POST /v1/emails. No list, no unsubscribe.
   "transactional/verify-email": {
     component: TransactionalVerifyEmailEmail,
@@ -189,7 +189,7 @@ export const templates: TemplateRegistry = {
     },
   },
 
-  // --- Product / lifecycle (Loops: loops / workflows) — sent from journeys.
+  // --- Product / lifecycle — sent from journeys.
   "lifecycle/trial-expiring": {
     component: LifecycleTrialExpiringEmail,
     defaultSubject: "Your trial is ending soon",
@@ -214,7 +214,7 @@ export const templates: TemplateRegistry = {
     examples: { name: "Ada", daysSinceActive: 30 },
   },
 
-  // --- Marketing (Loops: campaigns) — broadcast to a list via
+  // --- Marketing — broadcast to a list via
   // hs.campaigns.send. Category is the real `product-updates` list id, so the
   // mailer's suppression check + preference center gate it.
   "marketing/product-update": {

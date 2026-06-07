@@ -21,18 +21,18 @@ export const Templates = {
 
   CHURN_PAYMENT_FAILED: "churn-payment-failed",
 
-  // Transactional (Loops: transactional emails) — one-off via hs.emails.send.
+  // Transactional — one-off via hs.emails.send.
   TRANSACTIONAL_VERIFY_EMAIL: "transactional/verify-email",
   TRANSACTIONAL_PASSWORD_RESET: "transactional/password-reset",
   TRANSACTIONAL_MAGIC_LINK: "transactional/magic-link",
   TRANSACTIONAL_RECEIPT: "transactional/receipt",
 
-  // Product / lifecycle (Loops: loops / workflows) — sent from journeys.
+  // Product / lifecycle — sent from journeys.
   LIFECYCLE_TRIAL_EXPIRING: "lifecycle/trial-expiring",
   LIFECYCLE_FEATURE_ANNOUNCEMENT: "lifecycle/feature-announcement",
   LIFECYCLE_WIN_BACK: "lifecycle/win-back",
 
-  // Marketing (Loops: campaigns) — broadcast to a list via hs.campaigns.send.
+  // Marketing — broadcast to a list via hs.campaigns.send.
   MARKETING_PRODUCT_UPDATE: "marketing/product-update",
 } as const;
 

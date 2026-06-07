@@ -3,8 +3,8 @@ import { defineJourney, sendEmail } from "@hogsend/engine";
 import { Events, Templates } from "./constants/index.js";
 
 /**
- * Example lifecycle journey — a trial-expiring reminder (the Loops "workflow"
- * use case). Enroll a user when their trial starts; the journey durably waits
+ * Example lifecycle journey — a trial-expiring reminder. Enroll a user when
+ * their trial starts; the journey durably waits
  * out the trial, then emails them a few days before it ends — unless they've
  * already converted, in which case `exitOn` pulls them out cleanly.
  *

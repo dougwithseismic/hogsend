@@ -76,14 +76,14 @@ export const Templates = {
   ACTIVATION_WELCOME: "activation/welcome",
   ACTIVATION_NUDGE: "activation/nudge",
 
-  // Transactional — sent one-off via hs.emails.send (Loops: transactional).
+  // Transactional — sent one-off via hs.emails.send.
   TRANSACTIONAL_MAGIC_LINK: "transactional/magic-link",
   TRANSACTIONAL_RECEIPT: "transactional/receipt",
 
-  // Lifecycle — sent from journeys (Loops: workflows).
+  // Lifecycle — sent from journeys.
   LIFECYCLE_TRIAL_EXPIRING: "lifecycle/trial-expiring",
 
-  // Marketing — broadcast to a list via hs.campaigns.send (Loops: campaigns).
+  // Marketing — broadcast to a list via hs.campaigns.send.
   MARKETING_PRODUCT_UPDATE: "marketing/product-update",
 } as const;
 
