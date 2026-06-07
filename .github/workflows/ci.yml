@@ -208,13 +208,21 @@ jobs:
         id: scope
         run: |
           run=true
-          base="${{ github.event.pull_request.base.sha }}"
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
           if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
-            if ! git diff --name-only "$base"...HEAD | grep -qE '^(packages/|\.changeset/|pnpm-lock\.yaml)'; then
+            if ! git diff --name-only "$base"...HEAD | grep -qE '^(packages/|\.changeset/|pnpm-lock\.yaml|\.github/workflows/)'; then
               run=false
             fi
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
+      # verify-scaffold packs the BUILT tarballs (cli/client/studio ship dist/),
+      # so the workspace must be built first. A full turbo build from the repo
+      # root is the reliable precondition — verify-scaffold's own per-package
+      # `pnpm --filter ... build` calls can no-op on a cold CI runner, leaving no
+      # dist/ and a "missing package/dist/**" pack failure.
+      - name: Build for the scaffold smoke
+        if: steps.scope.outputs.run == 'true'
+        run: pnpm build
       - name: Verify scaffold (pack, install, build a real app)
         if: steps.scope.outputs.run == 'true'
         run: pnpm --filter create-hogsend verify
