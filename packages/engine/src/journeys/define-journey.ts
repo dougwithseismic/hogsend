@@ -179,7 +179,6 @@ export function defineJourney(options: {
         hatchetCtx,
         registry: getJourneyRegistrySingleton(),
         logger,
-        posthog,
         stateId,
         userId,
         userEmail,

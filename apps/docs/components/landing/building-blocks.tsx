@@ -61,22 +61,48 @@ const BUCKET_CODE = `export const wentDormant = defineBucket({
   },
 });`;
 
+const DESTINATIONS_CODE = `// Fan email + lifecycle events out to PostHog,
+// Segment, Slack, or any signed webhook.
+await hs.webhooks.create({
+  kind: "slack",
+  url: "https://hooks.slack.com/services/…",
+  eventTypes: ["email.bounced", "email.complained"],
+});
+
+// Or define your own destination in code:
+export const crm = defineDestination({
+  meta: { id: "crm", name: "CRM" },
+  events: ["contact.created", "contact.updated"],
+  transform: (envelope, { endpoint }) => ({
+    url: endpoint.url,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(envelope),
+  }),
+});`;
+
 /**
  * BuildingBlocks — dark showcase of the core primitives playing out over time:
  * Journeys (sleep & branch), waiting for what the user does next
- * (ctx.waitForEvent), first-party open/click tracking, and Buckets. The async
- * server `CodeHighlight` nodes are rendered here and passed as `media` props
- * into the client `TabbedShowcase` (RSC composes server-rendered nodes into
- * client islands).
+ * (ctx.waitForEvent), first-party open/click tracking, Buckets, and outbound
+ * Destinations (fan email + lifecycle events out to PostHog/Segment/Slack/any
+ * signed webhook). The async server `CodeHighlight` nodes are rendered here and
+ * passed as `media` props into the client `TabbedShowcase` (RSC composes
+ * server-rendered nodes into client islands).
  */
 export async function BuildingBlocks() {
-  const [journeyMedia, waitMedia, trackingMedia, bucketMedia] =
-    await Promise.all([
-      CodeHighlight({ code: JOURNEY_CODE, lang: "ts" }),
-      CodeHighlight({ code: WAIT_CODE, lang: "ts" }),
-      CodeHighlight({ code: TRACKING_CODE, lang: "ts" }),
-      CodeHighlight({ code: BUCKET_CODE, lang: "ts" }),
-    ]);
+  const [
+    journeyMedia,
+    waitMedia,
+    trackingMedia,
+    bucketMedia,
+    destinationsMedia,
+  ] = await Promise.all([
+    CodeHighlight({ code: JOURNEY_CODE, lang: "ts" }),
+    CodeHighlight({ code: WAIT_CODE, lang: "ts" }),
+    CodeHighlight({ code: TRACKING_CODE, lang: "ts" }),
+    CodeHighlight({ code: BUCKET_CODE, lang: "ts" }),
+    CodeHighlight({ code: DESTINATIONS_CODE, lang: "ts" }),
+  ]);
 
   const tabs = [
     {
@@ -102,7 +128,7 @@ export async function BuildingBlocks() {
       label: "Tracking",
       title: "Opens and clicks, first-party",
       description:
-        "Every send is tracked first-party for opens and link clicks; engagement flows back as events (email.opened / email.link_clicked) you can branch on mid-journey or pipe into PostHog.",
+        "Every send is tracked first-party for opens and link clicks; engagement flows back as events (email.opened / email.link_clicked) you can branch on mid-journey or fan out to your destinations.",
       tags: ["Open tracking", "Click tracking", "Flows back as events"],
       media: <MockupFrame barcode>{trackingMedia}</MockupFrame>,
     },
@@ -114,6 +140,19 @@ export async function BuildingBlocks() {
         "Define who belongs with declarative criteria. Membership updates as events arrive, and joining a bucket can kick off a journey on its own.",
       tags: ["Live membership", "Time-based", "Kick off journeys"],
       media: <MockupFrame barcode>{bucketMedia}</MockupFrame>,
+    },
+    {
+      id: "destinations",
+      label: "Destinations",
+      title: "Fan events out, durably",
+      description:
+        "Send email and lifecycle events (delivered, opened, clicked, bounced…) out to PostHog, Segment, Slack, or any signed webhook. Each delivery is retried, signed, and dead-lettered for you — and you can define your own destination in code.",
+      tags: [
+        "PostHog · Segment · Slack",
+        "Signed & retried",
+        "Define your own",
+      ],
+      media: <MockupFrame barcode>{destinationsMedia}</MockupFrame>,
     },
   ];
 
@@ -127,7 +166,7 @@ export async function BuildingBlocks() {
             tone="dark"
             eyebrow="THE BUILDING BLOCKS"
             title="Journeys and buckets, working together"
-            subtitle="Journeys are emails that play out over time — sleep, wait for what the user does next, and track opens and clicks as you go. Buckets are live groups of people. The moment someone joins a bucket, it can start a journey for them."
+            subtitle="Journeys are emails that play out over time — sleep, wait for what the user does next, and track opens and clicks as you go. Buckets are live groups of people. And every email and lifecycle event fans out to your destinations — PostHog, Segment, Slack, or any signed webhook."
           />
         </Reveal>
 

@@ -5,6 +5,10 @@ description: Built-in webhook presets that turn Clerk, Supabase, Stripe, and Seg
 
 **Integration presets** are inbound webhook sources that ship inside the engine. Each one receives a provider's webhook, verifies its signature, and transforms the payload into a Hogsend event that flows straight through the [ingestion pipeline](/docs/api/ingestion) — so a Clerk signup, a Stripe payment, or a Segment track call can trigger a journey without you writing any glue code.
 
+<Callout type="info">
+  These are the **inbound** half of the engine. The symmetric outbound half is [destinations](/docs/data-api/destinations) — keyed `defineDestination()` transforms that fan Hogsend's event stream *out* to PostHog, Segment, Slack, or a custom transport on the durable webhook spine.
+</Callout>
+
 A preset is a `defineWebhookSource()` the engine already wrote for you. You don't import it, register it, or build it. You set one env var (the provider's signing secret) and the route appears.
 
 ## What a preset does

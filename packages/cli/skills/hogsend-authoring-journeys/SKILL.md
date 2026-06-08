@@ -59,10 +59,17 @@ export const welcome = defineJourney({
 ## Key concepts
 
 - **`ctx` is orchestration primitives ONLY** — `sleep`, `sleepUntil`, `when`,
-  `waitForEvent`, `checkpoint`, `trigger`, `identify`, `guard.isSubscribed`,
-  `history.hasEvent/journey/email`, `posthog.capture`. Features are standalone
-  imports: `sendEmail()` and `getPostHog()` come from `@hogsend/engine`, NOT off
-  `ctx`.
+  `waitForEvent`, `checkpoint`, `trigger`, `guard.isSubscribed`,
+  `history.hasEvent/journey/email`. Features are standalone imports: `sendEmail()`
+  comes from `@hogsend/engine`, NOT off `ctx`.
+- **Fan-out is DESTINATIONS, not `ctx`.** There is no `ctx.identify` /
+  `ctx.posthog.capture` — those single-vendor PostHog shims were removed. To get
+  user/event data into product + data tools (PostHog, Segment, Slack, a CRM, a
+  warehouse), set up an outbound DESTINATION: the email/contact/journey/bucket
+  lifecycle is delivered there durably (retry/backoff/DLQ), keyed by
+  `webhook_endpoints.kind`. EVERY destination receives EVERY open and click
+  (per-hit, not first-touch), and `email.delivered` is the canonical "email was
+  received" signal. See the **hogsend-authoring-destinations** skill.
 - **Duration helpers** `days()` / `hours()` / `minutes()` from `@hogsend/core`
   (also re-exported by `@hogsend/engine`) — never magic strings.
 - **`user`** carries `id`, `email`, `properties`, `stateId`, `journeyId`,

@@ -1779,9 +1779,11 @@ mirroring `journeys-view.tsx`:
 ## 12. Optional PostHog sync
 
 Off by default. When `meta.syncToPostHog` is true, on join/leave the engine sets
-a **boolean person property** via the existing `plugin-posthog` capture
-(`ctx.posthog.capture` / `getPostHog()`, the same path `identify()` uses at
-`journey-context.ts:199-200` / `plugin-posthog service.ts:40-41`):
+a **boolean person property** by calling the injected analytics provider's
+`plugin-posthog` `identify()` / `captureEvent()` directly (in
+`lib/bucket-posthog-sync.ts`) — `$set` on join, `$unset` on leave. This is the
+only journey/bucket-side write to PostHog now that the `ctx.posthog`/`ctx.identify`
+journey-context shims have been removed:
 
 - **Join** — `$set { [propertyKey]: true }` (default `propertyKey =
   hogsend_bucket_<id>`).

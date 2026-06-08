@@ -21,6 +21,11 @@ mechanisms — don't reach for the wrong one.
    `@hogsend/plugin-resend` and `@hogsend/plugin-posthog` are the **bundled
    defaults and reference implementations**; you only swap when you want a
    different vendor. → `references/swap-a-provider.md`.
+   Note: the `analytics` (`PostHogService`) role is now NARROW — it is NOT the
+   outbound-event firing path (that's destinations, below). It's load-bearing for
+   exactly two things: the identity **PULL** (`getPersonProperties` for per-user
+   timezone resolution at enrollment) and the opt-in `bucket.syncToPostHog`
+   person-property mirror. PostHog is otherwise just a destination (`kind="posthog"`).
 
 2. **Integrations** (a one-directional call *out* to a service — post to Slack,
    create a CRM record, charge Stripe — from inside a JOURNEY at a specific
@@ -48,7 +53,8 @@ mirrored to a tool, durably? → a destination (3).
   reference implementation to copy is `packages/plugin-resend/src/provider.ts`
   (`createResendProvider`).
 - **Wire it.** `createHogsendClient({ email: { templates, provider: createMyProvider(...) } })`.
-  Analytics is a **top-level** option (the engine itself fires captures):
+  Analytics is a **top-level** option (the engine uses it for the identity pull +
+  bucket sync, not for outbound fan-out):
   `createHogsendClient({ analytics: createMyAnalytics(...) })`.
 - **You get everything else for free.** Template rendering, link-click + open
   tracking, preference/suppression checks, the frequency cap, and the
@@ -96,7 +102,9 @@ Hogsend monorepo, not in your client app.
 ## What NOT to do
 
 - **Don't put a service on `ctx`.** `ctx` is durable-orchestration primitives only
-  (`sleep`, `checkpoint`, `trigger`, `guard`, `history`, `posthog`, `identify`).
+  (`sleep`, `sleepUntil`, `when`, `waitForEvent`, `checkpoint`, `trigger`, `guard`,
+  `history`). There is no `ctx.posthog` / `ctx.identify` — those were removed; fan
+  data out with a destination instead.
 - **Don't reach for a provider contract for a one-directional call** — that's an
   integration (just code).
 - **Don't import the `EmailProvider`/`PostHogService` contract from a

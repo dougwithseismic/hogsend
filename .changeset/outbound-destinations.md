@@ -25,6 +25,20 @@ yet return.
 
 ## Consumer-visible behavioral changes (read before upgrading)
 
+- **BREAKING: `ctx.posthog.capture` and `ctx.identify` were REMOVED from the
+  journey context.** These were single-vendor, fire-and-forget PostHog shims;
+  they no longer exist on `JourneyContext` (`@hogsend/core`). Now that PostHog is
+  just one outbound DESTINATION among many, the journey context exposes only
+  vendor-neutral orchestration primitives (`sleep`, `sleepUntil`, `when`,
+  `waitForEvent`, `checkpoint`, `trigger`, `guard`, `history`). To send the
+  lifecycle catalog (`contact.*`, `email.*`, `journey.completed`, `bucket.*`) to
+  PostHog/Segment/Slack/a CRM, configure an outbound destination. For a custom
+  journey signal, fire `ctx.trigger()` (it joins the internal pipeline) and
+  capture it where you detect it via your app's PostHog SDK. The `PostHogService`
+  provider itself is unchanged and still load-bearing for the identity PULL
+  (`getPersonProperties` → timezone resolution) and the opt-in
+  `bucket.syncToPostHog` person-property mirror.
+
 - **Open/click are now PER-HIT, not first-touch.** Previously `email.opened` /
   `email.clicked` emitted exactly ONCE per send (a first-touch gate plus a
   per-send `dedupeKey` of `email.opened:<id>` / `email.clicked:<id>`). They now

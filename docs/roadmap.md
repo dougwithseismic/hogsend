@@ -153,6 +153,12 @@ Phased plan to take Hogsend from a working engine to a production-ready marketin
 
 **Goal:** Know when things go wrong before users tell you.
 
+> **Update (post-outbound-destinations).** The durable outbound webhook spine
+> now covers much of 6.1/6.4: any subscriber (including a `kind="slack"`
+> destination) can receive `email.bounced` / `email.complained` and the rest of
+> the catalog with retry/backoff/DLQ. Remaining alerting work is threshold *rules*
+> (e.g. "bounce rate > X%"), not the delivery transport.
+
 ### Features
 
 | # | Feature | Purpose |

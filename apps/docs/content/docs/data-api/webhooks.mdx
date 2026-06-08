@@ -7,6 +7,10 @@ Outbound webhooks let your systems **react to what happens inside Hogsend**. Whe
 
 Every delivery is HMAC-SHA256 signed using the [Standard Webhooks](https://www.standardwebhooks.com) spec (the same scheme `svix` implements), so you can verify authenticity before trusting a payload.
 
+<Callout type="info">
+  The same durable delivery spine fans events out to **keyed destinations** — PostHog, Segment, Slack, a CRM, a warehouse — not just signed POSTs. An endpoint's `kind` selects a delivery-time transform; the retry/backoff/DLQ machinery is shared. The default `kind="webhook"` is the signed POST described on this page. See [Outbound destinations](/docs/data-api/destinations) for the keyed kinds.
+</Callout>
+
 ## The delivery contract
 
 Delivery is **at-least-once**. Each logical event fans out to one delivery per subscribed endpoint, and a transient failure (network blip, your `5xx`, a timeout) is retried with backoff. That means an endpoint can legitimately receive the **same event more than once**.
@@ -23,7 +27,7 @@ Every delivery carries a `Webhook-Id` header. All deliveries that belong to one 
 
 ## The event catalog
 
-Hogsend emits a fixed catalog of **12 event types**. When you create an endpoint you subscribe it to one or more of these — only the events you list are delivered.
+Hogsend emits a fixed catalog of **13 event types**. When you create an endpoint you subscribe it to one or more of these — only the events you list are delivered.
 
 | Event type | Fires when |
 |---|---|
@@ -32,10 +36,11 @@ Hogsend emits a fixed catalog of **12 event types**. When you create an endpoint
 | `contact.deleted` | A contact is deleted |
 | `contact.unsubscribed` | A contact opts out (all mail, or a single category) |
 | `email.sent` | A transactional or journey email is dispatched |
-| `email.delivered` | The provider confirms delivery to the inbox |
-| `email.opened` | The open pixel fires for a sent email |
-| `email.clicked` | A tracked link in an email is clicked |
+| `email.delivered` | The provider confirms delivery to the inbox — the canonical "received" signal |
+| `email.opened` | The open pixel fires for a sent email — **per-hit**, every open |
+| `email.clicked` | A tracked link in an email is clicked — **per-hit**, every click |
 | `email.bounced` | A send hard/soft bounces |
+| `email.complained` | The recipient marks the email as spam |
 | `journey.completed` | A contact finishes a journey run |
 | `bucket.entered` | A contact enters a real-time audience bucket |
 | `bucket.left` | A contact leaves a bucket |
@@ -123,7 +128,7 @@ The full per-event field lists are the `OutboundPayloads` interface in `packages
 - **`contact.deleted`** carries `{ id, externalId, email }`.
 - **`contact.unsubscribed`** carries `{ externalId, email, category, scope }` where `scope` is `"all"` or `"category"`.
 - **`email.sent`** carries `{ emailSendId, resendId, templateKey, to, userId, category, journeyStateId, subject, sentAt }`.
-- **`email.delivered` / `email.opened`** carry the common email shape `{ emailSendId, resendId, templateKey, userId, to, at }`.
+- **`email.delivered` / `email.opened` / `email.complained`** carry the common email shape `{ emailSendId, resendId, templateKey, userId, to, at }`.
 - **`email.clicked`** adds `linkUrl` and `linkId`; **`email.bounced`** adds `bounceType` and `bounceReason`.
 - **`journey.completed`** carries `{ journeyId, journeyName, stateId, userId, userEmail, completedAt }`.
 - **`bucket.entered` / `bucket.left`** carry `{ bucketId, bucketName, userId, userEmail, transition, entryCount, source }`; `bucket.left` adds `reason`.
@@ -141,6 +146,8 @@ An endpoint serializes as:
   "description": "Sync to internal CRM",
   "eventTypes": ["contact.created", "contact.updated", "email.bounced"],
   "secretPrefix": "whsec_AbCd",
+  "kind": "webhook",
+  "config": null,
   "status": "enabled",
   "organizationId": null,
   "lastDeliveryAt": "2026-06-07T13:05:00.000Z",
@@ -152,6 +159,10 @@ An endpoint serializes as:
 <Callout type="warn">
   The full signing secret (`whsec_…`) is returned **only once** — on **create** and on **rotate-secret**. Every other response (`list` / `get` / `update`) returns only `secretPrefix` (the first 12 characters). Store the secret the moment you receive it; if you lose it, rotate to mint a new one.
 </Callout>
+
+### Delivery kind
+
+`kind` selects how an endpoint is delivered. `"webhook"` (the default) is the signed POST this page describes — it carries a `whsec_…` secret and `config: null`. Any other value is a **keyed destination** (`posthog`, `segment`, `slack`, or a code-defined kind) delivered through a server-side transform, with per-destination credentials in `config` instead of a signing secret. A keyed destination has `secretPrefix: null` and no `secret` on create, and its `config` is returned with credential keys **redacted** (`config.apiKey → "***"`) on list/get. The full keyed-destination story — presets, `config` shapes, and `defineDestination()` — is on the [Outbound destinations](/docs/data-api/destinations) page.
 
 ### Create an endpoint
 
@@ -182,7 +193,7 @@ curl -X POST http://localhost:3002/v1/admin/webhooks \
 }
 ```
 
-Body fields: `url` (required, must be a valid URL), `eventTypes` (required, at least one catalog event), `description` (optional, ≤500 chars), `disabled` (optional — create the endpoint disabled).
+Body fields: `url` (required, must be a valid URL), `eventTypes` (required, at least one catalog event), `description` (optional, ≤500 chars), `disabled` (optional — create the endpoint disabled), `kind` (optional, defaults to `"webhook"` — set a [destination](/docs/data-api/destinations) kind to fan out via a transform), `config` (optional per-destination credentials for keyed kinds, ignored for `kind="webhook"`).
 
 ### List endpoints
 
@@ -220,7 +231,7 @@ curl -X PATCH http://localhost:3002/v1/admin/webhooks/we_8c1d3e4f5a6b \
   -d '{ "eventTypes": ["email.bounced"], "disabled": true }'
 ```
 
-Every field is optional: `url`, `eventTypes` (replaces the set; at least one), `description` (pass `null` to clear it), `disabled`. Returns the updated endpoint (no `secret`).
+Every field is optional: `url`, `eventTypes` (replaces the set; at least one), `description` (pass `null` to clear it), `disabled`, `kind`, `config` (pass `null` to clear it). Returns the updated endpoint (no `secret`).
 
 ### Delete an endpoint
 
@@ -345,6 +356,7 @@ All optional, with sane defaults:
 
 ## Next steps
 
+- [Outbound destinations](/docs/data-api/destinations) — fan the same event stream out to PostHog, Segment, Slack, or a custom transport with `defineDestination()`.
 - [Client SDK](/docs/data-api/client-sdk) — `hs.webhooks.create` / `list` / `get` / `update` / `delete` / `rotateSecret` / `sendTest`, plus `verifyHogsendWebhook` for the subscriber side.
 - [CLI: webhooks](/docs/cli/webhooks) — manage endpoints from the terminal with `hogsend webhooks`.
 - [Integrations](/docs/integrations) — the inbound side: provider webhooks (Clerk, Supabase, Stripe, Segment) that push events *into* Hogsend.

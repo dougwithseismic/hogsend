@@ -142,19 +142,6 @@ export interface JourneyContext {
 
   checkpoint(label: string): Promise<void>;
   trigger(opts: TriggerOptions): Promise<void>;
-  /**
-   * Set person properties on PostHog for the current user (PostHog `$set`).
-   *
-   * @deprecated PostHog-specific shim, KEPT for backwards compatibility. For
-   * fanning user/event data out to product + data tools, prefer outbound
-   * DESTINATIONS on the durable spine (`defineDestination()` / a DB-managed
-   * `webhook_endpoints` row) — they deliver durably to PostHog, Segment, Slack
-   * and any subscriber, with retry/backoff/DLQ, instead of this fire-and-forget
-   * single-vendor call. `ctx.identify` remains because PostHog `$set`/`$unset`
-   * identity semantics have no vendor-neutral envelope representation yet; it
-   * still performs the PostHog `$set` exactly as before.
-   */
-  identify(properties: Record<string, unknown>): void;
 
   guard: {
     isSubscribed(): Promise<boolean>;
@@ -164,23 +151,6 @@ export interface JourneyContext {
     hasEvent(opts: HasEventOptions): Promise<HasEventResult>;
     journey(opts: JourneyHistoryOptions): Promise<JourneyHistoryResult>;
     email(opts: EmailHistoryOptions): Promise<EmailHistoryResult>;
-  };
-
-  /**
-   * @deprecated PostHog-specific shim, KEPT for backwards compatibility. For
-   * fanning custom journey events out to product + data tools, prefer outbound
-   * DESTINATIONS on the durable spine (`defineDestination()` / a DB-managed
-   * `webhook_endpoints` row) — they deliver durably to PostHog, Segment, Slack
-   * and any subscriber, with retry/backoff/DLQ, instead of this fire-and-forget
-   * single-vendor capture. `ctx.posthog.capture` is unchanged and still fires a
-   * custom PostHog event for the current user via the injected analytics
-   * provider; it is NOT routed through the destinations spine.
-   */
-  posthog: {
-    capture(opts: {
-      event: string;
-      properties?: Record<string, unknown>;
-    }): void;
   };
 }
 

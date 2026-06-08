@@ -381,28 +381,11 @@ await ctx.trigger({
 });
 ```
 
-## `ctx.identify()`
+## Fanning events out to PostHog (and other tools)
 
-Set person properties on PostHog for the current user. No-op when `POSTHOG_API_KEY` is not configured.
-
-```ts
-identify(properties: Record<string, unknown>): void
-```
-
-```ts
-ctx.identify({ lifecycle_stage: "activated", last_journey: user.journeyId });
-```
-
-## `ctx.posthog.capture()`
-
-Fire a custom PostHog event for the current user. Also a no-op without `POSTHOG_API_KEY`.
-
-```ts
-ctx.posthog.capture({
-  event: "journey_milestone_reached",
-  properties: { journeyId: user.journeyId, step: "day-3" },
-});
-```
+<Callout type="info">
+  The journey context no longer has `ctx.identify` or `ctx.posthog.capture` — those PostHog-specific shims were **removed**. To send the lifecycle event stream to PostHog, Segment, Slack, a CRM, or a warehouse, configure an [outbound destination](/docs/data-api/destinations): the catalog (`contact.*`, `email.*`, `journey.completed`, `bucket.*`) is fanned out durably on the webhook spine. For a custom journey signal you want elsewhere, fire it with [`ctx.trigger()`](#ctx-trigger) (it joins the internal pipeline) and capture it where you detect it via your app's PostHog SDK.
+</Callout>
 
 ## `ctx.guard`
 

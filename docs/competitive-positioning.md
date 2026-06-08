@@ -80,6 +80,11 @@ opposite axis.
   control flow, not a flowchart approximating it.
 - **New channel = a function.** Slack/SMS/push is just a journey calling your own
   module — no plugin marketplace, no waiting on a vendor.
+- **Event fan-out = a registered transform, not a vendor lock.** Outbound
+  destinations (`defineDestination()`) ride one durable spine, so PostHog is a
+  *peer destination* (Segment, Slack, a CRM, a warehouse get the same event
+  stream), not a privileged center the engine is wired around. The PostHog
+  dependency is now just the identity *pull* (person properties → timezone).
 - **Engine as a versioned dependency** (the boundary-revision work) — you get
   upgrades *and* own your content. Templates, providers, and journeys live in your
   repo; the framework is a pinned package you bump.

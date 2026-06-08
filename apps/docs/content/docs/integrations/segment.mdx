@@ -7,6 +7,10 @@ Hogsend ships a built-in **Segment** webhook source. Point a Segment **Webhook**
 
 This source is part of `@hogsend/engine`. You don't author it — set its env var and it mounts itself.
 
+<Callout type="info">
+  This page is the **inbound** Segment source — Segment events arriving *into* Hogsend. There is also an **outbound** Segment *destination* that fans Hogsend's event stream *out* to a Segment source via the HTTP Tracking API (`kind="segment"` with a `writeKey` in `config`). The two are independent and use different config; see [Outbound destinations](/docs/data-api/destinations).
+</Callout>
+
 ## What it does
 
 - **`identify` → `contact.updated`.** Segment traits are identity, so they merge onto the contact record as `contactProperties` only.

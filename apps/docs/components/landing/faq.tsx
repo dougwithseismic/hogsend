@@ -23,7 +23,11 @@ const FAQ_ITEMS = [
   },
   {
     q: "Does it work without PostHog?",
-    a: "PostHog is the primary source, but any system that can send an HTTP webhook (Stripe, your API) can feed events in.",
+    a: "Yes. Any system that can send an HTTP webhook (Stripe, your API) can feed events in, and PostHog is just one of the destinations events can fan back out to.",
+  },
+  {
+    q: "Where can it send events?",
+    a: "Email and lifecycle events fan out to PostHog, Segment, Slack, or any signed webhook — each delivery retried and signed for you. You can also define your own destination in code.",
   },
 ];
 

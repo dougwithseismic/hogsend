@@ -575,7 +575,9 @@ send_email:
 
 fire_event:
   1. Insert into local user_events table
-  2. POST to PostHog /capture endpoint
+  2. Emit on the durable outbound spine (emitOutbound) — fanned out to every
+     subscribed destination, PostHog included via a kind="posthog" destination
+     (NOT a fire-and-forget POST to /capture anymore; see "Outbound" above)
   3. This closes the loop — email engagement data flows back into PostHog
      for cohorts, dashboards, and (eventually) ad audience sync
 
@@ -713,10 +715,11 @@ function injectOpenPixel(html: string, sendId: string): string {
 GET /track/open/:sendId
 
 1. Look up email_sends by id = sendId
-2. If found and opened_at is null:
-   - UPDATE email_sends SET opened_at = now() WHERE id = sendId
-   - Fire PostHog event: "email.opened" { journey_id, template_key }
-3. Return 1x1 transparent GIF
+2. UPDATE email_sends SET opened_at = now() WHERE id = sendId AND opened_at IS NULL
+   (first-touch, for open-rate reporting)
+3. Emit "email.opened" on the outbound spine PER-HIT (every open) — fanned out
+   to every subscribed destination, PostHog included via kind="posthog"
+4. Return 1x1 transparent GIF
    Content-Type: image/gif
    Cache-Control: no-store, no-cache, must-revalidate
    Body: [47 bytes, smallest valid GIF]
@@ -732,8 +735,9 @@ GET /track/click/:linkId
    - UPDATE tracked_links SET click_count = click_count + 1, last_clicked = now(),
      first_clicked = COALESCE(first_clicked, now())
    - INSERT INTO link_clicks (link_id, user_agent, ip_hash)
-   - UPDATE email_sends SET clicked_at = COALESCE(clicked_at, now()) WHERE id = send_id
-   - Fire PostHog event: "email.clicked" { journey_id, template_key, url }
+   - UPDATE email_sends SET clicked_at = COALESCE(clicked_at, now()) WHERE id = send_id (first-touch)
+   - Emit "email.clicked" on the outbound spine PER-HIT (every click) — fanned out
+     to every subscribed destination, PostHog included via kind="posthog"
 3. 302 redirect to tracked_links.original_url
 4. If not found: 302 redirect to app homepage (graceful fallback)
 ```
@@ -786,41 +790,49 @@ PostHog Action: "Lap Recorded"
 
 Alternatively: use PostHog's webhook destination to forward ALL events to your ingestion endpoint, and let the engine filter by what it needs. Noisier but simpler to configure.
 
-### Outbound: Engine → PostHog
+### Outbound: Engine → PostHog (and any subscriber) via destinations
 
-Every engine action pushes an event back:
+> **Updated since the original spec.** The engine no longer pushes events back to
+> PostHog with a fire-and-forget `pushToPostHog`/`captureEvent` call. Outbound
+> events flow on a **durable webhook spine** (retry / backoff / DLQ / reaper), and
+> PostHog is now just one **destination** on it — a peer, not a privileged center.
 
-```typescript
-async function pushToPostHog(event: string, userId: string, properties: Record<string, unknown>) {
-  await fetch(`${POSTHOG_HOST}/capture/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: POSTHOG_PROJECT_API_KEY,
-      event,
-      distinct_id: userId,
-      properties: {
-        ...properties,
-        $source: "journey-engine",
-      },
-    }),
-  });
-}
-```
+The contact/email/journey/bucket lifecycle is emitted on the outbound spine as a
+fixed catalog (`contact.*`, `email.*`, `journey.completed`, `bucket.*`). Each
+subscriber is a `webhook_endpoints` row whose `kind` selects a delivery-time
+transform:
 
-Events pushed:
-- `journey.entered` — { journey_id }
-- `journey.completed` — { journey_id }
-- `journey.exited` — { journey_id, exit_reason }
-- `email.sent` — { journey_id, template_key, subject }
-- `email.opened` — { journey_id, template_key }
-- `email.clicked` — { journey_id, template_key, url }
+- `kind="webhook"` (default) — a signed Standard-Webhooks POST to a subscriber URL.
+- `kind="posthog"` — fan out to a PostHog project's capture endpoint. Credentials
+  (`{ apiKey, host?, eventNames? }`) live per-endpoint in `webhook_endpoints.config`,
+  never env vars. `ENABLE_POSTHOG_DESTINATION=true` auto-seeds one subscribed to
+  the email funnel (with an `email.clicked → email.link_clicked` remap to keep
+  legacy PostHog insights working).
+- `kind="segment"` / `kind="slack"` — shipped presets gated by
+  `ENABLED_DESTINATION_PRESETS`.
+- A custom transport — author it in code with `defineDestination()` and register it
+  via `createHogsendClient({ destinations })`.
+
+The shipped email catalog: `email.sent`, `email.delivered` (the canonical
+"received" signal), `email.opened` / `email.clicked` (fanned out **per-hit**, every
+open/click), `email.bounced`, and `email.complained`.
 
 This means:
-- PostHog dashboards can show email funnel metrics alongside product metrics
-- You can build PostHog cohorts like "users who opened the welcome email but haven't recorded a lap"
-- Those cohorts can feed PostHog's Meta Conversions API integration for ad targeting
-- Journey conditions can reference previous journey engagement ("did they open the last email?")
+- PostHog (or Segment, Slack, a CRM, a warehouse) gets the full email funnel
+  durably — dashboards can show email funnel metrics alongside product metrics.
+- You can build PostHog cohorts like "users who opened the welcome email but
+  haven't recorded a lap".
+- Those cohorts can feed PostHog's Meta Conversions API integration for ad
+  targeting (ad-platform CAPI stays deferred to PostHog's CDP — destinations are
+  for event fan-out, not CAPI).
+- Journey conditions can reference previous journey engagement ("did they open the
+  last email?").
+
+The journey-context `ctx.posthog.capture` / `ctx.identify` shims have been
+**removed** — `JourneyContext` exposes orchestration primitives only. The PostHog
+provider's remaining roles are the identity *pull* (`getPersonProperties` for
+per-user timezone resolution) and the opt-in `bucket.syncToPostHog` mirror; event
+fan-out to PostHog is now a `kind="posthog"` destination on the outbound spine.
 
 ---
 

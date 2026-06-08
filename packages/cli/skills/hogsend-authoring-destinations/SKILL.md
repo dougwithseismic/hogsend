@@ -41,7 +41,7 @@ Probably not. The engine ships four presets, each `defineDestination()` already:
 | `webhook` | the DEFAULT signed Standard-Webhooks POST to a subscriber URL | `secret` column (a `whsec_…`) |
 | `posthog` | PostHog capture endpoint | `{ apiKey, host?, eventNames? }` |
 | `segment` | Segment HTTP Tracking API (`/v1/track`, Basic auth) | `{ writeKey, host?, eventNames? }` |
-| `slack`   | Slack incoming webhook (formatted text block) | `{ url }` |
+| `slack`   | Slack incoming webhook (formatted text block) | `{ url?, username?, iconEmoji? }` — `url` falls back to the endpoint `url` column |
 
 `webhook` and `posthog` are **always** registered. `segment`/`slack` register when
 `ENABLED_DESTINATION_PRESETS` allows them (see below). To USE a preset you create a

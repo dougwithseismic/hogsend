@@ -7,9 +7,9 @@ description: First-party link click tracking, email open tracking, and the event
 
 Every outgoing email gets its links rewritten to redirect through your API, and a 1x1 tracking pixel injected for open detection. When recipients interact with the email:
 
-1. **DB records are created** — `tracked_links`, `link_clicks`, `emailSends.openedAt/clickedAt`
+1. **DB records are created** — `tracked_links`, `link_clicks`, `emailSends.openedAt/clickedAt` (first-touch)
 2. **Events are pushed** — `email.link_clicked` and `email.opened` flow through the ingest pipeline
-3. **PostHog gets synced** — events appear on the person timeline for cohort building and analytics
+3. **Events fan out on the durable spine** — `email.clicked` / `email.opened` are delivered **per-hit** to every subscribed [destination](/docs/data-api/destinations), PostHog included (via a `kind="posthog"` destination) — with retries, not a fire-and-forget capture
 4. **Journeys can react** — journey code can branch on `ctx.history.hasEvent({ event: "email.opened" })`
 
 Tracking URLs use `API_PUBLIC_URL` as the domain (e.g., `https://api.hogsend.com/v1/t/c/:id`), so it's first-party — no third-party cookie issues, better deliverability.
@@ -45,7 +45,7 @@ Records a click and redirects to the original URL.
 1. Insert `link_clicks` row with IP, user agent, timestamp
 2. Increment `tracked_links.click_count`
 3. Set `email_sends.clicked_at` (first click only — `WHERE clicked_at IS NULL`)
-4. Fire-and-forget: push `email.link_clicked` event through ingest pipeline + PostHog
+4. Fire-and-forget: push `email.link_clicked` through the ingest pipeline (internal bus) and emit `email.clicked` on the durable outbound spine, which fans out **per-hit** to every subscribed destination (PostHog rides this as a `kind="posthog"` destination — no separate capture call)
 
 **Event properties pushed:**
 
@@ -87,7 +87,7 @@ Records an open and returns a 1x1 transparent GIF.
 **What happens on open:**
 
 1. Set `email_sends.opened_at` (first open only — `WHERE opened_at IS NULL`)
-2. Fire-and-forget: push `email.opened` event through ingest pipeline + PostHog
+2. Fire-and-forget: push `email.opened` through the ingest pipeline (internal bus) and emit it on the durable outbound spine, which fans out **per-hit** to every subscribed destination (PostHog rides this as a `kind="posthog"` destination — no separate capture call)
 
 **Event properties pushed:**
 
@@ -205,22 +205,9 @@ const { found: clicked } = await ctx.history.hasEvent({
 });
 ```
 
-### Setting PostHog person properties
+### Sending engagement to PostHog and other tools
 
-```typescript
-// Set traits on PostHog person profile
-ctx.identify({ activated: true, plan: "pro" });
-```
-
-### Firing custom PostHog events
-
-```typescript
-// Analytics event (PostHog only, not internal pipeline)
-ctx.posthog.capture({
-  event: "journey.milestone_reached",
-  properties: { milestone: "first_email_opened" },
-});
-```
+The journey context has no PostHog-capture or identify call — those shims were removed. Email engagement (`email.opened`, `email.clicked`, and the rest of the catalog) is fanned out durably to PostHog and any other subscriber via an [outbound destination](/docs/data-api/destinations); you don't mirror it from journey code.
 
 ### Exit conditions on tracking events
 

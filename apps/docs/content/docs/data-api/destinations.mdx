@@ -1,0 +1,159 @@
+---
+title: Outbound destinations
+description: Fan Hogsend's event stream out to PostHog, Segment, Slack, a CRM, or a warehouse — keyed destinations that ride the same durable, retried webhook delivery spine as a signed POST.
+---
+
+A **destination** is a delivery-time transform for Hogsend's outbound event stream. The engine already has a durable delivery spine — every catalog event (`contact.*`, `email.*`, `journey.completed`, `bucket.*`) is written as a delivery row and POSTed with retry, backoff, DLQ, and a reaper (see [Outbound webhooks](/docs/data-api/webhooks)). A destination just **rewrites the HTTP request** for an endpoint whose `kind` matches the destination's id — so fanning the same events out to PostHog, Segment, or Slack inherits every bit of that durable machinery for free. Only the per-vendor projection differs.
+
+The default `kind="webhook"` is the signed Standard-Webhooks POST every subscriber receives — byte-identical to a plain outbound webhook. Any other `kind` is a **keyed destination**: a server-side transform that turns the vendor-neutral envelope into a vendor-specific request.
+
+<Callout type="info">
+  Destinations are for event **fan-out** to product and data tools. They are **not** the home for ad-platform conversion forwarding (CAPI) — that stays deferred to PostHog's CDP. See [Conversions](/docs/conversions). Hogsend fires the events; PostHog forwards them to the ad platforms.
+</Callout>
+
+## The shipped presets
+
+The engine ships four destinations, each already authored. To **use** one you create a `webhook_endpoints` row with that `kind` and its `config` (via the admin API or the [`hs.webhooks` SDK](/docs/data-api/client-sdk)) — no code.
+
+| `kind` | Target | Per-endpoint `config` |
+|---|---|---|
+| `webhook` | The default signed Standard-Webhooks POST to a subscriber URL | none — uses the `whsec_…` signing secret |
+| `posthog` | PostHog capture endpoint | `{ apiKey, host?, eventNames? }` |
+| `segment` | Segment HTTP Tracking API (`POST /v1/track`, HTTP Basic) | `{ writeKey, host?, eventNames? }` |
+| `slack` | Slack incoming webhook (a formatted text block per event) | `{ url?, username?, iconEmoji? }` — `url` falls back to the endpoint's `url` column |
+
+`webhook` and `posthog` are **always** registered. `segment` and `slack` register when `ENABLED_DESTINATION_PRESETS` allows them.
+
+```bash title="ENABLED_DESTINATION_PRESETS"
+# Absent (default) → webhook + posthog only.
+# "segment,slack"  → also register those.
+# "*"              → every shipped preset.
+# "none"           → still webhook + posthog (the no-regression set can never be dropped).
+ENABLED_DESTINATION_PRESETS=segment,slack
+```
+
+<Callout type="warn">
+  Destination **credentials are never env vars.** They live per-endpoint in `webhook_endpoints.config`, so you can point two PostHog endpoints at two projects, or one Segment source per region. `ENABLED_DESTINATION_PRESETS` only decides which transforms are *resolvable*; an endpoint whose `kind` is not registered fails its delivery as a config error (it lands in the DLQ — the right signal that the preset wasn't enabled).
+</Callout>
+
+## Registering a destination endpoint
+
+A keyed destination is an ordinary managed endpoint with `kind` + `config` set. Create it the same way you create a signed webhook — through `/v1/admin/webhooks` (a **full-admin** key) or `hs.webhooks.create`.
+
+```ts title="Fan the email lifecycle out to PostHog"
+import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({ baseUrl, apiKey }); // a full-admin key
+
+await hs.webhooks.create({
+  kind: "posthog",
+  eventTypes: ["email.sent", "email.delivered", "email.opened", "email.clicked", "email.bounced", "email.complained"],
+  config: {
+    apiKey: "phc_…",
+    host: "https://us.i.posthog.com",
+    // Keep PostHog insights built on the legacy click name working (see below).
+    eventNames: { "email.clicked": "email.link_clicked" },
+  },
+});
+```
+
+A keyed destination carries **no signing secret** (it authenticates via `config`), so the create response has no `secret` and `secretPrefix` is `null`. On list/get the server returns `config` with credential keys (`apiKey`, `writeKey`, …) **redacted** to `***`.
+
+```bash title="…or via curl"
+curl -X POST http://localhost:3002/v1/admin/webhooks \
+  -H "Authorization: Bearer $HOGSEND_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "kind": "slack",
+    "eventTypes": ["email.bounced", "email.complained"],
+    "config": { "url": "https://hooks.slack.com/services/…", "iconEmoji": ":warning:" }
+  }'
+```
+
+## The email lifecycle on the spine
+
+The headline use is fanning the **full email lifecycle** out durably. The catalog events a destination can subscribe to, and their touch semantics:
+
+| Event | Meaning | Cadence |
+|---|---|---|
+| `email.sent` | Accepted by the provider for delivery | once per send |
+| `email.delivered` | Provider confirmed arrival in the recipient's mailbox | once per send |
+| `email.opened` | Open pixel loaded | **per-hit** — every open |
+| `email.clicked` | Tracked link followed | **per-hit** — every click |
+| `email.bounced` | Hard/soft bounce reported by the provider | once per send |
+| `email.complained` | Spam complaint reported by the provider | once per send |
+
+Two product decisions are baked in:
+
+- **`email.delivered` is the canonical "the email was received" signal.** When you need "did this person actually receive the message" (vs merely "we sent it"), subscribe to `email.delivered`, not `email.sent`. It's the only inbox-arrival event.
+- **Opens and clicks fan out per-hit, not first-touch.** The first-party `emailSends.openedAt` / `clickedAt` columns are still first-touch (for open/click *rate* reporting), but the outbound `email.opened` / `email.clicked` deliveries fire on **every** hit, so downstream tools see the full engagement stream.
+
+<Callout type="info">
+  Before destinations existed, PostHog received opens/clicks through a fire-and-forget capture call and never saw `email.delivered` / `email.bounced` / `email.complained` at all. With a `kind="posthog"` destination, PostHog rides the same durable, retried spine as every other subscriber and finally gets the whole funnel — exactly once per hit.
+</Callout>
+
+### PostHog event-name remap
+
+`email.clicked` is the canonical spine name. The legacy fire-and-forget PostHog path captured clicks as `email.link_clicked`, so to keep existing PostHog insights matching, a `kind="posthog"` (or `kind="segment"`) destination accepts an optional `config.eventNames` remap applied to the envelope type before the body is built. It defaults to identity (no remap):
+
+```jsonc
+{ "apiKey": "phc_…", "eventNames": { "email.clicked": "email.link_clicked" } }
+```
+
+### Auto-seeding the PostHog destination
+
+Setting `ENABLE_POSTHOG_DESTINATION=true` (with `POSTHOG_API_KEY` set) idempotently seeds one `kind="posthog"` endpoint subscribed to the email funnel, with the `email.clicked → email.link_clicked` remap pre-applied. It defaults **off** to avoid double-emitting alongside the legacy capture path; turn it on once you've cut over.
+
+## Custom destinations — `defineDestination()`
+
+For a target with no shipped preset (your own CRM, a warehouse loader, an internal bus), author a destination in code with `defineDestination()` — the symmetric twin of [`defineWebhookSource()`](/docs/integrations) on the inbound side.
+
+```ts title="src/destinations/crm.ts"
+import { defineDestination } from "@hogsend/engine";
+
+export const crm = defineDestination({
+  meta: { id: "crm", name: "Acme CRM" }, // meta.id == the webhook_endpoints.kind it serves
+  events: ["contact.created", "email.bounced"], // catalog events it accepts
+  transform(envelope, ctx) {
+    // envelope = the FROZEN { id, type, timestamp, data } the spine wrote.
+    // ctx.endpoint = the LIVE webhook_endpoints row (url, config, secret).
+    const cfg = (ctx.endpoint.config ?? {}) as { token?: string };
+    if (!cfg.token) {
+      // THROW = non-retryable config error → straight to the DLQ.
+      throw new Error("crm destination missing config.token");
+    }
+    return {
+      url: "https://api.acme.example/ingest",
+      method: "POST", // optional; defaults to POST
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.token}` },
+      body: JSON.stringify({ type: envelope.type, data: envelope.data }),
+      // isSuccess?: (status, bodySnippet) => boolean — optional; default rule is 2xx.
+    };
+  },
+});
+```
+
+The transform contract:
+
+- **Return a request** (`{ url, method?, headers, body, isSuccess? }`) and the spine POSTs those exact bytes. For the signed `webhook` preset the bytes are the signed bytes — never re-stringify them between sign and send.
+- **Return `null`** to skip delivery for that envelope — the spine treats a skip as a successful no-op (the row is marked delivered, no POST).
+- **Throw** for a config error — it's non-retryable and goes straight to the DLQ.
+
+Register your destinations by passing them to `createHogsendClient({ destinations })` in **both** `src/index.ts` and `src/worker.ts` (the registry must be installed in both the API and the worker process). A consumer destination **wins** over a shipped preset of the same id, so you can override the `posthog` / `segment` / `slack` shapes.
+
+```ts title="src/destinations/index.ts"
+import type { DefinedDestination } from "@hogsend/engine";
+import { crm } from "./crm.js";
+
+export const destinations: DefinedDestination[] = [crm];
+```
+
+<Callout type="info">
+  You only write `defineDestination()` for a **new** target shape or to override a preset. To use PostHog, Segment, or Slack, just create an endpoint with that `kind` — no code.
+</Callout>
+
+## Next steps
+
+- [Outbound webhooks](/docs/data-api/webhooks) — the delivery contract, signing, retries, and endpoint management these destinations ride on.
+- [Client SDK](/docs/data-api/client-sdk) — `hs.webhooks.create` with `kind` + `config`.
+- [Conversions](/docs/conversions) — why ad-platform CAPI is forwarded by PostHog, not a built-in destination.

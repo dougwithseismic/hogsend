@@ -148,9 +148,10 @@ export interface HogsendClientOptions {
    * 1. The identity PULL — `getPersonProperties` for per-user timezone
    *    resolution at journey enrollment (`define-journey` / `lib/timezone.ts`).
    *    This read role is UNCHANGED and load-bearing.
-   * 2. The deprecated `ctx.posthog.capture` / `ctx.identify` shims — kept for
-   *    backwards compatibility (PostHog `$set`/`$unset` identity semantics have
-   *    no vendor-neutral envelope yet). New code should use destinations.
+   * 2. The opt-in `bucket.syncToPostHog` person-property mirror — `$set`/`$unset`
+   *    of a boolean cohort property on bucket transitions (`bucket-posthog-sync`).
+   *    Off by default; PostHog `$set`/`$unset` identity semantics have no
+   *    vendor-neutral envelope, so this stays a PostHog-direct write.
    *
    * Lives at the top level (not under `email`) because the engine itself uses
    * it for the PULL. Defaults to {@link getPostHog} (a no-op when
@@ -348,8 +349,8 @@ export function createHogsendClient(
   // Expose the resolved analytics instance to the module-level task-execution
   // sites that have no client reference. Its role is NARROW (see the
   // `analytics?` option doc): the identity PULL (`getPersonProperties` for tz
-  // resolution in the journey durable task) plus the deprecated
-  // `ctx.posthog.capture` / `ctx.identify` shims — NOT the outbound catalog
+  // resolution in the journey durable task) plus the opt-in
+  // `bucket.syncToPostHog` person-property mirror — NOT the outbound catalog
   // firing path (that is the destinations spine). `createHogsendClient` runs in
   // both the API and worker, so this is installed before any worker task runs.
   // May be undefined (no POSTHOG_API_KEY) — the reads stay no-ops.
