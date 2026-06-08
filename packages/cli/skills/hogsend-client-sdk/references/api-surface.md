@@ -167,8 +167,10 @@ Signing-secret management is the same trust class as API-key management.
 ### `webhooks.create(input) → CreatedWebhookEndpoint`
 
 `POST /v1/admin/webhooks`. Register an endpoint subscribed to one or more of the
-12 outbound event types. Returns the endpoint INCLUDING the full signing
-`secret` (`whsec_…`) — shown ONLY here and on `rotateSecret`. Store it now.
+13 outbound event types. For the default `kind="webhook"` it returns the endpoint
+INCLUDING the full signing `secret` (`whsec_…`) — shown ONLY here and on
+`rotateSecret`. Store it now. A keyed DESTINATION (`kind="posthog"|"segment"|
+"slack"|…`) carries its credentials in `config` and returns NO secret.
 
 ```ts
 type CreateWebhookInput = {
@@ -176,6 +178,8 @@ type CreateWebhookInput = {
   eventTypes: OutboundEventType[]; // contact.* | email.* | journey.completed | bucket.*
   description?: string;
   disabled?: boolean;
+  kind?: WebhookKind;              // "webhook" (default signed POST) | "posthog" | "segment" | "slack" | (string & {})
+  config?: Record<string, unknown>; // per-destination credentials, e.g. { apiKey } — ignored for kind="webhook"
 };
 
 interface WebhookEndpoint {
@@ -183,7 +187,9 @@ interface WebhookEndpoint {
   url: string;
   description: string | null;
   eventTypes: OutboundEventType[];
-  secretPrefix: string;               // first 12 chars, e.g. whsec_AbCd
+  secretPrefix: string | null;        // first chars, e.g. whsec_AbCd — null for keyed destinations
+  kind: WebhookKind;                  // delivery transform selector
+  config: Record<string, unknown> | null; // credentials REDACTED in responses (apiKey → "***"); null for kind="webhook"
   status: "enabled" | "disabled";
   organizationId: string | null;
   lastDeliveryAt: string | null;      // ISO
@@ -191,7 +197,8 @@ interface WebhookEndpoint {
   updatedAt: string;                  // ISO
 }
 
-type CreatedWebhookEndpoint = WebhookEndpoint & { secret: string }; // full secret ONCE
+// `secret` is present ONLY for kind="webhook" (keyed destinations carry none), hence optional.
+type CreatedWebhookEndpoint = WebhookEndpoint & { secret?: string }; // full secret ONCE
 ```
 
 ### `webhooks.list(opts?) → WebhookEndpoint[]`
@@ -215,6 +222,8 @@ type UpdateWebhookInput = {
   eventTypes?: OutboundEventType[];
   description?: string | null;
   disabled?: boolean;
+  kind?: WebhookKind;                       // switch the delivery transform
+  config?: Record<string, unknown> | null;  // replace per-destination config; null clears it
 };
 ```
 

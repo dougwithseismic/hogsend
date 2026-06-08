@@ -4,10 +4,15 @@ import {
   webhookEndpoints,
 } from "@hogsend/db";
 import { and, eq, lt, or, sql } from "drizzle-orm";
+import type {
+  DestinationEnvelope,
+  DestinationTransformResult,
+} from "../destinations/define-destination.js";
+import { webhookDestination } from "../destinations/presets/webhook.js";
+import { getDestinationRegistry } from "../destinations/registry-singleton.js";
 import { getDb } from "../lib/db.js";
 import { hatchet } from "../lib/hatchet.js";
 import { createLogger } from "../lib/logger.js";
-import { signWebhook } from "../lib/webhook-signing.js";
 
 /**
  * Outbound webhook delivery — the durable per-(event × endpoint) POST attempt
@@ -20,11 +25,17 @@ import { signWebhook } from "../lib/webhook-signing.js";
  * recovery — mirroring `reapStuckCampaignsTask`. Hatchet's own retry is OFF
  * (`retries: 0`); `nextRetryAt` is the single retry clock.
  *
- * The task signs from the FROZEN `payload` envelope on the row + the LIVE
- * endpoint secret read at delivery time, so a rotate-secret invalidates
- * in-flight deliveries to a compromised secret (acceptable under at-least-once).
- * The `body` that `signWebhook` produces is the EXACT bytes that are POSTed —
- * the payload is never re-serialized between sign and send (Open Risk 8).
+ * The task resolves a delivery-time DESTINATION TRANSFORM by `endpoint.kind`
+ * (default "webhook") from the process destination registry, applied to the
+ * FROZEN `payload` envelope on the row + the LIVE endpoint read at delivery
+ * time. For "webhook" the transform signs with the live secret, so a
+ * rotate-secret invalidates in-flight deliveries to a compromised secret
+ * (acceptable under at-least-once) and the `body` is the EXACT bytes POSTed —
+ * never re-serialized between sign and send (Open Risk 8). A keyed destination
+ * (e.g. "posthog") rewrites url/headers/body; a `null` result skips delivery
+ * (successful no-op); a transform throw (bad config) is a NON-retryable
+ * permanent failure (straight to DLQ, like a persistent 4xx). All
+ * retry/backoff/DLQ/reaper/CAS logic operates on the ROW, not the wire.
  */
 
 /** Statuses that are TERMINAL — a duplicate/late enqueue must not re-deliver. */
@@ -155,55 +166,119 @@ export const deliverWebhookTask = hatchet.task({
       return { status: "skipped", reason: "lost_cas" as const };
     }
 
-    // (4) Sign from the FROZEN row payload + the LIVE endpoint secret. `body` is
-    // the EXACT bytes signed AND sent — never re-serialize between sign and send
-    // (Open Risk 8).
-    const { headers, body } = signWebhook({
-      id: row.webhookId,
-      timestamp: Math.floor(Date.now() / 1000),
-      payload: row.payload,
-      secret: endpoint.secret,
-    });
-
-    // (5) POST with an AbortController timeout. A network error / timeout leaves
-    // `responseStatus` null (a retryable failure, handled below).
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    // (4) Resolve the delivery-time DESTINATION TRANSFORM by the endpoint's
+    // `kind` (default "webhook" — byte-identical to the pre-destination signed
+    // POST) from the process destination registry. The transform turns the
+    // FROZEN row envelope + LIVE endpoint into the concrete HTTP request. For
+    // "webhook" it signs from the row payload + live secret; for a keyed
+    // destination it rewrites url/headers/body. An UNKNOWN kind (no registered
+    // transform) falls back to the always-on `webhook` preset, preserving the
+    // pre-registry `ADAPTERS[kind] ?? webhookAdapter` behaviour. A `null` result
+    // SKIPS delivery for this event (a successful no-op — marked delivered, no
+    // POST). A THROW (bad/missing config) is NOT transient — it routes straight
+    // to the failed+DLQ branch like a persistent 4xx (`adapterFailed`).
+    const destination =
+      getDestinationRegistry().get(endpoint.kind ?? "webhook") ??
+      webhookDestination;
+    let req: DestinationTransformResult | null = null;
+    let transformSkipped = false;
+    let adapterFailed = false;
+    let adapterUrl = endpoint.url;
     let responseStatus: number | null = null;
     let responseBodySnippet: string | null = null;
     let lastError: string | null = null;
     try {
-      const res = await fetch(endpoint.url, {
-        method: "POST",
-        headers,
-        body,
-        signal: controller.signal,
-      });
-      responseStatus = res.status;
-      const text = await res.text().catch(() => "");
-      responseBodySnippet = text ? text.slice(0, SNIPPET_MAX) : null;
-      if (responseStatus < 200 || responseStatus >= 300) {
-        lastError = `HTTP ${responseStatus}`;
+      req = destination.transform(
+        row.payload as unknown as DestinationEnvelope,
+        {
+          endpoint,
+          logger,
+        },
+      );
+      if (req === null) {
+        transformSkipped = true;
+      } else {
+        adapterUrl = req.url;
       }
     } catch (err) {
-      lastError =
-        err instanceof Error
-          ? controller.signal.aborted
-            ? `Timeout after ${TIMEOUT_MS}ms`
-            : err.message
-          : String(err);
-    } finally {
-      clearTimeout(timer);
+      adapterFailed = true;
+      lastError = err instanceof Error ? err.message : String(err);
+    }
+
+    // (4a) Transform returned null → SKIP: mark the row delivered without a POST
+    // (a successful no-op for an event this destination chose not to forward).
+    // The `delivered` status keeps the row terminal so the reaper never
+    // re-drives it. No endpoint `lastDeliveryAt` bump — nothing was sent.
+    if (transformSkipped) {
+      const skippedAt = new Date();
+      await db
+        .update(webhookDeliveries)
+        .set({
+          status: "delivered",
+          attemptCount: row.attemptCount + 1,
+          responseStatus: null,
+          responseBodySnippet: null,
+          deliveredAt: skippedAt,
+          nextRetryAt: null,
+          lastError: null,
+          lastAttemptAt: skippedAt,
+          updatedAt: skippedAt,
+        })
+        .where(eq(webhookDeliveries.id, row.id));
+      logger.info("deliver-webhook: skipped by destination transform", {
+        deliveryId: row.id,
+        endpointId: endpoint.id,
+        kind: endpoint.kind ?? "webhook",
+        eventType: row.eventType,
+      });
+      return { status: "delivered" as const, skipped: true };
+    }
+
+    // (5) POST with an AbortController timeout. A network error / timeout leaves
+    // `responseStatus` null (a retryable failure, handled below). Skipped when
+    // the transform threw (permanent config failure → straight to DLQ).
+    if (req) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      try {
+        const res = await fetch(req.url, {
+          method: req.method ?? "POST",
+          headers: req.headers,
+          body: req.body,
+          signal: controller.signal,
+        });
+        responseStatus = res.status;
+        const text = await res.text().catch(() => "");
+        responseBodySnippet = text ? text.slice(0, SNIPPET_MAX) : null;
+        const ok =
+          req.isSuccess?.(responseStatus, responseBodySnippet ?? "") ??
+          (responseStatus >= 200 && responseStatus < 300);
+        if (!ok) {
+          lastError = `HTTP ${responseStatus}`;
+        }
+      } catch (err) {
+        lastError =
+          err instanceof Error
+            ? controller.signal.aborted
+              ? `Timeout after ${TIMEOUT_MS}ms`
+              : err.message
+            : String(err);
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     const now = new Date();
 
-    // (6) 2xx → delivered (TERMINAL). Also bump the endpoint's lastDeliveryAt.
-    if (
+    // (6) success → delivered (TERMINAL). Also bump the endpoint's
+    // lastDeliveryAt. The transform's `isSuccess` (or the default 2xx rule) is
+    // the authority — re-checked here against the resolved request.
+    const delivered =
+      req !== null &&
       responseStatus !== null &&
-      responseStatus >= 200 &&
-      responseStatus < 300
-    ) {
+      (req.isSuccess?.(responseStatus, responseBodySnippet ?? "") ??
+        (responseStatus >= 200 && responseStatus < 300));
+    if (delivered) {
       await db
         .update(webhookDeliveries)
         .set({
@@ -233,18 +308,22 @@ export const deliverWebhookTask = hatchet.task({
 
     const attemptCount = row.attemptCount + 1;
 
-    // (7) Persistent-4xx fast-fail: a non-retryable client error (anything 4xx
-    // except 408/429) is permanent after attempt >= 2 — a `410 Gone` must not
-    // burn 8 attempts. The `>= 2` guard tolerates a single transient 4xx blip
-    // before declaring the endpoint mis-configured.
+    // (7) Permanent (non-retryable) failures fast-fail, skipping the remaining
+    // retry budget:
+    //  - a transform THROW (bad/missing destination config) — config is not
+    //    transient, so a single attempt is enough to declare it dead.
+    //  - a persistent-4xx: a non-retryable client error (anything 4xx except
+    //    408/429) after attempt >= 2 — a `410 Gone` must not burn 8 attempts.
+    //    The `>= 2` guard tolerates a single transient 4xx blip first.
     const httpFastFail =
       responseStatus !== null &&
       !isRetryableStatus(responseStatus) &&
       attemptCount >= 2;
+    const permanentFail = adapterFailed || httpFastFail;
 
     // (8) Retryable failure with attempts remaining → back to `pending` with the
     // next backoff deadline; the reaper re-drives it once `nextRetryAt` passes.
-    if (!httpFastFail && attemptCount < MAX_ATTEMPTS) {
+    if (!permanentFail && attemptCount < MAX_ATTEMPTS) {
       const nextRetryAt = new Date(now.getTime() + backoffMs(attemptCount));
       await db
         .update(webhookDeliveries)
@@ -298,7 +377,11 @@ export const deliverWebhookTask = hatchet.task({
         sourceId: row.id,
         payload: {
           endpointId: endpoint.id,
-          url: endpoint.url,
+          // The adapter-RESOLVED url + the endpoint kind, so a failed keyed
+          // delivery is debuggable (NOT the raw endpoint.url, which for a keyed
+          // destination is not the URL actually POSTed to).
+          url: adapterUrl,
+          kind: endpoint.kind ?? "webhook",
           eventType: row.eventType,
           webhookId: row.webhookId,
           body: row.payload,
@@ -311,13 +394,15 @@ export const deliverWebhookTask = hatchet.task({
     logger.error("deliver-webhook: failed (dead-lettered)", {
       deliveryId: row.id,
       endpointId: endpoint.id,
+      kind: endpoint.kind ?? "webhook",
       eventType: row.eventType,
       attemptCount,
       responseStatus,
-      fastFail: httpFastFail,
+      fastFail: permanentFail,
+      adapterFailed,
       error: lastError,
     });
-    return { status: "failed" as const, attemptCount, fastFail: httpFastFail };
+    return { status: "failed" as const, attemptCount, fastFail: permanentFail };
   },
 });
 

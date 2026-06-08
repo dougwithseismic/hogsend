@@ -20,6 +20,12 @@ import {
   buildBucketRegistry,
   collectBucketReactionJourneys,
 } from "./buckets/registry.js";
+import type { DefinedDestination } from "./destinations/define-destination.js";
+import { destinationsFromEnv } from "./destinations/presets/index.js";
+import {
+  DestinationRegistry,
+  setDestinationRegistry,
+} from "./destinations/registry-singleton.js";
 import { env } from "./env.js";
 import { setClientScheduleDefaults } from "./journeys/client-defaults-singleton.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
@@ -35,6 +41,7 @@ import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
 import { getPostHog } from "./lib/posthog.js";
+import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
 import type { DefinedList } from "./lists/define-list.js";
 import { buildListRegistry, type ListRegistry } from "./lists/registry.js";
@@ -132,12 +139,38 @@ export interface HogsendClientOptions {
     templates?: TemplateRegistry;
   };
   /**
-   * The PostHog-style analytics service used for person properties + event
-   * capture. Lives at the top level (not under `email`) because the engine
-   * itself uses it — tracking routes and ingestion fire captures. Defaults to
-   * {@link getPostHog} (a no-op when `POSTHOG_API_KEY` is unset).
+   * The PostHog-style analytics service. As of the destinations spine its role
+   * is deliberately NARROW — it is NOT the outbound-catalog firing path (the
+   * email/contact/journey/bucket lifecycle now fans out durably via
+   * DESTINATIONS on the webhook spine, keyed by `webhook_endpoints.kind`). It
+   * remains for exactly two things:
+   *
+   * 1. The identity PULL — `getPersonProperties` for per-user timezone
+   *    resolution at journey enrollment (`define-journey` / `lib/timezone.ts`).
+   *    This read role is UNCHANGED and load-bearing.
+   * 2. The opt-in `bucket.syncToPostHog` person-property mirror — `$set`/`$unset`
+   *    of a boolean cohort property on bucket transitions (`bucket-posthog-sync`).
+   *    Off by default; PostHog `$set`/`$unset` identity semantics have no
+   *    vendor-neutral envelope, so this stays a PostHog-direct write.
+   *
+   * Lives at the top level (not under `email`) because the engine itself uses
+   * it for the PULL. Defaults to {@link getPostHog} (a no-op when
+   * `POSTHOG_API_KEY` is unset).
    */
   analytics?: PostHogService;
+  /**
+   * Code-defined outbound DESTINATIONS (Phase 3). Each is a
+   * `defineDestination()` delivery-time transform keyed by its `meta.id`, which
+   * the delivery task resolves by `webhook_endpoints.kind`. They are MERGED with
+   * the env-enabled presets ({@link destinationsFromEnv}): a consumer
+   * destination WINS over a preset of the same id (so you can override the
+   * shipped `posthog`/`segment`/`slack` shapes). The `webhook` + `posthog`
+   * presets are always present, so the no-regression signed-POST path can never
+   * be turned off here. Installed as the process registry the self-booting
+   * delivery task reads — and `createHogsendClient` runs in BOTH the API and
+   * worker, so it is wired in both. Defaults to none (presets only).
+   */
+  destinations?: DefinedDestination[];
   /**
    * Comma-separated ids (or `*`) controlling which journeys load. Defaults to
    * `env.ENABLED_JOURNEYS`.
@@ -314,17 +347,56 @@ export function createHogsendClient(
   const analytics = opts.analytics ?? getPostHog();
 
   // Expose the resolved analytics instance to the module-level task-execution
-  // sites that have no client reference (the journey durable task in
-  // define-journey, the bucket PostHog sync). `createHogsendClient` runs in both
-  // the API and worker, so this is installed before any worker task runs. May be
-  // undefined (no POSTHOG_API_KEY) — the reads stay no-ops.
+  // sites that have no client reference. Its role is NARROW (see the
+  // `analytics?` option doc): the identity PULL (`getPersonProperties` for tz
+  // resolution in the journey durable task) plus the opt-in
+  // `bucket.syncToPostHog` person-property mirror — NOT the outbound catalog
+  // firing path (that is the destinations spine). `createHogsendClient` runs in
+  // both the API and worker, so this is installed before any worker task runs.
+  // May be undefined (no POSTHOG_API_KEY) — the reads stay no-ops.
   setAnalytics(analytics);
+
+  // Build + install the outbound DESTINATION registry (Phase 3) the
+  // self-booting delivery task resolves by `webhook_endpoints.kind`. Order is
+  // load-bearing: the env-enabled presets come FIRST and the consumer's
+  // `opts.destinations` LAST, so the DestinationRegistry's last-writer-wins map
+  // lets a consumer destination override a shipped preset of the same id. Runs
+  // in BOTH the API and worker (both call createHogsendClient), so the registry
+  // is present before any worker delivery task executes.
+  const destinations = [
+    ...destinationsFromEnv(env),
+    ...(opts.destinations ?? []),
+  ];
+  const destinationRegistry = new DestinationRegistry(destinations);
+  setDestinationRegistry(destinationRegistry);
+
+  // Optional: auto-seed a PostHog DESTINATION on the outbound spine so the email
+  // lifecycle fans out to PostHog durably. Default OFF (ENABLE_POSTHOG_DESTINATION)
+  // to avoid double-emit alongside the fire-and-forget capture path. Idempotent +
+  // fire-and-forget — a seed failure must never block boot. Runs in BOTH the API
+  // and worker (both call createHogsendClient); the dup guard makes the second a
+  // no-op.
+  if (env.ENABLE_POSTHOG_DESTINATION && env.POSTHOG_API_KEY) {
+    void seedPostHogDestination({
+      db,
+      logger,
+      apiKey: env.POSTHOG_API_KEY,
+      host: env.POSTHOG_HOST,
+    }).catch((error: unknown) => {
+      logger.warn("seedPostHogDestination failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
 
   // Counts are surfaced by the boot banner / structured ready log (lib/boot.ts);
   // keep these at debug for non-boot contexts (tests, REPL, library use).
   logger.debug(`Journey registry loaded: ${registry.count()} journeys`);
   logger.debug(`Bucket registry loaded: ${bucketRegistry.count()} buckets`);
   logger.debug(`List registry loaded: ${listRegistry.count()} lists`);
+  logger.debug(
+    `Destination registry loaded: ${destinationRegistry.count()} destinations`,
+  );
 
   return {
     env,

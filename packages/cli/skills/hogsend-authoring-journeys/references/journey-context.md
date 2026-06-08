@@ -72,15 +72,27 @@ await ctx.trigger({
 });
 ```
 
-## PostHog (no-op without POSTHOG_API_KEY)
+## Fanning data out — use DESTINATIONS, not `ctx`
 
-```ts
-// Set person properties on PostHog for the current user.
-ctx.identify({ plan: "pro", onboarded: true });   // synchronous, void
+There is **no `ctx.identify` and no `ctx.posthog.capture`** — those single-vendor
+PostHog shims were removed. `ctx` does not fan data out to product/data tools.
 
-// Fire a custom PostHog event for the current user.
-ctx.posthog.capture({ event: "journey_step_reached", properties: { step: 2 } });
-```
+To mirror user/event data into PostHog, Segment, Slack, a CRM or a warehouse, set
+up an outbound **DESTINATION**: the email/contact/journey/bucket lifecycle is
+delivered there DURABLY (retry / backoff / DLQ), keyed by `webhook_endpoints.kind`.
+You don't fire it from `run` — it receives the lifecycle automatically:
+
+- `email.sent` / `email.delivered` / `email.opened` / `email.clicked` /
+  `email.bounced` / `email.complained`, `contact.*`, `journey.completed`,
+  `bucket.entered` / `bucket.left`.
+- `email.delivered` is the canonical **"email was received"** signal.
+- EVERY destination receives EVERY open and click — **per-hit, not first-touch** —
+  so downstream tools see the full engagement stream.
+
+See the **hogsend-authoring-destinations** skill. (PostHog is now JUST a
+destination, `kind="posthog"`.) If you need a fire-and-forget raw write inside a
+journey, `getPostHog()` is still importable from `@hogsend/engine` — but for
+fan-out, reach for a destination, not an in-journey vendor call.
 
 ## Guards
 
@@ -122,7 +134,9 @@ orchestration:
 - **`sendEmail()`** — `import { sendEmail } from "@hogsend/engine"`. See
   `references/sending-email-from-a-journey.md`.
 - **`getPostHog()`** — `import { getPostHog } from "@hogsend/engine"` for the raw
-  PostHog service (`ctx.identify` / `ctx.posthog.capture` cover the common cases).
+  PostHog service (a fire-and-forget escape hatch). For fanning lifecycle data out
+  to product/data tools, prefer an outbound DESTINATION (see above) — it delivers
+  durably and is vendor-neutral.
 - **SMS / push / Slack** — plain functions you import, never on `ctx`.
 - There is **no `ctx.db`, no `ctx.sendEmail`, no `ctx.hatchet`** surfaced to
   consumer journeys. If you reach for one of those, you are modelling it wrong —

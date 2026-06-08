@@ -20,13 +20,13 @@ We should be upfront about this: PostHog acquired the [Laudspeaker](https://post
 Until then, Hogsend exists. And it's designed with that future in mind:
 
 - **Clean event model** — Hogsend uses your PostHog events directly. No proprietary event format. When PostHog ships their own tool, your events are already in the right shape.
-- **Two-way sync** — email engagement (opens, clicks, unsubscribes) is pushed back to PostHog as events and person properties. You can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, in PostHog where it belongs.
+- **Durable fan-out to PostHog** — email engagement (sent, delivered, opened, clicked, bounced, complained) is fanned out to PostHog as a [destination](/docs/data-api/destinations) on Hogsend's durable webhook spine, with retries and a dead-letter queue. You can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, in PostHog where it belongs. PostHog is one subscriber among many here: Segment, Slack, a CRM, or a warehouse can receive the exact same stream.
 - **No lock-in** — journeys are TypeScript files in your repo. Templates are React components. Data lives in your Postgres. Nothing is trapped in a proprietary format.
 - **Gateway drug** — if you outgrow Hogsend before PostHog ships their solution, you can migrate to Customer.io, Brevo, or any other platform. Your event model and journey logic translate directly.
 
 ## What PostHog gives Hogsend
 
-The PostHog integration isn't just "send events via webhook." Hogsend uses PostHog in both directions:
+Hogsend uses PostHog in two directions, but they're asymmetric: events flow **in** as journey triggers, person properties are **pulled** to enrich decisions, and engagement flows **back out** to PostHog as one [destination](/docs/data-api/destinations) among many — not through a privileged PostHog-only pipe.
 
 ### Events flow in
 
@@ -49,16 +49,16 @@ const properties = await getPostHog()?.getPersonProperties(user.id);
 // { plan: "pro", company_size: 50, signup_source: "Product Hunt" }
 ```
 
-### Engagement flows back
+### Engagement flows back out
 
-When Hogsend sends an email and the user opens it, clicks a link, or unsubscribes — those events are pushed back to PostHog. This means:
+When Hogsend sends an email and the user opens it, clicks a link, bounces, complains, or unsubscribes — those events fan out to PostHog as a `kind="posthog"` destination on the durable webhook spine (set `ENABLE_POSTHOG_DESTINATION=true` to auto-seed one). This is the same delivery path any other subscriber uses, so PostHog gets the full email funnel — durably, with retries — and so could Segment or Slack. This means in PostHog you can:
 
 - **Cohort building** — "users who received the trial-expiring email and clicked through" is a PostHog cohort, not a separate tool
 - **Funnel analysis** — email engagement becomes part of your product funnels in PostHog
 - **Feature flag targeting** — target users based on email engagement using PostHog feature flags
 - **Session replays** — see what a user did after clicking through from an email
 
-This two-way loop is the real power. PostHog becomes the single source of truth for both product behavior *and* lifecycle email engagement.
+If PostHog is the only place you analyze, it can be the single source of truth for both product behavior *and* lifecycle email engagement — but it earns that role as a first-class destination, not as a hard dependency baked into the engine.
 
 ## Hogsend is the thing you'd build anyway
 

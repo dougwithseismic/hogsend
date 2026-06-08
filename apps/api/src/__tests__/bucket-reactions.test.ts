@@ -443,7 +443,6 @@ describe("reaction ctx is full JourneyContext (Test 8)", () => {
     expect(typeof captured.waitForEvent).toBe("function");
     expect(typeof captured.checkpoint).toBe("function");
     expect(typeof captured.trigger).toBe("function");
-    expect(typeof captured.identify).toBe("function");
     expect(captured.when).toBeDefined();
     expect(captured.guard).toBeDefined();
     expect(captured.history).toBeDefined();

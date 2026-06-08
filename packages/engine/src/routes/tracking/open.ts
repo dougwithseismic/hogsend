@@ -33,34 +33,25 @@ export const openRouter = new OpenAPIHono<AppEnv>().openapi(
   openRoute,
   async (c) => {
     const { id } = c.req.valid("param");
-    const {
-      db,
-      hatchet,
-      registry,
-      logger,
-      analytics: posthog,
-    } = c.get("container");
+    const { db, hatchet, registry, logger } = c.get("container");
 
-    // First-touch gate: the `WHERE openedAt IS NULL` makes this UPDATE return a
-    // row ONLY on the FIRST open. `.returning({ id })` lets the outbound emit fire
-    // exactly once — first-party is the SINGLE emitter for `email.opened` (the
-    // provider-webhook echo in the mailer is suppressed — risk 4).
-    const opened = await db
+    // First-touch state UPDATE: the `WHERE openedAt IS NULL` sets `openedAt`
+    // exactly once (the first open), which is the row-level state we keep. The
+    // outbound emit is NO LONGER gated on this — every destination must receive
+    // EVERY open (owner decision 1), so the emit below fires per-hit.
+    await db
       .update(emailSends)
       .set({
         openedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(and(eq(emailSends.id, id), isNull(emailSends.openedAt)))
-      .returning({ id: emailSends.id });
+      .where(and(eq(emailSends.id, id), isNull(emailSends.openedAt)));
 
     // Resolve the send context ONCE (off the response path) and feed both the
-    // re-ingest (every open) and the first-touch outbound emit (first open
-    // only) — avoiding a duplicate `resolveEmailSendContext` read on the pixel
-    // hot path. `dedupeKey` = `email.opened:<id>` is defence-in-depth alongside
-    // the first-touch gate (`opened.length > 0`); first-party is the SINGLE
-    // emitter for `email.opened` (the provider-webhook echo is suppressed).
-    const isFirstOpen = opened.length > 0;
+    // re-ingest and the PER-HIT outbound emit — avoiding a duplicate
+    // `resolveEmailSendContext` read on the pixel hot path. NO `dedupeKey`: a
+    // NULL dedupe key is distinct in Postgres, so every open creates a fresh
+    // delivery to every subscribed destination (per-hit, not first-touch).
     void resolveEmailSendContext(db, id)
       .then(async (ctx) => {
         await pushTrackingEvent({
@@ -68,7 +59,6 @@ export const openRouter = new OpenAPIHono<AppEnv>().openapi(
           hatchet,
           registry,
           logger,
-          posthog,
           event: EMAIL_OPENED,
           emailSendId: id,
           resolvedContext: ctx,
@@ -79,19 +69,22 @@ export const openRouter = new OpenAPIHono<AppEnv>().openapi(
           });
         });
 
-        if (isFirstOpen) {
+        // Only emit when the send-context resolved. A missing emailSends row
+        // (orphaned tracked pixel / deleted send) has no userId or recipient to
+        // attribute, and a keyed destination (PostHog) would otherwise receive
+        // an empty distinct_id. A normal open always resolves a non-null userId.
+        if (ctx) {
           await emitOutbound({
             db,
             hatchet,
             logger,
             event: "email.opened",
-            dedupeKey: `email.opened:${id}`,
             payload: {
               emailSendId: id,
-              resendId: ctx?.resendId ?? null,
-              templateKey: ctx?.templateKey ?? null,
-              userId: ctx?.userId ?? null,
-              to: ctx?.to ?? ctx?.userEmail ?? "",
+              resendId: ctx.resendId ?? null,
+              templateKey: ctx.templateKey ?? null,
+              userId: ctx.userId ?? null,
+              to: ctx.to ?? ctx.userEmail ?? "",
               at: new Date().toISOString(),
             },
           });

@@ -132,6 +132,14 @@ await admin.webhooks.rotateSecret(endpoint.id); // → { id, secret: "whsec_…"
 
 // Enqueue an out-of-band webhook.test delivery, sent regardless of eventTypes.
 await admin.webhooks.sendTest(endpoint.id); // → { enqueued: true, eventType: "webhook.test" }
+
+// A KEYED DESTINATION — fan the event stream out to PostHog/Segment/Slack instead
+// of a signed POST. Credentials live in `config`; no signing secret is returned.
+await admin.webhooks.create({
+  kind: "posthog",
+  eventTypes: ["email.delivered", "email.opened", "email.clicked", "email.bounced", "email.complained"],
+  config: { apiKey: "phc_…", eventNames: { "email.clicked": "email.link_clicked" } },
+}); // → WebhookEndpoint (kind="posthog", secretPrefix: null, no `secret`)
 ```
 
 | Method | Returns | Notes |
@@ -144,7 +152,7 @@ await admin.webhooks.sendTest(endpoint.id); // → { enqueued: true, eventType: 
 | `rotateSecret(id)` | `{ id, secret, secretPrefix }` | New secret returned **once**; old secret invalid immediately |
 | `sendTest(id)` | `{ enqueued, eventType }` | Out-of-band `webhook.test`, delivered regardless of subscription |
 
-`list` / `get` only ever expose the display `secretPrefix` (e.g. `whsec_AbCd`); the full secret is recoverable only from `create` and `rotateSecret`. See [Outbound webhooks](/docs/data-api/webhooks) for the event catalog, envelope, and delivery semantics.
+`list` / `get` only ever expose the display `secretPrefix` (e.g. `whsec_AbCd`); the full secret is recoverable only from `create` and `rotateSecret`. `create` / `update` also take `kind` (defaults to `"webhook"`) and `config` for [keyed destinations](/docs/data-api/destinations) — a keyed destination carries no signing secret (`secretPrefix: null`, no `secret` on create) and its `config` credentials are redacted on `list` / `get`. See [Outbound webhooks](/docs/data-api/webhooks) for the event catalog, envelope, and delivery semantics, and [Outbound destinations](/docs/data-api/destinations) for the keyed kinds.
 
 ## Verifying inbound webhooks
 

@@ -4,10 +4,10 @@ import { color } from "../lib/output.js";
 import type { Command, CommandContext } from "./types.js";
 
 /**
- * The 12-event outbound catalog, VENDORED from the engine's
+ * The 13-event outbound catalog, VENDORED from the engine's
  * `WEBHOOK_EVENT_TYPES` (lib/webhook-signing.ts). The CLI cannot import the
- * engine, so the tuple is re-declared here; a drift test asserts equality. The
- * `webhook.test` sentinel is NOT a member (out-of-band).
+ * engine, so the tuple is re-declared here and MUST be kept in sync BY HAND when
+ * the engine catalog changes. The `webhook.test` sentinel is NOT a member.
  */
 const WEBHOOK_EVENT_TYPES = [
   "contact.created",
@@ -19,6 +19,7 @@ const WEBHOOK_EVENT_TYPES = [
   "email.opened",
   "email.clicked",
   "email.bounced",
+  "email.complained",
   "journey.completed",
   "bucket.entered",
   "bucket.left",
@@ -49,14 +50,14 @@ list options:
 create options (--url required, plus at least one event):
   --url <url>                Destination URL (required).
   --event <type>             Subscribe to an event; repeatable.
-  --all-events               Subscribe to all 12 event types.
+  --all-events               Subscribe to all 13 event types.
   --description <text>       Human label.
   --disabled                 Create the endpoint disabled.
 
 update options (only the provided fields change):
   --url <url>                New destination URL.
   --event <type>             Replace the subscribed events (repeatable).
-  --all-events               Subscribe to all 12 event types.
+  --all-events               Subscribe to all 13 event types.
   --description <text>       New description.
   --disabled / --enabled     Disable or enable the endpoint.
 
@@ -80,7 +81,9 @@ interface WebhookEndpoint {
   url: string;
   description: string | null;
   eventTypes: OutboundEventType[];
-  secretPrefix: string;
+  // null for keyed destinations (kind !== "webhook"), which carry no signing
+  // secret — their credentials live in the endpoint config, not a whsec_.
+  secretPrefix: string | null;
   status: "enabled" | "disabled";
   organizationId: string | null;
   lastDeliveryAt: string | null;
@@ -228,7 +231,7 @@ function renderEndpoint(
           ? color.green(ep.status)
           : color.yellow(ep.status),
       eventTypes: ep.eventTypes,
-      secretPrefix: ep.secretPrefix,
+      secretPrefix: ep.secretPrefix ?? color.dim("(none — keyed destination)"),
       lastDeliveryAt: ep.lastDeliveryAt ?? color.dim("(never)"),
       createdAt: ep.createdAt,
       updatedAt: ep.updatedAt,

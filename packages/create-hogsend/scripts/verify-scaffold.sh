@@ -107,6 +107,7 @@ EXPECTED=(
   src/journeys/constants/index.ts
   src/buckets/index.ts src/buckets/power-users.ts
   src/webhook-sources/index.ts src/webhook-sources/posthog.ts
+  src/destinations/index.ts
   src/workflows/index.ts src/workflows/backfill-example.ts
   src/schema/index.ts scripts/migrate.ts scripts/bootstrap.ts
   drizzle.config.ts migrations/0000_init.sql migrations/meta/_journal.json

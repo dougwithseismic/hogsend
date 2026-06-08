@@ -76,6 +76,31 @@ export {
   type HogsendClientOptions,
   type HogsendDefaults,
 } from "./container.js";
+// --- Outbound destinations: public authoring layer (Phase 3) ---
+export {
+  type DefinedDestination,
+  type DestinationCtx,
+  type DestinationEnvelope,
+  type DestinationMeta,
+  type DestinationTransformResult,
+  defineDestination,
+  type WebhookEndpointRow,
+} from "./destinations/define-destination.js";
+export {
+  type DestinationPresetId,
+  destinationsFromEnv,
+  PRESET_DESTINATIONS,
+  posthogDestination,
+  segmentDestination,
+  slackDestination,
+  webhookDestination,
+} from "./destinations/presets/index.js";
+export {
+  DestinationRegistry,
+  getDestinationRegistry,
+  resetDestinationRegistry,
+  setDestinationRegistry,
+} from "./destinations/registry-singleton.js";
 // --- Env ---
 export { API_VERSION, env } from "./env.js";
 // --- Journeys ---

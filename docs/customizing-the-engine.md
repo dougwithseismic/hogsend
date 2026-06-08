@@ -37,7 +37,8 @@ createHogsendClient(opts?: {
     provider?: EmailProvider;                        //   swappable email provider
     templates?: TemplateRegistry;                    //   YOUR src/emails registry
   };
-  analytics?: PostHogService;                        // top-level: PostHog (env)
+  analytics?: PostHogService;                        // top-level: PostHog identity PULL (env)
+  destinations?: DefinedDestination[];               // code-defined outbound destinations
   enabledJourneys?: string;                          // ENABLED_JOURNEYS filter
   clientJournal?: JournalShape;                      // client migration ledger
   overrides?: {                                      // advanced / test-only
@@ -68,7 +69,8 @@ createWorker(opts: {
 }): { start(): Promise<void>; stop(): Promise<void> };
 
 defineJourney({ meta, run });                        // author a journey
-defineWebhookSource({ meta, auth, schema?, transform });  // author a webhook source
+defineWebhookSource({ meta, auth, schema?, transform });  // author an inbound webhook source
+defineDestination({ meta, events, transform });      // author an outbound destination
 ```
 
 ### Recipes — "I want to X → extend via Y"
@@ -76,12 +78,14 @@ defineWebhookSource({ meta, auth, schema?, transform });  // author a webhook so
 | I want to… | Extend via |
 | --- | --- |
 | Add a journey | `defineJourney({ meta, run })` in `src/journeys/`, add it to the array you pass as `journeys` to `createHogsendClient`/`createWorker`. |
-| Add a webhook source | `defineWebhookSource(...)` in `src/webhook-sources/`, pass it in `createApp(container, { webhookSources })`. |
+| Add an inbound webhook source | `defineWebhookSource(...)` in `src/webhook-sources/`, pass it in `createApp(container, { webhookSources })`. |
+| Fan events out to PostHog/Segment/Slack | No code — create a `webhook_endpoints` row with that `kind` + `config` via the admin API / `hs.webhooks`. To USE a shipped preset, that's it. |
+| Add a custom outbound destination | `defineDestination(...)` in `src/destinations/`, pass it as `createHogsendClient({ destinations })` in BOTH `src/index.ts` and `src/worker.ts`. |
 | Add a custom route | `createApp(container, { routes: (app) => app.openapi(route, handler) })`. |
 | Add middleware | `createApp(container, { middleware: [myMiddleware] })`. |
 | Edit an email's look | Edit the `.tsx` in your `src/emails/` — it's your content; no engine change. |
 | Swap the email provider | Implement `EmailProvider` and pass `createHogsendClient({ email: { provider } })`. |
-| Swap analytics | `createHogsendClient({ analytics })` (default: PostHog from env). |
+| Swap analytics (the identity PULL) | `createHogsendClient({ analytics })` (default: PostHog from env). Its role is now narrow — `getPersonProperties` for timezone resolution + the opt-in `bucket.syncToPostHog` mirror. Fanning events OUT is the destinations spine, not this provider. |
 | Replace the whole mailer (advanced/test) | `createHogsendClient({ overrides: { mailer } })`. |
 | Override auth or the Hatchet client (test-only) | `createHogsendClient({ overrides: { auth } })` / `{ hatchet }`. |
 | Replace the error handler | `createApp(container, { onError })`. |

@@ -12,7 +12,7 @@ import { UseCases } from "@/components/landing/use-cases";
 export const metadata: Metadata = {
   title: "Hogsend — code-first lifecycle email for PostHog + Resend",
   description:
-    "The lifecycle email automation that PostHog teams actually need. Journeys and buckets as plain TypeScript functions — not YAML, not a drag-and-drop canvas. Self-hosted, open source.",
+    "The lifecycle email automation that PostHog teams actually need. Journeys and buckets as plain TypeScript functions — not YAML, not a drag-and-drop canvas. Fan email and lifecycle events out to PostHog, Segment, Slack, or any webhook. Self-hosted, open source.",
 };
 
 export default function HomePage() {

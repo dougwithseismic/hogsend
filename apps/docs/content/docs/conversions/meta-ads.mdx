@@ -64,7 +64,7 @@ Meta scores **Event Match Quality** 0–10. Aim for **6+**. The two highest-impa
 Events Manager → your dataset → **Test Events**. Add the **Test Event Code** to the destination config (PostHog exposes a field for it), fire a conversion, and confirm it shows up. Remove the test code before going live.
 
 <Callout type="warn">
-  Meta requires a verified Business and a dataset/pixel in good standing. In the EU, only forward conversions for users who've consented to ad tracking — gate the `ctx.posthog.capture` call (or the event matcher) on your consent flag.
+  Meta requires a verified Business and a dataset/pixel in good standing. In the EU, only forward conversions for users who've consented to ad tracking — gate your app's PostHog conversion `capture` call (or the destination's event matcher) on your consent flag.
 </Callout>
 
 ## Deduplication

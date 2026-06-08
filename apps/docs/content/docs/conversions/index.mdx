@@ -15,13 +15,13 @@ Hogsend's job is to decide *when a conversion happened* and fire a clean, well-n
 
 ## Why PostHog, not a built-in destination
 
-It's tempting to build a `defineDestination()` that POSTs to Meta's CAPI from the engine. We deliberately don't, because the hard part of conversion tracking is **identity**, and PostHog is structurally better positioned to solve it:
+Hogsend ships a [`defineDestination()`](/docs/data-api/destinations) authoring layer, and it's tempting to write a destination that POSTs to Meta's CAPI. We deliberately don't ship one, because the hard part of conversion tracking is **identity**, and PostHog is structurally better positioned to solve it:
 
 - **Click-ids live in the browser.** Meta's `fbc`/`fbp`, Google's `gclid`, TikTok's `ttclid`, Reddit's `rdt_cid`, LinkedIn's `li_fat_id` — these are set when someone clicks an ad and land on your site. PostHog's browser SDK captures them automatically as person properties (`$initial_fbclid`, `gclid`, …). A server-side engine like Hogsend never sees them.
 - **PostHog does the hashing and reconstruction for you.** In the destination config, the user-data fields come pre-filled — e.g. `{sha256Hex(lower(person.properties.email))}` and an `fbc` value rebuilt from `fbclid`/`$initial_fbclid`. You don't write hashing code.
 - **It's maintained against five moving API targets.** Conversion APIs change constantly. That's PostHog's problem to keep current, not yours.
 
-Rebuilding this inside the engine would be a maintenance treadmill that produces *worse* match quality. So the engine stays focused on orchestration, and PostHog is the data plane.
+Rebuilding this inside the engine would be a maintenance treadmill that produces *worse* match quality. So the engine stays focused on orchestration, and PostHog is the conversion data plane. (Outbound [destinations](/docs/data-api/destinations) are for fanning the lifecycle event stream out to product and data tools — PostHog, Segment, Slack, a warehouse — **not** for ad-platform CAPI. The line is deliberate.)
 
 <Callout type="warn">
   These destinations are currently marked **Experimental** in PostHog. They work well for most cases, but PostHog notes there may be edge cases without official support. Validate with each platform's test/debug tooling before trusting the numbers (see each platform page).
@@ -34,10 +34,11 @@ A fair question: if Hogsend fires a conversion **server-side** (e.g. `subscripti
 Because the ad destinations read their identifiers from **`person.properties`**, not from the event. PostHog maintains person properties across *every* event for that `distinct_id` — client and server. So as long as the person was seen in the browser at least once (which set `$initial_fbclid`, `gclid`, etc.) and was identified with an `email`, a later server-side conversion event still resolves the hashed email and click-id from the stored person profile.
 
 ```
-Ad click (browser)         →  PostHog person gets $initial_fbclid, gclid, email
+Ad click (browser)    →  PostHog person gets $initial_fbclid, gclid, email
         … days later …
-Conversion (Hogsend journey) →  ctx.posthog.capture({ event: "subscription_created" })
-                             →  PostHog Destination reads person.properties → forwards to Meta/Google/…
+Conversion detected   →  capture the conversion event into PostHog for that user
+(server or browser)      (from your app's PostHog SDK)
+                      →  PostHog Destination reads person.properties → forwards to Meta/Google/…
 ```
 
 **Practical implication:** make sure two things are true in PostHog *before* relying on this:
@@ -47,22 +48,26 @@ Conversion (Hogsend journey) →  ctx.posthog.capture({ event: "subscription_cre
 
 Event-level fields like `$current_url` and `$raw_user_agent` won't be present on purely server-side events — that's fine, they're best-effort. The high-value matchers (hashed email + click-id) come from the person profile.
 
-## Firing the conversion event from Hogsend
+## Firing the conversion event into PostHog
 
-Inside any journey, fire the event you want forwarded:
+The ad-platform matcher needs the conversion event on the user's PostHog timeline (so it can read the person's hashed email + click-ids). Capture it from **your app's PostHog SDK** — where you actually detect the conversion — not from a journey. Hogsend's journey context has no PostHog-capture call (the `ctx.posthog.capture` / `ctx.identify` shims were removed), and the outbound [destinations](/docs/data-api/destinations) spine fans out the lifecycle *catalog* (`contact.*`, `email.*`, `journey.completed`, `bucket.*`) — not arbitrary journey-fired custom events — so it isn't the path for a one-off conversion event either.
 
 ```ts
-// in a journey's run()
-await ctx.posthog.capture({
+// In your app, where the conversion happens (server-side example):
+import { PostHog } from "posthog-node";
+const posthog = new PostHog(process.env.POSTHOG_API_KEY!, { host: "https://us.i.posthog.com" });
+
+posthog.capture({
+  distinctId: user.id, // the same distinct_id PostHog knows in the browser
   event: "purchase",
   properties: { price: 49, currency: "USD" },
 });
 ```
 
-That lands in PostHog for the current user's `distinct_id`. Any ad destination whose event matcher includes `purchase` then forwards it. You can also fire conversions directly from your app's PostHog browser SDK — those carry the richest browser context and are ideal for top-of-funnel events like `Lead`.
+Any ad destination whose event matcher includes `purchase` then forwards it. Firing conversions directly from your app's PostHog **browser** SDK carries the richest browser context and is ideal for top-of-funnel events like `Lead`; capture server-detected conversions (renewals, offline events) from `posthog-node` as above.
 
 <Callout type="info">
-  Conversion events are often best captured **client-side** in your app (where browser context is richest), and lifecycle/back-office conversions (renewals, upgrades detected server-side, offline events) captured from Hogsend journeys. Use whichever source actually knows the conversion happened.
+  Conversion events are often best captured **client-side** in your app (where browser context is richest), and lifecycle/back-office conversions (renewals, upgrades detected server-side, offline events) captured **server-side** from your app via `posthog-node`. Use whichever source actually knows the conversion happened.
 </Callout>
 
 ## The setup, end to end (Meta as the example)

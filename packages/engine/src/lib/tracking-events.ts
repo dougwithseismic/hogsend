@@ -1,5 +1,4 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type { PostHogService } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, emailSends, journeyStates } from "@hogsend/db";
 import { eq } from "drizzle-orm";
@@ -98,7 +97,6 @@ export interface PushTrackingEventOpts {
   hatchet: HatchetClient;
   registry: JourneyRegistry;
   logger: Logger;
-  posthog?: PostHogService;
   event: string;
   emailSendId: string;
   properties?: Record<string, unknown>;
@@ -111,10 +109,20 @@ export interface PushTrackingEventOpts {
   resolvedContext?: EmailSendContext | null;
 }
 
+/**
+ * Re-push a first-party tracking event (open/click) back onto the INTERNAL bus
+ * (`ingestEvent`) for journey routing + `userEvents` persistence.
+ *
+ * NOTE (Phase 2): this NO LONGER fires a fire-and-forget PostHog `captureEvent`.
+ * PostHog now receives opens/clicks PER-HIT via the durable outbound spine — a
+ * `kind="posthog"` destination subscribed to `email.opened`/`email.clicked` (the
+ * tracking routes call `emitOutbound` alongside this). The legacy double-emit was
+ * removed so PostHog gets exactly one, durable copy of each hit.
+ */
 export async function pushTrackingEvent(
   opts: PushTrackingEventOpts,
 ): Promise<void> {
-  const { db, hatchet, registry, logger, posthog, event, emailSendId } = opts;
+  const { db, hatchet, registry, logger, event, emailSendId } = opts;
 
   const ctx =
     opts.resolvedContext !== undefined
@@ -127,12 +135,6 @@ export async function pushTrackingEvent(
     templateKey: ctx.templateKey,
     ...opts.properties,
   };
-
-  posthog?.captureEvent({
-    distinctId: ctx.userId,
-    event,
-    properties,
-  });
 
   await ingestEvent({
     db,

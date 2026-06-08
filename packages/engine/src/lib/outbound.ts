@@ -33,6 +33,9 @@ interface EmailEventPayload {
   userId: string | null;
   to: string;
   at: string;
+  // Optional enrichment (additive — older subscribers ignore absent keys).
+  category?: string;
+  subject?: string;
 }
 
 interface BucketEventPayload {
@@ -81,6 +84,10 @@ export interface OutboundPayloads {
   "email.bounced": EmailEventPayload & {
     bounceType?: string;
     bounceReason?: string;
+  };
+  "email.complained": EmailEventPayload & {
+    complaintType?: string;
+    reason?: string;
   };
   "journey.completed": {
     journeyId: string;

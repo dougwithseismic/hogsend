@@ -14,7 +14,9 @@ export type BrandKey =
   | "stripe"
   | "railway"
   | "typescript"
-  | "hatchet";
+  | "hatchet"
+  | "segment"
+  | "slack";
 
 // Intrinsic aspect ratio (width / height) per logo, from each SVG's viewBox.
 // The integration marks are square; Hatchet ships as a 137×24 wordmark.
@@ -25,6 +27,8 @@ const ASPECT: Record<BrandKey, number> = {
   railway: 1,
   typescript: 1,
   hatchet: 137 / 24,
+  segment: 1,
+  slack: 1,
 };
 
 const LABEL: Record<BrandKey, string> = {
@@ -34,6 +38,8 @@ const LABEL: Record<BrandKey, string> = {
   railway: "Railway",
   typescript: "TypeScript",
   hatchet: "Hatchet",
+  segment: "Segment",
+  slack: "Slack",
 };
 
 type BrandLogoProps = {

@@ -126,6 +126,24 @@ if your data-plane `hs` only holds an ingest key.
 signing secret (`whsec_…`) is returned **only once** — on `create` and
 `rotateSecret`; `list`/`get` only expose `secretPrefix`. Store it on create.
 
+`create`/`update` also take a **`kind`** (+ **`config`**) — this is how you manage
+an outbound DESTINATION from the SDK. `kind="webhook"` (the default) is the
+byte-identical signed POST. A keyed destination (`kind="posthog"|"segment"|"slack"|…`)
+fans the same event stream out to that tool via a server-side transform; its
+credentials live in `config` (e.g. `{ apiKey }`) — never an env var — and it
+returns NO `secret` (it authenticates via `config`). Same durable
+retry/backoff/DLQ spine either way.
+
+```ts
+// Fan the email lifecycle out to PostHog as a managed destination — no code:
+await hs.webhooks.create({
+  url: "https://us.i.posthog.com",            // host (the posthog transform appends /capture/)
+  eventTypes: ["email.delivered", "email.opened", "email.clicked", "email.bounced"],
+  kind: "posthog",
+  config: { apiKey: process.env.POSTHOG_API_KEY! },
+});
+```
+
 **Subscriber side:** in the handler that RECEIVES Hogsend's signed POSTs, call
 `verifyHogsendWebhook({ payload, headers, secret })` (also exported from
 `@hogsend/client`). Pass the **raw request body bytes** (never a re-stringified

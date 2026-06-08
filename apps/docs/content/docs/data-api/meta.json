@@ -9,6 +9,7 @@
     "lists",
     "identity",
     "webhooks",
+    "destinations",
     "client-sdk"
   ]
 }

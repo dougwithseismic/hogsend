@@ -87,7 +87,7 @@ export function HowItWorks() {
           tone="light"
           eyebrow="HOW IT WORKS"
           title="One loop, not another platform"
-          subtitle="Activity comes in from PostHog, the right emails go out through Resend, and what people do with them flows right back. Nothing new to buy or keep in sync."
+          subtitle="Activity comes in from PostHog or any webhook, the right emails go out through Resend, and what people do with them fans back out to your tools — PostHog, Segment, Slack, or anywhere. Nothing new to buy or keep in sync."
         />
       </Reveal>
 

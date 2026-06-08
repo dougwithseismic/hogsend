@@ -39,9 +39,10 @@ export function Hero({ className }: HeroProps): JSX.Element {
 
           <p className="mt-6 max-w-2xl text-lg text-white/60">
             PostHog already knows what your users do. Resend already sends your
-            mail. Hogsend is the piece that connects them — so when someone
-            signs up, hits a milestone, or goes quiet, the right message goes
-            out on its own. No new platform, no drag-and-drop.
+            mail. Hogsend is the piece in between — so when someone signs up,
+            hits a milestone, or goes quiet, the right message goes out on its
+            own, and every send fans back out to PostHog, Segment, Slack, or any
+            webhook. No new platform, no drag-and-drop.
           </p>
         </Reveal>
 

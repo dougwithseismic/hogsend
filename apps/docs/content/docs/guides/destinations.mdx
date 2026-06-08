@@ -1,0 +1,182 @@
+---
+title: Destinations
+description: Author a code-first outbound destination with defineDestination() — a delivery-time transform that fans your event catalog out to a custom CRM, warehouse, or internal bus, reusing the engine's durable retry/backoff/DLQ delivery.
+---
+
+## Overview
+
+A **destination** is the authoring layer for event **fan-out** — the symmetric twin of [`defineWebhookSource()`](/docs/guides/webhook-sources) on the inbound side. Where a webhook source turns an external payload *into* a Hogsend event, a destination turns Hogsend's outbound event catalog *out* to a product or data tool: your own CRM, a warehouse loader, an internal event bus.
+
+This guide covers the code-first path — writing your own `defineDestination()` in `src/destinations/`. If you only want to point one of the shipped presets (PostHog, Segment, Slack) at an endpoint, you don't write any code at all — see the runtime reference at [Outbound destinations](/docs/data-api/destinations) for the DB-managed registration, the full preset config tables, and the email-lifecycle fan-out semantics.
+
+<Callout type="info">
+  Destinations are for event **fan-out** to product and data tools. They are **not** the home for ad-platform conversion forwarding (CAPI) — that stays deferred to PostHog's CDP. Hogsend fires the events; PostHog forwards them. See [Conversions](/docs/conversions).
+</Callout>
+
+## The mental model
+
+The engine already owns a **durable outbound spine**. Every catalog event (`contact.*`, `email.*`, `journey.completed`, `bucket.*`) is written as a `webhook_deliveries` row and POSTed with retry, exponential backoff, a dead-letter queue, and a reaper cron that re-drives anything overdue or orphaned. That machinery operates entirely on the delivery **row**, never on the wire.
+
+A destination does not build a new pipeline. It is a **delivery-time transform** keyed by `webhook_endpoints.kind`: at the moment of delivery, the spine resolves a transform whose `meta.id` matches the endpoint's `kind`, hands it the frozen event envelope plus the live endpoint row, and POSTs whatever request the transform returns. Everything else — the retries, the backoff clock, the DLQ, the reaper — is inherited unchanged. You write only the per-vendor HTTP projection; the durable delivery comes for free.
+
+The default `kind="webhook"` is itself a destination: the signed Standard-Webhooks POST every subscriber receives. Any other `kind` is a **keyed destination** that rewrites the URL, headers, and body into a vendor-specific request. The signed `webhook` path is just the case where the projection is "sign and send the envelope verbatim."
+
+## The shipped presets
+
+The engine ships four destinations, each already authored with `defineDestination()`. You don't redefine these — you create a `webhook_endpoints` row with the matching `kind` and its per-endpoint `config`, via the admin API or the `hs.webhooks` SDK (no code).
+
+| `kind` | Target | Per-endpoint `config` |
+|---|---|---|
+| `webhook` | The default signed Standard-Webhooks POST to a subscriber URL | none — uses the `whsec_…` signing secret |
+| `posthog` | PostHog capture endpoint | `{ apiKey, host?, eventNames? }` |
+| `segment` | Segment HTTP Tracking API (`POST /v1/track`, HTTP Basic) | `{ writeKey, host?, eventNames? }` |
+| `slack` | Slack incoming webhook (a formatted text block per event) | `{ url?, username?, iconEmoji? }` |
+
+`webhook` and `posthog` are **always** registered; `segment` and `slack` register when `ENABLED_DESTINATION_PRESETS` allows them. The full preset config tables, the PostHog event-name remap, the auto-seed knob, and the per-event email-lifecycle fan-out table all live in the [runtime reference](/docs/data-api/destinations) — this guide stays on the authoring path.
+
+You write a `defineDestination()` only for a **new** target shape with no shipped preset, or to **override** a preset of the same id.
+
+## `defineDestination()`
+
+Import `defineDestination` from `@hogsend/engine` and author a destination in `src/destinations/`. Like `defineWebhookSource`, it is an identity/validating function — it returns its argument unchanged, so a typo in the shape is a compile error.
+
+```ts title="src/destinations/crm.ts"
+import { defineDestination } from "@hogsend/engine";
+
+export const crm = defineDestination({
+  meta: {
+    id: "crm", // == the webhook_endpoints.kind this destination delivers
+    name: "Acme CRM",
+    description: "Forward lifecycle events to Acme.",
+  },
+  events: ["contact.created", "email.bounced"], // catalog events it accepts
+  transform(envelope, ctx) {
+    // envelope = the FROZEN { id, type, timestamp, data } the spine wrote.
+    // ctx.endpoint = the LIVE webhook_endpoints row (url, config, secret).
+    const cfg = (ctx.endpoint.config ?? {}) as { token?: string };
+    if (!cfg.token) {
+      // A THROW = non-retryable config error → straight to the DLQ.
+      throw new Error("crm destination missing config.token");
+    }
+    return {
+      url: "https://api.acme.example/ingest",
+      method: "POST", // optional; defaults to POST
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${cfg.token}`,
+      },
+      body: JSON.stringify({ type: envelope.type, data: envelope.data }),
+      // isSuccess?: (status, bodySnippet) => boolean — optional; default is 2xx.
+    };
+  },
+});
+```
+
+The fields:
+
+| Field | Required | Notes |
+|---|---|---|
+| `meta.id` | yes | The `webhook_endpoints.kind` this destination delivers. Pick a stable lowercase id; an endpoint with `kind === meta.id` routes here. Reusing a preset id (`posthog` / `segment` / `slack`) **overrides** that preset. |
+| `meta.name` | yes | Human label. |
+| `meta.description` | no | One-liner. |
+| `events` | yes | The outbound catalog events this destination accepts (`OutboundEventName[]`). Per-endpoint subscription is still scoped by `webhook_endpoints.event_types`, so an endpoint only ever receives what it subscribed to — `events` documents intent and is the authoring-time contract. |
+| `transform` | yes | `(envelope, ctx) => { url, method?, headers, body, isSuccess? } \| null`. **Synchronous.** |
+
+## The transform contract
+
+`transform` runs once per delivery **attempt** (including retries), so it must be a **pure projection** of the envelope plus the endpoint — never mutate external state inside it. It has exactly three outcomes:
+
+1. **Return a request** — `{ url, method?, headers, body, isSuccess? }` — and the spine POSTs exactly those bytes. `body` is the exact bytes sent: for the signed `webhook` preset they are the *signed* bytes, so never re-stringify them between sign and send (the signature covers them). Success defaults to the 2xx rule.
+2. **Return `null`** — to **skip** delivery for that envelope. The spine treats a skip as a successful no-op: the delivery row is marked `delivered` with no POST, no retry, and no DLQ. Use this to filter — e.g. only forward `email.bounced` for a certain template, and drop the rest.
+3. **Throw** — for a **config error** (a missing credential, a bad shape). It is non-retryable: the row fast-fails straight to the dead-letter queue rather than burning the retry budget. A bad config should fail loudly, not silently retry eight times.
+
+A network error, timeout, or retryable HTTP status (`5xx`, `408`, `429`) is the delivery task's job — it retries with backoff off the row's `nextRetryAt`. You never handle retries in a transform.
+
+### `isSuccess` — for non-2xx APIs
+
+By default the spine treats any `2xx` response as a successful delivery. Some vendors return `200` with a body that encodes a *logical* failure. Supply an `isSuccess(status, bodySnippet) => boolean` on the returned request to override the default rule for exactly those cases:
+
+```ts
+return {
+  url: "https://api.acme.example/ingest",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.token}` },
+  body: JSON.stringify({ type: envelope.type, data: envelope.data }),
+  // Acme returns 200 with { ok: false } on a rejected payload — count that as a failure.
+  isSuccess: (status, body) => status >= 200 && status < 300 && !body.includes('"ok":false'),
+};
+```
+
+The same classifier is applied both when grading the response and when deciding whether to retry, so a `false` result routes the attempt down the normal retry/DLQ path.
+
+## Where credentials live
+
+Destination credentials are **per-endpoint**, in the `webhook_endpoints.config` JSONB bag — **never** env vars, never a fake signing secret. The transform reads them off `ctx.endpoint.config`. This is the deliberate split from inbound presets (whose secrets are env-gated): a single destination can back many endpoints, each with its own API key, region, or channel. Two `posthog` endpoints can point at two projects; one `segment` endpoint per region. `ENABLED_DESTINATION_PRESETS` only decides which *transforms* are resolvable — it never supplies a credential.
+
+## Registering a destination
+
+A defined destination does nothing until it is (1) exported from the barrel and (2) threaded into `createHogsendClient` in **both** entry points. The durable delivery task self-boots in the worker process and resolves transforms from the process registry that `createHogsendClient` installs — so the wiring must run in both the API and the worker, exactly like buckets (and unlike lists).
+
+### 1. Export from `src/destinations/index.ts`
+
+```ts title="src/destinations/index.ts"
+import type { DefinedDestination } from "@hogsend/engine";
+import { crm } from "./crm.js";
+
+export const destinations: DefinedDestination[] = [crm];
+```
+
+### 2. Thread into `createHogsendClient` in `src/index.ts`
+
+```ts title="src/index.ts"
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { destinations } from "./destinations/index.js";
+// ...templates, journeys, webhookSources...
+
+const client = createHogsendClient({
+  journeys,
+  destinations, // ← merged with the env presets; consumer wins on id collision
+  email: { templates },
+});
+const app = createApp(client, { webhookSources });
+```
+
+### 3. Thread into `createHogsendClient` in `src/worker.ts`
+
+```ts title="src/worker.ts"
+import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { destinations } from "./destinations/index.js";
+
+const client = createHogsendClient({
+  journeys,
+  destinations, // ← same array; the WORKER's delivery task needs the registry
+  email: { templates },
+});
+const worker = createWorker({ container: client, journeys /* …, NO destinations */ });
+```
+
+<Callout type="warn">
+  Wire `destinations` into `createHogsendClient` in **both** files. Passing it to `createWorker` is **not** an accepted option — the worker resolves the registry through its own `createHogsendClient` call.
+</Callout>
+
+Your `defineDestination()` destinations are merged with the env-enabled presets, with the consumer ordered **last**, so a destination whose `meta.id` collides with a preset **wins** the merge — that's how you override the shipped `posthog` / `segment` / `slack` shapes.
+
+## `ENABLED_DESTINATION_PRESETS`
+
+A process-wide env knob controls which **preset** transforms register (same grammar as `ENABLED_WEBHOOK_PRESETS`):
+
+```bash title="ENABLED_DESTINATION_PRESETS"
+# Absent (default) → webhook + posthog only (the always-on set).
+# "none"           → STILL webhook + posthog (the no-regression set can never be dropped).
+# "segment,slack"  → those, UNIONED with the always-on set.
+# "*"              → every shipped preset.
+ENABLED_DESTINATION_PRESETS=segment,slack
+```
+
+This env governs **presets only**. Your own `defineDestination()` destinations are never gated by it — they come from your `destinations` array and are always registered. And because `webhook` + `posthog` are always on, the no-regression signed-POST path can never be turned off here.
+
+## Next steps
+
+- [Outbound destinations (runtime)](/docs/data-api/destinations) — DB-managed endpoint registration, the full preset config tables, and the email-lifecycle fan-out semantics.
+- [Webhook sources](/docs/guides/webhook-sources) — `defineWebhookSource()`, the inbound mirror of this authoring path.
+- [Outbound webhooks](/docs/data-api/webhooks) — the delivery contract, signing, retries, and DLQ these destinations ride on.
+- [Conversions](/docs/conversions) — why ad-platform CAPI is forwarded by PostHog, not a built-in destination.

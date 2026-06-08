@@ -41,7 +41,10 @@ per unique URL, then single-pass replaces each href with
   `WHERE clicked_at IS NULL`), then **302-redirects to the original URL**.
 - After responding it fire-and-forgets an `email.link_clicked` event (props:
   `emailSendId`, `templateKey`, `linkUrl`, `linkId`) into PostHog + the ingest
-  pipeline, so journeys can branch on it and `exitOn` can fire.
+  pipeline, so journeys can branch on it and `exitOn` can fire. It ALSO emits the
+  outbound-catalog `email.clicked` event, which fans out durably to every
+  subscribed DESTINATION — **per-hit, not first-touch** (every click is delivered,
+  unlike the first-only `clicked_at` column).
 
 Authoring implication: use real `<a href>` / react-email `Button`/`Link` with
 absolute `https://` URLs and they're tracked automatically. Non-HTTP links
@@ -56,7 +59,9 @@ just before `</body>` (so always compose inside `Layout`, which emits a proper
 - `GET /v1/t/o/:id` sets `email_sends.opened_at` (first open only), returns a
   42-byte transparent GIF with `Cache-Control: no-store`.
 - Then fire-and-forgets an `email.opened` event (props: `emailSendId`,
-  `templateKey`).
+  `templateKey`) into PostHog + the ingest pipeline, and emits the outbound-catalog
+  `email.opened` event that fans out durably to every subscribed DESTINATION —
+  **per-hit, not first-touch**.
 
 The engine's own constants for these are `EMAIL_OPENED = "email.opened"` and
 `EMAIL_LINK_CLICKED = "email.link_clicked"`. In journey code, reference them via

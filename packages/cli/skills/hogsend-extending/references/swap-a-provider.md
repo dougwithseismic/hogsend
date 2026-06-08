@@ -115,8 +115,21 @@ Same shape: the `PostHogService` contract lives in `@hogsend/core`
 (canonical `@hogsend/engine`); `createPostHogService` (`@hogsend/plugin-posthog`)
 is the default + reference impl. Supply your own via the **top-level**
 `createHogsendClient({ analytics })` option. PostHog is optional — with no
-`POSTHOG_API_KEY` the engine resolves analytics to `undefined` and every capture
-is a no-op.
+`POSTHOG_API_KEY` the engine resolves analytics to `undefined` and the reads
+below become no-ops.
+
+Its role is now **NARROW**. The engine no longer fires the outbound event catalog
+(`email.*` / `contact.*` / `journey.completed` / `bucket.*`) through analytics —
+that fan-out moved to **destinations** on the durable webhook spine, and PostHog
+is now just one destination (`kind="posthog"`, see hogsend-authoring-destinations).
+`PostHogService` is load-bearing for exactly two things, both of which a swapped
+provider must still satisfy:
+
+1. The identity **PULL** — `getPersonProperties(distinctId)`, used for per-user
+   timezone resolution at journey enrollment.
+2. The opt-in `bucket.syncToPostHog` person-property mirror (`$set`/`$unset` of a
+   cohort boolean on bucket transitions) — a PostHog-direct write because `$set`
+   identity semantics have no vendor-neutral envelope.
 
 ## Don't over-reach
 

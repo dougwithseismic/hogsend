@@ -102,20 +102,38 @@ These URLs are never rewritten:
 
 ## Event Loop — PostHog + Journey Integration
 
-Tracking endpoints don't just write to the DB — they push events through the full ingest pipeline. This means:
+Tracking endpoints don't just write to the DB — they push events through the full ingest pipeline AND emit them on the durable outbound spine. This means:
 
-1. **PostHog gets the events** — opens and clicks appear on the person timeline in PostHog, enabling cohort building and analytics
+1. **PostHog gets the events** — opens and clicks reach PostHog **per-hit** (every open, every click, not first-touch) as a `kind="posthog"` outbound destination subscribed to `email.opened`/`email.clicked`. There is NO separate fire-and-forget `captureEvent` anymore (removed in the Phase 2 cutover): PostHog rides the same durable, retried delivery spine as every other destination, so it gets exactly one copy of each hit.
 2. **Journeys can react** — journey code can check `ctx.history.hasEvent({ event: "email.opened" })` to branch based on engagement
 3. **Exit conditions work** — if a journey has `exitOn: [{ event: "email.link_clicked" }]`, clicking a link can exit the user from a journey
 
 ### Events Pushed
 
-| Endpoint | Event | Properties |
-|----------|-------|------------|
-| Click (`/v1/t/c/:id`) | `email.link_clicked` | `emailSendId`, `templateKey`, `linkUrl`, `linkId` |
-| Open (`/v1/t/o/:id`) | `email.opened` | `emailSendId`, `templateKey` |
+The tracking endpoints emit on TWO paths from one resolved send context:
 
-Events are fire-and-forget — the redirect/GIF returns immediately, event processing happens async. Uses `resolveEmailSendContext()` which does a single `emailSends LEFT JOIN journeyStates` query to get the userId and templateKey.
+- **Internal bus** (`ingestEvent` → journey routing + `userEvents`) uses the engine's first-party event names — click is `email.link_clicked`, open is `email.opened`.
+- **Outbound spine** (`emitOutbound` → every subscribed destination incl. PostHog) uses the **canonical catalog names** — click is `email.clicked`, open is `email.opened`.
+
+| Endpoint | Internal-bus event | Outbound-spine (canonical) event | Properties |
+|----------|--------------------|----------------------------------|------------|
+| Click (`/v1/t/c/:id`) | `email.link_clicked` | `email.clicked` | `emailSendId`, `templateKey`, `linkUrl`, `linkId` |
+| Open (`/v1/t/o/:id`) | `email.opened` | `email.opened` | `emailSendId`, `templateKey` |
+
+Both paths are fire-and-forget — the redirect/GIF returns immediately, event processing happens async. They share a single `resolveEmailSendContext()` call (one `emailSends LEFT JOIN journeyStates` query) for the userId and templateKey.
+
+#### Canonical name + PostHog event-name remap
+
+`email.clicked` is the **canonical** outbound name (the legacy fire-and-forget PostHog path captured clicks as `email.link_clicked`). To keep PostHog insights that were built on the old name matching, a `kind="posthog"` destination accepts an optional `config.eventNames` remap, applied to the envelope type before the capture body is built. It defaults to identity (no remap):
+
+```jsonc
+// kind="posthog" endpoint config — preserve legacy click insights
+{
+  "apiKey": "phc_…",
+  "host": "https://us.i.posthog.com",
+  "eventNames": { "email.clicked": "email.link_clicked" }
+}
+```
 
 ### How It Flows
 
@@ -129,52 +147,30 @@ Record click (link_clicks, clickCount, clickedAt)  ← DB writes
 Return 302 redirect  ← response sent immediately
        ↓  (fire-and-forget)
 resolveEmailSendContext()  ← single JOIN query
-       ↓
-posthog.captureEvent()  ← sends to PostHog (buffered, sync)
-       ↓
-ingestEvent()  ← stores in userEvents, pushes to Hatchet,
-                  checks exit conditions, upserts contact
+       ├─ ingestEvent("email.link_clicked")  ← internal bus: userEvents,
+       │                                        Hatchet routing, exit conditions
+       └─ emitOutbound("email.clicked")  ← durable spine: one delivery row per
+                                            subscribed destination (PostHog via
+                                            the kind="posthog" capture adapter,
+                                            retried/backoff/DLQ like any webhook)
 ```
 
-## Journey Context — PostHog Integration
+## Journey Context — no PostHog shims
 
-Journey code has direct access to PostHog through the context object:
+The PostHog-specific journey-context shims `ctx.identify` and `ctx.posthog.capture`
+were **removed** — they are no longer members of `JourneyContext`. The context
+surface is now `sleep`, `sleepUntil`, `when`, `waitForEvent`, `checkpoint`,
+`trigger`, `guard`, and `history` (orchestration primitives only).
 
-### `ctx.identify(properties)`
-
-Set person properties on PostHog for the current journey user. PostHog is the source of truth for person properties — this does NOT write to the local DB.
-
-```typescript
-run: async (user, ctx) => {
-  ctx.identify({ onboarding_step: "completed", plan: "pro" });
-}
-```
-
-No-op when `POSTHOG_API_KEY` is not configured.
-
-### `ctx.posthog.capture({ event, properties? })`
-
-Fire a custom PostHog event for the current user. Useful for journey-specific analytics that don't need to go through the ingest pipeline.
-
-```typescript
-run: async (user, ctx) => {
-  ctx.posthog.capture({
-    event: "journey.activation_complete",
-    properties: { duration_days: 7 },
-  });
-}
-```
-
-No-op when `POSTHOG_API_KEY` is not configured.
-
-### `ctx.trigger()` vs `ctx.posthog.capture()`
-
-| Method | Where it goes | Use case |
-|--------|--------------|----------|
-| `ctx.trigger()` | Internal ingest pipeline (Hatchet + event store + exit conditions) | Cross-journey triggers, internal events |
-| `ctx.posthog.capture()` | PostHog only | Analytics, person timeline events |
-
-Use `ctx.trigger()` when other journeys need to react to the event. Use `ctx.posthog.capture()` for pure analytics.
+To get the email/contact/journey/bucket lifecycle into PostHog (or Segment, Slack,
+a CRM, a warehouse), configure an **outbound DESTINATION** on the durable spine —
+the catalog is delivered durably (retry/backoff/DLQ) keyed by
+`webhook_endpoints.kind`. See "Email lifecycle on the outbound spine" below. For a
+custom signal you want elsewhere, fire it from a journey with `ctx.trigger()` (it
+joins the internal ingest pipeline) and capture it where you detect it via your
+app's own PostHog SDK. The only PostHog reads the engine still does at the hot path
+are the identity *pull* (`getPersonProperties` for per-user timezone resolution)
+and the opt-in `bucket.syncToPostHog` mirror.
 
 ## Using Tracking Events in Journeys
 
@@ -223,12 +219,49 @@ const journey = defineJourney({
     });
 
     if (clicked) {
-      ctx.identify({ activated: true });
-      ctx.posthog.capture({ event: "journey.user_activated" });
+      // Fan "activation" out via a destination, or fire an internal event other
+      // journeys can react to:
+      await ctx.trigger({ event: Events.USER_ACTIVATED, userId: user.id });
     }
   },
 });
 ```
+
+## Email lifecycle on the outbound spine
+
+The full email lifecycle fans out to every subscribed DESTINATION (a
+`webhook_endpoints` row keyed by `kind` — `posthog`, `segment`, `slack`, or a
+plain signed `webhook`) on the durable outbound spine, with the same
+retry/backoff/DLQ machinery as every webhook delivery. The catalog of email
+events a destination can subscribe to:
+
+| Canonical event | Meaning | Touch semantics |
+|-----------------|---------|-----------------|
+| `email.sent` | Accepted by the provider for delivery | once per send |
+| `email.delivered` | Provider confirmed delivery to the recipient's mailbox | once per send |
+| `email.opened` | Open pixel loaded | **per-hit** — EVERY open |
+| `email.clicked` | Tracked link followed | **per-hit** — EVERY click |
+| `email.bounced` | Hard/soft bounce reported by the provider | once per send |
+| `email.complained` | Spam complaint reported by the provider | once per send |
+
+`email.delivered`, `email.bounced`, and `email.complained` have no first-party signal — the provider webhook is their single source, and the mailer emits each on the outbound spine when Resend reports it (see `emitProviderEmailEvent` in `lib/mailer.ts`).
+
+Two product decisions are baked into this:
+
+- **`email.delivered` is the canonical "email was received" signal.** When you
+  need "did this user actually receive the message" (vs merely "we sent it"),
+  subscribe a destination to `email.delivered`, not `email.sent`.
+- **Every destination receives EVERY open and click — per-hit, not
+  first-touch.** The first-party `emailSends.openedAt` / `clickedAt` columns are
+  still first-touch (set once via the `WHERE ... IS NULL` guard, for open/click
+  *rate* reporting), but the OUTBOUND `email.opened` / `email.clicked` deliveries
+  fire on every hit so downstream tools see the full engagement stream. This is
+  intentional and differs from the first-touch DB columns.
+
+This is why fan-out belongs on destinations: a destination gets the whole
+lifecycle durably, for any number of subscribers, without journey code mirroring
+state into one vendor by hand (the old per-vendor `ctx.posthog.capture` /
+`ctx.identify` journey shims have been removed).
 
 ## Architecture Notes
 
@@ -236,8 +269,8 @@ const journey = defineJourney({
 - **Idempotent opens/clicks**: `openedAt` and `clickedAt` on `emailSends` use `WHERE ... IS NULL` guards — they're set once and never overwritten.
 - **Non-blocking**: tracking DB writes happen in parallel and don't delay the redirect/pixel response.
 - **Engine-owned mailer**: `prepareTrackedHtml` is part of the engine-owned `createTrackedMailer` (in `@hogsend/engine`). The email provider is a dumb `EmailProvider` — the contract lives in `@hogsend/core` (canonical author import `@hogsend/engine`), and `@hogsend/plugin-resend` exports `createResendProvider`, the reference implementation. Link/open tracking, preference checks, and the `email_sends` write all live in the engine and come along regardless of which provider you supply.
-- **Analytics in the client**: The PostHog-style analytics service is initialized once at startup by `createHogsendClient` and available as `client.analytics`. Tracking endpoints and journey context both use it from there.
-- **Graceful degradation**: All PostHog operations are no-ops when `POSTHOG_API_KEY` is not set. Tracking still works (DB writes + ingest events), just without PostHog sync.
+- **Analytics in the client**: The PostHog-style analytics service is initialized once at startup by `createHogsendClient` and available as `client.analytics`. Its role is now narrow — the identity *pull* (`getPersonProperties` for per-user timezone resolution) and the opt-in `bucket.syncToPostHog` mirror. It is NOT the outbound firing path: the tracking endpoints (open/click) do NOT call `client.analytics` for opens/clicks, and the journey context no longer exposes a PostHog-capture call. Opens/clicks reach PostHog per-hit via a `kind="posthog"` outbound destination on the durable spine, not a direct `captureEvent`.
+- **Graceful degradation**: The `client.analytics` reads (timezone pull, bucket sync) are no-ops when `POSTHOG_API_KEY` is not set. Tracking still works (DB writes + ingest events + outbound spine), and PostHog open/click sync only happens if a `kind="posthog"` destination is configured for those events.
 
 ## Querying Tracking Data
 

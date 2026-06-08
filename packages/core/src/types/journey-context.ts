@@ -142,7 +142,6 @@ export interface JourneyContext {
 
   checkpoint(label: string): Promise<void>;
   trigger(opts: TriggerOptions): Promise<void>;
-  identify(properties: Record<string, unknown>): void;
 
   guard: {
     isSubscribed(): Promise<boolean>;
@@ -152,13 +151,6 @@ export interface JourneyContext {
     hasEvent(opts: HasEventOptions): Promise<HasEventResult>;
     journey(opts: JourneyHistoryOptions): Promise<JourneyHistoryResult>;
     email(opts: EmailHistoryOptions): Promise<EmailHistoryResult>;
-  };
-
-  posthog: {
-    capture(opts: {
-      event: string;
-      properties?: Record<string, unknown>;
-    }): void;
   };
 }
 

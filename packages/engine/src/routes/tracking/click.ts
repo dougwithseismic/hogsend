@@ -52,10 +52,11 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
       null;
     const userAgent = c.req.header("user-agent") ?? null;
 
-    // The `clickedAt` first-touch UPDATE is split OUT of the Promise.all so it can
-    // `.returning({ id })` — the `WHERE clickedAt IS NULL` makes a row come back
-    // ONLY on the first click, which gates the outbound `email.clicked` emit.
-    const [, , clicked] = await Promise.all([
+    // First-touch state UPDATE: the `WHERE clickedAt IS NULL` sets `clickedAt`
+    // exactly once (the first click), which is the row-level state we keep. The
+    // outbound emit is NO LONGER gated on this — every destination must receive
+    // EVERY click (owner decision 1), so the emit below fires per-hit.
+    await Promise.all([
       db.insert(linkClicks).values({
         trackedLinkId: link.id,
         ipAddress: ip,
@@ -79,25 +80,17 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
             eq(emailSends.id, link.emailSendId),
             isNull(emailSends.clickedAt),
           ),
-        )
-        .returning({ id: emailSends.id }),
+        ),
     ]);
 
-    const {
-      hatchet,
-      registry,
-      logger,
-      analytics: posthog,
-    } = c.get("container");
+    const { hatchet, registry, logger } = c.get("container");
 
     // Resolve the send context ONCE (off the response path) and feed both the
-    // re-ingest (every click) and the first-touch outbound emit (first click
-    // only) — avoiding a duplicate `resolveEmailSendContext` read on the click
-    // hot path. `dedupeKey` = `email.clicked:<emailSendId>` is defence-in-depth
-    // alongside the first-touch gate (`clicked.length > 0`); first-party is the
-    // SINGLE emitter for `email.clicked` (the provider-webhook echo is suppressed).
+    // re-ingest and the PER-HIT outbound emit — avoiding a duplicate
+    // `resolveEmailSendContext` read on the click hot path. NO `dedupeKey`: a
+    // NULL dedupe key is distinct in Postgres, so every click creates a fresh
+    // delivery to every subscribed destination (per-hit, not first-touch).
     const emailSendId = link.emailSendId;
-    const isFirstClick = clicked.length > 0;
     void resolveEmailSendContext(db, emailSendId)
       .then(async (ctx) => {
         await pushTrackingEvent({
@@ -105,7 +98,6 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
           hatchet,
           registry,
           logger,
-          posthog,
           event: EMAIL_LINK_CLICKED,
           emailSendId,
           properties: { linkUrl: link.originalUrl, linkId: link.id },
@@ -117,19 +109,22 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
           });
         });
 
-        if (isFirstClick) {
+        // Only emit when the send-context resolved. A missing emailSends row
+        // (orphaned tracked link / deleted send) has no userId or recipient to
+        // attribute, and a keyed destination (PostHog) would otherwise receive
+        // an empty distinct_id. A normal click always resolves a non-null userId.
+        if (ctx) {
           await emitOutbound({
             db,
             hatchet,
             logger,
             event: "email.clicked",
-            dedupeKey: `email.clicked:${emailSendId}`,
             payload: {
               emailSendId,
-              resendId: ctx?.resendId ?? null,
-              templateKey: ctx?.templateKey ?? null,
-              userId: ctx?.userId ?? null,
-              to: ctx?.to ?? ctx?.userEmail ?? "",
+              resendId: ctx.resendId ?? null,
+              templateKey: ctx.templateKey ?? null,
+              userId: ctx.userId ?? null,
+              to: ctx.to ?? ctx.userEmail ?? "",
               at: new Date().toISOString(),
               linkUrl: link.originalUrl,
               linkId: link.id,

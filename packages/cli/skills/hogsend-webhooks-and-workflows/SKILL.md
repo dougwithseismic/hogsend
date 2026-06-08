@@ -77,7 +77,19 @@ Relative imports use the ESM `.js` extension.
 - To verify a webhook or task against a running instance (events landing,
   contacts upserted, journeys firing), see the **hogsend-cli** skill.
 - **Inbound vs outbound:** this skill is about *inbound* sources (HTTP → engine).
-  The engine also emits an *outbound* signed event stream (`contact.*`,
-  `email.*`, `journey.completed`, `bucket.*`) to subscriber URLs — manage those
-  endpoints with `hogsend webhooks …` (hogsend-cli skill) or `hs.webhooks.*`
-  (hogsend-client-sdk skill), and verify deliveries with `verifyHogsendWebhook`.
+  The engine also emits an *outbound* event stream (`contact.*`, `email.*`,
+  `journey.completed`, `bucket.*`). Two halves:
+  - **Subscriber endpoints** — manage the `webhook_endpoints` rows with
+    `hogsend webhooks …` (hogsend-cli skill) or `hs.webhooks.*` (hogsend-client-sdk
+    skill); verify signed deliveries with `verifyHogsendWebhook`. `create`/`update`
+    now take a `kind` + `config`: the default `kind="webhook"` is the byte-identical
+    signed `whsec_` POST (returns a one-time `secret`); a keyed destination
+    (`kind="posthog"|"segment"|"slack"|…`) carries its credentials in `config`
+    (e.g. `{ apiKey }`) and returns NO secret. Same durable retry/backoff/DLQ spine
+    either way — `kind` just selects the delivery-time transform.
+  - **Code-defined destinations** — author a delivery-time transform for a new
+    fan-out TARGET (a CRM, a warehouse, a custom shape) with `defineDestination()`
+    in `src/destinations/`. This is the symmetric twin of `defineWebhookSource`
+    on the OUTBOUND side. → the **hogsend-authoring-destinations** skill. NOTE:
+    outbound is no longer "just code in a journey" — for event fan-out, reach for
+    a destination, not a per-step integration call.

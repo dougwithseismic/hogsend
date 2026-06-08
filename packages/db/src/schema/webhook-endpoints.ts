@@ -22,10 +22,23 @@ export const webhookEndpoints = pgTable(
     organizationId: text("organization_id"),
     url: text("url").notNull(),
     description: text("description"),
+    // The delivery adapter selector. "webhook" (the default) is the signed
+    // Standard-Webhooks POST that existing subscribers receive — byte-identical
+    // to before this column existed. Any other value (e.g. "posthog") selects a
+    // delivery-time TRANSFORM adapter that reuses the same durable delivery
+    // machinery but rewrites url/headers/body for a vendor destination.
+    kind: text("kind").notNull().default("webhook"),
+    // Per-destination configuration for keyed adapters (e.g. PostHog's
+    // `{ apiKey, host }`). Null for `kind="webhook"` (it reads `secret` instead).
+    // Keyed destinations keep their credentials HERE, not in a fake `whsec_`.
+    config: jsonb("config").$type<Record<string, unknown>>(),
     // whsec_<base64url> PLAINTEXT (recoverable; re-signed every delivery).
-    secret: text("secret").notNull(),
-    // e.g. "whsec_AbCd" — safe to show on list/get.
-    secretPrefix: text("secret_prefix").notNull(),
+    // Nullable: only `kind="webhook"` carries a signing secret; keyed
+    // destinations authenticate via `config` and the webhook adapter is the only
+    // reader of this column.
+    secret: text("secret"),
+    // e.g. "whsec_AbCd" — safe to show on list/get. Nullable alongside `secret`.
+    secretPrefix: text("secret_prefix"),
     eventTypes: jsonb("event_types")
       .$type<WebhookEventType[]>()
       .notNull()

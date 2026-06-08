@@ -7,7 +7,7 @@ import {
   SleepCondition,
   UserEventCondition,
 } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type { DurationObject, PostHogService } from "@hogsend/core";
+import type { DurationObject } from "@hogsend/core";
 import { durationToMs, evaluateEventCondition } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import {
@@ -69,7 +69,6 @@ interface JourneyContextConfig {
   };
   registry: JourneyRegistry;
   logger: Logger;
-  posthog?: PostHogService;
   stateId: string;
   userId: string;
   userEmail: string;
@@ -140,7 +139,6 @@ export function createJourneyContext(
     hatchetCtx,
     registry,
     logger,
-    posthog,
     stateId,
     userId,
     userEmail,
@@ -316,10 +314,6 @@ export function createJourneyContext(
       });
     },
 
-    identify(properties) {
-      posthog?.identify(userId, properties);
-    },
-
     guard: {
       async isSubscribed() {
         const prefs = await checkEmailPreferences({ db, userId });
@@ -388,16 +382,6 @@ export function createJourneyContext(
               : null,
           count: total,
         };
-      },
-    },
-
-    posthog: {
-      capture({ event, properties }) {
-        posthog?.captureEvent({
-          distinctId: userId,
-          event,
-          properties,
-        });
       },
     },
   };
