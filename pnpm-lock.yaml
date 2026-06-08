@@ -351,9 +351,6 @@ importers:
       '@hogsend/plugin-posthog':
         specifier: workspace:^
         version: link:../plugin-posthog
-      '@hogsend/plugin-postmark':
-        specifier: workspace:^
-        version: link:../plugin-postmark
       '@hogsend/plugin-resend':
         specifier: workspace:^
         version: link:../plugin-resend
@@ -399,6 +396,10 @@ importers:
       zod:
         specifier: ^4.4.3
         version: 4.4.3
+    optionalDependencies:
+      '@hogsend/plugin-postmark':
+        specifier: workspace:^
+        version: link:../plugin-postmark
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
