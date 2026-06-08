@@ -117,6 +117,87 @@ describe("POST /v1/admin/webhooks (create)", () => {
     expect(row?.disabled).toBe(false);
   });
 
+  it("creates a kind=posthog destination with NO secret + REDACTED config", async () => {
+    const { res, json } = await createEndpoint({
+      url: url("posthog"),
+      eventTypes: ["email.opened", "email.clicked"],
+      kind: "posthog",
+      config: { apiKey: "phc_super_secret", host: "https://eu.i.posthog.com" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(json.kind).toBe("posthog");
+    // A keyed destination carries NO signing secret.
+    expect(json.secret).toBeUndefined();
+    expect(json.secretPrefix).toBeNull();
+    // The config is returned REDACTED — apiKey masked, host preserved.
+    expect(json.config.apiKey).toBe("***");
+    expect(json.config.host).toBe("https://eu.i.posthog.com");
+
+    // The persisted row keeps the REAL apiKey + null secret.
+    const [row] = await db
+      .select()
+      .from(webhookEndpoints)
+      .where(eq(webhookEndpoints.id, json.id));
+    expect(row?.kind).toBe("posthog");
+    expect(row?.secret).toBeNull();
+    expect((row?.config as { apiKey: string }).apiKey).toBe("phc_super_secret");
+  });
+
+  it("creates a kind=segment destination via the admin API (shipped preset kind)", async () => {
+    // The skill + env.example instruct operators to create segment/slack
+    // endpoints via this admin API; the `kind` enum is derived from the shipped
+    // PRESET_DESTINATIONS, so "segment" must be ACCEPTED (not a 400) and land a
+    // keyed destination (no secret, redacted config) regardless of which presets
+    // ENABLED_DESTINATION_PRESETS happens to register at runtime.
+    const { res, json } = await createEndpoint({
+      url: url("segment"),
+      eventTypes: ["email.opened", "email.clicked"],
+      kind: "segment",
+      config: { writeKey: "wk_super_secret", host: "https://api.segment.io" },
+    });
+
+    expect(res.status).toBe(201);
+    expect(json.kind).toBe("segment");
+    expect(json.secret).toBeUndefined();
+    expect(json.secretPrefix).toBeNull();
+    // host preserved; the writeKey is a non-redacted config key here (only
+    // apiKey/api_key are masked), so it round-trips for display.
+    expect(json.config.host).toBe("https://api.segment.io");
+
+    const [row] = await db
+      .select()
+      .from(webhookEndpoints)
+      .where(eq(webhookEndpoints.id, json.id));
+    expect(row?.kind).toBe("segment");
+    expect(row?.secret).toBeNull();
+    expect((row?.config as { writeKey: string }).writeKey).toBe(
+      "wk_super_secret",
+    );
+  });
+
+  it("creates a kind=slack destination via the admin API (shipped preset kind)", async () => {
+    const { res, json } = await createEndpoint({
+      url: url("slack"),
+      eventTypes: ["email.bounced"],
+      kind: "slack",
+      config: { url: "https://hooks.slack.com/services/AAA/BBB/CCC" },
+    });
+    expect(res.status).toBe(201);
+    expect(json.kind).toBe("slack");
+    expect(json.secret).toBeUndefined();
+    expect(json.secretPrefix).toBeNull();
+  });
+
+  it("rejects an unknown destination kind (outside the shipped presets)", async () => {
+    const { res } = await createEndpoint({
+      url: url("badkind"),
+      eventTypes: ["contact.created"],
+      kind: "not-a-shipped-preset",
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("rejects an empty eventTypes array (min 1)", async () => {
     const { res } = await createEndpoint({ url: url("empty"), eventTypes: [] });
     expect(res.status).toBe(400);

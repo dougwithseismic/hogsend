@@ -28,8 +28,10 @@ export class WebhooksResource {
 
   /**
    * Register a new endpoint subscribed to one or more outbound event types.
-   * Returns the endpoint INCLUDING the full signing `secret` — this is the
-   * only time (besides rotate) the secret is returned. Store it now.
+   * For the default kind="webhook", returns the endpoint INCLUDING the full
+   * signing `secret` — the only time (besides rotate) it is returned; store it
+   * now. For a keyed destination (e.g. `{ kind: "posthog", config: { apiKey } }`)
+   * no secret is returned (it authenticates via `config`).
    */
   create(input: CreateWebhookInput): Promise<CreatedWebhookEndpoint> {
     return this.http.post<CreatedWebhookEndpoint>(BASE, {
@@ -37,6 +39,8 @@ export class WebhooksResource {
       eventTypes: input.eventTypes,
       description: input.description,
       disabled: input.disabled,
+      kind: input.kind,
+      config: input.config,
     });
   }
 
@@ -78,6 +82,8 @@ export class WebhooksResource {
         eventTypes: input.eventTypes,
         description: input.description,
         disabled: input.disabled,
+        kind: input.kind,
+        config: input.config,
       },
     );
   }

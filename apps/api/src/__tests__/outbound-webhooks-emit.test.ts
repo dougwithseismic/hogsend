@@ -68,7 +68,7 @@ const RUN = `owe-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
 let endpointId = "";
 
 /**
- * Seed ONE endpoint subscribed to ALL 12 catalog events. emitOutbound's
+ * Seed ONE endpoint subscribed to ALL catalog events. emitOutbound's
  * `event_types @> '["<event>"]'` filter then matches every catalog event, so each
  * emit writes exactly one delivery row for this endpoint.
  */
@@ -165,7 +165,7 @@ describe("emitOutbound — one delivery row per subscribed endpoint per event", 
     expect(runNoWaitSpy.mock.calls[0]?.[0]?.deliveryId).toBe(row?.id);
   });
 
-  it("writes a correctly-typed envelope for EVERY one of the 12 catalog events", async () => {
+  it("writes a correctly-typed envelope for EVERY one of the 13 catalog events", async () => {
     // Drive each catalog event through emit with a minimal payload (the envelope
     // shape — id/type/timestamp/data — is identical across events; this proves no
     // catalog member is silently unroutable by the `@>` subscription filter).
@@ -188,7 +188,7 @@ describe("emitOutbound — one delivery row per subscribed endpoint per event", 
       expect(envelope.data).toEqual({ probe: event });
     }
 
-    // Twelve events → twelve enqueues, one per inserted row.
+    // Every catalog event → one enqueue, one per inserted row.
     expect(runNoWaitSpy).toHaveBeenCalledTimes(WEBHOOK_EVENT_TYPES.length);
   });
 });
@@ -397,14 +397,19 @@ describe("emit choke-point source invariants (Open Risk 1 & 4)", () => {
     expect(mailer).not.toMatch(/emitProviderEmailEvent\("email\.clicked"/);
   });
 
-  it("first-party open/click emits are gated on the first-touch `.returning()`", () => {
+  it("first-party open/click emits are PER-HIT (no first-touch gate, no dedupeKey)", () => {
     const open = engineSource("routes/tracking/open.ts");
     const click = engineSource("routes/tracking/click.ts");
-    // The emit fires only when the first-touch UPDATE returned a row.
-    expect(open).toMatch(/opened\.length > 0/);
-    expect(open).toMatch(/email\.opened:/);
-    expect(click).toMatch(/clicked\.length > 0/);
-    expect(click).toMatch(/email\.clicked:/);
+    // Owner decision 1: EVERY open/click must reach EVERY destination. The
+    // first-touch gate (`opened.length > 0`) and the per-send dedupeKey
+    // (`email.opened:<id>`) must be GONE so a NULL dedupe key makes each hit a
+    // distinct delivery row. The first-touch openedAt/clickedAt UPDATE stays.
+    expect(open).not.toMatch(/opened\.length > 0/);
+    expect(open).not.toMatch(/email\.opened:/);
+    expect(open).toMatch(/isNull\(emailSends\.openedAt\)/);
+    expect(click).not.toMatch(/clicked\.length > 0/);
+    expect(click).not.toMatch(/email\.clicked:/);
+    expect(click).toMatch(/isNull\(emailSends\.clickedAt\)/);
   });
 
   it("the bulk import path does NOT emit contact.created per row (would flood)", () => {

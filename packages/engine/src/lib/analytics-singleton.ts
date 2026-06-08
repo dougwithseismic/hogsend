@@ -6,6 +6,13 @@ import { createOptionalSingleton } from "./singleton.js";
  * the module-level task-execution sites that have no client reference of their
  * own (the journey durable task in `define-journey`, the bucket PostHog sync).
  *
+ * Its role is deliberately NARROW (see the `analytics?` option doc on
+ * {@link createHogsendClient}): the identity PULL (`getPersonProperties` for
+ * per-user timezone resolution) and the deprecated `ctx.posthog.capture` /
+ * `ctx.identify` shims. It is explicitly NOT the outbound-catalog firing path —
+ * the email/contact/journey/bucket lifecycle fans out durably via DESTINATIONS
+ * on the webhook spine, not through this singleton.
+ *
  * Mirrors the journey/bucket-registry + client-schedule-defaults singletons:
  * `createHogsendClient` runs in BOTH the API and worker processes, so by the
  * time any worker task executes, the container has already installed the

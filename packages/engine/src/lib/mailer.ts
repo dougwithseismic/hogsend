@@ -210,9 +210,10 @@ export function createTrackedMailer(
       case "email.opened":
       case "email.clicked":
         // First-party pixel/redirect is the SINGLE outbound emitter for
-        // open/click (gated on the first-touch null→set UPDATE in the tracking
-        // routes — risk 4). The provider-webhook echo is SUPPRESSED here: it only
-        // updates the DB status, it does NOT emit outbound (no double-source).
+        // open/click — it now fires PER-HIT (every open/click → a delivery to
+        // every destination, owner decision 1). The provider-webhook echo is
+        // SUPPRESSED here: it only updates the DB status, it does NOT emit
+        // outbound (no double-source).
         await updateEmailStatus(event.type, event.data.email_id);
         break;
       case "email.bounced":
@@ -229,6 +230,9 @@ export function createTrackedMailer(
         break;
       case "email.complained":
         await updateEmailStatus(event.type, event.data.email_id);
+        // OUTBOUND `email.complained` — the provider webhook is the SINGLE
+        // source for complaints (no first-party signal exists).
+        await emitProviderEmailEvent("email.complained", event.data.email_id);
         await handleComplaint(event.data.to);
         break;
       case "email.delivery_delayed":
@@ -279,8 +283,10 @@ export function createTrackedMailer(
   }
 
   /**
-   * Emit the provider-funnel outbound event (`email.delivered` / `email.bounced`)
-   * for a Resend `email_id`. Enriches via {@link resolveEmailSendContextByResendId}
+   * Emit the provider-funnel outbound event (`email.delivered` /
+   * `email.bounced` / `email.complained`) for a Resend `email_id`. These three
+   * have no first-party signal — the provider webhook is their single source.
+   * Enriches via {@link resolveEmailSendContextByResendId}
    * (the only handle a provider webhook holds is the Resend id). Fire-and-forget:
    * a missing context (webhook racing the send-row commit) or a transient outbound
    * error is logged and swallowed — never failing the webhook handler. No
@@ -288,7 +294,7 @@ export function createTrackedMailer(
    * shared `Webhook-Id` is the subscriber-side dedup for any provider redelivery.
    */
   function emitProviderEmailEvent(
-    event: "email.delivered" | "email.bounced",
+    event: "email.delivered" | "email.bounced" | "email.complained",
     resendId: string,
     bounce?: { bounceType?: string; bounceReason?: string },
   ): void {
@@ -319,6 +325,15 @@ export function createTrackedMailer(
                 ? { bounceReason: bounce.bounceReason }
                 : {}),
             },
+          });
+        }
+        if (event === "email.complained") {
+          return emitOutbound({
+            db: database,
+            hatchet,
+            logger: log,
+            event: "email.complained",
+            payload: base,
           });
         }
         return emitOutbound({

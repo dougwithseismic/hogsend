@@ -172,9 +172,10 @@ export interface UnsubscribeResult {
 // ---------------------------------------------------------------------------
 
 /**
- * The 12-event outbound catalog. MIRRORS the engine's `WEBHOOK_EVENT_TYPES`
+ * The 13-event outbound catalog. MIRRORS the engine's `WEBHOOK_EVENT_TYPES`
  * (`@hogsend/engine` lib/webhook-signing.ts) — the client cannot import the
- * engine, so the union is re-declared here. A drift check keeps them in sync.
+ * engine, so the union is re-declared here and MUST be kept in sync BY HAND
+ * when the engine catalog changes (there is no automated drift check today).
  * The `webhook.test` sentinel is NOT a member (out-of-band).
  */
 export type OutboundEventType =
@@ -187,9 +188,26 @@ export type OutboundEventType =
   | "email.opened"
   | "email.clicked"
   | "email.bounced"
+  | "email.complained"
   | "journey.completed"
   | "bucket.entered"
   | "bucket.left";
+
+/**
+ * The delivery `kind` of a managed endpoint. `"webhook"` (default) is the signed
+ * Standard-Webhooks POST; any other value (e.g. `"posthog"`, `"segment"`,
+ * `"slack"`) is a keyed destination delivered via a server-side transform
+ * adapter. The named members mirror the engine's SHIPPED destination presets
+ * (`PRESET_DESTINATIONS`) — the same set the admin API now accepts as `kind` —
+ * for editor autocomplete; the `(string & {})` arm keeps the union open to
+ * consumer-defined kinds (`defineDestination`) and future presets.
+ */
+export type WebhookKind =
+  | "webhook"
+  | "posthog"
+  | "segment"
+  | "slack"
+  | (string & {});
 
 /**
  * A managed outbound webhook endpoint as returned by `/v1/admin/webhooks` list
@@ -202,8 +220,18 @@ export interface WebhookEndpoint {
   url: string;
   description: string | null;
   eventTypes: OutboundEventType[];
-  /** Safe-to-display prefix, e.g. `whsec_AbCd`. The full secret is never here. */
-  secretPrefix: string;
+  /**
+   * Safe-to-display prefix, e.g. `whsec_AbCd`. The full secret is never here.
+   * Null for keyed destinations (kind !== "webhook"), which carry no secret.
+   */
+  secretPrefix: string | null;
+  /** Delivery kind — "webhook" (signed POST) or a keyed destination. */
+  kind: WebhookKind;
+  /**
+   * Per-destination config for keyed adapters, with credentials REDACTED by the
+   * server (e.g. `config.apiKey` → "***"). Null for kind="webhook".
+   */
+  config: Record<string, unknown> | null;
   status: "enabled" | "disabled";
   organizationId: string | null;
   /** ISO string of the last delivery attempt, or null if never delivered. */
@@ -215,9 +243,10 @@ export interface WebhookEndpoint {
 /**
  * The create / rotate response: a {@link WebhookEndpoint} PLUS the full signing
  * `secret` (`whsec_…`). Returned ONCE — store it now, it is never recoverable
- * from list/get.
+ * from list/get. `secret` is present ONLY for kind="webhook" (keyed
+ * destinations carry no secret), hence optional.
  */
-export type CreatedWebhookEndpoint = WebhookEndpoint & { secret: string };
+export type CreatedWebhookEndpoint = WebhookEndpoint & { secret?: string };
 
 /** Body for `hs.webhooks.create`. At least one event type is required. */
 export interface CreateWebhookInput {
@@ -225,6 +254,16 @@ export interface CreateWebhookInput {
   eventTypes: OutboundEventType[];
   description?: string;
   disabled?: boolean;
+  /**
+   * Delivery kind. Defaults to "webhook" (the signed POST). Set to a keyed
+   * destination (e.g. "posthog") to fan out via a server-side transform.
+   */
+  kind?: WebhookKind;
+  /**
+   * Per-destination config for keyed adapters, e.g. PostHog's
+   * `{ apiKey, host }`. Ignored for kind="webhook".
+   */
+  config?: Record<string, unknown>;
 }
 
 /**
@@ -236,6 +275,9 @@ export interface UpdateWebhookInput {
   eventTypes?: OutboundEventType[];
   description?: string | null;
   disabled?: boolean;
+  kind?: WebhookKind;
+  /** Replace the keyed-destination config; `null` clears it. */
+  config?: Record<string, unknown> | null;
 }
 
 /** Result of `hs.webhooks.rotateSecret` — the NEW full secret, returned once. */

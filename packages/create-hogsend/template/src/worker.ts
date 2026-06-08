@@ -1,5 +1,6 @@
 import { createHogsendClient, createWorker } from "@hogsend/engine";
 import { buckets } from "./buckets/index.js";
+import { destinations } from "./destinations/index.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
@@ -10,6 +11,7 @@ async function main() {
     journeys,
     buckets,
     lists,
+    destinations,
     email: { templates },
   });
   const worker = createWorker({

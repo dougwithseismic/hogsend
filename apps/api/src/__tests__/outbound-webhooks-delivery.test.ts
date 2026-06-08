@@ -111,13 +111,24 @@ let endpointIds: string[] = [];
 /** Insert a webhook endpoint and track it for cleanup. */
 async function seedEndpoint(opts: {
   disabled?: boolean;
-}): Promise<{ id: string; secret: string }> {
+  kind?: string;
+  config?: Record<string, unknown> | null;
+}): Promise<{ id: string; secret: string | null }> {
+  const kind = opts.kind ?? "webhook";
+  // Keyed destinations carry no signing secret (creds live in `config`).
+  const secret =
+    kind === "webhook"
+      ? "whsec_dGVzdHNlY3JldGZvcndlYmhvb2tkZWxpdmVyeXRlc3Qx"
+      : null;
+  const secretPrefix = kind === "webhook" ? "whsec_dGVzd" : null;
   const [row] = await db
     .insert(webhookEndpoints)
     .values({
       url: `https://example.com/${RUN}/sink`,
-      secret: "whsec_dGVzdHNlY3JldGZvcndlYmhvb2tkZWxpdmVyeXRlc3Qx",
-      secretPrefix: "whsec_dGVzd",
+      secret,
+      secretPrefix,
+      kind,
+      config: opts.config ?? null,
       eventTypes: ["contact.created"],
       disabled: opts.disabled ?? false,
     })
@@ -135,6 +146,7 @@ async function seedDelivery(opts: {
   nextRetryAt?: Date | null;
   updatedAt?: Date;
   webhookId?: string;
+  payload?: Record<string, unknown>;
 }): Promise<string> {
   const webhookId = opts.webhookId ?? `msg_${RUN}_${Math.random()}`;
   const [row] = await db
@@ -143,7 +155,7 @@ async function seedDelivery(opts: {
       endpointId: opts.endpointId,
       webhookId,
       eventType: "contact.created",
-      payload: {
+      payload: opts.payload ?? {
         id: webhookId,
         type: "contact.created",
         timestamp: new Date().toISOString(),
@@ -470,5 +482,302 @@ describe("reapDueWebhookDeliveriesTask — retry scheduler + orphan recovery", (
 
     const row = await getDelivery(deliveryId);
     expect(row?.status).toBe("delivered");
+  });
+});
+
+// ===========================================================================
+// kind="webhook" byte-exactness — the adapter seam must not change the wire
+// ===========================================================================
+
+describe("deliverWebhookTask — kind=webhook is byte-identical (no-regression)", () => {
+  it("POSTs the exact endpoint.url, method, and signed body the legacy path did", async () => {
+    const endpoint = await seedEndpoint({});
+    const deliveryId = await seedDelivery({ endpointId: endpoint.id });
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response("ok", { status: 200 }) as unknown as Response,
+      );
+
+    await deliverTask.fn({ deliveryId });
+
+    const [calledUrl, init] = fetchSpy.mock.calls[0] as [
+      string,
+      RequestInit & { headers: Record<string, string> },
+    ];
+    // Same URL, same method as before the adapter seam existed.
+    expect(calledUrl).toBe(`https://example.com/${RUN}/sink`);
+    expect(init.method).toBe("POST");
+    // The Standard-Webhooks signed header set + the EXACT frozen envelope bytes:
+    // the body is `JSON.stringify(payload)` verbatim, never re-stringified.
+    const row = await getDelivery(deliveryId);
+    expect(init.body).toBe(JSON.stringify(row?.payload));
+    expect(init.headers["Webhook-Id"]).toBe(
+      (row?.payload as { id: string }).id,
+    );
+    expect(init.headers["Webhook-Signature"]).toMatch(/^v1,/);
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    // No PostHog-shaped fields leak into a plain webhook body.
+    expect(init.body as string).not.toContain("api_key");
+    expect(init.body as string).not.toContain("$lib");
+  });
+});
+
+// ===========================================================================
+// kind="posthog" — the capture adapter rewrites url/headers/body, reuses the
+// SAME delivery machinery (2xx/5xx/exhaustion), and coalesces distinct_id.
+// ===========================================================================
+
+describe("deliverWebhookTask — kind=posthog capture adapter", () => {
+  it("POSTs a PostHog capture body (200 ⇒ delivered) with distinct_id coalescing", async () => {
+    const endpoint = await seedEndpoint({
+      kind: "posthog",
+      config: { apiKey: "phc_test_key", host: "https://eu.i.posthog.com" },
+    });
+    // No userId in the payload data → distinct_id must fall back to `to`.
+    const deliveryId = await seedDelivery({
+      endpointId: endpoint.id,
+      payload: {
+        id: "msg_ph_1",
+        type: "email.opened",
+        timestamp: "2026-01-02T03:04:05.000Z",
+        data: {
+          emailSendId: "es-ph-1",
+          templateKey: "welcome",
+          userId: null,
+          to: "person@example.com",
+        },
+      },
+    });
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response("1", { status: 200 }) as unknown as Response,
+      );
+
+    const result = await deliverTask.fn({ deliveryId });
+    expect(result.status).toBe("delivered");
+
+    const [calledUrl, init] = fetchSpy.mock.calls[0] as [
+      string,
+      RequestInit & { headers: Record<string, string> },
+    ];
+    // Adapter rewrote the URL to the configured host's /capture/ endpoint —
+    // NOT the endpoint.url placeholder.
+    expect(calledUrl).toBe("https://eu.i.posthog.com/capture/");
+    expect(init.method).toBe("POST");
+    expect(init.headers["Content-Type"]).toBe("application/json");
+    // It is NOT a signed webhook — no Standard-Webhooks headers.
+    expect(init.headers["Webhook-Signature"]).toBeUndefined();
+
+    const body = JSON.parse(init.body as string) as {
+      api_key: string;
+      event: string;
+      distinct_id: string;
+      timestamp: string;
+      properties: Record<string, unknown>;
+    };
+    expect(body.api_key).toBe("phc_test_key");
+    expect(body.event).toBe("email.opened");
+    // userId is null → coalesces to `to`.
+    expect(body.distinct_id).toBe("person@example.com");
+    expect(body.timestamp).toBe("2026-01-02T03:04:05.000Z");
+    expect(body.properties.$lib).toBe("hogsend");
+    expect(body.properties.templateKey).toBe("welcome");
+    expect(body.properties.to).toBe("person@example.com");
+
+    const row = await getDelivery(deliveryId);
+    expect(row?.status).toBe("delivered");
+    expect(row?.responseStatus).toBe(200);
+  });
+
+  it("prefers userId over `to` for distinct_id when present", async () => {
+    const endpoint = await seedEndpoint({
+      kind: "posthog",
+      config: { apiKey: "phc_test_key" },
+    });
+    const deliveryId = await seedDelivery({
+      endpointId: endpoint.id,
+      payload: {
+        id: "msg_ph_2",
+        type: "email.clicked",
+        timestamp: "2026-01-02T03:04:05.000Z",
+        data: { userId: "user-123", to: "person@example.com" },
+      },
+    });
+
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response("1", { status: 200 }) as unknown as Response,
+      );
+
+    await deliverTask.fn({ deliveryId });
+    const [calledUrl, init] = fetchSpy.mock.calls[0] as [
+      string,
+      RequestInit & { headers: Record<string, string> },
+    ];
+    // Default host when config.host is unset.
+    expect(calledUrl).toBe("https://us.i.posthog.com/capture/");
+    const body = JSON.parse(init.body as string) as { distinct_id: string };
+    expect(body.distinct_id).toBe("user-123");
+  });
+
+  it("a 500 from PostHog schedules a retry (reuses the delivery backoff)", async () => {
+    const endpoint = await seedEndpoint({
+      kind: "posthog",
+      config: { apiKey: "phc_test_key" },
+    });
+    const deliveryId = await seedDelivery({
+      endpointId: endpoint.id,
+      payload: {
+        id: "msg_ph_3",
+        type: "email.sent",
+        timestamp: "2026-01-02T03:04:05.000Z",
+        data: { userId: "u-1", to: "x@y.com" },
+      },
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("boom", { status: 500 }) as unknown as Response,
+    );
+
+    const result = await deliverTask.fn({ deliveryId });
+    expect(result.status).toBe("pending");
+    const row = await getDelivery(deliveryId);
+    expect(row?.status).toBe("pending");
+    expect(row?.responseStatus).toBe(500);
+    expect(row?.nextRetryAt).not.toBeNull();
+  });
+
+  it("exhaustion dead-letters with the adapter-resolved url + kind in the DLQ", async () => {
+    const endpoint = await seedEndpoint({
+      kind: "posthog",
+      config: { apiKey: "phc_test_key", host: "https://eu.i.posthog.com" },
+    });
+    // MAX_ATTEMPTS=3; seed attemptCount=2 so this attempt becomes 3 (>= MAX).
+    const deliveryId = await seedDelivery({
+      endpointId: endpoint.id,
+      attemptCount: 2,
+      payload: {
+        id: "msg_ph_4",
+        type: "email.delivered",
+        timestamp: "2026-01-02T03:04:05.000Z",
+        data: { userId: "u-1", to: "x@y.com" },
+      },
+    });
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("still down", { status: 500 }) as unknown as Response,
+    );
+
+    const result = await deliverTask.fn({ deliveryId });
+    expect(result.status).toBe("failed");
+
+    const [dlq] = await db
+      .select()
+      .from(deadLetterQueue)
+      .where(eq(deadLetterQueue.sourceId, deliveryId));
+    expect(dlq).toBeDefined();
+    const dlqPayload = dlq?.payload as { url: string; kind: string };
+    // Forensics: the adapter-resolved capture URL + the endpoint kind, not the
+    // raw endpoint.url placeholder.
+    expect(dlqPayload.kind).toBe("posthog");
+    expect(dlqPayload.url).toBe("https://eu.i.posthog.com/capture/");
+  });
+
+  it("a missing config.apiKey is a NON-retryable config error → straight to DLQ", async () => {
+    const endpoint = await seedEndpoint({
+      kind: "posthog",
+      config: {}, // no apiKey → adapter throws
+    });
+    const deliveryId = await seedDelivery({
+      endpointId: endpoint.id,
+      payload: {
+        id: "msg_ph_5",
+        type: "email.sent",
+        timestamp: "2026-01-02T03:04:05.000Z",
+        data: { userId: "u-1", to: "x@y.com" },
+      },
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await deliverTask.fn({ deliveryId });
+    // Adapter threw before any fetch — permanent failure, no POST, attempt 1.
+    expect(result.status).toBe("failed");
+    expect(result.fastFail).toBe(true);
+    expect(result.attemptCount).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const row = await getDelivery(deliveryId);
+    expect(row?.status).toBe("failed");
+    expect(row?.nextRetryAt).toBeNull();
+
+    const [dlq] = await db
+      .select()
+      .from(deadLetterQueue)
+      .where(eq(deadLetterQueue.sourceId, deliveryId));
+    expect(dlq).toBeDefined();
+    expect(dlq?.error).toContain("apiKey");
+  });
+});
+
+// ===========================================================================
+// Per-hit fan-out — a SECOND open/click emit produces a SECOND delivery row.
+// emitOutbound writes one row per subscribed endpoint with a NULL dedupeKey, so
+// two emits of the SAME event create two distinct rows (no first-touch dedupe).
+// ===========================================================================
+
+describe("emitOutbound — per-hit opens/clicks create a fresh delivery each", () => {
+  it("two email.opened emits (no dedupeKey) write two distinct delivery rows", async () => {
+    const { emitOutbound } = await import("@hogsend/engine");
+    // Subscribe the endpoint to email.opened so the emit selects it.
+    const [endpointRow] = await db
+      .insert(webhookEndpoints)
+      .values({
+        url: `https://example.com/${RUN}/perhit`,
+        secret: "whsec_dGVzdHNlY3JldGZvcndlYmhvb2tkZWxpdmVyeXRlc3Qx",
+        secretPrefix: "whsec_dGVzd",
+        eventTypes: ["email.opened"],
+        disabled: false,
+      })
+      .returning({ id: webhookEndpoints.id });
+    if (!endpointRow) throw new Error("failed to seed per-hit endpoint");
+    endpointIds.push(endpointRow.id);
+
+    const basePayload = {
+      emailSendId: "es-perhit",
+      resendId: null,
+      templateKey: "welcome",
+      userId: "u-perhit",
+      to: "perhit@example.com",
+      at: new Date().toISOString(),
+    };
+
+    // Two PER-HIT emits with NO dedupeKey → two distinct rows (NULL dedupe keys
+    // are distinct in Postgres, so onConflictDoNothing does NOT collapse them).
+    await emitOutbound({
+      db,
+      hatchet: container.hatchet,
+      logger: container.logger,
+      event: "email.opened",
+      payload: basePayload,
+    });
+    await emitOutbound({
+      db,
+      hatchet: container.hatchet,
+      logger: container.logger,
+      event: "email.opened",
+      payload: basePayload,
+    });
+
+    const rows = await db
+      .select({ id: webhookDeliveries.id })
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.endpointId, endpointRow.id));
+    expect(rows.length).toBe(2);
   });
 });

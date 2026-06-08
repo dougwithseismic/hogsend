@@ -3,6 +3,7 @@ import { webhookDeliveries, webhookEndpoints } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { count, desc, eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { PRESET_DESTINATIONS } from "../../destinations/presets/index.js";
 import { errorSchema } from "../../lib/schemas.js";
 import {
   generateWebhookSecret,
@@ -24,9 +25,22 @@ import { deliverWebhookTask } from "../../workflows/deliver-webhook.js";
 
 // The catalog enum for request validation — derived from the SINGLE source of
 // truth in `webhook-signing.ts` (Section 1.3). `z.enum` needs a non-empty tuple,
-// which `WEBHOOK_EVENT_TYPES` (12 strings, `as const`) satisfies.
+// which `WEBHOOK_EVENT_TYPES` (13 strings, `as const`) satisfies.
 const eventTypeEnum = z.enum(
   WEBHOOK_EVENT_TYPES as unknown as [WebhookEventType, ...WebhookEventType[]],
+);
+
+// The destination `kind` enum. "webhook" (default) is the signed POST; any
+// other value selects a delivery-time transform adapter keyed by this column.
+// This MUST cover every shipped preset (the skills + env.example tell operators
+// to create segment/slack endpoints via this admin API / the `hs.webhooks` SDK),
+// so it is derived from `PRESET_DESTINATIONS` — the single source of truth for
+// the shipped `kind`s — rather than a hand-maintained literal list. A `kind`
+// whose transform is not REGISTERED at delivery time still fails its delivery as
+// a config error (DLQ); the registry, not the env, decides resolvability — so we
+// accept any shipped preset id here regardless of `ENABLED_DESTINATION_PRESETS`.
+const kindEnum = z.enum(
+  Object.keys(PRESET_DESTINATIONS) as unknown as [string, ...string[]],
 );
 
 const webhookEndpointSchema = z.object({
@@ -34,7 +48,11 @@ const webhookEndpointSchema = z.object({
   url: z.string(),
   description: z.string().nullable(),
   eventTypes: z.array(z.string()),
-  secretPrefix: z.string(),
+  // Keyed destinations have no signing secret (null secretPrefix).
+  secretPrefix: z.string().nullable(),
+  kind: z.string(),
+  // REDACTED config view — credentials (e.g. config.apiKey) are masked.
+  config: z.record(z.string(), z.unknown()).nullable(),
   status: z.enum(["enabled", "disabled"]),
   organizationId: z.string().nullable(),
   lastDeliveryAt: z.string().nullable(),
@@ -85,6 +103,11 @@ const createEndpointRoute = createRoute({
             eventTypes: z.array(eventTypeEnum).min(1),
             description: z.string().max(500).optional(),
             disabled: z.boolean().optional(),
+            // Destination selector. Defaults to "webhook" (signed POST).
+            kind: kindEnum.optional(),
+            // Per-destination config for keyed adapters (e.g. PostHog's
+            // `{ apiKey, host }`). Ignored for kind="webhook".
+            config: z.record(z.string(), z.unknown()).optional(),
           }),
         },
       },
@@ -94,7 +117,11 @@ const createEndpointRoute = createRoute({
     201: {
       content: {
         "application/json": {
-          schema: webhookEndpointSchema.extend({ secret: z.string() }),
+          // `secret` is present ONLY for kind="webhook" (the one-time signing
+          // secret). Keyed destinations carry no secret.
+          schema: webhookEndpointSchema.extend({
+            secret: z.string().optional(),
+          }),
         },
       },
       description: "Endpoint created — signing secret shown only once",
@@ -139,6 +166,8 @@ const updateEndpointRoute = createRoute({
             eventTypes: z.array(eventTypeEnum).min(1).optional(),
             description: z.string().max(500).nullable().optional(),
             disabled: z.boolean().optional(),
+            kind: kindEnum.optional(),
+            config: z.record(z.string(), z.unknown()).nullable().optional(),
           }),
         },
       },
@@ -237,10 +266,30 @@ const testRoute = createRoute({
   },
 });
 
+/** Config keys whose values are credentials and must be masked in responses. */
+const REDACTED_CONFIG_KEYS = new Set(["apiKey", "apikey", "api_key"]);
+
+/**
+ * Mask credential values in a keyed destination's `config` for API responses —
+ * `config.apiKey` becomes `"***"` so a list/get never leaks the secret. Returns
+ * null when there is no config (kind="webhook").
+ */
+function redactConfig(
+  config: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (!config) return null;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    out[key] = REDACTED_CONFIG_KEYS.has(key) ? "***" : value;
+  }
+  return out;
+}
+
 /**
  * Serialize an endpoint row for an API response. NEVER includes `secret` — the
  * full `whsec_…` is surfaced only on create + rotate-secret via the dedicated
- * response shapes. `status` is derived from the `disabled` boolean.
+ * response shapes. `config` is REDACTED (credentials masked). `status` is
+ * derived from the `disabled` boolean.
  */
 function serializeEndpoint(row: typeof webhookEndpoints.$inferSelect) {
   return {
@@ -249,6 +298,8 @@ function serializeEndpoint(row: typeof webhookEndpoints.$inferSelect) {
     description: row.description,
     eventTypes: row.eventTypes as string[],
     secretPrefix: row.secretPrefix,
+    kind: row.kind,
+    config: redactConfig(row.config),
     status: (row.disabled ? "disabled" : "enabled") as "enabled" | "disabled",
     organizationId: row.organizationId,
     lastDeliveryAt: row.lastDeliveryAt?.toISOString() ?? null,
@@ -292,7 +343,13 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const body = c.req.valid("json");
 
-    const { secret, secretPrefix } = generateWebhookSecret();
+    const kind = body.kind ?? "webhook";
+    // Only the signed "webhook" kind gets a signing secret; keyed destinations
+    // authenticate via `config` (their secret/secretPrefix stay null).
+    const credentials =
+      kind === "webhook"
+        ? generateWebhookSecret()
+        : { secret: null, secretPrefix: null };
 
     const [created] = await db
       .insert(webhookEndpoints)
@@ -301,15 +358,24 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
         eventTypes: body.eventTypes,
         description: body.description ?? null,
         disabled: body.disabled ?? false,
-        secret,
-        secretPrefix,
+        kind,
+        config: body.config ?? null,
+        secret: credentials.secret,
+        secretPrefix: credentials.secretPrefix,
       })
       .returning();
 
     if (!created) throw new Error("Failed to create webhook endpoint");
 
-    // The ONLY list/get-shaped response that also carries the full secret.
-    return c.json({ ...serializeEndpoint(created), secret }, 201);
+    // The ONLY list/get-shaped response that also carries the full secret — and
+    // ONLY for kind="webhook" (keyed destinations have no secret to surface).
+    if (kind === "webhook" && credentials.secret) {
+      return c.json(
+        { ...serializeEndpoint(created), secret: credentials.secret },
+        201,
+      );
+    }
+    return c.json(serializeEndpoint(created), 201);
   })
   .openapi(getEndpointRoute, async (c) => {
     const { db } = c.get("container");
@@ -349,6 +415,19 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
     if (body.eventTypes !== undefined) patch.eventTypes = body.eventTypes;
     if (body.description !== undefined) patch.description = body.description;
     if (body.disabled !== undefined) patch.disabled = body.disabled;
+    if (body.kind !== undefined) patch.kind = body.kind;
+    if (body.config !== undefined) patch.config = body.config;
+
+    // Foot-gun guard: an endpoint that ends up as a signed "webhook" with no
+    // secret would dead-letter every delivery (the webhook transform signs with
+    // the live secret). Mint one when switching to (or back to) kind="webhook"
+    // without an existing secret. Keyed kinds keep their null secret — harmless.
+    const effectiveKind = body.kind ?? existing.kind;
+    if (effectiveKind === "webhook" && !existing.secret) {
+      const { secret, secretPrefix } = generateWebhookSecret();
+      patch.secret = secret;
+      patch.secretPrefix = secretPrefix;
+    }
 
     const [updated] = await db
       .update(webhookEndpoints)
@@ -418,6 +497,14 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
     // endpoint's `eventTypes`. Build a synthetic delivery row directly — it does
     // NOT go through `emitOutbound` (which filters by subscription) — then enqueue
     // the same durable delivery task the live emit path uses.
+    //
+    // The synthetic envelope routes THROUGH the per-kind delivery adapter (the
+    // delivery task resolves it by `endpoint.kind`), so the `data` must carry the
+    // fields every adapter needs to build a VALID request. For `kind="webhook"`
+    // the adapter only signs the frozen bytes, so the extra fields are harmless;
+    // for `kind="posthog"` the capture adapter coalesces `distinct_id` from
+    // `userId`/`to`/`userEmail`, so a synthetic recipient (`to`) is required or
+    // the test would POST a malformed capture with no distinct_id.
     const webhookId = `msg_${randomUUID()}`;
     const timestamp = new Date();
     const envelope = {
@@ -428,6 +515,10 @@ export const webhooksRouter = new OpenAPIHono<AppEnv>()
         message: "Hogsend test event",
         endpointId: endpoint.id,
         sentAt: timestamp.toISOString(),
+        // Adapter-friendly synthetic identity so a keyed destination (e.g.
+        // posthog) builds a valid request from the test envelope.
+        userId: `test_${endpoint.id}`,
+        to: "test@hogsend.com",
       },
     };
 

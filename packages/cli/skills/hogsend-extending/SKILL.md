@@ -1,6 +1,6 @@
 ---
 name: hogsend-extending
-description: Use when extending a Hogsend app beyond journeys/emails/buckets — swapping the email or analytics provider behind its engine-owned contract (EmailProvider / PostHogService), wiring an outbound integration (Slack, a CRM, Stripe) as plain code called from a journey, or deciding when to publish a reusable @hogsend/plugin-* package. Covers the two categories of extension and where each is wired.
+description: Use when extending a Hogsend app beyond journeys/emails/buckets — swapping the email or analytics provider behind its engine-owned contract (EmailProvider / PostHogService), wiring an outbound integration (Slack, a CRM, Stripe) as plain code called from a journey, fanning the outbound EVENT stream out to a tool via a code-defined destination (defineDestination, see hogsend-authoring-destinations), or deciding when to publish a reusable @hogsend/plugin-* package. Covers the categories of extension and where each is wired.
 license: MIT
 metadata:
   author: withSeismic
@@ -9,7 +9,7 @@ metadata:
 
 # Extending Hogsend
 
-There are **two** ways to extend a Hogsend app, and they are different
+There are **three** ways to extend a Hogsend app, and they are different
 mechanisms — don't reach for the wrong one.
 
 1. **Capability providers** (email, analytics). The engine itself drives these,
@@ -22,14 +22,24 @@ mechanisms — don't reach for the wrong one.
    defaults and reference implementations**; you only swap when you want a
    different vendor. → `references/swap-a-provider.md`.
 
-2. **Integrations** (everything you call *out* to — Slack, a CRM, Stripe, an
-   internal HTTP API). **No contract, no framework.** Install the SDK, write a
-   thin wrapper in your own `src/lib/`, import it into a journey, and call it like
-   a function. The engine never sees it. → `references/build-an-integration.md`.
+2. **Integrations** (a one-directional call *out* to a service — post to Slack,
+   create a CRM record, charge Stripe — from inside a JOURNEY at a specific
+   step). **No contract, no framework.** Install the SDK, write a thin wrapper in
+   your own `src/lib/`, import it into a journey, and call it like a function. The
+   engine never sees it. → `references/build-an-integration.md`.
 
-**The deciding question: does the engine call it, or do you?** If the engine
-drives the capability (sending mail, capturing analytics) it's a provider behind
-a contract. If your journey reaches outward, it's a plain integration.
+3. **Destinations** (fan the engine's OUTBOUND EVENT stream — `contact.*`,
+   `email.*`, `journey.completed`, `bucket.*` — out to a tool DURABLY, on every
+   matching event, not at a single journey step). A code-defined
+   `defineDestination()` is a delivery-time transform keyed by an endpoint
+   `kind`; it reuses the engine's durable retry / backoff / DLQ delivery. The
+   engine ships `webhook`/`posthog`/`segment`/`slack` presets. → the
+   **hogsend-authoring-destinations** skill.
+
+**The deciding questions.** Does the engine DRIVE the capability (sending mail,
+capturing analytics)? → a provider behind a contract (1). Are you reaching out at
+ONE journey step? → a plain integration (2). Do you want EVERY lifecycle event
+mirrored to a tool, durably? → a destination (3).
 
 ## Swapping a capability provider — the short version
 
@@ -61,6 +71,19 @@ a contract. If your journey reaches outward, it's a plain integration.
 - Heavy or background work (a nightly CRM sync, a fan-out import) → author a
   Hatchet task in `src/workflows/` and register it via
   `createWorker({ extraWorkflows })`.
+
+## Fanning the event stream to a tool — the short version
+
+When you want a tool to receive EVERY matching lifecycle event (an analytics
+warehouse mirroring `email.*`, a Slack channel pinged on `email.bounced`), don't
+hand-roll an integration call in every journey — author an outbound
+**destination** instead. `defineDestination({ meta:{id}, events, transform })` in
+`src/destinations/` is a delivery-time projection keyed by an endpoint `kind`,
+and it inherits the engine's durable retry / backoff / DLQ delivery for free. The
+engine ships `webhook` (default signed POST), `posthog`, `segment`, and `slack`
+presets, so most fan-out is config (a `webhook_endpoints` row), not code. Wire
+your `destinations` array into `createHogsendClient` in BOTH `src/index.ts` and
+`src/worker.ts`. → the **hogsend-authoring-destinations** skill.
 
 ## When to publish a `@hogsend/plugin-*` package
 

@@ -13,6 +13,7 @@ NOT edit here — you author *content* and wire it into the engine's factories.
 | `src/emails/` | React-email templates + registry | `.tsx` + `registry.ts` + `templates.d.ts` |
 | `src/buckets/` | Real-time audience membership | `defineBucket()` |
 | `src/webhook-sources/` | Inbound webhook ingestion | `defineWebhookSource()` |
+| `src/destinations/` | Outbound event fan-out (PostHog/Segment/Slack/CRM) | `defineDestination()` |
 | `src/workflows/` | Custom Hatchet tasks | `hatchet.task()` + `extraWorkflows` |
 | `src/schema/` | Your own (client-track) DB tables | Drizzle `pgTable` |
 | `src/journeys/constants/` | `Events` + `Templates` typed constants | `as const` |
@@ -29,9 +30,10 @@ source / workflow / template must ALSO be:
 1. Exported from its `src/<area>/index.ts`, **and**
 2. Threaded into the right factory — journeys & buckets into
    `createHogsendClient` (and `createWorker`), webhook sources into
-   `createApp({ webhookSources })`, custom tasks into
-   `createWorker({ extraWorkflows })` (the option is `extraWorkflows`, not
-   `workflows`).
+   `createApp({ webhookSources })`, destinations into `createHogsendClient`
+   (in BOTH `src/index.ts` AND `src/worker.ts`, NOT `createWorker`), custom
+   tasks into `createWorker({ extraWorkflows })` (the option is `extraWorkflows`,
+   not `workflows`).
 
 A new email template needs ALL FOUR of: the `.tsx` component, a `registry.ts`
 entry, a `templates.d.ts` augmentation, and a matching `Templates` constant key.
@@ -72,6 +74,7 @@ skills, not in this file:
 | Real-time audience membership | `hogsend-authoring-buckets` |
 | A `where` / `criteria` / `exitOn` clause | `hogsend-conditions` |
 | Inbound webhook or custom task | `hogsend-webhooks-and-workflows` |
+| Outbound event fan-out (PostHog/Segment/Slack/CRM) | `hogsend-authoring-destinations` |
 | Schema / migrations | `hogsend-database` |
 | Deploy to Railway | `hogsend-deploy` |
 | Inspect or operate a running app | `hogsend-cli` |

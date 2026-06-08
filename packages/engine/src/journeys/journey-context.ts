@@ -316,6 +316,12 @@ export function createJourneyContext(
       });
     },
 
+    /**
+     * @deprecated PostHog-specific shim, KEPT for backwards compatibility (see
+     * the {@link JourneyContext.identify} contract). Prefer outbound
+     * DESTINATIONS for fan-out; this still performs the PostHog `$set` via the
+     * injected analytics provider.
+     */
     identify(properties) {
       posthog?.identify(userId, properties);
     },
@@ -391,6 +397,12 @@ export function createJourneyContext(
       },
     },
 
+    /**
+     * @deprecated PostHog-specific shim, KEPT for backwards compatibility (see
+     * the {@link JourneyContext.posthog} contract). Prefer outbound
+     * DESTINATIONS for fan-out; this still fires the custom PostHog event via
+     * the injected analytics provider and is NOT routed through the spine.
+     */
     posthog: {
       capture({ event, properties }) {
         posthog?.captureEvent({

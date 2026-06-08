@@ -57,6 +57,12 @@ export const env = createEnv({
     POSTHOG_API_KEY: z.string().min(1).optional(),
     POSTHOG_HOST: z.string().url().optional(),
     POSTHOG_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // When true AND POSTHOG_API_KEY is set, the engine idempotently auto-seeds
+    // ONE kind="posthog" webhook endpoint subscribed to the email funnel so the
+    // full email lifecycle fans out to PostHog DURABLY (on the delivery spine).
+    // Default OFF to avoid a surprise double-emit alongside the existing
+    // fire-and-forget PostHog capture path.
+    ENABLE_POSTHOG_DESTINATION: z.coerce.boolean().default(false),
     RESEND_WEBHOOK_SECRET: z.string().min(1).optional(),
     ADMIN_API_KEY: z.string().min(1).optional(),
     API_PUBLIC_URL: z.string().url().default("http://localhost:3002"),
@@ -96,6 +102,15 @@ export const env = createEnv({
     // Preset enablement override: csv of preset ids, `"*"` (all with a secret),
     // or `"none"`. Absent → auto-enable any preset whose secret is set.
     ENABLED_WEBHOOK_PRESETS: z.string().optional(),
+    // --- Outbound destination presets (Phase 3) ---
+    // Which `defineDestination()` PRESETS are registered into the process
+    // destination registry the delivery task resolves by `endpoint.kind`. csv of
+    // ids (e.g. "segment,slack"), `"*"` (all presets), or `"none"`. Absent → the
+    // DEFAULT set (webhook + posthog). The `webhook` and `posthog` presets are
+    // ALWAYS registered regardless of this value, so the no-regression delivery
+    // path can never be turned off by misconfiguration. Set this to add the
+    // segment/slack presets (credentials still live per-endpoint in `config`).
+    ENABLED_DESTINATION_PRESETS: z.string().optional(),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
