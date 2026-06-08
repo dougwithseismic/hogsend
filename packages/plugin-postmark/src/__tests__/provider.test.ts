@@ -43,8 +43,10 @@ describe("send → Postmark message mapping", () => {
       html: "<p>hi</p>",
       text: "hi",
       replyTo: "reply@hogsend.com",
-      tag: "welcome",
-      metadata: { userId: "u_1" },
+      tags: [
+        { name: "welcome", value: "onboarding" },
+        { name: "userId", value: "u_1" },
+      ],
       headers: { "X-Custom": "v" },
     });
 
@@ -64,8 +66,9 @@ describe("send → Postmark message mapping", () => {
     expect(msg.From).toBe("from@hogsend.com");
     expect(msg.ReplyTo).toBe("reply@hogsend.com");
     expect(msg.Subject).toBe("Hello");
-    expect(msg.Tag).toBe("welcome");
-    expect(msg.Metadata).toEqual({ userId: "u_1" });
+    // First tag's value → Postmark `Tag`; ALL tags → `Metadata` name→value.
+    expect(msg.Tag).toBe("onboarding");
+    expect(msg.Metadata).toEqual({ welcome: "onboarding", userId: "u_1" });
     expect(msg.Headers).toEqual([{ Name: "X-Custom", Value: "v" }]);
     expect(msg.MessageStream).toBe("outbound");
   });

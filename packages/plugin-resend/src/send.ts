@@ -1,3 +1,4 @@
+import { normalizeRecipients } from "@hogsend/core";
 import {
   DEFAULT_RETRY_OPTIONS,
   EmailSendError,
@@ -7,32 +8,6 @@ import type { Resend } from "resend";
 import type { BatchEmailItem, SendEmailOptions, SendResult } from "./types.js";
 
 const BATCH_CHUNK_SIZE = 100;
-
-function normalizeRecipients(to: string | string[]): string[] {
-  return Array.isArray(to) ? to : [to];
-}
-
-/**
- * Translate the provider-neutral `tag` + `metadata` back into Resend's wire
- * `tags: Array<{name,value}>`. `metadata` entries become tags directly; a bare
- * `tag` is carried under a conventional `tag` key (skipped if it would collide
- * with a metadata key). Returns `undefined` when there is nothing to send.
- */
-function toResendTags(opts: {
-  tag?: string;
-  metadata?: Record<string, string>;
-}): Array<{ name: string; value: string }> | undefined {
-  const tags: Array<{ name: string; value: string }> = [];
-  if (opts.metadata) {
-    for (const [name, value] of Object.entries(opts.metadata)) {
-      tags.push({ name, value });
-    }
-  }
-  if (opts.tag !== undefined && !(opts.metadata && "tag" in opts.metadata)) {
-    tags.push({ name: "tag", value: opts.tag });
-  }
-  return tags.length > 0 ? tags : undefined;
-}
 
 function isRetryableStatusCode(statusCode: number): boolean {
   return statusCode === 429 || statusCode >= 500;
@@ -134,7 +109,8 @@ export async function sendEmail(args: {
       cc: options.cc,
       bcc: options.bcc,
       scheduledAt: options.scheduledAt,
-      tags: toResendTags({ tag: options.tag, metadata: options.metadata }),
+      // Resend accepts neutral `{name,value}[]` tags natively — pass them through.
+      tags: options.tags,
       headers: options.headers,
     });
 
@@ -206,7 +182,8 @@ async function sendBatchChunk(
         replyTo: email.replyTo,
         cc: email.cc,
         bcc: email.bcc,
-        tags: toResendTags({ tag: email.tag, metadata: email.metadata }),
+        // Resend accepts neutral `{name,value}[]` tags natively.
+        tags: email.tags,
         headers: email.headers,
       })),
     );

@@ -1,6 +1,6 @@
-import { WebhookHandshakeSignal } from "@hogsend/core";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
+import { dispatchProviderWebhook } from "./email-provider.js";
 
 const resendWebhookRoute = createRoute({
   method: "post",
@@ -47,43 +47,7 @@ const resendWebhookRoute = createRoute({
 
 export const resendWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
   resendWebhookRoute,
-  async (c) => {
-    // Thin alias for `POST /v1/webhooks/email/resend`. Resolve the `resend`
-    // provider from the registry so an unconfigured Resend deploy is a clean
-    // 404 (not a confusing verify failure), then dispatch through the existing
-    // handleWebhook flow.
-    const { emailProviders, emailService, logger } = c.get("container");
-
-    const provider = emailProviders.get("resend");
-    if (!provider) {
-      return c.json({ error: "Unknown email provider" }, 404);
-    }
-
-    const rawBody = await c.req.text();
-    const headers: Record<string, string> = {};
-    for (const [key, value] of c.req.raw.headers.entries()) {
-      headers[key.toLowerCase()] = value;
-    }
-
-    try {
-      const event = await provider.verifyWebhook({ payload: rawBody, headers });
-      const result = await emailService.handleWebhook(event, "resend");
-
-      logger.info("Resend webhook processed", {
-        type: event.type,
-        handled: result.handled,
-      });
-
-      return c.json({ ok: true }, 200);
-    } catch (err) {
-      if (err instanceof WebhookHandshakeSignal) {
-        logger.info("Resend webhook handshake", { action: err.action });
-        return c.json({ ok: true }, 200);
-      }
-      logger.warn("Resend webhook failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return c.json({ error: "Webhook verification failed" }, 401);
-    }
-  },
+  // Thin deprecated alias for `POST /v1/webhooks/email/resend` — identical
+  // behavior, just the `resend` provider id wired in.
+  (c) => dispatchProviderWebhook(c, "resend"),
 );

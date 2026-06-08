@@ -1,5 +1,6 @@
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
+import { headersToRecord } from "../../lib/headers.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import type { DefinedWebhookSource } from "../../webhook-sources/define-webhook-source.js";
 import { verifySignature } from "../../webhook-sources/verify.js";
@@ -69,10 +70,7 @@ export function registerWebhookSourceRoutes(
     // Read the body ONCE as the EXACT received bytes — signature schemes verify
     // over these bytes, so we must not re-stringify. JSON.parse only AFTER auth.
     const rawBody = await c.req.text();
-    const headers: Record<string, string> = {};
-    for (const [key, value] of c.req.raw.headers.entries()) {
-      headers[key.toLowerCase()] = value;
-    }
+    const headers = headersToRecord(c.req.raw.headers);
 
     const secret = env[source.auth.envKey as keyof typeof env] as
       | string

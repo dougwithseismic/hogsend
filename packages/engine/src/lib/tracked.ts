@@ -31,19 +31,6 @@ import { emitOutbound } from "./outbound.js";
 // engine libs (define-journey, preferences).
 const emitLogger = createLogger(process.env.LOG_LEVEL);
 
-/** First neutral tag → the provider-funnel `tag`. */
-const tagsToTag = (
-  tags?: Array<{ name: string; value: string }>,
-): string | undefined => tags?.[0]?.value;
-
-/** Neutral `{name,value}[]` → provider `metadata` record. */
-const tagsToMetadata = (
-  tags?: Array<{ name: string; value: string }>,
-): Record<string, string> | undefined =>
-  tags && tags.length > 0
-    ? Object.fromEntries(tags.map((t) => [t.name, t.value]))
-    : undefined;
-
 export type PrepareTrackedHtmlFn = (opts: {
   html: string;
   emailSendId: string;
@@ -286,15 +273,12 @@ export async function sendTrackedEmail<K extends TemplateName>(
           })
         : rawHtml;
 
-    const tag = tagsToTag(options.tags);
-    const metadata = tagsToMetadata(options.tags);
     const result = await provider.send({
       from: options.from,
       to: options.to,
       subject,
       html,
-      ...(tag !== undefined ? { tag } : {}),
-      ...(metadata ? { metadata } : {}),
+      tags: options.tags,
       headers: sendHeaders,
       replyTo: options.replyTo,
     });

@@ -1,9 +1,11 @@
 import {
   type BatchEmailItem,
+  type BounceClass,
   defineEmailProvider,
   type EmailEvent,
   type EmailEventType,
   type EmailProvider,
+  joinRecipients,
   type SendEmailOptions,
   type SendResult,
   WebhookHandshakeSignal,
@@ -27,8 +29,9 @@ export interface PostmarkConfig {
   webhookBasicAuth?: { user: string; pass: string };
 }
 
+/** Postmark wants comma-joined recipient strings; omit the field when empty. */
 const join = (v?: string | string[]): string | undefined =>
-  v ? ([] as string[]).concat(v).join(",") : undefined;
+  joinRecipients(v) || undefined;
 
 /**
  * The Postmark implementation of the engine's {@link EmailProvider} contract: a
@@ -52,6 +55,9 @@ export function createPostmarkProvider(cfg: PostmarkConfig): EmailProvider {
   const stream = cfg.messageStream ?? "outbound";
 
   const toMessage = (o: SendEmailOptions | BatchEmailItem): Message => {
+    // Postmark has a single `Tag` (first tag's value) + a `Metadata` record (all
+    // tags as name→value). Omit each when there are no tags.
+    const tags = o.tags ?? [];
     const message: Message = {
       From: o.from,
       To: join(o.to),
@@ -62,8 +68,11 @@ export function createPostmarkProvider(cfg: PostmarkConfig): EmailProvider {
       HtmlBody: o.html,
       TextBody: o.text,
       ReplyTo: join(o.replyTo),
-      Tag: o.tag,
-      Metadata: o.metadata,
+      Tag: tags[0]?.value,
+      Metadata:
+        tags.length > 0
+          ? Object.fromEntries(tags.map((t) => [t.name, t.value]))
+          : undefined,
       Headers: o.headers
         ? Object.entries(o.headers).map(([Name, Value]) => ({ Name, Value }))
         : undefined,
@@ -149,9 +158,7 @@ const TRANSIENT_TYPE_CODES = new Set<number>([
 ]);
 
 /** Map a Postmark `Bounce.TypeCode` → provider-neutral bounce class. */
-export function classifyPostmarkBounce(
-  typeCode: number,
-): "permanent" | "transient" | "complaint" {
+export function classifyPostmarkBounce(typeCode: number): BounceClass {
   if (COMPLAINT_TYPE_CODES.has(typeCode)) return "complaint";
   if (TRANSIENT_TYPE_CODES.has(typeCode)) return "transient";
   // Default conservative for a delivery-status Bounce record is `permanent`

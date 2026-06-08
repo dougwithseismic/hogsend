@@ -34,22 +34,15 @@ export const sendEmailTask = hatchet.task({
 
     try {
       // `from` is optional: when absent the mailer's `resolveFrom` falls back to
-      // its configured defaultFrom (env.RESEND_FROM_EMAIL). The task input keeps
-      // the convenient `tags: {name,value}[]` shape; translate to the neutral
-      // wire `tag` + `metadata` the provider contract now takes.
-      const tag = input.tags?.[0]?.value;
-      const metadata =
-        input.tags && input.tags.length > 0
-          ? Object.fromEntries(input.tags.map((t) => [t.name, t.value]))
-          : undefined;
+      // its configured defaultFrom (env.RESEND_FROM_EMAIL). The neutral
+      // `tags: {name,value}[]` shape passes straight through to the provider wire.
       const result = await emailService.sendRaw({
         from: input.from,
         to: input.to,
         subject: input.subject,
         html: input.html,
         replyTo: input.replyTo,
-        ...(tag !== undefined ? { tag } : {}),
-        ...(metadata ? { metadata } : {}),
+        tags: input.tags,
         headers: input.headers,
       });
 

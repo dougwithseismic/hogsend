@@ -200,10 +200,12 @@ export interface SendEmailOptions {
   replyTo?: string | string[];
   cc?: string | string[];
   bcc?: string | string[];
-  /** Neutral provider-funnel tag (Resend first tag; Postmark Tag; SES no-op). */
-  tag?: string;
-  /** Neutral key→value metadata (Resend tags; Postmark Metadata; SES MessageTag). */
-  metadata?: Record<string, string>;
+  /**
+   * Neutral `{name,value}[]` tags. Resend passes them straight through;
+   * Postmark takes the first tag's value as `Tag` and all of them as
+   * `Metadata`; SES emits an identical `MessageTag[]`.
+   */
+  tags?: Array<{ name: string; value: string }>;
   headers?: Record<string, string>;
   /** Honored only when capabilities.scheduledSend; else logged + ignored. */
   scheduledAt?: string;
@@ -221,12 +223,14 @@ export interface SendResult {
   `providers/email.ts:1` is deleted. `@hogsend/core` no longer depends on React.
 - `BatchEmailItem.react` was non-optional (`providers/email.ts:25`) — the
   sharpest edge — now derived from the HTML-only `SendEmailOptions`.
-- The Resend-shaped `tags?: Array<{name;value}>` (`providers/email.ts:17,29`) is
-  replaced by neutral `tag?` + `metadata?`. **The higher-level engine send API
-  KEEPS `tags: Array<{name,value}>`** (`EmailServiceSendOptions.tags`,
-  `SendTrackedEmailOptions.tags`, `POST /v1/emails`) and the mailer translates
-  it before the provider call (see §7.4). Consumer send API is unchanged this
-  milestone.
+- The provider wire carries neutral `tags?: Array<{ name; value }>` end-to-end —
+  no lossy `tag`/`metadata` round-trip. The higher-level engine send API also
+  uses `tags: Array<{name,value}>` (`EmailServiceSendOptions.tags`,
+  `SendTrackedEmailOptions.tags`, `POST /v1/emails`), so the mailer passes
+  `tags` straight through to the provider (see §7.4). Each provider maps them
+  natively: **Resend** passthrough, **Postmark** first tag's value → `Tag` +
+  all → `Metadata`, **SES** identical `MessageTag[]`. Consumer send API is
+  unchanged this milestone.
 
 ### 3.6 The `EmailProvider` interface + `defineEmailProvider`
 
@@ -600,20 +604,21 @@ all recipients** (today they take `event.data.to` and use only `[0]`). Cap the
 recipient count (e.g. skip if `recipients.length > 100`) and log, to avoid a
 fan-out bounce mass-suppressing.
 
-### 7.4 `tags` → `{tag, metadata}` translation in the mailer
+### 7.4 `tags` pass straight through to the provider
 
-Add helpers in `mailer.ts`:
+`tags: Array<{ name; value }>` is the neutral shape end-to-end — the mailer
+passes `options.tags` straight to every `provider.send(...)` call in `mailer.ts`
+and `tracked.ts`, with NO `tag`/`metadata` round-trip. `EmailServiceSendOptions.tags`
+/ `SendTrackedEmailOptions.tags` stay `Array<{name,value}>`
+(`email-service-types.ts:51,133`).
 
-```ts
-const tagsToTag = (tags?: Array<{ name: string; value: string }>) =>
-  tags?.[0]?.value; // first tag → neutral tag
-const tagsToMetadata = (tags?: Array<{ name: string; value: string }>) =>
-  tags ? Object.fromEntries(tags.map((t) => [t.name, t.value])) : undefined;
-```
+Each provider maps the neutral tags on its own wire:
 
-Apply at every `provider.send(...)` call site in `mailer.ts` and `tracked.ts`.
-`EmailServiceSendOptions.tags` / `SendTrackedEmailOptions.tags` stay
-`Array<{name,value}>` (`email-service-types.ts:51,133`).
+- **Resend** — `tags` passes through unchanged (Resend's wire is `{name,value}[]`).
+- **Postmark** — first tag's value → `Tag`; all tags → `Metadata`
+  (`Object.fromEntries(tags.map(t => [t.name, t.value]))`); both omitted when
+  there are no tags.
+- **SES** — identical `MessageTag[]`.
 
 ### 7.5 Per-provider secrets — delete the mailer-level gate
 
@@ -1019,8 +1024,12 @@ export function createPostmarkProvider(cfg: PostmarkConfig): EmailProvider {
     HtmlBody: o.html, // engine ALWAYS renders HTML — no React on the wire
     TextBody: o.text,
     ReplyTo: join(o.replyTo),
-    Tag: o.tag,
-    Metadata: o.metadata,
+    // First tag's value → `Tag`; all tags → `Metadata` (omitted when no tags).
+    Tag: o.tags?.[0]?.value,
+    Metadata:
+      o.tags && o.tags.length > 0
+        ? Object.fromEntries(o.tags.map((t) => [t.name, t.value]))
+        : undefined,
     Headers: o.headers
       ? Object.entries(o.headers).map(([Name, Value]) => ({ Name, Value }))
       : undefined,

@@ -90,13 +90,17 @@ describe("sendEmail", () => {
     );
   });
 
-  it("translates neutral tag + metadata into Resend tags", async () => {
+  it("passes neutral tags straight through to Resend", async () => {
     const sendFn = vi.fn().mockResolvedValue({
       data: { id: "resend_123" },
       error: null,
     });
     const client = mockResendClient({ sendFn });
 
+    const tags = [
+      { name: "campaign", value: "q1" },
+      { name: "cohort", value: "beta" },
+    ];
     await sendEmail({
       client,
       options: {
@@ -104,24 +108,17 @@ describe("sendEmail", () => {
         to: "user@example.com",
         subject: "Test",
         html: HTML,
-        tag: "welcome",
-        metadata: { campaign: "q1", cohort: "beta" },
+        tags,
       },
     });
 
     const arg = sendFn.mock.calls[0]?.[0] as {
       tags?: Array<{ name: string; value: string }>;
     };
-    expect(arg.tags).toEqual(
-      expect.arrayContaining([
-        { name: "campaign", value: "q1" },
-        { name: "cohort", value: "beta" },
-        { name: "tag", value: "welcome" },
-      ]),
-    );
+    expect(arg.tags).toEqual(tags);
   });
 
-  it("omits Resend tags when neither tag nor metadata set", async () => {
+  it("omits Resend tags when none are set", async () => {
     const sendFn = vi.fn().mockResolvedValue({
       data: { id: "resend_123" },
       error: null,

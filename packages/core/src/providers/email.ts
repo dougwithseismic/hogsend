@@ -19,10 +19,12 @@ export interface SendEmailOptions {
   replyTo?: string | string[];
   cc?: string | string[];
   bcc?: string | string[];
-  /** Neutral provider-funnel tag (Resend first tag; Postmark Tag; SES no-op). */
-  tag?: string;
-  /** Neutral key→value metadata (Resend tags; Postmark Metadata; SES MessageTag). */
-  metadata?: Record<string, string>;
+  /**
+   * Neutral `{name,value}[]` tags. Each provider maps them natively: Resend
+   * passes them straight through; Postmark takes the first tag's value as `Tag`
+   * and all of them as `Metadata`; SES emits identical `MessageTag[]`.
+   */
+  tags?: Array<{ name: string; value: string }>;
   headers?: Record<string, string>;
   /** Honored only when `capabilities.scheduledSend`; else logged + ignored. */
   scheduledAt?: string;
@@ -33,6 +35,21 @@ export type BatchEmailItem = Omit<SendEmailOptions, "scheduledAt">;
 
 export interface SendResult {
   id: string;
+}
+
+// ---------------------------------------------------------------------------
+// Recipient normalization (shared by every provider's send wire)
+// ---------------------------------------------------------------------------
+
+/** Normalize a `string | string[] | undefined` recipient field to a string[]. */
+export function normalizeRecipients(v?: string | string[]): string[] {
+  if (v === undefined) return [];
+  return Array.isArray(v) ? v : [v];
+}
+
+/** Join a recipient field into a single comma-separated string (Postmark wire). */
+export function joinRecipients(v?: string | string[]): string {
+  return normalizeRecipients(v).join(",");
 }
 
 // ---------------------------------------------------------------------------
@@ -54,6 +71,15 @@ export type EmailEventType =
   | "email.clicked";
 
 /**
+ * Provider-neutral bounce classification. Drives suppression: `permanent`
+ * auto-suppresses (the engine increments `bounceCount`), `complaint` suppresses
+ * immediately, `transient` is recorded but never suppresses, and `unknown` is
+ * the conservative default (recorded, never suppresses). Each provider's
+ * classifier returns this from its own wire-specific bounce shape.
+ */
+export type BounceClass = "permanent" | "transient" | "complaint" | "unknown";
+
+/**
  * The provider-neutral email event every provider's `verifyWebhook`/
  * `parseWebhook` normalizes its verbatim webhook into. This is the ONE shape the
  * engine's `dispatchWebhook` reads — Resend, Postmark, and SES all adapt their
@@ -71,7 +97,7 @@ export interface EmailEvent {
   occurredAt: string;
   /** Present on `email.bounced` / `email.complained`. Drives suppression. */
   bounce?: {
-    class: "permanent" | "transient" | "complaint" | "unknown";
+    class: BounceClass;
     code: string;
     reason?: string;
   };

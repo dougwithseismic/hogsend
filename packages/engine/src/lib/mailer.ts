@@ -13,7 +13,7 @@ import type {
   TemplateName,
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   type EmailService,
   type EmailServiceConfig,
@@ -59,19 +59,6 @@ const WEBHOOK_TO_STATUS: Partial<Record<EmailEventType, string>> = {
 /** Max recipients we will iterate on a bounce/complaint, to avoid a fan-out
  * webhook mass-suppressing addresses. Above this we log + skip suppression. */
 const MAX_SUPPRESSION_RECIPIENTS = 100;
-
-/** First neutral tag → the provider-funnel `tag`. */
-const tagsToTag = (
-  tags?: Array<{ name: string; value: string }>,
-): string | undefined => tags?.[0]?.value;
-
-/** Neutral `{name,value}[]` → provider `metadata` record. */
-const tagsToMetadata = (
-  tags?: Array<{ name: string; value: string }>,
-): Record<string, string> | undefined =>
-  tags && tags.length > 0
-    ? Object.fromEntries(tags.map((t) => [t.name, t.value]))
-    : undefined;
 
 /**
  * The engine-owned high-level mailer. It owns the full send pipeline —
@@ -165,12 +152,7 @@ export function createTrackedMailer(
         to: options.to,
         subject: options.subject ?? defaultSubject,
         html,
-        ...(tagsToTag(options.tags) !== undefined
-          ? { tag: tagsToTag(options.tags) }
-          : {}),
-        ...(tagsToMetadata(options.tags)
-          ? { metadata: tagsToMetadata(options.tags) }
-          : {}),
+        tags: options.tags,
         headers: options.headers,
         replyTo: options.replyTo,
       });
@@ -319,18 +301,19 @@ export function createTrackedMailer(
     const emails = validRecipients(recipients);
     if (emails.length === 0) return;
 
-    for (const email of emails) {
-      await db
-        .update(emailPreferences)
-        .set({
-          bounceCount: sql`${emailPreferences.bounceCount} + 1`,
-          lastBounceAt: new Date(),
-          suppressed: sql`CASE WHEN ${emailPreferences.bounceCount} + 1 >= ${bounceThreshold} THEN true ELSE ${emailPreferences.suppressed} END`,
-          suppressedAt: sql`CASE WHEN ${emailPreferences.bounceCount} + 1 >= ${bounceThreshold} THEN NOW() ELSE ${emailPreferences.suppressedAt} END`,
-          updatedAt: new Date(),
-        })
-        .where(eq(emailPreferences.email, email));
-    }
+    // ONE statement for all recipients. The CASE-WHEN auto-suppress at threshold
+    // is evaluated PER ROW inside the single UPDATE, so semantics match the old
+    // per-email loop exactly.
+    await db
+      .update(emailPreferences)
+      .set({
+        bounceCount: sql`${emailPreferences.bounceCount} + 1`,
+        lastBounceAt: new Date(),
+        suppressed: sql`CASE WHEN ${emailPreferences.bounceCount} + 1 >= ${bounceThreshold} THEN true ELSE ${emailPreferences.suppressed} END`,
+        suppressedAt: sql`CASE WHEN ${emailPreferences.bounceCount} + 1 >= ${bounceThreshold} THEN NOW() ELSE ${emailPreferences.suppressedAt} END`,
+        updatedAt: new Date(),
+      })
+      .where(inArray(emailPreferences.email, emails));
   }
 
   async function handleComplaint(recipients: string[]): Promise<void> {
@@ -338,16 +321,15 @@ export function createTrackedMailer(
     const emails = validRecipients(recipients);
     if (emails.length === 0) return;
 
-    for (const email of emails) {
-      await db
-        .update(emailPreferences)
-        .set({
-          suppressed: true,
-          suppressedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(emailPreferences.email, email));
-    }
+    // ONE statement for all recipients (same semantics as the old per-email loop).
+    await db
+      .update(emailPreferences)
+      .set({
+        suppressed: true,
+        suppressedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(inArray(emailPreferences.email, emails));
   }
 
   /**

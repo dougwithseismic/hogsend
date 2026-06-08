@@ -1,6 +1,62 @@
 import { WebhookHandshakeSignal } from "@hogsend/core";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import type { Context } from "hono";
 import type { AppEnv } from "../../app.js";
+import { headersToRecord } from "../../lib/headers.js";
+
+/**
+ * Shared email-provider webhook dispatch used by BOTH the id-dispatched
+ * `POST /v1/webhooks/email/:providerId` route and the thin
+ * `POST /v1/webhooks/resend` alias. Resolves the provider from the container's
+ * {@link EmailProviderRegistry} (404 on unknown id), reads the raw body as the
+ * EXACT received bytes (signature schemes verify over these), verifies +
+ * dispatches the normalized {@link EmailEvent}, 200s a
+ * {@link WebhookHandshakeSignal}, and 401s a verification error.
+ */
+export async function dispatchProviderWebhook(
+  c: Context<AppEnv>,
+  providerId: string,
+) {
+  const { emailProviders, emailService, logger } = c.get("container");
+
+  const provider = emailProviders.get(providerId);
+  if (!provider) {
+    return c.json({ error: "Unknown email provider" }, 404);
+  }
+
+  // Read the body ONCE as the EXACT received bytes — signature schemes verify
+  // over these bytes, so we must not re-stringify.
+  const payload = await c.req.text();
+  const headers = headersToRecord(c.req.raw.headers);
+
+  try {
+    const event = await provider.verifyWebhook({ payload, headers });
+    const result = await emailService.handleWebhook(event, providerId);
+
+    logger.info("Email provider webhook processed", {
+      providerId,
+      type: event.type,
+      handled: result.handled,
+    });
+
+    return c.json({ ok: true }, 200);
+  } catch (err) {
+    if (err instanceof WebhookHandshakeSignal) {
+      // A non-delivery-status handshake (SNS confirm, Postmark subscription
+      // change) the provider already handled — ack with 200.
+      logger.info("Email webhook handshake", {
+        providerId,
+        action: err.action,
+      });
+      return c.json({ ok: true }, 200);
+    }
+    logger.warn("Email provider webhook failed", {
+      providerId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return c.json({ error: "Webhook verification failed" }, 401);
+  }
+}
 
 /**
  * Id-dispatched email-provider webhook receiver:
@@ -61,49 +117,8 @@ const emailProviderWebhookRoute = createRoute({
 });
 
 export function registerEmailProviderRoutes(app: OpenAPIHono<AppEnv>) {
-  app.openapi(emailProviderWebhookRoute, async (c) => {
+  app.openapi(emailProviderWebhookRoute, (c) => {
     const { providerId } = c.req.valid("param");
-    const { emailProviders, emailService, logger } = c.get("container");
-
-    const provider = emailProviders.get(providerId);
-    if (!provider) {
-      return c.json({ error: "Unknown email provider" }, 404);
-    }
-
-    // Read the body ONCE as the EXACT received bytes — signature schemes verify
-    // over these bytes, so we must not re-stringify.
-    const payload = await c.req.text();
-    const headers: Record<string, string> = {};
-    for (const [key, value] of c.req.raw.headers.entries()) {
-      headers[key.toLowerCase()] = value;
-    }
-
-    try {
-      const event = await provider.verifyWebhook({ payload, headers });
-      const result = await emailService.handleWebhook(event, providerId);
-
-      logger.info("Email provider webhook processed", {
-        providerId,
-        type: event.type,
-        handled: result.handled,
-      });
-
-      return c.json({ ok: true }, 200);
-    } catch (err) {
-      if (err instanceof WebhookHandshakeSignal) {
-        // A non-delivery-status handshake (SNS confirm, Postmark subscription
-        // change) the provider already handled — ack with 200.
-        logger.info("Email webhook handshake", {
-          providerId,
-          action: err.action,
-        });
-        return c.json({ ok: true }, 200);
-      }
-      logger.warn("Email provider webhook failed", {
-        providerId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return c.json({ error: "Webhook verification failed" }, 401);
-    }
+    return dispatchProviderWebhook(c, providerId);
   });
 }

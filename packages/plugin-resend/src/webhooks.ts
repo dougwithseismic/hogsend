@@ -1,4 +1,9 @@
-import type { EmailEvent, EmailEventType } from "@hogsend/core";
+import {
+  type BounceClass,
+  type EmailEvent,
+  type EmailEventType,
+  normalizeRecipients,
+} from "@hogsend/core";
 import { WebhookVerificationError } from "@hogsend/email";
 import { Webhook } from "svix";
 import type {
@@ -27,9 +32,7 @@ const VALID_TYPES: readonly EmailEventType[] = [
  * - `complaint` → immediate suppress via the complaint path.
  * - `unknown`   → recorded, NEVER suppresses (conservative default).
  */
-export function classifyResendBounce(
-  type: string | undefined,
-): "permanent" | "transient" | "complaint" | "unknown" {
+export function classifyResendBounce(type: string | undefined): BounceClass {
   const t = (type ?? "").toLowerCase();
   if (!t) return "unknown";
   const has = (needle: string) => t.includes(needle.toLowerCase());
@@ -69,11 +72,9 @@ export function classifyResendBounce(
  */
 export function toEmailEvent(raw: WebhookEvent): EmailEvent {
   const occurredAt = raw.created_at ?? raw.data?.created_at ?? "";
-  const recipients = Array.isArray(raw.data?.to)
-    ? raw.data.to
-    : raw.data?.to
-      ? [raw.data.to as unknown as string]
-      : [];
+  const recipients = normalizeRecipients(
+    raw.data?.to as string | string[] | undefined,
+  );
 
   const base = {
     messageId: raw.data?.email_id ?? "",
