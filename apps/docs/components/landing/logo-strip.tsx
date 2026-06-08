@@ -18,6 +18,8 @@ const STACK = [
   "stripe",
   "railway",
   "typescript",
+  "segment",
+  "slack",
 ] as const satisfies readonly BrandKey[];
 
 export function LogoStrip({ className }: { className?: string }) {
