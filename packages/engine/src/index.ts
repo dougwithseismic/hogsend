@@ -193,6 +193,13 @@ export {
 } from "./lib/outbound.js";
 export { getPostHog } from "./lib/posthog.js";
 export { getRedisIfConnected } from "./lib/redis.js";
+// --- First-admin setup token (closes the first-run land-grab) ---
+export {
+  logSetupTokenOnFirstBoot,
+  resetSetupToken,
+  resolveSetupToken,
+  timingSafeEqualStr,
+} from "./lib/setup-token.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
 export {
   type ResolveTimezoneInput,

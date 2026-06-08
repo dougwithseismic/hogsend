@@ -98,4 +98,34 @@ describe("closed signup", () => {
     const body = await res.json();
     expect(body.error).toContain("closed");
   });
+
+  it("stays closed even when a setup token is presented", async () => {
+    await db
+      .insert(user)
+      .values({
+        id: TEST_USER_ID,
+        name: "Existing Admin",
+        email: "existing-admin@admin-auth-test.example",
+      })
+      .onConflictDoNothing();
+
+    // Once an admin exists, the setup token is irrelevant: the closed-signup
+    // 403 takes over. A presented token must not re-open the door.
+    const res = await app.request("/api/auth/sign-up/email", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-hogsend-setup-token": "any-token-should-not-matter",
+      },
+      body: JSON.stringify({
+        email: "third-user@admin-auth-test.example",
+        password: "supersecret123",
+        name: "Third User",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toContain("closed");
+  });
 });

@@ -23,6 +23,14 @@ export const env = createEnv({
     REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
     BETTER_AUTH_SECRET: z.string().min(1),
     BETTER_AUTH_URL: z.string().url().default("http://localhost:3002"),
+    // Closes the first-run land-grab on the web first-admin create. When set,
+    // the Studio "create admin" form must present this exact value (header
+    // `x-hogsend-setup-token`) before the first sign-up is allowed; the engine
+    // compares it in constant time, server-side. When UNSET and `needsSetup` is
+    // true, the engine auto-generates a process-lifetime token and prints it
+    // ONCE to the server log (operator-only surface). Never returned over HTTP.
+    // Irrelevant once an admin exists (closed-signup 403 takes over).
+    STUDIO_SETUP_TOKEN: z.string().optional(),
     // Extra origins allowed to call the auth endpoints (beyond BETTER_AUTH_URL),
     // comma-separated. Needed when the Studio is served from a different origin
     // than the API — e.g. the `hogsend studio` CLI pointing at a remote instance.

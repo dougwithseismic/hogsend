@@ -23,6 +23,7 @@ function AuthCard({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [setupToken, setSetupToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -36,6 +37,12 @@ function AuthCard({
             name: name || email,
             email,
             password,
+            // The server requires the setup token on the first-admin create.
+            // Send it as a header (kept out of the body / better-auth schema);
+            // the engine compares it server-side in constant time.
+            fetchOptions: {
+              headers: { "x-hogsend-setup-token": setupToken },
+            },
           })
         : await signIn.email({ email, password });
 
@@ -66,18 +73,38 @@ function AuthCard({
       <CardContent>
         <form className="space-y-4" onSubmit={handleSubmit}>
           {isSetup ? (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="name">
-                Name
-              </label>
-              <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name"
-                autoComplete="name"
-              />
-            </div>
+            <>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="setup-token">
+                  Setup token
+                </label>
+                <Input
+                  id="setup-token"
+                  required
+                  value={setupToken}
+                  onChange={(e) => setSetupToken(e.target.value)}
+                  placeholder="Paste the token from your server logs"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Check your server logs for the setup token printed on first
+                  boot (or use the <code>STUDIO_SETUP_TOKEN</code> you
+                  configured).
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium" htmlFor="name">
+                  Name
+                </label>
+                <Input
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </div>
+            </>
           ) : null}
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="email">
