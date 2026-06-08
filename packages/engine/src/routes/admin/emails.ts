@@ -26,6 +26,8 @@ const emailSchema = z.object({
   id: z.string(),
   journeyStateId: z.string().nullable(),
   templateKey: z.string().nullable(),
+  messageId: z.string().nullable(),
+  /** @deprecated Mirrors `messageId`; kept for one minor, removed thereafter. */
   resendId: z.string().nullable(),
   fromEmail: z.string(),
   toEmail: z.string(),
@@ -88,7 +90,9 @@ function serializeEmail(
     id: row.id,
     journeyStateId: row.journeyStateId,
     templateKey: row.templateKey,
-    resendId: row.resendId,
+    messageId: row.messageId,
+    // @deprecated Mirror of `messageId` for one minor (back-compat).
+    resendId: row.messageId,
     fromEmail: row.fromEmail,
     toEmail: row.toEmail,
     subject: row.subject,

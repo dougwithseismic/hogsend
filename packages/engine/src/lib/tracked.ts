@@ -14,10 +14,11 @@ import {
 } from "@hogsend/email";
 import { eq } from "drizzle-orm";
 import { getListRegistry } from "../lists/registry-singleton.js";
-import type {
-  FrequencyCapConfig,
-  SendTrackedEmailOptions,
-  TrackedSendResult,
+import {
+  type FrequencyCapConfig,
+  type SendTrackedEmailOptions,
+  type TrackedSendResult,
+  trackedSendResult,
 } from "./email-service-types.js";
 import { isFrequencyCapped } from "./frequency-cap.js";
 import { hatchet } from "./hatchet.js";
@@ -71,12 +72,12 @@ export async function sendTrackedEmail<K extends TemplateName>(
     id: string;
     status: string;
   }): TrackedSendResult =>
-    ({
+    trackedSendResult({
       emailSendId: prior.id,
-      resendId: "",
+      messageId: "",
       status: prior.status === "sent" ? "sent" : "skipped",
       ...(prior.status === "sent" ? {} : { reason: "frequency_capped" }),
-    }) as TrackedSendResult;
+    } as Omit<TrackedSendResult, "resendId">);
 
   // Idempotency short-circuit (POST /v1/emails): a retry with the same key
   // returns the prior send instead of dispatching a duplicate provider call /
@@ -135,15 +136,15 @@ export async function sendTrackedEmail<K extends TemplateName>(
       const suppressedRow = rows[0];
       if (!suppressedRow) throw new Error("Failed to insert email_sends row");
 
-      return {
+      return trackedSendResult({
         emailSendId: suppressedRow.id,
-        resendId: "",
+        messageId: "",
         status:
           suppression === "unsubscribed" ||
           suppression === "category_unsubscribed"
             ? "unsubscribed"
             : "suppressed",
-      };
+      });
     }
 
     // Frequency cap — consulted only for non-system sends (system mail sets
@@ -165,12 +166,12 @@ export async function sendTrackedEmail<K extends TemplateName>(
           to: options.to,
           category: options.category,
         });
-        return {
+        return trackedSendResult({
           emailSendId: "",
-          resendId: "",
+          messageId: "",
           status: "skipped",
           reason: "frequency_capped",
-        };
+        });
       }
     }
   }
@@ -282,7 +283,7 @@ export async function sendTrackedEmail<K extends TemplateName>(
     await db
       .update(emailSends)
       .set({
-        resendId: result.id,
+        messageId: result.id,
         status: "sent",
         sentAt,
         updatedAt: sentAt,
@@ -306,7 +307,7 @@ export async function sendTrackedEmail<K extends TemplateName>(
       dedupeKey: `email.sent:${emailSendId}`,
       payload: {
         emailSendId,
-        resendId: result.id,
+        messageId: result.id,
         templateKey: options.templateKey,
         to: options.to,
         userId: options.userId ?? null,
@@ -322,11 +323,11 @@ export async function sendTrackedEmail<K extends TemplateName>(
       });
     });
 
-    return {
+    return trackedSendResult({
       emailSendId,
-      resendId: result.id,
+      messageId: result.id,
       status: "sent",
-    };
+    });
   } catch (error) {
     // A provider send failed (transient SMTP/network/429). Stamp `failed` AND
     // RELEASE the idempotency key (set it null), exactly like the suppression

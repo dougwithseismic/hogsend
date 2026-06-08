@@ -63,10 +63,34 @@ export interface SendTrackedEmailOptions<
 
 export interface TrackedSendResult {
   emailSendId: string;
+  /** The provider's neutral message id (Resend email_id / Postmark MessageID). */
+  messageId: string;
+  /**
+   * @deprecated Renamed to {@link TrackedSendResult.messageId}. This read-alias
+   * always mirrors `messageId`; kept for one minor and removed the following
+   * minor. Build results via {@link trackedSendResult} so the alias stays live.
+   */
   resendId: string;
   status: "sent" | "suppressed" | "unsubscribed" | "skipped";
   /** Present only when `status === "skipped"` by the frequency cap. */
   reason?: "frequency_capped";
+}
+
+/**
+ * Build a {@link TrackedSendResult}, attaching a live `@deprecated` `resendId`
+ * read-alias getter that mirrors `messageId`. Lets every send path return a
+ * single canonical `messageId` while public consumers reading the old `resendId`
+ * field keep working for one minor.
+ */
+export function trackedSendResult(
+  result: Omit<TrackedSendResult, "resendId">,
+): TrackedSendResult {
+  return Object.defineProperty({ ...result }, "resendId", {
+    get(this: { messageId: string }) {
+      return this.messageId;
+    },
+    enumerable: true,
+  }) as TrackedSendResult;
 }
 
 // ---------------------------------------------------------------------------

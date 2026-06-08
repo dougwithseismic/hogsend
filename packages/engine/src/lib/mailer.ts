@@ -14,22 +14,23 @@ import type {
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
 import { eq, sql } from "drizzle-orm";
-import type {
-  EmailService,
-  EmailServiceConfig,
-  EmailServiceSendOptions,
-  EmailServiceWebhookOptions,
-  EmailServiceWebhookResult,
-  SendRawOptions,
-  SendResult,
-  TrackedSendResult,
+import {
+  type EmailService,
+  type EmailServiceConfig,
+  type EmailServiceSendOptions,
+  type EmailServiceWebhookOptions,
+  type EmailServiceWebhookResult,
+  type SendRawOptions,
+  type SendResult,
+  type TrackedSendResult,
+  trackedSendResult,
 } from "./email-service-types.js";
 import { hatchet } from "./hatchet.js";
 import { createLogger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
 import type { PrepareTrackedHtmlFn } from "./tracked.js";
 import { sendTrackedEmail } from "./tracked.js";
-import { resolveEmailSendContextByResendId } from "./tracking-events.js";
+import { resolveEmailSendContextByMessageId } from "./tracking-events.js";
 
 // Fallback logger for the provider-webhook outbound emit — `config.logger` is
 // optional, but `emitOutbound` requires one. Mirrors the engine-lib singleton
@@ -128,11 +129,11 @@ export function createTrackedMailer(
         replyTo: options.replyTo,
       });
 
-      return {
+      return trackedSendResult({
         emailSendId: "",
-        resendId: result.id,
+        messageId: result.id,
         status: "sent",
-      };
+      });
     },
 
     async sendRaw(options: SendRawOptions): Promise<SendResult> {
@@ -284,10 +285,10 @@ export function createTrackedMailer(
 
   /**
    * Emit the provider-funnel outbound event (`email.delivered` /
-   * `email.bounced` / `email.complained`) for a Resend `email_id`. These three
+   * `email.bounced` / `email.complained`) for a provider `messageId`. These three
    * have no first-party signal — the provider webhook is their single source.
-   * Enriches via {@link resolveEmailSendContextByResendId}
-   * (the only handle a provider webhook holds is the Resend id). Fire-and-forget:
+   * Enriches via {@link resolveEmailSendContextByMessageId}
+   * (the only handle a provider webhook holds is the message id). Fire-and-forget:
    * a missing context (webhook racing the send-row commit) or a transient outbound
    * error is logged and swallowed — never failing the webhook handler. No
    * `dedupeKey`: the provider path is not a Hatchet-retryable producer, and the
@@ -295,18 +296,18 @@ export function createTrackedMailer(
    */
   function emitProviderEmailEvent(
     event: "email.delivered" | "email.bounced" | "email.complained",
-    resendId: string,
+    messageId: string,
     bounce?: { bounceType?: string; bounceReason?: string },
   ): void {
     if (!db) return;
     const log = config.logger ?? emitLogger;
     const database = db;
-    void resolveEmailSendContextByResendId(database, resendId)
+    void resolveEmailSendContextByMessageId(database, messageId)
       .then((ctx) => {
         if (!ctx) return;
         const base = {
           emailSendId: ctx.emailSendId,
-          resendId,
+          messageId,
           templateKey: ctx.templateKey,
           userId: ctx.userId,
           to: ctx.to,
@@ -346,7 +347,7 @@ export function createTrackedMailer(
       })
       .catch((err: unknown) => {
         log.warn(`emitOutbound ${event} failed`, {
-          resendId,
+          messageId,
           error: err instanceof Error ? err.message : String(err),
         });
       });
@@ -354,7 +355,7 @@ export function createTrackedMailer(
 
   async function updateEmailStatus(
     eventType: WebhookEventType,
-    resendId: string,
+    messageId: string,
     extra?: { bounceType?: string; bounceReason?: string },
   ): Promise<void> {
     if (!db) return;
@@ -372,7 +373,7 @@ export function createTrackedMailer(
         ...(extra?.bounceReason ? { bounceReason: extra.bounceReason } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(emailSends.resendId, resendId));
+      .where(eq(emailSends.messageId, messageId));
   }
 
   return service;

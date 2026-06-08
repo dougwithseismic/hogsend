@@ -9,7 +9,7 @@ interface EmailSendContext {
   userId: string;
   userEmail: string;
   templateKey: string | null;
-  resendId: string | null;
+  messageId: string | null;
   to: string;
 }
 
@@ -21,7 +21,7 @@ export async function resolveEmailSendContext(
     .select({
       toEmail: emailSends.toEmail,
       templateKey: emailSends.templateKey,
-      resendId: emailSends.resendId,
+      messageId: emailSends.messageId,
       userId: journeyStates.userId,
       userEmail: journeyStates.userEmail,
     })
@@ -37,12 +37,12 @@ export async function resolveEmailSendContext(
     userId: row.userId ?? row.toEmail,
     userEmail: row.userEmail ?? row.toEmail,
     templateKey: row.templateKey,
-    resendId: row.resendId,
+    messageId: row.messageId,
     to: row.toEmail,
   };
 }
 
-export interface ResendEmailSendContext {
+export interface EmailSendContextByMessageId {
   emailSendId: string;
   userId: string;
   userEmail: string;
@@ -51,20 +51,27 @@ export interface ResendEmailSendContext {
 }
 
 /**
+ * @deprecated Renamed to {@link EmailSendContextByMessageId} as part of the
+ * provider-neutral `resendId` → `messageId` rename. Kept as an alias for one
+ * minor; removed the following minor.
+ */
+export type ResendEmailSendContext = EmailSendContextByMessageId;
+
+/**
  * Mirror of {@link resolveEmailSendContext} that resolves by the provider's
- * `resendId` instead of the internal `email_sends.id`. Used by the
+ * `messageId` instead of the internal `email_sends.id`. Used by the
  * provider-webhook enrichment path (`email.delivered`/`email.bounced`) where the
- * only handle we hold is the Resend `email_id`.
+ * only handle we hold is the provider message id.
  *
  * Returns the internal `emailSendId` plus the same denormalized identity
  * (`userId`/`userEmail` fall back to the recipient address, exactly like the
  * id-keyed resolver) and `to` recipient. Returns null when no send row carries
- * that `resendId` yet (e.g. a webhook arriving before the send row is committed).
+ * that `messageId` yet (e.g. a webhook arriving before the send row is committed).
  */
-export async function resolveEmailSendContextByResendId(
+export async function resolveEmailSendContextByMessageId(
   db: Database,
-  resendId: string,
-): Promise<ResendEmailSendContext | null> {
+  messageId: string,
+): Promise<EmailSendContextByMessageId | null> {
   const rows = await db
     .select({
       emailSendId: emailSends.id,
@@ -77,7 +84,7 @@ export async function resolveEmailSendContextByResendId(
     })
     .from(emailSends)
     .leftJoin(journeyStates, eq(emailSends.journeyStateId, journeyStates.id))
-    .where(eq(emailSends.resendId, resendId))
+    .where(eq(emailSends.messageId, messageId))
     .limit(1);
 
   const row = rows[0];
@@ -91,6 +98,14 @@ export async function resolveEmailSendContextByResendId(
     to: row.toEmail,
   };
 }
+
+/**
+ * @deprecated Renamed to {@link resolveEmailSendContextByMessageId} as part of
+ * the provider-neutral `resendId` → `messageId` rename. Kept as an alias for one
+ * minor; removed the following minor.
+ */
+export const resolveEmailSendContextByResendId =
+  resolveEmailSendContextByMessageId;
 
 export interface PushTrackingEventOpts {
   db: Database;

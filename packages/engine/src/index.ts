@@ -210,6 +210,11 @@ export {
 export {
   pushTrackingEvent,
   resolveEmailSendContext,
+  resolveEmailSendContextByMessageId,
+  /**
+   * @deprecated Kept for one minor; use
+   * {@link resolveEmailSendContextByMessageId}.
+   */
   resolveEmailSendContextByResendId,
 } from "./lib/tracking-events.js";
 // --- Outbound webhooks: signing core (Section 1.2) ---
