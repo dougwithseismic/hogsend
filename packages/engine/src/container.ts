@@ -30,6 +30,7 @@ import { setAnalytics } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { setEmailService } from "./lib/email.js";
 import { EmailProviderRegistry } from "./lib/email-provider-registry.js";
+import { emailProvidersFromEnv } from "./lib/email-providers-from-env.js";
 import type {
   EmailService,
   FrequencyCapConfig,
@@ -129,10 +130,18 @@ export interface HogsendClientOptions {
    * (templates → render → preference checks → tracking → `email_sends` write),
    * and the {@link EmailProvider} is only the swappable wire under it.
    *
-   * - `provider` — the swappable email provider (Resend, Postmark, SES…).
-   *   Defaults to a Resend provider built from env (`RESEND_API_KEY` /
-   *   `RESEND_WEBHOOK_SECRET`). Tracking/rendering/preferences come along for
-   *   free regardless of which provider you supply.
+   * - `provider` — a single swappable email provider (Resend, Postmark, SES…),
+   *   the back-compat one-provider seam. MERGED LAST (after env presets and
+   *   `providers`), so it wins on id collision. Tracking/rendering/preferences
+   *   come along for free regardless of which provider you supply.
+   * - `providers` — register MANY providers into the {@link EmailProviderRegistry}
+   *   (e.g. Resend + Postmark) so the `POST /v1/webhooks/email/:providerId`
+   *   route can verify each one's webhooks. Merged AFTER the env presets and
+   *   BEFORE `provider`.
+   * - `defaultProvider` — the active provider id the mailer sends through.
+   *   Resolves as `defaultProvider ?? EMAIL_PROVIDER ?? "resend"`. If it names a
+   *   provider that isn't registered (and isn't the lazily-built `"resend"`),
+   *   the container throws at boot with the list of registered ids.
    * - `templates` — the app's template registry (key → component + subject +
    *   category), threaded into the engine mailer and onward to
    *   `getTemplate(..., { registry })`. The engine bakes in no business
@@ -144,6 +153,8 @@ export interface HogsendClientOptions {
    */
   email?: {
     provider?: EmailProvider;
+    providers?: EmailProvider[];
+    defaultProvider?: string;
     templates?: TemplateRegistry;
   };
   /**
@@ -308,24 +319,30 @@ export function createHogsendClient(
   );
 
   // Build the email provider registry, then resolve the single active provider
-  // the mailer sends through. A consumer-supplied `opts.email.provider` wins
-  // over the lazy default (back-compat). The richer env-preset + multi-provider
-  // merge (`opts.email.providers`/`defaultProvider`) lands in a later phase;
-  // here we keep today's single-provider resolution but route it through the
-  // registry so the webhook route can dispatch by id.
-  const emailProviders = new EmailProviderRegistry(
-    opts.email?.provider ? [opts.email.provider] : [],
-  );
+  // the mailer sends through. Merge order is load-bearing (consumer last/wins,
+  // mirroring the destinations merge): env presets FIRST, then
+  // `opts.email.providers`, then the single back-compat `opts.email.provider`
+  // LAST — so a consumer-supplied provider overrides an env preset of the same
+  // id (last-writer-wins on the registry). The registry is what the
+  // `POST /v1/webhooks/email/:providerId` route dispatches by id.
+  const emailProviders = new EmailProviderRegistry([
+    ...emailProvidersFromEnv(env),
+    ...(opts.email?.providers ?? []),
+    ...(opts.email?.provider ? [opts.email.provider] : []),
+  ]);
 
+  // The active provider id the mailer sends through:
+  // `defaultProvider ?? EMAIL_PROVIDER ?? "resend"`.
   const activeId =
-    env.EMAIL_PROVIDER ?? opts.email?.provider?.meta?.id ?? "resend";
+    opts.email?.defaultProvider ?? env.EMAIL_PROVIDER ?? "resend";
   let provider = emailProviders.get(activeId);
 
   if (!provider) {
     if (activeId === "resend") {
       // The ONLY place RESEND_API_KEY is read directly. Lazily build the Resend
-      // provider only when it is the resolved active id and none was injected —
-      // a non-Resend deploy with no RESEND_API_KEY never reaches this.
+      // provider only when it is the resolved active id and none was registered
+      // (no env preset, no injected provider) — a non-Resend deploy with no
+      // RESEND_API_KEY never reaches this.
       if (!env.RESEND_API_KEY) {
         throw new Error(
           "RESEND_API_KEY is required to build the default Resend email " +
@@ -339,8 +356,10 @@ export function createHogsendClient(
       });
       emailProviders.register(provider);
     } else {
+      // A `defaultProvider`/`EMAIL_PROVIDER` that resolves to nothing throws at
+      // boot — NEVER silently fall back to resend for a non-resend id.
       throw new Error(
-        `EMAIL_PROVIDER "${activeId}" is not registered (registered: ${emailProviders
+        `email.defaultProvider "${activeId}" is not registered (registered: ${emailProviders
           .getAll()
           .map((p) => p.meta?.id ?? "resend")
           .join(", ")})`,

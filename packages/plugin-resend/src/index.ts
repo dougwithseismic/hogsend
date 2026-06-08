@@ -7,7 +7,6 @@ export {
 } from "./provider.js";
 // Sending (with retry + auto-chunking)
 export { sendBatchEmails, sendEmail } from "./send.js";
-// Types
 export type {
   BatchEmailItem,
   EmailBouncedEvent,
@@ -17,6 +16,8 @@ export type {
   EmailDeliveryDelayedEvent,
   EmailOpenedEvent,
   EmailProvider,
+  EmailProviderCapabilities,
+  EmailProviderMeta,
   EmailSentEvent,
   SendEmailOptions,
   SendResult,
@@ -24,6 +25,8 @@ export type {
   WebhookEventType,
   WebhookHandlerMap,
 } from "./types.js";
+// Types
+export { defineEmailProvider } from "./types.js";
 // Webhooks
 export {
   createWebhookHandler,
