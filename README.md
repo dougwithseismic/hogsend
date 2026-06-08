@@ -10,9 +10,11 @@ The lifecycle email automation that PostHog teams actually need. Code-first, sel
 
 PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys (email sequences) and buckets (real-time segments) are plain TypeScript functions, not YAML configs or drag-and-drop canvases — and because a user joining a bucket can itself trigger a journey, segmentation and messaging live in one event stream.
 
+PostHog + Resend is the lead wedge, not the cage: events come **in** from PostHog, signed presets for Stripe / Clerk / Supabase / Segment, your own app via the `@hogsend/client` SDK, or any custom webhook source — and engagement and lifecycle events fan **out** to PostHog, Segment, Slack, a CRM, or a warehouse. An inbound → react → outbound lifecycle layer.
+
 Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog and Resend and now need behavioral sequences without buying a third platform.
 
-**[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
+**[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[Integrations](https://docs.hogsend.com/docs/integrations)** | **[Recipes](https://docs.hogsend.com/docs/recipes)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
 
 Everything ships on npm: scaffold an app with `pnpm dlx create-hogsend@latest`, self-host with Docker, or one-click on Railway.
 
@@ -70,6 +72,28 @@ export const wentDormant = defineBucket({
 ```
 
 > Full guide: **[Buckets](https://docs.hogsend.com/docs/guides/buckets)**
+
+---
+
+## Sources & destinations
+
+Hogsend sits between whatever emits events and wherever you want them to land. Journeys and buckets are the reactive middle.
+
+**In** — events arrive from:
+
+- **PostHog** webhooks
+- **Signed presets** for **Stripe**, **Clerk**, **Supabase**, and **Segment** — auto-enabled the moment you set that preset's webhook secret
+- **Your own app** via the `@hogsend/client` SDK or a raw `POST /v1/events`
+- **Any custom source** you write with `defineWebhookSource()`
+
+**Out** — engagement and lifecycle events fan to:
+
+- **PostHog**, **Segment**, **Slack**, a **CRM**, a **warehouse**, or any signed webhook via `defineDestination()`
+- The outbound catalog is 13 events — `contact.*`, `email.*` (including `email.complained`), `journey.completed`, and `bucket.*`
+
+The public data-plane API (`POST /v1/events`, contacts, lists, transactional email) is the front door for all of it — drive it from the typed `@hogsend/client` SDK or plain HTTP.
+
+> Full guides: **[Integrations](https://docs.hogsend.com/docs/integrations)** | **[Recipes](https://docs.hogsend.com/docs/recipes)**
 
 ---
 

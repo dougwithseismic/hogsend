@@ -44,7 +44,8 @@ const TRACKING_CODE = `run: async (user, ctx) => {
     template: "welcome",
   });
   if (sent && count > 0) {
-    ctx.posthog.capture({ event: "welcome_email_engaged" });
+    // Fire a signal that fans out to your destinations.
+    await ctx.trigger({ event: "welcome_email_engaged", userId: user.id });
   }
 }`;
 

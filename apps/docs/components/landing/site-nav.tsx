@@ -11,7 +11,8 @@ const GITHUB_URL = "https://github.com/dougwithseismic/hogsend";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Docs", href: "/docs" },
-  { label: "Getting Started", href: "/docs/getting-started" },
+  { label: "Integrations", href: "/integrations" },
+  { label: "Recipes", href: "/recipes" },
   { label: "Compare", href: "/docs/compare" },
 ];
 
