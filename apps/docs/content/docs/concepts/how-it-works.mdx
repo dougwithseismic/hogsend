@@ -1,194 +1,155 @@
 ---
 title: How It Works
-description: PostHog events flow in, lifecycle emails go out, engagement data flows back. The full loop, and how the engine and your content fit together.
+description: The mental model behind Hogsend — events in, journeys and emails out, engagement back — and how the scaffold maps that model to the files you edit, so every recipe clicks into place.
 ---
 
-## The full loop
+## Hogsend in one mental model
 
-Hogsend sits between PostHog and Resend. Events come in from PostHog, journeys react with emails via Resend, and engagement data flows back to PostHog. It's a closed loop — your product analytics and lifecycle email live in the same event stream.
+Hogsend is the lifecycle layer between **PostHog** (what your users do) and **Resend** (the email you send). Hold three ideas and everything else follows:
+
+1. **Events flow in.** A PostHog webhook, a call from your own app, or any custom webhook source — they all become one kind of thing: an event for a user.
+2. **Your code reacts.** Journeys send lifecycle email, buckets group users in real time, campaigns broadcast to an audience — all written as TypeScript, not drawn on a canvas.
+3. **Engagement flows back.** Opens, clicks, sends, and journey completions fan back out to PostHog (and Segment, Slack, your warehouse), so email lives in the same analytics as everything else.
 
 ![PostHog Lifecycle Email Flow — events flow in, lifecycle emails go out, engagement data flows back](/images/hogsend-lifecycle.png)
 
-## Engine and content
+That's the loop. The rest of this page is the toolkit that lives inside it, and how the scaffold hands it to you.
 
-Before tracing the runtime loop, it helps to know how the codebase is split — because it shapes everything else.
+## Your toolkit: a handful of primitives
 
-Hogsend is split into two halves — the engine you install, and the content you write:
+Everything in the [recipe book](/docs/recipes) is a combination of a few code-first primitives. Learn these once and a recipe becomes "which of these, in what order":
 
-- **The engine** — the framework, shipped as [`@hogsend/engine`](https://hogsend.com) (plus the other `@hogsend/*` packages). It owns the ingestion pipeline, journey runtime, email delivery, tracking, the HTTP API, and the worker loop. You upgrade it with `pnpm up`; you don't edit it.
-- **Your content** — the journeys, email templates, webhook sources, custom routes, config, and your own database migrations. This lives in your repo and is **injected into** the engine's factories. The engine never imports your content.
+| Primitive | What it does | Where it lives | Guide |
+|---|---|---|---|
+| **Events** | the universal trigger — everything starts here | ingested (no file) | [Events](/docs/guides/events) |
+| **Journeys** | `defineJourney()` — durable TypeScript that reacts to an event: send, wait, branch | `src/journeys/` | [Journeys](/docs/guides/journeys) |
+| **Emails** | React Email templates + `sendEmail()` — what journeys send | `src/emails/` | [Email](/docs/guides/email) |
+| **Buckets** | `defineBucket()` — real-time segments that update as events arrive | `src/buckets/` | [Buckets](/docs/guides/buckets) |
+| **Lists** | `defineList()` — subscription categories for the preference center | `src/lists/` | [Email Lists](/docs/guides/lists) |
+| **Destinations** | `defineDestination()` — fan the event stream out to PostHog/Segment/Slack | `src/destinations/` | [Destinations](/docs/guides/destinations) |
+| **Webhook sources** | `defineWebhookSource()` — turn any provider's webhook into an event | `src/webhook-sources/` | [Webhook Sources](/docs/guides/webhook-sources) |
 
-You create your app by scaffolding a fresh repo (`pnpm dlx create-hogsend@latest my-app`) that pins `@hogsend/engine` and contains only content plus two thin entry files. Those entry files wire content into the engine:
+And from your own app code, the [`@hogsend/client`](/docs/data-api/client-sdk) SDK pushes events, upserts contacts, and sends transactional email over the data plane.
 
-```ts
-// src/index.ts — the HTTP API entry (yours, content)
-import { createApp, createHogsendClient } from "@hogsend/engine";
-import { journeys } from "./journeys/index.js";
-import { webhookSources } from "./webhook-sources/index.js";
+## Engine vs. content — why it's all yours
 
-const container = createHogsendClient({ journeys });
-const app = createApp(container, { webhookSources });
-```
+Hogsend ships as a framework you install, not a repo you fork:
 
-```ts
-// src/worker.ts — the worker entry (yours, content)
-import { createHogsendClient, createWorker } from "@hogsend/engine";
-import { journeys } from "./journeys/index.js";
+- **The engine** — [`@hogsend/engine`](https://hogsend.com) (plus the other `@hogsend/*` packages) owns the ingestion pipeline, the durable journey runtime, email delivery + tracking, the HTTP API, and the worker loop. You upgrade it with `pnpm up`; you never edit it.
+- **Your content** — the primitives in the table above. They live in your repo and you **inject** them into the engine. The engine never imports your content.
 
-const container = createHogsendClient({ journeys });
-const worker = createWorker({ container, journeys });
-await worker.start();
-```
+The folders in that table *are* your content: you write the primitives, collect each kind into an array, and hand them to the engine's factories. That boundary is what makes upgrades a `pnpm up` instead of a git merge — see [Philosophy](/docs/concepts/philosophy) and [Upgrading & Customizing](/docs/operating/upgrading).
 
-That's the whole picture: you author content as plain TypeScript, collect it into arrays, and hand those arrays to `createHogsendClient` / `createApp` / `createWorker`. The [Concepts overview](/docs/concepts/philosophy) and [Upgrading & Customizing](/docs/operating/upgrading) docs go deeper on the boundary and the Extend → Patch → Eject ladder.
+## The scaffolding experience
 
-## What happens when a PostHog event arrives
-
-Let's trace a real example. A user signs up in your app, PostHog captures `user_signed_up`, and the webhook fires to Hogsend.
-
-### 1. Event lands at the ingest pipeline
-
-The PostHog webhook hits `POST /v1/webhooks/posthog`. The PostHog webhook source (a piece of **content** in your `src/webhook-sources/`, scaffolded as starter code) transforms the PostHog payload into an internal event — the event name stays the same (`user_signed_up`), the `distinct_id` becomes the `userId`, and `person.properties.email` becomes the `userEmail`. The transform result is fed straight into the engine's `ingestEvent()`.
-
-### 2. Four things happen concurrently
-
-- **Store** — the event is saved to the `user_events` table with its properties and timestamp
-- **Route** — the event is pushed to Hatchet, which routes it to every journey whose trigger matches `user_signed_up`
-- **Exit check** — any active journeys for this user are checked for exit conditions (e.g., if this user was in a "dormancy reactivation" journey, a new signup event might exit them)
-- **Contact upsert** — a contact record is created or updated with the user's email and properties
-
-### 3. The journey starts
-
-If a journey like `activation-welcome` triggers on `user_signed_up`, Hatchet spins up a durable task. Before the `run` function executes, enrollment guards are checked in order:
-
-1. Is the journey enabled (`meta.enabled`)?
-2. Is it enabled by the admin `journeyConfigs` override?
-3. Do the event properties match the trigger conditions (`trigger.where`)?
-4. Has the user exceeded the entry limit?
-5. Is the user subscribed to emails?
-6. Is the user already active in this journey?
-
-If all guards pass, a `journeyStates` row is created and the `run` function begins.
-
-### 4. The journey executes
-
-The journey sends a welcome email, sleeps for 2 days (durably — survives deploys), checks if the user activated, and branches accordingly. Each step updates the journey state in the database so you can see exactly where each user is.
-
-### 5. Emails go out via Resend
-
-When the journey calls `sendEmail()`, Hogsend renders a React Email template, rewrites all links for first-party click tracking, injects an open tracking pixel, generates a signed unsubscribe URL, and sends via Resend with automatic retries. Every email creates a tracked `emailSends` DB row linked to the journey state.
-
-### 6. Engagement fans out to PostHog (and any subscriber)
-
-When the user opens the email or clicks a tracked link, Hogsend's tracking endpoints (`GET /v1/t/o/:id` for opens, `GET /v1/t/c/:id` for click redirects) record the engagement. Two things happen with that signal, and they are not the same event:
-
-- **Internally**, the engagement is pushed through the ingest pipeline so journeys can react. The open fires `email.opened`; the click fires `email.link_clicked`. These feed `ctx.history.hasEvent({ event: "email.opened" })` and any `email_engagement` conditions.
-- **Outbound**, the lifecycle event is fanned out on the durable webhook spine to every subscribed [destination](/docs/data-api/destinations) — PostHog included, via a `kind="posthog"` destination. The outbound catalog uses `email.opened` and `email.clicked` (note: the outbound name is `email.clicked`, not the internal `email.link_clicked`).
-
-With a PostHog destination configured you can:
-- Build cohorts like "users who opened the welcome email but haven't used feature X"
-- See email engagement in product funnels
-- Target users with feature flags based on email interaction
-- Watch session replays of what users did after clicking through
-
-**This is the loop that makes Hogsend valuable.** Your lifecycle emails aren't in a silo — they're part of your PostHog analytics, informing product decisions alongside every other user behavior signal.
-
-## What the engine handles for you
-
-Setting up lifecycle email from scratch means building a lot of plumbing. Here's what `@hogsend/engine` gives you out of the box — all of it consumed via the factories, none of it forked:
-
-### Event ingestion
-- A central `ingestEvent()` pipeline both the ingest endpoint and webhook sources feed into
-- `defineWebhookSource()` for any inbound source (PostHog and others ship as starter content)
-- Public data-plane REST API for direct event pushing (`POST /v1/events`, returns `202`)
-- Webhook sources served at `POST /v1/webhooks/:sourceId`
-
-### Journey orchestration
-- `defineJourney()` with durable execution (sleeps survive deploys)
-- Automatic enrollment guards (entry limits, conditions, subscription checks)
-- Declarative exit conditions evaluated on every incoming event
-- Cross-journey triggers (one journey can start another via `ctx.trigger`)
-- Journey registry built from the `journeys` array you inject, with `ENABLED_JOURNEYS` filtering
-
-### Buckets (real-time membership)
-- [`defineBucket()`](/docs/concepts/buckets) — a peer primitive to journeys: code-defined, real-time membership groups
-- Joins and leaves are evaluated inside the same ingest pipeline, emitting `bucket:entered:<id>` / `bucket:left:<id>` events that journeys can trigger and exit on (bind them with the typed `bucket.entered` / `bucket.left` refs)
-- Criteria reuse the same condition engine as journey triggers and exit rules
-- Colocated reactions via `bucket.on("enter" | "leave" | "dwell", …)` — each desugars to a real durable journey tagged to its bucket, so it gets the full enrollment guards and `JourneyContext`
-- An engine-owned cron reconciles time-based and absence-based leaves PostHog's batch cohorts can't serve in real time, and on the same sweep fires `dwell` reactions for members who have stayed in a bucket for a set duration — including the existing population on first deploy
-
-### Email delivery
-- React Email templates with a type-safe registry
-- Resend integration with automatic retries and exponential backoff
-- Tracked sends with open/click/bounce monitoring
-- Automatic suppression after bounce threshold
-- Signed one-click unsubscribe (RFC 8058 compliant)
-- Preference center with per-category controls
-
-### Contact management
-- Auto-created from events (no manual setup)
-- Properties merged from PostHog person data
-- Bulk import/export (CSV/JSON) via the built-in `importContactsTask`
-- Soft delete with full history preservation
-- Activity timeline per contact
-
-### Operational visibility
-- Admin API for contacts, journeys, emails, events
-- Real-time metrics (journey performance, email deliverability, event volume)
-- Alert rules with Slack, webhook, and email notifications (built-in `checkAlertsTask`)
-- Dead letter queue for failed tasks
-- Audit logging on every admin mutation
-
-## Getting up and running
-
-You don't fork anything. You scaffold a fresh app and let it consume the engine. Prerequisites: Node 22, a package manager (pnpm, npm, yarn, or bun), and Docker running.
-
-### 1. Scaffold
+One command gives you the whole thing — a thin app pinned to the engine, every primitive folder stubbed with a working example, and a local stack:
 
 ```bash
 pnpm dlx create-hogsend@latest my-app
+cd my-app
+pnpm bootstrap     # Docker + .env + auto-mints the Hatchet token + migrate + data-plane key
+pnpm dev           # HTTP API on http://localhost:3002
+pnpm worker:dev    # Hatchet worker (second terminal)
 ```
 
-This emits a thin app pinned to `@hogsend/engine`, with starter journeys, the PostHog webhook source, an `src/emails/` template, and the two entry files (`src/index.ts`, `src/worker.ts`) already wired. The scaffolder installs dependencies and, by default, runs the local setup for you. (Pass `.` instead of a name to scaffold into the current folder; `-h` prints every flag.)
+`pnpm bootstrap` is idempotent and needs **no credentials for local dev**: it starts TimescaleDB + Redis + hatchet-lite, generates a `BETTER_AUTH_SECRET`, **auto-mints the `HATCHET_CLIENT_TOKEN`**, runs both migration tracks, and mints an ingest-scoped `HOGSEND_API_KEY`. Set a real `RESEND_API_KEY` before sending live email. The full walkthrough is in [Installation](/docs/getting-started/installation).
 
-### 2. Bootstrap (one command does the local setup)
+What you get maps one-to-one onto the toolkit:
 
-```bash
-pnpm bootstrap
+```text
+my-app/src/
+├─ journeys/        # defineJourney()      — your lifecycle sequences
+├─ emails/          # React Email templates + registry
+├─ buckets/         # defineBucket()       — real-time segments
+├─ lists/           # defineList()         — subscription categories
+├─ destinations/    # defineDestination()  — outbound fan-out
+├─ webhook-sources/ # defineWebhookSource() — inbound events (PostHog ships here)
+├─ workflows/       # extra Hatchet tasks
+├─ index.ts         # HTTP entry  — wires content into the engine
+└─ worker.ts        # worker entry — runs the durable tasks
 ```
 
-`bootstrap` is idempotent and safe to re-run. It does everything you need to get a running stack — you do **not** bring your own credentials for local dev:
+The two entry files are the only "wiring": you collect each primitive into an array and inject it.
 
-- **Checks Docker** is installed and the daemon is running.
-- **Writes `.env`** from `.env.example` and generates a fresh `BETTER_AUTH_SECRET`.
-- **Resolves ports** — probes the default host ports (Postgres `5434`, Redis `6380`, Hatchet gRPC `7077`, dashboard `8888`) and auto-remaps any that are busy.
-- **Starts containers** — TimescaleDB, Redis, and hatchet-lite via `docker compose up -d --wait`.
-- **Auto-mints the Hatchet token** — talks to the running hatchet-lite container to mint a real `HATCHET_CLIENT_TOKEN` and writes it to `.env`. (Bring-your-own-token is a production concern; locally it's minted for you.)
-- **Runs migrations** — both tracks: the engine schema first, then your client schema.
-- **Mints the data-plane key** — generates an `ingest`-scoped `HOGSEND_API_KEY` (`hsk_…`) and writes it to `.env`, so the [`@hogsend/client`](/docs/data-api/client-sdk) SDK and `hogsend` CLI can write to your instance immediately.
+```ts
+// src/index.ts — the HTTP API
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { journeys } from "./journeys/index.js";
+import { buckets } from "./buckets/index.js";
+import { lists } from "./lists/index.js";
+import { destinations } from "./destinations/index.js";
+import { templates } from "./emails/index.js";
+import { webhookSources } from "./webhook-sources/index.js";
 
-Set a real `RESEND_API_KEY` in `.env` before sending live email — the scaffold ships a placeholder.
-
-### 3. Run
-
-```bash
-pnpm dev          # HTTP API on http://localhost:3002
-pnpm worker:dev   # Hatchet worker (second terminal)
+const client = createHogsendClient({
+  journeys,
+  buckets,
+  lists,
+  destinations,
+  email: { templates },
+});
+const app = createApp(client, { webhookSources });
 ```
 
-The api serves OpenAPI docs at [`/docs`](http://localhost:3002/docs) (Scalar UI) and health at `GET /v1/health` in development. The worker is the long-running process that executes journey tasks, email sends, and background jobs — both processes share the same codebase, and `createHogsendClient` runs in each.
+```ts
+// src/worker.ts — the durable task runner
+import { createHogsendClient, createWorker } from "@hogsend/engine";
+// …same content imports as above, plus:
+import { extraWorkflows } from "./workflows/index.js";
 
-### 4. Connect PostHog
+const client = createHogsendClient({
+  journeys,
+  buckets,
+  lists,
+  destinations,
+  email: { templates },
+});
+const worker = createWorker({
+  container: client,
+  journeys,
+  buckets,
+  extraWorkflows,
+});
+await worker.start();
+```
 
-Add `<your-url>/v1/webhooks/posthog` to PostHog's data-pipeline destinations, then edit the starter journeys in `src/journeys/`. The full walkthrough — including the Hatchet token in production and the PostHog screenshots — lives in [Getting Started](/docs/getting-started).
+Adding a journey is the whole authoring loop: write the file, add it to `src/journeys/index.ts`, and the engine picks it up — same pattern for every other primitive.
 
-Hogsend is a separate service that listens to PostHog events via webhook. Your app doesn't know it exists — you can spin it up, try it, and tear it down without changing a line of application code. Upgrading the framework later is `pnpm up "@hogsend/*"` plus a migration run, never a git merge. That's the point: you get welcome sequences, trial nudges, churn recovery, payment-failure handling, and reactivation campaigns without a six-week integration project, and you keep clean PostHog data and proven journeys whatever you migrate to next.
+## What happens when an event arrives
+
+To make the model concrete, follow one event. A user signs up, PostHog captures `user_signed_up`, and its webhook hits `POST /v1/webhooks/posthog`:
+
+1. **Ingest** — your PostHog webhook source transforms the payload into an event (`distinct_id` → `userId`, `person.properties.email` → `userEmail`) and hands it to the engine's `ingestEvent()`.
+2. **Fan out, concurrently** — the event is **stored** in `user_events`, **routed** to every journey and bucket whose trigger matches, **checked** against the exit conditions of the user's active journeys, and the **contact** is upserted.
+3. **A journey enrolls** — if a journey triggers on `user_signed_up`, the engine runs its enrollment guards (enabled, `trigger.where`, entry limit, subscription, not-already-active), then starts a durable run.
+4. **It runs** — send a welcome email, `ctx.sleep({ duration: days(2) })` (survives deploys), check whether the user activated, branch. Every step is persisted, so you can see exactly where each user is.
+5. **Email goes out** — `sendEmail()` renders the template, rewrites links + injects the open pixel for first-party tracking, signs an unsubscribe URL, and sends via Resend with retries.
+6. **Engagement flows back** — opens and clicks are recorded and pushed back through the pipeline so journeys can react (`email.opened` / `email.link_clicked`), and fanned out to your [destinations](/docs/data-api/destinations) — PostHog included, where the outbound catalog calls them `email.opened` / `email.clicked`.
+
+Same event in, a different lifecycle out — and the whole thing is your TypeScript.
+
+## From the model to the recipe book
+
+Once the toolkit clicks, the [recipes](/docs/recipes) are just combinations of these pieces:
+
+| You want to… | Combine | Recipe |
+|---|---|---|
+| Send a one-off transactional email (receipt, reset) | an event + an email template (or `hs.emails.send`) | [Transactional Emails](/docs/recipes/transactional-emails) |
+| Run a multi-step lifecycle sequence | a journey + emails + `ctx.sleep` / `ctx.waitForEvent` | [Lifecycle Journeys](/docs/recipes/lifecycle-journeys) |
+| Broadcast to an audience | a bucket or list + a campaign | [Marketing Campaigns](/docs/recipes/marketing-campaigns) |
+| Get events and contacts in | a webhook source or `hs.events.send` | [Events and Contacts](/docs/recipes/events-and-contacts) |
+
+Pick the outcome, reach for the primitives, write the code.
+
+## What the engine handles for you
+
+Because you only write content, the engine brings the batteries — all consumed through the factories, none of it forked: durable execution (sleeps survive deploys), enrollment guards + exit conditions, the [condition engine](/docs/guides/conditions) shared across journeys and buckets, React Email rendering + open/click/bounce tracking + automatic suppression + one-click unsubscribe, contact management, the durable outbound webhook spine (retries + dead-letter queue), a public [data-plane API](/docs/data-api), and an admin API with metrics, alerts, and audit logs.
 
 ## Next steps
 
 <Cards>
   <Card title="Getting Started" href="/docs/getting-started" />
   <Card title="Installation" href="/docs/getting-started/installation" />
+  <Card title="Recipes" href="/docs/recipes" />
   <Card title="Journeys" href="/docs/guides/journeys" />
-  <Card title="Philosophy" href="/docs/concepts/philosophy" />
 </Cards>
