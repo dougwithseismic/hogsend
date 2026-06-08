@@ -73,8 +73,15 @@ async function main(): Promise<void> {
   const flags = parseGlobalFlags(afterToken);
   const out = createOutput({ json: flags.json });
 
-  // `hogsend <cmd> --help` short-circuits to the command's usage block.
-  if (flags.help) {
+  // `hogsend <cmd> --help` short-circuits to the command's usage block — but
+  // only when there's no subcommand positional. With a subcommand present
+  // (e.g. `hogsend studio admin --help`) we defer to the command so it can
+  // render subcommand-specific help, re-injecting `--help` into its argv (bin
+  // owns/strips the global flag) so the command re-detects it. Commands
+  // without subcommand help just print their top-level usage on seeing it,
+  // matching the prior behavior.
+  const hasSubcommand = flags.rest.some((token) => !token.startsWith("-"));
+  if (flags.help && !hasSubcommand) {
     out.log(command.usage);
     return;
   }
@@ -83,8 +90,11 @@ async function main(): Promise<void> {
   const http = createAdminClient(cfg);
   const dataHttp = createDataPlaneClient(cfg);
 
+  const commandArgv =
+    flags.help && hasSubcommand ? [...flags.rest, "--help"] : flags.rest;
+
   await command.run({
-    argv: flags.rest,
+    argv: commandArgv,
     cfg,
     http,
     dataHttp,

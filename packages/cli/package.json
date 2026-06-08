@@ -48,6 +48,9 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.5.0",
+    "@hogsend/db": "workspace:^",
+    "@hogsend/engine": "workspace:^",
+    "better-auth": "^1.6.11",
     "picocolors": "^1.1.1"
   }
 }
