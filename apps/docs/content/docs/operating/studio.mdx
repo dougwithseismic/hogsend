@@ -63,11 +63,34 @@ Without `--base-url` the Studio calls the local server it is served from (static
 
 ## First load: create an admin
 
-Hogsend is single-tenant with **closed signup** — the very first user to register becomes the admin, and signups close after that.
+Hogsend is single-tenant with **closed signup** — exactly one operator ever registers (the admin), and signups close after that.
 
-On first load the Studio probes `GET /v1/auth/status`. If no admin exists yet (`needsSetup: true`) it shows a **create-admin** form; submitting it registers the first user via Better Auth. Once an admin exists, every subsequent load shows the **login** form instead. After a valid session the app shell loads.
+On first load the Studio probes `GET /v1/auth/status`. If no admin exists yet (`needsSetup: true`) it shows a **create-admin** form. Once an admin exists, every subsequent load shows the **login** form instead, and after a valid session the app shell loads.
 
-This is the security control that lets the admin API trust any authenticated session: only the first user can ever register, so any logged-in session is an intended operator.
+### The setup token (closes the first-run land-grab)
+
+A fresh public deploy with no users would otherwise let *any* anonymous network visitor who reaches it first claim the admin. To close that race, the first-admin create requires a **setup token** — the same posture as a self-hosted Supabase/GitLab dashboard gated by env credentials.
+
+- Set **`STUDIO_SETUP_TOKEN`** in your deploy env and use that value, **or**
+- leave it unset and the engine **auto-generates one and prints it to the server log once on first boot** (the operator-only surface). It is never returned over HTTP.
+
+Paste the token into the create-admin form's *Setup token* field. The engine compares it server-side in constant time before allowing the first sign-up; once any admin exists, sign-up is closed outright regardless of the token. This is the security control that lets the admin API trust any authenticated session: the first user can only be created by someone holding the token, so any logged-in session is an intended operator.
+
+### Forgot your password?
+
+The login screen has a **Forgot password?** link. It emails a single-use, 15-minute reset link via your configured email provider; the link opens the Studio's reset card. The request always returns a neutral response (no account enumeration). If **no email provider is configured**, use the CLI recovery path below instead.
+
+### Locked out: recover from a shell
+
+When you can't get in at all — no admin yet on a server you can't watch the logs of, or a forgotten password with no email provider — use the shell-gated [`hogsend studio admin`](/docs/cli/studio#hogsend-studio-admin--shell-gated-account-recovery) commands on a host that holds `DATABASE_URL` + `BETTER_AUTH_SECRET`:
+
+```bash
+hogsend studio admin create --email admin@example.com   # bootstrap the first admin
+hogsend studio admin reset  --email admin@example.com   # rotate a forgotten password
+hogsend studio admin list                               # see who exists
+```
+
+These write the password through Better Auth (scrypt) directly against the database — no HTTP, no setup token, never plaintext at rest.
 
 ## Creating an API key
 

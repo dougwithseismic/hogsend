@@ -34,3 +34,42 @@ hogsend studio --port 4000
 - Without `--base-url`, the Studio calls the local server it is served from (static preview only — API calls will fail). Set `--base-url` to your instance, or open `<instance>/studio` directly.
 - Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio's origin (CORS + cross-site cookies). For a hosted instance, the mounted `<instance>/studio` is the simplest path.
 - The command keeps running until you press `Ctrl+C`.
+
+## `hogsend studio admin` — shell-gated account recovery
+
+Recover or bootstrap a Studio admin account from a trusted shell — the same pattern as PostHog/GitLab/Rails management commands. This talks **directly to the database** (no HTTP, no running API): it builds a Better Auth instance against `DATABASE_URL` and uses Better Auth's server API, so password hashing is identical to the running app. Holding both `DATABASE_URL` and `BETTER_AUTH_SECRET` *is* the gate.
+
+```bash
+hogsend studio admin <create|reset|list> [options]
+```
+
+| Command | Purpose |
+|---|---|
+| `create` | Create a Studio admin (the first admin, or another). Bypasses the network setup-token gate by construction — correct for a trusted shell. |
+| `reset` | Set a new password for an existing admin (by email). Revokes existing sessions by default (`--no-revoke` to keep them). |
+| `list` | List existing admins (`id`, `email`, `name`, `createdAt`). Never selects a password/hash column. |
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--email <e>` | Admin email (required; prompted in a TTY if omitted). |
+| `--name <n>` | Display name for `create` (defaults to the email local-part). |
+| `--password <p>` | Password for `create`/`reset`. Prefer the masked prompt — a value passed here can leak into your shell history. |
+| `--no-revoke` | (`reset`) Keep existing sessions instead of revoking them. |
+| `--database-url <u>` | Override `DATABASE_URL` (else env, then the cwd `.env`). |
+| `--json` | Emit a single JSON result document (non-interactive). |
+| `-h, --help` | Show this help. |
+
+### Examples
+
+```bash
+hogsend studio admin create --email admin@example.com   # masked password prompt
+hogsend studio admin reset  --email admin@example.com
+hogsend studio admin list --json
+```
+
+### Security
+
+- Passwords are written **only** through Better Auth (scrypt) — never raw SQL, never plaintext at rest, never logged. The masked prompt is preferred over `--password`.
+- This is the guaranteed recovery path that the self-service [password reset](/docs/operating/studio#forgot-your-password) email points operators to when no email provider is configured.

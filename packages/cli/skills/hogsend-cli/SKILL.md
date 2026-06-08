@@ -4,7 +4,7 @@ description: Use when an agent needs to inspect or operate a running Hogsend lif
 license: MIT
 metadata:
   author: withSeismic
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Hogsend CLI
@@ -75,6 +75,8 @@ Most commands READ (admin API). A handful WRITE through the data plane — marke
 | `hogsend events send <name>` | **(write)** Push an event → `POST /v1/events`. `--email`/`--user-id` (≥1 required), `--prop`/`--props` (event props), `--contact-prop`/`--contact-props` (contact props), `--list`/`--unlist`, `--idempotency-key`, `--timestamp`. |
 | `hogsend emails send <template>` | **(write)** Send a transactional email → `POST /v1/emails`. `--to`/`--user-id` (≥1 required), `--prop`/`--props`, `--subject`, `--from`, `--reply-to`, `--category`, `--idempotency-key`, `--skip-preference-check` (needs full-admin). |
 | `hogsend webhooks list/get/create/update/delete/rotate-secret/test` | Manage **outbound** signed webhook endpoints (the event stream Hogsend emits to your URLs) → `/v1/admin/webhooks`. Needs the **admin key**, not the data key. `create --url <url>` + repeatable `--event <type>` or `--all-events`; the signing secret prints ONCE on `create` + `rotate-secret`. |
+| `hogsend studio` | Serve the bundled Studio admin SPA locally (optionally against a remote `--base-url`). |
+| `hogsend studio admin create/reset/list` | **Shell-gated** Studio admin recovery — DB-DIRECT, not HTTP. Gated by holding `DATABASE_URL` + `BETTER_AUTH_SECRET`; writes passwords via Better Auth (scrypt), never raw SQL. `create` bootstraps the first admin (bypasses the network setup-token gate), `reset --email <e>` rotates a forgotten password (revokes sessions unless `--no-revoke`), `list` shows admins (no secrets). |
 | `hogsend skills list/add` | Manage these bundled agent skills. |
 | `hogsend upgrade` | Bump `@hogsend/*` deps to latest + refresh vendored skills. |
 | `hogsend setup` | Interactive LOCAL onboarding (docker, secret, migrate). |
@@ -106,3 +108,7 @@ Run `hogsend <command> --help` for per-command usage.
    make sure a data key resolves (`--data-key` > `HOGSEND_DATA_KEY` >
    `HOGSEND_API_KEY`) for the data-plane writes.
 4. Use `--limit`/`--offset` for pagination instead of dumping everything.
+5. `studio admin` is the ONE family that does NOT use the HTTP API — it talks to
+   the database directly and is gated by `DATABASE_URL` + `BETTER_AUTH_SECRET`
+   (no `--url`/`--admin-key`). It's account recovery, not data ops — prefer the
+   masked password prompt over `--password` (which can leak into shell history).
