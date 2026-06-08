@@ -293,7 +293,7 @@ Artifacts:
 - Demote the Railway deploy button in root `README.md` below a Docker quickstart.
 - Rewrite `skills/manage-hogsend/references/provision.md` + `CLAUDE.md` off Railway MCP
   tools onto the `railway` CLI (per the no-MCP-Railway memory) and reframe the 6-service
-  topology + the `sYUYH8` button as "one paved Railway path."
+  topology + the `LxSCyR` button as "one paved Railway path."
 
 ### Phase 8 — CLI multi-target deploy + `doctor`
 Artifacts:

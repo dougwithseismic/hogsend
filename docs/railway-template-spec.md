@@ -1,121 +1,95 @@
 # Railway template spec (maintainer)
 
 The canonical variable layout for the published Hogsend Railway template
-(`https://railway.com/deploy/sYUYH8`). The goal: a fresh deploy comes up working
-with **one** manual step (mint a Hatchet token), and **zero** of the maintainer's
-own secrets leak into it.
+(`https://railway.com/deploy/LxSCyR`). Goal: a fresh deploy comes up working with
+**one** manual step (mint a Hatchet token), and **none** of the maintainer's own
+secrets leak into it.
 
-> The Railway CLI can *deploy from* a template but **cannot publish or edit one** —
-> that is a dashboard / GraphQL action. This file is the spec you apply when you
-> (re)publish the template from a project environment.
+> Verified against the live template in the Railway dashboard (June 2026). The
+> template was already configured to (almost) this spec — the only gap was
+> `API_PUBLIC_URL`, added on both api + worker so unsubscribe + email-tracking
+> links don't fall back to `http://localhost:3002`. See "What was fixed" below.
+
+## Which template
+
+There are two workspace templates named "Hogsend - Posthog Audience Stack":
+
+| Template id | Deploy code | State |
+|---|---|---|
+| `291daa3b-9c75-4110-8cce-36697b94ce65` | **`LxSCyR`** | **canonical** — complete, all vars wired (use this everywhere) |
+| (duplicate) | `sYUYH8` | incomplete duplicate — **delete it** to avoid confusion |
+
+The Railway CLI can `deploy --template` and `templates search` but **cannot
+publish or edit** a template — composition is dashboard-only. Edit `LxSCyR` via
+`railway.com/workspace/templates/291daa3b-…`.
 
 ## Topology (6 services)
 
-| Service | Source | Role |
+`hogsend-api` (repo, `railway.toml`) · `hogsend-worker` (repo, `railway.worker.toml`)
+· `Postgres` (Timescale) · `Redis` · `hatchet-lite` · `Postgres-J_tJ` (Hatchet's DB).
+**No `hogsend-docs`** — that's hogsend.com, not part of a deployer's stack.
+
+## What can't be one-click
+
+Everything self-resolves **except `HATCHET_CLIENT_TOKEN`**: a self-hosted Hatchet
+mints its client token only after the server boots, so no template mechanism can
+pre-fill it — even Hatchet's own official Railway template
+(`railway.com/deploy/hatchet-lite`) leaves this as a manual "dashboard → Settings
+→ API Tokens → Create" step. Deploy flow:
+
+1. Click deploy → fill `RESEND_API_KEY` (the only required input besides the token).
+2. Once hatchet-lite is up, mint a token, set `HATCHET_CLIENT_TOKEN` on the api,
+   redeploy. (The worker references the api's value, so you set it once.)
+
+## `hogsend-api` variables (as configured)
+
+2 required user-inputs + 12 pre-configured:
+
+| Variable | Value | Kind |
 |---|---|---|
-| `hogsend-api` | repo, `railway.toml` | HTTP API, ingestion, auth, `/v1/health` |
-| `hogsend-worker` | repo, `railway.worker.toml` | Hatchet worker (durable tasks) |
-| `Postgres` | `timescale/timescaledb:latest-pg18` | primary database |
-| `Redis` | `redis:8` | PostHog property cache |
-| `hatchet-lite` | `ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest` | workflow engine |
-| Hatchet Postgres | `postgres-ssl:16` | Hatchet's own metadata DB |
+| `RESEND_API_KEY` | *(empty)* | required input |
+| `HATCHET_CLIENT_TOKEN` | *(empty)* | required input (mint post-deploy) |
+| `API_PUBLIC_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` | pre-configured |
+| `BETTER_AUTH_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` | pre-configured |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | reference |
+| `REDIS_URL` | `${{Redis.REDIS_URL}}` | reference |
+| `BETTER_AUTH_SECRET` | `${{secret(32)}}` | generated |
+| `RESEND_FROM_EMAIL` | `noreply@hogsend.com` | default (deployer changes) |
+| `HATCHET_CLIENT_HOST_PORT` | `hatchet-lite.railway.internal:7077` | internal |
+| `HATCHET_CLIENT_API_URL` | `https://${{RAILWAY_SERVICE_HATCHET_LITE_URL}}` | reference |
+| `HATCHET_CLIENT_TLS_STRATEGY` | `none` | internal |
+| `NODE_ENV` | `production` | default |
+| `PORT` | `3002` | default |
+| `LOG_LEVEL` | `info` | default |
 
-> The dogfood project also runs `hogsend-docs`. **Do not include it in the
-> template** — it is hogsend.com itself, not part of a deployer's stack.
+## `hogsend-worker` variables (as configured)
 
-## What can and can't be one-click
+No required inputs — it references the api for everything user-supplied. 12
+pre-configured: `API_PUBLIC_URL=https://${{RAILWAY_SERVICE_HOGSEND_API_URL}}`,
+`RESEND_API_KEY=${{hogsend-api.RESEND_API_KEY}}`,
+`HATCHET_CLIENT_TOKEN=${{hogsend-api.HATCHET_CLIENT_TOKEN}}`,
+`BETTER_AUTH_SECRET=${{hogsend-api.BETTER_AUTH_SECRET}}`,
+`BETTER_AUTH_URL=https://${{RAILWAY_SERVICE_HOGSEND_API_URL}}`, plus the same
+`DATABASE_URL` / `REDIS_URL` / `RESEND_FROM_EMAIL` / `HATCHET_CLIENT_*` / `NODE_ENV`
+as the api. Start command: `pnpm --filter @hogsend/api worker`.
 
-Every variable can self-resolve in the template **except `HATCHET_CLIENT_TOKEN`**.
-A self-hosted Hatchet mints its client token *after* the server boots, so no
-template mechanism can pre-fill a working value — even Hatchet's own official
-Railway template (`railway.com/deploy/hatchet-lite`) leaves this as a manual
-"dashboard → Settings → API Tokens → Create" step. So the deploy story is:
+`API_PUBLIC_URL` matters on the worker because email sending (and the unsubscribe +
+open/click link rewriting that rides along) happens there.
 
-1. Click deploy → fill `RESEND_API_KEY` + `RESEND_FROM_EMAIL` (the only required
-   inputs).
-2. After hatchet-lite is up, mint a token and set `HATCHET_CLIENT_TOKEN` on the
-   api + worker, redeploy. (One-time.)
+## What was fixed (June 2026)
 
-Everything else — DB/Redis wiring, auth secret, public URLs — is automatic.
+`API_PUBLIC_URL` was missing on both services, so it fell back to the `env.ts`
+default `http://localhost:3002` — every email a deployed instance sent would carry
+localhost unsubscribe/tracking links. Added:
 
-## Variable spec: `hogsend-api` and `hogsend-worker`
+- api → `API_PUBLIC_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`
+- worker → `API_PUBLIC_URL=https://${{RAILWAY_SERVICE_HOGSEND_API_URL}}`
 
-Set on **both** services (they share the env contract). Values use Railway
-reference / generated-secret syntax so they resolve at deploy time.
+Saved to template `291daa3b` (= `LxSCyR`).
 
-| Variable | Template value | Notes |
-|---|---|---|
-| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | reference to the Timescale service |
-| `REDIS_URL` | `${{Redis.REDIS_URL}}` | reference to the Redis service |
-| `BETTER_AUTH_SECRET` | `${{secret(48)}}` | Railway generates a fresh secret (>=32 chars) |
-| `HATCHET_CLIENT_HOST_PORT` | `${{hatchet-lite.RAILWAY_PRIVATE_DOMAIN}}:7077` | internal gRPC |
-| `HATCHET_CLIENT_TLS_STRATEGY` | `none` | internal traffic, no TLS |
-| `HATCHET_CLIENT_TOKEN` | *(empty — required user input)* | mint post-deploy; see above |
-| `RESEND_API_KEY` | *(empty — required user input)* | from resend.com → API Keys |
-| `RESEND_FROM_EMAIL` | *(empty — required user input)* | a verified Resend sender |
-| `NODE_ENV` | `production` | disables `/docs` + `/openapi.json` |
-| `PORT` | `3002` | Railway may inject its own |
-| `LOG_LEVEL` | `info` | |
-| `ENABLED_JOURNEYS` | `*` | load all journeys |
-| `ADMIN_API_KEY` | `${{secret(32)}}` | optional; gates `/v1/admin/*` + CLI |
+## Follow-ups
 
-API-only (the worker has no public HTTP port, so it doesn't need these):
-
-| Variable | Template value |
-|---|---|
-| `API_PUBLIC_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
-| `BETTER_AUTH_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` |
-
-`RAILWAY_PUBLIC_DOMAIN` resolves once the api service has a generated/attached
-domain — the template should generate one for the api on deploy.
-
-## Variable spec: `hatchet-lite`
-
-Mirrors the working stack (these are already set correctly in production):
-`SERVER_GRPC_PORT=7077`, `SERVER_GRPC_BIND_ADDRESS=0.0.0.0`,
-`SERVER_GRPC_INSECURE=t`, `SERVER_GRPC_BROADCAST_ADDRESS=${{RAILWAY_PRIVATE_DOMAIN}}:7077`,
-`SERVER_DEFAULT_ENGINE_VERSION=V1`, `SERVER_MSGQUEUE_KIND=postgres`,
-`SERVER_AUTH_COOKIE_INSECURE=t`, `SERVER_AUTH_SET_EMAIL_VERIFIED=t`,
-`SERVER_URL` / `SERVER_AUTH_COOKIE_DOMAIN` from its public domain,
-`DATABASE_URL` referencing the Hatchet Postgres. Needs a volume for its data.
-
-## (Re)publishing the template
-
-1. Pick the environment to publish from. Apply the spec above to that
-   environment's services (do **not** mutate the live `production` services unless
-   you intend to). The script below stamps the parameterized values.
-2. In the Railway dashboard: project → **Settings → Publish/Update Template** (or
-   the template's own edit page). Confirm each service's variables show the
-   reference/`secret()` forms, that `RESEND_*` + `HATCHET_CLIENT_TOKEN` are marked
-   as user input, and that `hogsend-docs` is excluded.
-3. Deploy the template once from an incognito window and walk the two-step flow to
-   verify it comes up green after the token is set.
-
-### Stamp the parameterized vars (CLI)
-
-Run against the environment you'll publish from — pass its name as `$ENV`.
-Service names in `${{...}}` references are case-sensitive; match them exactly.
-
-```bash
-ENV=template   # the environment you publish the template from — NOT production
-for svc in hogsend-api hogsend-worker; do
-  railway variables --service "$svc" --environment "$ENV" --skip-deploys \
-    --set 'DATABASE_URL=${{Postgres.DATABASE_URL}}' \
-    --set 'REDIS_URL=${{Redis.REDIS_URL}}' \
-    --set 'BETTER_AUTH_SECRET=${{secret(48)}}' \
-    --set 'HATCHET_CLIENT_HOST_PORT=${{hatchet-lite.RAILWAY_PRIVATE_DOMAIN}}:7077' \
-    --set 'HATCHET_CLIENT_TLS_STRATEGY=none' \
-    --set 'ADMIN_API_KEY=${{secret(32)}}' \
-    --set 'NODE_ENV=production' \
-    --set 'PORT=3002' \
-    --set 'LOG_LEVEL=info' \
-    --set 'ENABLED_JOURNEYS=*'
-done
-# api-only public URLs
-railway variables --service hogsend-api --environment "$ENV" --skip-deploys \
-  --set 'API_PUBLIC_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}' \
-  --set 'BETTER_AUTH_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}'
-```
-
-Leave `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `HATCHET_CLIENT_TOKEN` unset so
-the template surfaces them as inputs (and so no real key is baked in).
+- Delete the duplicate `sYUYH8` template.
+- Optional: add `LOG_LEVEL=info` to the worker for parity (currently defaults to
+  `debug`); add optional `ADMIN_API_KEY=${{secret(32)}}` if you want CLI/admin
+  access pre-wired.
