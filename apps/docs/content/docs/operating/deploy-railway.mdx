@@ -24,11 +24,14 @@ It stands up six services, pre-wired:
 | **hatchet-lite** | Self-hosted workflow engine (the `hatchet-lite` image) |
 | **Hatchet Postgres** | Hatchet's own metadata database |
 
-The template links the internal connections — `DATABASE_URL`, `REDIS_URL`, and the Hatchet gRPC address — for you. Three things still need your input after the first deploy:
+The template wires everything it can on its own: `DATABASE_URL` and `REDIS_URL` (service references), the Hatchet gRPC address, a freshly generated `BETTER_AUTH_SECRET`, and `API_PUBLIC_URL` / `BETTER_AUTH_URL` derived from the api's Railway domain. Two things still need you after the first deploy:
 
 1. **Resend** — set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` on **both** the api and worker. Until the key is set the api can't pass its `/v1/health` check.
-2. **Public URL** — generate a domain on the **api** service, then set `API_PUBLIC_URL` and `BETTER_AUTH_URL` to it (e.g. `https://api.yourapp.com`). These build the unsubscribe + tracking links inside outgoing email, so a localhost value would leak into real mail.
-3. **Hatchet token** — open the **hatchet-lite** dashboard, mint an API token, and set `HATCHET_CLIENT_TOKEN` on both the api and worker, then redeploy. See [Get a Hatchet token](/docs/getting-started/hatchet).
+2. **Hatchet token** (one-time) — Hatchet mints its client token *after* the server boots, so it can't be pre-filled. Open the **hatchet-lite** dashboard → Settings → API Tokens → create one, set it as `HATCHET_CLIENT_TOKEN` on both the api and worker, and redeploy. This is the same single step Hatchet's own Railway template requires. See [Get a Hatchet token](/docs/getting-started/hatchet).
+
+<Callout type="info">
+  Bringing a custom domain? Attach it to the api service and update `API_PUBLIC_URL` + `BETTER_AUTH_URL` to match — those build the unsubscribe + tracking links inside outgoing email, so they must be your real public URL.
+</Callout>
 
 Then verify the live api:
 
