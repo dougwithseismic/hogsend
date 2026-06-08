@@ -4,10 +4,10 @@ import { sendBatchEmails, sendEmail } from "./send.js";
 import {
   type BatchEmailItem,
   defineEmailProvider,
+  type EmailEvent,
   type EmailProvider,
   type SendEmailOptions,
   type SendResult,
-  type WebhookEvent,
 } from "./types.js";
 import { parseWebhookEvent, verifyWebhook } from "./webhooks.js";
 
@@ -53,7 +53,7 @@ export function createResendProvider(
     verifyWebhook(opts: {
       payload: string;
       headers: Record<string, string>;
-    }): WebhookEvent {
+    }): EmailEvent {
       if (!config.webhookSecret) {
         throw new Error(
           "webhookSecret is required on the provider to verify webhooks",
@@ -66,7 +66,7 @@ export function createResendProvider(
       });
     },
 
-    parseWebhook(payload: string): WebhookEvent {
+    parseWebhook(payload: string): EmailEvent {
       return parseWebhookEvent(payload);
     },
   });

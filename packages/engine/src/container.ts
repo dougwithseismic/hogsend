@@ -367,6 +367,20 @@ export function createHogsendClient(
     }
   }
 
+  // Tracking sovereignty: first-party open/click tracking is the single source
+  // of truth. A provider that can't force its OWN tracking off per-send (an
+  // account-level toggle — e.g. Resend) declares `nativeTracking: true`. We
+  // can't reach that toggle, so we WARN at boot. The outbound-echo suppression
+  // in `dispatchWebhook` is the defence: a native open/click webhook only
+  // touches DB status, never re-emits outbound.
+  if (provider.capabilities?.nativeTracking === true) {
+    logger.warn(
+      `provider ${
+        provider.meta?.id ?? "resend"
+      } reports account-level native tracking ON; disable it in the dashboard — first-party tracking is Hogsend's source of truth.`,
+    );
+  }
+
   const defaults: HogsendDefaults = {
     timezone: opts.defaults?.timezone ?? "UTC",
     sendWindow: opts.defaults?.sendWindow,
@@ -389,7 +403,6 @@ export function createHogsendClient(
         defaultFrom: env.EMAIL_FROM ?? env.RESEND_FROM_EMAIL,
         templates,
         db,
-        webhookSecret: env.RESEND_WEBHOOK_SECRET,
         bounceThreshold: 3,
         baseUrl: env.API_PUBLIC_URL,
         frequencyCap: defaults.frequencyCap,

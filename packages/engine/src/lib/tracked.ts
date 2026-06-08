@@ -31,6 +31,19 @@ import { emitOutbound } from "./outbound.js";
 // engine libs (define-journey, preferences).
 const emitLogger = createLogger(process.env.LOG_LEVEL);
 
+/** First neutral tag → the provider-funnel `tag`. */
+const tagsToTag = (
+  tags?: Array<{ name: string; value: string }>,
+): string | undefined => tags?.[0]?.value;
+
+/** Neutral `{name,value}[]` → provider `metadata` record. */
+const tagsToMetadata = (
+  tags?: Array<{ name: string; value: string }>,
+): Record<string, string> | undefined =>
+  tags && tags.length > 0
+    ? Object.fromEntries(tags.map((t) => [t.name, t.value]))
+    : undefined;
+
 export type PrepareTrackedHtmlFn = (opts: {
   html: string;
   emailSendId: string;
@@ -258,23 +271,30 @@ export async function sendTrackedEmail<K extends TemplateName>(
   const emailSendId = insertedRow.id;
 
   try {
-    let html: string | undefined;
-    if (options.baseUrl && prepareTrackedHtml) {
-      const rawHtml = await renderToHtml(sendElement);
-      html = await prepareTrackedHtml({
-        html: rawHtml,
-        emailSendId,
-        baseUrl: options.baseUrl,
-        db,
-      });
-    }
+    // HTML-ONLY wire — the engine ALWAYS renders React → HTML itself. When
+    // tracking is on (baseUrl + prepareTrackedHtml) we render then rewrite
+    // links/inject the open pixel; otherwise we render plain HTML. React Email
+    // stays first-class for authoring/Studio; it never crosses the wire.
+    const rawHtml = await renderToHtml(sendElement);
+    const html =
+      options.baseUrl && prepareTrackedHtml
+        ? await prepareTrackedHtml({
+            html: rawHtml,
+            emailSendId,
+            baseUrl: options.baseUrl,
+            db,
+          })
+        : rawHtml;
 
+    const tag = tagsToTag(options.tags);
+    const metadata = tagsToMetadata(options.tags);
     const result = await provider.send({
       from: options.from,
       to: options.to,
       subject,
-      ...(html ? { html } : { react: sendElement }),
-      tags: options.tags,
+      html,
+      ...(tag !== undefined ? { tag } : {}),
+      ...(metadata ? { metadata } : {}),
       headers: sendHeaders,
       replyTo: options.replyTo,
     });

@@ -1,9 +1,10 @@
 import type {
   BatchEmailItem,
   DurationObject,
+  EmailEvent,
+  EmailEventType,
   SendEmailOptions,
   SendResult,
-  WebhookEventType,
   WebhookHandlerMap,
 } from "@hogsend/core";
 import type {
@@ -126,7 +127,6 @@ export interface EmailServiceConfig {
    */
   templates: TemplateRegistry;
   db?: unknown;
-  webhookSecret?: string;
   webhookHandlers?: WebhookHandlerMap;
   retryOptions?: RetryOptions;
   bounceThreshold?: number;
@@ -162,13 +162,18 @@ export interface EmailServiceSendOptions<
   idempotencyKey?: string;
 }
 
+/**
+ * @deprecated The route now verifies the provider webhook and hands
+ * {@link EmailService.handleWebhook} an already-parsed {@link EmailEvent}. This
+ * raw `{ payload, headers }` shape is no longer the handler input.
+ */
 export interface EmailServiceWebhookOptions {
   payload: string;
   headers: Record<string, string>;
 }
 
 export interface EmailServiceWebhookResult {
-  type: WebhookEventType;
+  type: EmailEventType;
   handled: boolean;
 }
 
@@ -187,7 +192,14 @@ export interface EmailService {
     options: EmailServiceRenderOptions<K>,
   ): Promise<EmailServiceRenderResult>;
 
+  /**
+   * Dispatch an already-verified, provider-neutral {@link EmailEvent} into the
+   * status/suppression/outbound pipeline. The webhook route owns provider
+   * resolution + signature verification and passes the parsed event + the
+   * resolving `providerId` (the latter is informational for now).
+   */
   handleWebhook(
-    options: EmailServiceWebhookOptions,
+    event: EmailEvent,
+    providerId?: string,
   ): Promise<EmailServiceWebhookResult>;
 }

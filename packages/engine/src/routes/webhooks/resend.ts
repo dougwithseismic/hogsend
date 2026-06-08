@@ -1,3 +1,4 @@
+import { WebhookHandshakeSignal } from "@hogsend/core";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 
@@ -53,29 +54,32 @@ export const resendWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
     // handleWebhook flow.
     const { emailProviders, emailService, logger } = c.get("container");
 
-    if (!emailProviders.get("resend")) {
+    const provider = emailProviders.get("resend");
+    if (!provider) {
       return c.json({ error: "Unknown email provider" }, 404);
     }
 
     const rawBody = await c.req.text();
     const headers: Record<string, string> = {};
     for (const [key, value] of c.req.raw.headers.entries()) {
-      headers[key] = value;
+      headers[key.toLowerCase()] = value;
     }
 
     try {
-      const result = await emailService.handleWebhook({
-        payload: rawBody,
-        headers,
-      });
+      const event = await provider.verifyWebhook({ payload: rawBody, headers });
+      const result = await emailService.handleWebhook(event, "resend");
 
       logger.info("Resend webhook processed", {
-        type: result.type,
+        type: event.type,
         handled: result.handled,
       });
 
       return c.json({ ok: true }, 200);
     } catch (err) {
+      if (err instanceof WebhookHandshakeSignal) {
+        logger.info("Resend webhook handshake", { action: err.action });
+        return c.json({ ok: true }, 200);
+      }
       logger.warn("Resend webhook failed", {
         error: err instanceof Error ? err.message : String(err),
       });

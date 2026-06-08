@@ -12,6 +12,28 @@ function normalizeRecipients(to: string | string[]): string[] {
   return Array.isArray(to) ? to : [to];
 }
 
+/**
+ * Translate the provider-neutral `tag` + `metadata` back into Resend's wire
+ * `tags: Array<{name,value}>`. `metadata` entries become tags directly; a bare
+ * `tag` is carried under a conventional `tag` key (skipped if it would collide
+ * with a metadata key). Returns `undefined` when there is nothing to send.
+ */
+function toResendTags(opts: {
+  tag?: string;
+  metadata?: Record<string, string>;
+}): Array<{ name: string; value: string }> | undefined {
+  const tags: Array<{ name: string; value: string }> = [];
+  if (opts.metadata) {
+    for (const [name, value] of Object.entries(opts.metadata)) {
+      tags.push({ name, value });
+    }
+  }
+  if (opts.tag !== undefined && !(opts.metadata && "tag" in opts.metadata)) {
+    tags.push({ name: "tag", value: opts.tag });
+  }
+  return tags.length > 0 ? tags : undefined;
+}
+
 function isRetryableStatusCode(statusCode: number): boolean {
   return statusCode === 429 || statusCode >= 500;
 }
@@ -104,12 +126,15 @@ export async function sendEmail(args: {
       from: options.from,
       to: normalizeRecipients(options.to),
       subject: options.subject,
-      ...(options.html ? { html: options.html } : { react: options.react }),
+      // HTML-ONLY wire — the engine always renders React → HTML before the
+      // provider, so no React ever reaches Resend here.
+      html: options.html,
+      text: options.text,
       replyTo: options.replyTo,
       cc: options.cc,
       bcc: options.bcc,
       scheduledAt: options.scheduledAt,
-      tags: options.tags,
+      tags: toResendTags({ tag: options.tag, metadata: options.metadata }),
       headers: options.headers,
     });
 
@@ -175,11 +200,13 @@ async function sendBatchChunk(
         from: email.from,
         to: normalizeRecipients(email.to),
         subject: email.subject,
-        react: email.react,
+        // HTML-ONLY wire — no React reaches Resend.
+        html: email.html,
+        text: email.text,
         replyTo: email.replyTo,
         cc: email.cc,
         bcc: email.bcc,
-        tags: email.tags,
+        tags: toResendTags({ tag: email.tag, metadata: email.metadata }),
         headers: email.headers,
       })),
     );

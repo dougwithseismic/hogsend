@@ -6,11 +6,16 @@
 export type {
   BatchEmailItem,
   CaptureOptions,
+  EmailEvent,
+  EmailEventType,
   EmailProvider,
   EmailProviderCapabilities,
   EmailProviderMeta,
+  /** @deprecated Use {@link EmailEvent}. Frozen `event.raw` cast target. */
+  LegacyResendWebhookEvent,
   PostHogService,
   SendResult,
+  /** @deprecated Use {@link EmailEvent}. Kept for one minor. */
   WebhookEvent,
   WebhookHandlerMap,
 } from "@hogsend/core";
@@ -23,7 +28,7 @@ export * from "@hogsend/core";
 // omitted here: the engine's public `SendEmailOptions` is the high-level
 // journey-facing send options from `./lib/email.js`; the provider-contract
 // `SendEmailOptions` remains available via `@hogsend/core`.)
-export { defineEmailProvider } from "@hogsend/core";
+export { defineEmailProvider, WebhookHandshakeSignal } from "@hogsend/core";
 export {
   BucketRegistry,
   JourneyRegistry,

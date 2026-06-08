@@ -1,3 +1,4 @@
+import { WebhookHandshakeSignal } from "@hogsend/core";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 
@@ -6,15 +7,15 @@ import type { AppEnv } from "../../app.js";
  * `POST /v1/webhooks/email/:providerId`.
  *
  * Resolves the provider from the container's {@link EmailProviderRegistry} (so
- * an unknown id is a clean 404) and dispatches into the engine's
- * `handleWebhook` flow. Registered BEFORE the `:sourceId` catch-all so Hono
- * matches the static `email/` prefix first.
+ * an unknown id is a clean 404), verifies the webhook via that provider (which
+ * owns its OWN secrets), and dispatches the normalized {@link EmailEvent} into
+ * `emailService.handleWebhook`. Registered BEFORE the `:sourceId` catch-all so
+ * Hono matches the static `email/` prefix first.
  *
- * In this phase only the Resend provider exists, so the route still hands the
- * raw `{ payload, headers }` to `emailService.handleWebhook` (which verifies via
- * the active provider). The normalized `verifyWebhook → EmailEvent` signature —
- * where the route owns verification and dispatches a provider-neutral event —
- * lands in a later phase.
+ * The provider's `verifyWebhook` is the ONLY place body-shape knowledge lives —
+ * the route never sniffs the payload. It returns a normalized event, OR throws
+ * {@link WebhookHandshakeSignal} for non-status handshakes (route 200s), OR
+ * throws a verification error (route 401s).
  */
 const emailProviderWebhookRoute = createRoute({
   method: "post",
@@ -78,16 +79,26 @@ export function registerEmailProviderRoutes(app: OpenAPIHono<AppEnv>) {
     }
 
     try {
-      const result = await emailService.handleWebhook({ payload, headers });
+      const event = await provider.verifyWebhook({ payload, headers });
+      const result = await emailService.handleWebhook(event, providerId);
 
       logger.info("Email provider webhook processed", {
         providerId,
-        type: result.type,
+        type: event.type,
         handled: result.handled,
       });
 
       return c.json({ ok: true }, 200);
     } catch (err) {
+      if (err instanceof WebhookHandshakeSignal) {
+        // A non-delivery-status handshake (SNS confirm, Postmark subscription
+        // change) the provider already handled — ack with 200.
+        logger.info("Email webhook handshake", {
+          providerId,
+          action: err.action,
+        });
+        return c.json({ ok: true }, 200);
+      }
       logger.warn("Email provider webhook failed", {
         providerId,
         error: err instanceof Error ? err.message : String(err),
