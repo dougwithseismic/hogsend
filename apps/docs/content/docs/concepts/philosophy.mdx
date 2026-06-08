@@ -5,7 +5,7 @@ description: A versioned engine you consume, with content you own. Get to revenu
 
 ## Get it done. Don't be afraid to tweak.
 
-Hogsend is not a platform you configure through a UI and hope it does what you want. It's a **versioned engine you consume as a package**, with content — journeys, templates, webhook sources — that you author as plain TypeScript and own outright.
+Hogsend is not a platform you configure through a UI and hope it does what you want. It's a **versioned engine you consume as a package**, with content — journeys, templates, buckets, lists, destinations, webhook sources — that you author as plain TypeScript and own outright.
 
 The mantra is simple: **get it done, then tweak.**
 
@@ -15,41 +15,73 @@ Ship the welcome sequence today. See if it moves activation. Adjust the timing t
 
 Older lifecycle starters told you to fork a repo and merge upstream forever. Hogsend deliberately doesn't. It draws one hard line:
 
-- **The engine (framework, upstream).** `@hogsend/engine` and the other `@hogsend/*` packages. The ingestion pipeline, journey runtime, email delivery, tracking, the HTTP API, and the worker loop. Its public, semver-committed surface is exactly `@hogsend/engine`'s exports. You **consume** it and **upgrade** it with `pnpm up`. You don't edit it.
-- **The content (yours, in your repo).** Your journeys, email templates, webhook sources, custom routes, config, and your own database migrations. You author it and you own it. You **inject** it into the engine's factories.
+- **The engine (framework, upstream).** `@hogsend/engine` and the other `@hogsend/*` packages. The ingestion pipeline, journey runtime, email delivery, tracking, the outbound webhook spine, the HTTP API, and the worker loop. Its public, semver-committed surface is exactly `@hogsend/engine`'s exports. You **consume** it and **upgrade** it with `pnpm up`. You don't edit it.
+- **The content (yours, in your repo).** Your journeys, email templates, buckets, lists, destinations, webhook sources, custom routes, config, and your own database migrations. You author it and you own it. You **inject** it into the engine's factories.
 
-The engine never imports your content. Your app's two thin entry files pass content *into* the engine:
+The engine never imports your content. Your app's two thin entry files pass content *into* the engine. This is the real `src/index.ts` the scaffold emits:
 
 ```ts
 // src/index.ts — yours; wires content into the engine
 import { createApp, createHogsendClient } from "@hogsend/engine";
+import { buckets } from "./buckets/index.js";
+import { destinations } from "./destinations/index.js";
+import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
+import { lists } from "./lists/index.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
-const container = createHogsendClient({ journeys });
-const app = createApp(container, { webhookSources });
+const client = createHogsendClient({
+  journeys,
+  buckets,
+  lists,
+  destinations,
+  email: { templates },
+});
+
+const app = createApp(client, { webhookSources });
 ```
 
 Because you register journeys and sources in **your own** files — not by editing a shared engine index — there is no merge surface. Upgrading the framework is `pnpm up "@hogsend/*"` plus a migration run.
 
 ## You scaffold a fresh app
 
-You start a project with:
+You start a project with one command:
 
 ```bash
 pnpm dlx create-hogsend@latest my-app
 ```
 
-This emits a thin app that pins `@hogsend/engine`, contains only content, and has the two entry files (`src/index.ts`, `src/worker.ts`) already wired. The starter journeys, the PostHog webhook source, and your `Events`/`Templates` constants are copied in as **editable starter content** — they're yours from minute one, not locked inside the engine.
+This emits a thin app that pins `@hogsend/engine`, contains only content, and has the two entry files (`src/index.ts`, `src/worker.ts`) already wired. The starter journeys (`src/journeys/welcome.ts` is the one to edit first), the PostHog webhook source, the email templates, and your `Events`/`Templates` constants are copied in as **editable starter content** — they're yours from minute one, not locked inside the engine.
+
+The scaffolder then offers to set up your local stack. That step (`pnpm bootstrap`, which you can also re-run by hand — it's idempotent) does everything you'd otherwise do by hand:
+
+1. **Checks Docker is running**, then brings up TimescaleDB (Postgres), Redis, and hatchet-lite via `docker-compose.yml`.
+2. **Creates `.env`** from `.env.example` and generates a fresh `BETTER_AUTH_SECRET`.
+3. **Auto-mints your Hatchet token** from inside the hatchet-lite container and writes `HATCHET_CLIENT_TOKEN` to `.env`. No dashboard trip — local dev is bring-your-own-token-free. (Production is where you bring your own Hatchet token; see [Get a Hatchet token](/docs/getting-started/hatchet).)
+4. **Runs migrations** — both the engine track and your client track.
+5. **Mints an ingest-scoped data-plane key** (`hsk_…`) and writes `HOGSEND_API_KEY` to `.env`, so the `@hogsend/client` SDK and the `hogsend` CLI can talk to your instance immediately.
+
+Then you run two processes — the api and the worker:
+
+```bash
+pnpm dev          # HTTP API on http://localhost:3002
+pnpm worker:dev   # Hatchet worker (second terminal)
+```
+
+The only thing you bring yourself is a `RESEND_API_KEY` when you're ready to send real email. Everything else is set up for you.
+
+<Callout type="info">
+  The step-by-step walkthrough — scaffold, run against Docker, fire your first journey end-to-end — lives in [Installation](/docs/getting-started/installation). This page is the *why*; that page is the *how*.
+</Callout>
 
 ## Built to be extended — through injection points
 
 The engine exposes a small set of injection seams. Everything you build flows through them, which is exactly why upgrades stay clean:
 
-- **`createHogsendClient({ journeys, email?: { provider?, templates? }, analytics?, enabledJourneys?, overrides? })`** — build the client (the shared services bag) from your journeys and content. `email` (your `src/emails` `templates` registry plus a swappable `provider`) and `analytics` (PostHog by default) are first-class; `overrides` is a small advanced/test-only escape hatch (replace the whole mailer, swap auth/Hatchet/db).
-- **`createApp(container, { routes?, middleware?, webhookSources?, onError? })`** — mount custom routers, add middleware, serve your webhook sources, replace the error handler.
-- **`createWorker({ container, journeys, extraWorkflows? })`** — run the durable worker loop; register extra Hatchet tasks via `extraWorkflows`.
-- **`defineJourney({ meta, run })`** and **`defineWebhookSource({ meta, auth, schema?, transform })`** — the authoring helpers for content.
+- **`createHogsendClient({ journeys, buckets?, lists?, destinations?, email?: { provider?, templates? }, analytics? })`** — build the client (the shared services bag) from your content. `email` carries your `src/emails` `templates` registry plus a swappable `provider`; `analytics` is PostHog by default; `buckets`, `lists`, and `destinations` are first-class arrays. An `overrides` field is a small advanced/test-only escape hatch (replace the whole mailer, swap auth/Hatchet/db).
+- **`createApp(client, { routes?, middleware?, webhookSources?, onError? })`** — mount custom routers, add middleware, serve your webhook sources, replace the error handler.
+- **`createWorker({ container, journeys, buckets?, extraWorkflows? })`** — run the durable worker loop; register extra Hatchet tasks via `extraWorkflows` (the option is `extraWorkflows`, not `workflows`).
+- **`defineJourney({ meta, run })`**, **`defineBucket()`**, **`defineList()`**, **`defineDestination()`**, and **`defineWebhookSource()`** — the authoring helpers for content.
 
 The architecture is intentionally composable. Journeys are standalone files, webhook sources are standalone files, templates are standalone components in your `src/emails/` registry. Add what you need to the arrays (and registry) you inject; delete what you don't.
 
@@ -59,13 +91,13 @@ Every journey is a TypeScript file. Every template is a React component. Every w
 
 - Add new event sources (your CRM, your billing system, your support tool) with `defineWebhookSource()`
 - Write journeys with any logic you can express in TypeScript — loops, external API calls, feature flag checks, A/B tests
-- Build custom notification channels (Slack, push, in-app) alongside email via custom routes or extra worker tasks
+- Fan your lifecycle event stream out to PostHog, Segment, Slack, a CRM, or a warehouse with `defineDestination()` on the durable webhook spine
 - Extend the admin API with your own endpoints through `createApp({ routes })`
 - Swap Resend for another provider by implementing the `EmailProvider` interface and passing `createHogsendClient({ email: { provider } })`
 
 ### By an AI agent
 
-Hogsend's code-first architecture is intentionally LLM-friendly. Journeys follow a consistent pattern (`defineJourney()` + metadata + `run`). Templates follow a consistent pattern (React component + registry entry). Webhook sources follow a consistent pattern (`defineWebhookSource()` + transform). Everything imports from a single surface: `@hogsend/engine`.
+Hogsend's code-first architecture is intentionally LLM-friendly. Journeys follow a consistent pattern (`defineJourney()` + metadata + `run`). Templates follow a consistent pattern (React component + registry entry). Webhook sources follow a consistent pattern (`defineWebhookSource()` + transform). Everything imports from a single surface: `@hogsend/engine`. The scaffold even ships authoring skills under `.claude/skills` so an agent can discover the patterns automatically.
 
 This means an AI agent — Claude, Cursor, Copilot, whatever you use — can:
 
@@ -104,7 +136,7 @@ Hogsend makes choices so you don't have to:
 - **PostHog for events** — the webhook source ships as starter content, person properties are fetched automatically, engagement flows back
 - **Resend for email** — fast delivery, developer-friendly API, great deliverability defaults
 - **Hatchet for durability** — sleeps that survive deploys, automatic retries, event routing
-- **Railway for hosting** — your scaffolded app deploys as two services (API + worker) from a single repo
+- **Railway as a paved deploy path** — your scaffolded app runs as two services (api + worker) from a single repo, but the image runs anywhere — see [Deployment](/docs/operating/deployment)
 - **Code over config** — TypeScript journeys, not YAML. React templates, not a template editor.
 - **Consume, don't fork** — the engine is a versioned package, upgraded with `pnpm up`, not a codebase you merge
 
@@ -116,10 +148,19 @@ Hogsend is built for a specific outcome: **you ship lifecycle marketing that gen
 
 The typical path:
 
-1. **Day 1** — Scaffold with `create-hogsend`, connect PostHog, deploy the included welcome journey
+1. **Day 1** — Scaffold with `create-hogsend`, run `pnpm bootstrap`, connect PostHog, deploy the included welcome journey
 2. **Week 1** — Add payment-failure recovery and trial-expiring nudges. Watch open rates.
 3. **Week 2** — Tune timing based on data. Add a dormancy reactivation flow.
 4. **Month 1** — You have 4-5 journeys running, measurably improving activation and reducing churn
-5. **Month 3+** — Decide if you need more (push, SMS, advanced segmentation) and either extend the engine or migrate to a bigger platform with clean data. Keep upgrading the engine with `pnpm up` the whole time.
+5. **Month 3+** — Decide if you need more (advanced segmentation, more channels) and either extend the engine or migrate to a bigger platform with clean data. Keep upgrading the engine with `pnpm up` the whole time.
 
 The point isn't to be the last lifecycle tool you ever use. It's to be the one that gets you from "we should really be sending lifecycle emails" to "we are, and they're working" in the shortest possible time — and that keeps upgrading without ever forcing you to merge a fork.
+
+## Next steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation" />
+  <Card title="How It Works" href="/docs/concepts/how-it-works" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+  <Card title="Upgrading & Customizing" href="/docs/operating/upgrading" />
+</Cards>

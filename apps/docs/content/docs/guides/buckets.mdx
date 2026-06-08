@@ -432,7 +432,7 @@ Key patterns:
 
 ## Reactions (`bucket.on`)
 
-Triggering a *separate* journey on a bucket join (above) is the loose-coupling path. The tighter one is a **colocated reaction**: attach behavior right next to the criteria with `bucket.on(kind, opts?, handler)`. The handler runs against the **full `JourneyContext`** — sleep, `when`, `waitForEvent`, `guard`, `history`, `trigger`, `identify`, the lot — because each `.on()` **desugars to a real durable journey** under the hood, tagged with `sourceBucketId` so Studio groups it under the bucket. It inherits the whole enrollment guard stack, the active-state dedup, the durable context, and event routing — there is no parallel execution path.
+Triggering a *separate* journey on a bucket join (above) is the loose-coupling path. The tighter one is a **colocated reaction**: attach behavior right next to the criteria with `bucket.on(kind, opts?, handler)`. The handler runs against the **full `JourneyContext`** — sleep, `when`, `waitForEvent`, `guard`, `history`, `trigger`, the lot — because each `.on()` **desugars to a real durable journey** under the hood, tagged with `sourceBucketId` so Studio groups it under the bucket. It inherits the whole enrollment guard stack, the active-state dedup, the durable context, and event routing — there is no parallel execution path.
 
 ```ts
 import { days, defineBucket, sendEmail } from "@hogsend/engine";

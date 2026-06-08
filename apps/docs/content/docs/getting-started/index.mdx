@@ -1,38 +1,110 @@
 ---
 title: Getting Started
-description: Scaffold a fresh Hogsend app, run it locally, and watch your first journey fire. From zero to a running pipeline in a few minutes.
+description: Scaffold a fresh Hogsend app, run it locally against Docker, and watch your first journey fire — from zero to a sending pipeline in a few minutes.
 ---
 
 Hogsend is a code-first lifecycle orchestration engine for teams using PostHog and Resend. You define journeys in TypeScript, connect them to events, and Hogsend handles the durable execution — email sequences, timing, branching, and exit conditions.
 
-The framework ships as an npm package, `@hogsend/engine`. You scaffold a fresh app that **owns content only** — journeys, email templates, webhook sources, custom routes, and your own database migrations — and pins `@hogsend/engine`. Upgrading the framework is `pnpm up`. See [How It Works](/docs/concepts/how-it-works) for the full mental model.
+The framework ships as an npm package, `@hogsend/engine`. You scaffold a fresh app that **owns content only** — journeys, email templates, webhook sources, custom routes, and your own database migrations — and pins `@hogsend/engine`. The engine never imports your content; upgrading the framework is `pnpm up`. See [How It Works](/docs/concepts/how-it-works) for the full mental model.
 
-## The path
+## The spine
 
-1. **[Get a Hatchet token](/docs/getting-started/hatchet)** — the one prerequisite. Mint one from a self-hosted `hatchet-lite`, Hatchet Cloud, or your own engine.
-2. **Scaffold** a fresh app with `create-hogsend`.
-3. **Install** dependencies (the scaffold does this for you).
-4. **Start infrastructure** — Timescale, Redis, and Hatchet-Lite via Docker Compose.
-5. **Migrate** — one command runs both the engine track and your client track.
-6. **Run** the API and worker, then fire an event and watch a journey complete.
+Three commands take you from nothing to a running, sending app:
 
-Follow [Installation](/docs/getting-started/installation) for the full walkthrough.
+```bash
+pnpm dlx create-hogsend@latest my-app   # scaffold
+cd my-app
+pnpm bootstrap                           # Docker + .env + Hatchet token + migrate
+```
+
+Then run the two processes (in separate terminals):
+
+```bash
+pnpm dev          # HTTP API on http://localhost:3002
+pnpm worker:dev   # Hatchet worker (durable task execution)
+```
+
+That's it — fire an event at `POST /v1/events` and a journey runs. [Installation](/docs/getting-started/installation) walks the whole loop end to end, including your first journey.
+
+## Step 1 — scaffold
+
+`create-hogsend` copies a fresh content-only app and pins the current engine version:
+
+```bash
+pnpm dlx create-hogsend@latest my-app
+```
+
+Use `.` to scaffold into the current folder, and pass `--pm npm|yarn|bun` to switch package managers (default `pnpm`). Run it with no app name in a terminal for an interactive setup, or pass `--yes` to accept every default — scaffold, install, **and** bootstrap — with no prompts:
+
+```bash
+pnpm dlx create-hogsend@latest my-app --yes
+```
+
+The scaffold installs dependencies for you and initializes a git repo. It also drops a `.claude/skills/` tree and a tailored `CLAUDE.md` so Claude Code can author journeys, emails, and buckets with you (skip with `--no-skills`).
+
+## Step 2 — bootstrap
+
+From the app directory, one command sets up everything you need to run locally:
+
+```bash
+pnpm bootstrap
+```
+
+`bootstrap` is idempotent and safe to re-run. It runs seven steps and **does the setup work for you**:
+
+- **Checks Docker** is installed and the daemon is running.
+- **Creates `.env`** from `.env.example` and generates a fresh `BETTER_AUTH_SECRET`.
+- **Resolves ports** — if `5434`, `6380`, `8888`, or `7077` are taken, it remaps to free ports and writes them back to `.env`.
+- **Starts containers** — TimescaleDB (Postgres 18), Redis, and Hatchet-Lite via `docker compose up -d --wait`.
+- **Auto-mints the Hatchet token** — it mints a `HATCHET_CLIENT_TOKEN` against your local Hatchet-Lite and writes it to `.env`. You do **not** bring your own token for local dev.
+- **Runs migrations** — both the engine track and your client track.
+- **Mints the data-plane key** — an ingest-scoped `HOGSEND_API_KEY` (`hsk_…`) is generated, stored as a hash, and written to `.env`. This is the key the [`@hogsend/client`](/docs/data-api/client-sdk) SDK and the [`hogsend` CLI](/docs/cli) use to call your data plane.
+
+<Callout type="info">
+  Locally, the Hatchet token is auto-minted by `bootstrap`. The bring-your-own-token contract applies only to production — Hatchet Cloud or a self-hosted engine. See [Get a Hatchet token](/docs/getting-started/hatchet) for the production path.
+</Callout>
+
+When it finishes, your stack is up and the Hatchet dashboard is at `http://localhost:8888` (login `admin@example.com` / `Admin123!!`).
+
+## Step 3 — run
+
+The api and worker are two separate processes that share the same codebase. The api serves HTTP and pushes events to Hatchet; the worker executes durable tasks (email sends, journey orchestration, background jobs). Run each in its own terminal:
+
+```bash
+pnpm dev          # HTTP API on http://localhost:3002
+pnpm worker:dev   # Hatchet worker (second terminal)
+```
+
+In development the api serves interactive docs at `http://localhost:3002/docs` (Scalar UI) and the OpenAPI spec at `/openapi.json`. Health is at `GET /v1/health`. Both are disabled when `NODE_ENV=production`.
+
+The first journey to edit is `src/journeys/welcome.ts`. Fire an event at it and watch the worker pick it up:
+
+```bash
+curl -X POST http://localhost:3002/v1/events \
+  -H "Authorization: Bearer $HOGSEND_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "user_signed_up", "email": "you@example.com" }'
+```
+
+[Installation](/docs/getting-started/installation) covers this end to end, including authoring the journey itself.
 
 ## Prerequisites
 
-- **Node.js 22** — pinned via the scaffold's `.node-version`
-- **pnpm** (recommended) — or npm/yarn/bun via the `--pm` flag
-- **Docker** installed and running — for Timescale, Redis, and Hatchet-Lite
-- **Resend** account — [sign up free](https://resend.com), grab your API key from the [dashboard](https://resend.com/api-keys) (starts with `re_`)
-- **PostHog** account (optional for first boot) — with a **personal API key** (`phx_`) if you want PostHog person properties and event capture
+- **Node.js 22** — pinned via the scaffold's `.node-version`.
+- **pnpm** (recommended) — or npm/yarn/bun via the `--pm` flag.
+- **Docker** installed and running — for Timescale, Redis, and Hatchet-Lite. `bootstrap` provisions all three.
+- **Resend** account — [sign up free](https://resend.com), grab your API key from the [dashboard](https://resend.com/api-keys) (starts with `re_`). The scaffold writes a placeholder; set a real `RESEND_API_KEY` in `.env` before sending real email.
+- **PostHog** account (optional for first boot) — with a **project API key** (`phc_`) if you want PostHog to drive your events and person properties.
 
-## What's next
+<Callout type="info">
+  PostHog is the standard event source, but it's not required to boot. You can drive Hogsend entirely through the data plane — `POST /v1/events` and the [`@hogsend/client`](/docs/data-api/client-sdk) SDK — from your own app code, webhook sources, or any of the [built-in integrations](/docs/integrations). Lifecycle events fan back out to PostHog, Segment, or Slack via [outbound destinations](/docs/data-api/destinations).
+</Callout>
 
-| Page | What it covers |
-|---|---|
-| [Get a Hatchet token](/docs/getting-started/hatchet) | The token, and the three ways to get one |
-| [Installation](/docs/getting-started/installation) | Scaffold, install, run, and fire your first journey |
-| [PostHog Setup](/docs/getting-started/posthog-setup) | Connect PostHog events to Hogsend via a webhook destination |
-| [Configuration](/docs/getting-started/configuration) | Every environment variable, what it does, and which process reads it |
+## Next steps
 
-When the local pipeline is running, head to [Journeys](/docs/guides/journeys) to author your first lifecycle flow. To deploy, see [Deployment](/docs/operating/deployment); to upgrade, see [Upgrading](/docs/operating/upgrading).
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation" />
+  <Card title="Configuration" href="/docs/getting-started/configuration" />
+  <Card title="PostHog Webhook Setup" href="/docs/getting-started/posthog-setup" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+</Cards>

@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Complete reference for every Hogsend environment variable, the two-track migration workflow, and the engine version pin.
+description: "Reference for every Hogsend environment variable, the data-plane key, the two-track migration workflow, and the engine version pin."
 ---
 
 A scaffolded Hogsend app is configured entirely through environment variables. Both the HTTP API (`src/index.ts`) and the worker (`src/worker.ts`) read from the same `.env` at your app's root. The engine validates them at startup with `@t3-oss/env-core` — a missing or malformed required variable fails the boot with a clear error.
@@ -9,7 +9,11 @@ A scaffolded Hogsend app is configured entirely through environment variables. B
 cp .env.example .env
 ```
 
-`pnpm bootstrap` does this copy for you — generating a real `BETTER_AUTH_SECRET` and minting a Hatchet token (see [Installation](/docs/getting-started/installation)). The `.env.example` shipped by the scaffold already points `DATABASE_URL` and `REDIS_URL` at the local Docker Compose ports, so for local development you mostly fill in secrets.
+`pnpm bootstrap` does this for you and more: it copies `.env.example`, generates a real `BETTER_AUTH_SECRET`, auto-mints your `HATCHET_CLIENT_TOKEN`, runs the migrations, and mints an ingest-scoped `HOGSEND_API_KEY` data-plane key — see [Installation](/docs/getting-started/installation). The `.env.example` shipped by the scaffold already points `DATABASE_URL` and `REDIS_URL` at the local Docker Compose ports, so for local development you mostly just fill in `RESEND_API_KEY`.
+
+<Callout type="info">
+  Only four variables are required at boot: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, and `HATCHET_CLIENT_TOKEN`. `pnpm bootstrap` supplies all but `RESEND_API_KEY` for you locally. Everything else is optional with a sensible default.
+</Callout>
 
 ## Variable reference
 
@@ -30,8 +34,9 @@ Hogsend uses [Better Auth](https://www.better-auth.com/) for session management 
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `BETTER_AUTH_SECRET` | **Yes** | — | API | Session encryption secret. Minimum 32 characters. Generate with `openssl rand -hex 32`. |
+| `BETTER_AUTH_SECRET` | **Yes** | — | API | Session encryption secret. Minimum 32 characters. Generate with `openssl rand -hex 32` — `pnpm bootstrap` does this for you locally. |
 | `BETTER_AUTH_URL` | No | `http://localhost:3002` | API | Public URL for auth callbacks. Set to your production API URL (e.g. `https://api.yourdomain.com`). |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | No | — | API | Comma-separated list of extra origins allowed to call the auth endpoints, beyond `BETTER_AUTH_URL`. Needed when Studio is served from a different origin than the API — e.g. the `hogsend studio` CLI pointing at a remote instance. |
 
 ### Resend
 
@@ -39,7 +44,7 @@ Email delivery through [Resend](https://resend.com).
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `RESEND_API_KEY` | **Yes** | — | Worker | Resend API key for sending emails. From the [Resend dashboard](https://resend.com/api-keys). Starts with `re_`. |
+| `RESEND_API_KEY` | **Yes** | — | Worker | Resend API key for sending emails. From the [Resend dashboard](https://resend.com/api-keys). Starts with `re_`. The scaffold ships a placeholder — set a real key before sending. |
 | `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Worker | Default sender address. Must be on a domain verified in your Resend account. |
 | `RESEND_WEBHOOK_SECRET` | No | — | API | Signing secret for verifying Resend webhook payloads. Enables delivery tracking (delivered, opened, clicked, bounced, complained). From Resend → Webhooks. Starts with `whsec_`. |
 
@@ -49,14 +54,36 @@ Email delivery through [Resend](https://resend.com).
 
 ### Hatchet
 
-[Hatchet](https://hatchet.run) handles durable task execution — journey orchestration, email sends, and background jobs. You'll need a token before first boot — see [Get a Hatchet token](/docs/getting-started/hatchet). These three values are the whole connection.
+[Hatchet](https://hatchet.run) handles durable task execution — journey orchestration, email sends, and background jobs. These three values are the whole connection.
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `HATCHET_CLIENT_TOKEN` | **Yes** | — | API, Worker | Bearer JWT for connecting to the Hatchet engine. The SDK hard-throws if empty. Copy from the Hatchet dashboard (`localhost:8888` locally) or paste a Hatchet Cloud token. See [Get a Hatchet token](/docs/getting-started/hatchet). |
+| `HATCHET_CLIENT_TOKEN` | **Yes** | — | API, Worker | Bearer JWT for connecting to the Hatchet engine. The SDK hard-throws if empty. `pnpm bootstrap` auto-mints this against the local hatchet-lite container for you. For production, paste a Hatchet Cloud token. See [Get a Hatchet token](/docs/getting-started/hatchet). |
 | `HATCHET_CLIENT_HOST_PORT` | No | `localhost:7077` | API, Worker | Hatchet gRPC endpoint. In-compose: `hatchet-lite:7077`. On Railway, the internal address of the Hatchet-Lite service. |
-| `HATCHET_CLIENT_TLS_STRATEGY` | No | `tls` | API, Worker | TLS strategy for the gRPC connection: `none` \| `tls` \| `mtls`. **Secure by default.** Override to `none` for local and internal-network hatchet-lite; keep `tls` for Hatchet Cloud and the public internet. |
+| `HATCHET_CLIENT_TLS_STRATEGY` | No | `tls` | API, Worker | TLS strategy for the gRPC connection: `none` \| `tls` \| `mtls`. **Secure by default.** The scaffold's local `.env` overrides to `none` for internal-network hatchet-lite; keep `tls` for Hatchet Cloud and the public internet. |
 | `HATCHET_CLIENT_NAMESPACE` | No | _(empty)_ | API, Worker | Optional per-tenant isolation namespace on a shared engine. Default-empty; documented so it stays part of the contract. |
+
+<Callout type="info">
+  Locally, the bootstrap script mints the token automatically — you never bring your own for local dev. The bring-your-own-token contract applies to production / Hatchet Cloud. See [Get a Hatchet token](/docs/getting-started/hatchet).
+</Callout>
+
+### Data plane
+
+The public data plane (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`, `/v1/campaigns`) is how your own product code writes into Hogsend via [`@hogsend/client`](/docs/data-api/client-sdk) and the [`hogsend` CLI](/docs/cli). Every call needs a Bearer API key carrying the `ingest` scope.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `API_PUBLIC_URL` | No | `http://localhost:3002` | API, Worker | Public-facing API URL. Used to generate unsubscribe and click/open tracking links in emails, and as the base URL for the data-plane client in `src/lib/hogsend.ts`. Must be reachable by end users (e.g. `https://api.yourdomain.com`). |
+| `HOGSEND_API_KEY` | No | — | API, Worker | Ingest-scoped data-plane API key for `@hogsend/client` / the CLI. Format `hsk_<base64url(32 bytes)>`. `pnpm bootstrap` auto-mints one locally (step 7) and writes it here. In production, mint one with `POST /v1/admin/api-keys` and scopes `["ingest"]` (a `full-admin` key also satisfies the scope). |
+| `ADMIN_API_KEY` | No | — | API | Legacy full-admin Bearer key for `/v1/admin/*` endpoints and the `hogsend` CLI's admin commands. Resolves to scopes `["full-admin"]`. Without it (and without a Studio session), admin endpoints are inaccessible. |
+
+<Callout type="warn">
+  Don't ship a `full-admin` key (or `ADMIN_API_KEY`) to client-side code — it can mutate contacts and journeys. Use an ingest-scoped `HOGSEND_API_KEY` on the data plane. Generate a strong admin key: `openssl rand -hex 32`.
+</Callout>
+
+<Callout type="info">
+  `HOGSEND_API_KEY` is read by `@hogsend/client` and the CLI — it is **not** part of the engine's validated boot env, so an empty value won't fail startup; data-plane calls just fail auth until it's set.
+</Callout>
 
 ### PostHog
 
@@ -64,25 +91,13 @@ Optional — connects to your PostHog instance for event ingestion and person pr
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `POSTHOG_API_KEY` | No | — | Worker | PostHog project API key for fetching person properties (Redis-cached) and event capture. Without it, `container.analytics` is `undefined` and journeys can't read PostHog person properties. |
+| `POSTHOG_API_KEY` | No | — | Worker | PostHog project API key for fetching person properties (Redis-cached) and event capture. Without it, `container.analytics` is a no-op and journeys can't read PostHog person properties. |
 | `POSTHOG_HOST` | No | — | Worker | PostHog instance URL. Cloud (US): `https://us.i.posthog.com`. Self-hosted: your instance URL. Required if `POSTHOG_API_KEY` is set. |
 | `POSTHOG_WEBHOOK_SECRET` | No | — | API | Shared secret for verifying incoming PostHog webhook payloads. Set this and send the same value in the destination's `x-posthog-webhook-secret` header. |
+| `ENABLE_POSTHOG_DESTINATION` | No | `false` | API | When `true` **and** `POSTHOG_API_KEY` is set, the engine idempotently auto-seeds one `kind="posthog"` [outbound destination](/docs/data-api/destinations) subscribed to the email funnel, so the full email lifecycle fans out to PostHog durably on the delivery spine. |
 
 <Callout type="warn">
   Without `POSTHOG_WEBHOOK_SECRET`, any request to `/v1/webhooks/posthog` with valid JSON is accepted unverified. Always set it in production.
-</Callout>
-
-### API surface
-
-Public URL configuration and admin access.
-
-| Variable | Required | Default | Process | Description |
-|---|---|---|---|---|
-| `API_PUBLIC_URL` | No | `http://localhost:3002` | API, Worker | Public-facing API URL. Used to generate unsubscribe and click/open tracking links in emails. Must be reachable by end users (e.g. `https://api.yourdomain.com`). |
-| `ADMIN_API_KEY` | No | — | API | API key for `/v1/admin/*` endpoints and the `hogsend` CLI's admin commands. Without it, admin endpoints are inaccessible. |
-
-<Callout type="warn">
-  `ADMIN_API_KEY` gates all admin operations — viewing contacts, managing journeys, metrics, and the CLI's `contacts` / `journeys` commands. Generate a strong key: `openssl rand -hex 32`.
 </Callout>
 
 ### Integration presets
@@ -114,11 +129,28 @@ Hogsend emits a signed event stream to your subscriber URLs and delivers it with
 | `OUTBOUND_WEBHOOK_MAX_DELAY_MS` | No | `21600000` | Worker | Ceiling (ms) on the backoff delay between retries. Default is 6 hours. |
 | `OUTBOUND_WEBHOOK_STUCK_AFTER_MS` | No | `300000` | Worker | Age (ms) after which a `sending` row is considered orphaned and recovered by the reaper. Default is 5 minutes. |
 
-### Features
+### Outbound destinations
+
+A [destination](/docs/data-api/destinations) is a delivery-time transform keyed by `webhook_endpoints.kind` that fans the outbound event stream out to a product or data tool (PostHog, Segment, Slack, a CRM, a warehouse), reusing the same durable delivery as outbound webhooks. Credentials are **not** env vars — they live per-endpoint in `webhook_endpoints.config`, managed via the admin API / `hs.webhooks` SDK.
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `ENABLED_JOURNEYS` | No | `*` | API, Worker | Which journeys are registered. `*` enables all journeys in your `journeys` array; or a comma-separated list of journey IDs (e.g. `welcome,test-onboarding`). Journeys not listed are not registered and cannot be triggered. You can also pass this explicitly to `createHogsendClient({ enabledJourneys })` / `createWorker({ enabledJourneys })`. |
+| `ENABLED_DESTINATION_PRESETS` | No | — | API | Destination preset enablement override. Absent or `*` auto-enables every preset (the `webhook` + `posthog` presets are always registered regardless). A comma-separated list of ids (`webhook,posthog,segment,slack`) registers exactly those. `none` falls back to the always-on `webhook` + `posthog` only. |
+
+<Callout type="info">
+  `webhook` (the default signed POST) and `posthog` are the **always-on** set — they can never be turned off by misconfiguration. Use `ENABLED_DESTINATION_PRESETS` to also register `segment` and/or `slack`.
+</Callout>
+
+### Features
+
+These mirror the `*`-or-CSV contract: `*` registers everything, or pass a comma-separated list of ids. Anything not listed is not registered. Each can also be passed explicitly to `createHogsendClient({ ... })` / `createWorker({ ... })`.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `ENABLED_JOURNEYS` | No | `*` | API, Worker | Which journeys are registered. `*` enables all journeys in your `journeys` array; or a comma-separated list of journey IDs (e.g. `welcome,test-onboarding`). Journeys not listed cannot be triggered. Pass to `createHogsendClient({ enabledJourneys })` / `createWorker({ enabledJourneys })`. |
+| `ENABLED_BUCKETS` | No | `*` | API, Worker | Which [buckets](/docs/guides/buckets) are registered. `*` enables all buckets in your `buckets` array; or a comma-separated list of bucket IDs. Buckets not listed are not registered. Evaluated at worker boot — a toggle requires a worker restart. |
+| `ENABLED_LISTS` | No | `*` | API, Worker | Which [lists](/docs/guides/lists) are registered. `*` enables all lists in your `lists` array; or a comma-separated list of list IDs. Lists not listed are not registered. |
+| `BUCKET_RECONCILE_CRON` | No | `*/5 * * * *` | Worker | Cron expression for the engine-owned bucket reconciliation task — membership re-evaluation, time-based leaves, and dwell detection over the existing population. |
 
 ### Infrastructure
 
@@ -128,11 +160,12 @@ Hogsend emits a signed event stream to your subscriber URLs and delivers it with
 
 The local `docker-compose.yml` host ports are parameterized and default to `5434` (Postgres), `6380` (Redis), and `8888`/`7077` (Hatchet dashboard/gRPC). `pnpm bootstrap` auto-remaps any that are already in use — writing the chosen `POSTGRES_PORT` / `REDIS_PORT` / `HATCHET_DASHBOARD_PORT` / `HATCHET_GRPC_PORT` into a root `.env` (for Compose) and syncing the matching `DATABASE_URL` / `REDIS_URL` / `HATCHET_CLIENT_HOST_PORT` — so several stacks can run side by side. You rarely set these by hand.
 
-### Boot guard
+### Schema & boot
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `SKIP_SCHEMA_CHECK` | No | — | API | Set to `true` to bypass the engine-track boot guard (`src/index.ts`). Dev/emergency only — the API normally exits if the engine schema is behind the build. |
+| `CLIENT_MIGRATIONS_FOLDER` | No | — | API, Worker | Optional path to a client-migration track folder, distinct from the standard `migrations/` directory. Read by `@hogsend/db`'s client migrator. |
+| `SKIP_SCHEMA_CHECK` | No | `false` | API | Set to `true` to bypass the engine-track boot guard (`src/index.ts`). Dev/emergency only — the API normally exits if the engine schema is behind the build. |
 
 ## Generating secrets
 
@@ -143,6 +176,8 @@ openssl rand -hex 32
 # POSTHOG_WEBHOOK_SECRET
 openssl rand -hex 16
 ```
+
+The ingest-scoped `HOGSEND_API_KEY` is minted by `pnpm bootstrap` locally; in production mint one with `POST /v1/admin/api-keys` and scopes `["ingest"]` (see [Authentication](/docs/data-api/authentication)) — it is shown once.
 
 ## Migrations — two tracks
 
@@ -171,7 +206,7 @@ pnpm up "@hogsend/*"     # bump engine + db + core + email + plugins together
 pnpm db:migrate          # apply any new engine migrations
 ```
 
-Then verify `/v1/health` shows both tracks `inSync: true`. This is the upgrade path — never a git merge.
+Then verify `/v1/health` shows both tracks `inSync: true`. This is the upgrade path — never a git merge. See [Upgrading & Customizing](/docs/operating/upgrading).
 
 ## Validating configuration
 
@@ -195,6 +230,8 @@ HATCHET_CLIENT_HOST_PORT=localhost:7077
 HATCHET_CLIENT_TLS_STRATEGY=none
 ```
 
+`pnpm bootstrap` writes a working version of all of these (plus `BETTER_AUTH_SECRET`, `HATCHET_CLIENT_TOKEN`, and `HOGSEND_API_KEY`) into `.env` for you.
+
 ### Production
 
 ```bash
@@ -207,3 +244,12 @@ ENABLED_JOURNEYS=*
 ```
 
 On Railway, `DATABASE_URL`, `REDIS_URL`, and `PORT` are auto-wired by linking the Postgres and Redis services. See [Deployment](/docs/operating/deployment).
+
+## Next steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation" />
+  <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
+  <Card title="Authentication" href="/docs/data-api/authentication" />
+  <Card title="Deployment" href="/docs/operating/deployment" />
+</Cards>

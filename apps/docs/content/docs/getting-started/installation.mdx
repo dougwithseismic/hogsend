@@ -5,16 +5,18 @@ description: Scaffold a fresh Hogsend app, run it locally against Docker, and fi
 
 You install Hogsend by **scaffolding a fresh app** that consumes the versioned `@hogsend/engine` package. You do not clone or fork a monorepo — your repo owns content (journeys, templates, webhook sources, routes, your own migrations) and pins the engine.
 
+The whole local spine is one scaffold command plus one bootstrap command. `pnpm bootstrap` brings up Docker, writes your `.env`, **auto-mints your Hatchet token**, runs both migration tracks, and **auto-mints an ingest-scoped data-plane key** — so you reach a running, sending app without bringing your own credentials for local dev.
+
 ## 1. Scaffold the app
 
 ```bash
 pnpm dlx create-hogsend@latest my-app
-# or: npm create hogsend my-app
+# or: npx create-hogsend@latest my-app
 # or scaffold into the current folder:
 pnpm dlx create-hogsend@latest .
 ```
 
-This copies the starter template into `./my-app` (or the current folder with `.`), substitutes the app name and pinned engine version, runs `git init` with an initial commit, installs dependencies, and offers to run local setup for you (Docker, `.env`, Hatchet token, migrations — that's [step 2](#2-bootstrap-your-local-stack)). The app name must match `^[a-z0-9][a-z0-9._-]*$`.
+This copies the starter template into `./my-app` (or the current folder with `.`), substitutes the app name and pinned engine version, runs `git init` with an initial commit, installs dependencies, and offers to run local setup for you (Docker, `.env`, Hatchet token, data-plane key, migrations — that's [step 2](#2-bootstrap-your-local-stack)). The app name must match `^[a-z0-9][a-z0-9._-]*$`.
 
 For a fully hands-off run with no prompts, add `--yes`:
 
@@ -28,12 +30,13 @@ Useful flags:
 |---|---|
 | `--yes`, `-y` | Accept all defaults and run local setup — no prompts |
 | `--pm <pnpm\|npm\|yarn\|bun>` | Package manager to use (default `pnpm`) |
-| `--no-setup` | Skip the post-install local setup |
+| `--setup` / `--no-setup` | Run / skip the post-install local setup (`bootstrap`) |
 | `--no-install` | Skip the dependency install |
 | `--no-git` | Skip `git init` and the initial commit |
+| `--skills` / `--no-skills` | Include (default) or skip the bundled Claude Code skills + a tailored `CLAUDE.md` |
 | `-h`, `--help` | Show help |
 
-The emitted app pins every `@hogsend/*` package to a single engine version line, so the API, worker, and database migrations always move together.
+The emitted app pins every `@hogsend/*` package to a single engine version line, so the api, worker, and database migrations always move together.
 
 ```bash
 cd my-app
@@ -43,19 +46,23 @@ cd my-app
 
 The scaffold is a thin app — these are **yours to edit**:
 
-```
+```text
 my-app/
 ├─ src/
 │  ├─ index.ts              # HTTP entry: createHogsendClient + createApp + boot guard
-│  ├─ worker.ts             # Worker entry: createHogsendClient + createWorker
-│  ├─ journeys/             # your journeys (welcome.ts, test-onboarding.ts, ...)
+│  ├─ worker.ts             # worker entry: createHogsendClient + createWorker
+│  ├─ journeys/             # your journeys
+│  │  ├─ welcome.ts         # welcome series — sends email, durable sleep, branch
+│  │  ├─ trial-expiring.ts  # billing-driven nudge (trial.started → reminder)
+│  │  ├─ test-onboarding.ts # zero-dependency smoke test (no email, no accounts)
 │  │  ├─ index.ts           # exports the `journeys` array
 │  │  └─ constants/         # your Events / Templates constants
 │  ├─ emails/               # your email templates (.tsx) + registry + type augmentation
 │  │  ├─ registry.ts        # maps keys → component + subject + category (+ TemplateRegistryMap augmentation)
-│  │  └─ welcome.tsx        # your React Email components, yours to edit
-│  ├─ webhook-sources/      # your webhook sources (posthog.ts, ...)
-│  ├─ workflows/            # extra Hatchet tasks (backfill-example.ts, ...)
+│  │  └─ ...                # your React Email components, yours to edit
+│  ├─ lib/hogsend.ts        # a preconfigured @hogsend/client (`hs`) for your own app code
+│  ├─ webhook-sources/      # your inbound webhook sources
+│  ├─ workflows/            # extra Hatchet tasks (passed as extraWorkflows)
 │  └─ schema/               # your client-track DB tables
 ├─ migrations/              # your client-track migrations + ledger
 ├─ scripts/migrate.ts       # two-track migrate runner
@@ -66,7 +73,7 @@ my-app/
 └─ package.json             # pins @hogsend/engine + plugins
 ```
 
-The engine itself is a dependency in `node_modules` — you never edit it. The two example journeys (`welcome`, `test-onboarding`) are emitted into **your** `src/journeys/`; they are yours to keep, change, or delete.
+The engine itself is a dependency in `node_modules` — you never edit it. The example journeys (`welcome`, `trial-expiring`, `test-onboarding`) are emitted into **your** `src/journeys/`; they are yours to keep, change, or delete.
 
 <Callout type="info">
   `@hogsend/*` packages ship **raw `.ts`** (no `dist`). That is why the scaffold sets `tsup.config.ts` `noExternal: ["@hogsend/*"]` (bundles the engine source at build) and `vitest.config.ts` `server.deps.inline: [/@hogsend\/engine/]` (lets Vite transform raw `.ts` for tests). Never run `node src/index.ts` directly — dev is `tsx watch`, production is a `tsup` build then `node dist/...`.
@@ -78,7 +85,15 @@ The engine itself is a dependency in `node_modules` — you never edit it. The t
 pnpm bootstrap
 ```
 
-One idempotent command does the whole local setup: it creates `.env` from `.env.example` (with a freshly generated `BETTER_AUTH_SECRET`), brings up the Docker services, **auto-remaps any host ports already in use** so multiple stacks can run side by side, mints a Hatchet token, and runs both migration tracks. Re-run it any time.
+One idempotent command does the whole local setup. It runs seven steps and is safe to re-run any time:
+
+1. **Checks Docker** is installed and the daemon is running.
+2. **Creates `.env`** from `.env.example` with a freshly generated `BETTER_AUTH_SECRET` (keeps an existing `.env` untouched).
+3. **Resolves ports** — auto-remaps any host port already in use so multiple stacks can run side by side, and syncs the chosen ports back into `.env`.
+4. **Starts the containers** (`docker compose up -d --wait`).
+5. **Mints your Hatchet token** by creating one inside the hatchet-lite container and writing `HATCHET_CLIENT_TOKEN` to `.env`.
+6. **Runs both migration tracks** (`pnpm db:migrate` — engine track, then client track).
+7. **Mints an ingest-scoped data-plane key** (`hsk_…`) and writes `HOGSEND_API_KEY` to `.env` — the key you'll use to call the public data plane.
 
 It boots:
 
@@ -86,7 +101,7 @@ It boots:
 - **Redis** 8 (default port **6380**) — PostHog property caching
 - **Hatchet-Lite** — workflow engine; dashboard on **8888**, gRPC on **7077** (with its own internal Postgres)
 
-`BETTER_AUTH_SECRET` and `HATCHET_CLIENT_TOKEN` are generated for you. Before sending real email, set one value in your app-root `.env` (there is no `apps/api/.env`):
+`BETTER_AUTH_SECRET`, `HATCHET_CLIENT_TOKEN`, and `HOGSEND_API_KEY` are all generated for you — you bring no credentials for local dev. The one value you supply yourself, and only when you want a *real* email to land, is your Resend key:
 
 | Variable | How to get it |
 |---|---|
@@ -95,11 +110,11 @@ It boots:
 Using npm / yarn / bun? Run `npm run bootstrap` / `yarn bootstrap` / `bun run bootstrap`.
 
 <Callout type="info">
-  Prefer to do it by hand? `pnpm bootstrap` is `cp .env.example .env` + `docker compose up -d` + `pnpm db:migrate`, plus a generated secret/token and host-port-conflict handling. See [Configuration](/docs/getting-started/configuration) for every variable and the two migration tracks.
+  Prefer to do it by hand? `pnpm bootstrap` is `cp .env.example .env` + `docker compose up -d` + `pnpm db:migrate`, plus a generated secret, an auto-minted Hatchet token, an auto-minted data-plane key, and host-port-conflict handling. See [Configuration](/docs/getting-started/configuration) for every variable and the two migration tracks, and [Get a Hatchet token](/docs/getting-started/hatchet) for the manual token path.
 </Callout>
 
 <Callout type="warn">
-  `pnpm bootstrap` runs `pnpm db:migrate` (never `db:push`). `db:push` writes schema objects directly **without** recording a ledger row, which leaves the migration ledger behind the actual schema — the boot guard then refuses to start the API even though the tables exist.
+  `pnpm bootstrap` runs `pnpm db:migrate` (never `db:push`). `db:push` writes schema objects directly **without** recording a ledger row, which leaves the migration ledger behind the actual schema — the boot guard then refuses to start the api even though the tables exist.
 </Callout>
 
 ## 3. Run the app
@@ -112,7 +127,7 @@ pnpm dev
 pnpm worker:dev
 ```
 
-`pnpm dev` runs `tsx watch --env-file=.env src/index.ts`; `pnpm worker:dev` runs the same against `src/worker.ts`. The API boot guard checks the **engine** schema and exits if the database is behind (set `SKIP_SCHEMA_CHECK=true` to bypass in an emergency).
+`pnpm dev` runs `tsx watch --env-file=.env src/index.ts`; `pnpm worker:dev` runs the same against `src/worker.ts`. They are separate processes: the api serves HTTP and pushes events to Hatchet; the worker executes journey tasks. The api boot guard checks the **engine** schema and exits if the database is behind (set `SKIP_SCHEMA_CHECK=true` to bypass in an emergency).
 
 Confirm it's healthy:
 
@@ -126,36 +141,33 @@ You want `"status": "healthy"` with both `schema.engine.inSync` and `schema.clie
 
 The scaffold ships a `test-onboarding` journey that runs to completion with **no email and no external accounts** — it exists to prove the pipeline end-to-end, and to show off the whole point of code-first lifecycle. Its `run()` branches on `user.properties.plan` and fires internal events with `ctx.trigger` along the way (open `src/journeys/test-onboarding.ts` and read it — it's ~30 lines of plain TypeScript).
 
-Events are sent through the public data plane (`POST /v1/events`), which is authenticated — so first **mint an ingest key**. Use your `ADMIN_API_KEY` to create one and capture it into a shell variable:
+Events go through the public data plane (`POST /v1/events`), which requires a key with the `ingest` scope. Bootstrap already minted one into `HOGSEND_API_KEY` in `.env` — pull it into a shell variable so the curl commands below can use it:
 
-```bash title="mint a data key"
-HOGSEND_DATA_KEY=$(curl -s -XPOST http://localhost:3002/v1/admin/api-keys \
-  -H "authorization: Bearer $ADMIN_API_KEY" \
-  -H 'content-type: application/json' \
-  -d '{"name":"local quickstart","scopes":["ingest"]}' | jq -r .key)
+```bash title="load the auto-minted ingest key from .env"
+export HOGSEND_API_KEY=$(grep -E '^HOGSEND_API_KEY=' .env | cut -d= -f2-)
 ```
 
 The `ingest` scope is what opens the data plane — see [data-plane authentication](/docs/data-api/authentication). Now fire the trigger — `test.signup` — **twice**, with a different `plan` each time and a distinct `userId`. With both processes running:
 
 ```bash title="pro run"
 curl -XPOST http://localhost:3002/v1/events \
-  -H "authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "authorization: Bearer $HOGSEND_API_KEY" \
   -H 'content-type: application/json' \
   -d '{"name":"test.signup","userId":"smoke-pro","email":"pro@example.com","contactProperties":{"plan":"pro"}}'
 ```
 
 ```bash title="free run"
 curl -XPOST http://localhost:3002/v1/events \
-  -H "authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "authorization: Bearer $HOGSEND_API_KEY" \
   -H 'content-type: application/json' \
   -d '{"name":"test.signup","userId":"smoke-free","email":"free@example.com","contactProperties":{"plan":"free"}}'
 ```
 
-`POST /v1/events` requires `name` + one of `email`/`userId`. `plan` goes in `contactProperties` because the journey branches on `user.properties.plan` (contact state). Each call returns `202` and pushes the event to Hatchet, which routes it to the `test-onboarding` journey (its `trigger.event` is `test.signup`).
+`POST /v1/events` requires `name` + one of `email`/`userId`. `plan` goes in `contactProperties` because the journey branches on `user.properties.plan` (contact state) — never mix it with `eventProperties`, which feed `trigger.where`/`exitOn` and are stored on the event instead. Each call returns `202` and pushes the event to Hatchet, which routes it to the `test-onboarding` journey (its `trigger.event` is `test.signup`).
 
 ### Read the divergence
 
-Each run leaves a trail of internal events you can read straight back out of the event store. The admin events feed is **authenticated** — set `ADMIN_API_KEY` in your `.env` (any value) and pass it as a Bearer token. It filters by `userId`, so pull each run's trail separately:
+Each run leaves a trail of internal events you can read straight back out of the event store. The admin events feed is **authenticated** — set `ADMIN_API_KEY` in your `.env` (any value) and restart the api, then pass it as a Bearer token. It filters by `userId`, so pull each run's trail separately:
 
 ```bash title="pro run's trail"
 curl 'http://localhost:3002/v1/admin/events?userId=smoke-pro&limit=10' \
@@ -172,7 +184,7 @@ Both runs fire `journey.welcome_fired` then `journey.completed` — but the midd
 - the **pro** run emitted `journey.pro_path`
 - the **free** run emitted `journey.free_path`
 
-Same trigger in, **different lifecycle — decided by code you can read** (the `if (user.properties.plan === "pro")` branch in `test-onboarding.ts`), not by a rule buried in a marketing tool. You can also watch each run step through in the [Hatchet dashboard](http://localhost:8888).
+Same trigger in, **different lifecycle — decided by code you can read** (the `if (user.properties.plan === "pro")` branch in `test-onboarding.ts`), not by a rule buried in a marketing tool. You can also watch each run step through in the [Hatchet dashboard](http://localhost:8888) (login `admin@example.com` / `Admin123!!`).
 
 <Callout type="info">
   This entire branch needs **zero external accounts** — no Resend, no PostHog, no verified domain. Docker + the two local processes are everything. If the two trails diverged, the engine, worker, ingest pipeline, Hatchet routing, and your journey code are all wired correctly.
@@ -180,13 +192,13 @@ Same trigger in, **different lifecycle — decided by code you can read** (the `
 
 ## 5. Send a real email (Resend)
 
-The `welcome` example journey (`src/journeys/welcome.ts`) is the one that talks to the outside world. It's triggered by `user.created`: it sends the welcome email **immediately**, then `ctx.sleep(days(2))` — a durable Hatchet sleep — and only then conditionally sends a nudge.
+The `welcome` example journey (`src/journeys/welcome.ts`) is the one that talks to the outside world. It's triggered by `user.created`: it sends the welcome email **immediately**, then `ctx.sleep({ duration: days(2) })` — a durable Hatchet sleep — and only then conditionally sends a nudge.
 
 Fire its trigger:
 
 ```bash
 curl -XPOST http://localhost:3002/v1/events \
-  -H "authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "authorization: Bearer $HOGSEND_API_KEY" \
   -H 'content-type: application/json' \
   -d '{"name":"user.created","userId":"welcome-1","email":"you@yourdomain.com","contactProperties":{"plan":"free"}}'
 ```
@@ -194,7 +206,7 @@ curl -XPOST http://localhost:3002/v1/events \
 Only the **first** welcome email (subject `Welcome — let's get you set up`) is sent right away. The follow-up nudge sits behind a **2-day durable sleep**, so assert success on the first email only — don't wait around for the second.
 
 <Callout type="warn">
-  The one slow prerequisite is a **verified Resend sender**: a real `RESEND_API_KEY` plus a verified domain in the [Resend dashboard](https://resend.com/domains). This is the single setup gate in the whole quickstart — and it sits **off the path** to the aha in step 6. Do step 6 first with zero accounts; only reach for Resend when you want a real email to land.
+  The one slow prerequisite is a **verified Resend sender**: a real `RESEND_API_KEY` plus a verified domain in the [Resend dashboard](https://resend.com/domains). This is the single setup gate in the whole quickstart — and it sits **off the path** to the aha in step 4. Do step 4 first with zero accounts; only reach for Resend when you want a real email to land.
 </Callout>
 
 ### Watch it in Studio
@@ -219,10 +231,10 @@ Your `welcome-1` send shows up under **Sends**; open it and you'll see open and 
 ## 6. Did it work? (tiered success)
 
 <Callout type="info">
-  **Required — the dependency-free aha (step 6).** You fired `test.signup` twice and read **two different event trails**: the `smoke-pro` run emitted `journey.pro_path`, the `smoke-free` run emitted `journey.free_path`. That alone proves the engine end-to-end with no external accounts.
+  **Required — the dependency-free aha (step 4).** You fired `test.signup` twice and read **two different event trails**: the `smoke-pro` run emitted `journey.pro_path`, the `smoke-free` run emitted `journey.free_path`. That alone proves the engine end-to-end with no external accounts.
 
   **Optional adapters.** Layer these in once the required path is green:
-  - **Email** — a real `welcome` send visible in [Studio → Sends](http://localhost:3002/studio/sends), behind a verified Resend sender (step 7).
+  - **Email** — a real `welcome` send visible in [Studio → Sends](http://localhost:3002/studio/sends), behind a verified Resend sender (step 5).
   - **Analytics** — one PostHog event reaching Hogsend. See [PostHog setup](/docs/getting-started/posthog-setup).
 </Callout>
 
@@ -230,6 +242,7 @@ Your `welcome-1` send shows up under **Sends**; open it and you'll see open and 
 
 - **Add a journey** — create a file in `src/journeys/` with `defineJourney`, add its constants to `src/journeys/constants/`, and add it to the `journeys` array in `src/journeys/index.ts`. That array is passed to both `createHogsendClient({ journeys })` and `createWorker({ container, journeys })`. Full guide: [Journeys](/docs/guides/journeys).
 - **Add an email template** — drop a `.tsx` component in `src/emails/`, register its key in `src/emails/registry.ts` (with the `TemplateRegistryMap` augmentation for type-safe props), and pass the registry as `createHogsendClient({ email: { templates } })`. Full guide: [Email](/docs/guides/email).
+- **Call Hogsend from your own app code** — the scaffold ships a preconfigured `@hogsend/client` at `src/lib/hogsend.ts` (`hs`), wired to your `HOGSEND_API_KEY`. Use `hs.events.send(...)`, `hs.contacts.upsert(...)`, `hs.emails.send(...)` from a signup handler or billing webhook. Full guide: [Client SDK](/docs/data-api/client-sdk).
 - **Upgrade the engine** — bump every `@hogsend/*` package in lockstep, then apply any new migrations:
 
 ```bash
@@ -240,7 +253,9 @@ pnpm db:migrate          # apply any new engine migrations, then your client tra
 
 This is never a git merge of a fork. See [Upgrading & Customizing](/docs/operating/upgrading) for the full upgrade flow and the Extend → Patch → Eject ladder — how to change engine behavior without losing clean upgrades.
 
----
+<Callout type="info">
+  Need a one-by-one breakdown of every step, with `--json` output for agents? `pnpm dlx hogsend setup` is the CLI equivalent of `pnpm bootstrap`. See [hogsend setup](/docs/cli/setup).
+</Callout>
 
 ## Contributing to the engine
 
@@ -253,3 +268,12 @@ pnpm bootstrap   # checks Docker, writes apps/api/.env, brings up infra, install
 ```
 
 The in-repo dogfood app lives at `apps/api` and exercises the engine directly. This is engine-development tooling — it is **not** the client install path. If you're shipping lifecycle journeys for your own product, scaffold an app (the steps above); don't clone the monorepo.
+
+## Next steps
+
+<Cards>
+  <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
+  <Card title="PostHog Webhook Setup" href="/docs/getting-started/posthog-setup" />
+  <Card title="Configuration" href="/docs/getting-started/configuration" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+</Cards>

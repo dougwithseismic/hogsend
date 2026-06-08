@@ -88,5 +88,5 @@ Whether the preset mounts depends on both the secret **and** `ENABLED_WEBHOOK_PR
 So Clerk mounts only when its secret is set **and** the allowlist permits it.
 
 <Callout type="info">
-  Want to customize the mapping? Author your own `defineWebhookSource()` with `id: "clerk"` in your app's `src/webhook-sources/`. A consumer source with the same id **overrides** the built-in preset — your transform wins. See [Events &amp; Ingestion](/docs/guides/events) for the `defineWebhookSource()` API.
+  Want to customize the mapping? Author your own `defineWebhookSource()` with `id: "clerk"` in your app's `src/webhook-sources/`. A consumer source with the same id **overrides** the built-in preset — your transform wins. See [Webhook Sources & Custom Workflows](/docs/guides/webhook-sources) for the `defineWebhookSource()` API.
 </Callout>

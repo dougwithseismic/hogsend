@@ -1,15 +1,19 @@
 ---
 title: PostHog Webhook Setup
-description: Step-by-step guide to connecting PostHog events to Hogsend via the Destinations pipeline. With screenshots.
+description: Forward the right PostHog events to your running app via PostHog's Destinations pipeline — into POST /v1/webhooks/posthog, where they trigger journeys. With screenshots.
 ---
 
 ## Before you start
 
-This connects your PostHog instance to a **running** Hogsend API. Make sure you've completed [Installation](/docs/getting-started/installation) and `GET /v1/health` returns healthy. PostHog forwards events to your API's `POST /v1/webhooks/posthog` endpoint, which feeds the same ingestion pipeline that triggers journeys.
+This connects your PostHog instance to a **running** Hogsend api. Make sure you've finished [Installation](/docs/getting-started/installation) and that `GET /v1/health` returns healthy. PostHog forwards events to your app's `POST /v1/webhooks/posthog` endpoint, which feeds the same [ingestion pipeline](/docs/guides/events) that triggers journeys.
 
 <Callout type="warn">
-  PostHog's servers must be able to reach your API over the internet. A locally-running app on `http://localhost:3002` is **not** reachable by PostHog Cloud — deploy first (see [Deployment](/docs/operating/deployment)), or use a tunnel (ngrok, Cloudflare Tunnel) to expose your local API while testing.
+  PostHog's servers must be able to reach your app over the internet. A locally-running app on `http://localhost:3002` is **not** reachable by PostHog Cloud — [deploy first](/docs/operating/deployment), or use a tunnel (ngrok, Cloudflare Tunnel) to expose your local api while testing.
 </Callout>
+
+## Engine vs. your content
+
+The PostHog receiver is **your content**, not the engine. The scaffold ships a webhook source at `src/webhook-sources/posthog.ts` defined with [`defineWebhookSource()`](/docs/guides/webhook-sources), registered in `src/webhook-sources/index.ts`, and wired into `createApp(client, { webhookSources })`. The engine serves whatever sources you pass at `POST /v1/webhooks/:sourceId` — here the source `id` is `posthog`, so the route is `POST /v1/webhooks/posthog`. You own that file and can change how PostHog payloads map into events at any time.
 
 ## Two directions, two secrets
 
@@ -18,10 +22,10 @@ PostHog and Hogsend talk to each other in **both** directions, and each directio
 | Direction | Flow | Credential | What it does |
 |---|---|---|---|
 | **Inbound** | PostHog → Hogsend | `POSTHOG_WEBHOOK_SECRET` | Product events enter the engine via `POST /v1/webhooks/posthog` and trigger journeys. **This is what this page sets up.** |
-| **Outbound** | Hogsend → PostHog | `POSTHOG_API_KEY` | The engine's _own_ analytics capture — including email **open** and **link click** events it generates — flows back into your PostHog project. |
+| **Outbound** | Hogsend → PostHog | `POSTHOG_API_KEY` (+ the posthog [destination](/docs/data-api/destinations)) | The engine's lifecycle event stream — including email **open** and **link click** events it generates — flows back into your PostHog project. |
 
 <Callout type="warn">
-  **Email open/click tracking does NOT automatically show up in PostHog.** Hogsend always records opens and clicks in its own database, but it only mirrors them into PostHog when **`POSTHOG_API_KEY`** is set (outbound). That key is separate from `POSTHOG_WEBHOOK_SECRET` (inbound) — setting the webhook secret on this page gets events _into_ Hogsend, but it does nothing for getting Hogsend's engagement events _into_ PostHog. If you want opens/clicks in PostHog, set `POSTHOG_API_KEY` too.
+  **Email open/click tracking does NOT automatically show up in PostHog.** Hogsend always records opens and clicks in its own database, but it only mirrors them into PostHog when you point a posthog [outbound destination](/docs/data-api/destinations) at your project (or set `ENABLE_POSTHOG_DESTINATION=true` with `POSTHOG_API_KEY`). That is separate from `POSTHOG_WEBHOOK_SECRET` (inbound) — setting the webhook secret on this page gets events _into_ Hogsend, but does nothing for getting Hogsend's engagement events _into_ PostHog.
 </Callout>
 
 ## Overview
@@ -30,18 +34,18 @@ This guide connects your PostHog instance to Hogsend using PostHog's **Destinati
 
 There are two approaches:
 
-1. **HTTP Webhook Destination** (recommended) — send specific events from PostHog to Hogsend's webhook endpoint. You pick exactly which events to forward.
+1. **HTTP Webhook Destination** (recommended) — send specific events from PostHog to your app's webhook endpoint. You pick exactly which events to forward.
 2. **PostHog Workflows** — a newer automation builder that gives you more filtering logic before events are sent. More powerful but more complex to set up.
 
 For most teams, Option 1 is the right starting point. You can always add Workflows later.
 
 <Callout type="warn">
-  Don't forward everything. PostHog captures a lot of events — `$pageview`, `$autocapture`, `$feature_flag_called`, etc. You only want to send the 5-15 events that your journeys actually care about.
+  Don't forward everything. PostHog captures a lot of events — `$pageview`, `$autocapture`, `$feature_flag_called`, etc. You only want to send the 5–15 events that your journeys actually care about.
 </Callout>
 
 ## Option 1: HTTP Webhook Destination
 
-This is the fastest path. You create a webhook destination in PostHog that sends selected events to Hogsend's `POST /v1/webhooks/posthog` endpoint.
+This is the fastest path. You create a webhook destination in PostHog that sends selected events to your app's `POST /v1/webhooks/posthog` endpoint.
 
 Here's the full setup flow:
 
@@ -65,10 +69,10 @@ You'll see a two-column form. Here's what to set:
 |---|---|
 | **Webhook URL** | `https://your-hogsend-api.com/v1/webhooks/posthog` |
 | **Method** | `POST` (default) |
-| **JSON Body** | Leave the default — it sends `{event}` and `{person}` which is exactly what Hogsend expects |
+| **JSON Body** | Leave the default — it sends `{event}` and `{person}`, which is exactly what the PostHog source expects |
 
 <Callout type="warn">
-  **Include person properties.** Hogsend's PostHog source reads the contact's email from `person.properties.email` (and `event.distinct_id` for `userId`). If your destination's JSON body doesn't expand `{person}` — or the person has no `email` property — the event still lands, but the contact has **no address**, so the welcome journey can't email them. Keep `{person}` in the body and make sure `email` is set as a person property in PostHog (typically on signup).
+  **Include person properties.** Your PostHog source reads the contact's email from `person.properties.email` (and `event.distinct_id` for `userId`). If the destination's JSON body doesn't expand `{person}` — or the person has no `email` property — the event still lands, but the contact has **no address**, so the welcome journey can't email them. Keep `{person}` in the body and make sure `email` is set as a person property in PostHog (typically on signup).
 </Callout>
 
 **Headers — Add the auth secret:**
@@ -79,7 +83,11 @@ The form already has a `Content-Type: application/json` header. Click **+ Add en
 |---|---|
 | `x-posthog-webhook-secret` | The value you set as `POSTHOG_WEBHOOK_SECRET` in your Hogsend environment |
 
-Both sides must match. PostHog sends the `x-posthog-webhook-secret` header; Hogsend compares it against the `POSTHOG_WEBHOOK_SECRET` env var on your API. If they don't match, Hogsend rejects the request with **`401 Invalid webhook secret`** and the event never enters the pipeline. (If `POSTHOG_WEBHOOK_SECRET` is unset, the source is treated as open and accepts unauthenticated requests — set it in any internet-reachable deployment.)
+Both sides must match. PostHog sends the `x-posthog-webhook-secret` header; the source compares it against the `POSTHOG_WEBHOOK_SECRET` env var on your app. If they don't match, the request is rejected with **`401 Invalid webhook secret`** and the event never enters the pipeline.
+
+<Callout type="info">
+  The `posthog` source uses `auth.type: "match"` — plain shared-secret equality. If `POSTHOG_WEBHOOK_SECRET` is **unset**, the source stays **open** and accepts unauthenticated requests. Always set it in any internet-reachable deployment.
+</Callout>
 
 ### Step 4: Add event matchers (critical)
 
@@ -89,9 +97,9 @@ In the left column under "Match events and actions," click **+ Add event matcher
 
 Without event matchers, the destination fires on *every* PostHog event. On a real project, that's thousands of events per day — `$pageview`, `$autocapture`, `$pageleave`, etc. — none of which your journeys need.
 
-With a `user_signed_up` event matcher selected, the matching events counter drops from **15,104 triggers** (all events) to **17 triggers** (just signups) over the same 7-day window. That's the difference between hammering your Hogsend API with noise and sending exactly what matters.
+With a `user_signed_up` event matcher selected, the matching-events counter drops from **15,104 triggers** (all events) to **17 triggers** (just signups) over the same 7-day window. That's the difference between hammering your app with noise and sending exactly what matters.
 
-**Add one matcher per event you care about.** Click **+ Add event matcher** multiple times to add several:
+**Add one matcher per event you care about.** Click **+ Add event matcher** multiple times to add several.
 
 ### Step 5: Choose your starter events
 
@@ -109,10 +117,10 @@ These are the events most lifecycle journeys need. Add matchers for whichever on
 | `payment_succeeded` | Exit condition for payment recovery journeys |
 | `checkout_abandoned` | Abandoned checkout recovery |
 
-You don't need all of these on day one. Start with 3-4 events that match the journeys you're building, and add more as you go.
+You don't need all of these on day one. Start with 3–4 events that match the journeys you're building, and add more as you go.
 
 <Callout type="info">
-  Your PostHog event names might differ — `$signup` instead of `user_signed_up`, for example. Use whatever names exist in your PostHog project. Hogsend uses the event name as-is.
+  Your PostHog event names might differ — `$signup` instead of `user_signed_up`, for example. Use whatever names exist in your PostHog project. The source forwards the event name as-is, and a journey's `trigger.event` must match that string exactly.
 </Callout>
 
 ### Step 6: Enable and create
@@ -121,7 +129,7 @@ Toggle **Filter out internal and test users** on if you want to skip events from
 
 Leave **Trigger options** on "Run every time" unless you have a reason to throttle.
 
-Click **Create & enable**. The destination is immediately active — the next time one of your matched events fires in PostHog, it'll hit Hogsend.
+Click **Create & enable**. The destination is immediately active — the next time one of your matched events fires in PostHog, it'll hit your app.
 
 ### Step 7: Verify it's working (assert the event landed)
 
@@ -142,7 +150,7 @@ A successful response looks like this — `total` is non-zero and the event is i
       "id": "…",
       "userId": "user_abc123",
       "event": "user_signed_up",
-      "properties": { "email": "alice@example.com", "_posthogEventId": "…" },
+      "properties": { "plan": "pro", "_posthogEventId": "…" },
       "occurredAt": "2025-01-15T10:30:00.000Z"
     }
   ],
@@ -152,12 +160,13 @@ A successful response looks like this — `total` is non-zero and the event is i
 }
 ```
 
-Check `userId` (mapped from `distinct_id`) and `properties.email` are populated — that's the proof the contact has an address and the journey can email them. You can also narrow to a single contact with `&userId=user_abc123`.
+`properties` here is the **event** properties bag (from PostHog's `event.properties`), with `_posthogEventId` added by the source. The contact's `email` lives on the **contact record** (it came in via `person.properties` → contact properties), not in this `properties` bag — see the split below. Check that `userId` (mapped from `distinct_id`) is populated; that and a contact with an address are the proof a journey can email the user. You can also narrow to a single contact with `&userId=user_abc123`.
 
 If `total` is `0` and the list is empty, the event never landed. Check:
+
 - Is the webhook URL correct? (including the `/v1/webhooks/posthog` path)
-- Is `POSTHOG_WEBHOOK_SECRET` set in your Hogsend environment, and does the `x-posthog-webhook-secret` header value match it exactly? A mismatch returns `401` and the event is dropped — check PostHog's History tab for `401`s.
-- Is the Hogsend API running and reachable from the internet?
+- Is `POSTHOG_WEBHOOK_SECRET` set in your Hogsend environment, and does the `x-posthog-webhook-secret` header value match it exactly? A mismatch returns `401 Invalid webhook secret` and the event is dropped — check PostHog's History tab for `401`s.
+- Is the app running and reachable from the internet?
 - The endpoint requires admin auth — `$ADMIN_API_KEY` (sent as `Authorization: Bearer …`) is a different credential from `POSTHOG_WEBHOOK_SECRET`. A `401` from _this_ curl means your admin key is wrong, not the webhook secret.
 
 ## Option 2: PostHog Workflows
@@ -165,17 +174,18 @@ If `total` is `0` and the list is empty, the event never landed. Check:
 PostHog Workflows (from the [Laudspeaker acquisition](https://posthog.com/blog/laudspeaker-acquisition)) is a newer automation builder. It lets you set up more complex routing logic — filter events by properties, add delays, branch on conditions — before sending to a webhook.
 
 This is useful when:
-- You want to filter events by properties before they reach Hogsend (e.g., only send `subscription_created` events for the "pro" plan)
+
+- You want to filter events by properties before they reach Hogsend (e.g. only send `subscription_created` events for the "pro" plan)
 - You want to throttle or deduplicate events at the PostHog level
 - You're already using Workflows for other automations and want to keep everything in one place
 
-For most Hogsend setups, the HTTP Webhook Destination (Option 1) is simpler and gives you everything you need. Hogsend's journey `trigger.where` conditions can handle property-level filtering, so you typically don't need PostHog Workflows for that.
+For most Hogsend setups, the HTTP Webhook Destination (Option 1) is simpler and gives you everything you need. A journey's `trigger.where` conditions can handle property-level filtering, so you typically don't need PostHog Workflows for that.
 
 If you do want to use Workflows, the setup is similar: create a workflow triggered by specific events, add any filtering conditions you need, and use an HTTP action step to POST to `https://your-hogsend-api.com/v1/webhooks/posthog` with the same JSON body and headers.
 
 ## The JSON body PostHog sends
 
-For reference, this is what PostHog's HTTP Webhook destination sends to Hogsend. The default body template uses `{event}` and `{person}` placeholders that PostHog expands:
+For reference, this is what PostHog's HTTP Webhook destination sends to your app. The default body template uses `{event}` and `{person}` placeholders that PostHog expands:
 
 ```json
 {
@@ -202,23 +212,28 @@ For reference, this is what PostHog's HTTP Webhook destination sends to Hogsend.
 }
 ```
 
-Hogsend's built-in PostHog webhook source transforms this into:
+The scaffold's PostHog source (`src/webhook-sources/posthog.ts`) transforms this into an [`IngestEvent`](/docs/guides/events), keeping the **two property bags distinct** — event properties and contact properties are never merged:
 
-| PostHog field | Hogsend field |
-|---|---|
-| `event.event` | Event name (`user_signed_up`) |
-| `event.distinct_id` | `userId` |
-| `person.properties.email` | `userEmail` |
-| `event.properties` + `person.properties` | Merged into `properties` |
-| `event.uuid` | Preserved as `properties._posthogEventId` |
+| PostHog field | Hogsend field | Where it goes |
+|---|---|---|
+| `event.event` | `event` (the event name) | the journey trigger string |
+| `event.distinct_id` | `userId` | identity |
+| `person.properties.email` | `userEmail` | identity (the contact's address) |
+| `event.uuid` | `eventProperties._posthogEventId` | stored on the event |
+| `event.properties` | `eventProperties` | stored on the event; feeds `trigger.where` / `exitOn` |
+| `person.properties` | `contactProperties` | merged onto the contact profile |
+
+<Callout type="info">
+  This is the **`contactProperties` vs `eventProperties` split** that runs through the whole data plane: behavioral event data drives condition evaluation (`trigger.where`, `exitOn`), while identity/profile data merges onto the contact record. The two are never combined. See [Events & Ingestion](/docs/guides/events).
+</Callout>
 
 ## Troubleshooting
 
 ### Events aren't arriving in Hogsend
 
 1. **Check PostHog's History tab** — go to Data > Destinations, click the History tab. You should see successful deliveries. If you see errors, the webhook URL or auth is wrong.
-2. **Check your event matchers** — if no matchers are added, all events fire (but that might be hitting a rate limit). If matchers are added, make sure they match the exact event names in your PostHog project.
-3. **Check CORS / networking** — your Hogsend API must be reachable from PostHog's servers. If you're running locally, PostHog can't reach `localhost`.
+2. **Check your event matchers** — if no matchers are added, all events fire. If matchers are added, make sure they match the exact event names in your PostHog project.
+3. **Check networking** — your app must be reachable from PostHog's servers. If you're running locally, PostHog can't reach `localhost`.
 
 ### Too many events hitting Hogsend
 
@@ -226,8 +241,17 @@ Add event matchers (Step 4 above). Without them, PostHog sends everything — in
 
 ### Events arrive but journeys don't trigger
 
-The event name must exactly match the `trigger.event` in your journey's `meta`. Event names are case- and punctuation-sensitive — the scaffold's example journeys use dot-notation (`user.created`), but Hogsend uses whatever string you put in `trigger.event`, so make sure it matches the PostHog event name exactly (e.g. `user_signed_up`, not `user:signed_up`).
+The event name must exactly match the `trigger.event` in your journey's `meta`. Event names are case- and punctuation-sensitive — the scaffold's example journeys use dot-notation (`user.created`), but Hogsend uses whatever string you put in `trigger.event`, so make sure it matches the PostHog event name exactly (e.g. `user_signed_up`, not `user:signed_up`). See [Journeys](/docs/guides/journeys).
 
 ### Person email is missing
 
-Hogsend reads the email from `person.properties.email`. If this isn't set in PostHog, Hogsend can track the event but can't send emails. Make sure you set `email` as a person property in PostHog early (typically on signup).
+The source reads the email from `person.properties.email`. If this isn't set in PostHog, Hogsend can track the event but can't send emails. Set `email` as a person property in PostHog early (typically on signup).
+
+## Next steps
+
+<Cards>
+  <Card title="Events & Ingestion" href="/docs/guides/events" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+  <Card title="Outbound destinations" href="/docs/data-api/destinations" />
+  <Card title="Webhook Sources" href="/docs/guides/webhook-sources" />
+</Cards>

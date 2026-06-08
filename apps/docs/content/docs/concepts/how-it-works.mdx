@@ -80,7 +80,10 @@ When the journey calls `sendEmail()`, Hogsend renders a React Email template, re
 
 ### 6. Engagement fans out to PostHog (and any subscriber)
 
-When the user opens the email or clicks a tracked link, Hogsend's tracking endpoints record the engagement, push `email.opened` and `email.link_clicked` events through the ingest pipeline, and fan them out on the durable webhook spine to every subscribed [destination](/docs/data-api/destinations) — PostHog included, via a `kind="posthog"` destination. Journeys can branch on these events (`ctx.history.hasEvent({ event: "email.opened" })`).
+When the user opens the email or clicks a tracked link, Hogsend's tracking endpoints (`GET /v1/t/o/:id` for opens, `GET /v1/t/c/:id` for click redirects) record the engagement. Two things happen with that signal, and they are not the same event:
+
+- **Internally**, the engagement is pushed through the ingest pipeline so journeys can react. The open fires `email.opened`; the click fires `email.link_clicked`. These feed `ctx.history.hasEvent({ event: "email.opened" })` and any `email_engagement` conditions.
+- **Outbound**, the lifecycle event is fanned out on the durable webhook spine to every subscribed [destination](/docs/data-api/destinations) — PostHog included, via a `kind="posthog"` destination. The outbound catalog uses `email.opened` and `email.clicked` (note: the outbound name is `email.clicked`, not the internal `email.link_clicked`).
 
 With a PostHog destination configured you can:
 - Build cohorts like "users who opened the welcome email but haven't used feature X"
@@ -138,13 +141,54 @@ Setting up lifecycle email from scratch means building a lot of plumbing. Here's
 
 ## Getting up and running
 
-You don't fork anything. You scaffold a fresh app and let it consume the engine:
+You don't fork anything. You scaffold a fresh app and let it consume the engine. Prerequisites: Node 22, a package manager (pnpm, npm, yarn, or bun), and Docker running.
 
-1. **Scaffold** — `pnpm dlx create-hogsend@latest my-app` emits a thin app pinned to `@hogsend/engine`, with starter journeys, the PostHog webhook source, and the two entry files already wired
-2. **Bootstrap** — `pnpm bootstrap` brings up Docker, writes `.env` (with a generated `BETTER_AUTH_SECRET` and Hatchet token), auto-remaps any busy host ports, and runs migrations. Set `RESEND_API_KEY` for real sends.
-3. **Run** — `pnpm dev` (HTTP API on port 3002) and `pnpm worker:dev` (the Hatchet worker, in a second terminal)
-4. **Connect PostHog** — add `<your-url>/v1/webhooks/posthog` to PostHog's data pipeline destinations, then edit the starter journeys
+### 1. Scaffold
 
-See [Getting Started](/docs/getting-started) for the full walkthrough.
+```bash
+pnpm dlx create-hogsend@latest my-app
+```
+
+This emits a thin app pinned to `@hogsend/engine`, with starter journeys, the PostHog webhook source, an `src/emails/` template, and the two entry files (`src/index.ts`, `src/worker.ts`) already wired. The scaffolder installs dependencies and, by default, runs the local setup for you. (Pass `.` instead of a name to scaffold into the current folder; `-h` prints every flag.)
+
+### 2. Bootstrap (one command does the local setup)
+
+```bash
+pnpm bootstrap
+```
+
+`bootstrap` is idempotent and safe to re-run. It does everything you need to get a running stack — you do **not** bring your own credentials for local dev:
+
+- **Checks Docker** is installed and the daemon is running.
+- **Writes `.env`** from `.env.example` and generates a fresh `BETTER_AUTH_SECRET`.
+- **Resolves ports** — probes the default host ports (Postgres `5434`, Redis `6380`, Hatchet gRPC `7077`, dashboard `8888`) and auto-remaps any that are busy.
+- **Starts containers** — TimescaleDB, Redis, and hatchet-lite via `docker compose up -d --wait`.
+- **Auto-mints the Hatchet token** — talks to the running hatchet-lite container to mint a real `HATCHET_CLIENT_TOKEN` and writes it to `.env`. (Bring-your-own-token is a production concern; locally it's minted for you.)
+- **Runs migrations** — both tracks: the engine schema first, then your client schema.
+- **Mints the data-plane key** — generates an `ingest`-scoped `HOGSEND_API_KEY` (`hsk_…`) and writes it to `.env`, so the [`@hogsend/client`](/docs/data-api/client-sdk) SDK and `hogsend` CLI can write to your instance immediately.
+
+Set a real `RESEND_API_KEY` in `.env` before sending live email — the scaffold ships a placeholder.
+
+### 3. Run
+
+```bash
+pnpm dev          # HTTP API on http://localhost:3002
+pnpm worker:dev   # Hatchet worker (second terminal)
+```
+
+The api serves OpenAPI docs at [`/docs`](http://localhost:3002/docs) (Scalar UI) and health at `GET /v1/health` in development. The worker is the long-running process that executes journey tasks, email sends, and background jobs — both processes share the same codebase, and `createHogsendClient` runs in each.
+
+### 4. Connect PostHog
+
+Add `<your-url>/v1/webhooks/posthog` to PostHog's data-pipeline destinations, then edit the starter journeys in `src/journeys/`. The full walkthrough — including the Hatchet token in production and the PostHog screenshots — lives in [Getting Started](/docs/getting-started).
 
 Hogsend is a separate service that listens to PostHog events via webhook. Your app doesn't know it exists — you can spin it up, try it, and tear it down without changing a line of application code. Upgrading the framework later is `pnpm up "@hogsend/*"` plus a migration run, never a git merge. That's the point: you get welcome sequences, trial nudges, churn recovery, payment-failure handling, and reactivation campaigns without a six-week integration project, and you keep clean PostHog data and proven journeys whatever you migrate to next.
+
+## Next steps
+
+<Cards>
+  <Card title="Getting Started" href="/docs/getting-started" />
+  <Card title="Installation" href="/docs/getting-started/installation" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+  <Card title="Philosophy" href="/docs/concepts/philosophy" />
+</Cards>
