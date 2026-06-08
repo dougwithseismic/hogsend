@@ -1,8 +1,16 @@
 import type { EmailEvent } from "@hogsend/engine";
 import { createTrackedMailer } from "@hogsend/engine";
 import { createResendProvider } from "@hogsend/plugin-resend";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";
 import { templates } from "../emails/index.js";
+
+// Compile a captured drizzle WHERE to its bound params so a batched
+// `... WHERE email IN ($1,$2,…)` suppression can be asserted to cover every
+// recipient (the params ARE the recipient list) without counting query calls.
+const whereParams = (cond: unknown): unknown[] =>
+  new PgDialect().sqlToQuery(cond as SQL).params;
 
 const baseConfig = {
   defaultFrom: "Hogsend <noreply@hogsend.com>",
@@ -234,7 +242,7 @@ describe("createTrackedMailer", () => {
     });
 
     it("iterates ALL recipients on a multi-recipient permanent bounce", async () => {
-      const { db, sets } = makeFakeDb();
+      const { db, sets, wheres } = makeFakeDb();
       const service = makeMailer({ db });
 
       await service.handleWebhook(
@@ -246,9 +254,12 @@ describe("createTrackedMailer", () => {
         "resend",
       );
 
-      // One bounceCount update per unique recipient.
+      // ONE batched `UPDATE … WHERE email IN (…)` covering every recipient.
       const prefUpdates = sets.filter((s) => "bounceCount" in s);
-      expect(prefUpdates).toHaveLength(3);
+      expect(prefUpdates).toHaveLength(1);
+      expect(whereParams(wheres.at(-1))).toEqual(
+        expect.arrayContaining(["a@x.com", "b@x.com", "c@x.com"]),
+      );
     });
 
     it("caps suppression on a fan-out bounce (>100 recipients → skip)", async () => {
@@ -270,7 +281,7 @@ describe("createTrackedMailer", () => {
     });
 
     it("suppresses every recipient on a complaint", async () => {
-      const { db, sets } = makeFakeDb();
+      const { db, sets, wheres } = makeFakeDb();
       const service = makeMailer({ db });
 
       await service.handleWebhook(
@@ -282,8 +293,12 @@ describe("createTrackedMailer", () => {
         "resend",
       );
 
+      // ONE batched suppression `UPDATE … WHERE email IN (…)` for all recipients.
       const suppressUpdates = sets.filter((s) => s.suppressed === true);
-      expect(suppressUpdates).toHaveLength(2);
+      expect(suppressUpdates).toHaveLength(1);
+      expect(whereParams(wheres.at(-1))).toEqual(
+        expect.arrayContaining(["a@x.com", "b@x.com"]),
+      );
     });
 
     it("opened/clicked echoes only touch DB status (no suppression)", async () => {
