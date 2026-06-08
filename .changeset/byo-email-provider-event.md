@@ -2,6 +2,7 @@
 "@hogsend/engine": minor
 "@hogsend/core": minor
 "@hogsend/plugin-resend": minor
+"@hogsend/plugin-postmark": minor
 "@hogsend/db": minor
 "@hogsend/cli": minor
 "@hogsend/client": minor
@@ -31,10 +32,18 @@ What changed (compile-caught, plus one deprecated alias for handler bodies):
   ALWAYS renders React → HTML itself before `provider.send`. React Email stays
   first-class for template authoring AND Studio preview; only the provider wire
   is HTML. `@hogsend/core` no longer depends on React.
-- **Neutral tagging.** The wire `tags: {name,value}[]` becomes `tag?: string` +
-  `metadata?: Record<string,string>`. The higher-level engine send API
-  (`EmailServiceSendOptions.tags`, `POST /v1/emails`) KEEPS `tags` and the
-  mailer translates it.
+- **Neutral tagging.** The provider wire keeps a neutral
+  `tags?: Array<{ name; value }>` — the most portable shape (SES uses it
+  verbatim; Postmark maps first → `Tag` + all → `Metadata`; Resend passes it
+  through). The higher-level engine send API (`EmailServiceSendOptions.tags`,
+  `POST /v1/emails`) is unchanged.
+- **New opt-in provider `@hogsend/plugin-postmark`.** Postmark support behind
+  `createPostmarkProvider` / `EMAIL_PROVIDER=postmark` — native open/click
+  tracking forced off (first-party is sovereign), fail-closed webhook auth. It
+  is an `optionalDependency` of the engine (guarded dynamic import gated on
+  `POSTMARK_SERVER_TOKEN`), so the engine installs/ships fine without it. NOTE:
+  its FIRST npm publish must be MANUAL — CI cannot create a brand-new
+  `@hogsend/*` package.
 - **Bounce normalization + suppression.** `dispatchWebhook` reads `EmailEvent`
   fields and persists `bounce.class → bounceType`, `bounce.reason →
   bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
