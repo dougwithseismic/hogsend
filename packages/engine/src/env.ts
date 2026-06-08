@@ -41,6 +41,16 @@ export const env = createEnv({
     // `EMAIL_FROM ?? RESEND_FROM_EMAIL`, so an unset EMAIL_FROM keeps today's
     // Resend-named default.
     EMAIL_FROM: z.string().email().optional(),
+    // --- Postmark (opt-in BYO provider) ---
+    // Postmark stays OPT-IN: a preset is built only when POSTMARK_SERVER_TOKEN
+    // is present, and it NEVER changes the default active provider — set
+    // EMAIL_PROVIDER=postmark to activate it. Postmark has no HMAC, so webhook
+    // authenticity is HTTP Basic creds in the webhook URL — fail-closed when
+    // unset (status updates rejected).
+    POSTMARK_SERVER_TOKEN: z.string().min(1).optional(),
+    POSTMARK_MESSAGE_STREAM: z.string().min(1).optional(),
+    POSTMARK_WEBHOOK_USER: z.string().min(1).optional(),
+    POSTMARK_WEBHOOK_PASS: z.string().min(1).optional(),
     // Hatchet connection contract. The @hatchet-dev SDK also reads these straight
     // from process.env via its own config-loader, so this schema is a presence /
     // shape check that keeps the contract in one place — the values still flow to

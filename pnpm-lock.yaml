@@ -351,6 +351,9 @@ importers:
       '@hogsend/plugin-posthog':
         specifier: workspace:^
         version: link:../plugin-posthog
+      '@hogsend/plugin-postmark':
+        specifier: workspace:^
+        version: link:../plugin-postmark
       '@hogsend/plugin-resend':
         specifier: workspace:^
         version: link:../plugin-resend
@@ -437,6 +440,31 @@ importers:
       vitest:
         specifier: ^4.1.7
         version: 4.1.7(@types/node@22.15.3)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/plugin-postmark:
+    dependencies:
+      '@hogsend/core':
+        specifier: workspace:^
+        version: link:../core
+      postmark:
+        specifier: ^4.0.7
+        version: 4.0.7
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:^
+        version: link:../typescript-config
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.15.3
+      tsup:
+        specifier: ^8.0.0
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.4)(typescript@5.9.2)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.2
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.8(@types/node@22.15.3)(vite@8.0.14(@types/node@22.15.3)(esbuild@0.27.7)(jiti@2.6.1)(tsx@4.22.4)(yaml@2.9.0))
 
   packages/plugin-resend:
     dependencies:
@@ -4910,6 +4938,9 @@ packages:
       rxjs:
         optional: true
 
+  postmark@4.0.7:
+    resolution: {integrity: sha512-DjNniUl1XNCGUKhCR98ePd5gv16rlUAVKKaU9TUqnE3hDSqfT9XDulu1idjagQmdyGscqnRtXk/puAEiYMeevg==}
+
   prettier@2.8.8:
     resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
     engines: {node: '>=10.13.0'}
@@ -7797,7 +7828,7 @@ snapshots:
 
   '@types/papaparse@5.5.2':
     dependencies:
-      '@types/node': 25.9.1
+      '@types/node': 22.15.3
 
   '@types/qs@6.15.1': {}
 
@@ -10128,6 +10159,13 @@ snapshots:
   posthog-node@5.35.1:
     dependencies:
       '@posthog/core': 1.29.9
+
+  postmark@4.0.7:
+    dependencies:
+      axios: 1.16.1
+    transitivePeerDependencies:
+      - debug
+      - supports-color
 
   prettier@2.8.8: {}
 

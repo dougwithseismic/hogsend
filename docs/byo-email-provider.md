@@ -895,24 +895,67 @@ compiles (React Email intact).
 
 ### Phase 4 — `@hogsend/plugin-postmark`
 
-- [ ] Scaffold `packages/plugin-postmark` from `plugin-resend` (`type: module`,
+- [x] Scaffold `packages/plugin-postmark` from `plugin-resend` (`type: module`,
   `src/index.ts` raw TS, dep `@hogsend/core` `workspace:^` + `postmark` SDK,
   tsup `external: ["postmark"]`). Use `pnpm add postmark@latest`.
-- [ ] Implement `createPostmarkProvider` (§11). Force `TrackOpens: false`,
+- [x] Implement `createPostmarkProvider` (§11). Force `TrackOpens: false`,
   `TrackLinks: "None"` per send; `capabilities: { nativeTracking: false,
   scheduledSend: false, signedWebhooks: false }`; fail-closed when
   `webhookBasicAuth` is unset; transient bounces → `email.bounced` w/
   `class:'transient'`; non-status RecordTypes throw `WebhookHandshakeSignal`.
-- [ ] Add `POSTMARK_SERVER_TOKEN` + `POSTMARK_WEBHOOK_*` to
+- [x] Add `POSTMARK_SERVER_TOKEN` + `POSTMARK_WEBHOOK_*` to
   `emailProvidersFromEnv` (optional preset).
 - [ ] **First publish MUST be MANUAL** — CI `NPM_TOKEN` cannot CREATE a new
   `@hogsend/*` package; thereafter CI handles it. Bump onto the engine version
-  line (run `release`).
+  line (run `release`). _(deferred — not published this slice)_
 
 **Test (Phase 4):** Postmark `TypeCode` table → `class`; `toMessage` always
 HTML; unconfigured webhook fails closed; SubscriptionChange throws the handshake
 signal the route 200s; a Delivery/Bounce/SpamComplaint webhook updates
 `email_sends`.
+
+#### Opt-in (Postmark is NOT the default)
+
+Resend stays the default. Postmark is opt-in two equivalent ways; in both, you
+still must set `EMAIL_PROVIDER=postmark` (or `email.defaultProvider: "postmark"`)
+to make it the **active** provider — registering it alone never changes the
+default.
+
+1. **Env preset** — set `POSTMARK_SERVER_TOKEN` (+ optional
+   `POSTMARK_MESSAGE_STREAM`, and `POSTMARK_WEBHOOK_USER` /
+   `POSTMARK_WEBHOOK_PASS` for the HTTP-Basic webhook auth). The preset is built
+   ONLY when the token is present (`emailProvidersFromEnv`), so a deploy with no
+   Postmark token contributes no Postmark provider:
+
+   ```bash
+   POSTMARK_SERVER_TOKEN=pm_xxx
+   POSTMARK_WEBHOOK_USER=hogsend
+   POSTMARK_WEBHOOK_PASS=super-secret
+   EMAIL_PROVIDER=postmark
+   ```
+
+2. **In code** — register it explicitly on the container:
+
+   ```ts
+   import { createPostmarkProvider } from "@hogsend/plugin-postmark";
+
+   createHogsendClient({
+     email: {
+       providers: [
+         createPostmarkProvider({
+           serverToken: process.env.POSTMARK_SERVER_TOKEN!,
+           webhookBasicAuth: { user: "hogsend", pass: process.env.POSTMARK_WEBHOOK_PASS! },
+         }),
+       ],
+       defaultProvider: "postmark",
+     },
+   });
+   ```
+
+Postmark has no native scheduled send (`capabilities.scheduledSend: false`), so a
+`scheduledAt` is logged + dropped by the engine — use `ctx.sleepUntil` instead.
+Webhook authenticity is HTTP Basic creds in the webhook URL (no HMAC): unset
+creds → `verifyWebhook` fails closed and the status update is rejected.
 
 ---
 

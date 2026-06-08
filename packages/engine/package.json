@@ -33,6 +33,7 @@
     "@hogsend/db": "workspace:^",
     "@hogsend/email": "workspace:^",
     "@hogsend/plugin-posthog": "workspace:^",
+    "@hogsend/plugin-postmark": "workspace:^",
     "@hogsend/plugin-resend": "workspace:^",
     "@hono/node-server": "^2.0.4",
     "@hono/zod-openapi": "^1.4.0",

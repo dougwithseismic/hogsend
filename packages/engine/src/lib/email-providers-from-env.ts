@@ -1,4 +1,5 @@
 import type { EmailProvider } from "@hogsend/core";
+import { createPostmarkProvider } from "@hogsend/plugin-postmark";
 import { createResendProvider } from "@hogsend/plugin-resend";
 import type { env as envSchema } from "../env.js";
 
@@ -22,7 +23,28 @@ export function emailProvidersFromEnv(env: typeof envSchema): EmailProvider[] {
     );
   }
 
-  // future: if (env.POSTMARK_SERVER_TOKEN) providers.push(createPostmarkProvider(...))
+  // Postmark is OPT-IN: built only when its token is present, and it never
+  // changes the default active provider — set EMAIL_PROVIDER=postmark to
+  // activate it. Postmark has no HMAC, so webhook auth is HTTP Basic creds (the
+  // provider fails closed when they're unset).
+  if (env.POSTMARK_SERVER_TOKEN) {
+    providers.push(
+      createPostmarkProvider({
+        serverToken: env.POSTMARK_SERVER_TOKEN,
+        ...(env.POSTMARK_MESSAGE_STREAM
+          ? { messageStream: env.POSTMARK_MESSAGE_STREAM }
+          : {}),
+        ...(env.POSTMARK_WEBHOOK_USER && env.POSTMARK_WEBHOOK_PASS
+          ? {
+              webhookBasicAuth: {
+                user: env.POSTMARK_WEBHOOK_USER,
+                pass: env.POSTMARK_WEBHOOK_PASS,
+              },
+            }
+          : {}),
+      }),
+    );
+  }
 
   return providers;
 }
