@@ -74,13 +74,42 @@ const sameSet = (a, b) => {
 };
 
 /**
- * The packages that move together on the engine version line and are pinned by
- * the scaffold as `^{{ENGINE_VERSION}}`. DERIVED from HOGSEND_PACKAGES so the
- * doctor never becomes a fourth list to keep in sync — the dir name equals the
- * `@hogsend/<name>` suffix. The three-list check below proves this set agrees
- * with verify-scaffold's PACKAGES and the template's @hogsend deps.
+ * Dir names of every publishable `@hogsend/*` package under `packages/`, scanned
+ * from disk. Excludes private packages and non-`@hogsend/` names (so
+ * `create-hogsend` — its own version line — and `@repo/typescript-config` drop
+ * out).
  */
-const ENGINE_LINE = manifestPackages();
+function enginePackagesFromDisk() {
+  return readdirSync(r("packages"), { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .filter((n) => {
+      let pkg;
+      try {
+        pkg = readJson(`packages/${n}/package.json`);
+      } catch {
+        return false;
+      }
+      return (
+        typeof pkg.name === "string" &&
+        pkg.name.startsWith("@hogsend/") &&
+        !pkg.private &&
+        pkg.publishConfig?.access === "public"
+      );
+    });
+}
+
+/**
+ * Every publishable `@hogsend/*` package shares the engine version line. DERIVED
+ * FROM DISK (not HOGSEND_PACKAGES) so opt-in packages that ship on the line but
+ * are NOT scaffold defaults — e.g. `@hogsend/plugin-postmark` — are still held to
+ * version-line uniformity, publish-visibility, and the peer-trap checks. The
+ * scaffold-default subset stays HOGSEND_PACKAGES; the three-list check below
+ * proves THAT subset agrees with verify-scaffold's PACKAGES and the template's
+ * @hogsend deps. Disk-derived = no list to keep in sync; a new publishable
+ * @hogsend package is covered automatically.
+ */
+const ENGINE_LINE = enginePackagesFromDisk();
 
 /** Each check returns null when satisfied, or a precise violation string. */
 const checks = [

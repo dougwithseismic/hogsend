@@ -181,7 +181,7 @@ If a future consumer needs prebuilt JS, that's a separate change to `exports` +
 
 ---
 
-## 6b. Vendored agent skills track the CLI line, not the engine line
+## 6b. Vendored agent skills ship via `@hogsend/cli`
 
 The Claude Code skills shipped into scaffolded apps live in **one source**,
 `packages/cli/skills/`. `@hogsend/cli` ships it (`files[]`), and
@@ -190,11 +190,15 @@ The Claude Code skills shipped into scaffolded apps live in **one source**,
 tarball entry; `hogsend skills add` / `hogsend upgrade` install from the same
 source). Two consequences for releases:
 
-- **`@hogsend/cli` is intentionally OFF the engine line** (its own line, currently
-  `0.1.x`). Do **not** add it to `HOGSEND_PACKAGES`, the `linked` group, or pin any
-  `SKILL.md` to `ENGINE_VERSION`. The framework version is pinned only in the
-  scaffold's token-substituted `CLAUDE.md`. The scaffold does not depend on
-  `@hogsend/cli`.
+- **`@hogsend/cli` rides the engine version line but is NOT scaffold-pinned**
+  (same category as `@hogsend/plugin-postmark`). It is bumped with the engine line
+  in every release changeset and `release-doctor`'s disk-derived version-line check
+  enforces that uniformity — but keep it OUT of `HOGSEND_PACKAGES`,
+  `verify-scaffold.sh`'s `PACKAGES`, and `template/_package.json` deps, and do
+  **not** pin any `SKILL.md` to `ENGINE_VERSION`. The scaffold does not npm-depend
+  on `@hogsend/cli` (its skills ride the `template` tarball as a build artifact);
+  the framework version is pinned only in the scaffold's token-substituted
+  `CLAUDE.md`.
 - **On any engine public-API change, content-audit `packages/cli/skills/*`** for
   staleness and bump `@hogsend/cli` so the refreshed skills publish. Keep
   `@hogsend/cli` published — the scaffolded-app refresh path
