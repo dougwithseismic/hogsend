@@ -15,6 +15,13 @@ import type { env as envSchema } from "../env.js";
  * touches the package and degrades gracefully when it isn't installed. ESM
  * top-level await keeps `emailProvidersFromEnv` itself synchronous (it reads the
  * already-resolved factory), so `createHogsendClient` stays synchronous.
+ *
+ * The specifier is assembled at runtime (not a string literal) ON PURPOSE: a
+ * literal `import("@hogsend/plugin-postmark")` makes `tsc` resolve the module's
+ * types, which fails with TS2307 for any consumer that doesn't have the opt-in
+ * package installed (e.g. a fresh `create-hogsend` app). A computed specifier is
+ * opaque to the type-checker — resolved only at runtime — so the engine
+ * type-checks identically with or without the package present.
  */
 type CreatePostmarkProvider = (cfg: {
   serverToken: string;
@@ -22,12 +29,14 @@ type CreatePostmarkProvider = (cfg: {
   webhookBasicAuth?: { user: string; pass: string };
 }) => EmailProvider;
 
+const POSTMARK_PACKAGE = ["@hogsend", "plugin-postmark"].join("/");
+
 let createPostmarkProvider: CreatePostmarkProvider | null = null;
 if (process.env.POSTMARK_SERVER_TOKEN) {
   try {
-    ({ createPostmarkProvider } = (await import(
-      "@hogsend/plugin-postmark"
-    )) as { createPostmarkProvider: CreatePostmarkProvider });
+    ({ createPostmarkProvider } = (await import(POSTMARK_PACKAGE)) as {
+      createPostmarkProvider: CreatePostmarkProvider;
+    });
   } catch {
     // The token is set but the opt-in package isn't installed. Leave the factory
     // null — `emailProvidersFromEnv` skips the preset, and if Postmark was the
