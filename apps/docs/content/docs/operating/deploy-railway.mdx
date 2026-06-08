@@ -5,8 +5,41 @@ description: Railway is one paved on-ramp for Hogsend — managed Postgres + Red
 
 Railway is **one paved option**, not the only way — the [default deploy path is Docker self-host](/docs/operating/deploy-docker). Railway trades some control for a managed on-ramp: managed Postgres and Redis, a one-click template, and GitHub auto-deploy. It consumes the same build and the same [env contract](/docs/getting-started/configuration) as every other target.
 
+## Deploy with the template (one-click)
+
+The published template provisions the entire topology in one click:
+
+<a href="https://railway.com/deploy/sYUYH8?referralCode=dougie" target="_blank" rel="noreferrer">
+  <img src="https://railway.com/button.svg" alt="Deploy on Railway" height="42" />
+</a>
+
+It stands up six services, pre-wired:
+
+| Service | What it is |
+|---|---|
+| **api** | Hono HTTP server (`railway.toml`) — REST, ingestion, auth, `/v1/health` |
+| **worker** | Hatchet worker (`railway.worker.toml`) — durable task execution |
+| **Postgres** | TimescaleDB (Postgres 18) — your primary database |
+| **Redis** | PostHog property cache |
+| **hatchet-lite** | Self-hosted workflow engine (the `hatchet-lite` image) |
+| **Hatchet Postgres** | Hatchet's own metadata database |
+
+The template links the internal connections — `DATABASE_URL`, `REDIS_URL`, and the Hatchet gRPC address — for you. Three things still need your input after the first deploy:
+
+1. **Resend** — set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` on **both** the api and worker. Until the key is set the api can't pass its `/v1/health` check.
+2. **Public URL** — generate a domain on the **api** service, then set `API_PUBLIC_URL` and `BETTER_AUTH_URL` to it (e.g. `https://api.yourapp.com`). These build the unsubscribe + tracking links inside outgoing email, so a localhost value would leak into real mail.
+3. **Hatchet token** — open the **hatchet-lite** dashboard, mint an API token, and set `HATCHET_CLIENT_TOKEN` on both the api and worker, then redeploy. See [Get a Hatchet token](/docs/getting-started/hatchet).
+
+Then verify the live api:
+
+```bash
+hogsend doctor --url https://api.yourapp.com --json
+```
+
+Expect an `ok` verdict with `database`/`redis` up and both schema tracks in sync.
+
 <Callout type="info">
-  A one-click [Railway template](https://railway.com/deploy/LxSCyR) provisions the topology for you. The walkthrough below is the manual path if you'd rather wire it up yourself.
+  Everything below is the **manual path** — wire the same topology up yourself, or deploy into an existing Railway project. It also doubles as a reference for what the template configures.
 </Callout>
 
 ## What you deploy

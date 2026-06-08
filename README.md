@@ -189,7 +189,7 @@ Journeys are durable, which is what lets `ctx.sleep(days(2))` pause for two days
 
 Same app, deployed your way. One-click on Railway, or self-host the full stack anywhere that runs Node.js + Postgres:
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/LxSCyR)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/sYUYH8?referralCode=dougie)
 
 > Full guide: **[Deploy on Railway](https://docs.hogsend.com/docs/operating/deploy-railway)** | **[Deploy with Docker](https://docs.hogsend.com/docs/operating/deploy-docker)**
 
