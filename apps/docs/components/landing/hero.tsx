@@ -39,10 +39,10 @@ export function Hero({ className }: HeroProps): JSX.Element {
 
           <p className="mt-6 max-w-2xl text-lg text-white/60">
             PostHog already knows what your users do. Resend already sends your
-            mail. Hogsend is the piece in between — events from PostHog, Stripe,
-            Clerk, or your own app set off the right message on their own, and
-            every send fans back out to PostHog, Segment, Slack, or any webhook.
-            No new platform, no drag-and-drop.
+            mail. Hogsend is the lifecycle layer in between — the right message
+            fires on its own, every send flows back to your tools, and the whole
+            thing lives in your repo as TypeScript you own. No new platform, no
+            drag-and-drop.
           </p>
         </Reveal>
 

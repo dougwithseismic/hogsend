@@ -6,6 +6,7 @@ import {
   GitBranch,
   Mail,
 } from "lucide-react";
+import { Button } from "@/components/ds/button";
 import { FeatureCard } from "@/components/ds/card";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
@@ -69,7 +70,7 @@ export function UseCases() {
           tone="light"
           eyebrow="WHAT YOU CAN BUILD"
           title="The emails every product should send"
-          subtitle="Welcome series, trial nudges, win-backs, payment saves — the flows every product needs. Ten ship ready to edit, not blank pages."
+          subtitle="Welcome series, trial nudges, win-backs, payment saves — the lifecycle flows every product needs, each one a few primitives combined. It's a cookbook: pick the outcome, reach for the pieces."
         />
       </Reveal>
 
@@ -87,6 +88,14 @@ export function UseCases() {
           </Reveal>
         ))}
       </div>
+
+      <Reveal delay={0.1}>
+        <div className="mt-10 flex justify-center">
+          <Button href="/recipes" variant="accent" icon>
+            Browse the cookbook
+          </Button>
+        </div>
+      </Reveal>
     </Section>
   );
 }
