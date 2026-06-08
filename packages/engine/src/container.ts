@@ -38,6 +38,7 @@ import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
 import { getPostHog } from "./lib/posthog.js";
+import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
 import type { DefinedList } from "./lists/define-list.js";
@@ -247,26 +248,6 @@ export function createHogsendClient(
   const created = createDatabase({ url: env.DATABASE_URL });
   const db = opts.overrides?.db ?? created.db;
 
-  const auth =
-    opts.overrides?.auth ??
-    createAuth({
-      db,
-      secret: env.BETTER_AUTH_SECRET,
-      baseURL: env.BETTER_AUTH_URL,
-      // Always trust the public API origin; add any explicitly configured ones
-      // (e.g. a remote Studio origin) on top. baseURL is trusted automatically.
-      trustedOrigins: Array.from(
-        new Set(
-          [
-            env.API_PUBLIC_URL,
-            ...(env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []),
-          ]
-            .map((o) => o.trim())
-            .filter(Boolean),
-        ),
-      ),
-    });
-
   const registry = buildJourneyRegistry(
     opts.journeys ?? [],
     opts.enabledJourneys ?? env.ENABLED_JOURNEYS,
@@ -397,6 +378,40 @@ export function createHogsendClient(
     );
 
   setEmailService(emailService);
+
+  // Auth is built AFTER the mailer so we can wire the self-service password-reset
+  // delivery to the just-built `emailService` directly (rather than relying on a
+  // singleton resolved at request time). The injected `sendResetPassword` is what
+  // flips better-auth's reset endpoints from disabled → live; the engine-owned,
+  // self-contained reset email needs no consumer template wiring, so reset works
+  // on a bare instance. NEVER log the url/token (see `sendResetPasswordEmail`).
+  const auth =
+    opts.overrides?.auth ??
+    createAuth({
+      db,
+      secret: env.BETTER_AUTH_SECRET,
+      baseURL: env.BETTER_AUTH_URL,
+      // Always trust the public API origin; add any explicitly configured ones
+      // (e.g. a remote Studio origin) on top. baseURL is trusted automatically.
+      trustedOrigins: Array.from(
+        new Set(
+          [
+            env.API_PUBLIC_URL,
+            ...(env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []),
+          ]
+            .map((o) => o.trim())
+            .filter(Boolean),
+        ),
+      ),
+      sendResetPassword: async ({ user, url }) => {
+        await sendResetPasswordEmail({
+          to: user.email,
+          url,
+          emailService,
+          logger,
+        });
+      },
+    });
 
   const analytics = opts.analytics ?? getPostHog();
 

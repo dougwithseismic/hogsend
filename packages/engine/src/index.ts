@@ -128,7 +128,11 @@ export {
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
 // --- Auth ---
-export { type Auth, createAuth } from "./lib/auth.js";
+export {
+  type Auth,
+  createAuth,
+  type SendResetPasswordFn,
+} from "./lib/auth.js";
 // --- Backfill ---
 export {
   type BatchedBackfillOptions,
@@ -193,6 +197,8 @@ export {
 } from "./lib/outbound.js";
 export { getPostHog } from "./lib/posthog.js";
 export { getRedisIfConnected } from "./lib/redis.js";
+// --- Self-service password reset (engine-owned, self-contained email) ---
+export { sendResetPasswordEmail } from "./lib/reset-email.js";
 // --- First-admin setup token (closes the first-run land-grab) ---
 export {
   logSetupTokenOnFirstBoot,

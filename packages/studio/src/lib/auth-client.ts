@@ -14,4 +14,15 @@ export const authClient = createAuthClient({
   },
 });
 
-export const { signIn, signUp, signOut, useSession } = authClient;
+export const {
+  signIn,
+  signUp,
+  signOut,
+  useSession,
+  // Self-service password reset (better-auth client, 1.6.x). `requestPasswordReset`
+  // emails the link (engine mailer); `resetPassword` consumes the `?token=` from
+  // the reset link and sets the new password. Both return the neutral
+  // `{ data, error }` shape the forms surface.
+  requestPasswordReset,
+  resetPassword,
+} = authClient;
