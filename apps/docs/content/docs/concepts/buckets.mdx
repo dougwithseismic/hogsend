@@ -5,7 +5,7 @@ description: Real-time, code-defined membership groups. A user joins the moment 
 
 ## What a bucket is
 
-A bucket is a named group of users, defined in code, whose membership is computed in real time. You declare a predicate — "performed a key action 10+ times in the last 30 days," "on trial with 3 days left and not yet converted," "went quiet for 7 days" — and Hogsend keeps the membership current as events flow in. A user **joins** the moment their data satisfies the predicate and **leaves** the moment it stops.
+A bucket is a named group of users, defined in code, whose membership is computed in real time. You declare a predicate — "used the key feature 10+ times in the last 30 days," "on trial with 3 days left and not yet converted," "went quiet for 7 days" — and Hogsend keeps the membership current as events flow in. A user **joins** the moment their data satisfies the predicate and **leaves** the moment it stops.
 
 Buckets are a peer primitive to journeys. Where a journey is a durable *flow* you author with `defineJourney()`, a bucket is a declarative *membership* you author with `defineBucket()` — same authoring shape, same client/worker wiring, same "this is your content, the engine never imports it" boundary. A bucket's core is still its criteria: there's no top-level `run` function the way a journey has one. But the object `defineBucket()` returns isn't *only* criteria — it's the membership plus a small, cohesive surface bolted onto it. Once you've declared who's in a state, three things hang off the same definition:
 
@@ -22,11 +22,11 @@ The rest of this page walks those three in turn, after the transition model they
 The thing that makes buckets useful is what happens on a transition. When a user joins or leaves a bucket, Hogsend emits a first-class event through the **same ingestion spine** every other event travels:
 
 - **Join** emits `bucket:entered:<id>` — e.g. `bucket:entered:power-users`
-- **Leave** emits `bucket:left:<id>` — e.g. `bucket:left:went-dormant`
+- **Leave** emits `bucket:left:<id>` — e.g. `bucket:left:power-users`
 
-These are real events. They land in `user_events`, they get pushed to Hatchet, and they run through the exit-condition check — exactly like a `user_signed_up` or a `payment_failed`. That has one powerful consequence:
+These are real events. They land in `user_events`, they get pushed to Hatchet, and they run through the exit-condition check — exactly like a `feature.used` or a `payment_failed`. That has one powerful consequence:
 
-**A membership change can directly trigger a journey.** A journey whose `trigger.event` is `bucket:entered:trial-expiring-soon` starts when — and only when — a user joins that bucket. The journey side needs zero special wiring: Hatchet routes the transition event to the journey by exact event-name match, the same way it routes everything else. And because `bucket:left:<id>` flows through the exit path too, a journey can list `exitOn: [{ event: "bucket:left:trial-expiring-soon" }]` and a user automatically exits the moment they no longer qualify. (You won't usually hand-write those strings — section 1 shows the typed refs that do it for you.)
+**A membership change can directly trigger a journey.** A journey whose `trigger.event` is `bucket:entered:power-users` starts when — and only when — a user joins that bucket. The journey side needs zero special wiring: Hatchet routes the transition event to the journey by exact event-name match, the same way it routes everything else. And because `bucket:left:<id>` flows through the exit path too, a journey can list `exitOn: [{ event: "bucket:left:power-users" }]` and a user automatically exits the moment they no longer qualify. (You won't usually hand-write those strings — section 1 shows the typed refs that do it for you.)
 
 So the mental model is a clean two-step composition:
 
@@ -40,14 +40,14 @@ Transitions fire **only on a change** — never per evaluation, never for a user
 The most direct way to act on a membership change is to trigger (or exit) a *separate* journey on the transition event. The bucket object carries the two event names as **typed refs** so a typo can't silently break the wire:
 
 ```ts
-// went-dormant.ts (the bucket) exports the bucket object…
-export const wentDormant = defineBucket({ meta: { id: "went-dormant", /* … */ } });
+// power-users.ts (the bucket) exports the bucket object…
+export const powerUsers = defineBucket({ meta: { id: "power-users", /* … */ } });
 
 // …and a journey reads the literal-typed transition refs off it:
-import { wentDormant } from "../buckets/went-dormant.js";
+import { powerUsers } from "../buckets/power-users.js";
 
-trigger: { event: wentDormant.entered }, // "bucket:entered:went-dormant"
-exitOn:  [{ event: wentDormant.left }],  // "bucket:left:went-dormant"
+trigger: { event: powerUsers.entered }, // "bucket:entered:power-users"
+exitOn:  [{ event: powerUsers.left }],  // "bucket:left:power-users"
 ```
 
 `bucket.entered` is the literal type `` `bucket:entered:${Id}` `` and `bucket.left` is `` `bucket:left:${Id}` ``, both derived synchronously from the bucket's own id when `defineBucket()` runs. They're plain strings at runtime — byte-identical to the events the engine emits — but TypeScript ties them to the bucket, so you can't reference a bucket that doesn't exist or a transition you spelled wrong. (`trigger.event` is typed `string`, so a bare string literal would compile and silently route nothing; the ref makes the wire checkable.)
@@ -61,16 +61,21 @@ This is the right tool when the reaction is a real, ongoing flow — a multi-ste
 `bucket.on(kind, opts?, handler)` lets you write the reaction **next to the criteria that triggers it**, in the same file. There are three kinds — `"enter"`, `"leave"`, and `"dwell"`:
 
 ```ts
-wentDormant
+powerUsers
   .on("enter", { firstEntryOnly: true }, async (user, ctx) => {
     // ctx.entryCount, ctx.isFirstEntry — plus the full JourneyContext
     await ctx.sleep({ duration: hours(1) });
-    await sendEmail({ to: user.email, template: Templates.WIN_BACK });
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      template: Templates.ACTIVATION_NUDGE,
+      subject: "You're flying — here's a power tip",
+    });
   })
   .on("leave", { reason: "criteria" }, async (user, ctx) => {
     // ctx.reason is "criteria" | "maxDwell" | "manual"
   })
-  .on("dwell", { after: days(30) }, async (user, ctx) => {
+  .on("dwell", { every: days(7) }, async (user, ctx) => {
     // ctx.dwellCount — fired by the reconcile cron for continuous members
   });
 ```
@@ -83,7 +88,7 @@ wentDormant
 - **`leave`** → `ctx.reason` (`"criteria"` | `"maxDwell"` | `"manual"`), carried on the leave event. `{ reason }` filters to one or more reasons.
 - **`dwell`** → `ctx.dwellCount`, the elapsed-interval ordinal (more on dwell below).
 
-The design rule is **one canonical reaction per transition**. `.on("enter", …)` is the single, blessed "this is what this bucket does when someone enters." If you need a *second* divergent reaction to the same transition — a different audience, a different schedule, a flow other triggers also start — that's a sign it's a real journey: write a normal `defineJourney({ trigger: { event: bucket.entered } })` and bind it as in section 1. `.on()` is for the colocated common case, not an event bus.
+The design rule is **one canonical reaction per transition**. `.on("enter", …)` is the single, blessed "this is what this bucket does when someone enters." If you need a *second* divergent reaction to the same transition — a different audience, a different schedule, a flow other triggers also start — that's a sign it's a real journey: write a normal `defineJourney({ meta: { trigger: { event: bucket.entered } } })` and bind it as in section 1. `.on()` is for the colocated common case, not an event bus.
 
 ### Dwell: react to *time spent in* a bucket
 
@@ -94,19 +99,19 @@ The design rule is **one canonical reaction per transition**. `.on("enter", …)
 
 Dwell is **cron-resolution, not instant.** It's driven by the engine's reconcile sweep, gated on *continuous* membership — a leave-and-rejoin resets the clock, because a re-join is a fresh membership. `ctx.dwellCount` is the elapsed-interval ordinal: `1` for a one-shot `after`, incrementing across intervals for `every`.
 
-You might ask why this isn't just `.on("enter") + ctx.sleep(days(30))`. The difference is **the existing population.** A durable sleep inside an enter handler only schedules the future: it covers people who enter *after* you ship the reaction. Dwell fires for everyone *already* in the bucket — it reads each member's `dwellAnchorAt`, a historical anchor derived during backfill, so the moment you deploy a `{ after: days(30) }` dwell on `went-dormant`, it fires for people who have *already* been dormant for thirty days, not thirty days from now. That backfill-derived clock is dwell's whole reason to exist.
+You might ask why this isn't just `.on("enter") + ctx.sleep(days(30))`. The difference is **the existing population.** A durable sleep inside an enter handler only schedules the future: it covers people who enter *after* you ship the reaction. Dwell fires for everyone *already* in the bucket — it reads each member's dwell anchor (`coalesce(dwellAnchorAt, enteredAt)`, a historical anchor derived during backfill), so the moment you deploy a `{ after: days(30) }` dwell on a dormancy bucket, it fires for people who have *already* been dormant for thirty days, not thirty days from now. That backfill-derived clock is dwell's whole reason to exist.
 
-The shipped starter uses exactly this — a final winback for users who've been dormant for a continuous 30 days:
+A colocated dwell reaction reads like this — a weekly nudge for continuous members, driven by the cron over the existing population:
 
 ```ts
-// src/buckets/went-dormant.ts — colocated dwell reaction
-wentDormant.on("dwell", { after: days(30) }, async (user) => {
+// src/buckets/power-users.ts — colocated dwell reaction
+powerUsers.on("dwell", { every: days(7) }, async (user) => {
   await sendEmail({
     to: user.email,
     userId: user.id,
     journeyStateId: user.stateId,
-    template: Templates.REACTIVATION_FINAL_NUDGE,
-    subject: "Still here whenever you're ready",
+    template: Templates.ACTIVATION_NUDGE,
+    subject: "Your weekly power-user tip",
     journeyName: user.journeyName,
   });
 });
@@ -119,10 +124,10 @@ In Studio, every reaction a bucket generates is grouped under that bucket by its
 Because a bucket is a materialized set, you can read it directly off the bucket object — useful from inside a journey, a custom route, or a one-off script:
 
 ```ts
-const { data: total }    = await wentDormant.count();        // number | null
-const { data: isMember } = await wentDormant.has(userId);    // boolean
-const page = await wentDormant.members({ limit: 50 });       // { data, error, count, cursor }
-for await (const m of wentDormant.membersIterator()) { /* paged internally */ }
+const { data: total }    = await powerUsers.count();        // number | null
+const { data: isMember } = await powerUsers.has(userId);    // boolean
+const page = await powerUsers.members({ limit: 50 });       // { data, error, count, cursor }
+for await (const m of powerUsers.membersIterator()) { /* paged internally */ }
 ```
 
 Every method returns a Supabase-shaped `{ data, error }` result and **never throws** — a query failure lands in `error`, not an exception. `members()` adds a per-call `count` and a keyset `cursor` for the next page.
@@ -134,7 +139,7 @@ The one hard rule: **member access never returns an unbounded array.** `members(
 A bucket's membership predicate is the same composable condition model journeys use for trigger filters, exit rules, and mid-journey branching — there's no new language to learn:
 
 - **Property** — `plan == "trial"`, `trial_days_left <= 3`, `converted != true`
-- **Event** — "did `app.active` in the last 7 days," or a count threshold like "fired `key_action` 10+ times in the last 30 days"
+- **Event** — "did `feature.used` in the last 7 days," or a count threshold like "fired `feature.used` 10+ times in the last 30 days"
 - **Composite** — arbitrary `and` / `or` nesting of the above
 
 Inclusion and exclusion live in the same tree — a `neq` or an event `check: "not_exists"` is just another leaf, no separate exclusion list. The canonical absence predicate ("did **not** do X in the last N days") is exactly how you express dormancy or churn risk.
@@ -143,9 +148,13 @@ Inclusion and exclusion live in the same tree — a `neq` or an event `check: "n
 
 ## Dynamic vs manual
 
-Most buckets are **dynamic** (the default): membership is recomputed from `criteria` automatically. You write the predicate; the engine maintains the set.
+Every bucket today is **dynamic** (the default): membership is recomputed from `criteria` automatically. You write the predicate; the engine maintains the set — joins and most leaves inline as events arrive, time-based leaves via the reconcile cron.
 
-A bucket can also be **manual** (`kind: "manual"`): it has no criteria, and membership is changed only by an explicit API call or import. That's the escape hatch for sets that aren't a function of event data — a hand-curated beta cohort, a list imported from elsewhere. Manual buckets are skipped by the membership engine and the reconcile cron entirely. The common case is dynamic; manual is there when you need it.
+The `kind` discriminator also declares `"manual"`, but that mode is **not implemented in v1** — a bucket with `kind: "manual"` is **rejected loudly at registration** rather than accepted as a set that can never gain members. The forward-compat plan is a bucket whose membership is changed only by explicit API call or import (a hand-curated beta cohort, a list imported from elsewhere). Until then, every bucket needs a `criteria` predicate.
+
+<Callout type="warn">
+  `kind: "manual"` throws at registration in v1: *"`kind:"manual"` buckets are not implemented in v1; use a dynamic bucket (`kind:"dynamic"` with `criteria`) instead."* Don't reach for it yet — express the set as a dynamic `criteria` predicate.
+</Callout>
 
 ## Real-time, where PostHog's cohorts can't be
 
@@ -166,13 +175,13 @@ Buckets inherit Hogsend's two governing stances.
 
 **Code-first, observe-not-author.** A bucket is a TypeScript file, exactly like a journey or a webhook source. There is no visual bucket builder and there never will be — Studio shows you a bucket's size, its enter/leave rate over time, which journeys it feeds, and the reactions it owns (grouped under it via `sourceBucketId`), but you author the criteria *and* the reactions in code. Definitions live in your repo, you own them, and the engine never imports them. See [Philosophy](/docs/concepts/philosophy) for the full engine-vs-content line.
 
-**Not a CDP.** Once you have a materialized membership table, entered/left events, and an arbitrary condition language, you have most of the machinery of a customer data platform. The one thing that keeps Hogsend from *being* one is a deliberate refusal: buckets emit events into **Hogsend's own journey system only**. There are no destination connectors — no Braze, no HubSpot, no Segment sync baked into a bucket. If you want a membership change to reach an external system, you do it the way a journey reaches any destination today: trigger a journey on `bucket:entered:<id>` and have it call out. First-class destination sync would turn Hogsend into a generic CDP, which is an explicit non-goal.
+**Not a CDP.** Once you have a materialized membership table, entered/left events, and an arbitrary condition language, you have most of the machinery of a customer data platform. The one thing that keeps Hogsend from *being* one is a deliberate refusal: a bucket transition emits an event into **Hogsend's own journey system** first. To fan that transition out to an external system, you use the same outbound spine every other Hogsend event rides — `bucket.entered` / `bucket.left` are two of the [13 outbound catalog events](/docs/data-api/destinations), so a [destination](/docs/data-api/destinations) (PostHog, Segment, Slack, a CRM, a warehouse) can subscribe to them with the engine's durable retry/backoff/DLQ delivery. What a bucket itself does *not* carry is a baked-in destination connector — first-class per-bucket sync would turn the bucket primitive into a generic CDP audience-sync surface, which is an explicit non-goal.
 
-There is exactly **one** blessed external sync, and it's off by default: a bucket can optionally `$set` a boolean PostHog person property (`hogsend_bucket_<id>`) on join and clear it on leave. That gives a PostHog cohort a *person-property* membership signal it can evaluate in real time — something PostHog can't compute on its own — while staying inside the "PostHog detects, Hogsend acts" loop. It's a no-op without a PostHog API key, and it's the only sync target that exists. It is not a destination connector, and it isn't on unless you turn it on.
+There is exactly **one** bucket-level external sync, and it's off by default: a bucket can optionally `$set` a boolean PostHog person property (`hogsend_bucket_<id>`, overridable via `postHogPropertyKey`) on join and clear it on leave. That gives a PostHog cohort a *person-property* membership signal it can evaluate in real time — something PostHog can't compute on its own — while staying inside the "PostHog detects, Hogsend acts" loop. It's a no-op without a PostHog API key, and it's the only bucket-level sync that exists. It is not a destination connector, and it isn't on unless you turn it on.
 
 ## A bucket in code
 
-The three buckets the starter app ships — one behavioral, one property-based, one absence — cover the shapes you'll reach for most:
+The starter app ships one example bucket — `power-users`, a behavioral, time-based group (a 30-day rolling window):
 
 ```ts
 // src/buckets/power-users.ts — behavioral, time-based (30-day rolling window)
@@ -183,21 +192,24 @@ export const powerUsers = defineBucket({
   meta: {
     id: "power-users",
     name: "Power users",
-    description: "Performed a key action 10+ times in the last 30 days.",
+    description: "Used the key feature 10+ times in the last 30 days.",
     enabled: true,
+    // Rolling 30-day window → time-based: the reconcile cron sweeps the leave
+    // when the window rolls past, since no event signals it.
     timeBased: true,
     entryLimit: "once_per_period",
     entryPeriod: days(7),
-    criteria: (b) => b.event(Events.KEY_ACTION).within(days(30)).atLeast(10),
+    criteria: (b) => b.event(Events.FEATURE_USED).within(days(30)).atLeast(10),
   },
 });
 ```
 
+The shipped file colocates a set of `.on("enter" | "dwell" | "leave", …)` reactions but ships them **commented out**, so a fresh app doesn't email power users by default — uncomment one to wire the reaction the instant the module loads. An absence bucket (dormancy / churn risk) is the other shape you'll reach for; it's the canonical home for a dwell reaction, because the absence leave is owned by the reconcile cron and dwell fires off the backfilled anchor for the existing population:
+
 ```ts
-// src/buckets/went-dormant.ts — absence; the leave is owned by the cron sweep,
-// with a colocated dwell reaction
-import { days, defineBucket, sendEmail } from "@hogsend/engine";
-import { Events, Templates } from "../journeys/constants/index.js";
+// An absence bucket — was active once, but NOT in the last 7 days.
+import { days, defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
 
 export const wentDormant = defineBucket({
   meta: {
@@ -206,32 +218,26 @@ export const wentDormant = defineBucket({
     enabled: true,
     timeBased: true,
     fastExpiry: true,
-    // Lapsed-active: was active once, but NOT in the last 7 days.
     criteria: (b) =>
       b.all(
-        b.event(Events.APP_ACTIVE).exists(),
-        b.event(Events.APP_ACTIVE).within(days(7)).notExists(),
+        b.event(Events.FEATURE_USED).exists(),
+        b.event(Events.FEATURE_USED).within(days(7)).notExists(),
       ),
   },
 });
-
-// Colocated reaction — ships with the bucket, grouped under it in Studio.
-// Fires from the cron for members continuously dormant ≥ 30 days, including the
-// existing population on first deploy (it clocks off the backfilled anchor).
-wentDormant.on("dwell", { after: days(30) }, async (user) => {
-  await sendEmail({
-    to: user.email,
-    userId: user.id,
-    journeyStateId: user.stateId,
-    template: Templates.REACTIVATION_FINAL_NUDGE,
-    subject: "Still here whenever you're ready",
-    journeyName: user.journeyName,
-  });
-});
 ```
 
-The unbounded `exists()` floor is what excludes never-active signups — a bare `not_exists within 7d` would join every brand-new user who has yet to fire `app.active`.
+The unbounded `exists()` floor is what excludes never-active signups — a bare `not_exists within 7d` would join every brand-new user who has yet to fire `feature.used`.
 
-`power-users` and `went-dormant` are **time-based** — a rolling window means the clock alone can flip membership, so the reconcile cron owns their leaves. `trial-expiring-soon` (a pure-property composite) is real-time only, since a property bucket can only change when an event carries a new property value. The criteria are just the conditions you already write everywhere else; what's new is that the predicate defines a *group* — and that group is something you can bind a journey to, attach a colocated reaction to, and query, all off the same definition.
+`power-users` and an absence bucket like `went-dormant` are **time-based** — a rolling window means the clock alone can flip membership, so the reconcile cron owns their leaves. A pure-property bucket (e.g. "on trial with 3 days left, not converted") is real-time only, since a property bucket can only change when an event carries a new property value. The criteria are just the conditions you already write everywhere else; what's new is that the predicate defines a *group* — and that group is something you can bind a journey to, attach a colocated reaction to, and query, all off the same definition.
 
-For authoring detail — re-entry policy, anti-flap, the full `defineBucket()` reference, and the registration steps — see the [Buckets guide](/docs/guides/buckets). To see the whole loop a transition rides through, see [How it works](/docs/concepts/how-it-works).
+For authoring detail — re-entry policy, anti-flap (`minDwell` / `maxDwell`), the full `defineBucket()` reference, and the registration steps — see the [Buckets guide](/docs/guides/buckets).
+
+## Next steps
+
+<Cards>
+  <Card title="Buckets guide" href="/docs/guides/buckets" />
+  <Card title="Conditions" href="/docs/guides/conditions" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+  <Card title="How It Works" href="/docs/concepts/how-it-works" />
+</Cards>

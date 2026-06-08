@@ -1,19 +1,49 @@
 ---
 title: Why Hatchet?
-description: Hatchet gives Hogsend durable execution — sleeps that survive deploys, automatic retries, and event routing. Here's why we chose it and why you don't need to use it directly.
+description: Hatchet gives Hogsend durable execution — sleeps that survive deploys, automatic retries, and event routing — and the scaffold mints its token for you, so you never touch it directly.
 ---
+
+## You never touch Hatchet directly
+
+[Hatchet](https://hatchet.run) is the durable execution engine under the hood. When a journey calls `await ctx.sleep({ duration: days(3) })`, Hatchet is what makes that sleep survive server restarts, deploys, and crashes. When a PostHog event arrives and needs to fan out to three journeys at once, Hatchet does the routing.
+
+The point of this page: you get all of that without learning Hatchet. `@hogsend/engine` wraps it completely. Your `defineJourney()` content becomes a Hatchet durable task; `createWorker()` runs the worker loop for you. And the one thing Hatchet normally asks of you — a connection token — the scaffold mints automatically for local dev.
+
+## The fastest path to a running engine
+
+Scaffold a fresh app, then run one command. You do not bring your own Hatchet token for local development — `bootstrap` mints it.
+
+```bash
+pnpm dlx create-hogsend@latest my-app
+cd my-app
+pnpm bootstrap     # Docker + .env + Hatchet token + migrate
+pnpm dev           # HTTP api on http://localhost:3002
+pnpm worker:dev    # Hatchet worker, in a second terminal
+```
+
+`pnpm bootstrap` is the whole local setup, and it is idempotent — safe to re-run. It runs seven steps for you:
+
+1. **Checks Docker** is installed and the daemon is running.
+2. **Prepares `.env`** — copies `.env.example` and writes a fresh `BETTER_AUTH_SECRET`.
+3. **Resolves ports** — if `5434`/`6380`/`7077`/`8888` are taken it remaps to the next free port and syncs them back into `.env`.
+4. **Starts containers** — TimescaleDB, Redis, and hatchet-lite via `docker compose up -d --wait`.
+5. **Mints the Hatchet token** — execs `hatchet-admin token create` inside the hatchet-lite container and writes `HATCHET_CLIENT_TOKEN` into `.env`. This is the value the engine throws without; you do not create it by hand locally.
+6. **Runs migrations** — `db:migrate`, engine track then client track.
+7. **Mints a data-plane key** — an ingest-scoped `hsk_…` written to `HOGSEND_API_KEY`, so the [data API](/docs/data-api) and [client SDK](/docs/data-api/client-sdk) work the moment you boot.
+
+When it finishes, the hatchet-lite dashboard is at `http://localhost:8888` (login `admin@example.com` / `Admin123!!`). Your first journey to edit is `src/journeys/welcome.ts`.
+
+<Callout type="info">
+  Locally the Hatchet token is minted for you. The bring-your-own-token contract only applies in production — there you point `HATCHET_CLIENT_TOKEN` at [Hatchet Cloud or a self-hosted engine](/docs/getting-started/hatchet) and leave the rest of the env contract the same.
+</Callout>
 
 ## What Hatchet does for Hogsend
 
-[Hatchet](https://hatchet.run) is the durable execution engine under the hood. When your journey calls `await ctx.sleep(days(3))`, Hatchet is what makes that sleep survive server restarts, deploys, and crashes. When a PostHog event arrives and needs to be routed to three different journeys simultaneously, Hatchet handles the fan-out.
-
-You don't interact with Hatchet directly — `@hogsend/engine` wraps it completely. Your `defineJourney()` content becomes a Hatchet durable task, and `createWorker()` runs the Hatchet worker loop for you. Understanding what Hatchet provides helps you understand why Hogsend works the way it does.
-
 ### Durable sleeps
 
-A journey that sends a welcome email, waits 2 days, checks if the user activated, and then sends a follow-up — that's three days of execution time. Without durable execution, you'd need to persist state manually, build resume logic, handle process restarts, and deal with race conditions.
+A journey that sends a welcome email, waits 2 days, checks if the user activated, then sends a follow-up — that's three days of wall-clock execution. Without durable execution you'd persist state manually, build resume logic, handle process restarts, and fight race conditions.
 
-Hatchet makes this transparent. Your journey code is a normal async function with `await` calls. Hatchet serializes state at each sleep boundary and resumes execution exactly where it left off, even if the worker process was replaced by a new deploy in between.
+Hatchet makes this transparent. Your journey is a normal async function with `await` calls. Hatchet serializes state at each sleep boundary and resumes exactly where it left off — even if a new deploy replaced the worker in between.
 
 ```ts
 // This literally pauses for 2 days and picks up here
@@ -28,51 +58,64 @@ const { found } = await ctx.history.hasEvent({
 
 ### Event routing
 
-Each journey declares a trigger event in its metadata. When an event arrives at Hogsend's ingest endpoint, it's pushed to Hatchet, which routes it to every journey listening for that event name. If three journeys all trigger on `user_signed_up`, Hatchet runs all three concurrently as separate durable tasks.
+Each journey declares a trigger event in its metadata. When an event lands at `POST /v1/events`, it's pushed to Hatchet, which routes it to every journey listening for that event name. If three journeys all trigger on `user_signed_up`, Hatchet runs all three concurrently as separate durable tasks.
 
 ### Automatic retries
 
-Email sends and other side effects are wrapped in Hatchet tasks with configurable retries and exponential backoff. If Resend returns a 500 or times out, Hatchet retries automatically. Non-retryable errors (invalid API key, malformed email) bail out immediately.
+Email sends and other side effects run as Hatchet tasks with retries and exponential backoff. If Resend returns a 500 or times out, Hatchet retries automatically. Non-retryable errors (invalid API key, malformed email) bail out immediately.
 
 ### Task visibility
 
-Hatchet provides a dashboard (locally at `localhost:8888`, or Hatchet Cloud in production) where you can see every running task, inspect payloads, view retry history, and cancel stuck runs. This is useful for debugging but not required for day-to-day operation — Hogsend's admin API exposes the same information through journey state endpoints.
+The hatchet-lite dashboard (locally at `localhost:8888`, or Hatchet Cloud in production) shows every running task, its payload, retry history, and lets you cancel stuck runs. Useful for debugging, but not required day-to-day — Hogsend's admin API exposes the same information through its journey-state endpoints, and `hogsend doctor` probes overall health.
 
 ## Why not just use Hatchet directly?
 
-You could. Hatchet is a general-purpose durable execution engine. You could write journey logic directly as Hatchet tasks, build your own email integration, handle event routing, manage contact state, and wire up unsubscribe flows.
+You could. Hatchet is a general-purpose durable execution engine. You could write journey logic as raw Hatchet tasks, build your own email integration, handle event routing, manage contact state, and wire up unsubscribe flows.
 
-Hogsend is everything on top of Hatchet that makes it a lifecycle automation platform:
+Hogsend is everything on top of Hatchet that makes it a lifecycle platform:
 
 | Concern | Hatchet alone | Hogsend |
 |---|---|---|
-| Event ingestion | You build it | `POST /v1/events` + `defineWebhookSource()` (PostHog source ships as starter content) |
-| Journey definition | Raw Hatchet task API | `defineJourney()` with metadata, guards, and typed context |
+| Event ingestion | You build it | `POST /v1/events` + `defineWebhookSource()`; PostHog connects via the [Destinations pipeline](/docs/getting-started/posthog-setup) |
+| Journey definition | Raw Hatchet task API | `defineJourney()` with metadata, guards, and a typed `ctx` |
 | Enrollment guards | You build it | Automatic: entry limits, trigger conditions, subscription checks |
 | Exit conditions | You build it | Declarative `exitOn` rules evaluated on every incoming event |
 | Contact management | You build it | Auto-upsert from events, admin API, import/export |
 | Email delivery | You build it | Resend integration with templates, tracking, retries |
-| Bounce handling | You build it | Automatic suppression after bounce threshold |
+| Bounce handling | You build it | Automatic suppression after a bounce threshold |
 | Unsubscribe | You build it | Signed tokens, one-click unsubscribe, preference center |
-| PostHog sync | You build it | Two-way: events in, engagement back out |
+| Outbound event stream | You build it | A 13-event catalog fanned out to PostHog/Segment/Slack/CRM via [destinations](/docs/data-api/destinations) |
 | Observability | Hatchet dashboard | Admin API + metrics + alerting + audit logs |
 
-`@hogsend/engine` is roughly 6-8 weeks of integration work already done — and shipped as a versioned package you consume, so you get the fixes and improvements via `pnpm up` rather than re-deriving them. You get a working lifecycle platform in minutes instead of building plumbing for two months.
+`@hogsend/engine` is the integration work already done — and shipped as a versioned package you consume, so you get fixes and improvements via `pnpm up` rather than re-deriving them. You get a working lifecycle platform in minutes instead of building plumbing for weeks.
+
+<Callout type="info">
+  The lifecycle event stream is no longer pushed to PostHog from inside a journey — `ctx.posthog.capture` and `ctx.identify` were removed. To mirror events to PostHog, Segment, Slack, a CRM, or a warehouse, configure an [outbound destination](/docs/data-api/destinations). To fire a custom event for the current user from a journey, use `ctx.trigger({ event, userId, properties })`, which runs the full ingest pipeline.
+</Callout>
 
 ## Why not BullMQ / Temporal / Inngest?
 
 We evaluated other durable execution options:
 
-- **BullMQ** — great for simple job queues, but doesn't provide durable execution across long sleeps. You'd need to build state persistence and resume logic yourself. Fine for "send this email in 5 minutes," not for "wait 3 days then check if the user activated."
+- **BullMQ** — great for simple job queues, but no durable execution across long sleeps. You'd build state persistence and resume logic yourself. Fine for "send this email in 5 minutes," not for "wait 3 days then check if the user activated."
 - **Temporal** — powerful but heavy. Requires its own cluster, has a steep learning curve, and is overkill for lifecycle email where the execution patterns are straightforward.
 - **Inngest** — good developer experience, but cloud-only in practice. We wanted something self-hostable that doesn't add a SaaS dependency.
 
-Hatchet hits the sweet spot: durable execution with event routing, self-hostable via a single Docker image (Hatchet-Lite), lightweight enough for a small team, and a clean Go-based engine that just works.
+Hatchet hits the sweet spot: durable execution with event routing, self-hostable via a single Docker image (hatchet-lite), lightweight enough for a small team, and a clean Go-based engine that just works.
 
 ## Hatchet-Lite vs Hatchet Cloud
 
-Hogsend ships with **Hatchet-Lite** — a single-container deployment that includes the engine, dashboard, and its own Postgres instance. This is what runs locally via Docker Compose and what we recommend for production on Railway.
+Hogsend ships with **hatchet-lite** — a single container that bundles the engine, dashboard, and its own Postgres. This is what `docker compose up` runs locally and what we recommend for production on Railway.
 
-For high-throughput workloads (hundreds of thousands of journey runs per month), you can upgrade to [Hatchet Cloud](https://hatchet.run) for managed infrastructure, horizontal scaling, and SLA guarantees. The switch is a single environment variable change (`HATCHET_CLIENT_TOKEN`).
+For high-throughput workloads (hundreds of thousands of journey runs per month), you can switch to [Hatchet Cloud](https://hatchet.run) for managed infrastructure, horizontal scaling, and SLA guarantees. The switch is a single environment-variable change — point `HATCHET_CLIENT_TOKEN` at the Cloud token.
 
-For most teams getting started with lifecycle automation, Hatchet-Lite is more than enough.
+For most teams getting started with lifecycle automation, hatchet-lite is more than enough.
+
+## Next steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation" />
+  <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
+  <Card title="How It Works" href="/docs/concepts/how-it-works" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+</Cards>

@@ -40,11 +40,11 @@ export const productUpdates = defineList({
 export const lists = [productUpdates];
 ```
 
-Thread the array into `createHogsendClient` (so the API knows the catalog) and `createWorker` (so the broadcast resolves membership on send):
+Thread the array into `createHogsendClient` — in **both** the api entry (`src/index.ts`) and the worker entry (`src/worker.ts`), since `createHogsendClient` runs in each process. Lists are wired at the container level only; `createWorker` reads membership through the `container` reference, so it takes no `lists` of its own:
 
 ```ts
 const container = createHogsendClient({ journeys, lists });
-const worker = createWorker({ container, journeys, lists });
+const worker = createWorker({ container, journeys });
 ```
 
 See the [Lists reference](/docs/data-api/lists) for the full `defineList()` option table and the reserved-id rules.

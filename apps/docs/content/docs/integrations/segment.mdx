@@ -139,4 +139,4 @@ So with `SEGMENT_WEBHOOK_SECRET` set and `ENABLED_WEBHOOK_PRESETS` unset, Segmen
 
 ## Overriding the preset
 
-If you author your own webhook source with the id `segment`, your source **wins** — it replaces the built-in preset entirely. Use this when you need a different identity resolution, a different signing scheme, or to map `page`/`group` events the preset skips. Define it under `src/webhook-sources/`, register it in your `webhookSources` array, and Hogsend serves yours instead. See [Events & Ingestion](/docs/guides/events) for the `defineWebhookSource` API.
+If you author your own webhook source with the id `segment`, your source **wins** — it replaces the built-in preset entirely. Use this when you need a different identity resolution, a different signing scheme, or to map `page`/`group` events the preset skips. Define it under `src/webhook-sources/`, register it in your `webhookSources` array, and Hogsend serves yours instead. See [Webhook Sources & Custom Workflows](/docs/guides/webhook-sources) for the `defineWebhookSource` API.

@@ -114,13 +114,30 @@ The engine validates all environment variables at startup using `@t3-oss/env-cor
 | `RESEND_API_KEY` | Yes | -- | Resend API key |
 | `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Default sender email |
 | `RESEND_WEBHOOK_SECRET` | No | -- | Enables Resend webhook verification and `EmailService` |
-| `HATCHET_CLIENT_TOKEN` | No | -- | Hatchet authentication token |
+| `HATCHET_CLIENT_TOKEN` | Yes | -- | Hatchet authentication token (the engine will not boot without it) |
+| `HATCHET_CLIENT_HOST_PORT` | No | `localhost:7077` | Hatchet engine gRPC host:port |
+| `HATCHET_CLIENT_TLS_STRATEGY` | No | `tls` | `none`, `tls`, or `mtls` |
+| `HATCHET_CLIENT_NAMESPACE` | No | -- | Optional Hatchet namespace prefix |
 | `POSTHOG_API_KEY` | No | -- | PostHog project API key |
 | `POSTHOG_HOST` | No | -- | PostHog instance URL |
 | `POSTHOG_WEBHOOK_SECRET` | No | -- | PostHog webhook source authentication |
 | `ADMIN_API_KEY` | No | -- | Bearer token for admin endpoints |
 | `API_PUBLIC_URL` | No | `http://localhost:3002` | Public URL for generating links (unsubscribe, preferences) |
+| `HOGSEND_API_KEY` | No | -- | Ingest-scoped data-plane key used by the public API + `@hogsend/client` SDK (not by the engine factories) |
 | `ENABLED_JOURNEYS` | No | `*` | Comma-separated journey IDs or `*` for all |
+| `ENABLED_BUCKETS` | No | `*` | Comma-separated bucket IDs or `*` for all |
+| `ENABLED_LISTS` | No | `*` | Comma-separated `defineList()` ids or `*` for all |
+| `ENABLED_DESTINATION_PRESETS` | No | -- | csv of destination preset ids, `*` (all), or `none`; absent → the `webhook` + `posthog` default set. `webhook` and `posthog` are always registered |
+| `ENABLE_POSTHOG_DESTINATION` | No | `false` | When true (and `POSTHOG_API_KEY` is set), auto-seeds one durable PostHog destination for the email lifecycle |
+| `SKIP_SCHEMA_CHECK` | No | `false` | Bypass the boot-time engine schema guard |
+| `CLIENT_MIGRATIONS_FOLDER` | No | -- | Folder for your client-track Drizzle migrations |
+| `BUCKET_RECONCILE_CRON` | No | `*/5 * * * *` | Cadence for the engine-owned bucket reconcile cron (time-based leaves) |
+| `OUTBOUND_WEBHOOK_REAPER_CRON` | No | -- | Cadence for the outbound-delivery reaper cron (retry scheduler + stuck-row recovery) |
+| `OUTBOUND_WEBHOOK_MAX_ATTEMPTS` | No | `8` | Max delivery attempts before an outbound webhook goes to the DLQ |
+| `OUTBOUND_WEBHOOK_TIMEOUT_MS` | No | `15000` | Per-attempt HTTP timeout for outbound webhook delivery |
+| `OUTBOUND_WEBHOOK_BASE_DELAY_MS` | No | `5000` | Base backoff delay between outbound webhook retries |
+| `OUTBOUND_WEBHOOK_MAX_DELAY_MS` | No | `21600000` | Max backoff delay (6h) between outbound webhook retries |
+| `OUTBOUND_WEBHOOK_STUCK_AFTER_MS` | No | `300000` | How long (5min) before a `sending` row is treated as stuck and recovered |
 
 ---
 

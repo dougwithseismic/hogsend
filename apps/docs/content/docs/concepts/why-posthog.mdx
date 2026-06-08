@@ -1,15 +1,17 @@
 ---
 title: Why PostHog?
-description: PostHog is the best product analytics platform for startups. Hogsend is the lifecycle automation it doesn't have yet.
+description: PostHog is the best product analytics platform for startups. Hogsend is the code-first lifecycle automation it doesn't have yet.
 ---
 
 ## PostHog is great. It just doesn't do lifecycle emails.
 
-If you're reading this, you probably already love PostHog. You've got event tracking, feature flags, session replays, A/B testing, and a data warehouse — all in one platform, self-hostable, with a generous free tier. It's the analytics stack that startups actually want to use.
+If you're reading this, you probably already love PostHog. You've got event tracking, feature flags, session replays, A/B testing, and a data warehouse — all in one platform, self-hostable, with a generous free tier. It's the analytics stack startups actually want to use.
 
 But there's a gap. PostHog tells you *what users do*. It doesn't help you *respond* to what they do. When someone signs up and doesn't activate, when a payment fails, when a power user goes quiet — you're on your own. You either hand-roll email logic in your app code, or you buy a separate lifecycle platform and spend weeks wiring it up.
 
 Hogsend fills that gap. It listens to your PostHog events and reacts to them with durable, code-first journeys that send emails, check conditions, wait, and branch — all without touching your application code.
+
+> Want to see it instead of read about it? `pnpm dlx create-hogsend@latest my-app` scaffolds a running app, and `pnpm bootstrap` brings up the full stack for you. See [Installation](/docs/getting-started/installation).
 
 ## PostHog is building this themselves
 
@@ -20,26 +22,28 @@ We should be upfront about this: PostHog acquired the [Laudspeaker](https://post
 Until then, Hogsend exists. And it's designed with that future in mind:
 
 - **Clean event model** — Hogsend uses your PostHog events directly. No proprietary event format. When PostHog ships their own tool, your events are already in the right shape.
-- **Durable fan-out to PostHog** — email engagement (sent, delivered, opened, clicked, bounced, complained) is fanned out to PostHog as a [destination](/docs/data-api/destinations) on Hogsend's durable webhook spine, with retries and a dead-letter queue. You can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, in PostHog where it belongs. PostHog is one subscriber among many here: Segment, Slack, a CRM, or a warehouse can receive the exact same stream.
+- **Durable fan-out to PostHog** — email engagement (`email.sent`, `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, `email.complained`) fans out to PostHog as a [destination](/docs/data-api/destinations) on Hogsend's durable webhook spine, with retries and a dead-letter queue. You can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, in PostHog where it belongs. PostHog is one subscriber among many here: Segment, Slack, a CRM, or a warehouse can receive the exact same stream.
 - **No lock-in** — journeys are TypeScript files in your repo. Templates are React components. Data lives in your Postgres. Nothing is trapped in a proprietary format.
 - **Gateway drug** — if you outgrow Hogsend before PostHog ships their solution, you can migrate to Customer.io, Brevo, or any other platform. Your event model and journey logic translate directly.
 
 ## What PostHog gives Hogsend
 
-Hogsend uses PostHog in two directions, but they're asymmetric: events flow **in** as journey triggers, person properties are **pulled** to enrich decisions, and engagement flows **back out** to PostHog as one [destination](/docs/data-api/destinations) among many — not through a privileged PostHog-only pipe.
+Hogsend uses PostHog in three directions, and they're asymmetric: events flow **in** as journey triggers, person properties are **pulled** to enrich decisions and resolve timezones, and engagement flows **back out** to PostHog as one [destination](/docs/data-api/destinations) among many — not through a privileged PostHog-only pipe.
 
 ### Events flow in
 
-Every PostHog event can trigger a Hogsend journey. Set up the webhook once (2 minutes) and your entire PostHog event stream is available:
+Every PostHog event can trigger a Hogsend journey. Set up the webhook once (about 2 minutes) and your entire PostHog event stream is available:
 
 - `user_signed_up` → welcome sequence
 - `feature_used` → activation branching
 - `subscription_cancelled` → churn recovery
 - Custom events from PostHog Actions → any journey you define
 
+PostHog forwards each event to `POST /v1/events`, the same [data-plane endpoint](/docs/data-api/events) your own app code can call. Hogsend stores the event, routes it to any journey whose `trigger.event` matches, and upserts the contact. See [PostHog Webhook Setup](/docs/getting-started/posthog-setup) for the wiring.
+
 ### Person properties enrich journeys
 
-Hogsend fetches PostHog person properties (with Redis caching) so your journeys can make decisions based on the full user profile:
+Hogsend pulls PostHog person properties (with Redis caching) so your journeys and timezone logic can use the full user profile. The provider is exposed as `getPostHog()`, which returns `undefined` when `POSTHOG_API_KEY` isn't set — so guard it:
 
 ```ts
 import { getPostHog } from "@hogsend/engine";
@@ -49,9 +53,13 @@ const properties = await getPostHog()?.getPersonProperties(user.id);
 // { plan: "pro", company_size: 50, signup_source: "Product Hunt" }
 ```
 
+<Callout type="warn">
+  The journey context no longer has `ctx.identify` or `ctx.posthog.capture` — those PostHog-specific shims were **removed**. To fire a custom event for a user from inside a journey, use [`ctx.trigger({ event, userId, properties })`](/docs/guides/journeys), which runs the full ingest pipeline. To send the lifecycle event stream out to PostHog (or Segment, Slack, a CRM, a warehouse), configure an [outbound destination](/docs/data-api/destinations).
+</Callout>
+
 ### Engagement flows back out
 
-When Hogsend sends an email and the user opens it, clicks a link, bounces, complains, or unsubscribes — those events fan out to PostHog as a `kind="posthog"` destination on the durable webhook spine (set `ENABLE_POSTHOG_DESTINATION=true` to auto-seed one). This is the same delivery path any other subscriber uses, so PostHog gets the full email funnel — durably, with retries — and so could Segment or Slack. This means in PostHog you can:
+When Hogsend sends an email and the user opens it, clicks a link, bounces, complains, or unsubscribes — those events fan out to PostHog as a `kind="posthog"` destination on the durable webhook spine. Set `ENABLE_POSTHOG_DESTINATION=true` (with `POSTHOG_API_KEY` set) to auto-seed one. This is the same delivery path any other subscriber uses, so PostHog gets the full email funnel — durably, with retries and a dead-letter queue — and so could Segment or Slack. This means in PostHog you can:
 
 - **Cohort building** — "users who received the trial-expiring email and clicked through" is a PostHog cohort, not a separate tool
 - **Funnel analysis** — email engagement becomes part of your product funnels in PostHog
@@ -66,4 +74,15 @@ Every PostHog team eventually needs lifecycle emails. The question is whether yo
 
 Hogsend is opinionated. It's built specifically for the PostHog + Resend stack. It doesn't try to be everything — it just does lifecycle email really well, with the assumption that PostHog is your analytics platform and you want everything flowing back there.
 
+Getting there is one command. `pnpm dlx create-hogsend@latest my-app` scaffolds a thin app that pins `@hogsend/engine` and holds your content; `pnpm bootstrap` then checks Docker, writes `.env` with a fresh `BETTER_AUTH_SECRET`, brings up Postgres + Redis + hatchet-lite, auto-mints your Hatchet token, runs the migrations, and mints an ingest-scoped data-plane key — all into `.env`. Set `RESEND_API_KEY` before sending real email, point your PostHog webhook at the app, and your event stream starts driving journeys.
+
 When you're ready for more — push notifications, SMS, in-app messages, or PostHog's own marketing automation — you'll have a clean event model, proven journey logic, and engagement data already in PostHog to build on.
+
+## Next steps
+
+<Cards>
+  <Card title="Installation" href="/docs/getting-started/installation" />
+  <Card title="PostHog Webhook Setup" href="/docs/getting-started/posthog-setup" />
+  <Card title="How It Works" href="/docs/concepts/how-it-works" />
+  <Card title="Journeys" href="/docs/guides/journeys" />
+</Cards>

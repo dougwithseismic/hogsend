@@ -1,21 +1,30 @@
 ---
 title: hogsend events
-description: Stream the event history for a single user, newest first — with optional event-name, time-range, and pagination filters.
+description: Stream a user's event history, or send an event into the data plane to trigger journeys and buckets.
 ---
 
-`hogsend events` streams the event history for a single user, newest first. It wraps `GET /v1/admin/events?userId=<userId>`.
+`hogsend events` has two modes. In **read** mode it streams the event history for a single user, newest first (wrapping `GET /v1/admin/events?userId=<userId>`). In **send** mode (`hogsend events send <name>`) it pushes a new event through the data-plane ingest pipeline.
+
+```bash
+hogsend events <userId> [options]      # read — stream a user's history
+hogsend events send <name> [options]   # send — push an event into the data plane
+```
+
+## Read mode
+
+`hogsend events <userId>` streams the event history for a single user, newest first. It wraps `GET /v1/admin/events?userId=<userId>`.
 
 ```bash
 hogsend events <userId> [options]
 ```
 
-## Arguments
+### Arguments
 
 | Argument | Description |
 |---|---|
 | `<userId>` | The user (distinct) id to fetch events for. **Required.** |
 
-## Options
+### Options
 
 | Option | Description |
 |---|---|
@@ -29,10 +38,59 @@ hogsend events <userId> [options]
 
 The `--url`, `--admin-key`, and `--json` flags are the shared global flags handled by the router. See the [CLI Reference](/docs/cli) for full connection details.
 
-## Examples
+### Examples
 
 ```bash
 hogsend events user_123
 hogsend events user_123 --event signup --limit 10
 hogsend events user_123 --from 2026-01-01T00:00:00Z --json
 ```
+
+## Send mode
+
+`hogsend events send <name>` pushes an event through the data-plane ingest pipeline (`POST /v1/events`) to trigger journeys and update contacts. The event name is a required positional, and you must pass at least one of `--email` or `--user-id`.
+
+```bash
+hogsend events send <name> [options]
+```
+
+### Arguments
+
+| Argument | Description |
+|---|---|
+| `<name>` | The event name to ingest (e.g. `signup`). **Required.** |
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--email <addr>` | Recipient/identity email. At least one of `--email` / `--user-id` is required. |
+| `--user-id <id>` | External (distinct) id. At least one of `--email` / `--user-id` is required. |
+| `--prop <key=value>` | Event property; repeatable. Value parsed as JSON, falling back to a string. |
+| `--props <json>` | Event properties as one JSON object. |
+| `--contact-prop <k=v>` | Contact property to merge onto the contact; repeatable. |
+| `--contact-props <json>` | Contact properties as one JSON object. |
+| `--list <id>` | Subscribe the contact to a list; repeatable. |
+| `--unlist <id>` | Unsubscribe the contact from a list; repeatable. |
+| `--idempotency-key <k>` | Dedup key (sent as the `Idempotency-Key` header). |
+| `--timestamp <iso>` | Override the event timestamp (ISO-8601). |
+
+`eventProperties` (`--prop`/`--props`) are stored on the event and feed `trigger.where` / `exitOn` evaluation; `contactProperties` (`--contact-prop`/`--contact-props`) merge onto the contact record. The two bags are never merged together.
+
+Send mode writes to the data plane, so it uses the `--data-key` (ingest-scoped) bearer token rather than `--admin-key`. See the [CLI Reference](/docs/cli) for full connection details.
+
+### Examples
+
+```bash
+hogsend events send signup --user-id user_123 --prop plan=pro
+hogsend events send purchase --email a@b.com --props '{"amount":49}' --json
+```
+
+## Next steps
+
+<Cards>
+  <Card title="Events" href="/docs/data-api/events" />
+  <Card title="Events & Ingestion" href="/docs/guides/events" />
+  <Card title="hogsend contacts" href="/docs/cli/contacts" />
+  <Card title="CLI Reference" href="/docs/cli" />
+</Cards>

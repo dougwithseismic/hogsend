@@ -26,7 +26,7 @@ Think of it as a **gateway drug into lifecycle automation**. Start here, get scr
 
 Hogsend is built for PostHog, but it's not locked to it. Stripe webhooks, custom API calls, any system that can send an HTTP request can feed events into Hogsend. All examples in these docs lead with PostHog because that's the primary use case, with Stripe as the common secondary source.
 
-**Emails go through [Resend](https://resend.com)** — fast, developer-friendly, great deliverability. Push notifications and Slack are on the roadmap.
+**Emails go through [Resend](https://resend.com)** — fast, developer-friendly, great deliverability. The same lifecycle event stream fans out to Slack, PostHog, Segment, a CRM, or a warehouse through [outbound destinations](/docs/data-api/destinations). Push notifications are on the roadmap.
 
 ## How it works
 
@@ -37,18 +37,28 @@ Hogsend is built for PostHog, but it's not locked to it. Stripe webhooks, custom
 
 ## Get started in minutes
 
-Scaffold a fresh app, then run the dev loop:
+Scaffold a fresh app, bring the stack up with one command, then run the dev loop:
 
 ```bash
 pnpm dlx create-hogsend@latest my-app
 cd my-app
 
-pnpm bootstrap              # Docker + .env (fresh secret) + Hatchet token + migrate
+pnpm bootstrap              # one command: Docker + .env + Hatchet token + migrate
 pnpm dev                    # HTTP API on http://localhost:3002
 pnpm worker:dev             # Hatchet worker, in a second terminal
 ```
 
-`pnpm bootstrap` is idempotent and auto-remaps any busy host ports — set `RESEND_API_KEY` in `.env` before sending real email. Prefer one command? `pnpm dlx create-hogsend@latest my-app --yes` scaffolds, installs, and bootstraps in a single hands-off step (or use `.` to scaffold into the current folder). That's it: your app pins the engine, owns its journeys, and upgrades with `pnpm up`.
+`pnpm bootstrap` is idempotent and safe to re-run. In one pass it:
+
+- **Checks Docker** is installed and the daemon is running.
+- **Creates `.env`** from `.env.example` with a freshly generated `BETTER_AUTH_SECRET`.
+- **Resolves ports** — auto-remaps any busy host port (Postgres, Redis, Hatchet) to the next free one and writes them back to `.env`.
+- **Starts containers** — TimescaleDB, Redis, and hatchet-lite via Docker Compose.
+- **Auto-mints your Hatchet token** — no bring-your-own-token step locally; it sets `HATCHET_CLIENT_TOKEN` for you. (Bring your own only in production / Hatchet Cloud.)
+- **Runs migrations** — both the engine track and your client track.
+- **Mints an ingest-scoped data-plane key** — writes a `HOGSEND_API_KEY` (`hsk_…`) so the [data API](/docs/data-api) and [`@hogsend/client`](/docs/data-api/client-sdk) work out of the box.
+
+Set `RESEND_API_KEY` in `.env` before sending real email — everything else is wired for you. Prefer one command? `pnpm dlx create-hogsend@latest my-app --yes` scaffolds, installs, and bootstraps in a single hands-off step (or pass `.` instead of a name to scaffold into the current folder). The Hatchet dashboard runs at `http://localhost:8888` (`admin@example.com` / `Admin123!!`).
 
 ## Quick example
 
@@ -104,6 +114,8 @@ You register this journey by adding it to the `journeys` array your app exports 
 - **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep({ duration: days(3) })` literally pauses for three days and picks up exactly where it left off — or `ctx.waitForEvent()` pauses until the user actually _does_ something (with a timeout fallback), so journeys react to behavior, not just the clock.
 - **PostHog webhook source** — Point your PostHog webhook at your app and events flow through automatically.
 - **Resend email delivery** — React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center.
+- **A public data plane** — Write contacts, events, and transactional emails from your own code with one ingest-scoped key via [`POST /v1/events`](/docs/data-api/events) or the typed [`@hogsend/client`](/docs/data-api/client-sdk).
+- **Outbound destinations** — Fan the lifecycle event stream out to PostHog, Segment, Slack, a CRM, or a warehouse over the durable webhook spine with [`defineDestination()`](/docs/data-api/destinations).
 - **Composable conditions** — Property checks, event history, email engagement, AND/OR composition. Use them for enrollment guards, exit conditions, and mid-journey branching.
 - **Two-track migrations** — Engine schema ships upstream in `@hogsend/db` and gates boot; your own client schema is yours to evolve. Both run from a single `pnpm db:migrate`.
 - **Admin API** — Contacts, journey control, email metrics, alerting, audit logs. Everything you need to operate without a UI.

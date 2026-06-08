@@ -27,15 +27,16 @@ hogsend --version
 
 ## Connecting to an instance
 
-The data commands (`doctor`, `journeys`, `contacts`, `stats`, `events`) call a running instance's API. Point the CLI at it with global flags or environment variables:
+The data commands call a running instance's API. Point the CLI at it with global flags or environment variables:
 
 | Global flag | Env var | Default |
 |---|---|---|
 | `--url <baseUrl>` | `HOGSEND_API_URL` | `http://localhost:3002` |
 | `--admin-key <key>` | `HOGSEND_ADMIN_KEY` / `ADMIN_API_KEY` | — |
+| `--data-key <key>` | `HOGSEND_DATA_KEY` / `HOGSEND_API_KEY` | — |
 | `--json` | — | off (human output) |
 
-`doctor` reads the unauthenticated health route, so it needs no admin key. The other data commands wrap `/v1/admin/*` and require one.
+`doctor` reads the unauthenticated health route, so it needs no key. Read commands (`journeys`, `contacts`, `stats`, `events`) wrap `/v1/admin/*` and need an admin key. Data-plane writes (`contacts upsert`, `events send`, `emails`, `campaigns`) hit the public data plane and need an ingest-scoped `--data-key`. `webhooks` manages outbound endpoints and needs an admin key.
 
 ## Commands
 
@@ -46,8 +47,13 @@ The data commands (`doctor`, `journeys`, `contacts`, `stats`, `events`) call a r
 | [`hogsend contacts`](/docs/cli/contacts) | List, inspect, and trace contact activity |
 | [`hogsend stats`](/docs/cli/stats) | System-wide overview metrics |
 | [`hogsend events`](/docs/cli/events) | Stream a single user's event history |
+| `hogsend emails` | Send a transactional email through the data plane (rate-limited 30/min/key) |
+| `hogsend campaigns` | Queue a broadcast to a list or bucket, or check its status |
+| [`hogsend webhooks`](/docs/cli/webhooks) | Manage outbound webhook endpoints — create, rotate, test |
+| [`hogsend studio`](/docs/cli/studio) | Serve the bundled Hogsend Studio admin SPA locally |
 | [`hogsend setup`](/docs/cli/setup) | Local onboarding for a scaffolded app |
 | [`hogsend skills`](/docs/cli/skills) | Install bundled Claude Code skills into `.claude/skills` |
+| `hogsend upgrade` | Bump `@hogsend/*` deps to latest and refresh Claude Code skills |
 | [`hogsend eject`](/docs/cli/eject) | Vendor a `@hogsend/*` package into `vendor/<name>` |
 | [`hogsend patch`](/docs/cli/patch) | Patch a package via pnpm's native patch flow |
 
