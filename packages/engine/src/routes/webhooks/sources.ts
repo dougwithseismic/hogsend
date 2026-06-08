@@ -8,6 +8,19 @@ export function registerWebhookSourceRoutes(
   app: OpenAPIHono<AppEnv>,
   sources: DefinedWebhookSource[],
 ) {
+  // Reserve `email` for the email-provider route
+  // (`POST /v1/webhooks/email/:providerId`). A source with `meta.id === "email"`
+  // would shadow that prefix, so fail loudly at registration rather than let it
+  // silently break provider webhooks.
+  for (const source of sources) {
+    if (source.meta.id === "email") {
+      throw new Error(
+        'Webhook source id "email" is reserved for the email-provider route ' +
+          "(POST /v1/webhooks/email/:providerId). Rename the source.",
+      );
+    }
+  }
+
   const sourceMap = new Map(sources.map((s) => [s.meta.id, s]));
 
   const webhookRoute = createRoute({

@@ -5,7 +5,8 @@ const resendWebhookRoute = createRoute({
   method: "post",
   path: "/resend",
   tags: ["Webhooks"],
-  summary: "Resend webhook receiver",
+  summary:
+    "Resend webhook receiver (@deprecated — use /v1/webhooks/email/resend)",
   request: {
     body: {
       content: {
@@ -32,13 +33,29 @@ const resendWebhookRoute = createRoute({
       },
       description: "Missing or invalid webhook secret",
     },
+    404: {
+      content: {
+        "application/json": {
+          schema: z.object({ error: z.string() }),
+        },
+      },
+      description: "Resend provider not registered",
+    },
   },
 });
 
 export const resendWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
   resendWebhookRoute,
   async (c) => {
-    const { emailService, logger } = c.get("container");
+    // Thin alias for `POST /v1/webhooks/email/resend`. Resolve the `resend`
+    // provider from the registry so an unconfigured Resend deploy is a clean
+    // 404 (not a confusing verify failure), then dispatch through the existing
+    // handleWebhook flow.
+    const { emailProviders, emailService, logger } = c.get("container");
+
+    if (!emailProviders.get("resend")) {
+      return c.json({ error: "Unknown email provider" }, 404);
+    }
 
     const rawBody = await c.req.text();
     const headers: Record<string, string> = {};

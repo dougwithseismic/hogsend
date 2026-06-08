@@ -118,6 +118,15 @@ export type WebhookHandlerMap = {
  * render logic lives in the engine's `createTrackedMailer`, never here.
  */
 export interface EmailProvider {
+  /**
+   * Provider identity. `meta.id` is the key the {@link EmailProviderRegistry}
+   * indexes by and the `:providerId` the webhook route dispatches on. Optional
+   * for back-compat with providers built before the registry; the registry
+   * falls back to `"resend"` when absent. The full `EmailProviderMeta` shape
+   * (with `description` + capabilities) lands in a later phase.
+   */
+  readonly meta?: { id: string; name: string };
+
   /** Deliver a single message. Returns the provider message id. */
   send(options: SendEmailOptions): Promise<SendResult>;
 

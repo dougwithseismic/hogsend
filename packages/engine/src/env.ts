@@ -27,8 +27,20 @@ export const env = createEnv({
     // comma-separated. Needed when the Studio is served from a different origin
     // than the API — e.g. the `hogsend studio` CLI pointing at a remote instance.
     BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
-    RESEND_API_KEY: z.string().min(1),
+    // Optional: a deploy may run a non-Resend provider (Postmark, SES…) and set
+    // no Resend key at all. Read directly ONLY in the lazy-resend default branch
+    // (container.ts) and the future `emailProvidersFromEnv` preset. With this
+    // optional, a Postmark-only deploy boots without a Resend key.
+    RESEND_API_KEY: z.string().min(1).optional(),
     RESEND_FROM_EMAIL: z.string().email().default("noreply@hogsend.com"),
+    // --- Provider-neutral email config (BYO email provider) ---
+    // The active email provider id the container resolves from the
+    // EmailProviderRegistry. Absent → "resend" (today's byte-for-byte default).
+    EMAIL_PROVIDER: z.string().optional(),
+    // Neutral default-from address. The mailer's `defaultFrom` is
+    // `EMAIL_FROM ?? RESEND_FROM_EMAIL`, so an unset EMAIL_FROM keeps today's
+    // Resend-named default.
+    EMAIL_FROM: z.string().email().optional(),
     // Hatchet connection contract. The @hatchet-dev SDK also reads these straight
     // from process.env via its own config-loader, so this schema is a presence /
     // shape check that keeps the contract in one place — the values still flow to

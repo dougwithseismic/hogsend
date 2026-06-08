@@ -149,6 +149,8 @@ export {
   sendEmail,
   setEmailService,
 } from "./lib/email.js";
+// --- Email provider registry (container-held, keyed by meta.id) ---
+export { EmailProviderRegistry } from "./lib/email-provider-registry.js";
 // --- Email service (engine-owned tracked mailer) ---
 export type {
   EmailService,

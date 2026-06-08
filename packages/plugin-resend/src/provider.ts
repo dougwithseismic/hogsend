@@ -28,6 +28,8 @@ export function createResendProvider(
   const retryOptions = config.retryOptions;
 
   return {
+    meta: { id: "resend", name: "Resend" },
+
     async send(options: SendEmailOptions): Promise<SendResult> {
       return sendEmail({ client, options, retryOptions });
     },
