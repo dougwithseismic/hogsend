@@ -23,6 +23,19 @@ The Railway CLI can `deploy --template` and `templates search` but **cannot
 publish or edit** a template — composition is dashboard-only. Edit `LxSCyR` via
 `railway.com/workspace/templates/291daa3b-…`.
 
+**Published (June 2026)** to the Railway marketplace with a proper description +
+overview. Marketplace URL: `https://railway.com/deploy/hogsend-posthog-audience-stack`.
+Docs intentionally use the **stable code** `LxSCyR` instead — the slug is derived
+from the template name and would break if the template is renamed; the code link
+is permanent. Both resolve to template `291daa3b`.
+
+**Title caveat:** the marketplace card title is the frozen snapshot name
+"Hogsend - Posthog Audience Stack" (the project was renamed to "Hogsend", but the
+template title doesn't track project renames, and re-syncing via the published
+card's "Update" would clobber the template's parameterized vars with the live
+project's literal secrets — do NOT click Update). To get the title to just
+"Hogsend" you'd regenerate the template (new code/slug) — deferred.
+
 ## Topology (6 services)
 
 `hogsend-api` (repo, `railway.toml`) · `hogsend-worker` (repo, `railway.worker.toml`)
