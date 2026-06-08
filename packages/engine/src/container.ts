@@ -9,11 +9,6 @@ import {
   type JournalShape,
 } from "@hogsend/db";
 import type { TemplateRegistry } from "@hogsend/email";
-import {
-  createResendClient,
-  createResendProvider,
-} from "@hogsend/plugin-resend";
-import type { Resend } from "resend";
 import { createBucketAccessor } from "./buckets/bucket-access.js";
 import type { DefinedBucket } from "./buckets/define-bucket.js";
 import {
@@ -33,6 +28,8 @@ import { buildJourneyRegistry } from "./journeys/registry.js";
 import { setAnalytics } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import { setEmailService } from "./lib/email.js";
+import { EmailProviderRegistry } from "./lib/email-provider-registry.js";
+import { emailProvidersFromEnv } from "./lib/email-providers-from-env.js";
 import type {
   EmailService,
   FrequencyCapConfig,
@@ -61,8 +58,19 @@ export interface HogsendClient {
   db: Database;
   dbClient: DatabaseClient;
   auth: Auth;
-  email: Resend;
   emailService: EmailService;
+  /**
+   * The container-held registry of email providers, keyed by `meta.id`. The
+   * `POST /v1/webhooks/email/:providerId` route resolves the verifying provider
+   * out of this. Holds at least the resolved active provider.
+   */
+  emailProviders: EmailProviderRegistry;
+  /**
+   * The single resolved active email provider (the one the mailer sends
+   * through). Resolved from `opts.email.defaultProvider` / `EMAIL_PROVIDER`,
+   * defaulting to the env-built Resend provider for byte-for-byte parity.
+   */
+  emailProvider: EmailProvider;
   /**
    * The app's template registry (key → component + subject + category +
    * optional preview/examples). Same object threaded into the engine mailer;
@@ -121,10 +129,18 @@ export interface HogsendClientOptions {
    * (templates → render → preference checks → tracking → `email_sends` write),
    * and the {@link EmailProvider} is only the swappable wire under it.
    *
-   * - `provider` — the swappable email provider (Resend, Postmark, SES…).
-   *   Defaults to a Resend provider built from env (`RESEND_API_KEY` /
-   *   `RESEND_WEBHOOK_SECRET`). Tracking/rendering/preferences come along for
-   *   free regardless of which provider you supply.
+   * - `provider` — a single swappable email provider (Resend, Postmark, SES…),
+   *   the back-compat one-provider seam. MERGED LAST (after env presets and
+   *   `providers`), so it wins on id collision. Tracking/rendering/preferences
+   *   come along for free regardless of which provider you supply.
+   * - `providers` — register MANY providers into the {@link EmailProviderRegistry}
+   *   (e.g. Resend + Postmark) so the `POST /v1/webhooks/email/:providerId`
+   *   route can verify each one's webhooks. Merged AFTER the env presets and
+   *   BEFORE `provider`.
+   * - `defaultProvider` — the active provider id the mailer sends through.
+   *   Resolves as `defaultProvider ?? EMAIL_PROVIDER ?? "resend"`. If it names a
+   *   provider that isn't registered, the container throws at boot with the list
+   *   of registered ids.
    * - `templates` — the app's template registry (key → component + subject +
    *   category), threaded into the engine mailer and onward to
    *   `getTemplate(..., { registry })`. The engine bakes in no business
@@ -136,6 +152,8 @@ export interface HogsendClientOptions {
    */
   email?: {
     provider?: EmailProvider;
+    providers?: EmailProvider[];
+    defaultProvider?: string;
     templates?: TemplateRegistry;
   };
   /**
@@ -249,8 +267,6 @@ export function createHogsendClient(
       ),
     });
 
-  const email = createResendClient({ apiKey: env.RESEND_API_KEY });
-
   const registry = buildJourneyRegistry(
     opts.journeys ?? [],
     opts.enabledJourneys ?? env.ENABLED_JOURNEYS,
@@ -301,12 +317,51 @@ export function createHogsendClient(
     opts.enabledLists ?? env.ENABLED_LISTS,
   );
 
-  const provider =
-    opts.email?.provider ??
-    createResendProvider({
-      apiKey: env.RESEND_API_KEY,
-      webhookSecret: env.RESEND_WEBHOOK_SECRET,
-    });
+  // Build the email provider registry, then resolve the single active provider
+  // the mailer sends through. Merge order is load-bearing (consumer last/wins,
+  // mirroring the destinations merge): env presets FIRST, then
+  // `opts.email.providers`, then the single back-compat `opts.email.provider`
+  // LAST — so a consumer-supplied provider overrides an env preset of the same
+  // id (last-writer-wins on the registry). The registry is what the
+  // `POST /v1/webhooks/email/:providerId` route dispatches by id.
+  const emailProviders = new EmailProviderRegistry([
+    ...emailProvidersFromEnv(env),
+    ...(opts.email?.providers ?? []),
+    ...(opts.email?.provider ? [opts.email.provider] : []),
+  ]);
+
+  // The active provider id the mailer sends through:
+  // `defaultProvider ?? EMAIL_PROVIDER ?? "resend"`. The default Resend provider
+  // is built (when RESEND_API_KEY is set) by `emailProvidersFromEnv` above — the
+  // SINGLE place Resend is constructed from env — so resolution is just a
+  // registry lookup that throws if the active id resolves to nothing. NEVER
+  // silently fall back for a non-resend id.
+  const activeId =
+    opts.email?.defaultProvider ?? env.EMAIL_PROVIDER ?? "resend";
+  const provider = emailProviders.get(activeId);
+
+  if (!provider) {
+    throw new Error(
+      `email provider "${activeId}" is not registered (registered: ${emailProviders
+        .getAll()
+        .map((p) => p.meta?.id ?? "resend")
+        .join(", ")})`,
+    );
+  }
+
+  // Tracking sovereignty: first-party open/click tracking is the single source
+  // of truth. A provider that can't force its OWN tracking off per-send (an
+  // account-level toggle — e.g. Resend) declares `nativeTracking: true`. We
+  // can't reach that toggle, so we WARN at boot. The outbound-echo suppression
+  // in `dispatchWebhook` is the defence: a native open/click webhook only
+  // touches DB status, never re-emits outbound.
+  if (provider.capabilities?.nativeTracking === true) {
+    logger.warn(
+      `provider ${
+        provider.meta?.id ?? "resend"
+      } reports account-level native tracking ON; disable it in the dashboard — first-party tracking is Hogsend's source of truth.`,
+    );
+  }
 
   const defaults: HogsendDefaults = {
     timezone: opts.defaults?.timezone ?? "UTC",
@@ -327,10 +382,9 @@ export function createHogsendClient(
     opts.overrides?.mailer ??
     createTrackedMailer(
       {
-        defaultFrom: env.RESEND_FROM_EMAIL,
+        defaultFrom: env.EMAIL_FROM ?? env.RESEND_FROM_EMAIL,
         templates,
         db,
-        webhookSecret: env.RESEND_WEBHOOK_SECRET,
         bounceThreshold: 3,
         baseUrl: env.API_PUBLIC_URL,
         frequencyCap: defaults.frequencyCap,
@@ -404,8 +458,9 @@ export function createHogsendClient(
     db,
     dbClient: created.client,
     auth,
-    email,
     emailService,
+    emailProviders,
+    emailProvider: provider,
     templates,
     analytics,
     registry,

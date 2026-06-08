@@ -15,8 +15,10 @@ Template render → HTML string
             injectOpenPixel()
               - append <img src="/v1/t/o/:emailSendId"> before </body>
                     ↓
-            Modified HTML → Resend API
+            Modified HTML → provider send wire (HTML only)
 ```
+
+First-party tracking is **provider-agnostic and sovereign**: it runs identically no matter which `EmailProvider` you send through (Resend, Postmark, …). The engine rewrites links and injects the pixel itself, so it never delegates open/click tracking to the provider. Provider-native open/click tracking is forced OFF where the provider allows per-send control (e.g. Postmark `TrackOpens: false`, `TrackLinks: "None"` — `capabilities.nativeTracking: false`), and where it can't (Resend's account-level toggle — `capabilities.nativeTracking: true`) the engine logs a boot WARN telling you to disable it in the dashboard. A stray provider open/click webhook only touches DB status (first-write-wins) and is never re-emitted on the outbound spine.
 
 When a recipient opens the email or clicks a link:
 
@@ -38,7 +40,7 @@ If you're using the default `api.hogsend.com` CNAME → Railway setup, tracking 
 No additional setup required beyond what's already configured. Tracking is enabled automatically when:
 
 1. `API_PUBLIC_URL` is set (defaults to `http://localhost:3002`)
-2. `RESEND_WEBHOOK_SECRET` is set (enables the tracked email service)
+2. An email provider is configured (e.g. `RESEND_API_KEY`, or `POSTMARK_SERVER_TOKEN` with `EMAIL_PROVIDER=postmark`). Each provider owns its own webhook secret at construction — there is no single mailer-level webhook gate
 
 Emails sent through `emailService.send()` (the tracked path) automatically get link rewriting and pixel injection. The Hatchet task path (`sendEmailTask`) does not — it's the simple/direct path.
 
@@ -244,7 +246,7 @@ events a destination can subscribe to:
 | `email.bounced` | Hard/soft bounce reported by the provider | once per send |
 | `email.complained` | Spam complaint reported by the provider | once per send |
 
-`email.delivered`, `email.bounced`, and `email.complained` have no first-party signal — the provider webhook is their single source, and the mailer emits each on the outbound spine when Resend reports it (see `emitProviderEmailEvent` in `lib/mailer.ts`).
+`email.delivered`, `email.bounced`, and `email.complained` have no first-party signal — the provider webhook is their single source, and the mailer emits each on the outbound spine when the active provider reports it (see `emitProviderEmailEvent` in `lib/mailer.ts`). Provider webhooks arrive at `POST /v1/webhooks/email/:providerId`, where the provider's `verifyWebhook` normalizes them into a provider-neutral `EmailEvent` before the mailer dispatches.
 
 Two product decisions are baked into this:
 
@@ -268,7 +270,7 @@ state into one vendor by hand (the old per-vendor `ctx.posthog.capture` /
 - **Deduplication**: If the same URL appears multiple times in an email, only one `tracked_links` row is created. All occurrences share the same tracking ID.
 - **Idempotent opens/clicks**: `openedAt` and `clickedAt` on `emailSends` use `WHERE ... IS NULL` guards — they're set once and never overwritten.
 - **Non-blocking**: tracking DB writes happen in parallel and don't delay the redirect/pixel response.
-- **Engine-owned mailer**: `prepareTrackedHtml` is part of the engine-owned `createTrackedMailer` (in `@hogsend/engine`). The email provider is a dumb `EmailProvider` — the contract lives in `@hogsend/core` (canonical author import `@hogsend/engine`), and `@hogsend/plugin-resend` exports `createResendProvider`, the reference implementation. Link/open tracking, preference checks, and the `email_sends` write all live in the engine and come along regardless of which provider you supply.
+- **Engine-owned mailer**: `prepareTrackedHtml` is part of the engine-owned `createTrackedMailer` (in `@hogsend/engine`). The email provider is a dumb, provider-neutral `EmailProvider` — the contract lives in `@hogsend/core` (canonical author import `@hogsend/engine`); `@hogsend/plugin-resend` (`createResendProvider`) is the reference implementation and `@hogsend/plugin-postmark` (`createPostmarkProvider`) is a second one. The provider `send` wire is HTML-only — the engine renders React → HTML itself (`@hogsend/email` `renderToHtml`, which also powers Studio preview) before the wire. Link/open tracking, preference checks, and the `email_sends` write all live in the engine and come along regardless of which provider you supply.
 - **Analytics in the client**: The PostHog-style analytics service is initialized once at startup by `createHogsendClient` and available as `client.analytics`. Its role is now narrow — the identity *pull* (`getPersonProperties` for per-user timezone resolution) and the opt-in `bucket.syncToPostHog` mirror. It is NOT the outbound firing path: the tracking endpoints (open/click) do NOT call `client.analytics` for opens/clicks, and the journey context no longer exposes a PostHog-capture call. Opens/clicks reach PostHog per-hit via a `kind="posthog"` outbound destination on the durable spine, not a direct `captureEvent`.
 - **Graceful degradation**: The `client.analytics` reads (timezone pull, bucket sync) are no-ops when `POSTHOG_API_KEY` is not set. Tracking still works (DB writes + ingest events + outbound spine), and PostHog open/click sync only happens if a `kind="posthog"` destination is configured for those events.
 

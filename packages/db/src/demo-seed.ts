@@ -542,7 +542,7 @@ function buildSend(opts: {
     complainedAt,
     bounceType,
     bounceReason,
-    resendId:
+    messageId:
       status === "queued"
         ? null
         : `re_${Math.floor(rand() * 1e16).toString(36)}`,

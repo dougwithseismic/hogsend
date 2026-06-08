@@ -28,7 +28,9 @@ export type EmailSend = {
   id: string;
   journeyStateId: string | null;
   templateKey: string | null;
-  resendId: string | null;
+  messageId: string | null;
+  /** @deprecated Mirrors `messageId`; the API keeps both for one minor. */
+  resendId?: string | null;
   fromEmail: string;
   toEmail: string;
   subject: string;

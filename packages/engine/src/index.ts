@@ -3,24 +3,32 @@
 // Content (journeys, webhook sources, workflows) is injected into these
 // factories by client app code; the engine never imports content.
 
-// --- Capability-provider contracts (canonical origin: @hogsend/core) ---
-// Email provider contract + analytics contract, re-exported so consumers can
-// import them from `@hogsend/engine`. (`SendEmailOptions` is intentionally
-// omitted here: the engine's public `SendEmailOptions` is the high-level
-// journey-facing send options from `./lib/email.js`; the provider-contract
-// `SendEmailOptions` remains available via `@hogsend/core`.)
 export type {
   BatchEmailItem,
   CaptureOptions,
+  EmailEvent,
+  EmailEventType,
   EmailProvider,
+  EmailProviderCapabilities,
+  EmailProviderMeta,
+  /** @deprecated Use {@link EmailEvent}. Frozen `event.raw` cast target. */
+  LegacyResendWebhookEvent,
   PostHogService,
   SendResult,
+  /** @deprecated Use {@link EmailEvent}. Kept for one minor. */
   WebhookEvent,
   WebhookHandlerMap,
 } from "@hogsend/core";
 // Core helpers used by content journeys (days/hours/minutes, condition + journey
 // types) so content can import everything from `@hogsend/engine`.
 export * from "@hogsend/core";
+// --- Capability-provider contracts (canonical origin: @hogsend/core) ---
+// Email provider contract + analytics contract, re-exported so consumers can
+// import them from `@hogsend/engine`. (`SendEmailOptions` is intentionally
+// omitted here: the engine's public `SendEmailOptions` is the high-level
+// journey-facing send options from `./lib/email.js`; the provider-contract
+// `SendEmailOptions` remains available via `@hogsend/core`.)
+export { defineEmailProvider, WebhookHandshakeSignal } from "@hogsend/core";
 export {
   BucketRegistry,
   JourneyRegistry,
@@ -149,6 +157,8 @@ export {
   sendEmail,
   setEmailService,
 } from "./lib/email.js";
+// --- Email provider registry (container-held, keyed by meta.id) ---
+export { EmailProviderRegistry } from "./lib/email-provider-registry.js";
 // --- Email service (engine-owned tracked mailer) ---
 export type {
   EmailService,
@@ -205,6 +215,11 @@ export {
 export {
   pushTrackingEvent,
   resolveEmailSendContext,
+  resolveEmailSendContextByMessageId,
+  /**
+   * @deprecated Kept for one minor; use
+   * {@link resolveEmailSendContextByMessageId}.
+   */
   resolveEmailSendContextByResendId,
 } from "./lib/tracking-events.js";
 // --- Outbound webhooks: signing core (Section 1.2) ---

@@ -1,3 +1,4 @@
+import { normalizeRecipients } from "@hogsend/core";
 import {
   DEFAULT_RETRY_OPTIONS,
   EmailSendError,
@@ -7,10 +8,6 @@ import type { Resend } from "resend";
 import type { BatchEmailItem, SendEmailOptions, SendResult } from "./types.js";
 
 const BATCH_CHUNK_SIZE = 100;
-
-function normalizeRecipients(to: string | string[]): string[] {
-  return Array.isArray(to) ? to : [to];
-}
 
 function isRetryableStatusCode(statusCode: number): boolean {
   return statusCode === 429 || statusCode >= 500;
@@ -104,11 +101,15 @@ export async function sendEmail(args: {
       from: options.from,
       to: normalizeRecipients(options.to),
       subject: options.subject,
-      ...(options.html ? { html: options.html } : { react: options.react }),
+      // HTML-ONLY wire — the engine always renders React → HTML before the
+      // provider, so no React ever reaches Resend here.
+      html: options.html,
+      text: options.text,
       replyTo: options.replyTo,
       cc: options.cc,
       bcc: options.bcc,
       scheduledAt: options.scheduledAt,
+      // Resend accepts neutral `{name,value}[]` tags natively — pass them through.
       tags: options.tags,
       headers: options.headers,
     });
@@ -175,10 +176,13 @@ async function sendBatchChunk(
         from: email.from,
         to: normalizeRecipients(email.to),
         subject: email.subject,
-        react: email.react,
+        // HTML-ONLY wire — no React reaches Resend.
+        html: email.html,
+        text: email.text,
         replyTo: email.replyTo,
         cc: email.cc,
         bcc: email.bcc,
+        // Resend accepts neutral `{name,value}[]` tags natively.
         tags: email.tags,
         headers: email.headers,
       })),

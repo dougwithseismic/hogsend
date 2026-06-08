@@ -29,6 +29,7 @@ major bumps, see [engine-boundary.md](./engine-boundary.md).
 | `@hogsend/email` | ✅ public | React Email templates (`emails/`) |
 | `@hogsend/plugin-posthog` | ✅ public | PostHog integration |
 | `@hogsend/plugin-resend` | ✅ public | Resend `EmailProvider` (delivery + webhook parse/verify) |
+| `@hogsend/plugin-postmark` | ✅ public | Postmark `EmailProvider` (opt-in; on the engine line, **not** scaffold-pinned) |
 | `@hogsend/engine` | ✅ public | the framework: `createApp`/`createHogsendClient`/`createWorker`/`defineJourney`/`defineWebhookSource` |
 | `create-hogsend` | ✅ public | the `pnpm dlx` scaffolder |
 | `@hogsend/api` (`apps/api`) | ❌ private | the in-repo dogfood consumer |

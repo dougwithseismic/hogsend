@@ -1,5 +1,4 @@
 import { EmailSendError } from "@hogsend/email";
-import { createElement } from "react";
 import type { Resend } from "resend";
 import { describe, expect, it, vi } from "vitest";
 import { sendBatchEmails, sendEmail } from "../send.js";
@@ -28,9 +27,7 @@ function mockResendClient(overrides?: {
   } as unknown as Resend;
 }
 
-function dummyElement() {
-  return createElement("div", null, "test");
-}
+const HTML = "<p>test</p>";
 
 describe("sendEmail", () => {
   it("sends successfully and returns id", async () => {
@@ -41,10 +38,34 @@ describe("sendEmail", () => {
         from: "test@hogsend.com",
         to: "user@example.com",
         subject: "Test",
-        react: dummyElement(),
+        html: HTML,
       },
     });
     expect(result.id).toBe("resend_123");
+  });
+
+  it("sends HTML on the wire (never React)", async () => {
+    const sendFn = vi.fn().mockResolvedValue({
+      data: { id: "resend_123" },
+      error: null,
+    });
+    const client = mockResendClient({ sendFn });
+
+    await sendEmail({
+      client,
+      options: {
+        from: "test@hogsend.com",
+        to: "user@example.com",
+        subject: "Test",
+        html: HTML,
+        text: "test",
+      },
+    });
+
+    const arg = sendFn.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(arg.html).toBe(HTML);
+    expect(arg.text).toBe("test");
+    expect(arg).not.toHaveProperty("react");
   });
 
   it("normalizes string recipient to array", async () => {
@@ -60,13 +81,62 @@ describe("sendEmail", () => {
         from: "test@hogsend.com",
         to: "user@example.com",
         subject: "Test",
-        react: dummyElement(),
+        html: HTML,
       },
     });
 
     expect(sendFn).toHaveBeenCalledWith(
       expect.objectContaining({ to: ["user@example.com"] }),
     );
+  });
+
+  it("passes neutral tags straight through to Resend", async () => {
+    const sendFn = vi.fn().mockResolvedValue({
+      data: { id: "resend_123" },
+      error: null,
+    });
+    const client = mockResendClient({ sendFn });
+
+    const tags = [
+      { name: "campaign", value: "q1" },
+      { name: "cohort", value: "beta" },
+    ];
+    await sendEmail({
+      client,
+      options: {
+        from: "test@hogsend.com",
+        to: "user@example.com",
+        subject: "Test",
+        html: HTML,
+        tags,
+      },
+    });
+
+    const arg = sendFn.mock.calls[0]?.[0] as {
+      tags?: Array<{ name: string; value: string }>;
+    };
+    expect(arg.tags).toEqual(tags);
+  });
+
+  it("omits Resend tags when none are set", async () => {
+    const sendFn = vi.fn().mockResolvedValue({
+      data: { id: "resend_123" },
+      error: null,
+    });
+    const client = mockResendClient({ sendFn });
+
+    await sendEmail({
+      client,
+      options: {
+        from: "test@hogsend.com",
+        to: "user@example.com",
+        subject: "Test",
+        html: HTML,
+      },
+    });
+
+    const arg = sendFn.mock.calls[0]?.[0] as { tags?: unknown };
+    expect(arg.tags).toBeUndefined();
   });
 
   it("throws EmailSendError on API error", async () => {
@@ -84,7 +154,7 @@ describe("sendEmail", () => {
           from: "test@hogsend.com",
           to: "user@example.com",
           subject: "Test",
-          react: dummyElement(),
+          html: HTML,
         },
         retryOptions: { maxRetries: 0 },
       }),
@@ -111,7 +181,7 @@ describe("sendEmail", () => {
         from: "test@hogsend.com",
         to: "user@example.com",
         subject: "Test",
-        react: dummyElement(),
+        html: HTML,
       },
       retryOptions: { maxRetries: 3, baseDelayMs: 10, maxDelayMs: 50 },
     });
@@ -134,7 +204,7 @@ describe("sendEmail", () => {
           from: "test@hogsend.com",
           to: "user@example.com",
           subject: "Test",
-          react: dummyElement(),
+          html: HTML,
         },
         retryOptions: { maxRetries: 3, baseDelayMs: 10 },
       }),
@@ -160,13 +230,13 @@ describe("sendBatchEmails", () => {
           from: "a@hogsend.com",
           to: "b@example.com",
           subject: "A",
-          react: dummyElement(),
+          html: HTML,
         },
         {
           from: "a@hogsend.com",
           to: "c@example.com",
           subject: "B",
-          react: dummyElement(),
+          html: HTML,
         },
       ],
     });
@@ -184,7 +254,7 @@ describe("sendBatchEmails", () => {
       from: "a@hogsend.com",
       to: `user${i}@example.com`,
       subject: `Email ${i}`,
-      react: dummyElement(),
+      html: HTML,
     }));
 
     await sendBatchEmails({ client, emails });

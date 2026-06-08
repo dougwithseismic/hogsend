@@ -121,7 +121,7 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
             event: "email.clicked",
             payload: {
               emailSendId,
-              resendId: ctx.resendId ?? null,
+              messageId: ctx.messageId ?? null,
               templateKey: ctx.templateKey ?? null,
               userId: ctx.userId ?? null,
               to: ctx.to ?? ctx.userEmail ?? "",

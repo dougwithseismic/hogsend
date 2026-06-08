@@ -1,11 +1,13 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
+import { dispatchProviderWebhook } from "./email-provider.js";
 
 const resendWebhookRoute = createRoute({
   method: "post",
   path: "/resend",
   tags: ["Webhooks"],
-  summary: "Resend webhook receiver",
+  summary:
+    "Resend webhook receiver (@deprecated — use /v1/webhooks/email/resend)",
   request: {
     body: {
       content: {
@@ -32,37 +34,20 @@ const resendWebhookRoute = createRoute({
       },
       description: "Missing or invalid webhook secret",
     },
+    404: {
+      content: {
+        "application/json": {
+          schema: z.object({ error: z.string() }),
+        },
+      },
+      description: "Resend provider not registered",
+    },
   },
 });
 
 export const resendWebhookRouter = new OpenAPIHono<AppEnv>().openapi(
   resendWebhookRoute,
-  async (c) => {
-    const { emailService, logger } = c.get("container");
-
-    const rawBody = await c.req.text();
-    const headers: Record<string, string> = {};
-    for (const [key, value] of c.req.raw.headers.entries()) {
-      headers[key] = value;
-    }
-
-    try {
-      const result = await emailService.handleWebhook({
-        payload: rawBody,
-        headers,
-      });
-
-      logger.info("Resend webhook processed", {
-        type: result.type,
-        handled: result.handled,
-      });
-
-      return c.json({ ok: true }, 200);
-    } catch (err) {
-      logger.warn("Resend webhook failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return c.json({ error: "Webhook verification failed" }, 401);
-    }
-  },
+  // Thin deprecated alias for `POST /v1/webhooks/email/resend` — identical
+  // behavior, just the `resend` provider id wired in.
+  (c) => dispatchProviderWebhook(c, "resend"),
 );

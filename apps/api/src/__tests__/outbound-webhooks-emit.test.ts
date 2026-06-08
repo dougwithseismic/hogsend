@@ -212,7 +212,7 @@ describe("emitOutbound — only subscribed endpoints receive a delivery", () => 
       event: "email.bounced",
       payload: {
         emailSendId: "es-1",
-        resendId: "re-1",
+        messageId: "re-1",
         templateKey: null,
         userId: null,
         to: "x@y.com",
@@ -298,7 +298,7 @@ describe("emitOutbound — dedupeKey is the producer-side retry guard", () => {
   it("two emits WITHOUT a dedupeKey are never deduped (NULL keys are distinct)", async () => {
     const payload = {
       emailSendId: "es-2",
-      resendId: "re-2",
+      messageId: "re-2",
       templateKey: "welcome",
       to: "n@e.com",
       userId: "u2",

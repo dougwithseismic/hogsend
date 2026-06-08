@@ -750,7 +750,7 @@ describe("emitOutbound — per-hit opens/clicks create a fresh delivery each", (
 
     const basePayload = {
       emailSendId: "es-perhit",
-      resendId: null,
+      messageId: null,
       templateKey: "welcome",
       userId: "u-perhit",
       to: "perhit@example.com",

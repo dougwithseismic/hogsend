@@ -15,7 +15,16 @@ import {
 } from "./webhook-signing.js";
 
 export {
+  type EmailSendContextByMessageId,
+  /**
+   * @deprecated Kept for one minor; use {@link EmailSendContextByMessageId}.
+   */
   type ResendEmailSendContext,
+  resolveEmailSendContextByMessageId,
+  /**
+   * @deprecated Kept for one minor; use
+   * {@link resolveEmailSendContextByMessageId}.
+   */
   resolveEmailSendContextByResendId,
 } from "./tracking-events.js";
 
@@ -28,7 +37,7 @@ export type OutboundEventName = WebhookEventType;
 
 interface EmailEventPayload {
   emailSendId: string;
-  resendId: string | null;
+  messageId: string | null;
   templateKey: string | null;
   userId: string | null;
   to: string;
@@ -69,7 +78,7 @@ export interface OutboundPayloads {
   };
   "email.sent": {
     emailSendId: string;
-    resendId: string;
+    messageId: string;
     templateKey: string | null;
     to: string;
     userId: string | null;

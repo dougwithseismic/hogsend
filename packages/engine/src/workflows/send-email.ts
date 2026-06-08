@@ -34,7 +34,8 @@ export const sendEmailTask = hatchet.task({
 
     try {
       // `from` is optional: when absent the mailer's `resolveFrom` falls back to
-      // its configured defaultFrom (env.RESEND_FROM_EMAIL).
+      // its configured defaultFrom (env.RESEND_FROM_EMAIL). The neutral
+      // `tags: {name,value}[]` shape passes straight through to the provider wire.
       const result = await emailService.sendRaw({
         from: input.from,
         to: input.to,

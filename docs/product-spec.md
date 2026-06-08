@@ -1,6 +1,6 @@
 # Journey Engine — Full Spec
 
-Code-first, agentic-ready lifecycle orchestration engine for teams on PostHog + Resend. Open source. Self-hostable. Journeys are typed TypeScript objects, not YAML, not drag-and-drop canvases.
+Code-first, agentic-ready lifecycle orchestration engine for teams on PostHog + a bring-your-own email provider (Resend or Postmark today, SES later). Open source. Self-hostable. Journeys are typed TypeScript objects, not YAML, not drag-and-drop canvases.
 
 Fills the gap between "PostHog webhooks firing into a Hono handler" and "paying $500/mo for Customer.io." Built to be read, written, and modified by engineers and AI agents alike.
 
@@ -74,7 +74,7 @@ The engineer who set up PostHog, wired up Resend, and is now hand-rolling journe
 | State | Postgres |
 | Job queue / scheduler | BullMQ + Redis, or pg-boss if skipping Redis |
 | Event source | PostHog (webhooks + API) |
-| Email delivery | Resend |
+| Email delivery | Bring-your-own `EmailProvider` (Resend or Postmark today; SES later) |
 | Email templates | React Email |
 | Journey definitions | TypeScript (.ts files, typed objects) |
 | Link / open tracking | Self-hosted Hono endpoints |
@@ -836,12 +836,12 @@ fan-out to PostHog is now a `kind="posthog"` destination on the outbound spine.
 
 ---
 
-## Resend Webhook Handling
+## Email Provider Webhook Handling
 
-Resend sends webhooks for delivery events. Handle these:
+Email is delivered through a provider-neutral `EmailProvider` (Resend and Postmark today; SES later), so delivery webhooks are provider-agnostic. Each provider's webhook arrives at the id-dispatched route `POST /v1/webhooks/email/:providerId`, where the provider's `verifyWebhook` (owning its own secret — svix for Resend, HTTP-Basic for Postmark) normalizes the verbatim payload into a provider-neutral `EmailEvent` before the engine handles it. Only `delivered`/`bounced`/`complained` come from the provider — opens/clicks are first-party and sovereign (see `docs/tracking.md`). Full design: `docs/byo-email-provider.md`. `POST /v1/webhooks/resend` is kept as a deprecated thin alias.
 
 ```
-POST /webhooks/resend
+POST /v1/webhooks/email/:providerId   (e.g. /v1/webhooks/email/resend)
 
 Events to handle:
 - email.delivered → update email_sends (optional, for deliverability metrics)
@@ -852,7 +852,8 @@ Events to handle:
   - Immediately: set email_preferences.suppressed = true
   - This user reported spam. Never email them again unless they explicitly re-opt-in.
 
-Verify webhook signature (Resend provides a signing secret).
+The provider verifies its own webhook (signature or basic-auth) and normalizes the
+payload; the engine then dispatches the resulting `EmailEvent`.
 ```
 
 ---

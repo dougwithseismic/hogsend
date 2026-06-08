@@ -364,7 +364,8 @@ interface EmailServiceConfig {
   defaultFrom: string;
   templates: TemplateRegistry;     // your src/emails registry
   db?: unknown;                    // Drizzle database instance
-  webhookSecret?: string;          // provider webhook signing secret
+  // Webhook signing secrets now live on each provider (constructed-in),
+  // not here — one secret can't serve N providers.
   webhookHandlers?: WebhookHandlerMap;
   retryOptions?: RetryOptions;
   bounceThreshold?: number;        // default: 3
@@ -424,7 +425,7 @@ const { html, text, subject, category } = await emailService.render({
 
 ### `service.handleWebhook`
 
-Verifies and processes Resend webhook events. More on this in the [bounce tracking](#bounce-tracking) section.
+Processes an already-verified, provider-neutral `EmailEvent` (the webhook route resolves the provider and verifies the signature first), updating the `emailSends` table and managing suppressions. More on this in the [bounce tracking](#bounce-tracking) section.
 
 ## Bounce tracking
 
@@ -438,32 +439,35 @@ Resend sends webhook events for email lifecycle changes. The email service handl
 | `email.delivered` | `deliveredAt` | -- |
 | `email.opened` | `openedAt` | -- |
 | `email.clicked` | `clickedAt` | -- |
-| `email.bounced` | `bouncedAt` | Increments bounce count, suppresses after threshold |
-| `email.complained` | `complainedAt` | Immediately suppresses the address |
-| `email.delivery_delayed` | -- | Forwarded to custom handler only |
+| `email.bounced` | `bouncedAt` | Records the bounce; increments bounce count + suppresses after threshold **only on a permanent bounce** |
+| `email.complained` | `complainedAt` | Immediately suppresses every recipient |
+| `email.delivery_delayed` | -- | No-op (transient bounces now arrive as `email.bounced` with `bounce.class: "transient"`) |
 
 ### Automatic suppression
 
-When a bounce is received, the service increments the `bounceCount` on the `emailPreferences` record. Once the count reaches the `bounceThreshold` (default: 3), the address is automatically suppressed -- all future tracked sends to that address return `status: "suppressed"`.
+Provider webhooks are normalized into a provider-neutral `EmailEvent`. A bounce carries `bounce.class` (`"permanent" | "transient" | "complaint" | "unknown"`), persisted on the send row as `bounceType` (with `bounce.reason` → `bounceReason`).
+
+When a **permanent** bounce is received, the service increments the `bounceCount` on the `emailPreferences` record. Once the count reaches the `bounceThreshold` (default: 3), the address is automatically suppressed -- all future tracked sends to that address return `status: "suppressed"`. **Transient** (soft) bounces are recorded as `email.bounced` but never increment the counter, and **unknown** bounces never suppress (conservative). A bounce/complaint carrying many recipients suppresses each of them (capped to avoid a fan-out mass-suppression).
 
 Spam complaints immediately suppress the address regardless of bounce count.
 
 ### Webhook endpoint
 
-The API exposes a webhook receiver at `POST /v1/webhooks/resend`. Configure this URL in your Resend dashboard under webhook settings. The endpoint verifies the Svix signature headers (`svix-id`, `svix-timestamp`, `svix-signature`) before processing.
+The API exposes an id-dispatched receiver at `POST /v1/webhooks/email/:providerId` (e.g. `/v1/webhooks/email/resend`), plus the legacy `POST /v1/webhooks/resend` alias. Configure the URL in your provider's dashboard. The provider owns its own webhook secret (constructed-in) and verifies the request before the engine ever sees it — the route resolves the provider, verifies, and dispatches a provider-neutral `EmailEvent`.
 
 ```ts
-// Verification uses the Svix library
-const event = verifyWebhook({
-  payload: rawBody,
-  headers: { "svix-id": "...", "svix-timestamp": "...", "svix-signature": "..." },
-  signingSecret: "whsec_...",
-});
+// Each provider verifies its OWN webhook and returns a normalized EmailEvent.
+const event = provider.verifyWebhook({ payload: rawBody, headers });
+//   event.type        -> "email.bounced" | "email.delivered" | ...
+//   event.messageId   -> provider message id
+//   event.recipients  -> string[]
+//   event.bounce      -> { class, code, reason? }
+//   event.raw         -> the untouched provider payload (escape hatch)
 ```
 
 ### Custom webhook handlers
 
-You can add custom logic for any webhook event type via the `webhookHandlers` config:
+Add custom logic for any event type via the `webhookHandlers` config. The keys are unchanged (`email.*`), but each handler body now receives the **provider-neutral `EmailEvent`** (`event.messageId`, `event.recipients`, `event.bounce`, `event.click`), not the old Resend-nested shape. During the deprecation window you can cast `event.raw as LegacyResendWebhookEvent` to keep reading the old `event.data.*` fields while you migrate.
 
 ```ts
 const mailer = createTrackedMailer(
@@ -471,13 +475,12 @@ const mailer = createTrackedMailer(
     defaultFrom: "...",
     templates,
     db,
-    webhookSecret: "whsec_...",
     webhookHandlers: {
       "email.bounced": async (event) => {
-        console.log("Bounced:", event.data.to, event.data.bounce.message);
+        console.log("Bounced:", event.recipients, event.bounce?.reason);
       },
       "email.clicked": async (event) => {
-        console.log("Clicked:", event.data.click.link);
+        console.log("Clicked:", event.click?.url);
       },
     },
   },

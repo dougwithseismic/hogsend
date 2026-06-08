@@ -22,7 +22,7 @@ export const emailSends = pgTable(
     userId: text("user_id"),
     userEmail: text("user_email"),
     templateKey: text("template_key"),
-    resendId: text("resend_id"),
+    messageId: text("message_id"),
     fromEmail: text("from_email").notNull(),
     toEmail: text("to_email").notNull(),
     subject: text("subject").notNull(),
@@ -51,6 +51,9 @@ export const emailSends = pgTable(
     index("email_sends_created_at_idx").on(table.createdAt),
     index("email_sends_journey_state_id_idx").on(table.journeyStateId),
     index("email_sends_user_id_idx").on(table.userId),
+    // Serves the provider-webhook by-message resolver
+    // (resolveEmailSendContextByMessageId) — previously a seq-scan.
+    index("email_sends_message_id_idx").on(table.messageId),
     // Serves the frequency-cap COUNT (recipient + recency, optionally category).
     index("email_sends_freq_cap_idx").on(
       table.toEmail,

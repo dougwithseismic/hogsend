@@ -1,12 +1,13 @@
 import type { RetryOptions } from "@hogsend/email";
 import { createResendClient } from "./client.js";
 import { sendBatchEmails, sendEmail } from "./send.js";
-import type {
-  BatchEmailItem,
-  EmailProvider,
-  SendEmailOptions,
-  SendResult,
-  WebhookEvent,
+import {
+  type BatchEmailItem,
+  defineEmailProvider,
+  type EmailEvent,
+  type EmailProvider,
+  type SendEmailOptions,
+  type SendResult,
 } from "./types.js";
 import { parseWebhookEvent, verifyWebhook } from "./webhooks.js";
 
@@ -27,7 +28,17 @@ export function createResendProvider(
   const client = createResendClient({ apiKey: config.apiKey });
   const retryOptions = config.retryOptions;
 
-  return {
+  return defineEmailProvider({
+    meta: { id: "resend", name: "Resend" },
+    capabilities: {
+      // Resend's open/click tracking is an account-level toggle the provider
+      // can't disable per-send, so the engine logs a boot WARN (first-party
+      // tracking stays the source of truth).
+      nativeTracking: true,
+      scheduledSend: true,
+      signedWebhooks: true,
+    },
+
     async send(options: SendEmailOptions): Promise<SendResult> {
       return sendEmail({ client, options, retryOptions });
     },
@@ -42,7 +53,7 @@ export function createResendProvider(
     verifyWebhook(opts: {
       payload: string;
       headers: Record<string, string>;
-    }): WebhookEvent {
+    }): EmailEvent {
       if (!config.webhookSecret) {
         throw new Error(
           "webhookSecret is required on the provider to verify webhooks",
@@ -55,8 +66,8 @@ export function createResendProvider(
       });
     },
 
-    parseWebhook(payload: string): WebhookEvent {
+    parseWebhook(payload: string): EmailEvent {
       return parseWebhookEvent(payload);
     },
-  };
+  });
 }

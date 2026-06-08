@@ -47,6 +47,15 @@ npm publish --access public
 ```
 A 404 on the `PUT` = not authed / not authorized to create in the `@hogsend` scope. A 403 "cannot publish over previously published versions" = it's already there (success). After it exists once, future versions publish via CI normally. You **cannot** pre-set an OIDC Trusted Publisher on a package that doesn't exist yet, so the first publish can't be tokenless either — do it manually, then add the Trusted Publisher (npmjs.com → package → Settings).
 
+🚨 **`@hogsend/plugin-postmark` is exactly such a brand-new package — its FIRST publish MUST be MANUAL.** It's a new `@hogsend/*` name (the opt-in Postmark `EmailProvider`), so the CI publish token cannot CREATE it. Publish it by hand once, on the engine version line:
+```bash
+npm login                                            # maintainer with @hogsend create rights
+npm whoami
+pnpm --filter @hogsend/plugin-postmark build
+cd packages/plugin-postmark && npm publish --access public
+```
+Then verify it on the registry (`curl -s https://registry.npmjs.org/@hogsend%2fplugin-postmark | head -c 300`) BEFORE relying on CI for it, and add an OIDC Trusted Publisher. After it exists once, future versions publish via CI on the engine line like everything else. It is opt-in and NOT scaffold-pinned, so a missing first publish does NOT break `npx create-hogsend` (unlike `@hogsend/client`) — but a consumer doing `pnpm add @hogsend/plugin-postmark` will 404 until the manual publish lands.
+
 ## Verify — CI green ≠ published
 
 Never trust a green release for a new package. Always:
@@ -77,7 +86,9 @@ The changeset `linked` group used to be `[engine, db, core, cli, client]`, but i
 1. **`linked` does NOT auto-bump siblings.** Bumping only `engine` in a linked group leaves `db/core/cli/client` un-bumped — `linked` merely forces *already-bumped* members to share one number. So you must list every engine-line package in the changeset anyway.
 2. **A brand-new member (no release history) corrupts the linked math** — it jumped `engine` to `1.0.0` on a `minor` changeset.
 
-**The discipline now:** each release, write a changeset that EXPLICITLY bumps all nine engine-line packages (`engine, db, core, cli, client, email, plugin-posthog, plugin-resend, studio`) to the same bump type. They all start uniform, so they land uniform. `verify-scaffold.sh` catches any drift.
+**The discipline now:** each release, write a changeset that EXPLICITLY bumps all ten engine-line packages (`engine, db, core, cli, client, email, plugin-posthog, plugin-resend, plugin-postmark, studio`) to the same bump type. They all start uniform, so they land uniform. `verify-scaffold.sh` catches any drift in the nine *scaffold-pinned* packages.
+
+🚨 **`@hogsend/plugin-postmark` is on the engine line but is NOT scaffold-pinned.** It's the opt-in Postmark `EmailProvider` (Resend stays the scaffold default), so it is deliberately absent from `HOGSEND_PACKAGES`, `verify-scaffold.sh`'s `PACKAGES`, and `template/_package.json` deps — the doctor's 3-way scaffold check (`HOGSEND_PACKAGES ≡ verify-scaffold ≡ template deps`) must keep all three at the **nine** scaffold packages; do NOT add plugin-postmark to those lists or every scaffolded app would install the Postmark SDK by default. BUT it still rides the engine version line (currently `0.9.0`, matching engine) and MUST be bumped to the same line in every release changeset. Because `release-doctor`'s "all engine-line packages share one version" check derives its set from `HOGSEND_PACKAGES`, plugin-postmark is **outside** that check — its alignment is enforced ONLY by your explicit changeset entry, so don't forget it. (Same shape will apply to a future `@hogsend/plugin-ses`.)
 
 🚨 **Peer-dependency = forced MAJOR bump.** changesets force-bumps a package to **major** whenever one of its `peerDependencies` is bumped. `@hogsend/client` peer-depended on `@hogsend/email` (bumped every release) → it computed `1.0.0` every time. Fixed by moving `@hogsend/email` to `client`'s `devDependencies` only (it's an optional, type-only peer; every consumer has it via `@hogsend/engine`). **Do NOT re-add `@hogsend/email` (or any frequently-bumped `@hogsend/*`) to `peerDependencies`.**
 
@@ -100,9 +111,10 @@ The Claude Code skills shipped to scaffolded apps have a **single source**: `pac
 ## Adding a new publishable package — checklist
 
 1. `package.json`: `private: false`, `version` on the right line, `files`, `publishConfig.access: public`. Most packages ship **raw `.ts`** (`RELEASING.md §6`); **`@hogsend/studio` is the exception** — it ships a built `dist/` (`files: ["dist"]`, built by `vite build`), and the engine mounts `/studio` by resolving `@hogsend/studio/package.json` then `./dist`, so the tarball MUST contain `dist/index.html` + assets.
-2. If the scaffold depends on it: add to `template/_package.json` deps as `^{{ENGINE_VERSION}}` **and** to `HOGSEND_PACKAGES` in `template-manifest.ts`.
-3. Add a `create-hogsend` changeset so the template republishes with the new dep.
-4. **Do the first publish manually** (🚨 section), then verify on the registry + via a scaffold install, then add an OIDC Trusted Publisher for it.
+2. **If it's on the engine version line** (almost everything `@hogsend/*` is — e.g. `@hogsend/plugin-postmark`): set its `version` to the current engine version and add an explicit changeset entry bumping it with the rest of the engine line each release. Being on the line does NOT make it scaffold-pinned.
+3. **If the scaffold depends on it** (i.e. it's a default the scaffolded app needs): add to `template/_package.json` deps as `^{{ENGINE_VERSION}}` **and** to `HOGSEND_PACKAGES` in `template-manifest.ts` **and** `verify-scaffold.sh`'s `PACKAGES` (the doctor's 3-way check requires all three agree). Opt-in providers like `@hogsend/plugin-postmark` are NOT scaffold deps — leave them OUT of all three lists.
+4. Add a `create-hogsend` changeset so the template republishes with the new dep (only when step 3 applied).
+5. **Do the first publish manually** (🚨 section — `@hogsend/plugin-postmark` is a current pending example), then verify on the registry + via a scaffold install (for scaffold deps) or a direct `pnpm add` (for opt-in packages), then add an OIDC Trusted Publisher for it.
 
 ## Auth
 

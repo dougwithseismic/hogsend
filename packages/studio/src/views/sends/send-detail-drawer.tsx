@@ -166,8 +166,8 @@ export function SendDetailDrawer({
               />
               <DetailField label="User" value={detail.email.userId ?? "—"} />
               <DetailField
-                label="Resend ID"
-                value={detail.email.resendId ?? "—"}
+                label="Message ID"
+                value={detail.email.messageId ?? "—"}
               />
               <DetailField
                 label="Created"
