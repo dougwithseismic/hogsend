@@ -1,4 +1,15 @@
 {
   "title": "Building",
-  "pages": ["journeys", "buckets", "events", "email", "conditions", "plugins"]
+  "pages": [
+    "journeys",
+    "buckets",
+    "events",
+    "webhook-sources",
+    "email",
+    "lists",
+    "conditions",
+    "destinations",
+    "database",
+    "plugins"
+  ]
 }

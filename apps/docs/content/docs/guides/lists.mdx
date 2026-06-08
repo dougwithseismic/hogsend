@@ -1,0 +1,157 @@
+---
+title: Lists
+description: Code-defined email subscription categories — declare a list with defineList(), pick its opt-in vs opt-out polarity, and the engine wires suppression, the preference center, and the runtime API automatically.
+---
+
+## Overview
+
+A **list** is a code-defined email subscription category — a newsletter, a product-updates digest, a beta-announcements channel. You declare it with `defineList()` in `src/lists/`, mirroring `defineJourney()` and `defineBucket()`: a synchronous, definition-time call that validates the id and returns a `DefinedList`.
+
+The headline fact: **a list is not a new table.** It is a named key inside the existing `email_preferences.categories` JSONB. `defineList` declares that key, gives it a human name, and sets its **default polarity** (`defaultOptIn`). The engine's mailer suppression check and the preference center read that key; the data plane exposes it at `GET /v1/lists` and `POST /v1/lists/:id/(un)subscribe`.
+
+Because there is no table, there is no migration — `defineList()` plus the wiring is the entire change. No `db:generate`, no `db:migrate`.
+
+You are editing a **scaffolded consumer app** (content only). You import `defineList` from `@hogsend/engine`; you never touch engine internals — the registry, the suppression check, and the preference-center wiring are all engine-owned.
+
+## Defining a list
+
+```ts title="src/lists/index.ts"
+import { defineList } from "@hogsend/engine";
+
+export const productUpdates = defineList({
+  id: "product-updates",                          // the email_preferences.categories key
+  name: "Product updates",                        // human label (shown in GET /v1/lists)
+  description: "New features and product news.",   // optional
+  defaultOptIn: false,                            // opt-in: blocked until subscribed
+  // enabled: true,                               // optional, defaults to true
+});
+```
+
+`defineList({ id, name, description?, defaultOptIn, enabled? })`:
+
+| Field | Required | Notes |
+|---|---|---|
+| `id` | yes | The `email_preferences.categories` key. Must match `/^[a-z0-9_-]+$/i` (letters, digits, `-`, `_`). `transactional` and `journey` are **reserved** and rejected. |
+| `name` | yes | Human label surfaced on the list API and the preference center. |
+| `description` | no | Optional one-liner; omitted from the list metadata entirely when absent. |
+| `defaultOptIn` | yes | The default polarity. See [below](#defaultoptin-opt-in-vs-opt-out) — this is the one decision that matters. |
+| `enabled` | no | Defaults to `true`. A disabled list is dropped from the registry. |
+
+### The id rules
+
+The id is the `categories` key, so it shares a namespace with the engine's built-in non-list categories. Two rules are enforced at definition time:
+
+- The id must match `/^[a-z0-9_-]+$/i` — letters, digits, dashes, and underscores only.
+- `transactional` and `journey` are **reserved**. They are the engine's own built-in categories; reusing them would corrupt the suppression logic, so `defineList` rejects them.
+
+A malformed or reserved id makes `defineList` **throw at definition time** — a bad list id fails fast at boot, not silently at send time.
+
+## `defaultOptIn` — opt-in vs opt-out
+
+A list's default polarity decides whether a contact is subscribed **before** they ever touch the preference center. This is the one decision that matters; pick it consciously. The mailer's suppression check reads `email_preferences.categories[id]` against this default, and the rule is asymmetric on purpose:
+
+- **`defaultOptIn: false` (opt-in).** The contact is **not** subscribed until they explicitly subscribe. A send gated on this list is **blocked unless `categories[id] === true`** (an exact `true`). This is the right default for a marketing newsletter, a beta list — anything that needs affirmative consent.
+- **`defaultOptIn: true` (opt-out).** The contact **is** subscribed by default. A send is blocked **only on an explicit `false`** (`categories[id] === false`) — absence or any other value means subscribed. This is the "default newsletter everyone gets until they unsubscribe" pattern.
+
+The asymmetry is deliberate: opt-in requires an exact `true`; opt-out requires an exact `false`. Everything in between resolves to "subscribed" for opt-out and "not subscribed" for opt-in.
+
+The same registry method (`ListRegistry.isSubscribed`) backs **both** the mailer suppression check and the preference center's per-category render, so the two never drift — a contact the preference center shows as "Unsubscribed" will never receive a gated send, and vice versa.
+
+<Callout type="info">
+  Unknown ids (an id that is not a defined list — e.g. a stale category, or the built-in `journey`) fall through to opt-in default behaviour: subscribed unless explicitly `false`. This preserves the legacy semantics for categories the registry doesn't know about.
+</Callout>
+
+## Gating a send on a list
+
+To gate a send on a list, pass the list id as the `category` on the send — the engine's `sendEmail()` or the data-plane `POST /v1/emails`. The suppression check then applies the polarity above. A send with **no** `category` is not gated on any list.
+
+When `category` is omitted on a public send, the suppression check still consults the **template's own** declared category, so a per-category unsubscribe is honored even when the caller doesn't pass `category` explicitly. Journey emails sent via `sendEmail()` carry the built-in `journey` category, not a list category — to gate a journey email on a list, the engine resolves the template's category through the same registry rule.
+
+For how unsubscribe, the global suppression flag, frequency caps, and the preference center fit together, see the [Email guide](/docs/guides/email).
+
+## Subscribe / unsubscribe paths
+
+Membership is just a write to `categories[id]`. You author the list; you do **not** write any of these endpoints — the engine mounts them off the `ListRegistry` built from your `lists` array. The full request/response shapes live in the [Lists API](/docs/data-api/lists) reference; in short:
+
+- **Data plane:** `POST /v1/lists/:id/subscribe` (sets `true`) and `POST /v1/lists/:id/unsubscribe` (sets `false`), by identity (`email` or `userId`). `GET /v1/lists` returns every enabled list's `{ id, name, description?, defaultOptIn }`.
+- **Client SDK:** `hs.lists.list()` / `hs.lists.subscribe(...)` / `hs.lists.unsubscribe(...)`.
+- **As a side effect of a write:** `contacts.upsert` and `events.send` accept a `lists: { [id]: boolean }` map that subscribes/unsubscribes inline.
+- **The preference center:** each enabled list renders as its own subscribe/unsubscribe row.
+
+## Registering a list
+
+A defined list does nothing until it is (1) exported from the barrel and (2) threaded into the client in **both** entry points. Lists resolve entirely through the client's `ListRegistry`, so the worker process picks them up via its **own** `createHogsendClient({ lists })` call.
+
+### 1. Export from `src/lists/index.ts`
+
+```ts title="src/lists/index.ts"
+import { defineList } from "@hogsend/engine";
+
+export const productUpdates = defineList({
+  id: "product-updates",
+  name: "Product updates",
+  description: "Occasional emails about new features and product news.",
+  defaultOptIn: false,
+});
+
+// All defined lists for this app. Passed to createHogsendClient({ lists }) in
+// BOTH src/index.ts and src/worker.ts. Edit freely — this is your content.
+export const lists = [productUpdates];
+```
+
+Let the array infer — no `DefinedList[]` annotation is required (mirroring the buckets barrel). The base type re-widens each id literal back to `string`, but a `DefinedList<Id>` is still assignable to the base `DefinedList[]` the client accepts.
+
+### 2. Thread into `createHogsendClient` in `src/index.ts`
+
+```ts title="src/index.ts"
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { lists } from "./lists/index.js";
+// ...templates, journeys, webhookSources...
+
+const client = createHogsendClient({
+  journeys,
+  lists, // builds the ListRegistry; powers GET /v1/lists + suppression
+  email: { templates },
+});
+
+const app = createApp(client, { webhookSources });
+```
+
+### 3. Thread into `createHogsendClient` in `src/worker.ts`
+
+```ts title="src/worker.ts"
+import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { lists } from "./lists/index.js";
+
+const client = createHogsendClient({
+  journeys,
+  lists, // same lists array; the worker's mailer needs the registry too
+  email: { templates },
+});
+
+const worker = createWorker({ container: client, journeys /* …, NO lists here */ });
+```
+
+<Callout type="warn">
+  Note the asymmetry versus buckets: `lists` goes into `createHogsendClient` in **both** files, but it is **never** passed to `createWorker`. Passing it to `createWorker` is not an option the factory takes — the worker's send path gets lists through the client's `ListRegistry`.
+</Callout>
+
+The scaffold ships a reference list at `src/lists/index.ts` already wired into both entry points.
+
+## Runtime surface
+
+Once registered, the engine exposes the list catalog and membership over the data plane:
+
+- `GET /v1/lists` — enumerate every enabled list (`{ id, name, description?, defaultOptIn }`).
+- `POST /v1/lists/:id/subscribe` — set `categories[id] = true` for a contact (by `email` or `userId`).
+- `POST /v1/lists/:id/unsubscribe` — set `categories[id] = false`.
+
+These endpoints are data-plane scoped (they require an API key with the `ingest` scope) and return `404` for an unknown list id, `400` for a missing recipient. The [Lists API](/docs/data-api/lists) reference documents the request bodies, responses, and error cases in full — this guide covers authoring; the reference covers the wire.
+
+## Golden rules
+
+1. A list is a `categories` key, not a table. There is no migration, no `db:generate` — `defineList` plus the wiring is the whole change.
+2. `defaultOptIn` is the one decision. `false` = opt-in (needs an exact `true` to send); `true` = opt-out (blocked only on an exact `false`). Pick consciously.
+3. The id must match `/^[a-z0-9_-]+$/i`. `transactional` and `journey` are reserved and throw — they are the engine's own non-list categories.
+4. Wire `lists` into `createHogsendClient` in **both** `src/index.ts` and `src/worker.ts`. Do **not** pass `lists` to `createWorker` — it is not an accepted option; lists resolve via the client's `ListRegistry`.
+5. Gate a send on a list by passing the list id as the send's `category`. No `category` = not gated on any list.

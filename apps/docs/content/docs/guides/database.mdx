@@ -1,0 +1,223 @@
+---
+title: Database & Migrations
+description: Add your own tables to a Hogsend app with Drizzle, run two-track migrations, and read schema drift off the health endpoint.
+---
+
+## Overview
+
+A Hogsend app runs **two independent migration tracks against one Postgres database**, and you own exactly one of them.
+
+1. **The engine track** — `contacts`, `journeyStates`, `emailSends`, `trackedLinks`, `linkClicks`, `emailPreferences`, `bucketMemberships`, `userEvents`, the auth tables, and the rest. These ship inside the published `@hogsend/db` package, arrive with every `@hogsend/*` version bump, and **you never author them**.
+2. **The client track** — your own app tables, defined in `src/schema/index.ts` and migrated from your own `./migrations` folder. This is the only schema file you write.
+
+The two tracks share one `drizzle` schema but record into separate ledgers — the engine track into `drizzle.__drizzle_migrations`, your client track into `drizzle.__client_migrations`. Your `drizzle.config.ts` is wired to the client ledger, so `db:generate` can never collide with the engine's migrations.
+
+The most important rule: **never redefine an engine table in `src/schema/`.** If you need to read or join one, import it from `@hogsend/db` instead. Defining it yourself would make `db:generate` try to create a table the engine already manages, and your client migration would collide with engine objects.
+
+## Adding a table
+
+Open `src/schema/index.ts` and add a Drizzle `pgTable`. The scaffold ships a starter table (`clientNotes`) you can rename or replace:
+
+```ts title="src/schema/index.ts"
+import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+
+/**
+ * CLIENT-track schema. Engine tables (contacts, journeyStates, emailSends,
+ * tracking, ...) live in @hogsend/db and migrate on the ENGINE track — do NOT
+ * redefine them here. Add only your own app-specific tables.
+ */
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Match the engine's contact identity: contacts.externalId is the user id
+    // you pass to ingest / journeys. Keep it plain text, not a hard FK, to stay
+    // decoupled from engine internals.
+    userId: text("user_id").notNull(),
+    subject: text("subject").notNull(),
+    status: text("status").notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [index("support_tickets_user_id_idx").on(table.userId)],
+);
+```
+
+Mirror the conventions the engine tables already use — they keep your schema consistent:
+
+- **`uuid("id").primaryKey().defaultRandom()`** for surrogate keys.
+- **`timestamp(..., { withTimezone: true })`** — always timezone-aware.
+- **`text("user_id")`** to reference a contact by its external id (the same id you pass to `ctx.trigger()` / ingest). Engine tables denormalize `user_id` as plain `text` rather than a hard FK to `contacts`, so you stay decoupled — do the same.
+- Add `index(...)` on the columns you filter or sort by.
+
+### Reading engine tables from your code
+
+You don't redefine engine tables — you import them. The container's Drizzle instance already knows the full engine schema *and* your client schema, so joins across the two work:
+
+```ts
+// e.g. inside a custom workflow or route handler
+import { contacts } from "@hogsend/db";
+import { eq } from "drizzle-orm";
+
+// `db` is the container's Drizzle instance (c.get("container").db, or client.db).
+const rows = await db
+  .select()
+  .from(contacts)
+  .where(eq(contacts.externalId, "user_123"));
+```
+
+Joining `support_tickets.userId` to `contacts.externalId` works because both tables are registered on the same Drizzle instance — your client schema is bundled into the build alongside `@hogsend/db`.
+
+## The everyday flow
+
+After editing `src/schema/index.ts`, generate a migration from the diff, then apply it:
+
+```bash
+# 1. Diff src/schema/index.ts -> a new file in ./migrations
+pnpm db:generate
+#    -> writes ./migrations/NNNN_<name>.sql
+#    -> updates ./migrations/meta/_journal.json + a snapshot
+
+# 2. Apply the ENGINE track first, then your CLIENT track
+pnpm db:migrate
+```
+
+`pnpm db:migrate` runs `scripts/migrate.ts`, which calls `@hogsend/db`'s `migrateEngine(...)` and then `migrateClient(...)`. The engine track always runs first so your client migrations can safely reference engine tables, and both tracks run under a shared Postgres advisory lock so concurrent deploys or replicas serialize instead of racing.
+
+Your `drizzle.config.ts` is what keeps generated SQL on the client track:
+
+```ts title="drizzle.config.ts"
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  out: "./migrations",
+  schema: "./src/schema/index.ts",
+  dialect: "postgresql",
+  migrations: {
+    table: "__client_migrations", // client ledger — NOT __drizzle_migrations
+    schema: "drizzle",
+  },
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? "postgresql://growthhog:growthhog@localhost:5434/growthhog",
+  },
+});
+```
+
+The `migrations.table: "__client_migrations"` line is what keeps your SQL out of the engine's `__drizzle_migrations` ledger.
+
+### The `./migrations` directory
+
+```
+migrations/
+  0000_init.sql          # your generated SQL
+  meta/
+    _journal.json        # ordered list of your migrations (idx / tag / when)
+    0000_snapshot.json   # Drizzle's snapshot for the next diff
+```
+
+`meta/_journal.json` is the source of truth for the client track — its entries drive which migrations `db:migrate` applies. **Commit the whole `migrations/` folder.** An empty journal (`{ entries: [] }`) means a trivially in-sync client track, which is fine if you have no client tables yet.
+
+## `db:push` — the dev shortcut (and its trap)
+
+`pnpm db:push` runs `drizzle-kit push`: it diffs `src/schema/index.ts` against the live database and applies the changes **directly**, without writing a migration file or a ledger row. Great for fast local iteration.
+
+The trap: `db:push` leaves the **ledger behind the actual schema**. A later `db:migrate` (or the boot guard) then sees migrations it thinks are pending even though the objects already exist, and you get `migration_pending` or "type already exists" errors. So:
+
+- **Local-only churn:** `db:push` is fine.
+- **Anything you intend to deploy:** use `db:generate` + `db:migrate`, never `db:push`. Deployments apply migration files; a `push`-only change won't exist in `./migrations` and won't ship.
+
+To browse and edit data through a GUI, run `pnpm db:studio` (Drizzle Studio).
+
+## Schema drift and the boot guard
+
+"Drift" means the migrations a build requires don't match what's applied to the database. Hogsend treats the two tracks **asymmetrically** — and that asymmetry is the whole mental model.
+
+- **Engine track → fatal at boot.** The running build hard-requires its bundled engine schema. If the database is *behind*, an engine table you query may be missing a column, so the app **refuses to start** rather than 500 later. A database that is *ahead* of the build is fine (forward-compatible).
+- **Client track → non-fatal.** You own it. You may legitimately deploy app code ahead of an additive client migration, and a pending client migration must not take the whole API down. It surfaces — but does not block — on `GET /v1/health`.
+
+The boot guard lives in your scaffolded `src/index.ts` and checks **only the engine track**:
+
+```ts title="src/index.ts (boot guard)"
+import { getEngineSchemaVersion } from "@hogsend/engine";
+
+if (process.env.SKIP_SCHEMA_CHECK !== "true") {
+  const schema = await getEngineSchemaVersion(client.db);
+  if (!schema.inSync) {
+    client.logger.error(
+      `Database schema is out of date: this build requires ${schema.required}, ` +
+        `database is at ${schema.applied ?? "(empty)"}. ` +
+        `Pending migration(s): ${schema.pending.join(", ") || "(unknown — is the DB reachable?)"}. ` +
+        "Run `pnpm db:migrate`, or set SKIP_SCHEMA_CHECK=true to bypass.",
+    );
+    await client.dbClient.end({ timeout: 5 });
+    process.exit(1);
+  }
+}
+```
+
+On Railway and Docker, the pre-deploy step runs `pnpm db:migrate` before the API boots, so reaching the guard out of sync means the migration was skipped or didn't finish. See [Deployment](/docs/operating/deployment) for how each target wires the pre-deploy migrate.
+
+### Reading drift off `GET /v1/health`
+
+`/v1/health` reports both tracks. The top-level `status` is `migration_pending` if **either** track is behind:
+
+```jsonc
+{
+  "status": "migration_pending",        // healthy | degraded | migration_pending
+  "schema": {
+    "engine": { "applied": "0042_…", "required": "0042_…", "inSync": true,  "pending": [] },
+    "client": { "applied": "0000_init", "required": "0001_add_tickets",
+                "inSync": false, "pending": ["0001_add_tickets"] }
+  },
+  "components": { "database": { "status": "up" }, "redis": { "status": "up" } }
+}
+```
+
+- `schema.engine.inSync: false` should be impossible on a *running* app — the boot guard would have exited. If you ever see it, the app was started with `SKIP_SCHEMA_CHECK=true`.
+- `schema.client.inSync: false` is the normal "I haven't run `db:migrate` yet" signal — non-fatal, but your responsibility to clear.
+
+| `status` | meaning |
+|---|---|
+| `healthy` | both tracks `inSync`, db + redis up |
+| `degraded` | both tracks `inSync`, but db or redis is down |
+| `migration_pending` | engine OR client track is behind |
+
+#### Wiring the `schema.client` block (opt-in)
+
+The `schema.client` block is computed from a `clientJournal` you pass into `createHogsendClient`. It is **opt-in**: `createHogsendClient` defaults `clientJournal` to `{ entries: [] }`, so until you wire it the client track always reports `inSync: true` regardless of pending client migrations. Import your journal and thread it through in `src/index.ts`:
+
+```ts title="src/index.ts"
+import { createHogsendClient } from "@hogsend/engine";
+import journal from "../migrations/meta/_journal.json" with { type: "json" };
+import { templates } from "./emails/index.js";
+import { journeys } from "./journeys/index.js";
+
+const client = createHogsendClient({
+  journeys,
+  email: { templates },
+  clientJournal: journal, // now /v1/health.schema.client reflects YOUR migrations
+});
+```
+
+`clientJournal` is the only client-track wiring; the engine never gates boot on it — it only feeds the non-fatal `/v1/health` block. The `JournalShape` type is re-exported from `@hogsend/engine` if you want to annotate it. See [Configuration](/docs/getting-started/configuration) for where the rest of the container is wired.
+
+### `SKIP_SCHEMA_CHECK` — emergency bypass only
+
+`SKIP_SCHEMA_CHECK=true` makes `src/index.ts` skip the engine boot guard so the app starts even against a behind-engine database. Use it only to bring an instance up during an incident — it does **not** fix the schema, and the first query against a missing column will still fail. Clear the drift with `pnpm db:migrate` and remove the flag.
+
+## Deploying ahead of an additive migration
+
+Because client-track drift is non-fatal, you can ship app code before its migration without taking the API down — which makes safe, non-breaking column changes straightforward. The pattern is **expand → migrate → contract**:
+
+1. **Expand** — add the new column or table as additive and nullable (no `NOT NULL` without a default, no renames). Generate and apply it with `db:generate` + `db:migrate`. Old code ignores the new column; new code can start writing it.
+2. **Migrate** — deploy the code that reads and writes the new shape. Backfill any existing rows.
+3. **Contract** — only once nothing references the old shape, drop the old column in a follow-up migration.
+
+Avoid breaking changes (renames, dropping a column still read by live code, adding a `NOT NULL` column with no default) in a single step — split them across an expand and a later contract so no deployed build ever sees a schema it doesn't understand.
+
+## Fixing drift
+
+- **Client track behind** (the common case): run `pnpm db:migrate`. If you changed `src/schema/` but never generated, run `pnpm db:generate` first.
+- **Engine track behind** (app won't boot after a `@hogsend/*` bump): run `pnpm db:migrate` to apply the new engine migrations that arrived with the bump, then the boot guard passes.
+- **A `db:push`-bootstrapped database** has the schema objects but no ledger rows, so `db:migrate` and the boot guard think migrations are pending even though the objects exist. For a throwaway dev database, the cleanest fix is to reset it and run `pnpm db:migrate` from clean so the ledger and schema agree. For anything real, generate and migrate from the start.
