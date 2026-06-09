@@ -1,0 +1,63 @@
+---
+title: Hogsend vs. PostHog Workflows
+description: An honest comparison of PostHog Workflows and Hogsend. Workflows is genuinely good no-code automation inside PostHog -- Hogsend is for when lifecycle logic outgrows boxes and arrows.
+---
+
+If you're on PostHog, Workflows is the obvious first thing to try. It's built in, it's no-code, it lives next to your data, and for light automation -- a Slack ping on signup, a single welcome email -- you should use it and not look back. We mean that. This page is about the moment your lifecycle logic outgrows boxes and arrows, because that moment is exactly why Hogsend exists.
+
+**Free up to 10,000 messages/mo** | then from $0.003 per send (tapering with volume), billed through PostHog
+
+*Pricing last verified 9 June 2026 -- vendors change plans often, so check [PostHog's pricing page](https://posthog.com/pricing) for the current numbers. Something wrong or out of date on this page? PR it.*
+
+## What PostHog Workflows does well
+
+Zero extra infrastructure is the headline: Workflows is a tab in the PostHog UI your team already has open, consuming the events you already capture, with nothing to deploy and nothing to operate. Hogsend, by contrast, is an app you run.
+
+It's multi-channel out of the box -- email, SMS, push, Slack, and webhooks. Hogsend's only built-in channel is email; everything else is your code or an outbound destination. The free tier is genuinely generous for low volume, and the no-code canvas means your non-engineers can see and edit the flow. If your lifecycle owner doesn't write TypeScript, a canvas is a feature, not a flaw.
+
+## Where it falls short
+
+The trade-offs are structural, not bugs.
+
+Automations are drawn, not written: there's no code path, no version control, no PR review, no test suite. The canvas can't tell you who changed the discount email and why; `git log` can. Sending goes through PostHog's managed sender rather than your own provider account, so the domain relationship and deliverability reputation aren't yours. And the orchestration ceiling is real -- park-until-this-user-acts waits, per-user timezone scheduling inside send windows, cross-journey triggers, and entry limits are the kinds of control flow a canvas can't express cleanly.
+
+The economics also change shape as you grow: $0.003 per send is fine until it isn't. At 100,000 sends a month that's about $210 a month (the rate tapers with volume), every month, on top of your PostHog bill.
+
+## When to pick PostHog Workflows
+
+Pick Workflows when you want zero setup and your automations are genuinely light -- single notifications, simple welcome emails, internal Slack pings. Pick it when non-engineers own lifecycle messaging and need to ship without a developer in the loop. Pick it when your volume sits comfortably inside the free tier and you'd rather not run any infrastructure at all.
+
+If that describes you, Workflows is the right call, and we'd tell you so.
+
+## PostHog Workflows vs. Hogsend
+
+| | PostHog Workflows | Hogsend |
+|---|---|---|
+| Authoring | No-code canvas in PostHog Cloud | TypeScript `defineJourney()` in your repo |
+| Version control / PR review / tests | No | Yes -- git, vitest, your CI |
+| Email sender | Managed sender | Your Resend or Postmark account |
+| Hosting | PostHog Cloud | Self-hosted (Railway, Docker, BYO) |
+| Templates | Block editor | React Email components in your repo |
+| Channels | Email, SMS, push, Slack, webhooks | Email (plus a 13-event outbound destination spine) |
+| Pricing | 10k free messages/mo, then from $0.003/send* | Free to self-host (ELv2); you pay your own infra |
+| Agent story | UI-driven | Journeys are agent-writable code; `--json` on every CLI command |
+
+*\*At the time of writing.*
+
+The deeper difference is process. Lifecycle emails are production behavior, and in Hogsend they get the same treatment as the rest of your product: branches, code review, tests, blame, rollback. `ctx.waitForEvent` parks a journey until *this user* acts -- for days, durably, across deploys. `ctx.when` schedules in the user's timezone inside your send window. `exitOn` cancels a run mid-wait. Journeys trigger journeys. Try drawing that.
+
+Sending is the other axis: Hogsend sends from your own provider account, on your domain, with first-party open/click tracking the engine owns regardless of provider (opens are directional -- Apple Mail inflates them, and we say so).
+
+<Callout type="warn">
+The honest gaps cut the other way. Hogsend is an app you deploy and operate -- Postgres, Redis, Hatchet, two Node services -- while Workflows is zero-ops. Hogsend's built-in channel is email only: no SMS, no push, no in-app. There's no visual builder, so a non-technical teammate can't ship a flow without a developer. And Workflows' free tier costs less than any infrastructure: at low volume, it is simply cheaper.
+</Callout>
+
+## Using both
+
+This isn't either/or. They consume the same PostHog events and don't conflict: keep Workflows for lightweight internal automations, and move the revenue-carrying sequences -- onboarding, trial conversion, win-back -- into code. Hogsend fans every send, open, click, and journey completion back into PostHog as events, so your insights, cohorts, and even your remaining Workflows see everything Hogsend does.
+
+PostHog made the rest of your product stack code-first; Workflows is the one drag-and-drop exception inside that worldview. Hogsend completes it: lifecycle messaging gets the same treatment as everything else you ship -- typed, versioned, reviewed.
+
+## Migrating from Workflows
+
+Recreate the flow as a `defineJourney()` file -- the scaffold's 10 journeys cover the common shapes -- and point a PostHog webhook destination at Hogsend's ingest endpoint. Email designs get rebuilt as React Email components ([13 ship in the scaffold](/docs/guides/email)). See the [Journeys guide](/docs/guides/journeys), the [lifecycle recipe](/docs/recipes/lifecycle-journeys), and [the feature matrix](/docs/compare/feature-matrix) for the side-by-side.

@@ -1,11 +1,9 @@
-import Image from "next/image";
-import { CodeMock, MockupFrame } from "@/components/ds/mockup";
+import { CodeMock } from "@/components/ds/mockup";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
-import { Section, SectionHeading } from "@/components/ds/section";
-import lifecycleImg from "@/public/images/hogsend-lifecycle.png";
+import { Section } from "@/components/ds/section";
 
-const SCAFFOLD_LINES = [
+const SCAFFOLD_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
   { text: "# Scaffold a thin app that pins the engine", tone: "comment" },
   { text: "$ pnpm dlx create-hogsend@latest my-app", tone: "accent" },
   { text: "", tone: "plain" },
@@ -14,9 +12,9 @@ const SCAFFOLD_LINES = [
   { text: "$ pnpm dev", tone: "plain" },
   { text: "", tone: "plain" },
   { text: "→ API on :3002", tone: "comment" },
-] as const;
+];
 
-const JOURNEY_LINES = [
+const JOURNEY_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
   { text: "export const welcome = defineJourney({", tone: "keyword" },
   { text: "  meta: {", tone: "plain" },
   { text: '    id: "activation-welcome",', tone: "string" },
@@ -41,7 +39,18 @@ const JOURNEY_LINES = [
   },
   { text: "  },", tone: "plain" },
   { text: "});", tone: "keyword" },
-] as const;
+];
+
+const DEPLOY_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
+  { text: "# One-click Railway template, or your own host", tone: "comment" },
+  { text: "$ git push origin main", tone: "accent" },
+  { text: "", tone: "plain" },
+  { text: "→ building hogsend-api …", tone: "comment" },
+  { text: "→ building hogsend-worker …", tone: "comment" },
+  { text: "→ migrations applied · health check /v1/health ✓", tone: "plain" },
+  { text: "", tone: "plain" },
+  { text: "# Watch every send in Studio", tone: "comment" },
+];
 
 const STEPS = [
   {
@@ -49,50 +58,34 @@ const STEPS = [
     title: "Scaffold your app",
     description:
       "pnpm dlx create-hogsend@latest emits a thin app that pins @hogsend/engine and holds your content.",
-    media: <CodeMock filename="terminal" lines={[...SCAFFOLD_LINES]} />,
+    media: <CodeMock filename="terminal" lines={SCAFFOLD_LINES} />,
   },
   {
     n: "02",
     title: "Define journeys & buckets",
     description:
       "TypeScript functions that trigger on events, send emails, wait, branch, and adapt.",
-    media: (
-      <CodeMock filename="journeys/welcome.ts" lines={[...JOURNEY_LINES]} />
-    ),
+    media: <CodeMock filename="journeys/welcome.ts" lines={JOURNEY_LINES} />,
   },
   {
     n: "03",
     title: "Deploy & watch it run",
     description:
       "Host with Docker or one-click Railway. Watch every send in Studio.",
-    media: (
-      <MockupFrame barcode>
-        <Image
-          src={lifecycleImg}
-          alt="The Hogsend lifecycle loop: PostHog activity flows in, journeys send through Resend, engagement flows back."
-          placeholder="blur"
-          sizes="(min-width: 1024px) 50vw, 100vw"
-          className="h-auto w-full rounded-[6px]"
-        />
-      </MockupFrame>
-    ),
+    media: <CodeMock filename="deploy" lines={DEPLOY_LINES} />,
   },
 ];
 
 export function HowItWorks() {
   return (
-    <Section tone="light" id="how-it-works">
+    <Section id="how-it-works">
       <Reveal>
-        <SectionHeading
-          tone="light"
-          eyebrow="HOW IT WORKS"
+        <ProcessSteps
+          eyebrow="How it works"
           title="One loop, not another platform"
-          subtitle="Activity comes in from PostHog or any webhook, the right emails go out through Resend, and what people do with them fans back out to your tools — PostHog, Segment, Slack, or anywhere. Nothing new to buy or keep in sync."
+          subtitle="Activity comes in from PostHog or any webhook, the right emails go out through your provider, and what people do with them fans back out to your tools — PostHog, Segment, Slack, or anywhere. Nothing new to buy or keep in sync."
+          steps={STEPS}
         />
-      </Reveal>
-
-      <Reveal delay={0.1} className="mt-12 md:mt-16">
-        <ProcessSteps tone="light" steps={STEPS} />
       </Reveal>
     </Section>
   );

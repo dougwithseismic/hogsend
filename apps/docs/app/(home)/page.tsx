@@ -1,36 +1,65 @@
 import type { Metadata } from "next";
 import { BuildingBlocks } from "@/components/landing/building-blocks";
-import { Faq } from "@/components/landing/faq";
+import { ClosingCta } from "@/components/landing/closing-cta";
+import { Economics } from "@/components/landing/economics";
+import { FAQ_ITEMS, Faq } from "@/components/landing/faq";
+import { FeatureCards } from "@/components/landing/feature-cards";
 import { Hero } from "@/components/landing/hero";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { LogoStrip } from "@/components/landing/logo-strip";
+import { Manifesto } from "@/components/landing/manifesto";
+import { Pillars } from "@/components/landing/pillars";
 import { PoweredByHatchet } from "@/components/landing/powered-by";
-import { Recipes } from "@/components/landing/recipes";
-import { SelfHosted } from "@/components/landing/self-hosted";
-import { SourcesDestinations } from "@/components/landing/sources-destinations";
-import { Studio } from "@/components/landing/studio";
+import { ProofGrid } from "@/components/landing/proof-grid";
+import { ProofStrip } from "@/components/landing/proof-strip";
 import { UseCases } from "@/components/landing/use-cases";
 
 export const metadata: Metadata = {
-  title: "Hogsend — code-first lifecycle email for PostHog + Resend",
+  title: {
+    absolute: "Hogsend — Lifecycle email, written in TypeScript",
+  },
   description:
-    "The lifecycle email automation that PostHog teams actually need. Journeys and buckets as plain TypeScript functions — not YAML, not a drag-and-drop canvas. Fan email and lifecycle events out to PostHog, Segment, Slack, or any webhook. Self-hosted, open source.",
+    "Source-available lifecycle email engine for teams on PostHog. Durable TypeScript journeys in your repo, sent through your own Resend or Postmark account. No contact tax.",
+};
+
+// FAQPage structured data mirrors the visible FAQ copy verbatim (it reads
+// from the same FAQ_ITEMS array the accordion renders).
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ_ITEMS.map((item) => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: item.a,
+    },
+  })),
 };
 
 export default function HomePage() {
   return (
     <main className="flex flex-1 flex-col">
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD built from our own constants
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
+
       <Hero />
       <LogoStrip />
+      <ProofStrip />
+      <Manifesto />
       <BuildingBlocks />
-      <SourcesDestinations />
-      <PoweredByHatchet />
+      <Pillars />
+      <FeatureCards />
       <UseCases />
-      <Recipes />
       <HowItWorks />
-      <Studio />
-      <SelfHosted />
+      <PoweredByHatchet />
+      <Economics />
+      <ProofGrid />
       <Faq />
+      <ClosingCta />
     </main>
   );
 }

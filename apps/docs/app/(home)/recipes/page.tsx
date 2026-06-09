@@ -1,11 +1,4 @@
-import {
-  ArrowUpRight,
-  Boxes,
-  GitBranch,
-  Megaphone,
-  Send,
-  Users,
-} from "lucide-react";
+import { ArrowUpRight, GitBranch, Megaphone, Send, Users } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
@@ -15,7 +8,7 @@ import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 
 export const metadata: Metadata = {
-  title: "Recipes — Hogsend",
+  title: "Recipes",
   description:
     "A cookbook for Hogsend. Pick an outcome — transactional email, lifecycle journeys, campaigns, events and contacts — and reach for the primitives that build it.",
 };
@@ -75,84 +68,81 @@ const PRIMITIVES: Primitive[] = [
 export default function RecipesPage(): JSX.Element {
   return (
     <main className="flex flex-1 flex-col">
-      {/* Heading — extra top padding clears the fixed 68px nav. */}
-      <Section tone="dark" containerClassName="container-page pt-32 pb-20">
-        <Reveal>
-          <SectionHeading
-            tone="dark"
-            eyebrow="RECIPES"
-            title="A cookbook, not a blank page"
-            subtitle="Every outcome is a few primitives combined — pick the result, reach for the pieces."
-          />
-        </Reveal>
+      {/* Heading + grid — plain section so pt-32 clears the fixed 80px nav
+          (the shared Section rhythm would override it). Sits flush under the
+          nav hairline, no divider. */}
+      <section className="relative text-white">
+        <div className="container-page pt-32 pb-20 md:pb-28">
+          <Reveal>
+            <SectionHeading
+              eyebrow="Recipes"
+              title="A cookbook, not a blank page"
+              subtitle="Every outcome is a few primitives combined — pick the result, reach for the pieces."
+            />
+          </Reveal>
 
-        <div className="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 md:mt-16">
-          {RECIPES.map((recipe, index) => (
-            <Reveal key={recipe.href} delay={(index % 2) * 0.08}>
-              <Link
-                href={recipe.href}
-                className="group block h-full rounded-[10px] outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
-              >
-                <Card
-                  tone="dark"
-                  ticks
-                  className="h-full gap-5 transition-colors duration-200 group-hover:border-white/20 group-hover:bg-white/[0.04]"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-white">
-                      {recipe.icon}
-                    </span>
-                    <ArrowUpRight
-                      size={18}
-                      strokeWidth={1.5}
-                      className="text-white/30 transition-colors duration-200 group-hover:text-white/70"
-                      aria-hidden="true"
-                    />
-                  </div>
-
-                  <div className="mt-5 flex flex-col gap-2.5">
-                    <h3 className="font-display text-xl leading-[1.2] text-white">
-                      {recipe.title}
-                    </h3>
-                    <p className="text-sm leading-relaxed text-white/60 md:text-base">
-                      {recipe.description}
-                    </p>
-                  </div>
-                </Card>
-              </Link>
-            </Reveal>
-          ))}
-        </div>
-
-        {/* The primitives behind the recipes. */}
-        <Reveal delay={0.1}>
-          <div className="mt-14 flex flex-col gap-4 border-white/[0.08] border-t pt-8 md:mt-20 md:flex-row md:items-center md:justify-between">
-            <p className="font-mono text-white/40 text-xs uppercase tracking-wide">
-              The primitives behind them
-            </p>
-            <div className="flex flex-wrap gap-2.5">
-              {PRIMITIVES.map((primitive) => (
+          <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 md:mt-16">
+            {RECIPES.map((recipe, index) => (
+              <Reveal key={recipe.href} delay={(index % 2) * 0.08}>
                 <Link
-                  key={primitive.href}
-                  href={primitive.href}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-sm text-white/70 outline-none transition-colors duration-200 hover:border-white/20 hover:bg-white/[0.05] hover:text-white focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
+                  href={recipe.href}
+                  className="group block h-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
                 >
-                  <Boxes size={14} strokeWidth={1.5} aria-hidden="true" />
-                  {primitive.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-        </Reveal>
-      </Section>
+                  <Card className="flex h-full flex-col gap-5 group-hover:border-white/15">
+                    <div className="flex items-start justify-between gap-4">
+                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-white">
+                        {recipe.icon}
+                      </span>
+                      <ArrowUpRight
+                        size={18}
+                        strokeWidth={1.5}
+                        className="text-white/30 transition-colors duration-200 group-hover:text-white/70"
+                        aria-hidden="true"
+                      />
+                    </div>
 
-      {/* Closing CTA. */}
-      <Section tone="dark">
+                    <div className="flex flex-col gap-2.5">
+                      <h3 className="font-medium text-white text-xl leading-[1.2] tracking-[-0.02em]">
+                        {recipe.title}
+                      </h3>
+                      <p className="text-base text-white/60 leading-6">
+                        {recipe.description}
+                      </p>
+                    </div>
+                  </Card>
+                </Link>
+              </Reveal>
+            ))}
+          </div>
+
+          {/* The primitives behind the recipes. */}
+          <Reveal delay={0.1}>
+            <div className="mt-14 flex flex-col gap-4 border-white/[0.08] border-t pt-8 md:mt-20 md:flex-row md:items-center md:justify-between">
+              <p className="text-white/50 text-xs uppercase tracking-[0.04em]">
+                The primitives behind them
+              </p>
+              <div className="flex flex-wrap gap-2.5">
+                {PRIMITIVES.map((primitive) => (
+                  <Link
+                    key={primitive.href}
+                    href={primitive.href}
+                    className="inline-flex items-center rounded-[3px] border border-white/[0.08] bg-white/[0.06] px-2.5 py-1 text-white/80 text-xs outline-none transition-colors duration-200 hover:border-white/20 hover:text-white focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
+                  >
+                    {primitive.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* Closing CTA. Full-bleed top hairline via Section. */}
+      <Section id="recipes-cta">
         <Reveal>
           <SectionHeading
-            tone="dark"
             align="center"
-            eyebrow="START COOKING"
+            eyebrow="Start cooking"
             title="Browse the full cookbook"
             subtitle="Read every recipe end to end, or scaffold an app and start from a working flow."
             className="mx-auto"
@@ -161,12 +151,12 @@ export default function RecipesPage(): JSX.Element {
 
         <Reveal
           delay={0.1}
-          className="mt-9 flex flex-wrap items-center justify-center gap-4"
+          className="mt-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-4"
         >
           <Button href="/docs/recipes" variant="accent" icon>
             Browse recipes
           </Button>
-          <Button href="/docs/getting-started" variant="outline" tone="dark">
+          <Button href="/docs/getting-started" variant="outline">
             Get started
           </Button>
         </Reveal>

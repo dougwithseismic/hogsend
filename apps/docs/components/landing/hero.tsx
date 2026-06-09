@@ -1,84 +1,60 @@
 import type { JSX } from "react";
-import { Eyebrow } from "@/components/ds/badge";
+import { PillBadge } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
-import { CopyButton } from "@/components/ds/copy-button";
 import { GlowField } from "@/components/ds/fx";
-import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
-
-// The one-liner that scaffolds a new app, shown as the hero terminal.
-const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
-
-const TERMINAL_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
-  { text: INSTALL_COMMAND, tone: "accent" },
-];
 
 type HeroProps = {
   className?: string;
 };
 
+/**
+ * Crimzon hero: the red planet-horizon backdrop, a pill badge carrying the
+ * license line, a two-line 80px Inter Display H1, a two-line subhead, then
+ * the primary white CTA + a plain-text secondary link, with friction
+ * microcopy beneath. No terminal here — the scaffold command lives in
+ * HowItWorks and the closing CTA.
+ */
 export function Hero({ className }: HeroProps): JSX.Element {
   return (
     <section
       className={cn("relative overflow-hidden bg-ink text-white", className)}
     >
-      {/* Luminous green hero backdrop behind all content. */}
+      {/* Red planet-horizon backdrop behind all content. */}
       <GlowField />
 
-      <div className="container-page relative z-10 flex flex-col items-center pt-32 pb-20 text-center">
+      <div className="container-page relative z-10 flex flex-col items-center pt-40 pb-36 text-center md:pt-[188px] md:pb-44">
         <Reveal className="flex flex-col items-center">
-          <Eyebrow tone="dark">
-            Open source · self-hosted · yours to run
-          </Eyebrow>
+          <PillBadge>Self-hosted · your repo, your provider</PillBadge>
 
-          <h1 className="mt-7 max-w-4xl font-display text-5xl leading-[1.05] md:text-7xl">
-            The right email at exactly{" "}
-            <span className="text-white/55">the right moment</span>
+          <h1 className="mt-8 max-w-4xl font-display font-medium text-5xl text-white leading-[1.02] tracking-[-0.06em] md:text-[80px] md:leading-[80px]">
+            Lifecycle email,
+            <br />
+            written in TypeScript
           </h1>
 
-          <p className="mt-6 max-w-2xl text-lg text-white/60">
-            PostHog already knows what your users do. Resend already sends your
-            mail. Hogsend is the piece in between — events from PostHog, Stripe,
-            Clerk, or your own app set off the right message on their own, and
-            every send fans back out to PostHog, Segment, Slack, or any webhook.
-            No new platform, no drag-and-drop.
+          <p className="mt-7 max-w-[520px] text-base text-white/80 leading-6">
+            For product teams who built the thing but never got round to the
+            emails. Hogsend turns PostHog and product events into durable
+            TypeScript journeys in your repo, sent through your own Resend or
+            Postmark account.
           </p>
         </Reveal>
 
-        <Reveal
-          delay={0.1}
-          className="mt-9 flex flex-wrap items-center justify-center gap-4"
-        >
-          <Button href="/docs" variant="accent" icon>
-            Read the docs
-          </Button>
-
-          <a
-            href="https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie"
-            className="inline-flex"
-          >
-            {/* biome-ignore lint/performance/noImgElement: external Railway button SVG, not a local asset */}
-            <img
-              src="https://railway.com/button.svg"
-              alt="Deploy on Railway"
-              className="h-[42px]"
-            />
-          </a>
-        </Reveal>
-
-        <Reveal delay={0.18} className="mt-14 w-full max-w-2xl">
-          <div className="relative">
-            <CodeMock
-              lines={TERMINAL_LINES}
-              filename="terminal"
-              className="text-left"
-            />
-            <CopyButton
-              value={INSTALL_COMMAND}
-              className="absolute top-2 right-3"
-            />
+        <Reveal delay={0.1} className="mt-12 flex flex-col items-center gap-5">
+          <div className="flex flex-wrap items-center justify-center gap-5">
+            <Button href="/docs/getting-started" variant="accent" icon>
+              Start building
+            </Button>
+            <Button href="/docs" variant="outline">
+              Read the docs
+            </Button>
           </div>
+
+          <p className="text-sm text-white/50">
+            Free to self-host · one scaffold command · 3 env vars on Railway
+          </p>
         </Reveal>
       </div>
     </section>

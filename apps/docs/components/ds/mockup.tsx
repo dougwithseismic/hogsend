@@ -3,41 +3,33 @@ import { cn } from "@/lib/cn";
 // Imported here (not re-exported via `export ... from`) so this stays a
 // server module that merely forwards the client chat panel.
 import { ChatDemo } from "./chat-demo";
-import { BarcodeStrip } from "./decor";
 
 export { ChatDemo };
 
 type MockupFrameProps = {
   children: ReactNode;
+  /** Legacy prop — the barcode motif is retired; accepted and ignored. */
   barcode?: boolean;
   className?: string;
 };
 
 /**
- * Dark rounded mockup panel used to host faux product UI. When `barcode` is
- * set, a green comb/barcode strip runs along the top and bottom edges.
+ * Dark glass mockup panel hosting product UI: 12px radius, white/10 hairline,
+ * near-black #0a0606 glass fill.
  */
 export function MockupFrame({
   children,
-  barcode,
+  barcode: _barcode,
   className,
 }: MockupFrameProps) {
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[10px] border border-white/10 bg-black/80",
+        "relative overflow-hidden rounded-xl border border-white/10 bg-[#0a0606]/80 backdrop-blur-sm",
         className,
       )}
     >
-      {barcode ? (
-        <BarcodeStrip className="border-white/[0.08] border-b px-5 py-3" />
-      ) : null}
-
       <div className="p-5 md:p-6">{children}</div>
-
-      {barcode ? (
-        <BarcodeStrip className="border-white/[0.08] border-t px-5 py-3" />
-      ) : null}
     </div>
   );
 }
@@ -64,14 +56,15 @@ const CODE_TONE_CLASS: Record<CodeTone, string> = {
 };
 
 /**
- * Faux code block with optional window chrome (three dots + filename).
+ * Faux code block in a dark glass frame (10px radius, white/10 hairline,
+ * #0a0606 fill) with optional window chrome (three dots + filename).
  * Each line is colored by its `tone` (defaults to plain).
  */
 export function CodeMock({ lines, filename, className }: CodeMockProps) {
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[10px] border border-white/[0.08] bg-black/60",
+        "overflow-hidden rounded-[10px] border border-white/10 bg-[#0a0606]",
         className,
       )}
     >
@@ -101,7 +94,7 @@ export function CodeMock({ lines, filename, className }: CodeMockProps) {
                 CODE_TONE_CLASS[line.tone ?? "plain"],
               )}
             >
-              {line.text === "" ? " " : line.text}
+              {line.text === "" ? " " : line.text}
             </span>
           ))}
         </code>
@@ -130,17 +123,17 @@ export function IntegrationGrid({ items, className }: IntegrationGridProps) {
       {items.map((item) => (
         <li
           key={item.label}
-          className="flex items-center gap-2.5 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5"
+          className="flex items-center gap-2.5 rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-2.5 transition-colors duration-200 hover:border-white/15"
         >
           {item.icon ? (
             <span
               aria-hidden="true"
-              className="grid size-6 shrink-0 place-items-center text-accent [&>svg]:size-4"
+              className="grid size-6 shrink-0 place-items-center text-white/70 [&>svg]:size-4"
             >
               {item.icon}
             </span>
           ) : null}
-          <span className="truncate font-mono text-[12px] text-white/80 tracking-wide">
+          <span className="truncate text-sm text-white/80 tracking-[-0.02em]">
             {item.label}
           </span>
         </li>

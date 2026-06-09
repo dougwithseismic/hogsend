@@ -6,10 +6,14 @@ import { cn } from "@/lib/cn";
 type ButtonProps = {
   /** Renders <Link>/<a> if set, otherwise <button>. */
   href?: string;
+  /**
+   * "accent" and "solid" render the primary white button; "outline" renders
+   * the secondary plain-text link. (No outlined/mono button exists anymore.)
+   */
   variant?: "accent" | "outline" | "solid";
-  /** Affects outline/solid colors. */
+  /** Accepted for compatibility — every tone renders the dark crimzon style. */
   tone?: "dark" | "light";
-  /** Show the leading 24x24 arrow icon box (accent variant). */
+  /** Show the trailing → arrow (nudges right on hover). */
   icon?: boolean;
   /** target=_blank rel=noreferrer (also forces an <a> for href). */
   external?: boolean;
@@ -18,52 +22,40 @@ type ButtonProps = {
 };
 
 const BASE =
-  "inline-flex h-10 items-center gap-2.5 rounded-none px-6 font-mono text-xs uppercase tracking-wide transition-[filter,background-color,color] duration-200 select-none";
+  "group inline-flex items-center gap-2 text-base font-medium tracking-[-0.02em] transition-colors duration-200 select-none";
 
-function variantClasses(
-  variant: NonNullable<ButtonProps["variant"]>,
-  tone: NonNullable<ButtonProps["tone"]>,
-): string {
-  if (variant === "accent") {
-    return "bg-accent text-black hover:brightness-95";
+function variantClasses(variant: NonNullable<ButtonProps["variant"]>): string {
+  if (variant === "outline") {
+    // Secondary: plain white text link — no border, no fill.
+    return "h-10 px-1 text-white hover:text-white/80";
   }
-  if (variant === "solid") {
-    return tone === "light"
-      ? "bg-white text-black hover:brightness-95"
-      : "bg-black text-white hover:brightness-110";
-  }
-  // outline
-  return tone === "light"
-    ? "border border-black/15 text-current hover:bg-black/5"
-    : "border border-white/15 text-current hover:bg-white/5";
+  // Primary ("accent" and "solid"): white fill, near-black text, 10px radius.
+  return "h-12 rounded-[10px] bg-white px-5 text-[#0a0a0a] hover:bg-white/90";
 }
 
 export function Button({
   href,
   variant = "accent",
-  tone = "dark",
+  tone: _tone,
   icon = false,
   external = false,
   children,
   className,
 }: ButtonProps): JSX.Element {
-  const showIcon = icon && variant === "accent";
-
   const content = (
     <>
-      {showIcon ? (
-        <span
-          aria-hidden="true"
-          className="-ml-3 flex size-6 shrink-0 items-center justify-center bg-black"
-        >
-          <ArrowRight className="size-3.5 text-accent" strokeWidth={1.5} />
-        </span>
-      ) : null}
       <span>{children}</span>
+      {icon ? (
+        <ArrowRight
+          aria-hidden="true"
+          className="size-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5"
+          strokeWidth={2}
+        />
+      ) : null}
     </>
   );
 
-  const classes = cn(BASE, variantClasses(variant, tone), className);
+  const classes = cn(BASE, variantClasses(variant), className);
 
   if (href) {
     // External link (or explicitly flagged external) → <a>.
