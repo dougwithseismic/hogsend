@@ -65,6 +65,16 @@ export function createAuth(opts: {
     ...(opts.secondaryStorage
       ? { secondaryStorage: opts.secondaryStorage }
       : {}),
+    // Tighten the brute-force budget on the credential paths — better-auth's
+    // global default is a coarse 100 req / 10s per IP. Rate limiting is enabled
+    // in production by default; with `secondaryStorage` above these counters are
+    // shared across replicas rather than per-instance.
+    rateLimit: {
+      customRules: {
+        "/sign-in/email": { window: 60, max: 10 },
+        "/request-password-reset": { window: 60, max: 5 },
+      },
+    },
     database: drizzleAdapter(db, {
       provider: "pg",
       schema,

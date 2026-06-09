@@ -245,7 +245,10 @@ async function run(ctx: CommandContext): Promise<void> {
                 "<instance>, or open <instance>/studio directly.",
             ),
         "",
-        color.dim("First load shows a create-admin screen if no admin exists."),
+        color.dim(
+          "No admin yet? First load shows a read-only info screen pointing to " +
+            "'hogsend studio admin create' — there is no web sign-up.",
+        ),
         color.dim("Press Ctrl+C to stop."),
       ].join("\n"),
       "Studio",
