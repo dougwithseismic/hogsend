@@ -52,12 +52,12 @@ Hogsend is a narrower, more opinionated tool, and the differences are real in bo
 | Authoring | Visual workflow builder | Code-first -- every journey is a TypeScript file (`defineJourney`) |
 | Channels | Email, push, SMS, in-app | Email only (today) |
 | Pricing | Per profile, from $100/mo to $1,000+/mo | Self-hosted -- you pay for infra only, no per-contact/per-email fee |
-| Hosting | Managed SaaS | Self-hosted, open source -- data in your own Postgres |
+| Hosting | Managed SaaS | Self-hosted, source-available (ELv2) -- data in your own Postgres |
 | Delivery model | Vendor platform | Versioned engine package (`@hogsend/engine`) you upgrade with `pnpm up` |
 | Durable execution | Managed | Hatchet -- `ctx.sleep` survives deploys and resumes exactly where it left off |
 | PostHog | Integration | Native -- your existing events drive journeys directly |
 
-The pricing and ownership angle is the sharpest contrast. With Hogsend there is no per-profile or per-email charge -- it's open source, self-hosted, and your contact data lives in your own Postgres. You're not buying access to a platform; you're consuming a versioned engine package. You scaffold with `pnpm dlx create-hogsend@latest`, your journeys and templates are content in your repo, and you upgrade the framework with `pnpm up @hogsend/*` -- it is not a fork you maintain a diff against.
+The pricing and ownership angle is the sharpest contrast. With Hogsend there is no per-profile or per-email charge -- it's source-available (ELv2), self-hosted, and your contact data lives in your own Postgres. You're not buying access to a platform; you're consuming a versioned engine package. You scaffold with `pnpm dlx create-hogsend@latest`, your journeys and templates are content in your repo, and you upgrade the framework with `pnpm up @hogsend/*` -- it is not a fork you maintain a diff against.
 
 The code-first model is the other half. Every journey is TypeScript, so branching is `if/else`, waits are durable primitives, and the whole thing lives in version control and code review. Durable execution via Hatchet means a `ctx.sleep` of two weeks survives deploys and restarts. [`ctx.waitForEvent`](/docs/guides/journeys) lets a journey pause until the user does something specific or a timeout wins. You also get first-party email open and link-click tracking, and real-time, code-defined [Buckets](/docs/concepts/buckets) for audience membership.
 

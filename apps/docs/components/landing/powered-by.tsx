@@ -1,9 +1,8 @@
 import { ArrowUpRight, Clock, RefreshCw, Server } from "lucide-react";
-import { Eyebrow } from "@/components/ds/badge";
 import { BrandLogo } from "@/components/ds/brand-logo";
 import { AuroraBeam } from "@/components/ds/fx";
 import { Reveal } from "@/components/ds/reveal";
-import { Section } from "@/components/ds/section";
+import { Section, SectionHeading } from "@/components/ds/section";
 
 type Pillar = {
   icon: React.ReactNode;
@@ -11,7 +10,7 @@ type Pillar = {
   description: string;
 };
 
-const ICON_SIZE = 22;
+const ICON_SIZE = 20;
 
 const PILLARS: Pillar[] = [
   {
@@ -35,80 +34,76 @@ const PILLARS: Pillar[] = [
 ];
 
 /**
- * PoweredByHatchet — dark "Powered by Hatchet" section. Leads with the real
- * Hatchet wordmark at large size over an AuroraBeam, states plainly that every
- * journey runs on Hatchet's durable execution engine, then lists three pillars
- * (mirroring self-hosted.tsx) and links out to hatchet.run. Hogsend is built on
- * Hatchet for durability — not a reimplementation.
+ * PoweredByHatchet — credits the durable execution engine underneath every
+ * journey. Hatchet wordmark over a red aurora, plain statement of what
+ * durability buys you, three glass pillar cards, and an outlink to
+ * hatchet.run. Hogsend is built on Hatchet — not a reimplementation.
  */
 export function PoweredByHatchet() {
   return (
-    <Section tone="dark">
-      <AuroraBeam className="absolute inset-0 -z-0" />
+    <Section id="hatchet">
+      <AuroraBeam className="-z-0 absolute inset-0 opacity-60" />
 
       <div className="relative z-10">
-        <Reveal className="flex max-w-3xl flex-col items-start">
-          <BrandLogo brand="hatchet" height={56} className="text-white" />
+        <Reveal className="flex flex-col items-start">
+          <BrandLogo brand="hatchet" height={40} className="mb-10 text-white" />
 
-          <Eyebrow tone="dark" className="mt-8 mb-5">
-            POWERED BY
-          </Eyebrow>
-
-          <h2 className="font-display text-3xl leading-[1.08] text-white md:text-5xl">
-            Durable execution, by Hatchet
-          </h2>
-
-          <p className="mt-5 max-w-2xl text-base text-white/60 md:text-lg">
-            Every journey runs on{" "}
-            <a
-              href="https://hatchet.run"
-              target="_blank"
-              rel="noreferrer"
-              className="text-white underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-white"
-            >
-              Hatchet
-            </a>
-            , the durable execution engine underneath Hogsend. It's what lets a
-            long ctx.sleep survive a deploy and resume two days later exactly
-            where it left off — with automatic retries and timeouts handled for
-            you. We didn't reimplement durability. We built on the engine that
-            does it for real.
-          </p>
+          <SectionHeading
+            eyebrow="Powered by Hatchet"
+            title="Durable execution, by Hatchet"
+            subtitle={
+              <>
+                Every journey runs on{" "}
+                <a
+                  href="https://hatchet.run"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-white underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-white"
+                >
+                  Hatchet
+                </a>
+                , the durable execution engine underneath Hogsend. It's what
+                lets a long ctx.sleep survive a deploy and resume two days later
+                exactly where it left off — retries and timeouts handled for
+                you. We didn't reimplement durability. We built on the engine
+                that does it for real.
+              </>
+            }
+          />
         </Reveal>
 
-        <Reveal
-          delay={0.1}
-          className="mt-14 grid grid-cols-1 gap-8 md:mt-20 md:grid-cols-3"
-        >
-          {PILLARS.map((pillar) => (
-            <div key={pillar.title} className="flex gap-4">
-              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white">
+        <div className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-3">
+          {PILLARS.map((pillar, index) => (
+            <Reveal
+              key={pillar.title}
+              delay={(index % 3) * 0.08}
+              className="rounded-md border border-hairline-faint bg-white/[0.015] p-8 transition-colors hover:border-white/15"
+            >
+              <span aria-hidden="true" className="block text-white">
                 {pillar.icon}
               </span>
-              <div className="flex flex-col gap-1.5 pt-0.5">
-                <h3 className="font-display text-xl leading-[1.2] text-white">
-                  {pillar.title}
-                </h3>
-                <p className="text-sm leading-relaxed text-white/60 md:text-base">
-                  {pillar.description}
-                </p>
-              </div>
-            </div>
+              <h3 className="mt-10 font-medium font-sans text-base text-white tracking-[-0.02em]">
+                {pillar.title}
+              </h3>
+              <p className="mt-3 text-sm text-white/60 leading-[1.5]">
+                {pillar.description}
+              </p>
+            </Reveal>
           ))}
-        </Reveal>
+        </div>
 
-        <Reveal delay={0.2} className="mt-14 md:mt-16">
+        <Reveal delay={0.16} className="mt-12">
           <a
             href="https://hatchet.run"
             target="_blank"
             rel="noreferrer"
-            className="group inline-flex items-center gap-2 rounded-md border border-white/15 bg-white/5 px-5 py-3 text-sm font-medium text-white transition-colors hover:border-white/30 hover:bg-white/10"
+            className="group inline-flex items-center gap-2 font-medium text-base text-white tracking-[-0.02em]"
           >
             Learn about Hatchet
             <ArrowUpRight
               size={18}
               strokeWidth={1.5}
-              className="transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+              className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
             />
           </a>
         </Reveal>

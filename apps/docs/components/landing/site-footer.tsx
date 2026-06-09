@@ -1,11 +1,7 @@
 import Link from "next/link";
-import { Wordmark } from "@/components/ds/decor";
-import { Reveal } from "@/components/ds/reveal";
 import { Logo } from "@/components/landing/logo";
 import { cn } from "@/lib/cn";
-
-const REPO_URL = "https://github.com/dougwithseismic/hogsend";
-const NPM_URL = "https://www.npmjs.com/package/@hogsend/engine";
+import { CONTACT_EMAIL, ENGINE_VERSION, GITHUB_URL, NPM_URL } from "@/lib/site";
 
 type FooterLink = {
   label: string;
@@ -22,26 +18,59 @@ const COLUMNS: FooterColumn[] = [
   {
     heading: "Product",
     links: [
-      { label: "Docs", href: "/docs" },
-      { label: "Getting Started", href: "/docs/getting-started" },
-      { label: "Compare", href: "/docs/compare" },
+      { label: "Pricing", href: "/pricing" },
+      { label: "Templates", href: "/emails" },
+      { label: "Integrations", href: "/integrations" },
+      { label: "Recipes", href: "/recipes" },
       { label: "Studio", href: "/docs/operating/studio" },
+      { label: "Changelog", href: "/changelog" },
+    ],
+  },
+  {
+    heading: "Use cases",
+    links: [
+      { label: "Onboarding", href: "/use-cases/onboarding" },
+      { label: "Trial conversion", href: "/use-cases/trial-conversion" },
+      { label: "Win-back", href: "/use-cases/winback" },
+      {
+        label: "Transactional email",
+        href: "/docs/recipes/transactional-emails",
+      },
+    ],
+  },
+  {
+    heading: "Compare",
+    links: [
+      {
+        label: "vs PostHog Workflows",
+        href: "/docs/compare/posthog-workflows",
+      },
+      { label: "vs Loops", href: "/docs/compare/loops" },
+      { label: "vs Customer.io", href: "/docs/compare/customer-io" },
+      { label: "vs Klaviyo", href: "/docs/compare/klaviyo" },
+      { label: "Feature matrix", href: "/docs/compare/feature-matrix" },
+      { label: "Migration guide", href: "/docs/compare/migration" },
     ],
   },
   {
     heading: "Resources",
     links: [
-      { label: "API Reference", href: "/docs/api" },
-      { label: "Guides", href: "/docs/guides/journeys" },
+      { label: "Docs", href: "/docs" },
+      { label: "Getting started", href: "/docs/getting-started" },
+      { label: "Data API", href: "/docs/data-api" },
       { label: "CLI", href: "/docs/cli" },
-      { label: "About", href: "/docs/about" },
+      { label: "API reference", href: "/docs/api" },
+      { label: "llms.txt", href: "/llms.txt" },
     ],
   },
   {
-    heading: "Community",
+    heading: "Company",
     links: [
-      { label: "GitHub", href: REPO_URL, external: true },
+      { label: "About", href: "/about" },
+      { label: "GitHub", href: GITHUB_URL, external: true },
       { label: "npm", href: NPM_URL, external: true },
+      { label: "Contact", href: `mailto:${CONTACT_EMAIL}` },
+      { label: "License", href: "/pricing#license" },
     ],
   },
 ];
@@ -60,15 +89,21 @@ function GitHubMark({ className }: { className?: string }) {
 }
 
 function FooterLinkItem({ link }: { link: FooterLink }) {
-  const className = "text-sm text-white/55 transition-colors hover:text-white";
+  const className =
+    "text-base tracking-[-0.02em] text-white/60 transition-colors hover:text-white";
 
-  if (link.external) {
+  // External URLs, mailto: and static files (/llms.txt) need a plain anchor.
+  const isPlainAnchor =
+    link.external ||
+    link.href.startsWith("mailto:") ||
+    link.href === "/llms.txt";
+
+  if (isPlainAnchor) {
     return (
       <a
         href={link.href}
-        target="_blank"
-        rel="noreferrer"
         className={className}
+        {...(link.external ? { target: "_blank", rel: "noreferrer" } : {})}
       >
         {link.label}
       </a>
@@ -82,59 +117,71 @@ function FooterLinkItem({ link }: { link: FooterLink }) {
   );
 }
 
+/**
+ * Slim crimzon footer: top hairline, brand block + five link columns over the
+ * dark canvas, then a full-width hairline bottom bar. No giant wordmark.
+ */
 export function SiteFooter({ className }: { className?: string }) {
   return (
     <footer
-      className={cn("relative overflow-hidden bg-ink text-white", className)}
+      className={cn(
+        "border-t border-hairline-faint bg-ink text-white",
+        className,
+      )}
     >
-      <div className="container-page relative z-10 pt-20 pb-10 md:pt-28">
-        <Reveal>
-          <div className="grid gap-12 md:grid-cols-[1.4fr_repeat(3,1fr)] md:gap-8">
-            {/* Brand + tagline */}
-            <div className="max-w-sm">
-              <Logo />
-              <p className="mt-5 text-sm leading-relaxed text-white/55">
-                Code-first lifecycle email for teams on PostHog + Resend.
-                Self-hosted and yours to run.
-              </p>
-            </div>
-
-            {/* Link columns */}
-            {COLUMNS.map((column) => (
-              <nav key={column.heading} aria-label={column.heading}>
-                <h2 className="eyebrow text-white/40">{column.heading}</h2>
-                <ul className="mt-5 flex flex-col gap-3">
-                  {column.links.map((link) => (
-                    <li key={link.label}>
-                      <FooterLinkItem link={link} />
-                    </li>
-                  ))}
-                </ul>
-              </nav>
-            ))}
+      <div className="container-page py-20">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-12 sm:grid-cols-3 lg:grid-cols-[1.3fr_repeat(5,1fr)]">
+          {/* Brand + tagline */}
+          <div className="col-span-2 max-w-sm sm:col-span-3 lg:col-span-1 lg:pr-6">
+            <Logo />
+            <p className="mt-5 text-base leading-6 tracking-[-0.02em] text-white/60">
+              Code-first lifecycle email for teams on PostHog. Your provider,
+              your data, your repo. Free to self-host under ELv2.
+            </p>
           </div>
-        </Reveal>
 
-        {/* Bottom bar */}
-        <div className="mt-16 flex flex-col items-start gap-4 border-t border-white/[0.08] pt-8 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-white/40">© 2026 Hogsend</p>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noreferrer"
-            aria-label="Hogsend on GitHub"
-            className="inline-flex size-9 items-center justify-center rounded-md border border-white/10 text-white/55 transition-colors hover:border-white/20 hover:text-white"
-          >
-            <GitHubMark className="size-4" />
-          </a>
+          {/* Link columns */}
+          {COLUMNS.map((column) => (
+            <nav key={column.heading} aria-label={column.heading}>
+              <h2 className="text-base font-medium tracking-[-0.02em] text-white">
+                {column.heading}
+              </h2>
+              <ul className="mt-5 flex flex-col gap-4">
+                {column.links.map((link) => (
+                  <li key={link.label}>
+                    <FooterLinkItem link={link} />
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
         </div>
       </div>
 
-      {/* Giant faint watermark spanning the full width, anchored to the bottom */}
-      <Wordmark
-        text="HOGSEND"
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 translate-y-[18%] text-center"
-      />
+      {/* Bottom bar — full-width hairline, single slim line. */}
+      <div className="border-t border-hairline-faint">
+        <div className="container-page flex flex-col items-start gap-3 py-6 text-sm text-white/50 sm:flex-row sm:items-center sm:justify-between">
+          <p>© 2026 Hogsend</p>
+          <p className="eyebrow text-white/50">Source-available · ELv2</p>
+          <div className="flex items-center gap-5">
+            <Link
+              href="/changelog"
+              className="transition-colors hover:text-white"
+            >
+              v{ENGINE_VERSION} — latest release →
+            </Link>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Hogsend on GitHub"
+              className="text-white/50 transition-colors hover:text-white"
+            >
+              <GitHubMark className="size-4" />
+            </a>
+          </div>
+        </div>
+      </div>
     </footer>
   );
 }

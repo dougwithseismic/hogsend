@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "feature-matrix",
+    "posthog-workflows",
     "customer-io",
     "loops",
     "brevo",

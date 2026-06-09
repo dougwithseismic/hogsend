@@ -1,16 +1,15 @@
 import {
-  ArrowDownToLine,
   Code2,
   Database,
   Lock,
   Shield,
-  Terminal,
   Users,
   Warehouse,
   Webhook,
 } from "lucide-react";
 import type { Metadata } from "next";
 import type { JSX, ReactNode } from "react";
+import { TagPill } from "@/components/ds/badge";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
@@ -18,7 +17,7 @@ import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 
 export const metadata: Metadata = {
-  title: "Integrations — Hogsend",
+  title: "Integrations",
   description:
     "PostHog is where you start, not where you stop. Events flow in from signed webhooks, your own app, or any custom source — and fan back out to PostHog, Segment, Slack, your CRM, your warehouse, or any signed webhook.",
 };
@@ -59,7 +58,7 @@ type Connector = {
   mark: Mark;
   title: string;
   description: string;
-  /** Small mono tag describing the wire — e.g. "signed webhook". */
+  /** Small chip describing the wire — e.g. "signed webhook". */
   tag: string;
 };
 
@@ -170,26 +169,26 @@ const DESTINATIONS: Connector[] = [
 ];
 
 /**
- * Connector card: a brand mark or icon, a title, a muted description, and a
- * small mono wire tag pinned to the bottom. Used in both source/destination
- * grids so the rows read consistently.
+ * Connector card: a brand mark or icon, a 20px/500 title, a 16px white/60
+ * description, and a small 3px-radius wire chip pinned to the bottom. Used in
+ * both source/destination grids so the rows read consistently.
  */
 function ConnectorCard({ connector }: { connector: Connector }): JSX.Element {
   return (
-    <Card ticks className="flex h-full flex-col gap-5">
+    <Card className="flex h-full flex-col gap-5">
       <CardMark mark={connector.mark} />
 
       <div className="flex flex-col gap-2.5">
-        <h3 className="font-display text-xl leading-[1.2] text-white">
+        <h3 className="font-medium text-white text-xl leading-[1.2] tracking-[-0.02em]">
           {connector.title}
         </h3>
-        <p className="text-sm leading-relaxed text-white/60 md:text-base">
+        <p className="text-base text-white/60 leading-6">
           {connector.description}
         </p>
       </div>
 
-      <span className="mt-auto pt-1 font-mono text-[11px] uppercase tracking-wide text-white/35">
-        {connector.tag}
+      <span className="mt-auto pt-1">
+        <TagPill>{connector.tag}</TagPill>
       </span>
     </Card>
   );
@@ -197,7 +196,7 @@ function ConnectorCard({ connector }: { connector: Connector }): JSX.Element {
 
 function ConnectorGrid({ items }: { items: Connector[] }): JSX.Element {
   return (
-    <div className="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 md:mt-16">
+    <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 md:mt-16 lg:grid-cols-3">
       {items.map((connector, index) => (
         <Reveal key={connector.title} delay={(index % 3) * 0.08}>
           <ConnectorCard connector={connector} />
@@ -210,65 +209,53 @@ function ConnectorGrid({ items }: { items: Connector[] }): JSX.Element {
 export default function IntegrationsPage(): JSX.Element {
   return (
     <main className="flex flex-1 flex-col">
-      {/* Heading — extra top padding clears the fixed 68px nav like the hero. */}
-      <Section containerClassName="container-page pt-32 pb-20">
-        <Reveal>
-          <SectionHeading
-            eyebrow="INTEGRATIONS"
-            title="Any source in. Any destination out."
-            subtitle="Events flow in from signed webhooks, your own app, or anything you can wire up — and fan back out to the tools you already run. PostHog is where you start, not where you stop."
-          />
-        </Reveal>
-      </Section>
+      {/* Heading — plain section so pt-32 clears the fixed 80px nav (the
+          shared Section rhythm would override it). Sits flush under the nav
+          hairline, no divider. */}
+      <section className="relative text-white">
+        <div className="container-page pt-32 pb-20">
+          <Reveal>
+            <SectionHeading
+              eyebrow="Integrations"
+              title="Any source in. Any destination out."
+              subtitle="Events flow in from signed webhooks, your own app, or anything you can wire up — and fan back out to the tools you already run. PostHog is where you start, not where you stop."
+            />
+          </Reveal>
+        </div>
+      </section>
 
-      {/* Sources — events in. */}
-      <Section
-        id="sources"
-        className="border-white/[0.08] border-t"
-        containerClassName="container-page py-20 md:py-24"
-      >
+      {/* Sources — events in. Full-bleed top hairline via Section. */}
+      <Section id="sources">
         <Reveal>
           <SectionHeading
-            eyebrow="SOURCES — EVENTS IN"
+            eyebrow="Sources — events in"
             title="Everything your users do, in one stream"
             subtitle="Five signed-webhook presets auto-enable the moment you set their secret — no handler, no glue. Or send from your own code, or define a source of your own."
           />
         </Reveal>
 
-        <div className="mt-10">
-          <ConnectorGrid items={SOURCES} />
-        </div>
+        <ConnectorGrid items={SOURCES} />
       </Section>
 
       {/* Destinations — events out. */}
-      <Section
-        id="destinations"
-        className="border-white/[0.08] border-t"
-        containerClassName="container-page py-20 md:py-24"
-      >
+      <Section id="destinations">
         <Reveal>
           <SectionHeading
-            eyebrow="DESTINATIONS — EVENTS OUT"
+            eyebrow="Destinations — events out"
             title="Every send fans back out"
             subtitle="The outbound event catalog — contact changes, email sends and opens, journey completions, bucket transitions — fans out to the tools you already run, reusing the engine's durable retry, backoff, and DLQ for free."
           />
         </Reveal>
 
-        <div className="mt-10">
-          <ConnectorGrid items={DESTINATIONS} />
-        </div>
+        <ConnectorGrid items={DESTINATIONS} />
       </Section>
 
       {/* Closing CTA. */}
-      <Section
-        id="integrations-cta"
-        className="border-white/[0.08] border-t"
-        containerClassName="container-page py-20 md:py-24"
-      >
+      <Section id="integrations-cta">
         <Reveal>
           <SectionHeading
             align="center"
-            eyebrow="GET STARTED"
+            eyebrow="Get started"
             title="Wire up your first connector"
             subtitle="Pick a preset, send from your app, or define your own source and destination in TypeScript."
             className="mx-auto"
@@ -277,22 +264,16 @@ export default function IntegrationsPage(): JSX.Element {
 
         <Reveal
           delay={0.1}
-          className="mt-10 flex flex-wrap items-center justify-center gap-4"
+          className="mt-12 flex flex-wrap items-center justify-center gap-x-8 gap-y-4"
         >
           <Button href="/docs/integrations" variant="accent" icon>
             All integrations
           </Button>
           <Button href="/docs/guides/webhook-sources" variant="outline">
-            <span className="inline-flex items-center gap-2">
-              <ArrowDownToLine className="size-3.5" strokeWidth={1.5} />
-              Webhook sources
-            </span>
+            Webhook sources
           </Button>
           <Button href="/docs/guides/destinations" variant="outline">
-            <span className="inline-flex items-center gap-2">
-              <Terminal className="size-3.5" strokeWidth={1.5} />
-              Destinations
-            </span>
+            Destinations
           </Button>
         </Reveal>
       </Section>

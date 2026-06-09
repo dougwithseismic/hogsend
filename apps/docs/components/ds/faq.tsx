@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { cn } from "@/lib/cn";
@@ -12,38 +12,32 @@ type FaqItem = {
 
 type FaqAccordionProps = {
   items: FaqItem[];
+  /** Accepted for compatibility — every tone renders the dark crimzon style. */
   tone?: "dark" | "light";
   className?: string;
 };
 
+/**
+ * Crimzon FAQ accordion: stacked 6px-radius rows (white/2% fill, white/8
+ * hairline, 24px padding, 16px gap) with a + icon that rotates to × on open.
+ */
 export function FaqAccordion({
   items,
-  tone = "dark",
+  tone: _tone,
   className,
 }: FaqAccordionProps) {
   const [openIndex, setOpenIndex] = useState<number>(0);
-  const isDark = tone === "dark";
 
   return (
-    <div
-      className={cn(
-        "border-t",
-        isDark ? "border-white/[0.08]" : "border-black/[0.08]",
-        className,
-      )}
-    >
+    <div className={cn("flex flex-col gap-4", className)}>
       {items.map((item, index) => {
         const isOpen = index === openIndex;
         const panelId = `faq-panel-${index}`;
         const buttonId = `faq-button-${index}`;
-        const Icon = isOpen ? X : Plus;
         return (
           <div
             key={item.q}
-            className={cn(
-              "border-b",
-              isDark ? "border-white/[0.08]" : "border-black/[0.08]",
-            )}
+            className="rounded-md border border-white/[0.08] bg-white/[0.02] transition-colors duration-200 hover:border-white/15"
           >
             <h3>
               <button
@@ -52,28 +46,19 @@ export function FaqAccordion({
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 onClick={() => setOpenIndex(isOpen ? -1 : index)}
-                className={cn(
-                  "flex w-full items-center gap-4 py-6 text-left outline-none transition-colors",
-                  isDark
-                    ? "text-white focus-visible:text-accent"
-                    : "text-black focus-visible:text-accent-deep",
-                )}
+                className="flex w-full items-center gap-4 p-6 text-left text-white outline-none transition-colors focus-visible:text-accent"
               >
-                <span className="flex-1 font-display text-lg leading-snug md:text-xl">
+                <span className="flex-1 font-medium font-sans text-base leading-snug tracking-[-0.02em] md:text-lg">
                   {item.q}
                 </span>
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "flex h-6 w-6 shrink-0 items-center justify-center transition-colors",
-                    isOpen
-                      ? "text-accent"
-                      : isDark
-                        ? "text-white/50"
-                        : "text-black/50",
+                    "flex h-6 w-6 shrink-0 items-center justify-center transition-transform duration-200",
+                    isOpen ? "rotate-45 text-accent" : "text-white/50",
                   )}
                 >
-                  <Icon size={18} strokeWidth={1.5} />
+                  <Plus size={18} strokeWidth={1.5} />
                 </span>
               </button>
             </h3>
@@ -90,12 +75,7 @@ export function FaqAccordion({
                   transition={{ duration: 0.3, ease: "easeOut" }}
                   className="overflow-hidden"
                 >
-                  <p
-                    className={cn(
-                      "max-w-2xl pr-10 pb-6 text-base leading-relaxed",
-                      isDark ? "text-white/60" : "text-black/60",
-                    )}
-                  >
+                  <p className="max-w-2xl px-6 pb-6 text-base text-white/70 leading-6">
                     {item.a}
                   </p>
                 </motion.div>
