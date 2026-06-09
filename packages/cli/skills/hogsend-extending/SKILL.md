@@ -62,7 +62,10 @@ mirrored to a tool, durably? → a destination (3).
   provider. They come along regardless of which provider you supply.
 - **Defaults.** Pass nothing and you get Resend (built from `RESEND_API_KEY`) +
   PostHog (from `POSTHOG_API_KEY`). Inbound delivery webhooks land at the
-  engine-owned route `POST /v1/webhooks/resend`.
+  engine-owned route `POST /v1/webhooks/email/:providerId` (`:providerId` =
+  `meta.id`, so `…/email/resend` for the default; `POST /v1/webhooks/resend` is a
+  deprecated alias). The provider's `verifyWebhook` normalizes the payload into an
+  `EmailEvent` the engine maps to `email_sends` status + suppression.
 - ⚠️ The contract's `SendEmailOptions` imports from `@hogsend/core` (or
   `@hogsend/plugin-resend`), **not** `@hogsend/engine` — the engine's own
   `SendEmailOptions` is a different, higher-level send type.
