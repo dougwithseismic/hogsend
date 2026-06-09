@@ -6,7 +6,6 @@ import {
   type AdminSummary,
   createAdminRecovery,
 } from "../lib/admin-recovery.js";
-import { loadDotEnv } from "../lib/config.js";
 import { color } from "../lib/output.js";
 import { bail } from "../lib/prompt.js";
 import type { CommandContext } from "./types.js";
@@ -30,6 +29,12 @@ better-auth instance directly against your database and uses better-auth's
 server API so password hashing is identical to the running app. NO HTTP and no
 running API are required — this is gated by holding the DB URL and app secret.
 
+DATABASE_URL and BETTER_AUTH_SECRET are read from the ENVIRONMENT only (not from
+a .env file). Run with your app env loaded, e.g.
+  dotenvx run -- hogsend studio admin create
+  railway run hogsend studio admin create
+  pnpm studio:admin              # the scaffold's env-loaded wrapper
+
 Commands:
   ${color.cyan("create")}   Create a Studio admin user (the first admin, or another).
   ${color.cyan("reset")}    Set a new password for an existing admin (by email).
@@ -41,7 +46,7 @@ Options:
   --password <p>       Password for create/reset. PREFER the masked prompt — a
                        value passed here can leak into your shell history.
   --no-revoke          (reset) Keep existing sessions instead of revoking them.
-  --database-url <u>   Override DATABASE_URL (else env then cwd .env).
+  --database-url <u>   Override DATABASE_URL (else read from the environment).
   --json               Emit a single JSON result document (non-interactive).
   -h, --help           Show this help.
 
@@ -88,23 +93,19 @@ function parseAdminFlags(argv: string[]): AdminFlags {
 }
 
 /**
- * Resolve the gating env (DATABASE_URL + BETTER_AUTH_SECRET) with precedence
- * flag/process.env > cwd .env. Fails fast and clearly if either is missing —
- * there is no HTTP fallback; holding both IS the gate.
+ * Resolve the gating env (DATABASE_URL + BETTER_AUTH_SECRET) from flags then
+ * `process.env` ONLY — there is no cwd `.env` read here (consistent with
+ * `db:migrate`, which also reads the environment directly). Holding both IS the
+ * gate; there is no HTTP fallback. Fails fast and clearly if either is missing,
+ * telling the operator how to run the command with its env loaded.
  */
 function resolveGatingEnv(
   ctx: CommandContext,
   flags: AdminFlags,
 ): { databaseUrl: string; secret: string; baseURL: string | undefined } {
-  const dotenv = loadDotEnv(process.cwd());
-  const databaseUrl =
-    flags.databaseUrl ?? process.env.DATABASE_URL ?? dotenv.DATABASE_URL;
-  const secret = process.env.BETTER_AUTH_SECRET ?? dotenv.BETTER_AUTH_SECRET;
-  const baseURL =
-    process.env.BETTER_AUTH_URL ??
-    dotenv.BETTER_AUTH_URL ??
-    process.env.API_PUBLIC_URL ??
-    dotenv.API_PUBLIC_URL;
+  const databaseUrl = flags.databaseUrl ?? process.env.DATABASE_URL;
+  const secret = process.env.BETTER_AUTH_SECRET;
+  const baseURL = process.env.BETTER_AUTH_URL ?? process.env.API_PUBLIC_URL;
 
   const missing: string[] = [];
   if (!databaseUrl) missing.push("DATABASE_URL");
@@ -112,7 +113,12 @@ function resolveGatingEnv(
   if (missing.length > 0) {
     ctx.out.fail(
       `${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} ` +
-        "required. Set them in your environment or the cwd .env. " +
+        "required, and are read from the environment only (not a .env file). " +
+        "Run this command with your app env loaded, e.g.\n" +
+        "  export DATABASE_URL=… BETTER_AUTH_SECRET=…\n" +
+        "  dotenvx run -- hogsend studio admin create\n" +
+        "  railway run hogsend studio admin create\n" +
+        "  pnpm studio:admin            # the scaffold's env-loaded wrapper\n" +
         "This command is gated by DB + secret access (no HTTP fallback).",
     );
   }
