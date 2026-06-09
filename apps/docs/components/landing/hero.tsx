@@ -35,8 +35,9 @@ export function Hero({ className }: HeroProps): JSX.Element {
           </h1>
 
           <p className="mt-7 max-w-[520px] text-base text-white/80 leading-6">
-            Hogsend turns PostHog and product events into durable email journeys
-            — plain TypeScript in your repo, sent through your own Resend or
+            For product teams who built the thing but never got round to the
+            emails. Hogsend turns PostHog and product events into durable
+            TypeScript journeys in your repo, sent through your own Resend or
             Postmark account.
           </p>
         </Reveal>

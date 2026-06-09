@@ -20,8 +20,8 @@ type RentCard = {
 const RENT_CARDS: RentCard[] = [
   {
     name: "Loops",
-    chargesBy: "Stored contacts",
-    whenYouGrow: "The bill grows with it.",
+    chargesBy: "Subscribed contacts",
+    whenYouGrow: "$249/mo at 50k contacts.*",
   },
   {
     name: "Customer.io",
@@ -30,7 +30,7 @@ const RENT_CARDS: RentCard[] = [
   },
   {
     name: "PostHog Workflows",
-    chargesBy: "Per send after 10k free/mo*",
+    chargesBy: "$0.003/send after 10k free/mo*",
     whenYouGrow: "Per-send creep.",
   },
 ];
@@ -138,7 +138,8 @@ export function Economics({ className }: { className?: string }) {
 
       <Reveal delay={0.1}>
         <p className="mt-6 text-sm text-white/50">
-          *$0.005/send at the time of writing — pricing last checked June 2026.
+          *List prices at the time of writing — all pricing last checked June
+          2026.
         </p>
 
         <p className="mt-10 max-w-3xl text-base text-white/70 leading-6">

@@ -68,8 +68,8 @@ type RentRow = {
 const RENT_ROWS: RentRow[] = [
   {
     vendor: "Loops",
-    chargesBy: "stored contacts",
-    whenYouGrow: "the bill grows with it",
+    chargesBy: "subscribed contacts",
+    whenYouGrow: "$249/mo at 50k contacts*",
   },
   {
     vendor: "Customer.io",
@@ -78,7 +78,7 @@ const RENT_ROWS: RentRow[] = [
   },
   {
     vendor: "PostHog Workflows",
-    chargesBy: "per send after 10k free/mo*",
+    chargesBy: "$0.003/send after 10k free/mo*",
     whenYouGrow: "per-send creep",
   },
   {
@@ -474,19 +474,19 @@ export default function PricingPage(): JSX.Element {
           </div>
 
           <p className="eyebrow mt-4 text-white/50">
-            *$0.005/send at the time of writing — pricing last checked June
+            *List prices at the time of writing — pricing last checked June
             2026.
           </p>
         </Reveal>
 
         <Reveal delay={0.16}>
           <p className="mt-10 max-w-3xl text-base text-white/70 leading-6">
-            Loops meters stored contacts. Customer.io meters profiles, emails,
-            and credits. PostHog Workflows is free to 10,000 messages a month,
-            then $0.005 per send (at the time of writing). All three are fine
-            prices for software they host. Hogsend&apos;s position is different:
-            lifecycle email is a feature of your product, and features live in
-            your repo, not on someone else&apos;s meter.
+            Loops meters subscribed contacts. Customer.io meters profiles,
+            emails, and credits. PostHog Workflows is free to 10,000 messages a
+            month, then from $0.003 per send (at the time of writing). All three
+            are fine prices for software they host. Hogsend&apos;s position is
+            different: lifecycle email is a feature of your product, and
+            features live in your repo, not on someone else&apos;s meter.
           </p>
 
           <p className="mt-8 text-sm text-white/60">

@@ -13,17 +13,19 @@ import { cn } from "@/lib/cn";
  * Manifesto — the crimzon word-reveal statement: a red kicker over one
  * centered 40/48 display sentence whose words start at white/20 and turn
  * white as the section scrolls through the viewport (per-word, scroll-linked
- * opacity). Condenses the hand-rolled-handler pain narrative.
+ * opacity). Condenses the neglected-emails narrative: lifecycle email used
+ * to need a GUI hire or a hand-rolled handler — Hogsend makes it repo work.
  *
  * Client island: motion's useScroll/useTransform need the browser. Respects
  * prefers-reduced-motion via the media query — words render fully white.
  */
 
 const STATEMENT =
-  "It starts as one webhook handler. Then a wait needs a queue, a branch " +
-  "needs state, a duplicate send needs a log, and a spam complaint needs a " +
-  "preference center — yesterday. Hogsend is that whole timeline, already " +
-  "built — typed, versioned, and sitting in your repo.";
+  "Every product has a list of emails it should be sending and isn't. " +
+  "Doing it properly used to mean a visual builder and someone to click " +
+  "around it — or a webhook handler that slowly grows a queue, a state " +
+  "machine, and a preference center. Hogsend is that whole job, already " +
+  "built — typed, versioned, sitting in your repo.";
 
 const WORDS = STATEMENT.split(" ");
 

@@ -5,9 +5,9 @@ description: An honest comparison of Loops and Hogsend for lifecycle email. Loop
 
 Of every platform we compare against, Loops is the one we have the most respect for. It is the closest competitor to Hogsend in spirit: both teams clearly believe that lifecycle email tooling for product companies should feel good to use, not like a relic from the 2010s marketing-automation era. If you are weighing Hogsend against Loops, you have already filtered out the platforms that treat developers as an afterthought. The remaining decision is narrower and more interesting than most comparisons on this site.
 
-**From $49/mo** | contact-based pricing -- free up to 1,000 contacts ($49 at 5k, $99 at 10k, $149 at 15k)
+**From $49/mo** | priced per subscribed contact -- free up to 1,000 contacts ($49 at 5k, $99 at 10k, $249 at 50k)
 
-*Pricing last verified 5 June 2026 -- vendors change plans often, so check [Loops' pricing page](https://loops.so/pricing) for the current numbers.*
+*Pricing last verified 9 June 2026 -- vendors change plans often, so check [Loops' pricing page](https://loops.so/pricing) for the current numbers.*
 
 ## What Loops does well
 
@@ -19,9 +19,11 @@ It is also legitimately API-first. There is a maintained React/Next.js SDK, a cl
 
 The trade-offs are mostly about depth and ownership, not quality.
 
-Automation in Loops is deliberately simpler than Customer.io or ActiveCampaign. You get welcome sequences, time delays, and basic branching, but you will hit the ceiling on heavy conditional logic, fine-grained event-property filtering, and cross-journey orchestration. For "welcome sequence plus trial nudge" that ceiling is fine. For "branch on three runtime conditions, call an internal API mid-flow, then route into a second journey," it starts to feel constraining.
+Automation in Loops (renamed Workflows in May 2026) is deliberately simpler than Customer.io or ActiveCampaign. You get welcome sequences, time delays, and basic branching, but you will hit the ceiling on heavy conditional logic, fine-grained event-property filtering, and cross-journey orchestration. For "welcome sequence plus trial nudge" that ceiling is fine. For "branch on three runtime conditions, call an internal API mid-flow, then route into a second journey," it starts to feel constraining.
 
-There is no self-hosting. Your contact data lives on Loops' infrastructure, and pricing is contact-based -- you pay as your list grows, whether or not those contacts are active. And as a newer platform, the integration ecosystem is thinner than the incumbents. None of these are bugs; they are the natural consequences of being a polished hosted SaaS.
+Workflows are also dashboard-only. Loops' API and CLI can trigger a workflow with an event, but they cannot create or modify one -- their own API docs say so. The flow itself lives on the canvas: no version control, no PR review, no diff when the trial email changes.
+
+There is no self-hosting and no bring-your-own provider -- all sending goes through Loops' infrastructure. Your contact data lives there too, and pricing is per subscribed contact: you pay for list size as it grows, whether or not you send. And as a newer platform, the integration ecosystem is thinner than the incumbents. None of these are bugs; they are the natural consequences of being a polished hosted SaaS.
 
 ## When to pick Loops
 

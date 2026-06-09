@@ -21,7 +21,11 @@ export const FAQ_ITEMS = [
   },
   {
     q: "How is Hogsend different from PostHog Workflows?",
-    a: "Workflows is PostHog's built-in no-code canvas with a managed sender — genuinely good for light automation, and free up to 10,000 messages a month (then $0.005 per send, at the time of writing). Hogsend is typed TypeScript in your repo with durable waits, behavioral branching, and your own email provider — for when lifecycle logic outgrows boxes and arrows. There's a side-by-side comparison in the docs.",
+    a: "Workflows is PostHog's built-in no-code canvas with a managed sender — genuinely good for light automation, and free up to 10,000 messages a month (then from $0.003 per send, at the time of writing). Hogsend is typed TypeScript in your repo with durable waits, behavioral branching, and your own email provider — for when lifecycle logic outgrows boxes and arrows. There's a side-by-side comparison in the docs.",
+  },
+  {
+    q: "How is Hogsend different from Loops?",
+    a: "Loops is the polished hosted option — a visual workflow builder, sending through Loops' own infrastructure, priced per subscribed contact ($49/month at 5,000 contacts, $249/month at 50,000, checked June 2026). Hogsend is the code-first version of the same job: journeys are TypeScript files in your repo, sends go through your own Resend or Postmark account, and the software is free to self-host. Loops workflows live in their dashboard and can't be defined in code; Hogsend journeys are reviewed, versioned, and deployed like any other feature.",
   },
   {
     q: "Does Hogsend replace Resend or use it?",
