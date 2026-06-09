@@ -30,6 +30,13 @@ export const env = createEnv({
     // true, the engine auto-generates a process-lifetime token and prints it
     // ONCE to the server log (operator-only surface). Never returned over HTTP.
     // Irrelevant once an admin exists (closed-signup 403 takes over).
+    //
+    // MUST be high-entropy: this is the ONLY thing standing between an anonymous
+    // network visitor and the first admin account on a fresh public deploy. Use
+    // a LONG, RANDOM value — NOT a memorable phrase, project name, or anything
+    // guessable. Generate one with e.g. `openssl rand -hex 32` (>=32 bytes of
+    // randomness). The sign-up path is IP rate-limited, but a weak/guessable
+    // token still defeats the gate, so do not pick one a human could brute force.
     STUDIO_SETUP_TOKEN: z.string().optional(),
     // Extra origins allowed to call the auth endpoints (beyond BETTER_AUTH_URL),
     // comma-separated. Needed when the Studio is served from a different origin

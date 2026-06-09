@@ -17,6 +17,7 @@ import {
 import { mountStudio } from "./lib/studio.js";
 import type { ApiKeyContext } from "./middleware/api-key.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { clientIpKey, createRateLimit } from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
 import type { DefinedWebhookSource } from "./webhook-sources/define-webhook-source.js";
@@ -92,6 +93,29 @@ export function createApp(
 
   app.notFound((c) => {
     return c.json({ error: "Not Found" }, 404);
+  });
+
+  // Throttle setup-token guessing on sign-up. The setup-token gate below
+  // short-circuits a bad token with a 403 BEFORE better-auth's handler runs, so
+  // better-auth's own sign-up rate-limit never sees a rejected guess — making
+  // setup-token brute force on this path otherwise unthrottled (and each guess
+  // hits the DB). Mount an IP-keyed sliding window AHEAD of the gate so a flood
+  // is dropped at the edge. Keyed by client IP (not the default api-key/user id)
+  // because sign-up is unauthenticated — every request would otherwise collapse
+  // onto one "anonymous" bucket and let a single attacker exhaust the budget for
+  // everyone. ~10/min is far above the legitimate first-admin create (one
+  // successful POST) yet kills automated guessing. `disableInTest: false` so the
+  // suite can assert the 429. Distinct prefix → isolated budget.
+  const signUpRateLimit = createRateLimit({
+    prefix: "ratelimit:signup",
+    windowMs: 60_000,
+    max: 10,
+    keyFn: clientIpKey,
+    disableInTest: false,
+  });
+  app.use("/api/auth/sign-up/*", async (c, next) => {
+    if (c.req.method !== "POST") return next();
+    return signUpRateLimit(c, next);
   });
 
   // Closed signup + first-run land-grab gate. The first user may register (the

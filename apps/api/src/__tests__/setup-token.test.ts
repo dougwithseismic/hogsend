@@ -86,12 +86,13 @@ function appWith(opts: { userRows: Array<{ id: string }>; envToken?: string }) {
   return { app, container };
 }
 
-function signUpReq(token?: string): RequestInit {
+function signUpReq(token?: string, opts: { ip?: string } = {}): RequestInit {
   return {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { "x-hogsend-setup-token": token } : {}),
+      ...(opts.ip ? { "x-forwarded-for": opts.ip } : {}),
     },
     body: JSON.stringify({
       email: "first-admin@setup-token-test.example",
@@ -238,6 +239,82 @@ describe("first-admin sign-up gate (needsSetup true)", () => {
     );
     expect(res.status).toBe(200);
     // The gate opened: better-auth's handler was invoked exactly once.
+    expect(container.auth.handler).toHaveBeenCalledTimes(1);
+  });
+});
+
+// --- Integration: brute-force throttle on the sign-up path ---
+
+// The limiter prefers Redis and falls back to an in-memory store. CI may point
+// REDIS_URL at a live (shared) instance whose `ratelimit:signup` keys outlive a
+// run, so each test uses a UNIQUE client IP — the bucket key is per-IP, so a
+// fresh random IP guarantees an empty window regardless of leftovers.
+let ipSeq = 0;
+function freshIp(): string {
+  ipSeq += 1;
+  // Unique-per-run x-forwarded-for value; the limiter keys on it verbatim, so
+  // it need only be distinct, not a syntactically valid address.
+  return `signup-test-${Date.now()}-${ipSeq}`;
+}
+
+describe("sign-up rate limit (setup-token guessing)", () => {
+  it("returns 429 once an IP exceeds the per-window threshold", async () => {
+    const { app } = appWith({ userRows: [], envToken: "the-correct-token" });
+    const ip = freshIp();
+
+    // 10/min is the configured budget; the 11th request from the same IP must
+    // be throttled at the edge (429) BEFORE the setup-token gate runs.
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      const res = await app.request(
+        "/api/auth/sign-up/email",
+        signUpReq("a-bad-guess", { ip }),
+      );
+      statuses.push(res.status);
+    }
+
+    // The first 10 bad guesses reach the gate (403); the 11th is rate-limited.
+    expect(statuses.slice(0, 10).every((s) => s === 403)).toBe(true);
+    const throttled = statuses[10];
+    expect(throttled).toBe(429);
+
+    const res = await app.request(
+      "/api/auth/sign-up/email",
+      signUpReq("a-bad-guess", { ip }),
+    );
+    const body = await res.json();
+    expect(res.status).toBe(429);
+    expect(String(body.error).toLowerCase()).toContain("rate limit");
+  });
+
+  it("buckets per-IP — a different IP keeps its own fresh budget", async () => {
+    const { app } = appWith({ userRows: [], envToken: "the-correct-token" });
+    const attacker = freshIp();
+
+    // Burn the attacker's budget.
+    for (let i = 0; i < 11; i++) {
+      await app.request(
+        "/api/auth/sign-up/email",
+        signUpReq("a-bad-guess", { ip: attacker }),
+      );
+    }
+    const attackerRes = await app.request(
+      "/api/auth/sign-up/email",
+      signUpReq("a-bad-guess", { ip: attacker }),
+    );
+    expect(attackerRes.status).toBe(429);
+
+    // A legit operator from a DIFFERENT IP is unaffected — the correct token
+    // still opens the gate (200), proving the throttle didn't break the create.
+    const { app: legitApp, container } = appWith({
+      userRows: [],
+      envToken: "the-correct-token",
+    });
+    const legitRes = await legitApp.request(
+      "/api/auth/sign-up/email",
+      signUpReq("the-correct-token", { ip: freshIp() }),
+    );
+    expect(legitRes.status).toBe(200);
     expect(container.auth.handler).toHaveBeenCalledTimes(1);
   });
 });
