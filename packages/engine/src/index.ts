@@ -196,7 +196,11 @@ export {
   type OutboundPayloads,
 } from "./lib/outbound.js";
 export { getPostHog } from "./lib/posthog.js";
-export { getRedisIfConnected } from "./lib/redis.js";
+export {
+  type AuthSecondaryStorage,
+  createRedisSecondaryStorage,
+  getRedisIfConnected,
+} from "./lib/redis.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---
 export { sendResetPasswordEmail } from "./lib/reset-email.js";
 // --- First-admin setup token (closes the first-run land-grab) ---

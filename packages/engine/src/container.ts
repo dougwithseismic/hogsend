@@ -38,6 +38,7 @@ import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
 import { getPostHog } from "./lib/posthog.js";
+import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
 import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
@@ -379,6 +380,20 @@ export function createHogsendClient(
 
   setEmailService(emailService);
 
+  // Wire better-auth's secondary storage to the SHARED engine Redis (the same
+  // singleton backing the PostHog cache + worker heartbeat — never a second
+  // pool). Passing `secondaryStorage` flips better-auth's rate-limit store from
+  // the per-instance in-memory default to this shared store, so the sign-in /
+  // request-password-reset limiters are enforced ACROSS Railway replicas and
+  // survive restarts (security finding #2). Gated on REDIS_URL being configured;
+  // when absent we omit it and better-auth keeps its in-memory store, so a bare
+  // instance with no Redis never crashes. `getRedis()` is lazyConnect, so this
+  // stays synchronous (no connection happens until the first auth command), and
+  // the adapter degrades to a no-op on any Redis fault rather than failing auth.
+  const authSecondaryStorage = env.REDIS_URL
+    ? createRedisSecondaryStorage(getRedis())
+    : undefined;
+
   // Auth is built AFTER the mailer so we can wire the self-service password-reset
   // delivery to the just-built `emailService` directly (rather than relying on a
   // singleton resolved at request time). The injected `sendResetPassword` is what
@@ -391,6 +406,7 @@ export function createHogsendClient(
       db,
       secret: env.BETTER_AUTH_SECRET,
       baseURL: env.BETTER_AUTH_URL,
+      secondaryStorage: authSecondaryStorage,
       // Always trust the public API origin; add any explicitly configured ones
       // (e.g. a remote Studio origin) on top. baseURL is trusted automatically.
       trustedOrigins: Array.from(

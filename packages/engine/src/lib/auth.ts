@@ -3,6 +3,7 @@ import * as schema from "@hogsend/db/schema";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization } from "better-auth/plugins/organization";
+import type { AuthSecondaryStorage } from "./redis.js";
 
 /**
  * Delivers the password-reset link. Injected by `createHogsendClient` (wired to
@@ -42,6 +43,16 @@ export function createAuth(opts: {
    * internals we inherit; we never re-implement them.
    */
   sendResetPassword?: SendResetPasswordFn;
+  /**
+   * Shared cross-replica store for better-auth's session AND rate-limit data.
+   * When provided, better-auth resolves `rateLimit.storage` to "secondary-storage"
+   * instead of the in-memory default — so the sign-in / request-password-reset
+   * limiters are enforced GLOBALLY across Railway replicas and survive restarts,
+   * not per-instance (security finding #2). `createHogsendClient` wires this to
+   * the engine's shared Redis when available; omit it (the default) to keep
+   * better-auth's in-memory store on a bare instance with no Redis.
+   */
+  secondaryStorage?: AuthSecondaryStorage;
 }) {
   const { db, secret, baseURL, trustedOrigins, sendResetPassword } = opts;
   return betterAuth({
@@ -49,6 +60,11 @@ export function createAuth(opts: {
     secret,
     baseURL,
     ...(trustedOrigins && trustedOrigins.length > 0 ? { trustedOrigins } : {}),
+    // Passing `secondaryStorage` flips better-auth's rate-limit storage from the
+    // per-instance in-memory default to this shared store (see option doc).
+    ...(opts.secondaryStorage
+      ? { secondaryStorage: opts.secondaryStorage }
+      : {}),
     database: drizzleAdapter(db, {
       provider: "pg",
       schema,
