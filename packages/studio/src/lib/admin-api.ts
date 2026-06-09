@@ -583,6 +583,75 @@ export function ingestEvent(body: {
   });
 }
 
+// --- Domain (Setup) --------------------------------------------------------
+
+/** Mirrors the pinned `DnsRecord` shape (@hogsend/core providers/domains.ts). */
+export type DnsRecord = {
+  type: "TXT" | "CNAME" | "MX";
+  name: string;
+  value: string;
+  ttl?: number;
+  priority?: number;
+  purpose:
+    | "verification"
+    | "spf"
+    | "dkim"
+    | "return_path"
+    | "tracking"
+    | "mx"
+    | "other";
+  status: "pending" | "verified" | "failed" | "unknown";
+};
+
+export type DomainVerificationState =
+  | "not_found"
+  | "pending"
+  | "verified"
+  | "failed";
+
+/** Mirrors the pinned `DomainStatus` shape. */
+export type DomainStatus = {
+  domain: string;
+  state: DomainVerificationState;
+  records: DnsRecord[];
+  providerId: string;
+  checkedAt: string;
+  raw?: unknown;
+};
+
+/** Mirrors the pinned `TestModeState` shape (stubbed inactive until F3). */
+export type TestModeState = {
+  active: boolean;
+  reason: "env_flag" | "domain_unverified" | null;
+  redirectTo: string | null;
+  fromOverride: string | null;
+};
+
+/** Mirrors the pinned `EngineDomainStatus` shape. */
+export type EngineDomainStatus = {
+  domain: string | null;
+  providerId: string;
+  supported: boolean;
+  status: DomainStatus | null;
+  testMode: TestModeState;
+};
+
+export function getDomainStatus(refresh?: boolean) {
+  return api.get<EngineDomainStatus>("/v1/admin/domain", {
+    query: { refresh: refresh ? "true" : undefined },
+  });
+}
+
+export function addDomain(domain: string) {
+  return api.post<EngineDomainStatus>("/v1/admin/domain", {
+    json: { domain },
+  });
+}
+
+export function verifyDomain() {
+  return api.post<EngineDomainStatus>("/v1/admin/domain/verify");
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
@@ -605,4 +674,5 @@ export const qk = {
   contactTimeline: (id: string) => ["contact-timeline", id] as const,
   suppressions: (type: string) => ["suppressions", type] as const,
   apiKeys: ["api-keys"] as const,
+  domain: ["domain"] as const,
 };
