@@ -26,7 +26,7 @@ So I built Hogsend. Not because the world needed another email tool — it proba
 
 ## What this actually is
 
-Hogsend is the tool I reach for when a client says "we use PostHog and we need lifecycle emails." It ships as a package — your app pins `@hogsend/engine` and owns only your content: journeys, templates, webhook sources, your config. It's code-first because I'm an engineer and I think lifecycle automation should live in your codebase, not in some third-party visual canvas that your team will outgrow in six months. It uses Resend because Resend is fast, the DX is excellent, and deliverability just works.
+Hogsend is the tool I reach for when a client says "we use PostHog and we need lifecycle emails." It ships as a package — your app pins `@hogsend/engine` and owns only your content: journeys, templates, webhook sources, your config. It's code-first because I'm an engineer and I think lifecycle automation should live in your codebase, not in some third-party visual canvas that your team will outgrow in six months. It uses Resend by default — swappable for Postmark or your own provider — because Resend is fast, the DX is excellent, and deliverability just works.
 
 It's opinionated. It's not trying to be Customer.io or Braze. It's trying to be the thing that gets you from "we should probably send onboarding emails" to actually sending them, in days instead of weeks.
 
