@@ -1,6 +1,6 @@
 ---
 title: Ingestion & Webhooks
-description: Event ingestion endpoint, Resend webhook handler, generic webhook sources, and health check.
+description: Event ingestion endpoint, provider email webhook handler, generic webhook sources, and health check.
 ---
 
 ## Health
@@ -75,13 +75,15 @@ Events still flow into the same `ingestEvent()` pipeline (store → route to Hat
 
 ## Webhooks
 
-### `POST /v1/webhooks/resend`
+### `POST /v1/webhooks/email/{providerId}`
 
-Receives webhook events from Resend (email delivery status updates). The raw request body and headers are passed to `container.emailService.handleWebhook()`, which verifies the signature against `RESEND_WEBHOOK_SECRET` internally.
+Receives email delivery-status webhooks from your active email provider. Hogsend sends email through a swappable provider — Resend by default — so this route is provider-neutral: `{providerId}` is dispatched on the provider's `meta.id` (`resend`, `postmark`, …) via the container-held `EmailProviderRegistry`. The matched provider owns its own secrets and verifies the request itself (`verifyWebhook`), then the engine normalizes the result to a provider-neutral `EmailEvent` before processing.
 
-**Request Body** -- Raw Resend webhook payload (`Record<string, unknown>`).
+`POST /v1/webhooks/resend` is kept as a thin **deprecated** alias for the Resend path. (`email` is a reserved/forbidden webhook-**source** id, so it can never collide with a `defineWebhookSource`.)
 
-**Headers** -- Resend includes signature headers for verification against `RESEND_WEBHOOK_SECRET`.
+**Request Body** -- Raw provider webhook payload (`Record<string, unknown>`). For Resend this is the Resend event envelope; for Postmark, the Postmark delivery event; and so on.
+
+**Headers** -- The provider's own signature/auth headers. Resend verifies an HMAC against `RESEND_WEBHOOK_SECRET`; Postmark uses HTTP Basic credentials (`POSTMARK_WEBHOOK_USER` / `POSTMARK_WEBHOOK_PASS`) and **fails closed** when they are unset.
 
 **Response `200`**
 
@@ -89,13 +91,17 @@ Receives webhook events from Resend (email delivery status updates). The raw req
 { "ok": true }
 ```
 
+A provider may throw a `WebhookHandshakeSignal` for a non-status handshake (e.g. an SES `SubscribeURL` confirmation); the route treats that as success and returns `200`.
+
 **Response `401`**
 
 ```json
 { "error": "Webhook verification failed" }
 ```
 
-Any error thrown while verifying or handling the webhook (including a missing/invalid signature) results in a `401`. This endpoint processes email events like `email.delivered`, `email.bounced`, `email.complained`, etc. The `EmailService` tracks bounces and updates suppression status when the bounce threshold (default: 3) is reached.
+Any error thrown while verifying or handling the webhook (including a missing/invalid signature) results in a `401`. This endpoint processes the provider-neutral `EmailEvent` lifecycle — `email.delivered`, `email.bounced`, `email.complained`, `email.opened`, `email.clicked`, etc. (the `email.` prefix is kept). Bounce handling reads `event.bounce.class`: a `permanent` bounce increments `bounceCount` and auto-suppresses once it crosses the bounce threshold (default `3`), a `complaint` suppresses immediately, while `transient`/`unknown` are recorded but never suppress. Handler bodies read `event.messageId` and `event.bounce`; the raw legacy Resend shape is still reachable via `event.raw as LegacyResendWebhookEvent` (`@deprecated`, one minor).
+
+`messageId` is the provider message id (Resend `email_id`, Postmark `MessageID`, …); it replaced `resendId`, which lingers as a `@deprecated` alias for one minor — always read `messageId`. See the [email guide](/docs/guides/email) for the full swappable-provider model.
 
 ### `POST /v1/webhooks/{sourceId}`
 

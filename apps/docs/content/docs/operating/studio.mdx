@@ -59,7 +59,7 @@ hogsend studio --port 4000
 | `--open` | Open the Studio in your default browser. |
 | `--dist <path>` | Override the Studio dist directory (advanced). |
 
-Without `--base-url` the Studio calls the local server it is served from (static preview only — the API calls will fail). Set `--base-url` to your instance, or just open `<instance>/studio` directly. Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio origin (CORS + cross-site cookies); the simplest path for a hosted instance is the mounted `/studio`.
+Without `--base-url` the Studio calls the local server it is served from (static preview only — the API calls will fail). Set `--base-url` to your instance, or just open `<instance>/studio` directly. Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio origin (CORS + cross-site cookies) — add the local origin to `BETTER_AUTH_TRUSTED_ORIGINS` (csv, beyond `BETTER_AUTH_URL` + `API_PUBLIC_URL`) on the instance. The simplest path for a hosted instance is the mounted `/studio`.
 
 ## First load: create the first admin
 
@@ -69,7 +69,7 @@ On first load the Studio probes `GET /v1/auth/status`. If no admin exists yet (`
 
 ### Create the first admin (two ways)
 
-**A. CLI (locally or on the host).** Run the shell-gated [`hogsend studio admin create`](/docs/cli/studio#hogsend-studio-admin--shell-gated-account-recovery) on a host that holds `DATABASE_URL` + `BETTER_AUTH_SECRET`. It talks **directly to the database** (no HTTP, no running API) and writes the password through Better Auth (scrypt) — never raw SQL, never plaintext at rest.
+**A. CLI (locally or on the host).** Run the shell-gated [`hogsend studio admin create`](/docs/cli/studio) on a host that holds `DATABASE_URL` + `BETTER_AUTH_SECRET`. It talks **directly to the database** (no HTTP, no running API) and writes the password through Better Auth (scrypt) — never raw SQL, never plaintext at rest.
 
 ```bash
 # locally — the scaffold ships an env-loaded wrapper
@@ -111,7 +111,7 @@ The login screen has a **Forgot password?** link. It emails a single-use, 15-min
 
 ### Locked out: recover from a shell
 
-When you can't get in at all — no admin yet, or a forgotten password with no email provider — the [`hogsend studio admin`](/docs/cli/studio#hogsend-studio-admin--shell-gated-account-recovery) commands above are the guaranteed recovery path. They are gated only by holding `DATABASE_URL` + `BETTER_AUTH_SECRET` and shell access, so they work even when the web is unreachable.
+When you can't get in at all — no admin yet, or a forgotten password with no email provider — the [`hogsend studio admin`](/docs/cli/studio) commands above are the guaranteed recovery path. They are gated only by holding `DATABASE_URL` + `BETTER_AUTH_SECRET` and shell access, so they work even when the web is unreachable.
 
 ## Creating an API key
 

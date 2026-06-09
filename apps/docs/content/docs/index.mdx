@@ -5,7 +5,7 @@ description: The lifecycle automation layer PostHog doesn't have yet. Scaffold a
 
 ## What is Hogsend?
 
-Hogsend is the **lifecycle email automation that PostHog teams actually need**. It's an opinionated, code-first platform that connects to your PostHog events and sends the right emails at the right time — welcome sequences, trial nudges, churn recovery, payment failures — all defined as TypeScript, not drag-and-drop canvases.
+Hogsend is **one loop**: an inbound event comes in, your code reacts, engagement flows back out. A PostHog webhook, a call from your own app, a Stripe event — they all normalize to a single thing: an event for a user. Your TypeScript reacts (journeys send/wait/branch, buckets segment in real time), and everything that happens — opens, clicks, sends, journey completions — fans back out to your analytics, your CRM, your warehouse. Not drag-and-drop canvases. Code.
 
 If you're a PostHog team that's been putting off lifecycle emails because Customer.io is overkill and building it yourself is a rabbit hole — this is the thing you'd build anyway. We just built it first.
 
@@ -26,14 +26,15 @@ Think of it as a **gateway drug into lifecycle automation**. Start here, get scr
 
 Hogsend is built for PostHog, but it's not locked to it. Stripe webhooks, custom API calls, any system that can send an HTTP request can feed events into Hogsend. All examples in these docs lead with PostHog because that's the primary use case, with Stripe as the common secondary source.
 
-**Emails go through [Resend](https://resend.com)** — fast, developer-friendly, great deliverability. The same lifecycle event stream fans out to Slack, PostHog, Segment, a CRM, or a warehouse through [outbound destinations](/docs/data-api/destinations). Push notifications are on the roadmap.
+**The email provider is swappable — [Resend](https://resend.com) is the default** (fast, developer-friendly, great deliverability). [Postmark](/docs/guides/email) ships as an opt-in provider, and you can bring any other behind the `EmailProvider` contract — render, preferences, and first-party tracking come along no matter which wire you choose. The same lifecycle event stream fans out to Slack, PostHog, Segment, a CRM, or a warehouse through [outbound destinations](/docs/data-api/destinations). Push notifications are on the roadmap.
 
 ## How it works
 
 1. **Scaffold your app** — `pnpm dlx create-hogsend@latest my-app` emits a thin app that pins `@hogsend/engine` and holds your content.
-2. **PostHog events flow in** — Point a PostHog webhook at your app and events land in Hogsend automatically.
-3. **Journeys react** — TypeScript functions that trigger on events, send emails, wait, branch, and adapt based on what the user does.
-4. **Emails go out via Resend** — React Email templates with bounce tracking, unsubscribe management, and deliverability monitoring built in.
+2. **Events flow in** — Point a PostHog webhook at your app, call `POST /v1/events` from your own code, or wire any `defineWebhookSource()` (Stripe, Clerk, your CRM). They all normalize to one event for a user through `ingestEvent()`.
+3. **Your code reacts** — TypeScript functions that trigger on events, send emails, wait, branch, and adapt based on what the user does.
+4. **Email sends through a swappable provider** — [Resend](https://resend.com) by default, [Postmark](/docs/guides/email) opt-in, or any other behind the `EmailProvider` contract. React Email templates with first-party open/click tracking, unsubscribe management, and deliverability monitoring — all engine-owned, so they come along with any provider.
+5. **Engagement flows back out** — Opens, clicks, sends, journey completions, and bucket transitions fan out to PostHog, Segment, Slack, a CRM, or a warehouse via [outbound destinations](/docs/data-api/destinations).
 
 ## Get started in minutes
 
@@ -59,6 +60,8 @@ pnpm worker:dev             # Hatchet worker, in a second terminal
 - **Mints an ingest-scoped data-plane key** — writes a `HOGSEND_API_KEY` (`hsk_…`) so the [data API](/docs/data-api) and [`@hogsend/client`](/docs/data-api/client-sdk) work out of the box.
 
 Set `RESEND_API_KEY` in `.env` before sending real email — everything else is wired for you. Prefer one command? `pnpm dlx create-hogsend@latest my-app --yes` scaffolds, installs, and bootstraps in a single hands-off step (or pass `.` instead of a name to scaffold into the current folder). The Hatchet dashboard runs at `http://localhost:8888` (`admin@example.com` / `Admin123!!`).
+
+To log into [Studio](/docs/operating/studio), create the first admin first. Public sign-up is disabled, so the first admin is minted from your server — run `pnpm studio:admin` (which calls `hogsend studio admin create`), or set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`) and the API mints it on boot into an empty user table. There is no web sign-up form.
 
 ## Quick example
 
@@ -113,7 +116,7 @@ You register this journey by adding it to the `journeys` array your app exports 
 - **A versioned engine** — `@hogsend/engine` is a semver-stable API surface. Upgrade with `pnpm up "@hogsend/*"` and run migrations.
 - **Code-first journeys** — `defineJourney()` with durable execution backed by [Hatchet](https://hatchet.run). Your `await ctx.sleep({ duration: days(3) })` literally pauses for three days and picks up exactly where it left off — or `ctx.waitForEvent()` pauses until the user actually _does_ something (with a timeout fallback), so journeys react to behavior, not just the clock.
 - **PostHog webhook source** — Point your PostHog webhook at your app and events flow through automatically.
-- **Resend email delivery** — React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center.
+- **Swappable email delivery** — Resend by default, Postmark opt-in, or bring your own behind the `EmailProvider` contract. React Email templates, tracked sends, bounce handling, one-click unsubscribe, preference center — all engine-owned, so they come along with any provider.
 - **A public data plane** — Write contacts, events, and transactional emails from your own code with one ingest-scoped key via [`POST /v1/events`](/docs/data-api/events) or the typed [`@hogsend/client`](/docs/data-api/client-sdk).
 - **Outbound destinations** — Fan the lifecycle event stream out to PostHog, Segment, Slack, a CRM, or a warehouse over the durable webhook spine with [`defineDestination()`](/docs/data-api/destinations).
 - **Composable conditions** — Property checks, event history, email engagement, AND/OR composition. Use them for enrollment guards, exit conditions, and mid-journey branching.

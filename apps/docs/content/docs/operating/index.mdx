@@ -5,6 +5,8 @@ description: "Operating your Hogsend instance — contacts, journeys, email deli
 
 This guide is for operators — the people keeping Hogsend running, managing contacts, debugging journeys, and maintaining email deliverability. If you're writing journey code, start with the [Journeys](/docs/guides/journeys) page. If you need raw endpoint definitions, see the [API Reference](/docs/api).
 
+There are two front-ends over the admin plane: the human [Studio](/docs/operating/studio) UI (Better Auth login — public sign-up is disabled, so the first admin is minted from your server; see [Authentication](/docs/operating/authentication#studio-admin-login)) and machine [API keys](/docs/operating/authentication) for the CLI, CI, and your own code.
+
 ## What the Admin API Gives You
 
 The admin API (`/v1/admin/*`) is the operations control plane for your Hogsend instance. Through it you can:
@@ -34,16 +36,16 @@ Your scaffolded app runs as two processes from the same codebase — an API proc
                       +-------------------+
                              |
                       +-------------------+
-                      |  Worker Process   | ---> Resend (email delivery)
+                      |  Worker Process   | ---> Email provider (Resend by default)
                       |  (Hatchet tasks)  | ---> PostHog (event capture)
                       +-------------------+
 ```
 
 - The **API process** handles HTTP requests, authenticates admin keys, processes event ingestion, and pushes tasks to Hatchet.
-- The **Worker process** executes durable tasks -- journey runs, email sends, bulk imports. It picks up work from the Hatchet queue and runs it reliably.
+- The **Worker process** executes durable tasks -- journey runs, email sends, bulk imports. It picks up work from the Hatchet queue and runs it reliably. Email goes out through a swappable provider (Resend by default).
 - **Hatchet** is the task orchestration engine that routes events to matching journeys, manages retries, and provides durable execution guarantees.
 - **TimescaleDB** stores contacts, events, journey states, email records, audit logs, and all other persistent data.
-- **Redis** is used for PostHog property caching and rate limiting.
+- **Redis** is used for Better Auth sessions, password-reset tokens, rate limiting, and PostHog property caching — it is required in production.
 
 Both processes share the same database, so admin API queries always reflect the latest state.
 

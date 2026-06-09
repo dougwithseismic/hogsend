@@ -37,7 +37,12 @@ hogsend studio --port 4000
 
 ## `hogsend studio admin` — shell-gated admin create + recovery
 
-Create or recover a Studio admin account from a trusted shell — the same pattern as PostHog/GitLab/Rails management commands. Public sign-up is **disabled** (`disableSignUp`), so this CLI (and the [env bootstrap](/docs/operating/studio#create-the-first-admin-two-ways)) are the **only** ways to mint an admin — there is no create endpoint over HTTP.
+Create or recover a Studio admin account from a trusted shell — the same pattern as PostHog/GitLab/Rails management commands. Public sign-up is **disabled** (`disableSignUp`), so this CLI and the env bootstrap are the **only** two ways to mint an admin — there is no create endpoint over HTTP, no setup token, and no web create-admin form. Web Studio is login + self-service forgot/reset only.
+
+The first admin is minted exactly two ways:
+
+1. **This CLI (DB-direct):** `hogsend studio admin create` — run it from a trusted shell with `DATABASE_URL` + `BETTER_AUTH_SECRET` loaded. No HTTP, no running API.
+2. **Env bootstrap:** set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`, min 8) and the **API process** mints it on boot — but **only** into a zero-user table (idempotent on a fresh DB). When `STUDIO_ADMIN_PASSWORD` is unset, a strong password is auto-generated and printed once to the server log; rotate it via the Studio reset flow. See [Operating → Studio](/docs/operating/studio#create-the-first-admin-two-ways).
 
 This talks **directly to the database** (no HTTP, no running API): it builds a Better Auth instance against `DATABASE_URL` and uses Better Auth's server API (its internal adapter, scrypt), so password hashing is identical to the running app and is **not** subject to `disableSignUp`. Holding both `DATABASE_URL` and `BETTER_AUTH_SECRET` *is* the gate.
 

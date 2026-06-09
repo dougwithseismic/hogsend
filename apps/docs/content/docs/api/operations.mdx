@@ -659,8 +659,8 @@ interface HogsendClient {
   db: Database;             // Drizzle ORM instance
   dbClient: DatabaseClient; // Raw pg client
   auth: Auth;               // Better Auth instance
-  email: Resend;            // Resend client
-  emailService: EmailService;       // Engine-owned TrackedMailer (bounce handling)
+  email: EmailProvider;     // Active email provider (Resend by default; swappable)
+  emailService: EmailService;       // Engine-owned TrackedMailer (render → preferences → tracking → email_sends + bounce handling)
   analytics?: PostHogService;       // Present only when POSTHOG_API_KEY is set
   registry: JourneyRegistry;        // Journey registry
   hatchet: HatchetClient;           // Hatchet task orchestration client

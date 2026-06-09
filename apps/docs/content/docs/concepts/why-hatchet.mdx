@@ -62,7 +62,7 @@ Each journey declares a trigger event in its metadata. When an event lands at `P
 
 ### Automatic retries
 
-Email sends and other side effects run as Hatchet tasks with retries and exponential backoff. If Resend returns a 500 or times out, Hatchet retries automatically. Non-retryable errors (invalid API key, malformed email) bail out immediately.
+Email sends and other side effects run as Hatchet tasks with retries and exponential backoff. If your email provider (Resend by default) returns a 500 or times out, Hatchet retries automatically. Non-retryable errors (invalid API key, malformed email) bail out immediately.
 
 ### Task visibility
 
@@ -81,7 +81,7 @@ Hogsend is everything on top of Hatchet that makes it a lifecycle platform:
 | Enrollment guards | You build it | Automatic: entry limits, trigger conditions, subscription checks |
 | Exit conditions | You build it | Declarative `exitOn` rules evaluated on every incoming event |
 | Contact management | You build it | Auto-upsert from events, admin API, import/export |
-| Email delivery | You build it | Resend integration with templates, tracking, retries |
+| Email delivery | You build it | A swappable provider (Resend by default) plus engine-owned templates, first-party tracking, and retries |
 | Bounce handling | You build it | Automatic suppression after a bounce threshold |
 | Unsubscribe | You build it | Signed tokens, one-click unsubscribe, preference center |
 | Outbound event stream | You build it | A 13-event catalog fanned out to PostHog/Segment/Slack/CRM via [destinations](/docs/data-api/destinations) |

@@ -10,7 +10,7 @@ If you already run a container platform — Kubernetes, Nomad, ECS, a fleet of V
 | Dependency | What Hogsend needs |
 |---|---|
 | **Postgres** (TimescaleDB recommended) | A connection string in `DATABASE_URL`. The primary datastore. |
-| **Redis** | A connection string in `REDIS_URL`. PostHog property caching. |
+| **Redis** | A connection string in `REDIS_URL`. **Required in production** — Better Auth sessions, reset tokens, and cross-replica auth rate limiting (gated on a raw `REDIS_URL`), plus PostHog property caching. |
 | **A Hatchet engine** | A token + gRPC endpoint — Hatchet Cloud, your own `hatchet-lite`, or any Hatchet you run. See [Get a Hatchet token](/docs/getting-started/hatchet). |
 
 ## The image and its three run modes
@@ -44,7 +44,6 @@ Inject the [full annotated contract](/docs/getting-started/configuration) as env
 # Required — no defaults; the app fails fast without them.
 DATABASE_URL=postgresql://USER:PASS@HOST:PORT/DB
 BETTER_AUTH_SECRET=<openssl rand -base64 32>
-RESEND_API_KEY=re_…
 HATCHET_CLIENT_TOKEN=<from your Hatchet>
 
 # Hatchet endpoint + transport (match your engine).
@@ -52,7 +51,19 @@ HATCHET_CLIENT_HOST_PORT=<your-hatchet-host:7077>
 HATCHET_CLIENT_TLS_STRATEGY=tls          # tls for Hatchet Cloud; none for an
                                          # insecure internal hatchet-lite
 
-# Production hygiene.
+# Email provider — swappable, Resend by default. RESEND_API_KEY is OPTIONAL
+# (a Postmark-only deploy boots without it). For Postmark instead:
+# EMAIL_PROVIDER=postmark + POSTMARK_SERVER_TOKEN (+ POSTMARK_WEBHOOK_USER/PASS).
+RESEND_API_KEY=re_…
+RESEND_FROM_EMAIL=noreply@yourdomain.com
+
+# First Studio admin — public sign-up is disabled, so mint it from your server.
+# Either set this (minted on boot into an empty user table)…
+STUDIO_ADMIN_EMAIL=admin@example.com
+STUDIO_ADMIN_PASSWORD=...                 # optional; omit and one is printed once to the log
+# …or run `hogsend studio admin create` from a shell with DATABASE_URL + BETTER_AUTH_SECRET loaded.
+
+# Production hygiene. Redis is REQUIRED — auth secondaryStorage gates on a raw REDIS_URL.
 NODE_ENV=production
 REDIS_URL=redis://HOST:PORT
 API_PUBLIC_URL=https://api.yourdomain.com

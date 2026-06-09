@@ -12,10 +12,21 @@ Interactive local onboarding for a scaffolded Hogsend app — a standalone CLI h
 
 <Callout type="info">
   Scaffolded apps ship a **`pnpm bootstrap`** script that does all of this **plus**
-  minting a Hatchet token and auto-remapping any conflicting host ports — that's
-  the recommended local setup ([Installation](/docs/getting-started/installation)).
-  `hogsend setup` is the standalone CLI equivalent, handy from outside the app dir
-  or in non-pnpm workflows.
+  minting the local Hatchet token, minting an ingest-scoped `HOGSEND_API_KEY`,
+  auto-remapping any conflicting host ports, and an interactive, skippable "create
+  your first Studio admin" prompt after migrations — that's the recommended local
+  setup ([Installation](/docs/getting-started/installation)). `pnpm bootstrap` is
+  idempotent and safe to re-run. `hogsend setup` is the standalone CLI equivalent,
+  handy from outside the app dir or in non-pnpm workflows.
+</Callout>
+
+<Callout type="info">
+  Public sign-up is disabled, so `hogsend setup` does **not** create a Studio admin.
+  Create the first admin from your shell with
+  [`hogsend studio admin create`](/docs/cli/studio#hogsend-studio-admin--shell-gated-admin-create--recovery)
+  (the scaffold wraps this as `pnpm studio:admin`), or set `STUDIO_ADMIN_EMAIL`
+  (+ optional `STUDIO_ADMIN_PASSWORD`) and let the API mint it on boot into an empty
+  user table.
 </Callout>
 
 ```bash

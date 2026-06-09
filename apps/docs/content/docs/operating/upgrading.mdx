@@ -74,7 +74,7 @@ When you need to change how `@hogsend/engine` behaves, climb the smallest rung t
 
 The default. Everything routed through the engine's public API is additive — upstream never ships files into your source tree, so there is nothing to merge on upgrade. The seams:
 
-- `createHogsendClient({ journeys, email?: { provider?, templates? }, analytics?, enabledJourneys?, clientJournal?, overrides? })` — register journeys + your `src/emails` registry; swap the email `provider` or `analytics`; `overrides` is the advanced/test-only escape hatch (`mailer`, `auth`, `hatchet`, `db`)
+- `createHogsendClient({ journeys, email?: { provider?, providers?, defaultProvider?, templates? }, analytics?, enabledJourneys?, clientJournal?, overrides? })` — register journeys + your `src/emails` registry; swap the email `provider` (Resend by default), register extra `providers` (e.g. Postmark) and pick the active one with `defaultProvider`, or swap `analytics`; `overrides` is the advanced/test-only escape hatch (`mailer`, `auth`, `hatchet`, `db`)
 - `createApp(container, { routes?, middleware?, webhookSources?, onError? })` — mount custom routers, middleware, webhook sources, and a custom error handler
 - `createWorker({ container, journeys, extraWorkflows? })` — register extra Hatchet tasks alongside the built-ins
 - `defineJourney(...)` and `defineWebhookSource(...)` — author content
@@ -122,6 +122,6 @@ You consume releases; you don't cut them. But knowing how the engine is versione
   - **MINOR** — additive API **or** an additive (expand) migration. A new engine migration file is **at minimum a MINOR** engine-line bump.
   - **PATCH** — bug fix, no API change, no new migration.
 - **Linked group.** `@hogsend/engine`, `@hogsend/db`, and `@hogsend/core` co-bump when changed together. `@hogsend/email` and the two `plugin-*` packages version independently — but you still upgrade the whole `@hogsend/*` line with one `pnpm up "@hogsend/*"`.
-- **Publishable set:** `@hogsend/core`, `@hogsend/db`, `@hogsend/email`, `@hogsend/plugin-posthog`, `@hogsend/plugin-resend`, `@hogsend/engine`, `create-hogsend`, and `@hogsend/cli`. Engine migrations ship versioned **inside `@hogsend/db`**, so the migrations you run always match the engine release you resolve.
+- **Publishable set:** `@hogsend/core`, `@hogsend/db`, `@hogsend/email`, `@hogsend/plugin-posthog`, `@hogsend/plugin-resend`, `@hogsend/plugin-postmark`, `@hogsend/engine`, `@hogsend/studio`, `create-hogsend`, and `@hogsend/cli`. `@hogsend/plugin-postmark` is an `optionalDependencies` of the engine — install it with `pnpm add @hogsend/plugin-postmark@latest` only if you run Postmark. Engine migrations ship versioned **inside `@hogsend/db`**, so the migrations you run always match the engine release you resolve.
 
 `create-hogsend@X.Y` scaffolds an app pinned to `@hogsend/engine@^X.Y`; you upgrade within that major with `pnpm up "@hogsend/*"`.

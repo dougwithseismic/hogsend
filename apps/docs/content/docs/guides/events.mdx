@@ -7,11 +7,12 @@ description: Your PostHog events flow into Hogsend and trigger journeys automati
 
 **Your PostHog events are Hogsend events.** When you connect PostHog's webhook to Hogsend, every event your users generate — `user_signed_up`, `feature_used`, `subscription_created` — flows straight into the ingestion pipeline and can trigger journeys, update contacts, and evaluate exit conditions.
 
-There's no separate "Hogsend event" concept to learn. Events come from three sources:
+There's no separate "Hogsend event" concept to learn. Events come from several sources:
 
-1. **PostHog** (primary) — via a webhook source. The scaffold ships one ready to register; set it up once and every PostHog event is available to your journeys.
-2. **Other systems** (Stripe, your app, etc.) — via custom webhook sources or the REST API.
-3. **Hogsend itself** — lifecycle events like `journey:completed` and `journey:failed` are emitted automatically and can trigger other journeys.
+1. **PostHog** — via a webhook source. PostHog is the standard event source (the scaffold ships one ready to register), but it is **not required to boot** — a Hogsend instance runs fine without it.
+2. **Your own app** — call the public data plane directly: `POST /v1/events` (with an ingest-scoped `HOGSEND_API_KEY`) or the [`@hogsend/client`](/docs/data-api/client-sdk) SDK. This is the first-party front door for events from your signup handler, billing webhook, or a cron.
+3. **Other systems** (Stripe, Clerk, Supabase, Segment, …) — via built-in [integration presets](/docs/integrations) or your own custom webhook sources.
+4. **Hogsend itself** — lifecycle events like `journey:completed` and `journey:failed` (and bucket transitions) are emitted automatically and can trigger other journeys.
 
 Webhook sources are **your content** — you author them under `src/webhook-sources/` in your scaffolded app, import `defineWebhookSource` from `@hogsend/engine`, and register them in an array you own that gets passed to `createApp(container, { webhookSources })`. See [Engine vs content](/docs/concepts/philosophy) for the content-vs-framework boundary.
 
@@ -67,7 +68,7 @@ The `exits` array reports every active journey state that was evaluated. Entries
 
 ```bash
 curl -X POST https://api.hogsend.com/v1/events \
-  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Authorization: Bearer $HOGSEND_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "user.signed_up",

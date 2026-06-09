@@ -32,7 +32,7 @@ One of `to` or `userId` is required.
 | `userId` | `string` | one of to/userId | External user id — the recipient email is resolved from the contact record |
 | `template` | `string` | Yes | Registry key (your email template name). Validated server-side against the wired registry |
 | `props` | `Record<string, unknown>` | No | Template props (the template's variables). Typed by the SDK |
-| `from` | `string` | No | Sender override (defaults to the template / `RESEND_FROM_EMAIL`) |
+| `from` | `string` | No | Sender override (defaults to the template, then the mailer's `defaultFrom` = `EMAIL_FROM ?? RESEND_FROM_EMAIL`) |
 | `subject` | `string` | No | Subject override (defaults to the template) |
 | `replyTo` | `string \| string[]` | No | Reply-to override |
 | `category` | `string` | No | Send category (for preference / suppression grouping) |

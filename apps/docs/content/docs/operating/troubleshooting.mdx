@@ -151,11 +151,13 @@ If `unsubscribedAll: true` or `suppressed: true`, the user will not be enrolled.
 
 Journeys are running but emails are not being delivered.
 
-### Invalid Resend API key
+Hogsend sends email through a swappable provider — Resend by default. The fixes below name the default Resend env vars; if you swapped in another provider (Postmark, or your own via the `EmailProvider` contract), check that provider's credentials instead. See [Sending Email](/docs/guides/email) for the swap details.
 
-**Symptom:** Emails fail immediately with a Resend API error. Email status is `failed`.
+### Invalid provider API key
 
-**Fix:** Verify `RESEND_API_KEY` is set correctly and starts with `re_`. Check the [Resend dashboard](https://resend.com/api-keys) to confirm the key is active and has not been revoked.
+**Symptom:** Emails fail immediately with a provider API error. Email status is `failed`.
+
+**Fix:** On the default Resend provider, verify `RESEND_API_KEY` is set correctly and starts with `re_`. Check the [Resend dashboard](https://resend.com/api-keys) to confirm the key is active and has not been revoked. (`RESEND_API_KEY` is optional now — a Postmark-only deploy boots without it — but the active provider still needs a valid key for its own service.)
 
 ### Sending domain not verified
 
@@ -178,15 +180,17 @@ curl -H "Authorization: Bearer $ADMIN_API_KEY" \
 
 If `suppressed: true` and `bounceCount >= 3`, the contact was auto-suppressed. See [Email Operations](/docs/operating/emails#un-suppressing-a-contact) for how to un-suppress them.
 
-### Resend webhooks not configured
+### Provider webhooks not configured
 
-**Symptom:** Emails show `sent` status but never progress to `delivered`, `opened`, or `clicked`.
+**Symptom:** Emails show `sent` status but never progress to `delivered`, `bounced`, or `complained`.
 
-**Fix:** This means Resend webhook events are not reaching Hogsend. Set up a webhook endpoint in [Resend > Webhooks](https://resend.com/webhooks):
+**Fix:** This means your provider's webhook events are not reaching Hogsend. (Note: `opened` and `clicked` are first-party — the engine tracks them itself — so missing opens/clicks point at blocked pixels/links, not the provider webhook.) On the default Resend provider, set up a webhook endpoint in [Resend > Webhooks](https://resend.com/webhooks):
 
-- **URL:** `https://your-hogsend-api.com/v1/webhooks/resend`
-- **Events:** `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, `email.complained`
+- **URL:** `https://your-hogsend-api.com/v1/webhooks/email/resend` (the generic provider route; `POST /v1/webhooks/resend` is kept as a deprecated alias)
+- **Events:** `email.delivered`, `email.bounced`, `email.complained` (also `email.opened` / `email.clicked` if you want the provider's signals, but first-party tracking is the source of truth)
 - **Signing secret:** Set this as `RESEND_WEBHOOK_SECRET` in your Hogsend environment
+
+Other providers post to `POST /v1/webhooks/email/:providerId` keyed by their own id (e.g. `postmark`); the payload is normalized to a provider-neutral `EmailEvent` either way.
 
 ## Hatchet connection failures
 

@@ -1,12 +1,40 @@
 ---
 title: "Authentication"
-description: "API key management — quick-start legacy key or scoped database-backed keys for production"
+description: "Two auth surfaces — the human Studio login (CLI/env first admin, sign-up disabled) and machine API keys (legacy or scoped database-backed)."
 ---
 
-Hogsend API keys are bearer tokens in the `Authorization` header. They guard two surfaces: the **admin/ops plane** (`/v1/admin/*`, this page's focus) and the public **data plane** (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` — see the [Data API](/docs/data-api/authentication)). Hogsend supports two authentication modes — a legacy environment-variable key for quick setup, and database-backed keys with scoped permissions for production use.
+Hogsend has **two authentication surfaces**:
+
+- **Studio login** — the human path. A logged-in operator using the [Studio](/docs/operating/studio) admin UI, authed by a Better Auth session cookie. Public sign-up is disabled; the first admin is minted from your server (see [Studio admin login](#studio-admin-login) below).
+- **API keys** — the machine path. Bearer tokens in the `Authorization` header for the CLI, CI, agents, and your own app code. This is the bulk of the page below.
+
+API keys guard two planes: the **admin/ops plane** (`/v1/admin/*`) and the public **data plane** (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists` — see the [Data API](/docs/data-api/authentication)). Hogsend supports two key modes — a legacy environment-variable key for quick setup, and database-backed keys with scoped permissions for production use.
 
 <Callout type="info">
   Both planes are bearer-authed, but the data plane is **not** under `/v1/admin`. A key reaches the data plane only via the `ingest` scope (or `full-admin`), and an `ingest`-only key reaches nothing on `/v1/admin/*`. See [Key Scopes](#key-scopes) below for why `ingest` is orthogonal, not hierarchical.
+</Callout>
+
+## Studio admin login
+
+The Studio is authed by a Better Auth session, not an API key. **Public web sign-up is disabled at the auth layer** — `createAuth()` sets `emailAndPassword: { enabled: true, disableSignUp: true, minPasswordLength: 8, maxPasswordLength: 128 }`. There is **no unauthenticated network path that creates any user or admin**: `POST /api/auth/sign-up/email` returns `400 EMAIL_PASSWORD_SIGN_UP_DISABLED` for everyone, and so does the in-process `auth.api.signUpEmail` (the `disableSignUp` check lives inside the sign-up handler in better-auth 1.6.11). There is **no setup token and no web create-admin form** — both are gone.
+
+Public sign-up is disabled, so the first Studio admin is created from your server — run `hogsend studio admin create` (it needs `DATABASE_URL` + `BETTER_AUTH_SECRET` + shell access), or set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`) and the API mints it on boot into an empty user table:
+
+```bash
+# CLI — DB-direct, no HTTP, no running API; env must be loaded
+dotenvx run -- hogsend studio admin create --email admin@example.com
+railway run hogsend studio admin create --email admin@example.com
+pnpm studio:admin                                # scaffold wrapper, loads .env
+
+# Env bootstrap — set on the deploy; mints on a zero-user DB at boot
+STUDIO_ADMIN_EMAIL=admin@example.com
+STUDIO_ADMIN_PASSWORD=...                         # optional; omit and one is auto-generated + printed once
+```
+
+Web Studio is **login + self-service forgot/reset only**. A zero-users instance renders a read-only info screen (no inputs, no network create path) pointing at `hogsend studio admin create` / `STUDIO_ADMIN_*`. Self-service reset uses Better Auth's `/request-password-reset` + `/reset-password` (single-use token, 15-minute TTL, sessions revoked on reset); it is live only when an email provider is configured. Locked out with no email provider? Recover with `hogsend studio admin reset`. The full first-admin and recovery story lives in the [Studio](/docs/operating/studio#first-load-create-the-first-admin) and [`hogsend studio admin`](/docs/cli/studio) pages.
+
+<Callout type="warn">
+  **Redis is required for auth in production.** `createHogsendClient` wires Better Auth's `secondaryStorage` to the shared engine Redis — it holds sessions, reset tokens, and rate-limit counters — gated on a raw `REDIS_URL` being set. With it, the sign-in (`10/60s`) and password-reset (`5/60s`) rate limiters are **global across replicas** and survive restarts; without it they are per-instance and lost on restart. Set `REDIS_URL` in production.
 </Callout>
 
 ## How Auth Works
@@ -217,6 +245,8 @@ All API endpoints (admin and non-admin) are protected by a sliding-window rate l
 | Max requests | 100 per API key |
 | Backend | Redis (primary), in-memory fallback |
 
+The Studio auth endpoints have their own Better Auth limiters on top of this — `/sign-in/email` at `10/60s` and `/request-password-reset` at `5/60s`. Those counters live in the shared Redis `secondaryStorage`, so they are global across replicas (set `REDIS_URL` in production — see [Studio admin login](#studio-admin-login)).
+
 Rate limit status is communicated via response headers:
 
 | Header | Description |
@@ -278,10 +308,12 @@ For the full endpoint specification of key management endpoints, see the [API Re
 When deploying Hogsend to production:
 
 1. **Set a strong `ADMIN_API_KEY`** — at least 32 random characters
-2. **Set a strong `BETTER_AUTH_SECRET`** — used for session signing
-3. **Use HTTPS** — all API keys are transmitted in headers; never use HTTP in production
-4. **Create scoped keys** — avoid sharing the legacy key; create read-only keys for monitoring
-5. **Set key expiry dates** — especially for CI/CD and one-time migration keys
-6. **Monitor audit logs** — periodically review for unexpected mutations
-7. **Configure Resend webhook verification** — set `RESEND_WEBHOOK_SECRET` to validate webhook payloads
-8. **Review rate limit settings** — 100 req/min is suitable for most teams but can be adjusted via environment configuration
+2. **Set a strong `BETTER_AUTH_SECRET`** — used for session signing and reset-token derivation
+3. **Provision Redis and set `REDIS_URL`** — required for sessions, reset tokens, and cross-replica auth rate limiting
+4. **Mint the first Studio admin from your server** — `hogsend studio admin create` or `STUDIO_ADMIN_EMAIL`; never expose a create path over HTTP
+5. **Use HTTPS** — all API keys and session cookies are transmitted in headers; never use HTTP in production
+6. **Create scoped keys** — avoid sharing the legacy key; create read-only keys for monitoring
+7. **Set key expiry dates** — especially for CI/CD and one-time migration keys
+8. **Monitor audit logs** — periodically review for unexpected mutations
+9. **Configure email webhook verification** — set your provider's webhook secret (`RESEND_WEBHOOK_SECRET` for the default Resend provider; Postmark uses HTTP Basic creds via `POSTMARK_WEBHOOK_USER`/`POSTMARK_WEBHOOK_PASS`) to validate inbound delivery events
+10. **Review rate limit settings** — 100 req/min per API key is suitable for most teams but can be adjusted via environment configuration

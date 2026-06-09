@@ -44,7 +44,8 @@ The `journeyId` and `userId` fields in each result are resolved from the email's
       "id": "email-uuid",
       "journeyStateId": "state-uuid",
       "templateKey": "activation/welcome",
-      "resendId": "resend-id",
+      "messageId": "provider-message-id",
+      "resendId": "provider-message-id",
       "fromEmail": "noreply@hogsend.com",
       "toEmail": "user@example.com",
       "subject": "Welcome to Hogsend",
@@ -67,6 +68,8 @@ The `journeyId` and `userId` fields in each result are resolved from the email's
   "offset": 0
 }
 ```
+
+`messageId` is the provider message id (Resend `email_id`, Postmark `MessageID`, …); it replaced `resendId`, which lingers as a `@deprecated` alias for one minor. Each response carries **both** during the deprecation window — always read `messageId`. The underlying DB column is `message_id` (renamed from `resend_id`).
 
 ```bash
 # Opened emails for a given journey, oldest first
@@ -92,7 +95,8 @@ Get a single email with its delivery timeline, tracked link clicks, and journey 
     "id": "email-uuid",
     "journeyStateId": "state-uuid",
     "templateKey": "activation/welcome",
-    "resendId": "resend-id",
+    "messageId": "provider-message-id",
+    "resendId": "provider-message-id",
     "fromEmail": "noreply@hogsend.com",
     "toEmail": "user@example.com",
     "subject": "Welcome to Hogsend",
