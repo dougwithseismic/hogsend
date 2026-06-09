@@ -16,7 +16,9 @@ export const authClient = createAuthClient({
 
 export const {
   signIn,
-  signUp,
+  // NOTE: `signUp` is intentionally NOT exported. Public sign-up is closed
+  // (better-auth `disableSignUp`); admins are created only by the CLI / env
+  // bootstrap. Nothing in the Studio may call sign-up over the network.
   signOut,
   useSession,
   // Self-service password reset (better-auth client, 1.6.x). `requestPasswordReset`

@@ -147,11 +147,18 @@ export {
   reportWorkerReady,
   type WorkerReadyInfo,
 } from "./lib/boot.js";
+// --- First-admin creation (CLI + boot bootstrap share this scrypt-correct path)
+export { bootstrapAdminFromEnv } from "./lib/bootstrap-admin.js";
 // --- Bucket transition emission (shared by real-time / cron / fast-expiry) ---
 export {
   type BucketTransitionSource,
   emitBucketTransition,
 } from "./lib/bucket-emit.js";
+export {
+  AdminAlreadyExistsError,
+  type CreatedAdmin,
+  createAdminUser,
+} from "./lib/create-admin.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
 // --- Email ---
@@ -203,13 +210,6 @@ export {
 } from "./lib/redis.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---
 export { sendResetPasswordEmail } from "./lib/reset-email.js";
-// --- First-admin setup token (closes the first-run land-grab) ---
-export {
-  logSetupTokenOnFirstBoot,
-  resetSetupToken,
-  resolveSetupToken,
-  timingSafeEqualStr,
-} from "./lib/setup-token.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
 export {
   type ResolveTimezoneInput,

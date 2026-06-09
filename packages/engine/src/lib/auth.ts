@@ -71,6 +71,15 @@ export function createAuth(opts: {
     }),
     emailAndPassword: {
       enabled: true,
+      // 🔒 Public sign-up is closed: there is NO unauthenticated network path
+      // that creates a user. In better-auth 1.6.11 this guard lives INSIDE the
+      // sign-up endpoint handler, so it blocks BOTH POST /api/auth/sign-up/email
+      // (→ 400 EMAIL_PASSWORD_SIGN_UP_DISABLED) AND the in-process
+      // `auth.api.signUpEmail`. Admins are minted only by the CLI (DB-direct)
+      // and the boot env bootstrap, both via the internal adapter. Login + the
+      // self-service forgot/reset endpoints are untouched (disableSignUp only
+      // gates sign-up).
+      disableSignUp: true,
       minPasswordLength: 8,
       maxPasswordLength: 128,
       // Self-service reset is enabled ONLY when a sender is injected (otherwise

@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import {
+  bootstrapAdminFromEnv,
   createApp,
   createHogsendClient,
   getEngineSchemaVersion,
@@ -52,6 +53,14 @@ if (process.env.SKIP_SCHEMA_CHECK !== "true") {
   }
   schemaApplied = schema.applied ?? null;
 }
+
+// First-admin bootstrap (replaces the old web setup-token land-grab). With
+// public sign-up disabled, an operator brings up a fresh deploy by setting
+// STUDIO_ADMIN_EMAIL (+ optional STUDIO_ADMIN_PASSWORD): on a zero-user DB the
+// API mints that admin here and prints a generated password ONCE if none was
+// supplied. Idempotent (no-op once any user exists) and never fatal — runs in
+// the API process only (not the worker) so two boots can't race the create.
+await bootstrapAdminFromEnv({ client });
 
 const app = createApp(client, { webhookSources });
 const { logger, env } = client;

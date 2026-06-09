@@ -23,21 +23,18 @@ export const env = createEnv({
     REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
     BETTER_AUTH_SECRET: z.string().min(1),
     BETTER_AUTH_URL: z.string().url().default("http://localhost:3002"),
-    // Closes the first-run land-grab on the web first-admin create. When set,
-    // the Studio "create admin" form must present this exact value (header
-    // `x-hogsend-setup-token`) before the first sign-up is allowed; the engine
-    // compares it in constant time, server-side. When UNSET and `needsSetup` is
-    // true, the engine auto-generates a process-lifetime token and prints it
-    // ONCE to the server log (operator-only surface). Never returned over HTTP.
-    // Irrelevant once an admin exists (closed-signup 403 takes over).
-    //
-    // MUST be high-entropy: this is the ONLY thing standing between an anonymous
-    // network visitor and the first admin account on a fresh public deploy. Use
-    // a LONG, RANDOM value — NOT a memorable phrase, project name, or anything
-    // guessable. Generate one with e.g. `openssl rand -hex 32` (>=32 bytes of
-    // randomness). The sign-up path is IP rate-limited, but a weak/guessable
-    // token still defeats the gate, so do not pick one a human could brute force.
-    STUDIO_SETUP_TOKEN: z.string().optional(),
+    // --- First-admin bootstrap (replaces the web setup-token land-grab) ---
+    // Public sign-up is DISABLED (lib/auth.ts `disableSignUp`), so admins are
+    // created ONLY by the CLI (`hogsend studio admin create`) or this boot-time
+    // bootstrap. When STUDIO_ADMIN_EMAIL is set AND the user table is empty, the
+    // API process mints this admin on boot (idempotent — only on 0 users).
+    STUDIO_ADMIN_EMAIL: z.string().email().optional(),
+    // Optional password for the bootstrap admin. When set, it is used verbatim
+    // and NEVER logged. When omitted (but STUDIO_ADMIN_EMAIL is set), the engine
+    // auto-generates a strong password and prints it ONCE to the server log
+    // (the single intended secret-logging exception) — rotate it immediately via
+    // the Studio forgot/reset flow. Min length matches better-auth's policy.
+    STUDIO_ADMIN_PASSWORD: z.string().min(8).optional(),
     // Extra origins allowed to call the auth endpoints (beyond BETTER_AUTH_URL),
     // comma-separated. Needed when the Studio is served from a different origin
     // than the API — e.g. the `hogsend studio` CLI pointing at a remote instance.

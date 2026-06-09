@@ -8,14 +8,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  requestPasswordReset,
-  resetPassword,
-  signIn,
-  signUp,
-} from "@/lib/auth-client";
+import { requestPasswordReset, resetPassword, signIn } from "@/lib/auth-client";
 
-export type FormMode = "login" | "setup" | "forgot" | "reset";
+export type FormMode = "login" | "forgot" | "reset";
 
 /**
  * Where better-auth redirects the browser after the user clicks the reset link
@@ -29,23 +24,18 @@ function resetRedirectUrl(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Login + setup (credentials)
+// Login (credentials)
 // ---------------------------------------------------------------------------
 
 function CredentialsCard({
-  mode,
   onSuccess,
   onForgot,
 }: {
-  mode: "login" | "setup";
   onSuccess: () => void;
   onForgot: () => void;
 }) {
-  const isSetup = mode === "setup";
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [setupToken, setSetupToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -54,19 +44,7 @@ function CredentialsCard({
     setError(null);
     setSubmitting(true);
     try {
-      const result = isSetup
-        ? await signUp.email({
-            name: name || email,
-            email,
-            password,
-            // The server requires the setup token on the first-admin create.
-            // Send it as a header (kept out of the body / better-auth schema);
-            // the engine compares it server-side in constant time.
-            fetchOptions: {
-              headers: { "x-hogsend-setup-token": setupToken },
-            },
-          })
-        : await signIn.email({ email, password });
+      const result = await signIn.email({ email, password });
 
       if (result.error) {
         setError(result.error.message ?? "Authentication failed.");
@@ -83,51 +61,13 @@ function CredentialsCard({
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle>
-          {isSetup ? "Create admin account" : "Sign in to Studio"}
-        </CardTitle>
+        <CardTitle>Sign in to Studio</CardTitle>
         <CardDescription>
-          {isSetup
-            ? "No users exist yet. Create the first admin to get started."
-            : "Enter your credentials to access Hogsend Studio."}
+          Enter your credentials to access Hogsend Studio.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <form className="space-y-4" onSubmit={handleSubmit}>
-          {isSetup ? (
-            <>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium" htmlFor="setup-token">
-                  Setup token
-                </label>
-                <Input
-                  id="setup-token"
-                  required
-                  value={setupToken}
-                  onChange={(e) => setSetupToken(e.target.value)}
-                  placeholder="Paste the token from your server logs"
-                  autoComplete="off"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Check your server logs for the setup token printed on first
-                  boot (or use the <code>STUDIO_SETUP_TOKEN</code> you
-                  configured).
-                </p>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium" htmlFor="name">
-                  Name
-                </label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
-                  autoComplete="name"
-                />
-              </div>
-            </>
-          ) : null}
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="email">
               Email
@@ -147,15 +87,13 @@ function CredentialsCard({
               <label className="text-sm font-medium" htmlFor="password">
                 Password
               </label>
-              {!isSetup ? (
-                <button
-                  type="button"
-                  onClick={onForgot}
-                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-                >
-                  Forgot password?
-                </button>
-              ) : null}
+              <button
+                type="button"
+                onClick={onForgot}
+                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+              >
+                Forgot password?
+              </button>
             </div>
             <Input
               id="password"
@@ -165,14 +103,56 @@ function CredentialsCard({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              autoComplete={isSetup ? "new-password" : "current-password"}
+              autoComplete="current-password"
             />
           </div>
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={submitting}>
-            {submitting ? "Please wait…" : isSetup ? "Create admin" : "Sign in"}
+            {submitting ? "Please wait…" : "Sign in"}
           </Button>
         </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// No admin yet — info screen (no form, no network path to create a user)
+// ---------------------------------------------------------------------------
+
+/**
+ * Shown when `GET /v1/auth/status` reports `needsSetup` (zero users). Public
+ * sign-up is closed, so this is a read-only INFO card: the first admin is
+ * created from the server (CLI or env bootstrap), never over the network. A
+ * Reload button re-probes the status so the operator can refresh after minting.
+ */
+export function SetupNeededCard({ onReload }: { onReload: () => void }) {
+  return (
+    <Card className="w-full max-w-md">
+      <CardHeader>
+        <CardTitle>No admin exists yet</CardTitle>
+        <CardDescription>
+          Create the first admin from your server — there is no sign-up over the
+          web.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>Run the CLI where your app is deployed:</p>
+          <pre className="rounded-md bg-muted p-3 text-xs text-foreground">
+            <code>hogsend studio admin create</code>
+          </pre>
+          <p>
+            …or set <code>STUDIO_ADMIN_EMAIL</code> (and optionally{" "}
+            <code>STUDIO_ADMIN_PASSWORD</code>) in your environment and restart
+            the API. If you didn't set a password, one is printed once to the
+            server log.
+          </p>
+          <p>Then reload this page.</p>
+        </div>
+        <Button type="button" className="w-full" onClick={onReload}>
+          Reload
+        </Button>
       </CardContent>
     </Card>
   );
@@ -398,7 +378,6 @@ export function AuthScreen({
   } else {
     card = (
       <CredentialsCard
-        mode={mode}
         onSuccess={onSuccess}
         onForgot={() => onModeChange?.("forgot")}
       />

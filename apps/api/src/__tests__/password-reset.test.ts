@@ -24,9 +24,12 @@ vi.mock("../workflows/send-email.js", () => ({
 
 const { user } = await import("@hogsend/db");
 const { eq } = await import("drizzle-orm");
-const { createApp, createHogsendClient, sendResetPasswordEmail } = await import(
-  "@hogsend/engine"
-);
+const {
+  createAdminUser,
+  createApp,
+  createHogsendClient,
+  sendResetPasswordEmail,
+} = await import("@hogsend/engine");
 
 // The subset of the sendRaw options the assertions read.
 interface RawArg {
@@ -74,11 +77,16 @@ const KNOWN_ID = "password-reset-test-known";
 const KNOWN_PASSWORD = "originalPassword123";
 
 beforeAll(async () => {
-  // Create a real credential user via better-auth so the credential account +
-  // scrypt hash exist (request/reset operate on a real account).
+  // Create a real credential user so the credential account + scrypt hash exist
+  // (request/reset operate on a real account). Public sign-up is disabled now,
+  // so seed via the same internal-adapter path the CLI / env bootstrap use —
+  // `auth.api.signUpEmail` would throw EMAIL_PASSWORD_SIGN_UP_DISABLED.
   await db.delete(user).where(eq(user.email, KNOWN_EMAIL));
-  await container.auth.api.signUpEmail({
-    body: { email: KNOWN_EMAIL, name: "Reset Known", password: KNOWN_PASSWORD },
+  await createAdminUser({
+    auth: container.auth,
+    email: KNOWN_EMAIL,
+    name: "Reset Known",
+    password: KNOWN_PASSWORD,
   });
 });
 

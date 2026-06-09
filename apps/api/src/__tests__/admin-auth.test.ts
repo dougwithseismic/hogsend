@@ -71,19 +71,13 @@ describe("requireAdmin on /v1/admin/*", () => {
   });
 });
 
-// --- Closed signup ---
+// --- Closed signup (public sign-up disabled at the better-auth layer) ---
 
 describe("closed signup", () => {
-  it("blocks sign-up once a user exists", async () => {
-    await db
-      .insert(user)
-      .values({
-        id: TEST_USER_ID,
-        name: "Existing Admin",
-        email: "existing-admin@admin-auth-test.example",
-      })
-      .onConflictDoNothing();
-
+  it("blocks sign-up for everyone (no unauthenticated path creates a user)", async () => {
+    // No setup-token gate any more: the now-ungated POST is rejected by
+    // better-auth itself (`disableSignUp`) with 400
+    // EMAIL_PASSWORD_SIGN_UP_DISABLED, regardless of whether a user exists.
     const res = await app.request("/api/auth/sign-up/email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -94,23 +88,14 @@ describe("closed signup", () => {
       }),
     });
 
-    expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toContain("closed");
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain(
+      "EMAIL_PASSWORD_SIGN_UP_DISABLED",
+    );
   });
 
-  it("stays closed even when a setup token is presented", async () => {
-    await db
-      .insert(user)
-      .values({
-        id: TEST_USER_ID,
-        name: "Existing Admin",
-        email: "existing-admin@admin-auth-test.example",
-      })
-      .onConflictDoNothing();
-
-    // Once an admin exists, the setup token is irrelevant: the closed-signup
-    // 403 takes over. A presented token must not re-open the door.
+  it("stays closed even when a stray setup-token header is presented", async () => {
+    // The setup token is gone — a presented header must not re-open the door.
     const res = await app.request("/api/auth/sign-up/email", {
       method: "POST",
       headers: {
@@ -124,8 +109,9 @@ describe("closed signup", () => {
       }),
     });
 
-    expect(res.status).toBe(403);
-    const body = await res.json();
-    expect(body.error).toContain("closed");
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain(
+      "EMAIL_PASSWORD_SIGN_UP_DISABLED",
+    );
   });
 });

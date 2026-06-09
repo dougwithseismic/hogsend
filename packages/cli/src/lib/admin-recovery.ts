@@ -1,11 +1,16 @@
 import { createDatabase, user } from "@hogsend/db";
-// Narrow subpath import: `@hogsend/engine/auth` re-exports only `createAuth`
-// (lib/auth.ts), whose module graph touches just better-auth + @hogsend/db.
-// Importing from the engine barrel (`@hogsend/engine`) would eagerly run the
-// env validation in env.ts (requires BETTER_AUTH_SECRET / HATCHET_CLIENT_TOKEN
-// at module-eval time) and pull Hatchet/Resend/PostHog — heavy and wrong here.
+// Narrow subpath imports: `@hogsend/engine/auth` re-exports only `createAuth`
+// (lib/auth.ts) and `@hogsend/engine/create-admin` only `createAdminUser`
+// (lib/create-admin.ts) — both module graphs touch just better-auth +
+// @hogsend/db. Importing from the engine barrel (`@hogsend/engine`) would
+// eagerly run the env validation in env.ts (requires BETTER_AUTH_SECRET /
+// HATCHET_CLIENT_TOKEN at module-eval time) and pull Hatchet/Resend/PostHog —
+// heavy and wrong here.
 import { createAuth } from "@hogsend/engine/auth";
-import { APIError } from "better-auth";
+import {
+  AdminAlreadyExistsError,
+  createAdminUser,
+} from "@hogsend/engine/create-admin";
 
 /**
  * Shell-gated Studio admin recovery primitive (PostHog/GitLab/Rails-style
@@ -15,8 +20,9 @@ import { APIError } from "better-auth";
  *
  * Security invariants (these are acceptance gates, not preferences):
  *  - Every password write goes through better-auth's server API (scrypt via
- *    `ctx.password.hash` + the internal adapter, or `auth.api.signUpEmail`).
- *    There are NO raw SQL password writes here, ever.
+ *    `ctx.password.hash` + the internal adapter). Public sign-up is closed
+ *    (`disableSignUp`), so create() uses the internal adapter too, NOT
+ *    `auth.api.signUpEmail`. There are NO raw SQL password writes here, ever.
  *  - Passwords are never logged and never returned in any result object.
  *  - `list` selects only non-secret columns (id/email/name/createdAt) — never
  *    the account password/hash.
@@ -34,10 +40,11 @@ export interface AdminSummary {
 
 export interface AdminRecovery {
   /**
-   * Create a new admin user via better-auth's public sign-up (scrypt-hashes,
-   * writes the `user` + `account` rows). Bypasses the HTTP-layer closed-signup
-   * gate by construction — correct for the trusted CLI. Throws a clear,
-   * non-secret error if the email already exists (points at `reset`).
+   * Create a new admin user via better-auth's INTERNAL ADAPTER (scrypt-hashes,
+   * writes the `user` + `account` rows). NOT via public sign-up — that is now
+   * blocked by `disableSignUp`; the internal-adapter path is not subject to that
+   * guard and is correct for the trusted CLI. Throws a clear, non-secret error
+   * if the email already exists (points at `reset`).
    */
   create(input: {
     email: string;
@@ -109,34 +116,23 @@ export function createAdminRecovery(opts: {
 
   return {
     async create({ email, password, name }) {
-      const displayName = name ?? email.split("@")[0] ?? email;
       try {
-        await auth.api.signUpEmail({
-          body: { email, name: displayName, password },
-        });
+        // Shared scrypt-correct minting via the internal adapter (NOT public
+        // sign-up, which `disableSignUp` now blocks). `CreatedAdmin` is the same
+        // non-secret shape as `AdminSummary` (id/email/name/createdAt string).
+        return await createAdminUser({ auth, email, name, password });
       } catch (err) {
-        // better-auth surfaces a duplicate email as an APIError. Re-message
-        // without leaking internals; never echo the password.
-        if (err instanceof APIError) {
-          const msg = String(err.message ?? "").toLowerCase();
-          if (msg.includes("exist") || msg.includes("already")) {
-            throw new Error(
-              `An admin with email "${email}" already exists. ` +
-                "Use `hogsend studio admin reset` to set a new password.",
-            );
-          }
+        // Re-message a duplicate without leaking internals; never echo the
+        // password. `createAdminUser` throws AdminAlreadyExistsError with a
+        // message that already points at `reset`.
+        if (err instanceof AdminAlreadyExistsError) {
+          throw new Error(err.message);
+        }
+        if (err instanceof Error) {
           throw new Error(`Failed to create admin: ${err.message}`);
         }
         throw err;
       }
-
-      const ctx = await auth.$context;
-      const found = await ctx.internalAdapter.findUserByEmail(email);
-      if (!found) {
-        // Should not happen right after a successful sign-up, but stay honest.
-        throw new Error(`Created admin "${email}" but could not read it back.`);
-      }
-      return toSummary(found.user);
     },
 
     async reset({ email, password, revokeSessions }) {

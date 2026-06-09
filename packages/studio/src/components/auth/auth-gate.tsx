@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { getAuthStatus } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
-import { AuthScreen, type FormMode } from "./auth-forms";
+import { AuthScreen, type FormMode, SetupNeededCard } from "./auth-forms";
 
 function FullScreenMessage({ children }: { children: ReactNode }) {
   return (
@@ -39,7 +39,9 @@ function clearResetTokenFromUrl(): void {
  * Gates the app behind authentication.
  *
  * 1. If the URL carries a reset `?token=`, show the reset-password card.
- * 2. Probe GET /v1/auth/status. If `needsSetup`, show the create-admin form.
+ * 2. Probe GET /v1/auth/status. If `needsSetup` (zero users), show a read-only
+ *    INFO card pointing at the CLI / env bootstrap — public sign-up is closed,
+ *    so there is NO network path to create the first admin.
  * 3. Otherwise read the Better Auth session. If absent, show the login form
  *    (with a "Forgot password?" link → the reset-request card).
  * 4. With a session present, render the children (the authed app shell).
@@ -101,14 +103,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (status?.needsSetup) {
     return (
-      <AuthScreen
-        mode="setup"
-        onModeChange={setMode}
-        onSuccess={() => {
-          void refetchStatus();
-          void refetchSession();
-        }}
-      />
+      <div className="flex h-full items-center justify-center bg-muted/30 p-6">
+        <SetupNeededCard
+          onReload={() => {
+            void refetchStatus();
+            void refetchSession();
+          }}
+        />
+      </div>
     );
   }
 
