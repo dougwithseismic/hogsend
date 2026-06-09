@@ -11,6 +11,7 @@
     "recipes",
     "conversions",
     "cli",
+    "agents",
     "operating",
     "api",
     "---",
