@@ -1,3 +1,4 @@
+import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../app.js";
 import { getRedis } from "../lib/redis.js";
@@ -11,6 +12,38 @@ export interface RateLimitOptions {
   windowMs?: number;
   max?: number;
   prefix?: string;
+  /**
+   * Derive the per-request bucket key. Default keys on the resolved api-key /
+   * user id (falling back to "anonymous") — correct for the authenticated data
+   * plane. Pass `clientIpKey` for UNAUTHENTICATED surfaces (e.g. the first-admin
+   * sign-up gate) where every request would otherwise collapse onto the single
+   * "anonymous" bucket and let one attacker exhaust the budget for everyone.
+   */
+  keyFn?: (c: Context<AppEnv>) => string;
+  /**
+   * The middleware no-ops under `NODE_ENV=test` by default so the suite isn't
+   * throttled. Set `false` to keep it ACTIVE in tests — required to assert the
+   * unauthenticated sign-up limiter actually returns 429 past the threshold.
+   */
+  disableInTest?: boolean;
+}
+
+/**
+ * Best-effort client IP from the proxy headers Railway/Cloudflare set (same
+ * source as `audit.ts` / tracking). Falls back to "unknown" so a request with
+ * no forwarded IP still shares a single bounded bucket rather than bypassing.
+ */
+function clientIp(c: Context<AppEnv>): string {
+  return (
+    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ||
+    c.req.header("x-real-ip") ||
+    "unknown"
+  );
+}
+
+/** Bucket key for unauthenticated, IP-scoped surfaces (e.g. sign-up). */
+export function clientIpKey(c: Context<AppEnv>): string {
+  return `ip:${clientIp(c)}`;
 }
 
 /**
@@ -25,6 +58,7 @@ export function createRateLimit(opts: RateLimitOptions = {}) {
   const windowMs = opts.windowMs ?? DEFAULT_WINDOW_MS;
   const max = opts.max ?? DEFAULT_MAX_REQUESTS;
   const prefix = opts.prefix ?? DEFAULT_PREFIX;
+  const disableInTest = opts.disableInTest ?? true;
 
   // Per-instance memory store so prefixes stay budget-isolated in the
   // Redis-less fallback path too.
@@ -32,10 +66,11 @@ export function createRateLimit(opts: RateLimitOptions = {}) {
   let cleanupCounter = 0;
 
   return createMiddleware<AppEnv>(async (c, next) => {
-    if (process.env.NODE_ENV === "test") return next();
+    if (disableInTest && process.env.NODE_ENV === "test") return next();
 
-    const apiKey = c.get("apiKey");
-    const keyId = apiKey?.id ?? c.get("user")?.id ?? "anonymous";
+    const keyId = opts.keyFn
+      ? opts.keyFn(c)
+      : (c.get("apiKey")?.id ?? c.get("user")?.id ?? "anonymous");
     const now = Date.now();
 
     let count: number;

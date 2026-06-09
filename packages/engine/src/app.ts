@@ -12,6 +12,7 @@ import type { Auth } from "./lib/auth.js";
 import { mountStudio } from "./lib/studio.js";
 import type { ApiKeyContext } from "./middleware/api-key.js";
 import { errorHandler } from "./middleware/error-handler.js";
+import { clientIpKey, createRateLimit } from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
 import type { DefinedWebhookSource } from "./webhook-sources/define-webhook-source.js";
@@ -89,21 +90,26 @@ export function createApp(
     return c.json({ error: "Not Found" }, 404);
   });
 
-  // Closed signup: the first user may register (first-load "create admin");
-  // once any user exists, sign-up is blocked. This is the security control that
-  // lets `requireAdmin` trust any authenticated session in a single-tenant app.
+  // Belt-and-suspenders throttle on the sign-up path. Public sign-up is now
+  // CLOSED at the better-auth layer (`disableSignUp: true` in lib/auth.ts ⇒ the
+  // now-ungated POST /api/auth/sign-up/email returns 400
+  // EMAIL_PASSWORD_SIGN_UP_DISABLED), so there is no token to brute-force here.
+  // We KEEP this IP-keyed sliding window anyway: it cheaply drops a flood at the
+  // edge before it reaches better-auth's handler (defence in depth, and it caps
+  // any future credential-probing on this path). Keyed by client IP because
+  // sign-up is unauthenticated — every request would otherwise collapse onto one
+  // "anonymous" bucket. `disableInTest: false` so the suite can still assert the
+  // 429. Distinct prefix → isolated budget.
+  const signUpRateLimit = createRateLimit({
+    prefix: "ratelimit:signup",
+    windowMs: 60_000,
+    max: 10,
+    keyFn: clientIpKey,
+    disableInTest: false,
+  });
   app.use("/api/auth/sign-up/*", async (c, next) => {
-    if (c.req.method === "POST") {
-      const { db } = c.get("container");
-      const existing = await db.select({ id: user.id }).from(user).limit(1);
-      if (existing.length > 0) {
-        return c.json(
-          { error: "Sign-ups are closed. An admin already exists." },
-          403,
-        );
-      }
-    }
-    return next();
+    if (c.req.method !== "POST") return next();
+    return signUpRateLimit(c, next);
   });
 
   app.on(["POST", "GET"], "/api/auth/*", (c) => {
@@ -112,11 +118,16 @@ export function createApp(
   });
 
   // Public bootstrap probe: tells the Studio whether to show the first-run
-  // "create admin" screen (no users yet) instead of the login screen.
+  // "no admin yet" INFO screen (no users yet) instead of the login screen.
+  // Returns ONLY `{ needsSetup }`. Since public sign-up is closed, the Studio's
+  // zero-user state offers NO network path to create a user — the info screen
+  // points the operator at the CLI / env bootstrap instead.
   app.get("/v1/auth/status", async (c) => {
-    const { db } = c.get("container");
+    const container = c.get("container");
+    const { db } = container;
     const existing = await db.select({ id: user.id }).from(user).limit(1);
-    return c.json({ needsSetup: existing.length === 0 });
+    const needsSetup = existing.length === 0;
+    return c.json({ needsSetup });
   });
 
   // Merge env-enabled presets ahead of the consumer's explicit sources so a

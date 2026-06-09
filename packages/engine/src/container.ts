@@ -38,6 +38,8 @@ import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
 import { getPostHog } from "./lib/posthog.js";
+import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
+import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
 import type { DefinedList } from "./lists/define-list.js";
@@ -247,26 +249,6 @@ export function createHogsendClient(
   const created = createDatabase({ url: env.DATABASE_URL });
   const db = opts.overrides?.db ?? created.db;
 
-  const auth =
-    opts.overrides?.auth ??
-    createAuth({
-      db,
-      secret: env.BETTER_AUTH_SECRET,
-      baseURL: env.BETTER_AUTH_URL,
-      // Always trust the public API origin; add any explicitly configured ones
-      // (e.g. a remote Studio origin) on top. baseURL is trusted automatically.
-      trustedOrigins: Array.from(
-        new Set(
-          [
-            env.API_PUBLIC_URL,
-            ...(env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []),
-          ]
-            .map((o) => o.trim())
-            .filter(Boolean),
-        ),
-      ),
-    });
-
   const registry = buildJourneyRegistry(
     opts.journeys ?? [],
     opts.enabledJourneys ?? env.ENABLED_JOURNEYS,
@@ -397,6 +379,61 @@ export function createHogsendClient(
     );
 
   setEmailService(emailService);
+
+  // Wire better-auth's secondary storage to the SHARED engine Redis (the same
+  // singleton backing the PostHog cache + worker heartbeat — never a second
+  // pool). Passing `secondaryStorage` flips better-auth's rate-limit store from
+  // the per-instance in-memory default to this shared store, so the sign-in /
+  // request-password-reset limiters are enforced ACROSS Railway replicas and
+  // survive restarts (security finding #2).
+  //
+  // Gate on the RAW `process.env.REDIS_URL`, NOT `env.REDIS_URL`: the latter
+  // carries a `redis://localhost:6379` zod default, so it is never empty and
+  // would wire secondary storage unconditionally. When an operator hasn't set
+  // REDIS_URL we deliberately keep better-auth's in-memory store rather than
+  // pushing SESSIONS into a Redis that may not exist — a wired secondaryStorage
+  // degrades `get` to null on a fault, which for sessions means silent
+  // logouts. `getRedis()` is lazyConnect, so this stays synchronous (no
+  // connection until the first auth command); on a transient Redis fault the
+  // adapter degrades to a no-op rather than failing the auth flow.
+  const authSecondaryStorage = process.env.REDIS_URL
+    ? createRedisSecondaryStorage(getRedis())
+    : undefined;
+
+  // Auth is built AFTER the mailer so we can wire the self-service password-reset
+  // delivery to the just-built `emailService` directly (rather than relying on a
+  // singleton resolved at request time). The injected `sendResetPassword` is what
+  // flips better-auth's reset endpoints from disabled → live; the engine-owned,
+  // self-contained reset email needs no consumer template wiring, so reset works
+  // on a bare instance. NEVER log the url/token (see `sendResetPasswordEmail`).
+  const auth =
+    opts.overrides?.auth ??
+    createAuth({
+      db,
+      secret: env.BETTER_AUTH_SECRET,
+      baseURL: env.BETTER_AUTH_URL,
+      secondaryStorage: authSecondaryStorage,
+      // Always trust the public API origin; add any explicitly configured ones
+      // (e.g. a remote Studio origin) on top. baseURL is trusted automatically.
+      trustedOrigins: Array.from(
+        new Set(
+          [
+            env.API_PUBLIC_URL,
+            ...(env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []),
+          ]
+            .map((o) => o.trim())
+            .filter(Boolean),
+        ),
+      ),
+      sendResetPassword: async ({ user, url }) => {
+        await sendResetPasswordEmail({
+          to: user.email,
+          url,
+          emailService,
+          logger,
+        });
+      },
+    });
 
   const analytics = opts.analytics ?? getPostHog();
 

@@ -51,8 +51,20 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      # better-auth's secondaryStorage (sessions, rate-limit, password-reset
+      # tokens) and the PostHog cache use Redis — mirror prod so the integration
+      # tests (e.g. the password-reset e2e) have a reachable Redis.
+      redis:
+        image: redis:8-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       DATABASE_URL: postgresql://growthhog:growthhog@localhost:5434/growthhog
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v6

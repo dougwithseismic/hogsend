@@ -23,6 +23,18 @@ export const env = createEnv({
     REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
     BETTER_AUTH_SECRET: z.string().min(1),
     BETTER_AUTH_URL: z.string().url().default("http://localhost:3002"),
+    // --- First-admin bootstrap (replaces the web setup-token land-grab) ---
+    // Public sign-up is DISABLED (lib/auth.ts `disableSignUp`), so admins are
+    // created ONLY by the CLI (`hogsend studio admin create`) or this boot-time
+    // bootstrap. When STUDIO_ADMIN_EMAIL is set AND the user table is empty, the
+    // API process mints this admin on boot (idempotent — only on 0 users).
+    STUDIO_ADMIN_EMAIL: z.string().email().optional(),
+    // Optional password for the bootstrap admin. When set, it is used verbatim
+    // and NEVER logged. When omitted (but STUDIO_ADMIN_EMAIL is set), the engine
+    // auto-generates a strong password and prints it ONCE to the server log
+    // (the single intended secret-logging exception) — rotate it immediately via
+    // the Studio forgot/reset flow. Min length matches better-auth's policy.
+    STUDIO_ADMIN_PASSWORD: z.string().min(8).optional(),
     // Extra origins allowed to call the auth endpoints (beyond BETTER_AUTH_URL),
     // comma-separated. Needed when the Studio is served from a different origin
     // than the API — e.g. the `hogsend studio` CLI pointing at a remote instance.

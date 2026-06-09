@@ -61,13 +61,57 @@ hogsend studio --port 4000
 
 Without `--base-url` the Studio calls the local server it is served from (static preview only — the API calls will fail). Set `--base-url` to your instance, or just open `<instance>/studio` directly. Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio origin (CORS + cross-site cookies); the simplest path for a hosted instance is the mounted `/studio`.
 
-## First load: create an admin
+## First load: create the first admin
 
-Hogsend is single-tenant with **closed signup** — the very first user to register becomes the admin, and signups close after that.
+Hogsend is single-tenant with **closed sign-up** — public sign-up is disabled at the auth layer (`disableSignUp`), so there is **no unauthenticated network path that creates a user**. `POST /api/auth/sign-up/email` returns `400 EMAIL_PASSWORD_SIGN_UP_DISABLED` for everyone. The first admin is created **from your server**, by an operator who holds the deploy's credentials — the same posture as a self-hosted PostHog/GitLab/Supabase dashboard.
 
-On first load the Studio probes `GET /v1/auth/status`. If no admin exists yet (`needsSetup: true`) it shows a **create-admin** form; submitting it registers the first user via Better Auth. Once an admin exists, every subsequent load shows the **login** form instead. After a valid session the app shell loads.
+On first load the Studio probes `GET /v1/auth/status`. If no admin exists yet (`needsSetup: true`) it shows a **read-only info screen** (no form) telling you to create the first admin from the server, with a **Reload** button. Once an admin exists, every load shows the **login** form, and after a valid session the app shell loads. There is no create-admin form and no setup token — those are gone.
 
-This is the security control that lets the admin API trust any authenticated session: only the first user can ever register, so any logged-in session is an intended operator.
+### Create the first admin (two ways)
+
+**A. CLI (locally or on the host).** Run the shell-gated [`hogsend studio admin create`](/docs/cli/studio#hogsend-studio-admin--shell-gated-account-recovery) on a host that holds `DATABASE_URL` + `BETTER_AUTH_SECRET`. It talks **directly to the database** (no HTTP, no running API) and writes the password through Better Auth (scrypt) — never raw SQL, never plaintext at rest.
+
+```bash
+# locally — the scaffold ships an env-loaded wrapper
+pnpm studio:admin                                       # = hogsend studio admin create, .env loaded
+
+# anywhere the env is loaded
+hogsend studio admin create --email admin@example.com   # bootstrap the first admin
+hogsend studio admin reset  --email admin@example.com   # rotate a forgotten password
+hogsend studio admin list                               # see who exists
+```
+
+`DATABASE_URL` and `BETTER_AUTH_SECRET` are read from the **environment only** (not a `.env` file). See [Connecting the CLI](#connecting-the-cli) below for how to load them locally and on Railway.
+
+**B. Env bootstrap (on deploy).** Set **`STUDIO_ADMIN_EMAIL`** in your deploy env. On boot, **if the user table is empty**, the API mints that admin in-process:
+
+- Set `STUDIO_ADMIN_PASSWORD` too and it is used verbatim and **never logged**.
+- Omit it and the engine **auto-generates a strong password and prints it once to the server log** ("save this, shown once") — the single intended secret-logging exception. **Rotate it immediately** via the forgot/reset flow.
+
+This is idempotent (only mints on a zero-user DB) and race-safe across replicas (the second loser is a no-op). Once an admin exists it never re-mints or re-prints.
+
+<Callout type="info">
+Pick one. The CLI is the explicit path; env bootstrap is the zero-touch path for a fresh deploy. Both create the admin in-network — neither exposes a create endpoint over HTTP.
+</Callout>
+
+### Connecting the CLI
+
+The `studio admin` commands need `DATABASE_URL` + `BETTER_AUTH_SECRET` in the **process environment** — they are not read from a `.env` file. How you load them depends on where you run:
+
+| Where | How to load env + run |
+|---|---|
+| **Local (scaffold)** | `pnpm studio:admin` — the scaffold's wrapper runs `node --env-file=.env node_modules/.bin/hogsend studio admin create`, the same way `pnpm dev` loads `.env`. |
+| **Local (manual)** | `dotenvx run -- hogsend studio admin create`, or `export $(grep -v '^#' .env \| xargs)` then `hogsend studio admin create`. |
+| **Railway** | `railway run hogsend studio admin create` (injects the service env), or `railway ssh` into the service and run it there. |
+| **API ops (HTTP)** | Unrelated to `studio admin` — the data/admin commands take `--url <baseUrl>` plus an `--admin-key`/`--data-key`. See the [CLI](/docs/cli). |
+
+### Forgot your password?
+
+The login screen has a **Forgot password?** link. It emails a single-use, 15-minute reset link via your configured email provider; the link opens the Studio's reset card and **revokes existing sessions** on reset. The request always returns a neutral response (no account enumeration). If **no email provider is configured**, use the CLI `reset` path above instead.
+
+### Locked out: recover from a shell
+
+When you can't get in at all — no admin yet, or a forgotten password with no email provider — the [`hogsend studio admin`](/docs/cli/studio#hogsend-studio-admin--shell-gated-account-recovery) commands above are the guaranteed recovery path. They are gated only by holding `DATABASE_URL` + `BETTER_AUTH_SECRET` and shell access, so they work even when the web is unreachable.
 
 ## Creating an API key
 

@@ -128,7 +128,11 @@ export {
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
 // --- Auth ---
-export { type Auth, createAuth } from "./lib/auth.js";
+export {
+  type Auth,
+  createAuth,
+  type SendResetPasswordFn,
+} from "./lib/auth.js";
 // --- Backfill ---
 export {
   type BatchedBackfillOptions,
@@ -143,11 +147,18 @@ export {
   reportWorkerReady,
   type WorkerReadyInfo,
 } from "./lib/boot.js";
+// --- First-admin creation (CLI + boot bootstrap share this scrypt-correct path)
+export { bootstrapAdminFromEnv } from "./lib/bootstrap-admin.js";
 // --- Bucket transition emission (shared by real-time / cron / fast-expiry) ---
 export {
   type BucketTransitionSource,
   emitBucketTransition,
 } from "./lib/bucket-emit.js";
+export {
+  AdminAlreadyExistsError,
+  type CreatedAdmin,
+  createAdminUser,
+} from "./lib/create-admin.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
 // --- Email ---
@@ -192,7 +203,13 @@ export {
   type OutboundPayloads,
 } from "./lib/outbound.js";
 export { getPostHog } from "./lib/posthog.js";
-export { getRedisIfConnected } from "./lib/redis.js";
+export {
+  type AuthSecondaryStorage,
+  createRedisSecondaryStorage,
+  getRedisIfConnected,
+} from "./lib/redis.js";
+// --- Self-service password reset (engine-owned, self-contained email) ---
+export { sendResetPasswordEmail } from "./lib/reset-email.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
 export {
   type ResolveTimezoneInput,

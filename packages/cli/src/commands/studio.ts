@@ -5,9 +5,14 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { color } from "../lib/output.js";
+import { runStudioAdmin } from "./studio-admin.js";
 import type { Command, CommandContext } from "./types.js";
 
 const usage = `hogsend studio [options]
+
+Subcommands:
+  admin create | reset | list   Shell-gated Studio admin recovery (DB + secret).
+                                Run \`hogsend studio admin --help\` for details.
 
 Serve the bundled Hogsend Studio (the admin SPA) locally and open it in a
 browser. The Studio is a static single-page app; this command starts a tiny
@@ -126,6 +131,14 @@ function openBrowser(url: string): void {
 }
 
 async function run(ctx: CommandContext): Promise<void> {
+  // Subcommand dispatch: `hogsend studio admin <create|reset|list> ...`.
+  // Route before the static-server flag parsing so the admin flags are owned
+  // by the admin handler, not the server.
+  if (ctx.argv[0] === "admin") {
+    await runStudioAdmin(ctx, ctx.argv.slice(1));
+    return;
+  }
+
   const { values, positionals } = parseArgs({
     args: ctx.argv,
     allowPositionals: true,
@@ -232,7 +245,10 @@ async function run(ctx: CommandContext): Promise<void> {
                 "<instance>, or open <instance>/studio directly.",
             ),
         "",
-        color.dim("First load shows a create-admin screen if no admin exists."),
+        color.dim(
+          "No admin yet? First load shows a read-only info screen pointing to " +
+            "'hogsend studio admin create' — there is no web sign-up.",
+        ),
         color.dim("Press Ctrl+C to stop."),
       ].join("\n"),
       "Studio",

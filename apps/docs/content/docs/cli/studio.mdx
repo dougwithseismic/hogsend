@@ -34,3 +34,57 @@ hogsend studio --port 4000
 - Without `--base-url`, the Studio calls the local server it is served from (static preview only — API calls will fail). Set `--base-url` to your instance, or open `<instance>/studio` directly.
 - Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio's origin (CORS + cross-site cookies). For a hosted instance, the mounted `<instance>/studio` is the simplest path.
 - The command keeps running until you press `Ctrl+C`.
+
+## `hogsend studio admin` — shell-gated admin create + recovery
+
+Create or recover a Studio admin account from a trusted shell — the same pattern as PostHog/GitLab/Rails management commands. Public sign-up is **disabled** (`disableSignUp`), so this CLI (and the [env bootstrap](/docs/operating/studio#create-the-first-admin-two-ways)) are the **only** ways to mint an admin — there is no create endpoint over HTTP.
+
+This talks **directly to the database** (no HTTP, no running API): it builds a Better Auth instance against `DATABASE_URL` and uses Better Auth's server API (its internal adapter, scrypt), so password hashing is identical to the running app and is **not** subject to `disableSignUp`. Holding both `DATABASE_URL` and `BETTER_AUTH_SECRET` *is* the gate.
+
+```bash
+hogsend studio admin <create|reset|list> [options]
+```
+
+| Command | Purpose |
+|---|---|
+| `create` | Create a Studio admin (the first admin, or another). Uses Better Auth's internal adapter — correct for a trusted shell with sign-up closed. |
+| `reset` | Set a new password for an existing admin (by email). Revokes existing sessions by default (`--no-revoke` to keep them). |
+| `list` | List existing admins (`id`, `email`, `name`, `createdAt`). Never selects a password/hash column. |
+
+### Loading the environment
+
+`DATABASE_URL` and `BETTER_AUTH_SECRET` are read from the **environment only** — there is **no `.env` file read** (consistent with `db:migrate`). Run the command with your app env loaded:
+
+| Where | Command |
+|---|---|
+| **Local (scaffold)** | `pnpm studio:admin` — the wrapper runs `node --env-file=.env node_modules/.bin/hogsend studio admin create`. |
+| **Local (manual)** | `dotenvx run -- hogsend studio admin create`, or `export $(grep -v '^#' .env \| xargs)` first. |
+| **Railway** | `railway run hogsend studio admin create`, or `railway ssh` into the service. |
+
+If either var is missing the command fails fast and names both, with this loading guidance.
+
+### Options
+
+| Option | Description |
+|---|---|
+| `--email <e>` | Admin email (required; prompted in a TTY if omitted). |
+| `--name <n>` | Display name for `create` (defaults to the email local-part). |
+| `--password <p>` | Password for `create`/`reset`. Prefer the masked prompt — a value passed here can leak into your shell history. |
+| `--no-revoke` | (`reset`) Keep existing sessions instead of revoking them. |
+| `--database-url <u>` | Override `DATABASE_URL` (else read from the environment). |
+| `--json` | Emit a single JSON result document (non-interactive). |
+| `-h, --help` | Show this help. |
+
+### Examples
+
+```bash
+pnpm studio:admin                                       # scaffold wrapper, .env loaded
+hogsend studio admin create --email admin@example.com   # masked password prompt
+hogsend studio admin reset  --email admin@example.com
+hogsend studio admin list --json
+```
+
+### Security
+
+- Passwords are written **only** through Better Auth (scrypt) — never raw SQL, never plaintext at rest, never logged. The masked prompt is preferred over `--password`.
+- This is the guaranteed recovery path that the self-service [password reset](/docs/operating/studio#forgot-your-password) email points operators to when no email provider is configured.
