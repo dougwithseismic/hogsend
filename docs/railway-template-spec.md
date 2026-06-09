@@ -1,9 +1,9 @@
 # Railway template spec (maintainer)
 
 The canonical variable layout for the published Hogsend Railway template
-(`https://railway.com/deploy/LxSCyR`). Goal: a fresh deploy comes up working with
-**one** manual step (mint a Hatchet token), and **none** of the maintainer's own
-secrets leak into it.
+(`https://railway.com/deploy/hogsend-posthog-audience-stack`). Goal: a fresh
+deploy comes up working with **one** manual step (mint a Hatchet token), and
+**none** of the maintainer's own secrets leak into it.
 
 > Verified against the live template in the Railway dashboard (June 2026). The
 > template was already configured to (almost) this spec — the only gap was
@@ -12,22 +12,26 @@ secrets leak into it.
 
 ## Which template
 
-There are two workspace templates named "Hogsend - Posthog Audience Stack":
+The published marketplace template is `291daa3b-9c75-4110-8cce-36697b94ce65`,
+display name "Hogsend - Lifecycle Email Automation".
 
-| Template id | Deploy code | State |
+| Template id | Deploy URL | State |
 |---|---|---|
-| `291daa3b-9c75-4110-8cce-36697b94ce65` | **`LxSCyR`** | **canonical** — complete, all vars wired (use this everywhere) |
-| (duplicate) | `sYUYH8` | incomplete duplicate — **delete it** to avoid confusion |
+| `291daa3b-9c75-4110-8cce-36697b94ce65` | **`/deploy/hogsend-posthog-audience-stack`** | **canonical** — complete, all vars wired (use this everywhere) |
 
 The Railway CLI can `deploy --template` and `templates search` but **cannot
-publish or edit** a template — composition is dashboard-only. Edit `LxSCyR` via
-`railway.com/workspace/templates/291daa3b-…`.
+publish or edit** a template — composition is dashboard-only. Edit it via
+`railway.com/workspace/templates/291daa3b-…`, then republish from
+`railway.com/workspace/templates` → the published card's **Update** button.
 
-**Published (June 2026)** to the Railway marketplace with a proper description +
-overview. Marketplace URL: `https://railway.com/deploy/hogsend-posthog-audience-stack`.
-Docs intentionally use the **stable code** `LxSCyR` instead — the slug is derived
-from the template name and would break if the template is renamed; the code link
-is permanent. Both resolve to template `291daa3b`.
+> **The short `/deploy/<code>` link is NOT stable across republishes.** An
+> earlier version of this spec told docs to use a short code (`LxSCyR`) on the
+> theory that it was permanent while the slug tracked the name. That was wrong:
+> after a republish (the **Update** flow) the short code 404s, while the
+> **slug** `hogsend-posthog-audience-stack` keeps resolving. The slug is frozen
+> from the template's first-published name ("Posthog Audience Stack") and does
+> **not** track display-name renames — so it's the durable link. **Use
+> `https://railway.com/deploy/hogsend-posthog-audience-stack` everywhere.**
 
 **Title caveat:** the marketplace card title is the frozen snapshot name
 "Hogsend - Posthog Audience Stack" (the project was renamed to "Hogsend", but the
@@ -50,17 +54,19 @@ pre-fill it — even Hatchet's own official Railway template
 (`railway.com/deploy/hatchet-lite`) leaves this as a manual "dashboard → Settings
 → API Tokens → Create" step. Deploy flow:
 
-1. Click deploy → fill `RESEND_API_KEY` (the only required input besides the token).
+1. Click deploy → fill `RESEND_API_KEY` + `STUDIO_ADMIN_EMAIL` (the required
+   inputs besides the token).
 2. Once hatchet-lite is up, mint a token, set `HATCHET_CLIENT_TOKEN` on the api,
    redeploy. (The worker references the api's value, so you set it once.)
 
 ## `hogsend-api` variables (as configured)
 
-2 required user-inputs + 12 pre-configured:
+3 required user-inputs + 12 pre-configured:
 
 | Variable | Value | Kind |
 |---|---|---|
 | `RESEND_API_KEY` | *(empty)* | required input |
+| `STUDIO_ADMIN_EMAIL` | *(empty)* | required input — first Studio admin, minted on boot into an empty user table; one-time password printed to the deploy log, rotate via forgot-password |
 | `HATCHET_CLIENT_TOKEN` | *(empty)* | required input (mint post-deploy) |
 | `API_PUBLIC_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` | pre-configured |
 | `BETTER_AUTH_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` | pre-configured |
@@ -98,7 +104,16 @@ localhost unsubscribe/tracking links. Added:
 - api → `API_PUBLIC_URL=https://${{RAILWAY_PUBLIC_DOMAIN}}`
 - worker → `API_PUBLIC_URL=https://${{RAILWAY_SERVICE_HOGSEND_API_URL}}`
 
-Saved to template `291daa3b` (= `LxSCyR`).
+Saved to template `291daa3b`.
+
+## What was added (June 2026)
+
+`STUDIO_ADMIN_EMAIL` was added as a third required input on `hogsend-api`. With
+public sign-up disabled there is no web path to create the first admin, so the
+engine mints it on boot into an empty user table from this var (auto-generating a
+one-time password it prints once to the deploy log). The template was then
+republished via the **Update** flow — which is what invalidated the old short
+`/deploy/LxSCyR` link in favor of the stable slug (see "Which template").
 
 ## Follow-ups
 
