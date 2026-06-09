@@ -385,12 +385,18 @@ export function createHogsendClient(
   // pool). Passing `secondaryStorage` flips better-auth's rate-limit store from
   // the per-instance in-memory default to this shared store, so the sign-in /
   // request-password-reset limiters are enforced ACROSS Railway replicas and
-  // survive restarts (security finding #2). Gated on REDIS_URL being configured;
-  // when absent we omit it and better-auth keeps its in-memory store, so a bare
-  // instance with no Redis never crashes. `getRedis()` is lazyConnect, so this
-  // stays synchronous (no connection happens until the first auth command), and
-  // the adapter degrades to a no-op on any Redis fault rather than failing auth.
-  const authSecondaryStorage = env.REDIS_URL
+  // survive restarts (security finding #2).
+  //
+  // Gate on the RAW `process.env.REDIS_URL`, NOT `env.REDIS_URL`: the latter
+  // carries a `redis://localhost:6379` zod default, so it is never empty and
+  // would wire secondary storage unconditionally. When an operator hasn't set
+  // REDIS_URL we deliberately keep better-auth's in-memory store rather than
+  // pushing SESSIONS into a Redis that may not exist — a wired secondaryStorage
+  // degrades `get` to null on a fault, which for sessions means silent
+  // logouts. `getRedis()` is lazyConnect, so this stays synchronous (no
+  // connection until the first auth command); on a transient Redis fault the
+  // adapter degrades to a no-op rather than failing the auth flow.
+  const authSecondaryStorage = process.env.REDIS_URL
     ? createRedisSecondaryStorage(getRedis())
     : undefined;
 

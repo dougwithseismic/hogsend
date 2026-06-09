@@ -38,6 +38,27 @@ Engine (`@hogsend/engine`):
   (better-auth internals); a reset revokes existing sessions. Delivery failures
   resolve silently to preserve better-auth's neutral, no-enumeration response and
   never log the reset URL/token.
+- **Setup-token brute-force throttle.** The setup-token gate 403s a bad token
+  before better-auth's handler runs, so better-auth's own sign-up rate limit
+  never saw the rejected guesses — leaving `POST /api/auth/sign-up/*` setup-token
+  guessing unthrottled (each guess hitting the DB). An IP-keyed sliding window
+  (10/60s) now sits AHEAD of the gate and drops a flood at the edge with 429.
+  Keyed by client IP (not the default api-key/user id) since sign-up is
+  unauthenticated; the legit one-shot first-admin create and authenticated
+  traffic are unaffected. `STUDIO_SETUP_TOKEN` guidance is strengthened to
+  require a high-entropy value.
+- **Shared cross-replica auth rate limiting.** better-auth defaults
+  `rateLimit.storage` to in-memory when no `secondaryStorage` is configured, so
+  on a multi-replica deploy the sign-in / request-password-reset limiters were
+  per-instance and reset on redeploy — weaker than they looked. better-auth's
+  `secondaryStorage` is now wired (`lib/redis.ts`, new exports
+  `createRedisSecondaryStorage`, `AuthSecondaryStorage`, `getRedisIfConnected`)
+  to the engine's existing shared Redis singleton (no second pool), flipping
+  rate-limit storage to `secondary-storage` so counters are shared across
+  replicas and survive restarts. Honours better-auth's TTLs via `EX`; only wired
+  when `REDIS_URL` is actually set (so a bare instance keeps the in-memory
+  default rather than pushing sessions into a non-existent Redis); degrades to a
+  no-op on any Redis fault so a cache blip never fails the auth flow.
 - New env: `STUDIO_SETUP_TOKEN`, `BETTER_AUTH_TRUSTED_ORIGINS` (so a remotely
   served Studio origin can reach the auth endpoints).
 
