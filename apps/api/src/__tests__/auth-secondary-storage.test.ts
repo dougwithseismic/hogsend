@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 // The vitest config points DATABASE_URL at :5432; the migrated test DB lives at
 // :5434. Override before importing the engine (mirrors password-reset.test.ts).
-process.env.DATABASE_URL = "postgresql://test:test@localhost:5434/test";
+process.env.DATABASE_URL =
+  "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 vi.mock("../lib/hatchet.js", () => ({
   hatchet: {
@@ -30,7 +31,7 @@ const { createAuth, createHogsendClient, createRedisSecondaryStorage } =
 // resolved config. Mirrors how the container builds auth.
 const { createDatabase } = await import("@hogsend/db");
 const { db } = createDatabase({
-  url: "postgresql://test:test@localhost:5434/test",
+  url: "postgresql://growthhog:growthhog@localhost:5434/growthhog",
 });
 
 const baseAuthOpts = {

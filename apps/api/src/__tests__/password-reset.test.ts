@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // The vitest config points DATABASE_URL at :5432; the migrated test DB lives at
 // :5434. Override before importing the engine (mirrors admin-auth.test.ts).
-process.env.DATABASE_URL = "postgresql://test:test@localhost:5434/test";
+process.env.DATABASE_URL =
+  "postgresql://growthhog:growthhog@localhost:5434/growthhog";
 
 vi.mock("../lib/hatchet.js", () => ({
   hatchet: {
