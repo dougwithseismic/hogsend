@@ -1,6 +1,9 @@
 import {
   type BatchEmailItem,
   type BounceClass,
+  type DnsRecord,
+  type DomainStatus,
+  type DomainsCapability,
   defineEmailProvider,
   type EmailEvent,
   type EmailEventType,
@@ -27,6 +30,14 @@ export interface PostmarkConfig {
   messageStream?: string;
   /** HTTP Basic creds the webhook URL must present. Unset → webhooks rejected. */
   webhookBasicAuth?: { user: string; pass: string };
+  /**
+   * Postmark ACCOUNT API token — NOT the server token. Postmark's Domains API
+   * authenticates with `X-Postmark-Account-Token`, an account-level credential
+   * the per-server token cannot substitute for. When absent, the provider OMITS
+   * the `domains` capability entirely (the engine/CLI degrade gracefully:
+   * `supported: false`, admin domain POSTs return 501).
+   */
+  accountToken?: string;
 }
 
 /** Postmark wants comma-joined recipient strings; omit the field when empty. */
@@ -86,6 +97,13 @@ export function createPostmarkProvider(cfg: PostmarkConfig): EmailProvider {
 
   return defineEmailProvider({
     meta: { id: "postmark", name: "Postmark" },
+
+    // Sending-domain management — gated on the ACCOUNT token (the Domains API
+    // does not accept the server token). Absent ⇒ no `domains` member at all,
+    // so the engine's capability gate stays closed.
+    ...(cfg.accountToken
+      ? { domains: createPostmarkDomains({ accountToken: cfg.accountToken }) }
+      : {}),
     capabilities: {
       // Forced off per-send above → the engine TRUSTS native tracking is off.
       nativeTracking: false,
@@ -135,6 +153,191 @@ export function createPostmarkProvider(cfg: PostmarkConfig): EmailProvider {
       return parsePostmarkWebhook(payload);
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Domains capability (Postmark account-token Domains API)
+// ---------------------------------------------------------------------------
+
+const DOMAINS_BASE_URL = "https://api.postmarkapp.com";
+
+/** A domain as Postmark's `GET /domains/:id` detail reports it. */
+interface PostmarkDomainDetail {
+  ID?: number;
+  Name?: string;
+  DKIMVerified?: boolean;
+  DKIMHost?: string;
+  DKIMTextValue?: string;
+  DKIMPendingHost?: string;
+  DKIMPendingTextValue?: string;
+  ReturnPathDomain?: string;
+  ReturnPathDomainVerified?: boolean;
+  ReturnPathDomainCNAMEValue?: string;
+}
+
+function postmarkErrorMessage(status: number, body: unknown): string {
+  if (
+    body &&
+    typeof body === "object" &&
+    "Message" in body &&
+    typeof (body as { Message: unknown }).Message === "string"
+  ) {
+    return `Postmark domains API ${status}: ${(body as { Message: string }).Message}`;
+  }
+  return `Postmark domains API request failed with status ${status}`;
+}
+
+/**
+ * Synthesize neutral {@link DnsRecord}s from a Postmark domain detail. Postmark
+ * has no records array — DKIM (a TXT, preferring the PENDING host/value during
+ * a rotation) and the Return-Path CNAME are reconstructed from the flat fields.
+ */
+function postmarkRecords(detail: PostmarkDomainDetail): DnsRecord[] {
+  const records: DnsRecord[] = [];
+
+  const dkimName = detail.DKIMPendingHost || detail.DKIMHost || "";
+  const dkimValue = detail.DKIMPendingTextValue || detail.DKIMTextValue || "";
+  if (dkimName && dkimValue) {
+    records.push({
+      type: "TXT",
+      name: dkimName,
+      value: dkimValue,
+      purpose: "dkim",
+      status: detail.DKIMVerified ? "verified" : "pending",
+    });
+  }
+
+  if (detail.ReturnPathDomain && detail.ReturnPathDomainCNAMEValue) {
+    records.push({
+      type: "CNAME",
+      name: detail.ReturnPathDomain,
+      value: detail.ReturnPathDomainCNAMEValue,
+      purpose: "return_path",
+      status: detail.ReturnPathDomainVerified ? "verified" : "pending",
+    });
+  }
+
+  return records;
+}
+
+function postmarkDomainStatus(detail: PostmarkDomainDetail): DomainStatus {
+  return {
+    domain: detail.Name ?? "",
+    // Verified ONLY when both DKIM and the return path check out — Postmark has
+    // no single domain-level status flag.
+    state:
+      detail.DKIMVerified && detail.ReturnPathDomainVerified
+        ? "verified"
+        : "pending",
+    records: postmarkRecords(detail),
+    providerId: "postmark",
+    checkedAt: new Date().toISOString(),
+    raw: detail,
+  };
+}
+
+/**
+ * The Postmark implementation of the {@link DomainsCapability} contract — a
+ * dumb wire over `https://api.postmarkapp.com/domains`, authenticated with the
+ * ACCOUNT token. Plain `fetch`, deliberately NOT the `postmark` SDK's account
+ * client (keeps the opt-in surface minimal).
+ */
+function createPostmarkDomains(cfg: {
+  accountToken: string;
+}): DomainsCapability {
+  const api = async (
+    path: string,
+    init?: { method?: string; body?: unknown },
+  ): Promise<{ ok: boolean; status: number; body: unknown }> => {
+    const res = await fetch(`${DOMAINS_BASE_URL}${path}`, {
+      method: init?.method ?? "GET",
+      headers: {
+        Accept: "application/json",
+        "X-Postmark-Account-Token": cfg.accountToken,
+        ...(init?.body !== undefined
+          ? { "Content-Type": "application/json" }
+          : {}),
+      },
+      body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      body = undefined;
+    }
+    return { ok: res.ok, status: res.status, body };
+  };
+
+  /** Resolve a domain name → Postmark domain ID via `GET /domains`. */
+  const findId = async (domain: string): Promise<number | null> => {
+    const res = await api("/domains?count=500&offset=0");
+    if (!res.ok) throw new Error(postmarkErrorMessage(res.status, res.body));
+    const list =
+      res.body && typeof res.body === "object" && "Domains" in res.body
+        ? (res.body as { Domains: Array<{ ID?: number; Name?: string }> })
+            .Domains
+        : [];
+    const match = (list ?? []).find((d) => d.Name === domain);
+    return match?.ID ?? null;
+  };
+
+  /** Fetch + normalize `GET /domains/:id`. */
+  const getById = async (id: number): Promise<DomainStatus> => {
+    const res = await api(`/domains/${id}`);
+    if (!res.ok) throw new Error(postmarkErrorMessage(res.status, res.body));
+    return postmarkDomainStatus(res.body as PostmarkDomainDetail);
+  };
+
+  const get = async (domain: string): Promise<DomainStatus | null> => {
+    const id = await findId(domain);
+    if (id === null) return null;
+    return getById(id);
+  };
+
+  return {
+    async create(domain: string): Promise<DomainStatus> {
+      const res = await api("/domains", {
+        method: "POST",
+        body: { Name: domain },
+      });
+      if (res.ok) {
+        return postmarkDomainStatus(res.body as PostmarkDomainDetail);
+      }
+
+      // Idempotent create: a 422 "already exists" falls through to lookup.
+      const message =
+        res.body && typeof res.body === "object" && "Message" in res.body
+          ? String((res.body as { Message: unknown }).Message)
+          : "";
+      if (res.status === 422 && /already exists/i.test(message)) {
+        const existing = await get(domain);
+        if (existing) return existing;
+      }
+      throw new Error(postmarkErrorMessage(res.status, res.body));
+    },
+
+    get,
+
+    async records(domain: string): Promise<DnsRecord[]> {
+      const status = await get(domain);
+      return status?.records ?? [];
+    },
+
+    async verify(domain: string): Promise<DomainStatus> {
+      const id = await findId(domain);
+      if (id === null) {
+        throw new Error(
+          `domain "${domain}" is not registered with Postmark — run create first`,
+        );
+      }
+      // Run BOTH verification passes best-effort (Postmark 422s a pass that is
+      // already verified / not yet ready); the re-get below is the truth.
+      await api(`/domains/${id}/verifyDkim`, { method: "PUT" });
+      await api(`/domains/${id}/verifyReturnPath`, { method: "PUT" });
+      return getById(id);
+    },
+  };
 }
 
 /**
