@@ -17,6 +17,12 @@ export interface CliOptions {
   skills: boolean;
   /** Run `pnpm bootstrap` after install (Docker, .env, Hatchet token, migrate). */
   setup: boolean;
+  /**
+   * Sending domain (e.g. "mysite.com"). When set, the scaffolded `env.example`
+   * gets `EMAIL_FROM=hello@<domain>` + `EMAIL_DOMAIN=<domain>` (and bootstrap's
+   * `.env` copy inherits them).
+   */
+  domain?: string;
   /** TEST-ONLY: resolve `@hogsend/*` from `file:` tarballs in this dir. */
   useTarballs?: string;
 }
@@ -33,6 +39,8 @@ Usage:
 Options:
   -y, --yes                  Accept all defaults, no prompts (install + setup)
   --pm <pnpm|npm|yarn|bun>   Package manager (default: pnpm)
+  --domain <domain>          Sending domain — writes EMAIL_FROM=hello@<domain>
+                             + EMAIL_DOMAIN=<domain> into env.example
   --setup                    Run local setup after install (Docker, .env, migrate)
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
@@ -46,6 +54,21 @@ Docs: docs.hogsend.com
 `.trim();
 
 const APP_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** Pinned sending-domain validation regex (matches the engine's admin route). */
+const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
+
+function validateDomain(value: string): string | undefined {
+  if (!DOMAIN_RE.test(value)) {
+    return `Invalid domain "${value}" — expected something like mysite.com.`;
+  }
+  return undefined;
+}
+
+/** "mysite.com" → "mysite" (the default app name when only --domain is given). */
+function firstDomainLabel(domain: string): string {
+  return domain.toLowerCase().split(".")[0] ?? domain.toLowerCase();
+}
 
 function isPackageManager(value: string): value is PackageManager {
   return (VALID_PMS as string[]).includes(value);
@@ -81,6 +104,7 @@ interface RawArgs {
   values: {
     yes?: boolean;
     pm?: string;
+    domain?: string;
     setup?: boolean;
     "no-setup"?: boolean;
     "no-install"?: boolean;
@@ -102,6 +126,7 @@ function parse(argv: string[]): RawArgs {
     options: {
       yes: { type: "boolean", short: "y", default: false },
       pm: { type: "string" },
+      domain: { type: "string" },
       setup: { type: "boolean", default: false },
       "no-setup": { type: "boolean", default: false },
       "no-install": { type: "boolean", default: false },
@@ -150,13 +175,27 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     packageManager = values.pm;
   }
 
+  // Sending domain from flag (validated up front; prompted later if absent).
+  let domain = values.domain;
+  if (domain !== undefined) {
+    const err = validateDomain(domain);
+    if (err) throw new Error(err);
+    domain = domain.toLowerCase();
+  }
+
   let rawDir = positionals[0];
+  // `--domain mysite.com` with no app name defaults the name to "mysite".
+  const defaultDirFromDomain =
+    !rawDir && domain ? firstDomainLabel(domain) : undefined;
   const interactive = Boolean(stdin.isTTY);
   // Ask nothing when piped/CI (no TTY) or when the user opted into all defaults
   // with --yes. Everything then comes from flags + defaults.
   const skipPrompts = !interactive || values.yes === true;
 
   if (skipPrompts) {
+    if (!rawDir && defaultDirFromDomain) {
+      rawDir = defaultDirFromDomain;
+    }
     if (!rawDir) {
       const why = values.yes
         ? 'With --yes you must pass a name (or "."). '
@@ -180,6 +219,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       // non-TTY behaviour (install all) so CI scaffolds and CI installs agree.
       skills: !values["no-skills"],
       setup: wantSetup && !values["no-setup"] && install,
+      domain,
       useTarballs: values["use-tarballs"],
     };
   }
@@ -193,11 +233,29 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       await text({
         message: 'Project name? (or "." for the current folder)',
         placeholder: "acme-lifecycle",
+        // --domain mysite.com pre-fills the name with "mysite".
+        initialValue: defaultDirFromDomain,
         validate: validateAppName,
       }),
     );
   }
   const { dir, appName } = deriveNames(rawDir);
+
+  // Sending domain: optional — blank means "configure later" (env.example keeps
+  // its commented placeholder block).
+  if (domain === undefined) {
+    const answer = bail(
+      await text({
+        message: "Sending domain? (blank to configure later)",
+        placeholder: "mysite.com",
+        validate: (value) =>
+          value === undefined || value === ""
+            ? undefined
+            : validateDomain(value),
+      }),
+    );
+    domain = answer ? answer.toLowerCase() : undefined;
+  }
 
   if (packageManager === undefined) {
     packageManager = bail(
@@ -262,6 +320,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     git,
     skills,
     setup,
+    domain,
     useTarballs: values["use-tarballs"],
   };
 }

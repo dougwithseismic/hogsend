@@ -66,6 +66,38 @@ export async function copyTemplate(opts: CopyOptions): Promise<void> {
 }
 
 /**
+ * Set (or uncomment) one `KEY=value` line in an env file's content. Replaces
+ * the FIRST commented `# KEY=...` placeholder or live `KEY=...` line; appends
+ * when neither exists, so the patch is robust to template drift.
+ */
+function setEnvLine(content: string, key: string, value: string): string {
+  const line = `${key}=${value}`;
+  const re = new RegExp(`^#?\\s*${key}=.*$`, "m");
+  if (re.test(content)) {
+    return content.replace(re, line);
+  }
+  return `${content.replace(/\n*$/, "\n")}${line}\n`;
+}
+
+/**
+ * Patch the scaffolded env example for a `--domain` scaffold: uncomments/sets
+ * `EMAIL_FROM=hello@<domain>` + `EMAIL_DOMAIN=<domain>`. The template's
+ * `env.example` is emitted as `.env.example` (RENAME_MAP). Runs right after
+ * `copyTemplate` and BEFORE install/bootstrap, so the bootstrap-copied `.env`
+ * inherits the values.
+ */
+export async function applyDomainToEnv(
+  targetDir: string,
+  domain: string,
+): Promise<void> {
+  const envPath = join(targetDir, RENAME_MAP["env.example"] ?? ".env.example");
+  let content = await readFile(envPath, "utf8");
+  content = setEnvLine(content, "EMAIL_FROM", `hello@${domain}`);
+  content = setEnvLine(content, "EMAIL_DOMAIN", domain);
+  await writeFile(envPath, content);
+}
+
+/**
  * The top-level names the scaffold will write (rename map applied). Used to
  * detect collisions when scaffolding into a non-empty current directory (`.`).
  */

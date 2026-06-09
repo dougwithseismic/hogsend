@@ -6,7 +6,11 @@ import { stdin } from "node:process";
 import { fileURLToPath } from "node:url";
 import { cancel, intro, log, note, outro, spinner } from "@clack/prompts";
 import color from "picocolors";
-import { copyTemplate, emittedTopLevelNames } from "./copy.js";
+import {
+  applyDomainToEnv,
+  copyTemplate,
+  emittedTopLevelNames,
+} from "./copy.js";
 import { type CliOptions, resolveOptions } from "./prompts.js";
 
 const interactive = Boolean(stdin.isTTY);
@@ -184,6 +188,17 @@ async function main(): Promise<void> {
       skills: opts.skills,
       tarballDir,
     });
+  }
+
+  // Patch env.example BEFORE install/bootstrap so the bootstrap-copied .env
+  // inherits the sending-domain values.
+  if (opts.domain) {
+    await applyDomainToEnv(targetDir, opts.domain);
+    if (interactive) {
+      log.step(
+        `${color.dim("Sending domain —")} EMAIL_FROM=hello@${opts.domain} ${color.dim("+")} EMAIL_DOMAIN=${opts.domain}`,
+      );
+    }
   }
 
   if (opts.git) {
