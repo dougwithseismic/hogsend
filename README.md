@@ -302,13 +302,15 @@ curl -H "Authorization: Bearer $ADMIN_API_KEY" \
 | Durable execution | Hatchet (sleeps, retries, event routing) |
 | Database | TimescaleDB (Postgres 18) via Drizzle ORM |
 | Cache | Redis |
-| Email delivery | Resend (`@hogsend/plugin-resend`) |
+| Email delivery | Resend by default (`@hogsend/plugin-resend`) — swappable: Postmark via `@hogsend/plugin-postmark`, or any provider implementing the contract |
 | Product analytics | PostHog (`@hogsend/plugin-posthog`) |
 | Email templates | React Email |
 | CLI | TypeScript on Node (`@hogsend/cli`) |
 | Deploy | Railway (one-click), Docker Compose, or bring-your-own |
 
 Plugins are standalone packages — create your own for Slack, Twilio, or any service. See **[Creating Plugins](https://docs.hogsend.com/docs/guides/plugins)**.
+
+The email provider is the one swappable wire. Resend is the default; Postmark ships as an opt-in (`pnpm add @hogsend/plugin-postmark@latest`, then set `EMAIL_PROVIDER=postmark`), and SES-style providers slot in behind the same `EmailProvider` contract. Tracking, preferences, and delivery records stay engine-owned, so first-party open/click tracking works no matter which provider you wire in.
 
 ---
 

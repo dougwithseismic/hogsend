@@ -17,12 +17,13 @@ emailService.send({ template, props, to, ... })   // or sendEmail({...}) in a jo
         (both skipped when skipPreferenceCheck is set)
   2. getTemplate(key, props, registry) → resolve element + subject + category
   3. insert email_sends row  → gives the send a stable emailSendId (status "queued")
-  4. renderToHtml(element), then prepareTrackedHtml(html, emailSendId, baseUrl, db):
+  4. renderToHtml(element) ALWAYS (HTML-only wire — no React crosses the provider),
+     then prepareTrackedHtml(html, emailSendId, baseUrl, db):
         • rewriteLinks()    — every <a href="https?://…"> → /v1/t/c/:linkId
         • injectOpenPixel() — <img src="/v1/t/o/:emailSendId"> before </body>
-        (only when baseUrl + prepareTrackedHtml are present; else send the raw react element)
-  5. provider.send(...)     — Resend gets the already-rewritten HTML
-  6. update email_sends → resendId + status "sent" (or "failed" on throw)
+        (rewrite/pixel only when baseUrl + prepareTrackedHtml are present; else send the plain rendered HTML)
+  5. provider.send(...)     — the provider gets the already-rendered HTML
+  6. update email_sends → messageId + status "sent" (or "failed" on throw)
 ```
 
 Tracking comes along regardless of which provider you supply, because steps 2–4

@@ -1,6 +1,6 @@
 ---
 title: Email
-description: Lifecycle emails via Resend — React Email templates, bounce tracking, unsubscribe management, and deliverability monitoring.
+description: Lifecycle emails through a swappable provider (Resend by default) — React Email templates, bounce tracking, unsubscribe management, and deliverability monitoring.
 ---
 
 Hogsend sends emails through a swappable **provider** (Resend by default) — fast delivery, great developer experience, solid deliverability. You reference templates by key, Hogsend handles everything else: rendering, delivery with retries, bounce tracking, automatic suppression, unsubscribe management, and a preference center.
@@ -10,7 +10,7 @@ The split is deliberate:
 - **Your templates are content.** The actual `.tsx` email components and their registry live in **your** repo under `src/emails/` — scaffolded in by `create-hogsend`, yours to edit, delete, or extend. The engine bakes in no business templates.
 - **The engine owns the pipeline.** `@hogsend/engine` provides the high-level `sendEmail()` your journeys call, the `TrackedMailer` (render → preference/suppression check → link/open tracking → `emailSends` row → deliver → record status), the unsubscribe endpoints, and the preference center.
 - **The template machinery** lives in `@hogsend/email`: render helpers, the registry helpers, the `TemplateRegistry`/`TemplateDefinition` types, and the unsubscribe token/URL helpers — but no concrete templates.
-- **The email provider is a dumb `EmailProvider`.** `@hogsend/plugin-resend` implements the `EmailProvider` contract (send, batch, webhook parse/verify). Swap it for Postmark/SES by implementing the same interface — tracking, rendering, preferences, and the `emailSends` pipeline all come along for free because they never lived in the provider.
+- **The email provider is a dumb `EmailProvider`.** `@hogsend/plugin-resend` (the default) and `@hogsend/plugin-postmark` (an installable opt-in) both implement the `EmailProvider` contract (send, batch, webhook parse/verify). Switch to Postmark by installing its package and setting `EMAIL_PROVIDER=postmark`; for anything we don't ship (SES, a transactional API of your own) implement the same interface yourself — tracking, rendering, preferences, and the `emailSends` pipeline all come along for free because they never lived in the provider.
 
 You don't edit the engine packages — you own your templates, call `sendEmail()`, and (rarely) swap the provider. Customizing is covered in [Customizing the templates](#customizing-the-templates).
 
@@ -261,21 +261,34 @@ const text = await renderToPlainText(element);
 
 ## The EmailProvider contract (swapping providers)
 
-The email provider is a **dumb `EmailProvider`** — the entire provider surface is one small interface. The engine owns everything else (rendering, tracking, preferences, the `emailSends` pipeline), so swapping providers never costs you those features.
+The email provider is a **dumb `EmailProvider`** — the entire provider surface is one small interface. The engine owns everything else (rendering, tracking, preferences, the `emailSends` pipeline), so swapping providers never costs you those features. React never crosses the provider boundary: the engine always renders React → HTML before calling `send`, so the wire is HTML-only (there is no `react` field).
 
 ```ts
 import type { EmailProvider } from "@hogsend/engine";
 
 interface EmailProvider {
+  readonly meta?: EmailProviderMeta;          // { id, name, description? } — id is the registry key + :providerId
+  readonly capabilities?: EmailProviderCapabilities;
+
   send(options: SendEmailOptions): Promise<{ id: string }>;
   sendBatch(emails: BatchEmailItem[]): Promise<{ results: { id: string }[] }>;
+
+  // Verify the signature (provider owns its own secrets) and return a
+  // normalized EmailEvent. Throws on a bad signature. Throws
+  // WebhookHandshakeSignal for non-status handshakes (the route 200s those).
+  // MAY be async (e.g. SES must GET the SNS SubscribeURL).
   verifyWebhook(opts: {
     payload: string;
     headers: Record<string, string>;
-  }): WebhookEvent; // verify signature + parse
-  parseWebhook(payload: string): WebhookEvent; // parse only (trusted contexts/tests)
+  }): Promise<EmailEvent> | EmailEvent;
+
+  parseWebhook(payload: string): EmailEvent;   // parse only (trusted contexts/tests)
 }
 ```
+
+`meta` is optional for back-compat (the registry falls back to `"resend"` when absent), but new providers should always supply it — `meta.id` is both the registry key and the `:providerId` the webhook route dispatches on. `capabilities` declares three flags the engine reads at boot: `nativeTracking`, `scheduledSend`, and `signedWebhooks` (all optional; absent is treated conservatively).
+
+`verifyWebhook`/`parseWebhook` return the provider-neutral `EmailEvent` from `@hogsend/core` — not the old Resend-nested shape. See [Bounce tracking](#bounce-tracking) for the `EmailEvent` fields.
 
 ### Default: the Resend provider
 
@@ -288,24 +301,106 @@ const provider = createResendProvider({
   apiKey: "re_...",
   webhookSecret: "whsec_...",
 });
+// meta: { id: "resend", name: "Resend" }
+// capabilities: { nativeTracking: true, scheduledSend: true, signedWebhooks: true }
 ```
 
-### Swapping the provider
+Because Resend's native open/click tracking is an account-level toggle the engine can't reach, picking Resend logs a boot **WARN** reminding you to disable it in the dashboard — first-party tracking is the single source of truth.
 
-Implement the `EmailProvider` interface for your provider and pass it under the grouped `email` option (alongside your `templates`) — that's the whole swap:
+`RESEND_API_KEY` is now **optional**: a Postmark-only deploy boots with no Resend key at all, and the engine only constructs the Resend provider when `RESEND_API_KEY` is set.
+
+### Switching to Postmark (`@hogsend/plugin-postmark`)
+
+Postmark is a **shipped, installable opt-in provider** — not a DIY job. Install the package, then activate it via env or code.
+
+Install it (it's not bundled — the engine declares it as an optional dependency and only imports it when you opt in):
+
+```bash
+pnpm add @hogsend/plugin-postmark@latest
+```
+
+**Env opt-in (no code):**
+
+```bash
+EMAIL_PROVIDER=postmark                      # the active provider the mailer sends through
+POSTMARK_SERVER_TOKEN=pm-server-xxxxxxxx     # required — also gates the lazy import of the package
+# optional
+POSTMARK_MESSAGE_STREAM=outbound
+# webhook auth (Postmark has no HMAC — HTTP Basic creds in the webhook URL; BOTH required to enable verify)
+POSTMARK_WEBHOOK_USER=hook
+POSTMARK_WEBHOOK_PASS=super-secret
+# neutral from-address (else falls back to RESEND_FROM_EMAIL)
+EMAIL_FROM=noreply@yourdomain.com
+# RESEND_API_KEY is now OPTIONAL — omit it entirely for a Postmark-only deploy
+```
+
+Setting `POSTMARK_SERVER_TOKEN` builds the Postmark preset but does **not** change the active provider — you must also set `EMAIL_PROVIDER=postmark`. The active provider resolves as `email.defaultProvider ?? EMAIL_PROVIDER ?? "resend"`; if it names a provider that isn't registered, the container throws at boot with the list of registered ids (it never silently falls back for a non-Resend id). The engine lazily `import()`s `@hogsend/plugin-postmark` only when `POSTMARK_SERVER_TOKEN` is set — if the token is set but the package isn't installed, the preset is skipped and (if Postmark was the active provider) boot fails with a clear "not registered" error telling you to install it.
+
+**Code opt-in via `createHogsendClient`:**
 
 ```ts
 import { createHogsendClient } from "@hogsend/engine";
+import { createPostmarkProvider } from "@hogsend/plugin-postmark";
+import { templates } from "./emails/registry.js";
+
+const container = createHogsendClient({
+  email: {
+    provider: createPostmarkProvider({
+      serverToken: process.env.POSTMARK_SERVER_TOKEN!,
+      // optional:
+      // messageStream: "outbound",
+      webhookBasicAuth: { user: "hook", pass: process.env.POSTMARK_WEBHOOK_PASS! },
+    }),
+    defaultProvider: "postmark", // the active provider the mailer sends through
+    templates,
+  },
+});
+// meta: { id: "postmark", name: "Postmark" }
+// capabilities: { nativeTracking: false, scheduledSend: false, signedWebhooks: false }
+```
+
+To register Resend **and** Postmark together (so `POST /v1/webhooks/email/:providerId` can verify each), pass `providers: [createResendProvider({ ... }), createPostmarkProvider({ ... })]` and pick the active one with `defaultProvider`.
+
+A few Postmark specifics, straight from the provider:
+
+- **Native tracking is forced off on every send** (`TrackOpens: false`, `TrackLinks: None`), so the provider declares `nativeTracking: false` and the engine trusts it — **no boot WARN**. First-party open/click tracking stays sovereign.
+- **No native scheduled send** (`scheduledSend: false`) — the engine drops `scheduledAt` with a WARN.
+- **No HMAC webhook scheme** (`signedWebhooks: false`) — webhooks verify against HTTP Basic creds and **fail closed**: `verifyWebhook` throws unless `webhookBasicAuth` is set, and rejects any unauthenticated status update. `webhookBasicAuth` is optional only so a send-only deploy can skip it.
+
+### Implementing another provider yourself (SES, a custom transport)
+
+For a provider we don't ship — Amazon SES, an internal transactional API — implement the `EmailProvider` contract and pass it under the grouped `email` option (alongside your `templates`). Use `defineEmailProvider` from `@hogsend/core` so a typo in `meta` or a missing method is caught at definition time:
+
+```ts
+import { createHogsendClient } from "@hogsend/engine";
+import { defineEmailProvider } from "@hogsend/core";
 import { journeys } from "./journeys/index.js";
 import { templates } from "./emails/registry.js";
-import { createPostmarkTransport } from "./lib/postmark-provider.js"; // your impl
+
+const sesProvider = defineEmailProvider({
+  meta: { id: "ses", name: "Amazon SES" },
+  capabilities: { nativeTracking: false, scheduledSend: false, signedWebhooks: true },
+  async send(options) {
+    // options.html is already rendered — deliver it, return the message id
+    return { id: messageId };
+  },
+  async sendBatch(emails) {
+    return { results: emails.map(/* ... */) };
+  },
+  async verifyWebhook({ payload, headers }) {
+    // verify the signature (SES must GET the SNS SubscribeURL — verifyWebhook may be async),
+    // then return a normalized EmailEvent. Throw WebhookHandshakeSignal(action) for the
+    // SNS SubscriptionConfirmation handshake so the route 200s it without sniffing the body.
+    return event; // EmailEvent
+  },
+  parseWebhook(payload) {
+    return event; // EmailEvent
+  },
+});
 
 const container = createHogsendClient({
   journeys,
-  email: {
-    templates,
-    provider: createPostmarkTransport({ apiKey: "..." }),
-  },
+  email: { templates, provider: sesProvider, defaultProvider: "ses" },
 });
 ```
 
@@ -313,17 +408,22 @@ Tracking, rendering, preference/suppression checks, and the `emailSends` pipelin
 
 ## The tracked send pipeline (engine-owned)
 
-The engine's `TrackedMailer` runs the full pipeline on every `sendEmail()` / `emailService.send()`: it records the email in the `emailSends` table, checks suppression and unsubscribe status before sending, rewrites links + injects the open pixel, delivers via the `EmailProvider`, and updates the row with the provider id on success.
+The engine's `TrackedMailer` runs the full pipeline on every `sendEmail()` / `emailService.send()`: it records the email in the `emailSends` table, checks suppression and unsubscribe status before sending, rewrites links + injects the open pixel, delivers via the `EmailProvider`, and updates the row with the provider message id on success.
 
 The send result type:
 
 ```ts
 interface TrackedSendResult {
   emailSendId: string;
-  resendId: string; // the EmailProvider's returned message id
-  status: "sent" | "suppressed" | "unsubscribed";
+  messageId: string; // the EmailProvider's neutral message id (Resend email_id / Postmark MessageID)
+  /** @deprecated Renamed to messageId. This read-alias mirrors messageId; kept for one minor. */
+  resendId: string;
+  status: "sent" | "suppressed" | "unsubscribed" | "skipped";
+  reason?: "frequency_capped"; // only when status === "skipped" by the frequency cap
 }
 ```
+
+Read the result with `result.messageId`. `result.resendId` still works but is `@deprecated` — it's a live alias that always mirrors `messageId`, kept for one minor and removed the following minor. The persisted column on the `emailSends` table is now `message_id` (there is no `resend_id` column).
 
 Before sending, the mailer checks the `emailPreferences` table for:
 
@@ -429,7 +529,7 @@ Processes an already-verified, provider-neutral `EmailEvent` (the webhook route 
 
 ## Bounce tracking
 
-Resend sends webhook events for email lifecycle changes. The email service handles these automatically, updating the `emailSends` table and managing suppressions.
+Your provider sends webhook events for email lifecycle changes. Each provider verifies its own webhook and normalizes the payload into a provider-neutral `EmailEvent`; the email service then handles these automatically, updating the `emailSends` table and managing suppressions — identically whether they came from Resend, Postmark, or your own provider.
 
 ### Webhook event types
 
@@ -459,11 +559,33 @@ The API exposes an id-dispatched receiver at `POST /v1/webhooks/email/:providerI
 // Each provider verifies its OWN webhook and returns a normalized EmailEvent.
 const event = provider.verifyWebhook({ payload: rawBody, headers });
 //   event.type        -> "email.bounced" | "email.delivered" | ...
-//   event.messageId   -> provider message id
+//   event.messageId   -> provider message id (Resend email_id / Postmark MessageID / SES mail.messageId)
 //   event.recipients  -> string[]
 //   event.bounce      -> { class, code, reason? }
 //   event.raw         -> the untouched provider payload (escape hatch)
 ```
+
+The normalized shape, from `@hogsend/core`:
+
+```ts
+type EmailEventType =
+  | "email.sent" | "email.delivered" | "email.bounced" | "email.complained"
+  | "email.delivery_delayed" | "email.opened" | "email.clicked";
+
+type BounceClass = "permanent" | "transient" | "complaint" | "unknown";
+
+interface EmailEvent {
+  type: EmailEventType;
+  messageId: string;        // Resend email_id | Postmark MessageID | SES mail.messageId
+  recipients: string[];     // ALL recipients
+  occurredAt: string;       // ISO 8601
+  bounce?: { class: BounceClass; code: string; reason?: string }; // on bounced/complained
+  click?: { url: string; at?: string; ip?: string; ua?: string }; // on clicked (native echo only)
+  raw: unknown;             // untouched provider payload (escape hatch)
+}
+```
+
+For non-status handshakes (e.g. an SNS `SubscriptionConfirmation` or a Postmark `SubscriptionChange`), the provider's `verifyWebhook` throws a `WebhookHandshakeSignal(action)` and the engine route returns `200` — provider-specific body-shape knowledge stays inside the provider; the engine route never sniffs the body.
 
 ### Custom webhook handlers
 
