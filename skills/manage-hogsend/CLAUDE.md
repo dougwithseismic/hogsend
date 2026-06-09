@@ -29,6 +29,6 @@ Commands: `hogsend init`, `hogsend setup`, `hogsend status`, `hogsend deploy`, `
 
 ## Railway template
 
-Deploy button: https://railway.com/deploy/LxSCyR?referralCode=dougie
+Deploy button: https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie
 
 Read the reference docs for step-by-step procedures.

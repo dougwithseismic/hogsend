@@ -55,7 +55,7 @@ export function Hero({ className }: HeroProps): JSX.Element {
           </Button>
 
           <a
-            href="https://railway.com/deploy/LxSCyR?referralCode=dougie"
+            href="https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie"
             className="inline-flex"
           >
             {/* biome-ignore lint/performance/noImgElement: external Railway button SVG, not a local asset */}

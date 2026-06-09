@@ -53,7 +53,7 @@ var initCmd = &cobra.Command{
 set environment variables, create a PostHog webhook destination, and verify
 the full pipeline with a test event.
 
-Deploy the template first: https://railway.com/deploy/LxSCyR?referralCode=dougie`,
+Deploy the template first: https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie`,
 	RunE: runInit,
 }
 
@@ -133,7 +133,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(railwayProjects) == 0 {
-		return fmt.Errorf("no Railway projects found. Deploy the template first: https://railway.com/deploy/LxSCyR?referralCode=dougie")
+		return fmt.Errorf("no Railway projects found. Deploy the template first: https://railway.com/deploy/hogsend-posthog-audience-stack?referralCode=dougie")
 	}
 
 	projectOptions := make([]huh.Option[string], len(railwayProjects))
