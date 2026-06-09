@@ -53,6 +53,11 @@ export const env = createEnv({
     // `EMAIL_FROM ?? RESEND_FROM_EMAIL`, so an unset EMAIL_FROM keeps today's
     // Resend-named default.
     EMAIL_FROM: z.string().email().optional(),
+    // The sending domain the domain-status service reports on. OVERRIDES the
+    // default derivation (host part of EMAIL_FROM, falling back to the host of
+    // RESEND_FROM_EMAIL) — set it when you send from a subaddress domain that
+    // differs from the one registered at the provider.
+    EMAIL_DOMAIN: z.string().optional(),
     // --- Postmark (opt-in BYO provider) ---
     // Postmark stays OPT-IN: a preset is built only when POSTMARK_SERVER_TOKEN
     // is present, and it NEVER changes the default active provider — set
@@ -60,6 +65,11 @@ export const env = createEnv({
     // authenticity is HTTP Basic creds in the webhook URL — fail-closed when
     // unset (status updates rejected).
     POSTMARK_SERVER_TOKEN: z.string().min(1).optional(),
+    // Postmark ACCOUNT token (X-Postmark-Account-Token) — unlocks the Domains
+    // API capability on the Postmark provider. Optional: without it the
+    // provider still sends, it just can't manage sending domains
+    // (`supported: false` on /v1/admin/domain).
+    POSTMARK_ACCOUNT_TOKEN: z.string().min(1).optional(),
     POSTMARK_MESSAGE_STREAM: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_USER: z.string().min(1).optional(),
     POSTMARK_WEBHOOK_PASS: z.string().min(1).optional(),

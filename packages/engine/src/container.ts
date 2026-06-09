@@ -27,6 +27,10 @@ import type { DefinedJourney } from "./journeys/define-journey.js";
 import { buildJourneyRegistry } from "./journeys/registry.js";
 import { setAnalytics } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
+import {
+  createDomainStatusService,
+  type DomainStatusService,
+} from "./lib/domain-status.js";
 import { setEmailService } from "./lib/email.js";
 import { EmailProviderRegistry } from "./lib/email-provider-registry.js";
 import { emailProvidersFromEnv } from "./lib/email-providers-from-env.js";
@@ -73,6 +77,14 @@ export interface HogsendClient {
    * defaulting to the env-built Resend provider for byte-for-byte parity.
    */
   emailProvider: EmailProvider;
+  /**
+   * Cached sending-domain status for the ACTIVE provider. Consumed by the
+   * mailer's test-mode check (F3 — sync `testModeCached()` per send), the
+   * `GET/POST /v1/admin/domain` routes, and (via HTTP) the CLI
+   * (`hogsend domain`) + Studio Setup view. In-memory cache only; the per-send
+   * path never awaits a provider call.
+   */
+  domainStatus: DomainStatusService;
   /**
    * The app's template registry (key → component + subject + category +
    * optional preview/examples). Same object threaded into the engine mailer;
@@ -345,6 +357,16 @@ export function createHogsendClient(
     );
   }
 
+  // Cached sending-domain status for the active provider. Constructed right
+  // after provider resolution so it binds the SAME provider the mailer sends
+  // through. One non-blocking warm-up refresh primes the cache at boot —
+  // fire-and-forget, swallowed errors, must never block or fail boot. Skipped
+  // under NODE_ENV=test so test runs stay hermetic (no real provider HTTP).
+  const domainStatus = createDomainStatusService({ provider, env, logger });
+  if (env.NODE_ENV !== "test") {
+    domainStatus.refreshIfStale();
+  }
+
   const defaults: HogsendDefaults = {
     timezone: opts.defaults?.timezone ?? "UTC",
     sendWindow: opts.defaults?.sendWindow,
@@ -498,6 +520,7 @@ export function createHogsendClient(
     emailService,
     emailProviders,
     emailProvider: provider,
+    domainStatus,
     templates,
     analytics,
     registry,

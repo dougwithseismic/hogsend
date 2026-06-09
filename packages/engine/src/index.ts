@@ -3,9 +3,18 @@
 // Content (journeys, webhook sources, workflows) is injected into these
 // factories by client app code; the engine never imports content.
 
+// Sending-domain capability contract (presence of `EmailProvider.domains` is
+// the gate). Already covered by the `export * from "@hogsend/core"` above —
+// re-named here for discoverability.
 export type {
   BatchEmailItem,
   CaptureOptions,
+  DnsRecord,
+  DnsRecordPurpose,
+  DnsRecordStatus,
+  DomainStatus,
+  DomainsCapability,
+  DomainVerificationState,
   EmailEvent,
   EmailEventType,
   EmailProvider,
@@ -161,6 +170,13 @@ export {
 } from "./lib/create-admin.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
+// --- Sending-domain status service (cached; container-held) ---
+export {
+  createDomainStatusService,
+  type DomainStatusService,
+  type EngineDomainStatus,
+  type TestModeState,
+} from "./lib/domain-status.js";
 // --- Email ---
 export {
   type SendEmailOptions,
