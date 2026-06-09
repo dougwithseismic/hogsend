@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -16,6 +17,7 @@ import { fileURLToPath } from "node:url";
  *   5. mints a Hatchet API token and writes it to `.env`
  *   6. runs the two-track database migrations
  *   7. mints an ingest-scoped data-plane API key and writes it to `.env`
+ *   8. (optional, interactive) creates your first Studio admin via the CLI
  *
  * After this, the `dev` + `worker:dev` scripts just work. Docs: docs.hogsend.com
  */
@@ -44,7 +46,7 @@ const cyan = paint("36");
 const magenta = paint("35");
 
 let stepNo = 0;
-const TOTAL = 7;
+const TOTAL = 8;
 function step(label: string): void {
   stepNo += 1;
   process.stdout.write(
@@ -64,6 +66,25 @@ function die(msg: string, hint?: string): never {
   process.stdout.write(`\n  ${red("✗")} ${msg}\n`);
   if (hint) process.stdout.write(`    ${dim(hint)}\n`);
   process.exit(1);
+}
+
+/**
+ * Yes/No prompt that defaults to NO and auto-skips (returns the default) when
+ * there is no TTY — so CI / piped runs never block. No deps: plain readline.
+ */
+async function confirm(question: string, def = false): Promise<boolean> {
+  if (!process.stdin.isTTY) return def;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const hint = def ? "Y/n" : "y/N";
+    const answer = (await rl.question(`  ${question} ${dim(`(${hint})`)} `))
+      .trim()
+      .toLowerCase();
+    if (answer === "") return def;
+    return answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
 }
 
 // --- generic helpers -------------------------------------------------------
@@ -442,6 +463,68 @@ async function ensureDataPlaneKey(): Promise<void> {
   info(`Key (shown once): ${key}`);
 }
 
+// --- 8. first Studio admin (optional, interactive) -------------------------
+/**
+ * Offer to create the first Studio admin. Public sign-up is closed, so the only
+ * ways to mint the first admin are this CLI command and the boot-time env
+ * bootstrap (`STUDIO_ADMIN_EMAIL`). This step is interactive + skippable: it is
+ * a no-op in CI / non-TTY runs and when the operator declines.
+ *
+ * It shells out to the SAME `studio:admin` wrapper the package.json exposes
+ * (`node --env-file=.env node_modules/.bin/hogsend studio admin create`), so the
+ * CLI sees `DATABASE_URL` + `BETTER_AUTH_SECRET` from `.env` — exactly how `dev`
+ * loads its env. The masked password prompt is the CLI's own (stdio inherited).
+ */
+async function bootstrapAdmin(): Promise<void> {
+  const env = readFileSync(ENV_PATH, "utf8");
+
+  // If env-bootstrap is already configured, the API mints the admin on boot —
+  // don't double-create here.
+  const adminEmail = getEnv(env, "STUDIO_ADMIN_EMAIL");
+  if (adminEmail && !adminEmail.startsWith("#")) {
+    ok(`STUDIO_ADMIN_EMAIL is set (${adminEmail}) — the API mints it on boot`);
+    info(`Or run \`${pmRun("studio:admin")}\` to create one now.`);
+    return;
+  }
+
+  if (!process.stdin.isTTY) {
+    info("No TTY — skipping admin create.");
+    info(
+      `Create one later: \`${pmRun("studio:admin")}\` ` +
+        "(or set STUDIO_ADMIN_EMAIL in .env).",
+    );
+    return;
+  }
+
+  const wanted = await confirm("Create your first Studio admin now?", false);
+  if (!wanted) {
+    info(
+      `Skipped. Create one later: \`${pmRun("studio:admin")}\` ` +
+        "(or set STUDIO_ADMIN_EMAIL in .env).",
+    );
+    return;
+  }
+
+  // Reuse the exact env-loading the `studio:admin` script uses.
+  const status = runLive(
+    "node",
+    [
+      "--env-file=.env",
+      join("node_modules", ".bin", "hogsend"),
+      "studio",
+      "admin",
+      "create",
+    ],
+    process.platform === "win32",
+  );
+  if (status !== 0) {
+    warn("Admin create did not complete.");
+    info(`You can re-run it any time: \`${pmRun("studio:admin")}\`.`);
+    return;
+  }
+  ok("Studio admin created");
+}
+
 // --- orchestration ---------------------------------------------------------
 async function main(): Promise<void> {
   process.stdout.write(
@@ -469,6 +552,9 @@ async function main(): Promise<void> {
   step("Minting data-plane API key");
   await ensureDataPlaneKey();
 
+  step("Creating your first Studio admin");
+  await bootstrapAdmin();
+
   const dash = `http://localhost:${ports.dash}`;
   process.stdout.write(
     [
@@ -479,6 +565,7 @@ async function main(): Promise<void> {
       `    ${cyan(pmRun("dev"))}          ${dim("# HTTP API on :3002")}`,
       `    ${cyan(pmRun("worker:dev"))}   ${dim("# Hatchet worker (second terminal)")}`,
       "",
+      `  ${dim("Studio admin:")} ${cyan(pmRun("studio:admin"))}   ${dim("# create one anytime (sign-up is closed)")}`,
       `  ${dim("First journey:")} ${cyan("src/journeys/welcome.ts")}   ${dim("· docs.hogsend.com")}`,
       "",
     ].join("\n"),

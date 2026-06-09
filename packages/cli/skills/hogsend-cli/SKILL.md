@@ -4,7 +4,7 @@ description: Use when an agent needs to inspect or operate a running Hogsend lif
 license: MIT
 metadata:
   author: withSeismic
-  version: "1.2.0"
+  version: "1.3.0"
 ---
 
 # Hogsend CLI
@@ -76,7 +76,7 @@ Most commands READ (admin API). A handful WRITE through the data plane — marke
 | `hogsend emails send <template>` | **(write)** Send a transactional email → `POST /v1/emails`. `--to`/`--user-id` (≥1 required), `--prop`/`--props`, `--subject`, `--from`, `--reply-to`, `--category`, `--idempotency-key`, `--skip-preference-check` (needs full-admin). |
 | `hogsend webhooks list/get/create/update/delete/rotate-secret/test` | Manage **outbound** signed webhook endpoints (the event stream Hogsend emits to your URLs) → `/v1/admin/webhooks`. Needs the **admin key**, not the data key. `create --url <url>` + repeatable `--event <type>` or `--all-events`; the signing secret prints ONCE on `create` + `rotate-secret`. |
 | `hogsend studio` | Serve the bundled Studio admin SPA locally (optionally against a remote `--base-url`). |
-| `hogsend studio admin create/reset/list` | **Shell-gated** Studio admin recovery — DB-DIRECT, not HTTP. Gated by holding `DATABASE_URL` + `BETTER_AUTH_SECRET`; writes passwords via Better Auth (scrypt), never raw SQL. `create` bootstraps the first admin (bypasses the network setup-token gate), `reset --email <e>` rotates a forgotten password (revokes sessions unless `--no-revoke`), `list` shows admins (no secrets). |
+| `hogsend studio admin create/reset/list` | **Shell-gated** Studio admin create + recovery — DB-DIRECT, not HTTP. Gated by holding `DATABASE_URL` + `BETTER_AUTH_SECRET` (read from the ENVIRONMENT, not a `.env` file); writes passwords via Better Auth (scrypt, internal adapter), never raw SQL. Public sign-up is disabled, so this CLI (and the `STUDIO_ADMIN_EMAIL` boot bootstrap) are the ONLY ways to mint an admin. `create` bootstraps the first admin, `reset --email <e>` rotates a forgotten password (revokes sessions unless `--no-revoke`), `list` shows admins (no secrets). |
 | `hogsend skills list/add` | Manage these bundled agent skills. |
 | `hogsend upgrade` | Bump `@hogsend/*` deps to latest + refresh vendored skills. |
 | `hogsend setup` | Interactive LOCAL onboarding (docker, secret, migrate). |
@@ -110,5 +110,30 @@ Run `hogsend <command> --help` for per-command usage.
 4. Use `--limit`/`--offset` for pagination instead of dumping everything.
 5. `studio admin` is the ONE family that does NOT use the HTTP API — it talks to
    the database directly and is gated by `DATABASE_URL` + `BETTER_AUTH_SECRET`
-   (no `--url`/`--admin-key`). It's account recovery, not data ops — prefer the
-   masked password prompt over `--password` (which can leak into shell history).
+   (no `--url`/`--admin-key`). It's admin create/recovery, not data ops — prefer
+   the masked password prompt over `--password` (which can leak into shell
+   history). Those two vars are read from the ENVIRONMENT only (NOT a `.env`
+   file), so run it with env loaded: locally `pnpm studio:admin` (the scaffold's
+   `node --env-file=.env … hogsend studio admin create` wrapper) or
+   `dotenvx run -- hogsend studio admin create`; on Railway `railway run hogsend
+   studio admin create` (or `railway ssh`).
+
+## First admin & closed sign-up
+
+Public sign-up is DISABLED at the auth layer (`disableSignUp`) — `POST
+/api/auth/sign-up/email` returns `400 EMAIL_PASSWORD_SIGN_UP_DISABLED` for
+everyone, so there is NO unauthenticated network path that creates a user. The
+first Studio admin is minted in one of two ways, both in-network:
+
+- **CLI:** `hogsend studio admin create` (or the scaffold's `pnpm studio:admin`),
+  gated by `DATABASE_URL` + `BETTER_AUTH_SECRET`. The only explicit path.
+- **Env bootstrap:** set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`)
+  in the deploy env. On boot, IF the user table is empty, the API mints that
+  admin (idempotent, race-safe). With no password set, a strong one is
+  auto-generated and printed ONCE to the server log — rotate it via the Studio
+  forgot/reset flow. Once an admin exists it never re-mints.
+
+If you (an agent) need an admin on a fresh instance and have shell access to the
+DB + secret, `studio admin create` is the move; otherwise tell the operator to
+set `STUDIO_ADMIN_EMAIL` and restart. There is no web "create admin" form to
+drive. Login + forgot/reset stay fully enabled over HTTP.
