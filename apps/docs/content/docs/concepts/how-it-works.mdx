@@ -5,11 +5,11 @@ description: The mental model behind Hogsend — events in, journeys and emails 
 
 ## Hogsend in one mental model
 
-Hogsend is the lifecycle layer between **PostHog** (what your users do) and **Resend** (the email you send). Hold three ideas and everything else follows:
+Hogsend is the lifecycle layer between the events your users generate and the email you send. Email goes out through a **swappable provider — Resend by default**. Hold three ideas and everything else follows:
 
-1. **Events flow in.** A PostHog webhook, a call from your own app, or any custom webhook source — they all become one kind of thing: an event for a user.
-2. **Your code reacts.** Journeys send lifecycle email, buckets group users in real time, campaigns broadcast to an audience — all written as TypeScript, not drawn on a canvas.
-3. **Engagement flows back.** Opens, clicks, sends, and journey completions fan back out to PostHog (and Segment, Slack, your warehouse), so email lives in the same analytics as everything else.
+1. **Events flow in.** A PostHog webhook, a call from your own app via [`@hogsend/client`](/docs/data-api/client-sdk) / `POST /v1/events`, or any `defineWebhookSource()` — they all normalize to one kind of thing: an event for a user, through `ingestEvent()`.
+2. **Your code reacts.** Journeys send lifecycle email, buckets group users in real time, lists hold preference categories, campaigns broadcast to an audience — all written as TypeScript, not drawn on a canvas.
+3. **Engagement flows back.** Opens, clicks, sends, journey completions, and bucket transitions fan back out to PostHog (and Segment, Slack, your warehouse, a CRM) via code-defined destinations, so email lives in the same analytics as everything else.
 
 ![PostHog Lifecycle Email Flow — events flow in, lifecycle emails go out, engagement data flows back](/images/hogsend-lifecycle.png)
 
@@ -52,7 +52,7 @@ pnpm dev           # HTTP API on http://localhost:3002
 pnpm worker:dev    # Hatchet worker (second terminal)
 ```
 
-`pnpm bootstrap` is idempotent and needs **no credentials for local dev**: it starts TimescaleDB + Redis + hatchet-lite, generates a `BETTER_AUTH_SECRET`, **auto-mints the `HATCHET_CLIENT_TOKEN`**, runs both migration tracks, and mints an ingest-scoped `HOGSEND_API_KEY`. Set a real `RESEND_API_KEY` before sending live email. The full walkthrough is in [Installation](/docs/getting-started/installation).
+`pnpm bootstrap` is idempotent and safe to re-run, and needs **no credentials for local dev**: it starts TimescaleDB + Redis + Hatchet-Lite, generates a `BETTER_AUTH_SECRET`, **auto-mints the `HATCHET_CLIENT_TOKEN`**, runs both migration tracks, mints an ingest-scoped `HOGSEND_API_KEY`, and offers to create your first Studio admin. Set a real `RESEND_API_KEY` (starts `re_`) before sending live email with the default provider. The full walkthrough is in [Installation](/docs/getting-started/installation).
 
 What you get maps one-to-one onto the toolkit:
 
@@ -123,7 +123,7 @@ To make the model concrete, follow one event. A user signs up, PostHog captures 
 2. **Fan out, concurrently** — the event is **stored** in `user_events`, **routed** to every journey and bucket whose trigger matches, **checked** against the exit conditions of the user's active journeys, and the **contact** is upserted.
 3. **A journey enrolls** — if a journey triggers on `user_signed_up`, the engine runs its enrollment guards (enabled, `trigger.where`, entry limit, subscription, not-already-active), then starts a durable run.
 4. **It runs** — send a welcome email, `ctx.sleep({ duration: days(2) })` (survives deploys), check whether the user activated, branch. Every step is persisted, so you can see exactly where each user is.
-5. **Email goes out** — `sendEmail()` renders the template, rewrites links + injects the open pixel for first-party tracking, signs an unsubscribe URL, and sends via Resend with retries.
+5. **Email goes out** — `sendEmail()` renders the React template to HTML, rewrites links + injects the open pixel for first-party tracking (the single source of truth), signs an unsubscribe URL, then hands the HTML to your provider (Resend by default; the provider is a swappable wire) with retries.
 6. **Engagement flows back** — opens and clicks are recorded and pushed back through the pipeline so journeys can react (`email.opened` / `email.link_clicked`), and fanned out to your [destinations](/docs/data-api/destinations) — PostHog included, where the outbound catalog calls them `email.opened` / `email.clicked`.
 
 Same event in, a different lifecycle out — and the whole thing is your TypeScript.

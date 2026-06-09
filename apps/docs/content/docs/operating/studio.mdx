@@ -59,7 +59,7 @@ hogsend studio --port 4000
 | `--open` | Open the Studio in your default browser. |
 | `--dist <path>` | Override the Studio dist directory (advanced). |
 
-Without `--base-url` the Studio calls the local server it is served from (static preview only — the API calls will fail). Set `--base-url` to your instance, or just open `<instance>/studio` directly. Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio origin (CORS + cross-site cookies); the simplest path for a hosted instance is the mounted `/studio`.
+Without `--base-url` the Studio calls the local server it is served from (static preview only — the API calls will fail). Set `--base-url` to your instance, or just open `<instance>/studio` directly. Because the SPA uses cookie auth, pointing a local Studio at a remote instance requires that instance to allow the Studio origin (CORS + cross-site cookies) — add the local origin to `BETTER_AUTH_TRUSTED_ORIGINS` (csv, beyond `BETTER_AUTH_URL` + `API_PUBLIC_URL`) on the instance. The simplest path for a hosted instance is the mounted `/studio`.
 
 ## First load: create the first admin
 

@@ -9,10 +9,10 @@ A scaffolded Hogsend app is configured entirely through environment variables. B
 cp .env.example .env
 ```
 
-`pnpm bootstrap` does this for you and more: it copies `.env.example`, generates a real `BETTER_AUTH_SECRET`, auto-mints your `HATCHET_CLIENT_TOKEN`, runs the migrations, and mints an ingest-scoped `HOGSEND_API_KEY` data-plane key — see [Installation](/docs/getting-started/installation). The `.env.example` shipped by the scaffold already points `DATABASE_URL` and `REDIS_URL` at the local Docker Compose ports, so for local development you mostly just fill in `RESEND_API_KEY`.
+`pnpm bootstrap` does this for you and more: it copies `.env.example`, generates a real `BETTER_AUTH_SECRET`, auto-mints your `HATCHET_CLIENT_TOKEN`, runs the migrations, and mints an ingest-scoped `HOGSEND_API_KEY` data-plane key — see [Installation](/docs/getting-started/installation). The `.env.example` shipped by the scaffold already points `DATABASE_URL` and `REDIS_URL` at the local Docker Compose ports, so for local development you mostly just fill in `RESEND_API_KEY` when you're ready to send real email.
 
 <Callout type="info">
-  Only four variables are required at boot: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, and `HATCHET_CLIENT_TOKEN`. `pnpm bootstrap` supplies all but `RESEND_API_KEY` for you locally. Everything else is optional with a sensible default.
+  Only three variables are required at boot: `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `HATCHET_CLIENT_TOKEN` — and `pnpm bootstrap` supplies all three for you locally. `RESEND_API_KEY` is **optional** (the email provider is swappable, so a Postmark-only deploy boots with no Resend key). Everything else is optional with a sensible default.
 </Callout>
 
 ## Variable reference
@@ -40,19 +40,41 @@ Hogsend uses [Better Auth](https://www.better-auth.com/) for session management 
 | `STUDIO_ADMIN_EMAIL` | No | — | API | First-admin bootstrap. Public sign-up is **disabled**, so the first Studio admin is created from the server. When this is set **and** the user table is empty, the API mints this admin on boot (idempotent — only on a zero-user DB; race-safe across replicas). Unset → the CLI (`hogsend studio admin create`) is the only creation path. See [Operating → Studio](/docs/operating/studio#first-load-create-the-first-admin). |
 | `STUDIO_ADMIN_PASSWORD` | No | auto-generated | API | Password for the `STUDIO_ADMIN_EMAIL` bootstrap. Min 8 chars. When set, it is used verbatim and **never logged**. When omitted (but `STUDIO_ADMIN_EMAIL` is set), the engine auto-generates a strong password and prints it to the server log **once** ("save this, shown once") — rotate it immediately via the Studio forgot/reset flow. |
 
-### Resend
+### Email provider
 
-Email delivery through [Resend](https://resend.com).
+Hogsend sends email through a **swappable provider** — [Resend](https://resend.com) by default. The provider is a dumb `EmailProvider`; the engine owns render → preferences → tracking → `email_sends`, so swapping providers never costs you those features. [Postmark](/docs/guides/email) ships as an installable opt-in, and any other provider works behind the `EmailProvider` contract.
+
+The active provider resolves as `email.defaultProvider` (passed to `createHogsendClient`) → `EMAIL_PROVIDER` → `"resend"`. Registering a provider never activates it; you flip the active id with `EMAIL_PROVIDER`. An unregistered active id throws at boot (it never silently falls back for a non-Resend id).
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `RESEND_API_KEY` | **Yes** | — | Worker | Resend API key for sending emails. From the [Resend dashboard](https://resend.com/api-keys). Starts with `re_`. The scaffold ships a placeholder — set a real key before sending. |
-| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Worker | Default sender address. Must be on a domain verified in your Resend account. |
+| `EMAIL_PROVIDER` | No | `resend` | API, Worker | Active provider id (lowercase `resend`, `postmark`, …). Absent → `resend`. Set to `postmark` to make an installed Postmark provider the active wire. |
+| `EMAIL_FROM` | No | — | Worker | Neutral default-from address. The mailer's default-from resolves as `EMAIL_FROM ?? RESEND_FROM_EMAIL`. Use this (not `RESEND_FROM_EMAIL`) on a non-Resend deploy. |
+
+#### Resend (default)
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `RESEND_API_KEY` | No | — | Worker | Resend API key for sending emails (starts with `re_`). From the [Resend dashboard](https://resend.com/api-keys). Required only when Resend is the active provider — a Postmark-only deploy boots without it. The scaffold ships a placeholder; set a real key before sending. |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Worker | Default sender address when `EMAIL_FROM` is unset. Must be on a domain verified in your Resend account. |
 | `RESEND_WEBHOOK_SECRET` | No | — | API | Signing secret for verifying Resend webhook payloads. Enables delivery tracking (delivered, opened, clicked, bounced, complained). From Resend → Webhooks. Starts with `whsec_`. |
 
 <Callout type="info">
-  Without `RESEND_WEBHOOK_SECRET`, Hogsend still sends email but receives no delivery status updates — sends stay in `sent` and never progress to `delivered`, `opened`, etc.
+  Without `RESEND_WEBHOOK_SECRET`, Hogsend still sends email but receives no delivery status updates — sends stay in `sent` and never progress to `delivered`, `opened`, etc. First-party open/click tracking is engine-owned and the single source of truth regardless of the provider; the webhook only adds delivery/bounce/complaint status.
 </Callout>
+
+#### Postmark (opt-in)
+
+[Postmark](/docs/guides/email) ships as `@hogsend/plugin-postmark` (install with `pnpm add @hogsend/plugin-postmark@latest`). Setting the server token only **builds** the preset — it never changes the active provider on its own; activate it with `EMAIL_PROVIDER=postmark`. Postmark has no HMAC: webhook authenticity is HTTP Basic credentials in the URL, and `verifyWebhook` fails closed when they're unset.
+
+| Variable | Required | Default | Process | Description |
+|---|---|---|---|---|
+| `POSTMARK_SERVER_TOKEN` | No | — | Worker | Postmark server API token. Setting it builds the Postmark provider preset (activate with `EMAIL_PROVIDER=postmark`). |
+| `POSTMARK_MESSAGE_STREAM` | No | — | Worker | Optional Postmark message stream to send on. |
+| `POSTMARK_WEBHOOK_USER` | No | — | API | HTTP Basic username for verifying inbound Postmark webhooks. |
+| `POSTMARK_WEBHOOK_PASS` | No | — | API | HTTP Basic password for verifying inbound Postmark webhooks. Webhook verification **fails closed** when this pair is unset. |
+
+Provider delivery events arrive at `POST /v1/webhooks/email/:providerId` (e.g. `/v1/webhooks/email/postmark`) and are normalized to a provider-neutral `EmailEvent`. `POST /v1/webhooks/resend` is kept as a thin deprecated alias. See [Email](/docs/guides/email) for the full provider-swap walkthrough and the `defineEmailProvider` contract.
 
 ### Hatchet
 
@@ -241,11 +263,16 @@ NODE_ENV=production
 LOG_LEVEL=info
 API_PUBLIC_URL=https://api.yourdomain.com
 BETTER_AUTH_URL=https://api.yourdomain.com
-RESEND_FROM_EMAIL=noreply@yourdomain.com
+RESEND_FROM_EMAIL=noreply@yourdomain.com   # or EMAIL_FROM for a non-Resend provider
+STUDIO_ADMIN_EMAIL=you@yourdomain.com       # bootstraps the first Studio admin on a fresh DB
 ENABLED_JOURNEYS=*
 ```
 
 On Railway, `DATABASE_URL`, `REDIS_URL`, and `PORT` are auto-wired by linking the Postgres and Redis services. See [Deployment](/docs/operating/deployment).
+
+<Callout type="warn">
+  **Redis is required in production.** Better Auth's `secondaryStorage` is wired to the shared engine Redis (sessions, cross-replica rate limits, and password-reset tokens) — gated on a real `REDIS_URL` in the environment. Without it the rate limiters are per-instance rather than global, and reset tokens don't survive a restart. The PostHog property cache and worker heartbeat share the same pool.
+</Callout>
 
 ## Next steps
 

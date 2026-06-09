@@ -156,7 +156,7 @@ One row per click event. Append-only — never updated or deleted.
 
 ## Link Rewriting
 
-Links are rewritten automatically for every email sent through `sendEmail()`. The rewriting happens inside the tracked email pipeline before the HTML reaches Resend.
+Links are rewritten automatically for every email sent through `sendEmail()`. The rewriting happens inside the engine-owned tracked email pipeline (`createTrackedMailer`) before the HTML reaches the email provider — so first-party open/click tracking is the single source of truth regardless of which provider (Resend by default) actually delivers the message.
 
 ### What gets rewritten
 

@@ -87,14 +87,14 @@ The `data` shape is fully determined by `type`. A few representative payloads:
 }
 ```
 
-```json title="email.clicked — emailSendId / resendId / templateKey / to / linkUrl / linkId"
+```json title="email.clicked — emailSendId / messageId / templateKey / to / linkUrl / linkId"
 {
   "id": "msg_9a2b...",
   "type": "email.clicked",
   "timestamp": "2026-06-07T13:01:22.004Z",
   "data": {
     "emailSendId": "550e8400-e29b-41d4-a716-446655440000",
-    "resendId": "re_abc123",
+    "messageId": "re_abc123",
     "templateKey": "welcome",
     "userId": "user_123",
     "to": "ada@example.com",
@@ -127,8 +127,8 @@ The full per-event field lists are the `OutboundPayloads` interface in `packages
 - **`contact.created` / `contact.updated`** carry the full serialized contact (`id`, `externalId`, `email`, `properties`, timestamps).
 - **`contact.deleted`** carries `{ id, externalId, email }`.
 - **`contact.unsubscribed`** carries `{ externalId, email, category, scope }` where `scope` is `"all"` or `"category"`.
-- **`email.sent`** carries `{ emailSendId, resendId, templateKey, to, userId, category, journeyStateId, subject, sentAt }`.
-- **`email.delivered` / `email.opened` / `email.complained`** carry the common email shape `{ emailSendId, resendId, templateKey, userId, to, at }`.
+- **`email.sent`** carries `{ emailSendId, messageId, templateKey, to, userId, category, journeyStateId, subject, sentAt }`. `messageId` is the provider message id (Resend `email_id`, Postmark `MessageID`, …) — it replaced `resendId`, which lingers as a `@deprecated` alias for one minor.
+- **`email.delivered` / `email.opened` / `email.complained`** carry the common email shape `{ emailSendId, messageId, templateKey, userId, to, at }`.
 - **`email.clicked`** adds `linkUrl` and `linkId`; **`email.bounced`** adds `bounceType` and `bounceReason`.
 - **`journey.completed`** carries `{ journeyId, journeyName, stateId, userId, userEmail, completedAt }`.
 - **`bucket.entered` / `bucket.left`** carry `{ bucketId, bucketName, userId, userEmail, transition, entryCount, source }`; `bucket.left` adds `reason`.

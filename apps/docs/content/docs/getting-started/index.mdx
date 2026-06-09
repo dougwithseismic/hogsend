@@ -3,7 +3,7 @@ title: Getting Started
 description: Scaffold a fresh Hogsend app, run it locally against Docker, and watch your first journey fire — from zero to a sending pipeline in a few minutes.
 ---
 
-Hogsend is a code-first lifecycle orchestration engine for teams using PostHog and Resend. You define journeys in TypeScript, connect them to events, and Hogsend handles the durable execution — email sequences, timing, branching, and exit conditions.
+Hogsend is a code-first lifecycle orchestration engine: an event comes in, your code reacts, engagement flows back out. You define journeys in TypeScript, connect them to events (PostHog is the standard source, but any system that can send an HTTP request works), and Hogsend handles the durable execution — email sequences, timing, branching, and exit conditions. Email sends through a swappable provider, [Resend](https://resend.com) by default.
 
 The framework ships as an npm package, `@hogsend/engine`. You scaffold a fresh app that **owns content only** — journeys, email templates, webhook sources, custom routes, and your own database migrations — and pins `@hogsend/engine`. The engine never imports your content; upgrading the framework is `pnpm up`. See [How It Works](/docs/concepts/how-it-works) for the full mental model.
 
@@ -66,7 +66,20 @@ pnpm bootstrap
 
 When it finishes, your stack is up and the Hatchet dashboard is at `http://localhost:8888` (login `admin@example.com` / `Admin123!!`).
 
-## Step 3 — run
+## Step 3 — create the first Studio admin
+
+[Studio](/docs/operating/studio) is login-only — **public sign-up is disabled**, and there is no web create-admin form. The first admin is minted from your server, in one of two ways:
+
+- **The bootstrap prompt.** After migrations, `pnpm bootstrap` offers an interactive "create your first Studio admin" step (it's skippable, and a no-op in CI / non-TTY or when `STUDIO_ADMIN_EMAIL` is already set).
+- **By hand, any time.** Run the scaffold's script, which loads `.env` and calls the CLI:
+
+```bash
+pnpm studio:admin   # → hogsend studio admin create
+```
+
+The CLI writes directly to the database (it needs `DATABASE_URL` + `BETTER_AUTH_SECRET` from the environment — no HTTP, no running API). Prefer the masked password prompt over `--password`, which can leak into shell history. On a deploy, set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`) instead and the API mints the admin on boot into an empty user table. Either way, the password goes only through Better Auth's hasher — never plaintext, never logged. Locked out later? `hogsend studio admin reset`. See [Operating → Studio](/docs/operating/studio#first-load-create-the-first-admin).
+
+## Step 4 — run
 
 The api and worker are two separate processes that share the same codebase. The api serves HTTP and pushes events to Hatchet; the worker executes durable tasks (email sends, journey orchestration, background jobs). Run each in its own terminal:
 
@@ -93,7 +106,7 @@ curl -X POST http://localhost:3002/v1/events \
 - **Node.js 22** — pinned via the scaffold's `.node-version`.
 - **pnpm** (recommended) — or npm/yarn/bun via the `--pm` flag.
 - **Docker** installed and running — for Timescale, Redis, and Hatchet-Lite. `bootstrap` provisions all three.
-- **Resend** account — [sign up free](https://resend.com), grab your API key from the [dashboard](https://resend.com/api-keys) (starts with `re_`). The scaffold writes a placeholder; set a real `RESEND_API_KEY` in `.env` before sending real email.
+- **An email provider** (only when you want real email to land) — Hogsend sends through a swappable provider, [Resend](https://resend.com) by default: [sign up free](https://resend.com), grab your API key (starts with `re_`), and set a real `RESEND_API_KEY` in `.env`. [Postmark](/docs/guides/email) ships as an opt-in alternative, and any other works behind the `EmailProvider` contract. The dependency-free smoke test in [Installation](/docs/getting-started/installation) needs no provider at all.
 - **PostHog** account (optional for first boot) — with a **project API key** (`phc_`) if you want PostHog to drive your events and person properties.
 
 <Callout type="info">

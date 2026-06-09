@@ -60,6 +60,7 @@ The scaffolder then offers to set up your local stack. That step (`pnpm bootstra
 3. **Auto-mints your Hatchet token** from inside the hatchet-lite container and writes `HATCHET_CLIENT_TOKEN` to `.env`. No dashboard trip — local dev is bring-your-own-token-free. (Production is where you bring your own Hatchet token; see [Get a Hatchet token](/docs/getting-started/hatchet).)
 4. **Runs migrations** — both the engine track and your client track.
 5. **Mints an ingest-scoped data-plane key** (`hsk_…`) and writes `HOGSEND_API_KEY` to `.env`, so the `@hogsend/client` SDK and the `hogsend` CLI can talk to your instance immediately.
+6. **Offers to create your first Studio admin** — an interactive, skippable prompt (a no-op in CI / non-TTY, or when `STUDIO_ADMIN_EMAIL` is already set). Public sign-up is disabled, so the first admin is minted from your server — by this prompt, by `hogsend studio admin create`, or by the `STUDIO_ADMIN_EMAIL` env bootstrap on a zero-user database.
 
 Then you run two processes — the api and the worker:
 
@@ -68,7 +69,7 @@ pnpm dev          # HTTP API on http://localhost:3002
 pnpm worker:dev   # Hatchet worker (second terminal)
 ```
 
-The only thing you bring yourself is a `RESEND_API_KEY` when you're ready to send real email. Everything else is set up for you.
+The only thing you bring yourself is an email provider credential — a `RESEND_API_KEY` for the default provider (or a Postmark token if you opt into that) — when you're ready to send real email. Everything else is set up for you.
 
 <Callout type="info">
   The step-by-step walkthrough — scaffold, run against Docker, fire your first journey end-to-end — lives in [Installation](/docs/getting-started/installation). This page is the *why*; that page is the *how*.
@@ -78,7 +79,7 @@ The only thing you bring yourself is a `RESEND_API_KEY` when you're ready to sen
 
 The engine exposes a small set of injection seams. Everything you build flows through them, which is exactly why upgrades stay clean:
 
-- **`createHogsendClient({ journeys, buckets?, lists?, destinations?, email?: { provider?, templates? }, analytics? })`** — build the client (the shared services bag) from your content. `email` carries your `src/emails` `templates` registry plus a swappable `provider`; `analytics` is PostHog by default; `buckets`, `lists`, and `destinations` are first-class arrays. An `overrides` field is a small advanced/test-only escape hatch (replace the whole mailer, swap auth/Hatchet/db).
+- **`createHogsendClient({ journeys, buckets?, lists?, destinations?, email?: { provider?, providers?, defaultProvider?, templates? }, analytics? })`** — build the client (the shared services bag) from your content. `email` carries your `src/emails` `templates` registry plus a swappable `provider` (Resend by default; Postmark ships as an opt-in, and you can register more under `providers`/`defaultProvider`); `analytics` is PostHog by default; `buckets`, `lists`, and `destinations` are first-class arrays. An `overrides` field is a small advanced/test-only escape hatch (replace the whole mailer, swap auth/Hatchet/db).
 - **`createApp(client, { routes?, middleware?, webhookSources?, onError? })`** — mount custom routers, add middleware, serve your webhook sources, replace the error handler.
 - **`createWorker({ container, journeys, buckets?, extraWorkflows? })`** — run the durable worker loop; register extra Hatchet tasks via `extraWorkflows` (the option is `extraWorkflows`, not `workflows`).
 - **`defineJourney({ meta, run })`**, **`defineBucket()`**, **`defineList()`**, **`defineDestination()`**, and **`defineWebhookSource()`** — the authoring helpers for content.
@@ -93,7 +94,7 @@ Every journey is a TypeScript file. Every template is a React component. Every w
 - Write journeys with any logic you can express in TypeScript — loops, external API calls, feature flag checks, A/B tests
 - Fan your lifecycle event stream out to PostHog, Segment, Slack, a CRM, or a warehouse with `defineDestination()` on the durable webhook spine
 - Extend the admin API with your own endpoints through `createApp({ routes })`
-- Swap Resend for another provider by implementing the `EmailProvider` interface and passing `createHogsendClient({ email: { provider } })`
+- Swap the email provider — Resend is the default, Postmark ships as an installable opt-in (`@hogsend/plugin-postmark`), and for anything we don't ship you implement the `EmailProvider` contract yourself with `defineEmailProvider` and pass it via `createHogsendClient({ email: { provider } })`. The provider is a dumb delivery+webhook wire; the engine owns render → preferences → tracking → `email_sends`, so swapping providers never costs you those features
 
 ### By an AI agent
 
@@ -133,14 +134,14 @@ There's no vendor lock-in, no proprietary data format, no "please contact sales 
 
 Hogsend makes choices so you don't have to:
 
-- **PostHog for events** — the webhook source ships as starter content, person properties are fetched automatically, engagement flows back
-- **Resend for email** — fast delivery, developer-friendly API, great deliverability defaults
+- **PostHog as the standard event source** — the webhook source ships as starter content and person properties are fetched automatically, but it's not required to boot; events can also arrive from your own app, any `defineWebhookSource()`, or the public data plane
+- **Resend as the default email provider** — fast delivery, developer-friendly API, great deliverability defaults. The provider is swappable: Postmark ships as an opt-in, and anything else slots in behind the `EmailProvider` contract
 - **Hatchet for durability** — sleeps that survive deploys, automatic retries, event routing
 - **Railway as a paved deploy path** — your scaffolded app runs as two services (api + worker) from a single repo, but the image runs anywhere — see [Deployment](/docs/operating/deployment)
 - **Code over config** — TypeScript journeys, not YAML. React templates, not a template editor.
 - **Consume, don't fork** — the engine is a versioned package, upgraded with `pnpm up`, not a codebase you merge
 
-These opinions get you to a working lifecycle email setup fast. You can swap most of them out through injection points — but you probably won't need to until you've outgrown what this stack can do, which is quite a lot.
+These are defaults, not constraints. You can swap most of them out through injection points — a different email provider, a different analytics backend, extra event sources — but you probably won't need to until you've outgrown what this stack can do, which is quite a lot.
 
 ## The happy path
 

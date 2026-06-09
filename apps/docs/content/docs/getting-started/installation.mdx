@@ -190,9 +190,9 @@ Same trigger in, **different lifecycle — decided by code you can read** (the `
   This entire branch needs **zero external accounts** — no Resend, no PostHog, no verified domain. Docker + the two local processes are everything. If the two trails diverged, the engine, worker, ingest pipeline, Hatchet routing, and your journey code are all wired correctly.
 </Callout>
 
-## 5. Send a real email (Resend)
+## 5. Send a real email (Resend by default)
 
-The `welcome` example journey (`src/journeys/welcome.ts`) is the one that talks to the outside world. It's triggered by `user.created`: it sends the welcome email **immediately**, then `ctx.sleep({ duration: days(2) })` — a durable Hatchet sleep — and only then conditionally sends a nudge.
+The `welcome` example journey (`src/journeys/welcome.ts`) is the one that talks to the outside world. It's triggered by `user.created`: it sends the welcome email **immediately**, then `ctx.sleep({ duration: days(2) })` — a durable Hatchet sleep — and only then conditionally sends a nudge. Hogsend sends through a swappable provider — Resend is the default; [Postmark](/docs/guides/email) is an opt-in alternative, and any other works behind the `EmailProvider` contract. The render, preferences, and first-party tracking are engine-owned, so they come along whichever provider you pick.
 
 Fire its trigger:
 
@@ -211,13 +211,19 @@ Only the **first** welcome email (subject `Welcome — let's get you set up`) is
 
 ### Watch it in Studio
 
-With the app running, open Studio:
+[Studio](/docs/operating/studio) is login-only — **public sign-up is disabled**, and there is no web create-admin form. Mint the first admin from your server before signing in (skip this if you already did it via the `pnpm bootstrap` prompt or `STUDIO_ADMIN_EMAIL`):
+
+```bash
+pnpm studio:admin   # → hogsend studio admin create (prompts for email + password)
+```
+
+The CLI writes straight to the database — it reads `DATABASE_URL` + `BETTER_AUTH_SECRET` from the environment, with no running API needed, and the password goes only through Better Auth's hasher. (On a deploy, set `STUDIO_ADMIN_EMAIL` + optional `STUDIO_ADMIN_PASSWORD` instead and the API mints the admin on boot into an empty user table; locked out later, `hogsend studio admin reset`.) Then open Studio:
 
 ```text
 http://localhost:3002/studio
 ```
 
-On first run Studio asks you to **create an admin login** — set one, then sign in. Then:
+A zero-users instance shows a read-only info screen pointing you back here — no form to fill in. Once an admin exists, sign in. Then:
 
 - **[/studio/sends](http://localhost:3002/studio/sends)** — every email the engine sent, with engagement (opened / clicked) as it happens
 - **[/studio/journeys](http://localhost:3002/studio/journeys)** — each journey and the contacts moving through it

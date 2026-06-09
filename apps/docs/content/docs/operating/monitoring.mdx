@@ -206,7 +206,7 @@ The `channel` field in config is optional -- if omitted, the message goes to the
 }
 ```
 
-**Email** -- send via Resend using your configured sender:
+**Email** -- send through your configured email provider (Resend by default) using your sender address:
 
 ```json
 {
@@ -298,7 +298,7 @@ When a task fails after all retry attempts, it is moved to the dead letter queue
 
 | Source | Common causes |
 |---|---|
-| `email` | Resend API errors, template rendering failures, rate limits |
+| `email` | Provider API errors, template rendering failures, rate limits |
 | `journey` | Journey code errors that exhausted Hatchet retries |
 | `webhook` | Outbound alert webhook delivery failures |
 

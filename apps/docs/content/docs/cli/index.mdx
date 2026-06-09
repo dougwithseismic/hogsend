@@ -51,6 +51,7 @@ The data commands call a running instance's API. Point the CLI at it with global
 | `hogsend campaigns` | Queue a broadcast to a list or bucket, or check its status |
 | [`hogsend webhooks`](/docs/cli/webhooks) | Manage outbound webhook endpoints — create, rotate, test |
 | [`hogsend studio`](/docs/cli/studio) | Serve the bundled Hogsend Studio admin SPA locally |
+| [`hogsend studio admin`](/docs/cli/studio#hogsend-studio-admin--shell-gated-admin-create--recovery) | Create, reset, or list Studio admins directly against the database |
 | [`hogsend setup`](/docs/cli/setup) | Local onboarding for a scaffolded app |
 | [`hogsend skills`](/docs/cli/skills) | Install bundled Claude Code skills into `.claude/skills` |
 | `hogsend upgrade` | Bump `@hogsend/*` deps to latest and refresh Claude Code skills |
@@ -58,6 +59,10 @@ The data commands call a running instance's API. Point the CLI at it with global
 | [`hogsend patch`](/docs/cli/patch) | Patch a package via pnpm's native patch flow |
 
 Run `hogsend <command> --help` for command-specific options, or `hogsend` with no arguments for the root help.
+
+<Callout type="info">
+Public sign-up is disabled, so the first Studio admin is created from your server — run [`hogsend studio admin create`](/docs/cli/studio#hogsend-studio-admin--shell-gated-admin-create--recovery) (it needs `DATABASE_URL` + `BETTER_AUTH_SECRET` in the shell, no running API), or set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`) and the API mints it on boot into an empty user table. There is no setup token and no web create-admin form. Web Studio is login + self-service forgot/reset only.
+</Callout>
 
 ## Output for agents
 

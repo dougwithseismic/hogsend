@@ -3,7 +3,7 @@ title: "Email Operations"
 description: "Track every email from queue to delivery — monitor opens, clicks, bounces, and troubleshoot issues"
 ---
 
-Every email Hogsend sends through Resend is tracked in the database — from initial queue through delivery, opens, clicks, bounces, and complaints. This page covers how to monitor email delivery, investigate issues, and maintain healthy deliverability.
+Every email Hogsend sends is tracked in the database — from initial queue through delivery, opens, clicks, bounces, and complaints. Hogsend sends email through a swappable provider — Resend by default — but tracking, preferences, and the `email_sends` record are engine-owned, so the numbers below look the same no matter which provider delivers the mail. This page covers how to monitor email delivery, investigate issues, and maintain healthy deliverability.
 
 ## Email Send History
 
@@ -52,7 +52,8 @@ curl -H "Authorization: Bearer your-api-key" \
       "id": "email-uuid",
       "journeyStateId": "state-uuid",
       "templateKey": "activation/welcome",
-      "resendId": "resend-id",
+      "messageId": "provider-message-id",
+      "resendId": "provider-message-id",
       "fromEmail": "noreply@hogsend.com",
       "toEmail": "user@acme.com",
       "subject": "Welcome to Hogsend",
@@ -76,6 +77,8 @@ curl -H "Authorization: Bearer your-api-key" \
 }
 ```
 
+`messageId` is the provider message id (Resend `email_id`, Postmark `MessageID`, …); it replaced `resendId`, which lingers as a `@deprecated` alias for one minor — both fields are returned and carry the same value during the deprecation window, so always read `messageId` going forward.
+
 ### Email Status Lifecycle
 
 An email moves through these statuses as delivery progresses:
@@ -91,15 +94,15 @@ queued -> rendered -> sent -> delivered -> opened -> clicked
 |---|---|
 | `queued` | Email task created, waiting for worker to pick it up |
 | `rendered` | Template rendered successfully, ready to send |
-| `sent` | Handed off to Resend for delivery |
-| `delivered` | Resend confirmed the email reached the recipient's mail server |
+| `sent` | Handed off to your email provider (Resend by default) for delivery |
+| `delivered` | The provider confirmed the email reached the recipient's mail server |
 | `opened` | Recipient opened the email (tracked via pixel) |
 | `clicked` | Recipient clicked a tracked link |
 | `bounced` | Email bounced (hard bounce -- invalid address, mailbox does not exist) |
 | `complained` | Recipient marked the email as spam |
-| `failed` | Template rendering or Resend API call failed |
+| `failed` | Template rendering or the provider send call failed |
 
-Open and click tracking depends on the recipient's email client -- some clients block tracking pixels or pre-fetch links, so these numbers are lower bounds.
+First-party open/click tracking is the single source of truth — the engine rewrites links and injects the open pixel itself before handing the HTML to the provider, so `opened`/`clicked` are recorded the same way regardless of provider. `delivered`, `bounced`, and `complained` come from the provider's webhook, normalized to a provider-neutral `EmailEvent`. Open and click tracking still depends on the recipient's email client -- some clients block tracking pixels or pre-fetch links, so these numbers are lower bounds.
 
 ## Email Detail View
 
@@ -116,7 +119,8 @@ curl -H "Authorization: Bearer your-api-key" \
     "id": "email-uuid",
     "journeyStateId": "state-uuid",
     "templateKey": "activation/welcome",
-    "resendId": "resend-id",
+    "messageId": "provider-message-id",
+    "resendId": "provider-message-id",
     "fromEmail": "noreply@hogsend.com",
     "toEmail": "user@acme.com",
     "subject": "Welcome to Hogsend",
@@ -177,12 +181,12 @@ The `events` array above gives you the ready-made timeline; the raw timestamps o
 | Timestamp | What happened |
 |---|---|
 | `createdAt` | Email send record created in the database |
-| `sentAt` | Email handed to Resend API |
-| `deliveredAt` | Resend confirmed delivery to recipient's mail server |
+| `sentAt` | Email handed to your email provider's API |
+| `deliveredAt` | The provider confirmed delivery to the recipient's mail server |
 | `openedAt` | Recipient opened the email |
 | `clickedAt` | Recipient clicked a tracked link |
 
-The gap between `sentAt` and `deliveredAt` is the delivery latency. This is typically under 10 seconds. If you see consistently large gaps, check your Resend sender reputation and DNS configuration.
+The gap between `sentAt` and `deliveredAt` is the delivery latency. This is typically under 10 seconds. If you see consistently large gaps, check your provider's sender reputation and DNS configuration.
 
 ## Email Metrics by Template
 
@@ -231,7 +235,7 @@ curl -H "Authorization: Bearer your-api-key" \
   "http://localhost:3002/v1/admin/metrics/emails?from=2026-05-01T00:00:00Z&to=2026-06-01T00:00:00Z"
 ```
 
-`openRate` is opens ÷ delivered, but falls back to opens ÷ sent when no deliveries are recorded yet (so opens aren't silently zeroed if Resend's `delivered` webhook isn't wired up). `clickToDeliveryRate` (clicks ÷ delivered) is the most robust headline number when open tracking is partially blocked by mail clients.
+`openRate` is opens ÷ delivered, but falls back to opens ÷ sent when no deliveries are recorded yet (so opens aren't silently zeroed if your provider's `delivered` webhook isn't wired up). `clickToDeliveryRate` (clicks ÷ delivered) is the most robust headline number when open tracking is partially blocked by mail clients.
 
 ### Benchmarks
 
@@ -294,7 +298,7 @@ Watch for:
 
 ## Resending Failed Emails
 
-If an email failed due to a transient issue (Resend API timeout, temporary rendering error), you can retry it:
+If an email failed due to a transient issue (provider API timeout, temporary rendering error), you can retry it:
 
 ```bash
 curl -X POST http://localhost:3002/v1/admin/emails/email-uuid/resend \
@@ -314,7 +318,14 @@ Before resending a bounced email, check whether the recipient's address is actua
 
 ## Bounce Tracking and Suppression
 
-Hogsend automatically tracks hard bounces via Resend webhooks. When a bounce is received:
+Hogsend automatically tracks bounces via your provider's webhooks, normalized to a provider-neutral `EmailEvent`. Each bounce carries a `BounceClass` that decides what happens:
+
+- **`permanent`** (hard bounce — invalid address, mailbox does not exist): the email is marked `bounced`, the contact's `bounceCount` is incremented, and once `bounceCount` reaches the threshold (default: 3) the contact is **suppressed** (`suppressed: true`).
+- **`complaint`**: immediate suppression.
+- **`transient`** (soft bounce — mailbox full, temporary failure): recorded but never suppresses.
+- **`unknown`**: recorded conservatively, never suppresses.
+
+So for a permanent bounce:
 
 1. The email record's status is updated to `bounced` with a `bouncedAt` timestamp
 2. The contact's `bounceCount` is incremented in their email preferences
@@ -377,9 +388,9 @@ curl -H "Authorization: Bearer your-api-key" \
 
 If emails show `sent` status but never move to `delivered`:
 
-1. **Check the Resend dashboard** -- the email may be queued on Resend's side
+1. **Check your provider dashboard** -- the email may be queued on the provider's side (the Resend dashboard if you're on the default provider)
 2. **Check the recipient's spam folder** -- the email may have been delivered but classified as spam
-3. **Verify Resend webhooks are working** -- the `delivered` status comes from Resend webhook events. If the webhook is misconfigured, Hogsend will not know about delivery
+3. **Verify provider webhooks are working** -- the `delivered` status comes from your provider's webhook events (delivered to `POST /v1/webhooks/email/:providerId`, normalized to a provider-neutral `EmailEvent`). If the webhook is misconfigured, Hogsend will not know about delivery
 
 ```bash
 # Check the health endpoint -- if Redis is down, webhook processing may be affected

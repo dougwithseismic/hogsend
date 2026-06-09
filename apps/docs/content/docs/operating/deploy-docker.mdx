@@ -10,7 +10,7 @@ Self-hosting with Docker is the **default deploy path**. One [`docker-compose.pr
 - **Docker** with Compose v2 (`docker compose`, not `docker-compose`).
 - **A Hatchet token** — see [Get a Hatchet token](/docs/getting-started/hatchet).
 - **A real `BETTER_AUTH_SECRET`** — `pnpm gen:secret` (`openssl rand -base64 32`).
-- **A `RESEND_API_KEY`** — from the [Resend dashboard](https://resend.com/api-keys).
+- **An email provider** — Hogsend sends email through a swappable provider, Resend by default. The shipped `docker-compose.prod.yml` requires a `RESEND_API_KEY` (from the [Resend dashboard](https://resend.com/api-keys)) and won't start without it. To run Postmark or another provider instead, set `EMAIL_PROVIDER` + the provider's credentials in the env block and relax that requirement — see the [email provider guide](/docs/guides/email).
 
 ## The one image, three run modes
 
@@ -100,6 +100,20 @@ Then put the API behind your domain by pointing a reverse proxy (or DNS) at the 
 API_PUBLIC_URL=https://api.yourdomain.com
 BETTER_AUTH_URL=https://api.yourdomain.com
 ```
+
+## Create the first Studio admin
+
+Public web sign-up is disabled, so the first [Studio](/docs/operating/studio) admin is minted from your server — there is no web create-admin form. The compose stack already runs Redis, which Better Auth needs for sessions, reset tokens, and rate limiting. Two ways to mint the admin:
+
+- **CLI inside the running api container** — it needs `DATABASE_URL` + `BETTER_AUTH_SECRET` (already in the container env):
+
+  ```bash
+  docker compose -f docker-compose.prod.yml exec api hogsend studio admin create --email admin@example.com
+  ```
+
+- **Env bootstrap** — add `STUDIO_ADMIN_EMAIL` (and optionally `STUDIO_ADMIN_PASSWORD`) to the api service env so it mints the admin on boot into an empty user table. Omit the password and the engine auto-generates one and prints it once to the api log.
+
+See [Authentication](/docs/operating/authentication#studio-admin-login) for the full first-admin and recovery story.
 
 ## Validate
 

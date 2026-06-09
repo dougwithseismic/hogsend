@@ -15,10 +15,13 @@ Every deploy target is the **same image plus the same validated env contract** �
 
 ## Before you deploy
 
-Two prerequisites, in order:
+The three **required** env vars are `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `HATCHET_CLIENT_TOKEN`. The prerequisites, in order:
 
 1. **[Get a Hatchet token](/docs/getting-started/hatchet)** — Hogsend's one hard dependency. Get a token from a self-hosted `hatchet-lite`, Hatchet Cloud, or your own engine, and set the three `HATCHET_CLIENT_*` vars.
 2. **A real `BETTER_AUTH_SECRET`** — generate one with `pnpm gen:secret` (`openssl rand -base64 32`). `pnpm bootstrap` does this for you locally; never ship the placeholder.
+3. **Redis** — required in production. Better Auth's `secondaryStorage` (sessions, reset tokens, cross-replica auth rate limiting) gates on a raw `REDIS_URL`; it also backs the PostHog cache.
+4. **An email provider** — Hogsend sends email through a swappable provider, Resend by default. Set `RESEND_API_KEY` + `RESEND_FROM_EMAIL` for Resend, or `EMAIL_PROVIDER=postmark` + the `POSTMARK_*` vars for Postmark. `RESEND_API_KEY` is **optional** — a Postmark-only deploy boots without it.
+5. **A first Studio admin** — public sign-up is disabled, so set `STUDIO_ADMIN_EMAIL` (+ optional `STUDIO_ADMIN_PASSWORD`) and the API mints it on boot into an empty user table, or run `hogsend studio admin create` from a shell. See [Authentication](/docs/operating/authentication#studio-admin-login).
 
 The complete, annotated env contract is in [`.env.example`](https://github.com/dougwithseismic/hogsend/blob/main/apps/api/.env.example) — one file projected from the validated schema in `packages/engine/src/env.ts`, with every var tagged `[required]` / `[default: x]` / `[optional]`. See [Configuration](/docs/getting-started/configuration) for the per-variable reference.
 
@@ -45,7 +48,7 @@ What actually varies between targets is a handful of env values and the TLS stra
 | API + worker | `pnpm dev` / `pnpm worker` on host | `api` + `worker` compose services | two Railway services, same build | your orchestrator |
 | Infra | `docker compose up -d` (infra only) | `docker-compose.prod.yml` (full stack) | Railway services + hatchet-lite | operator-provided |
 | `DATABASE_URL` | `…@localhost:5434/growthhog` | `…@postgres:5432/growthhog` | `*.railway.internal` | your value |
-| `REDIS_URL` | `redis://localhost:6380` | `redis://redis:6379` | `*.railway.internal` | your value |
+| `REDIS_URL` (required in prod) | `redis://localhost:6380` | `redis://redis:6379` | `*.railway.internal` | your value |
 | `HATCHET_CLIENT_HOST_PORT` | `localhost:7077` | `hatchet-lite:7077` | `hatchet-lite.railway.internal:7077` | Cloud / your address |
 | `HATCHET_CLIENT_TLS_STRATEGY` | `none` | `none` | `none` (internal net) | `tls` (Cloud) |
 | `HATCHET_CLIENT_TOKEN` | minted in local lite | minted in local lite | minted in Railway lite | pasted from Cloud / your engine |

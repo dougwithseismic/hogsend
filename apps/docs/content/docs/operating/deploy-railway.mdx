@@ -20,14 +20,15 @@ It stands up six services, pre-wired:
 | **api** | Hono HTTP server (`railway.toml`) — REST, ingestion, auth, `/v1/health` |
 | **worker** | Hatchet worker (`railway.worker.toml`) — durable task execution |
 | **Postgres** | TimescaleDB (Postgres 18) — your primary database |
-| **Redis** | PostHog property cache |
+| **Redis** | **Required** — Better Auth sessions + cross-replica auth rate limiting + reset tokens, PostHog property cache |
 | **hatchet-lite** | Self-hosted workflow engine (the `hatchet-lite` image) |
 | **Hatchet Postgres** | Hatchet's own metadata database |
 
-The template wires everything it can on its own: `DATABASE_URL` and `REDIS_URL` (service references), the Hatchet gRPC address, a freshly generated `BETTER_AUTH_SECRET`, and `API_PUBLIC_URL` / `BETTER_AUTH_URL` derived from the api's Railway domain. Two things still need you after the first deploy:
+The template wires everything it can on its own: `DATABASE_URL` and `REDIS_URL` (service references), the Hatchet gRPC address, a freshly generated `BETTER_AUTH_SECRET`, and `API_PUBLIC_URL` / `BETTER_AUTH_URL` derived from the api's Railway domain. A couple of things still need you after the first deploy:
 
-1. **Resend** — set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` on **both** the api and worker. Until the key is set the api can't pass its `/v1/health` check.
-2. **Hatchet token** (one-time) — Hatchet mints its client token *after* the server boots, so it can't be pre-filled. Open the **hatchet-lite** dashboard → Settings → API Tokens → create one, set it as `HATCHET_CLIENT_TOKEN` on both the api and worker, and redeploy. This is the same single step Hatchet's own Railway template requires. See [Get a Hatchet token](/docs/getting-started/hatchet).
+1. **Hatchet token** (one-time) — Hatchet mints its client token *after* the server boots, so it can't be pre-filled. Open the **hatchet-lite** dashboard → Settings → API Tokens → create one, set it as `HATCHET_CLIENT_TOKEN` on both the api and worker, and redeploy. This is the same single step Hatchet's own Railway template requires. See [Get a Hatchet token](/docs/getting-started/hatchet).
+2. **An email provider** — Hogsend sends email through a swappable provider, Resend by default. For Resend, set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` on **both** the api and worker. For Postmark, set `EMAIL_PROVIDER=postmark` plus the `POSTMARK_*` vars instead. `RESEND_API_KEY` is **optional** now — a Postmark-only deploy boots without it — so the api no longer fails its `/v1/health` check just because no Resend key is set. Set the active provider's credentials before sending real email.
+3. **First Studio admin** — public sign-up is disabled, so set `STUDIO_ADMIN_EMAIL` (and optionally `STUDIO_ADMIN_PASSWORD`) on the api service and the API mints the first admin on boot into an empty user table. Or mint it from a shell with `railway run hogsend studio admin create`. See [Authentication](/docs/operating/authentication#studio-admin-login).
 
 <Callout type="info">
   Bringing a custom domain? Attach it to the api service and update `API_PUBLIC_URL` + `BETTER_AUTH_URL` to match — those build the unsubscribe + tracking links inside outgoing email, so they must be your real public URL.
@@ -59,7 +60,7 @@ Supporting infrastructure:
 | Service | Purpose | Production |
 |---|---|---|
 | **TimescaleDB** (Postgres 18) | Primary database | Railway managed Postgres or a dedicated instance |
-| **Redis** | PostHog property caching | Railway managed Redis |
+| **Redis** | **Required** — Better Auth sessions + reset tokens + cross-replica auth rate limiting, PostHog property caching | Railway managed Redis |
 | **Hatchet-Lite** | Workflow orchestration engine | Self-hosted on Railway (Docker image) |
 
 ## Railway configuration
@@ -138,11 +139,20 @@ Once it is running, **mint an API token from its dashboard** and set it as `HATC
 
 ### Postgres & Redis
 
-Railway's managed Postgres works out of the box; it provides `DATABASE_URL` automatically when you provision and link it. Provision Redis and link it to both services — `REDIS_URL` is set automatically. For internal Railway networking set `HATCHET_CLIENT_TLS_STRATEGY=none`.
+Railway's managed Postgres works out of the box; it provides `DATABASE_URL` automatically when you provision and link it. **Redis is required in production** — Better Auth's `secondaryStorage` (sessions, reset tokens, and cross-replica auth rate limiting) gates on a raw `REDIS_URL`, and it also backs the PostHog property cache. Provision Redis and link it to both services — `REDIS_URL` is set automatically. For internal Railway networking set `HATCHET_CLIENT_TLS_STRATEGY=none`.
 
 ## Environment variables
 
-Set the [required vars](/docs/getting-started/configuration) (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, plus the three `HATCHET_CLIENT_*` values) in your Railway project environment, shared across both services. Set `NODE_ENV=production` to disable `/docs` and `/openapi.json`.
+The three **required** vars are `DATABASE_URL`, `BETTER_AUTH_SECRET`, and `HATCHET_CLIENT_TOKEN` (plus the other `HATCHET_CLIENT_*` connection values). Set them in your Railway project environment, shared across both services. Set `NODE_ENV=production` to disable `/docs` and `/openapi.json`.
+
+A few more you'll typically set on Railway (see the [configuration reference](/docs/getting-started/configuration) for the full contract):
+
+| Variable | Why |
+|---|---|
+| `STUDIO_ADMIN_EMAIL` | Mints the first Studio admin on boot into an empty user table (public sign-up is disabled). Add `STUDIO_ADMIN_PASSWORD` to set it verbatim, else one is auto-generated + printed once. |
+| `RESEND_API_KEY` + `RESEND_FROM_EMAIL` | The default Resend provider. **Optional** — a Postmark-only deploy skips these. |
+| `EMAIL_PROVIDER` + `POSTMARK_*` | Optional — set `EMAIL_PROVIDER=postmark` plus `POSTMARK_SERVER_TOKEN` (and `POSTMARK_WEBHOOK_USER`/`POSTMARK_WEBHOOK_PASS`) to run Postmark instead of Resend. |
+| `API_PUBLIC_URL` + `BETTER_AUTH_URL` | Your real public api URL — they build the unsubscribe + first-party tracking links inside outgoing email. |
 
 ## DNS and Cloudflare
 
@@ -155,8 +165,10 @@ The worker needs no public domain.
 ## Deployment checklist
 
 - [ ] [Get a Hatchet token](/docs/getting-started/hatchet) and deploy Hatchet-Lite
-- [ ] Provision Postgres and Redis, link them to both services
-- [ ] Set required env (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `RESEND_API_KEY`, `HATCHET_CLIENT_*`)
+- [ ] Provision Postgres and Redis (Redis is required), link them to both services
+- [ ] Set required env (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `HATCHET_CLIENT_TOKEN`, `HATCHET_CLIENT_*`)
+- [ ] Set an email provider — `RESEND_API_KEY` + `RESEND_FROM_EMAIL` (default), or `EMAIL_PROVIDER=postmark` + `POSTMARK_*`
+- [ ] Set `STUDIO_ADMIN_EMAIL` to mint the first admin (or run `railway run hogsend studio admin create`)
 - [ ] Set `NODE_ENV=production`, `API_PUBLIC_URL`, `BETTER_AUTH_URL`
 - [ ] Create two services (`railway.toml` for API, `railway.worker.toml` for worker)
 - [ ] **Widen watch paths** so `packages/**` changes trigger redeploys
