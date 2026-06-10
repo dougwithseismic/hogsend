@@ -103,10 +103,10 @@ const sameSet = (a, b) => {
 };
 
 /**
- * Dir names of every publishable `@hogsend/*` package under `packages/`, scanned
- * from disk. Excludes private packages and non-`@hogsend/` names (so
- * `create-hogsend` — its own version line — and `@repo/typescript-config` drop
- * out).
+ * Dir names of every publishable engine-line package under `packages/`, scanned
+ * from disk: the `@hogsend/*` scope plus the bare `hogsend` CLI alias. Excludes
+ * private packages and other names (so `create-hogsend` — its own version line —
+ * and `@repo/typescript-config` drop out).
  */
 function enginePackagesFromDisk() {
   return readdirSync(r("packages"), { withFileTypes: true })
@@ -121,7 +121,7 @@ function enginePackagesFromDisk() {
       }
       return (
         typeof pkg.name === "string" &&
-        pkg.name.startsWith("@hogsend/") &&
+        (pkg.name.startsWith("@hogsend/") || pkg.name === "hogsend") &&
         !pkg.private &&
         pkg.publishConfig?.access === "public"
       );

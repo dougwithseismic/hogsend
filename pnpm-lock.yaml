@@ -426,6 +426,12 @@ importers:
         specifier: ^4.22.3
         version: 4.22.3
 
+  packages/hogsend:
+    dependencies:
+      '@hogsend/cli':
+        specifier: workspace:^
+        version: link:../cli
+
   packages/plugin-posthog:
     dependencies:
       '@hogsend/core':
