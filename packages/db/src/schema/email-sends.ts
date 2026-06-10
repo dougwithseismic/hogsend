@@ -1,5 +1,6 @@
 import {
   index,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -42,6 +43,12 @@ export const emailSends = pgTable(
     // mirrors the user_events idempotency pattern. Nullable: journey/system sends
     // don't set it.
     idempotencyKey: text("idempotency_key"),
+    // Free-form per-send annotations. Set ONLY by test-mode redirected sends
+    // today — `{ testMode: true, originalTo: <real recipient> }` — so Studio can
+    // flag a TEST row and show who the mail was REALLY for. Nullable: normal
+    // (live) sends leave it unset. jsonb (mirrors alert-history.payload) leaves
+    // room for future markers without another migration.
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     ...timestamps,
   },
   (table) => [
