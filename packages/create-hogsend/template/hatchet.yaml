@@ -1,0 +1,12 @@
+# Config for `hatchet worker dev` — runs the worker with hot-reload via the
+# Hatchet CLI's own file watcher (https://docs.hatchet.run). The glob covers
+# ALL of src/ (including brand-new journey files) so adding + registering a
+# journey restarts the worker. After a restart, confirm the new journey id
+# appears in the worker's startup "journeys" log line.
+dev:
+  runCmd: "pnpm tsx --env-file=.env src/worker.ts"
+  files:
+    - "src/**/*.ts"
+    - "src/**/*.tsx"
+    - "!**/node_modules/**"
+  reload: true

@@ -254,11 +254,15 @@ async function main(): Promise<void> {
     }
   }
 
+  // When setup ran, bootstrap already printed the "✓ Ready / Next:" summary —
+  // don't repeat the stack/next-steps block, just close out briefly (keeping
+  // the `cd` hint, which bootstrap can't know about).
+  const cdHint = isCurrentDir(opts) ? "" : `cd ${opts.dir} · `;
   if (interactive) {
     if (!setupDone) note(nextSteps(opts, setupDone), "Next steps");
     outro(
       setupDone
-        ? `${color.green("Done.")} ${color.dim("Stack is up — go write a journey.")}`
+        ? `${color.green("Done.")} ${color.dim(`${cdHint}Docs: ${DOCS}`)}`
         : `${color.green("Scaffolded.")} ${color.dim(`Run the steps above. Docs: ${DOCS}`)}`,
     );
   } else {
@@ -271,13 +275,7 @@ async function main(): Promise<void> {
       : `  Add agent skills later: ${dlxCmd(pm, "hogsend skills add")}`;
     if (setupDone) {
       console.log(`
-  Done. Stack is up. Next:
-
-${cd}    ${dev}          # HTTP API (port 3002)
-    ${worker}   # Hatchet worker (second terminal)
-
-  First journey: src/journeys/welcome.ts — docs at ${DOCS}
-${skillsNote}
+  Done. ${cdHint}Docs: ${DOCS}
 `);
     } else {
       console.log(`

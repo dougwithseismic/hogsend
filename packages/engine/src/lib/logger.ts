@@ -12,7 +12,9 @@ export function createLogger(level: string = "info") {
       winston.format.timestamp(),
       winston.format.errors({ stack: true }),
     ),
-    defaultMeta: { service: "growthhog-api" },
+    // Service label for structured logs. Override per-deploy with SERVICE_NAME;
+    // the neutral default keeps scaffolded apps from inheriting dogfood branding.
+    defaultMeta: { service: process.env.SERVICE_NAME ?? "hogsend" },
     transports: [
       new winston.transports.Console({
         format: winston.format.combine(

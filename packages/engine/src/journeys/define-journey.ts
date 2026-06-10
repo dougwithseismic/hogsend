@@ -267,6 +267,14 @@ export function defineJourney(options: {
           return { stateId, status: "exited" };
         }
 
+        logger.error("Journey run failed", {
+          journeyId: meta.id,
+          journeyName: meta.name,
+          stateId,
+          userId,
+          error: message,
+        });
+
         await hatchet.events.push("journey:failed", {
           journeyId: meta.id,
           stateId,

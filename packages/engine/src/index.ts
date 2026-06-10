@@ -156,6 +156,8 @@ export {
   reportWorkerReady,
   type WorkerReadyInfo,
 } from "./lib/boot.js";
+// --- First-boot data-plane key bootstrap (API process only, mirrors admin) ---
+export { bootstrapApiKeyFromEnv } from "./lib/boot-api-key.js";
 // --- First-admin creation (CLI + boot bootstrap share this scrypt-correct path)
 export { bootstrapAdminFromEnv } from "./lib/bootstrap-admin.js";
 // --- Bucket transition emission (shared by real-time / cron / fast-expiry) ---

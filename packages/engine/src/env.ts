@@ -35,6 +35,14 @@ export const env = createEnv({
     // (the single intended secret-logging exception) — rotate it immediately via
     // the Studio forgot/reset flow. Min length matches better-auth's policy.
     STUDIO_ADMIN_PASSWORD: z.string().min(8).optional(),
+    // --- First-boot data-plane key bootstrap (lib/boot-api-key.ts) ---
+    // When the api_keys table is COMPLETELY empty on API boot (a template
+    // deploy that never ran the local `pnpm bootstrap`), the engine mints one
+    // ingest-scoped key ("bootstrap-ingest") and prints the FULL key ONCE to
+    // the server log — the data-plane sibling of the first-admin password
+    // above. Set "false" to opt out. A string enum (not z.coerce.boolean) so
+    // an explicit "false" actually disables it.
+    HOGSEND_BOOTSTRAP_API_KEY: z.enum(["true", "false"]).default("true"),
     // Extra origins allowed to call the auth endpoints (beyond BETTER_AUTH_URL),
     // comma-separated. Needed when the Studio is served from a different origin
     // than the API — e.g. the `hogsend studio` CLI pointing at a remote instance.

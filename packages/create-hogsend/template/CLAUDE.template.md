@@ -39,6 +39,11 @@ A new email template needs ALL FOUR of: the `.tsx` component, a `registry.ts`
 entry, a `templates.d.ts` augmentation, and a matching `Templates` constant key.
 Miss one and you get a type error or a silent no-send.
 
+After adding a journey, confirm its id appears in the worker's startup
+`journeys: [...]` log line. Dev watchers can miss brand-new files — if the id
+is missing, restart the worker (`pnpm worker:dev`) or events for it will
+silently do nothing.
+
 ## House rules
 
 - **Biome** for lint + format (2-space indent, double quotes, semicolons, 80

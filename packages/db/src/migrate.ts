@@ -78,10 +78,13 @@ export async function migrateTrack(opts: MigrateTrackOptions): Promise<void> {
 
 function createMigrateClient(databaseUrl: string): { client: Client; db: Db } {
   // Single dedicated connection. `idle_timeout: 0` keeps it from dropping
-  // mid-run.
+  // mid-run. `onnotice` swallows Postgres NOTICEs (e.g. `CREATE SCHEMA IF NOT
+  // EXISTS` reporting `schema "drizzle" already exists, skipping`) which
+  // postgres-js otherwise dumps as raw objects mid-output.
   const client = postgres(databaseUrl, {
     max: 1,
     idle_timeout: 0,
+    onnotice: () => {},
     connection: { application_name: "hogsend-migrate" },
   });
   return { client, db: drizzle(client) };

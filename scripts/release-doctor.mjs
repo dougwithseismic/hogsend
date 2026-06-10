@@ -67,6 +67,35 @@ function templateHogsendDeps() {
     .map(([k, v]) => [k.slice("@hogsend/".length), v]);
 }
 
+/**
+ * Union of package names bumped across every pending changeset. Parses the
+ * YAML frontmatter of each `.changeset/*.md` (README excluded) with a plain
+ * regex — frontmatter lines are `"pkg-name": patch|minor|major`. The UNION
+ * matters: a fix changeset + a separate uniform-line changeset is the blessed
+ * pattern, so uniformity is evaluated across all pending changesets together,
+ * never per file.
+ */
+function pendingChangesetBumps() {
+  let files = [];
+  try {
+    files = readdirSync(r(".changeset")).filter(
+      (f) => f.endsWith(".md") && f !== "README.md",
+    );
+  } catch {
+    return new Set();
+  }
+  const bumped = new Set();
+  for (const f of files) {
+    const m = readText(`.changeset/${f}`).match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    if (!m) continue;
+    for (const line of m[1].split(/\r?\n/)) {
+      const pkg = line.match(/^\s*["']?([^"':\s]+)["']?\s*:/);
+      if (pkg) bumped.add(pkg[1]);
+    }
+  }
+  return bumped;
+}
+
 const sameSet = (a, b) => {
   const x = [...a].sort();
   const y = [...b].sort();
@@ -134,6 +163,26 @@ const checks = [
       return distinct.size === 1
         ? null
         : `engine-line versions diverge: ${versions.map(([n, v]) => `${n}@${v}`).join(", ")}`;
+    },
+  },
+  {
+    // Catches the split-version-line trap at PR time instead of letting it
+    // surface as a uniformity failure on the Version Packages PR much later
+    // (hit on PR #121: a changeset bumping only @hogsend/plugin-resend).
+    // create-hogsend and private packages are not engine-line, so bumping
+    // them alone is fine; no pending changesets (Version PR state) passes.
+    name: "pending changesets keep the engine version line uniform",
+    fn: () => {
+      const bumped = pendingChangesetBumps();
+      const lineNames = ENGINE_LINE.map(
+        (n) => readJson(`packages/${n}/package.json`).name,
+      );
+      const touched = lineNames.filter((n) => bumped.has(n));
+      if (touched.length === 0) return null;
+      const missing = lineNames.filter((n) => !bumped.has(n)).sort();
+      return missing.length === 0
+        ? null
+        : `pending changesets bump ${touched.length}/${lineNames.length} engine-line packages but miss: ${missing.join(", ")} — add an explicit changeset bumping the full engine line (see .claude/skills/release)`;
     },
   },
   {
