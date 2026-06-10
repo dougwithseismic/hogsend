@@ -1,5 +1,17 @@
 # @hogsend/engine
 
+## 0.13.1
+
+### Patch Changes
+
+- d632763: Allow a display name in the configured from address: `RESEND_FROM_EMAIL` and `EMAIL_FROM` now accept `Doug at Hogsend <doug@hogsend.com>` as well as a bare address. Sending-domain derivation (test mode, domain status) parses either form.
+- Updated dependencies [d632763]
+  - @hogsend/db@0.13.1
+  - @hogsend/core@0.13.1
+  - @hogsend/email@0.13.1
+  - @hogsend/plugin-posthog@0.13.1
+  - @hogsend/plugin-resend@0.13.1
+
 ## 0.13.0
 
 ### Minor Changes
