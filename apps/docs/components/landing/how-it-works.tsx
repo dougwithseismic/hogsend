@@ -7,13 +7,18 @@ import lifecycleImg from "@/public/images/hogsend-lifecycle.png";
 
 const SCAFFOLD_LINES = [
   { text: "# Scaffold a thin app that pins the engine", tone: "comment" },
-  { text: "$ pnpm dlx create-hogsend@latest my-app", tone: "accent" },
+  {
+    text: "$ pnpm create hogsend@latest my-app --domain mysite.com",
+    tone: "accent",
+  },
   { text: "", tone: "plain" },
   { text: "$ cd my-app", tone: "plain" },
-  { text: "$ pnpm bootstrap   # Docker, .env, token, migrate", tone: "plain" },
-  { text: "$ pnpm dev", tone: "plain" },
+  {
+    text: "$ hogsend dev   # infra, .env, migrate, API + worker",
+    tone: "plain",
+  },
   { text: "", tone: "plain" },
-  { text: "→ API on :3002", tone: "comment" },
+  { text: "→ API on :3002 · Studio at /studio", tone: "comment" },
 ] as const;
 
 const JOURNEY_LINES = [
@@ -48,7 +53,7 @@ const STEPS = [
     n: "01",
     title: "Scaffold your app",
     description:
-      "pnpm dlx create-hogsend@latest emits a thin app that pins @hogsend/engine and holds your content.",
+      "pnpm create hogsend@latest emits a thin app that pins @hogsend/engine and holds your content. Pass --domain to wire your sending domain from the start — every email redirects to your own inbox until the domain verifies, so nothing reaches a customer before you're ready.",
     media: <CodeMock filename="terminal" lines={[...SCAFFOLD_LINES]} />,
   },
   {

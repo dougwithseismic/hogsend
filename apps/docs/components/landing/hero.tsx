@@ -7,11 +7,14 @@ import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
 
-// The one-liner that scaffolds a new app, shown as the hero terminal.
-const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
+// The two commands that scaffold a new app and run the full local stack.
+const INSTALL_COMMAND = "pnpm create hogsend@latest my-app --domain mysite.com";
+const DEV_COMMAND = "cd my-app && hogsend dev";
+const COPY_COMMAND = `${INSTALL_COMMAND}\n${DEV_COMMAND}`;
 
 const TERMINAL_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
   { text: INSTALL_COMMAND, tone: "accent" },
+  { text: DEV_COMMAND, tone: "plain" },
 ];
 
 type HeroProps = {
@@ -29,7 +32,7 @@ export function Hero({ className }: HeroProps): JSX.Element {
       <div className="container-page relative z-10 flex flex-col items-center pt-32 pb-20 text-center">
         <Reveal className="flex flex-col items-center">
           <Eyebrow tone="dark">
-            Open source · self-hosted · yours to run
+            Source-available · self-hosted · yours to run
           </Eyebrow>
 
           <h1 className="mt-7 max-w-4xl font-display text-5xl leading-[1.05] md:text-7xl">
@@ -75,10 +78,15 @@ export function Hero({ className }: HeroProps): JSX.Element {
               className="text-left"
             />
             <CopyButton
-              value={INSTALL_COMMAND}
+              value={COPY_COMMAND}
               className="absolute top-2 right-3"
             />
           </div>
+          <p className="mt-4 text-sm text-white/50">
+            Two commands to a running lifecycle engine — infra, migrations, API,
+            worker, and Studio, with your sending domain already wired. Sends
+            redirect to your own inbox until the domain verifies.
+          </p>
         </Reveal>
       </div>
     </section>
