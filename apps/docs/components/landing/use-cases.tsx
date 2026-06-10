@@ -74,9 +74,9 @@ export function UseCases() {
     <Section id="use-cases">
       <Reveal>
         <SectionHeading
-          eyebrow="What you can build"
+          eyebrow="Use cases"
           title="The emails every product should send"
-          subtitle="Welcome series, trial nudges, win-backs, payment saves — the flows every product needs. Ten ship ready to edit, not blank pages."
+          subtitle="The flows behind every good lifecycle programme — and ten of them ship in the scaffold, ready to edit, not blank pages."
         />
       </Reveal>
 

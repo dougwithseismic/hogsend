@@ -16,10 +16,10 @@ import { UseCases } from "@/components/landing/use-cases";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — Lifecycle email, written in TypeScript",
+    absolute: "Hogsend — Lifecycle email, shipped like a feature",
   },
   description:
-    "Source-available lifecycle email engine for teams on PostHog. Durable TypeScript journeys in your repo, sent through your own Resend or Postmark account. No contact tax.",
+    "Welcome series, trial nudges, win-backs, payment saves — running from your repo on PostHog and product events, sent through your own Resend or Postmark account. Free to self-host.",
 };
 
 // FAQPage structured data mirrors the visible FAQ copy verbatim (it reads
@@ -50,10 +50,10 @@ export default function HomePage() {
       <LogoStrip />
       <ProofStrip />
       <Manifesto />
+      <UseCases />
       <BuildingBlocks />
       <Pillars />
       <FeatureCards />
-      <UseCases />
       <HowItWorks />
       <PoweredByHatchet />
       <Economics />
