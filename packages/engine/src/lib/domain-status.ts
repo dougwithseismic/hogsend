@@ -1,5 +1,6 @@
 import type { DomainStatus, EmailProvider } from "@hogsend/core";
 import type { env as envSchema } from "../env.js";
+import { hostOfFromAddress } from "./from-address.js";
 import type { Logger } from "./logger.js";
 
 /**
@@ -91,13 +92,11 @@ function isPermissionDeniedMessage(message: string): boolean {
   return /\bdomains API (?:request failed with status )?40[13]\b/.test(message);
 }
 
-/** Extract the host part of an email address ("hello@x.com" → "x.com"). */
-function hostPartOf(email: string | undefined): string | null {
-  if (!email) return null;
-  const at = email.lastIndexOf("@");
-  if (at === -1 || at === email.length - 1) return null;
-  return email.slice(at + 1).toLowerCase();
-}
+/**
+ * Extract the host part of a configured from address ("hello@x.com" or
+ * "Name <hello@x.com>" → "x.com") — display-name aware via from-address.ts.
+ */
+const hostPartOf = hostOfFromAddress;
 
 /** The Resend unverified-domain from-address fallback (so a redirected mail
  * still delivers while the real sending domain isn't verified yet). */

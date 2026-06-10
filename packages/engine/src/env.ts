@@ -1,5 +1,13 @@
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
+import { addrSpecOf } from "./lib/from-address.js";
+
+// A from address may be bare ("doug@hogsend.com") or carry a display name
+// ("Doug at Hogsend <doug@hogsend.com>") — both are valid provider wire
+// formats. Domain derivation (lib/from-address.ts) parses either form.
+const fromAddress = z.string().refine((value) => addrSpecOf(value) !== null, {
+  message: 'Must be an email address or "Display Name <email>"',
+});
 
 /**
  * The HTTP API contract version — surfaced in the OpenAPI document
@@ -52,7 +60,7 @@ export const env = createEnv({
     // (container.ts) and the future `emailProvidersFromEnv` preset. With this
     // optional, a Postmark-only deploy boots without a Resend key.
     RESEND_API_KEY: z.string().min(1).optional(),
-    RESEND_FROM_EMAIL: z.string().email().default("noreply@hogsend.com"),
+    RESEND_FROM_EMAIL: fromAddress.default("noreply@hogsend.com"),
     // --- Provider-neutral email config (BYO email provider) ---
     // The active email provider id the container resolves from the
     // EmailProviderRegistry. Absent → "resend" (today's byte-for-byte default).
@@ -60,7 +68,7 @@ export const env = createEnv({
     // Neutral default-from address. The mailer's `defaultFrom` is
     // `EMAIL_FROM ?? RESEND_FROM_EMAIL`, so an unset EMAIL_FROM keeps today's
     // Resend-named default.
-    EMAIL_FROM: z.string().email().optional(),
+    EMAIL_FROM: fromAddress.optional(),
     // The sending domain the domain-status service reports on. OVERRIDES the
     // default derivation (host part of EMAIL_FROM, falling back to the host of
     // RESEND_FROM_EMAIL) — set it when you send from a subaddress domain that
