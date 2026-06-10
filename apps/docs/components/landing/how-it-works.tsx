@@ -1,6 +1,5 @@
 import { CodeMock } from "@/components/ds/mockup";
 import { ProcessSteps } from "@/components/ds/process";
-import { Reveal } from "@/components/ds/reveal";
 import { Section } from "@/components/ds/section";
 
 const SCAFFOLD_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
@@ -83,15 +82,16 @@ const STEPS = [
 
 export function HowItWorks() {
   return (
-    <Section id="how-it-works">
-      <Reveal>
-        <ProcessSteps
-          eyebrow="How it works"
-          title="One loop, not another platform"
-          subtitle="Activity comes in from PostHog or any webhook, the right emails go out through your provider, and what people do with them fans back out to your tools — PostHog, Segment, Slack, or anywhere. Nothing new to buy or keep in sync."
-          steps={STEPS}
-        />
-      </Reveal>
+    <Section id="how-it-works" className="overflow-visible">
+      {/* No Reveal wrapper and no overflow-hidden here: a transform or a
+          non-visible overflow on any ancestor disables the sticky left
+          column inside ProcessSteps. */}
+      <ProcessSteps
+        eyebrow="How it works"
+        title="One loop, not another platform"
+        subtitle="Activity comes in from PostHog or any webhook, the right emails go out through your provider, and what people do with them fans back out to your tools — PostHog, Segment, Slack, or anywhere. Nothing new to buy or keep in sync."
+        steps={STEPS}
+      />
     </Section>
   );
 }

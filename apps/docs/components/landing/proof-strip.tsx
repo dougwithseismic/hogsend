@@ -43,8 +43,8 @@ export function ProofStrip({ className }: { className?: string }) {
         <Reveal>
           <div className="flex flex-col gap-10 lg:flex-row lg:items-center lg:justify-between">
             <p className="max-w-[300px] text-base text-white/80 leading-6">
-              A versioned engine, shipping today — with 10 production journeys
-              in every scaffold.
+              Journeys are TypeScript files in your repo. Everything else
+              follows from that.
             </p>
 
             <div className="flex flex-col gap-8 sm:flex-row sm:gap-0">
