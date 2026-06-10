@@ -71,6 +71,7 @@ const COLUMNS: FooterColumn[] = [
       { label: "npm", href: NPM_URL, external: true },
       { label: "Contact", href: `mailto:${CONTACT_EMAIL}` },
       { label: "License", href: "/pricing#license" },
+      { label: "Privacy", href: "/privacy" },
     ],
   },
 ];
