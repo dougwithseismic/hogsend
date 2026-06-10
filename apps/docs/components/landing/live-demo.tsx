@@ -42,7 +42,11 @@ export function LiveDemo({ className }: { className?: string }): JSX.Element {
               follows in two days unless you deploy first.
             </p>
 
-            <EmailCapture hideHeading className="mt-8 w-full max-w-md" />
+            <EmailCapture
+              hideHeading
+              placement="hero"
+              className="mt-8 w-full max-w-md"
+            />
 
             <p className="mt-5 text-sm text-white/50">
               Same engine, same journey code you scaffold · unsubscribe is one

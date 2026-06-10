@@ -3,11 +3,29 @@ import { NextResponse } from "next/server";
 /** Loose shape check — the upstream ingest API does the real validation. */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const FIRST_NAME_MAX_LENGTH = 80;
+
 /**
- * POST /api/subscribe — accepts { email } and forwards a `docs.subscribed`
- * lifecycle event to the external Hogsend ingest API. The ingest key never
- * leaves the server; without HOGSEND_INGEST_URL + HOGSEND_INGEST_KEY the
- * route answers 503 so the client can fail quietly.
+ * sanitizeFirstName — trims and bounds the optional first name. Anything
+ * odd (not a string, empty, too long) is dropped rather than rejected: a
+ * dodgy first name must never block the subscription itself.
+ */
+function sanitizeFirstName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > FIRST_NAME_MAX_LENGTH) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+/**
+ * POST /api/subscribe — accepts { email, firstName? } and forwards a
+ * `docs.subscribed` lifecycle event to the external Hogsend ingest API,
+ * carrying the first name as a contact property so journey templates can
+ * greet by name. The ingest key never leaves the server; without
+ * HOGSEND_INGEST_URL + HOGSEND_INGEST_KEY the route answers 503 so the
+ * client can fail quietly.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   const ingestUrl = process.env.HOGSEND_INGEST_URL;
@@ -21,9 +39,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   let email: unknown;
+  let firstName: string | undefined;
   try {
-    const body = (await request.json()) as { email?: unknown };
+    const body = (await request.json()) as {
+      email?: unknown;
+      firstName?: unknown;
+    };
     email = body?.email;
+    firstName = sanitizeFirstName(body?.firstName);
   } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
@@ -46,8 +69,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         name: "docs.subscribed",
         email: normalizedEmail,
         eventProperties: { source: "docs-site" },
-        contactProperties: {},
-        lists: { "product-updates": true },
+        contactProperties: firstName ? { firstName } : {},
+        // Marketing list membership is NOT set here — product-updates is
+        // opt-in from the welcome email's preference centre (unbundled
+        // consent: the form only buys you the journey it advertises).
       }),
     });
 
