@@ -161,13 +161,14 @@ SMTP configured).
 
 ## `hogsend-api` variables (as configured)
 
-3 required user-inputs + 12 pre-configured:
+3 required user-inputs + 13 pre-configured:
 
 | Variable | Value | Kind |
 |---|---|---|
 | `RESEND_API_KEY` | *(empty)* | required input |
-| `STUDIO_ADMIN_EMAIL` | *(empty)* | required input — first Studio admin, minted on boot into an empty user table; one-time password printed to the deploy log, rotate via forgot-password |
+| `STUDIO_ADMIN_EMAIL` | *(empty)* | required input — first Studio admin, minted on boot into an empty user table; password is `STUDIO_ADMIN_PASSWORD` |
 | `HATCHET_CLIENT_TOKEN` | *(empty)* | required input (mint post-deploy) |
+| `STUDIO_ADMIN_PASSWORD` | `${{secret(24)}}` | generated — visible in the service's Variables tab so the deployer can actually find it (the old auto-generate-and-print-to-deploy-log flow was undiscoverable) |
 | `API_PUBLIC_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` | pre-configured |
 | `BETTER_AUTH_URL` | `https://${{RAILWAY_PUBLIC_DOMAIN}}` | pre-configured |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | reference |
@@ -214,6 +215,14 @@ engine mints it on boot into an empty user table from this var (auto-generating 
 one-time password it prints once to the deploy log). The template was then
 republished via the **Update** flow — which is what invalidated the old short
 `/deploy/LxSCyR` link in favor of the stable slug (see "Which template").
+
+`STUDIO_ADMIN_PASSWORD = ${{secret(24)}}` was added later (2026-06-10) after
+dogfooding proved the print-to-deploy-log password is undiscoverable: the line
+scrolls away under deploy noise and nobody thinks to grep the FIRST deployment's
+logs for it. With the template generating the password as a variable, it sits
+permanently readable in the api service's Variables tab. The engine's
+`bootstrap-admin` precedence already handled this (explicit env password wins
+over auto-generate), so no engine change was needed.
 
 ## Follow-ups
 
