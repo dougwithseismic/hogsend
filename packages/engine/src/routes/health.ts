@@ -150,12 +150,23 @@ async function queryRecentActivity(db: Database): Promise<Activity> {
   }
 }
 
+// A component that can't answer quickly IS down for healthcheck purposes —
+// an unreachable Redis otherwise stalls the probe on ioredis reconnect
+// backoff (each successive ping waits longer), slowing /v1/health itself.
+const COMPONENT_TIMEOUT_MS = 1500;
+
 async function checkComponent(
   fn: () => Promise<void>,
 ): Promise<{ status: "up" | "down"; latencyMs: number }> {
   const start = performance.now();
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error("component check timed out")),
+      COMPONENT_TIMEOUT_MS,
+    ).unref?.(),
+  );
   try {
-    await fn();
+    await Promise.race([fn(), timeout]);
     return {
       status: "up",
       latencyMs: Math.round(performance.now() - start),
