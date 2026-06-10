@@ -2,6 +2,7 @@
   "title": "CLI Reference",
   "pages": [
     "index",
+    "dev",
     "doctor",
     "journeys",
     "contacts",
@@ -9,6 +10,7 @@
     "events",
     "webhooks",
     "studio",
+    "domain",
     "setup",
     "skills",
     "eject",

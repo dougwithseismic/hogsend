@@ -153,6 +153,12 @@ Journeys are running but emails are not being delivered.
 
 Hogsend sends email through a swappable provider — Resend by default. The fixes below name the default Resend env vars; if you swapped in another provider (Postmark, or your own via the `EmailProvider` contract), check that provider's credentials instead. See [Sending Email](/docs/guides/email) for the swap details.
 
+### Every email arrives at one address
+
+**Symptom:** Emails send fine, but they all land in a single inbox (yours) with a `[TEST → …]` subject prefix — real recipients get nothing.
+
+**Fix:** That's [test mode](/docs/operating/test-mode) — the engine redirects every send while the sending domain is unverified (or while `HOGSEND_TEST_MODE=true`). Verify the domain with [`hogsend domain check`](/docs/cli/domain) and sends go live within a minute; `hogsend domain status` shows the banner and the reason.
+
 ### Invalid provider API key
 
 **Symptom:** Emails fail immediately with a provider API error. Email status is `failed`.
@@ -163,7 +169,7 @@ Hogsend sends email through a swappable provider — Resend by default. The fixe
 
 **Symptom:** Resend returns a domain verification error. Emails fail with status `failed`.
 
-**Fix:** The domain in `RESEND_FROM_EMAIL` must be verified in your Resend account. Go to [Resend > Domains](https://resend.com/domains) and add your sending domain. Follow Resend's instructions to add the required DNS records (SPF, DKIM, DMARC).
+**Fix:** The sending domain must be verified with your provider. The quickest path is the CLI: [`hogsend domain add mysite.com`](/docs/cli/domain) registers it and prints the DNS records formatted for your DNS host (auto-applied on Cloudflare/Vercel when a token is set), then `hogsend domain check` polls until verified. Or do it by hand in [Resend > Domains](https://resend.com/domains) (SPF, DKIM, DMARC). Until it verifies, [test mode](/docs/operating/test-mode) keeps sends safe by redirecting them to your own inbox.
 
 If you are using the default `noreply@hogsend.com`, you need to verify `hogsend.com` in Resend, which is only possible if you control that domain.
 

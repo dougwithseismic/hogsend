@@ -50,6 +50,9 @@ The active provider resolves as `email.defaultProvider` (passed to `createHogsen
 |---|---|---|---|---|
 | `EMAIL_PROVIDER` | No | `resend` | API, Worker | Active provider id (lowercase `resend`, `postmark`, …). Absent → `resend`. Set to `postmark` to make an installed Postmark provider the active wire. |
 | `EMAIL_FROM` | No | — | Worker | Neutral default-from address. The mailer's default-from resolves as `EMAIL_FROM ?? RESEND_FROM_EMAIL`. Use this (not `RESEND_FROM_EMAIL`) on a non-Resend deploy. |
+| `EMAIL_DOMAIN` | No | host part of `EMAIL_FROM` (falling back to `RESEND_FROM_EMAIL`) | API, Worker | The sending domain the [domain-status service](/docs/cli/domain) reports on, and the domain [test mode](/docs/operating/test-mode)'s `auto` arming keys on. `create-hogsend --domain` writes it for you. Set it explicitly when you send from a subaddress domain that differs from the one registered at the provider. |
+| `HOGSEND_TEST_MODE` | No | `auto` | API, Worker | `auto` \| `true` \| `false`. Controls the [test-mode](/docs/operating/test-mode) send redirect. `auto` redirects only while the active provider supports domains **and** `EMAIL_DOMAIN` is set **and** unverified (fail-open: a provider outage never silently redirects prod mail; no `EMAIL_DOMAIN` ⇒ stays live). `true` always redirects; `false` never does. |
+| `HOGSEND_TEST_EMAIL` | No | falls back to `STUDIO_ADMIN_EMAIL` | API, Worker | The safe inbox every redirected send is delivered to while test mode is active. When **neither** resolves while active, the send is blocked (recorded as `failed`, never delivered to the real recipient). |
 
 #### Resend (default)
 

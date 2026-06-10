@@ -29,6 +29,12 @@ Interactive local onboarding for a scaffolded Hogsend app — a standalone CLI h
   user table.
 </Callout>
 
+<Callout type="info">
+  Want setup **and** run in one command? [`hogsend dev`](/docs/cli/dev) is the superset:
+  it runs these same steps (skipping any infra that's already up), then spawns the
+  API + worker, waits for health, and prints the local URLs.
+</Callout>
+
 ```bash
 hogsend setup [--cwd <dir>] [--yes] [--json]
 ```

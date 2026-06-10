@@ -9,35 +9,44 @@ The framework ships as an npm package, `@hogsend/engine`. You scaffold a fresh a
 
 ## The spine
 
-A few commands take you from nothing to a running, sending app:
+Two commands take you from nothing to a running, sending app:
 
 ```bash
-pnpm dlx create-hogsend@latest my-app   # scaffold
+pnpm create hogsend@latest my-app --domain mysite.com   # scaffold + wire your sending domain
 cd my-app
-pnpm bootstrap                           # Docker + .env + Hatchet token + migrate
+pnpm hogsend dev                                        # infra + .env + migrate + API + worker, one command
 ```
 
-Then run the two processes (in separate terminals):
+`--domain` writes `EMAIL_FROM=hello@mysite.com` + `EMAIL_DOMAIN=mysite.com` into the scaffold's env, and the create flow offers to run local setup (Docker, Hatchet token, data-plane key, migrations) for you. [`hogsend dev`](/docs/cli/dev) then runs everything from one terminal — and prints the URLs when the API is healthy, including Studio at `http://localhost:3002/studio`. (`hogsend` is the bundled `@hogsend/cli`; `pnpm add -g @hogsend/cli` if you'd rather drop the `pnpm` prefix.)
+
+Fire an event and a journey runs:
 
 ```bash
-pnpm dev          # HTTP API on http://localhost:3002
-pnpm worker:dev   # Hatchet worker (durable task execution)
+pnpm hogsend dev --fire test.signup --email you@example.com   # from a second terminal
 ```
 
-That's it — fire an event at `POST /v1/events` and a journey runs. [Installation](/docs/getting-started/installation) walks the whole loop end to end, including your first journey.
+Then watch it move through [Studio](/docs/operating/studio). [Installation](/docs/getting-started/installation) walks the whole loop end to end, including your first journey.
+
+<Callout type="info">
+  **Sends are safe by default.** With `HOGSEND_TEST_MODE=auto` (the default), every email is redirected to your own inbox — subject prefixed `[TEST → real@recipient]` — until your sending domain verifies. You can exercise real journeys and real sends from minute one without a single message reaching a customer. See [Test mode](/docs/operating/test-mode) and [hogsend domain](/docs/cli/domain).
+</Callout>
+
+Prefer the pieces one at a time? `pnpm bootstrap` (Docker + `.env` + Hatchet token + migrate) followed by `pnpm dev` and `pnpm worker:dev` in two terminals is the manual equivalent — both paths are covered below.
 
 ## Step 1 — scaffold
 
 `create-hogsend` copies a fresh content-only app and pins the current engine version:
 
 ```bash
-pnpm dlx create-hogsend@latest my-app
+pnpm create hogsend@latest my-app --domain mysite.com
 ```
+
+`--domain` wires your sending domain at scaffold time — `EMAIL_FROM=hello@mysite.com` + `EMAIL_DOMAIN=mysite.com` land in `env.example` (and the bootstrap-copied `.env` inherits them). Skip it and the env keeps a commented placeholder block to fill in later. With `--domain` and no app name, the name defaults to the first domain label (`mysite`).
 
 Use `.` to scaffold into the current folder, and pass `--pm npm|yarn|bun` to switch package managers (default `pnpm`). Run it with no app name in a terminal for an interactive setup, or pass `--yes` to accept every default — scaffold, install, **and** bootstrap — with no prompts:
 
 ```bash
-pnpm dlx create-hogsend@latest my-app --yes
+pnpm create hogsend@latest my-app --domain mysite.com --yes
 ```
 
 The scaffold installs dependencies for you and initializes a git repo. It also drops a `.claude/skills/` tree and a tailored `CLAUDE.md` so Claude Code can author journeys, emails, and buckets with you (skip with `--no-skills`).
@@ -64,7 +73,7 @@ pnpm bootstrap
   Locally, the Hatchet token is auto-minted by `bootstrap`. The bring-your-own-token contract applies only to production — Hatchet Cloud or a self-hosted engine. See [Get a Hatchet token](/docs/getting-started/hatchet) for the production path.
 </Callout>
 
-When it finishes, your stack is up and the Hatchet dashboard is at `http://localhost:8888` (login `admin@example.com` / `Admin123!!`).
+When it finishes, your stack is up and the Hatchet dashboard is at `http://localhost:8888` (login `admin@example.com` / `Admin123!!`). On every day after the first, [`hogsend dev`](/docs/cli/dev) reuses all of this — it detects the running containers and the minted credentials, and just runs the app.
 
 ## Step 3 — create the first Studio admin
 
@@ -81,7 +90,15 @@ The CLI writes directly to the database (it needs `DATABASE_URL` + `BETTER_AUTH_
 
 ## Step 4 — run
 
-The api and worker are two separate processes that share the same codebase. The api serves HTTP and pushes events to Hatchet; the worker executes durable tasks (email sends, journey orchestration, background jobs). Run each in its own terminal:
+One command runs the whole local stack:
+
+```bash
+pnpm hogsend dev
+```
+
+[`hogsend dev`](/docs/cli/dev) detects the infra bootstrap brought up (skipping `docker compose up` when it's already running), checks `.env`, runs migrations, spawns the API and the worker as prefixed child processes, waits for `GET /v1/health`, and prints the local URLs — API, Studio, Hatchet dashboard. Ctrl+C stops everything.
+
+The api and worker are two separate processes that share the same codebase: the api serves HTTP and pushes events to Hatchet; the worker executes durable tasks (email sends, journey orchestration, background jobs). Prefer to run them by hand? Each in its own terminal:
 
 ```bash
 pnpm dev          # HTTP API on http://localhost:3002
@@ -90,23 +107,37 @@ pnpm worker:dev   # Hatchet worker (second terminal)
 
 In development the api serves interactive docs at `http://localhost:3002/docs` (Scalar UI) and the OpenAPI spec at `/openapi.json`. Health is at `GET /v1/health`. Both are disabled when `NODE_ENV=production`.
 
-The first journey to edit is `src/journeys/welcome.ts`. Fire an event at it and watch the worker pick it up:
+The first journey to edit is `src/journeys/welcome.ts`. Fire an event at it and watch the worker pick it up — `hogsend dev --fire` from a second terminal, or the raw curl:
 
 ```bash
+pnpm hogsend dev --fire user.created --email you@example.com
+# equivalent:
 curl -X POST http://localhost:3002/v1/events \
   -H "Authorization: Bearer $HOGSEND_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{ "name": "user_signed_up", "email": "you@example.com" }'
+  -d '{ "name": "user.created", "email": "you@example.com" }'
 ```
 
 [Installation](/docs/getting-started/installation) covers this end to end, including authoring the journey itself.
+
+## Step 5 — verify your domain
+
+Until your sending domain verifies, [test mode](/docs/operating/test-mode) redirects every email to your own inbox — so nothing above could reach a real customer. When you're ready to send live, verify the domain from the CLI (it talks to your running instance's admin API; you'll need an admin key — see [connecting](/docs/cli#connecting-to-an-instance)):
+
+```bash
+pnpm hogsend domain status              # where am I? (state, records, test-mode banner)
+pnpm hogsend domain add mysite.com      # register with the provider, print DNS records
+pnpm hogsend domain check               # poll every 15s until verified
+```
+
+`add` detects where your DNS lives (Cloudflare, Vercel, Route 53, GoDaddy, Namecheap, Porkbun, Google Domains) via NS lookup, prints the records formatted for that host's panel with a deep link — and on Cloudflare or Vercel it offers to **apply the records for you** when a `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN` is set. `check` polls until verified; test mode auto-exits within 60 seconds of DNS verifying, no restart needed. Full reference: [hogsend domain](/docs/cli/domain).
 
 ## Prerequisites
 
 - **Node.js 22** — pinned via the scaffold's `.node-version`.
 - **pnpm** (recommended) — or npm/yarn/bun via the `--pm` flag.
 - **Docker** installed and running — for Timescale, Redis, and Hatchet-Lite. `bootstrap` provisions all three.
-- **An email provider** (only when you want real email to land) — Hogsend sends through a swappable provider, [Resend](https://resend.com) by default: [sign up free](https://resend.com), grab your API key (starts with `re_`), and set a real `RESEND_API_KEY` in `.env`. [Postmark](/docs/guides/email) ships as an opt-in alternative, and any other works behind the `EmailProvider` contract. The dependency-free smoke test in [Installation](/docs/getting-started/installation) needs no provider at all.
+- **An email provider** (needed to verify a domain and send real mail — [test mode](/docs/operating/test-mode) works before that) — Hogsend sends through a swappable provider, [Resend](https://resend.com) by default: [sign up free](https://resend.com), grab your API key (starts with `re_`), and set a real `RESEND_API_KEY` in `.env`. [Postmark](/docs/guides/email) ships as an opt-in alternative, and any other works behind the `EmailProvider` contract. The dependency-free smoke test in [Installation](/docs/getting-started/installation) needs no provider at all.
 - **PostHog** account (optional for first boot) — with a **project API key** (`phc_`) if you want PostHog to drive your events and person properties.
 
 <Callout type="info">
@@ -120,4 +151,5 @@ curl -X POST http://localhost:3002/v1/events \
   <Card title="Configuration" href="/docs/getting-started/configuration" />
   <Card title="PostHog Webhook Setup" href="/docs/getting-started/posthog-setup" />
   <Card title="Journeys" href="/docs/guides/journeys" />
+  <Card title="Hogsend for AI agents" href="/docs/agents" />
 </Cards>

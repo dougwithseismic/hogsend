@@ -5,6 +5,8 @@ description: Manage the Claude Code skills bundled with @hogsend/cli — list th
 
 Manage the Claude Code skills bundled with `@hogsend/cli`. Bundled skills teach agents how to drive the hogsend CLI; `add` copies them into your project's `./.claude/skills/<name>/` so Claude Code can discover them.
 
+The bundle includes two flagship flows for working **outside** a Hogsend app: `hogsend-integrate` (wire an existing product codebase to a running instance via `@hogsend/client`) and `hogsend-migrate` (migrate off Loops, Customer.io, or Resend Broadcasts with a dual-write cutover). See [Hogsend for AI agents](/docs/agents) for the full catalog, and [`/llms.txt`](https://docs.hogsend.com/llms.txt) for the stable machine entrypoint.
+
 ```bash
 hogsend skills <subcommand> [options]
 ```

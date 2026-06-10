@@ -1,0 +1,95 @@
+---
+title: hogsend domain
+description: Set up and verify your sending domain from the CLI — register it with the email provider, get DNS records formatted for your DNS host, auto-apply them on Cloudflare/Vercel, and poll until verified.
+---
+
+Manage the sending domain through the **running instance's** admin routes (`/v1/admin/domain`) — provider API keys never touch the CLI. Requires an admin key (`--admin-key` / `HOGSEND_ADMIN_KEY`).
+
+```bash
+hogsend domain <subcommand> [options]
+```
+
+| Subcommand | Description |
+|---|---|
+| `add <domain>` | Register the domain with the email provider, then print the DNS records formatted for **your** DNS host (detected via NS lookup) with a panel deep link. Offers to apply the records automatically when a `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN` is set. |
+| `check [<domain>]` | Trigger a provider verification pass, then poll status every 15 s until verified (exit 0) or timeout (exit 1). |
+| `status` | Show domain, provider, verification state, DNS records, and the test-mode banner. |
+
+All subcommands support `--json` for a single machine-readable document, plus the global `--url` / `--admin-key` flags.
+
+## `hogsend domain add <domain>`
+
+```bash
+hogsend domain add mysite.com
+hogsend domain add mysite.com --apply
+```
+
+Registers the domain with the active provider (idempotent — an existing registration falls through to a lookup), then renders the required DNS records as a table with host-specific guidance and a deep link to your DNS panel.
+
+| Option | Description |
+|---|---|
+| `--apply` | Apply records via the DNS host API without prompting. |
+| `--no-apply` | Never apply records (skip the prompt). |
+
+### DNS host detection
+
+The CLI resolves your domain's NS records and recognises **Cloudflare, Vercel, AWS Route 53, GoDaddy, Namecheap, Porkbun, and Google Domains** — anything else gets generic guidance. Detection shapes the output: Cloudflare gets the "DNS only (grey cloud)" warning, Namecheap and GoDaddy get record names rewritten **relative** to the domain (the way their panels expect them), and each known host gets a deep link straight to the right DNS page. Detection is best-effort — a failed lookup never blocks the command.
+
+### Auto-apply (Cloudflare / Vercel)
+
+When the detected host is Cloudflare or Vercel **and** the matching credential is present in the CLI's environment, `add` offers to write the records for you:
+
+| DNS host | Env var(s) |
+|---|---|
+| Cloudflare | `CLOUDFLARE_API_TOKEN` (needs DNS edit on the zone) |
+| Vercel | `VERCEL_TOKEN`, plus `VERCEL_TEAM_ID` for team-owned domains |
+
+These are read from the CLI's own environment only — they are never sent to, or validated by, the engine. In a non-interactive shell the records are never written without an explicit `--apply`.
+
+## `hogsend domain check [<domain>]`
+
+```bash
+hogsend domain check
+hogsend domain check --timeout 600
+hogsend domain check --once --json
+```
+
+Triggers a provider-side verification pass (`POST /v1/admin/domain/verify` — providers without an explicit verify fall back to a status fetch), then polls with a per-record tick view every 15 s until the domain verifies or the timeout elapses.
+
+| Option | Description |
+|---|---|
+| `--timeout <s>` | Give up after this many seconds (default 300). |
+| `--once` | Poll exactly once; exit per the current state. |
+
+Verification always runs against the instance's **configured** sending domain (`EMAIL_DOMAIN` / `EMAIL_FROM`); passing a different positional prints a mismatch note rather than silently checking the wrong domain. With no domain configured at all, `check` fails with a pointer to `hogsend domain add`.
+
+<Callout type="info">
+  Verifying the domain is also how you exit [test mode](/docs/operating/test-mode): the engine re-checks an unverified domain every 60 s, so sends go live within a minute of `check` reporting verified — no restart, no flag change.
+</Callout>
+
+## `hogsend domain status`
+
+```bash
+hogsend domain status
+hogsend domain status --refresh
+hogsend domain status --json
+```
+
+Shows the domain, provider, verification state, and per-record DNS status, plus a **TEST MODE** banner when sends are being redirected (with the redirect target and the reason). When the domain is verified and test mode is off, it prints `✓ sends live`.
+
+| Option | Description |
+|---|---|
+| `--refresh` | Bypass the server-side cache (forces a provider call). |
+
+## Provider support
+
+Domain management works with any provider that implements the optional `domains` capability — both bundled providers, **Resend and Postmark**, do (Postmark needs the account-level `POSTMARK_ACCOUNT_TOKEN`, not just the server token). When the active provider has no domains capability, the write commands return the engine's 501 `provider_unsupported` and the CLI tells you to verify the domain in the provider's own dashboard; `status` still works and reports `supported: false`.
+
+## Examples
+
+```bash
+hogsend domain add mysite.com
+hogsend domain add mysite.com --apply
+hogsend domain check --timeout 600
+hogsend domain status --json
+```
