@@ -1,31 +1,38 @@
 import type { JSX } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Reveal } from "@/components/ds/reveal";
-import { Section } from "@/components/ds/section";
 import { EmailCapture } from "@/components/landing/email-capture";
+import { cn } from "@/lib/cn";
 
 /**
  * LiveDemo — the section directly under the hero: the product demonstrating
  * itself. The form feeds a stock create-hogsend app running in production;
  * subscribing fires the docs.subscribed event, the welcome journey runs, and
- * the email arrives from hello@hogsend.com. One bordered crimzon card with a
- * subtle accent aura, copy centred, the shared EmailCapture inside.
+ * the email arrives from hello@hogsend.com. The crimzon card fills the whole
+ * 1200px frame box edge-to-edge (no card-within-a-box inset), with the subtle
+ * accent aura, copy centred, the shared EmailCapture inside.
  */
 export function LiveDemo({ className }: { className?: string }): JSX.Element {
   return (
-    <Section id="live-demo" className={className}>
-      <Reveal>
-        <div className="relative overflow-hidden rounded-md border border-white/10 bg-[#070303] px-6 py-12 md:px-12 md:py-16">
-          {/* Subtle red aura rising from the bottom edge of the card. */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "radial-gradient(60% 80% at 50% 100%, rgba(246,72,56,0.14), rgba(246,72,56,0.04) 50%, transparent 75%)",
-            }}
-          />
+    <section
+      id="live-demo"
+      className={cn(
+        "relative overflow-hidden border-hairline-faint border-t text-white",
+        className,
+      )}
+    >
+      <div className="relative mx-auto w-full max-w-[75rem] overflow-hidden bg-[#070303] px-6 py-16 md:px-12 md:py-24">
+        {/* Subtle red aura rising from the bottom edge of the card. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(60% 80% at 50% 100%, rgba(246,72,56,0.14), rgba(246,72,56,0.04) 50%, transparent 75%)",
+          }}
+        />
 
+        <Reveal>
           <div className="relative mx-auto flex max-w-2xl flex-col items-center text-center">
             <Eyebrow className="mb-4">Live demo</Eyebrow>
 
@@ -53,8 +60,8 @@ export function LiveDemo({ className }: { className?: string }): JSX.Element {
               click
             </p>
           </div>
-        </div>
-      </Reveal>
-    </Section>
+        </Reveal>
+      </div>
+    </section>
   );
 }
