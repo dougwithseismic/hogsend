@@ -20,6 +20,12 @@ export interface StepResult {
 
 export const SECRET_KEY = "BETTER_AUTH_SECRET";
 export const PLACEHOLDER_PREFIX = "change-me";
+/**
+ * Placeholder prefixes that mark a scaffold/example value, never a real secret:
+ * `change-me…` (create-hogsend template) and `REPLACE_ME…` (the dogfood
+ * apps/api `.env.example`, e.g. `REPLACE_ME_RUN_pnpm_gen:secret`).
+ */
+const PLACEHOLDER_PREFIXES = [PLACEHOLDER_PREFIX, "REPLACE_ME"] as const;
 
 /** Generate a 64-char hex secret (32 bytes) for BETTER_AUTH_SECRET. */
 export function generateSecret(): string {
@@ -109,7 +115,7 @@ export function ensureAuthSecret(cwd: string): StepResult {
   const isPlaceholder =
     current === undefined ||
     current === "" ||
-    current.startsWith(PLACEHOLDER_PREFIX);
+    PLACEHOLDER_PREFIXES.some((prefix) => current.startsWith(prefix));
 
   if (!isPlaceholder) {
     return {

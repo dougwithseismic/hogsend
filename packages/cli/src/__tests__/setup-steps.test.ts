@@ -98,6 +98,24 @@ describe("ensureAuthSecret", () => {
     expect(raw).toContain("PORT=3002");
   });
 
+  it("replaces a REPLACE_ME placeholder (the dogfood .env.example style)", () => {
+    // apps/api/.env.example ships BETTER_AUTH_SECRET=REPLACE_ME_RUN_pnpm_gen:secret —
+    // it must be treated as a placeholder, not preserved as an invalid secret.
+    writeFileSync(
+      join(cwd, ".env"),
+      "BETTER_AUTH_SECRET=REPLACE_ME_RUN_pnpm_gen:secret\n",
+    );
+    const res = ensureAuthSecret(cwd);
+    expect(res).toEqual({
+      step: "secret",
+      status: "ok",
+      detail: "generated BETTER_AUTH_SECRET (64-char hex)",
+    });
+    const raw = readFileSync(join(cwd, ".env"), "utf8");
+    expect(raw).toMatch(/^BETTER_AUTH_SECRET=[0-9a-f]{64}$/m);
+    expect(raw).not.toContain("REPLACE_ME");
+  });
+
   it("appends the key when it is missing entirely", () => {
     writeFileSync(join(cwd, ".env"), "PORT=3002");
     const res = ensureAuthSecret(cwd);
