@@ -78,7 +78,13 @@ API token) and prints ONLY the token to stdout, so it pipes straight into
    creates a fresh V1 tenant instead.
 3. Redeploy the api + worker.
 
-## Template defects found 2026-06-10 (dogfood)
+## Template defects found 2026-06-10 (dogfood) — APPLIED + republished same day
+
+> Status: fixes (a) and (c) were applied in the dashboard editor and the
+> template was republished via the Update flow on 2026-06-10. Fix (b) was
+> deliberately NOT applied — see the revised note in that section. The slug
+> deploy link verified 200 after republish.
+
 
 Three defects found by deploying the published template for real. All three are
 dashboard-editor fixes to apply at `railway.com/workspace/templates/291daa3b-…`
@@ -105,16 +111,25 @@ is a nice-to-have for event volume); `postgres-ssl` gets Railway's maintained
 SSL setup. Either is fine — just make BOTH a deliberate choice rather than
 whatever the snapshot froze.
 
-### (b) Worker service: monorepo startCommand override breaks connected scaffolds
+### (b) Worker service: monorepo startCommand override — KEPT (revised)
 
-The `hogsend-worker` service carries a literal start-command override
-`pnpm --filter @hogsend/api worker` (a monorepo-ism from the dogfood repo) and
-**no `railwayConfigFile`**. Anyone who connects their scaffolded (non-monorepo)
-repo gets a worker that can't start. Fix:
+The `hogsend-worker` service carries the start-command override
+`pnpm --filter @hogsend/api worker`. The original plan was to clear it and set
+`railwayConfigFile=railway.worker.toml`, but two facts changed the call when
+applying the fixes (2026-06-10):
 
-- **Clear the startCommand override** (leave it empty).
-- Set **`railwayConfigFile=railway.worker.toml`** so the scaffold's own config
-  (worker start command, no healthcheck) drives the service.
+- The **template editor has no `railwayConfigFile` field** (only
+  Source/Networking/Deploy/Danger), so the config-file route isn't expressible
+  there.
+- With the override cleared, the worker falls back to the repo's `railway.toml`
+  (the API's config, healthcheck included) — strictly worse.
+
+Since a template deploy's source IS the monorepo, the override is correct for
+deployers. The real caveat is for someone who later **connects their own
+scaffolded repo** to the worker service: they must clear the override and set
+`railwayConfigFile=railway.worker.toml` on the service (project settings DO
+expose it). That's documented in the deploy docs; nothing to change in the
+template.
 
 ### (c) hatchet-lite: open registration on a public URL
 
@@ -131,6 +146,9 @@ SERVER_ALLOW_SIGNUP=false
 ADMIN_EMAIL=<deployer input — required>
 ADMIN_PASSWORD=${{secret(32)}}   # or a deployer input
 ```
+
+Applied as: `SERVER_ALLOW_SIGNUP=false`, `ADMIN_EMAIL=${{hogsend-api.STUDIO_ADMIN_EMAIL}}`
+(reuses the existing required input — no fourth input added), `ADMIN_PASSWORD=${{secret(32)}}`.
 
 hatchet-lite seeds an admin user from `ADMIN_EMAIL`/`ADMIN_PASSWORD` at boot
 (defaults `admin@example.com` / `Admin123!!` — NEVER leave those on a public
