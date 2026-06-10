@@ -1,0 +1,99 @@
+---
+title: Event naming
+description: The convention every Hogsend event follows — context.object_action, lowercase snake_case, past tense — and why the events you send it should follow it too.
+---
+
+Every event Hogsend emits follows one convention, and the events you send it should follow the same one. Not because the engine enforces it — event names are plain strings — but because the convention is what keeps a two-year-old PostHog project queryable and a journey trigger readable at a glance.
+
+The convention:
+
+```
+context.object_action
+```
+
+- **context** — where the event comes from, one word before the dot: `docs.`, `email.`, `trial.`, `billing.`
+- **object** — the noun, what was acted on: `deploy`, `page`, `link`, `subscription`
+- **action** — a past-tense verb from a closed list: `clicked`, `viewed`, `opened`, `started`
+
+All lowercase, snake_case, exactly one dot. `docs.deploy_clicked`. `email.link_clicked`. `trial.started`.
+
+## The rules
+
+### 1. One dot of context
+
+The dot scopes the event to the system that produced it. `email.opened` and `docs.subscribed` sort together, filter together, and never collide with an event another part of your stack invents later. One dot only — `billing.invoice.payment.failed` is a hierarchy looking for a problem; `billing.payment_failed` says the same thing.
+
+### 2. Past tense
+
+An event is a record of something that happened, so the name states a fact: `deploy_clicked`, not `deploy_click`. [PostHog's guide](https://posthog.com/docs/product-analytics/best-practices) recommends present tense; [Segment's Object–Action framework](https://segment.com/academy/collecting-data/naming-conventions-for-clean-data/) — the older and more widely adopted standard — recommends past. We side with Segment, and so does the engine: `email.opened`, `journey.completed`, and `trial.started` were all past tense before this page existed. Present tense reads like a command. A log is not a list of commands.
+
+### 3. Object before verb
+
+`deploy_clicked`, not `clicked_deploy`. Noun-first groups every event about the same thing next to each other in any alphabetised dropdown — all the `page_*` events together, all the `payment_*` events together. Verb-first groups by interaction type, which is almost never the question you're asking.
+
+### 4. A closed verb list
+
+Pick the verbs once and never improvise. Ours:
+
+| | | | |
+|---|---|---|---|
+| `viewed` | `clicked` | `copied` | `submitted` |
+| `selected` | `provided` | `subscribed` | `unsubscribed` |
+| `started` | `completed` | `failed` | `cancelled` |
+| `created` | `updated` | `deleted` | `opened` |
+| `sent` | `entered` | `left` | |
+
+The point of a closed list is that `tapped`, `pressed`, and `clicked` never coexist. Adding a verb is a deliberate decision recorded in your constants file, not a vibe at the call site.
+
+### 5. One event, many properties
+
+The single most expensive mistake in event design is putting variance in the name:
+
+```ts
+// Wrong — one event definition per docs section, forever.
+capture(`docs.${section}_page_viewed`);
+
+// Right — one event, the variance is a property.
+capture("docs.page_viewed", { section });
+```
+
+Interpolating values into names produces hundreds of event definitions that can't be filtered, grouped, or graphed together. A name is an identity; a property is a dimension. "Viewed at least three API reference pages" should be one filter on one event, not a union of twelve.
+
+The same applies to journeys and [buckets](/docs/guides/buckets): a bucket criterion like `b.event("docs.page_viewed").where("section", "eq", "api")` is only possible because the section is a property.
+
+### 6. Fixed strings, defined once
+
+Names live in an `as const` constants map; call sites import the constant. The scaffold ships this pattern in `src/journeys/constants/`:
+
+```ts
+export const Events = {
+  DOCS_SUBSCRIBED: "docs.subscribed",
+  DOCS_DEPLOY_CLICKED: "docs.deploy_clicked",
+  TRIAL_STARTED: "trial.started",
+  SUBSCRIPTION_STARTED: "subscription.started",
+} as const;
+```
+
+A typo in a string literal is an event that silently never matches a trigger. A typo in a constant is a compile error.
+
+### 7. Same action, same name, everywhere
+
+If a deploy click is captured in the browser by PostHog *and* forwarded to Hogsend's ingest API, both events are `docs.deploy_clicked`. Two names for one real-world action means every funnel needs a translation table someone has to remember exists.
+
+The useful distinction to preserve is not transport but kind: **interaction events** record UI behaviour (`docs.capture_submitted` — a form was submitted), **domain events** record validated lifecycle facts (`docs.subscribed` — a subscriber now exists). Keep both, named differently, because the gap between them *is* the funnel.
+
+## Properties
+
+- snake_case, like the event names: `section`, `product_notes`, `entry_count`
+- booleans get `is_` / `has_` prefixes: `is_subscribed`, `has_deployed`
+- timestamps get an `_at` suffix: `subscribed_at`, `last_seen_at`
+- enum values follow the same casing as everything else: `marketing_growth`, not `Marketing/Growth`
+- keep cardinality low where you'll filter: a `section` with eleven values is an insight; a `url` with ten thousand is a property you read, not group by
+
+## Dots and colons
+
+You'll see colons in some engine-emitted events: `bucket:entered:power-users`. That's deliberate — **dots mark domain events you author, colons mark system transitions the engine fires**. The generic forms (`bucket:entered`, `bucket:left`) and their per-bucket aliases are generated from your bucket ids, which is exactly the name-interpolation this page warns against — the engine gets away with it because the ids are a closed, code-reviewed set, and the typed refs (`powerUsers.entered`) make a misspelt alias a compile error. Don't adopt colons for your own events.
+
+## Renaming what already exists
+
+Adopting the convention on day one is free; adopting it later costs a break in event history. Take the break early — a few weeks of orphaned data is cheaper than a permanent inconsistency. PostHog can [rename events for display](https://posthog.com/tutorials/how-to-rename-events) and its [taxonomy standardizer](https://posthog.com/docs/cdp/taxonomy-standardizer) can remap incoming names if you need a bridge.

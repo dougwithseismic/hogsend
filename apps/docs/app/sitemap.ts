@@ -19,6 +19,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/use-cases/winback",
     "/integrations",
     "/recipes",
+    "/event-naming",
   ].map((path) => ({
     url: `${SITE_URL}${path}`,
     lastModified: now,

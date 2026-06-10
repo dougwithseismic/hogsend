@@ -4,6 +4,7 @@
     "journeys",
     "buckets",
     "events",
+    "event-naming",
     "webhook-sources",
     "email",
     "lists",
