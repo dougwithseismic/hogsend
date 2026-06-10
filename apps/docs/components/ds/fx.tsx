@@ -3,18 +3,17 @@
 import { motion } from "motion/react";
 import { cn } from "@/lib/cn";
 
-/* Accent green (#9FF690 = rgb 159,246,144) used throughout these layers. */
-const ACCENT = "159, 246, 144";
-const DEEP = "61, 142, 47";
+/* Accent red (#F64838 = rgb 246,72,56) used throughout these layers. */
+const ACCENT = "246, 72, 56";
 
 type FxProps = { className?: string };
 
 /**
- * GlowField — the hero backdrop. Luminous green crystalline "towers" rising
- * from the lower-left and lower-right edges of a black field, dark in the
- * center. Built entirely from stacked CSS gradients + blur with a slow
- * opacity/scale pulse (transform/opacity only). Recreates the proprietary
- * Framer render without copying any asset.
+ * GlowField — the hero backdrop: a giant glowing red planet-horizon arc
+ * rising from below the fold (rim-lit circle over a near-black field), a thin
+ * vertical light streak through the center, and a dark landscape silhouette
+ * at the bottom. Built entirely from layered CSS gradients, box-shadow rim
+ * light, and blur — recreated, never copied from the reference assets.
  */
 export function GlowField({ className }: FxProps) {
   return (
@@ -25,95 +24,58 @@ export function GlowField({ className }: FxProps) {
         className,
       )}
     >
-      {/* Base vignette so the center reads dark and edges glow. */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `radial-gradient(120% 90% at 50% 110%, rgba(${ACCENT}, 0.10), transparent 60%)`,
-        }}
-      />
-
-      {/* Lower-left tower cluster: stacked angled gradients + radial bloom. */}
+      {/* Atmosphere bloom behind the horizon, with a slow breathing pulse. */}
       <motion.div
-        className="absolute -bottom-24 -left-16 h-[90%] w-[55%] origin-bottom-left will-change-transform"
+        className="absolute inset-0 will-change-transform"
         style={{
-          filter: "blur(26px)",
-          background: [
-            // crystalline block faces (sharp-ish linear bands)
-            `linear-gradient(72deg, rgba(${ACCENT}, 0.55) 0%, rgba(${DEEP}, 0.12) 38%, transparent 60%)`,
-            `linear-gradient(108deg, rgba(${ACCENT}, 0.30) 0%, transparent 45%)`,
-            // soft tower bloom anchored to the bottom edge
-            `radial-gradient(70% 80% at 18% 100%, rgba(${ACCENT}, 0.45), transparent 70%)`,
-          ].join(","),
+          background: `radial-gradient(85% 60% at 50% 80%, rgba(${ACCENT}, 0.3), rgba(${ACCENT}, 0.08) 45%, transparent 72%)`,
+          filter: "blur(28px)",
         }}
-        initial={{ opacity: 0.85, scale: 1 }}
-        animate={{ opacity: [0.7, 1, 0.7], scale: [1, 1.04, 1] }}
+        initial={{ opacity: 0.85 }}
+        animate={{ opacity: [0.75, 1, 0.75] }}
         transition={{
-          duration: 9,
+          duration: 10,
           repeat: Number.POSITIVE_INFINITY,
           ease: "easeInOut",
         }}
       />
 
-      {/* Lower-right tower cluster (mirror, slightly offset cadence). */}
-      <motion.div
-        className="absolute -bottom-24 -right-16 h-[90%] w-[55%] origin-bottom-right will-change-transform"
+      {/* Thin vertical light streak through the center. */}
+      <div
+        className="-translate-x-1/2 absolute top-0 left-1/2 h-full w-px opacity-70"
         style={{
-          filter: "blur(26px)",
-          background: [
-            `linear-gradient(-72deg, rgba(${ACCENT}, 0.55) 0%, rgba(${DEEP}, 0.12) 38%, transparent 60%)`,
-            `linear-gradient(-108deg, rgba(${ACCENT}, 0.30) 0%, transparent 45%)`,
-            `radial-gradient(70% 80% at 82% 100%, rgba(${ACCENT}, 0.45), transparent 70%)`,
+          background: `linear-gradient(to bottom, transparent 4%, rgba(255, 255, 255, 0.45) 38%, rgba(${ACCENT}, 0.85) 68%, transparent 94%)`,
+        }}
+      />
+      <div
+        className="-translate-x-1/2 absolute top-1/4 left-1/2 h-3/4 w-[3px] opacity-40"
+        style={{
+          background: `linear-gradient(to bottom, transparent, rgba(${ACCENT}, 0.7) 55%, transparent)`,
+          filter: "blur(4px)",
+        }}
+      />
+
+      {/* The planet: a giant circle below the fold — dark body, red rim light
+          on its upper edge (ring mask via box-shadow + inset glow). */}
+      <div
+        className="-translate-x-1/2 absolute top-[58%] left-1/2 aspect-square w-[175%] rounded-full"
+        style={{
+          background: "#050101",
+          boxShadow: [
+            `0 -2px 18px rgba(${ACCENT}, 0.9)`,
+            `0 -16px 70px rgba(${ACCENT}, 0.55)`,
+            `0 -70px 200px rgba(${ACCENT}, 0.28)`,
+            `inset 0 22px 70px rgba(${ACCENT}, 0.35)`,
           ].join(","),
         }}
-        initial={{ opacity: 0.85, scale: 1 }}
-        animate={{ opacity: [1, 0.7, 1], scale: [1.03, 1, 1.03] }}
-        transition={{
-          duration: 11,
-          repeat: Number.POSITIVE_INFINITY,
-          ease: "easeInOut",
-        }}
       />
 
-      {/* Sharper highlight slivers to suggest faceted block edges + perspective. */}
+      {/* Dark landscape silhouette along the bottom edge. */}
       <div
-        className="absolute bottom-0 left-[8%] h-[62%] w-px opacity-50"
+        className="absolute inset-x-0 bottom-0 h-[28%]"
         style={{
-          background: `linear-gradient(to top, rgba(${ACCENT}, 0.8), transparent)`,
-          filter: "blur(1px)",
-          transform: "skewX(-8deg)",
-        }}
-      />
-      <div
-        className="absolute bottom-0 left-[18%] h-[48%] w-px opacity-40"
-        style={{
-          background: `linear-gradient(to top, rgba(${ACCENT}, 0.7), transparent)`,
-          filter: "blur(1px)",
-          transform: "skewX(-6deg)",
-        }}
-      />
-      <div
-        className="absolute bottom-0 right-[8%] h-[62%] w-px opacity-50"
-        style={{
-          background: `linear-gradient(to top, rgba(${ACCENT}, 0.8), transparent)`,
-          filter: "blur(1px)",
-          transform: "skewX(8deg)",
-        }}
-      />
-      <div
-        className="absolute bottom-0 right-[18%] h-[48%] w-px opacity-40"
-        style={{
-          background: `linear-gradient(to top, rgba(${ACCENT}, 0.7), transparent)`,
-          filter: "blur(1px)",
-          transform: "skewX(6deg)",
-        }}
-      />
-
-      {/* Keep the center deep-black so content stays legible. */}
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `radial-gradient(55% 55% at 50% 45%, #000 0%, rgba(0,0,0,0.7) 45%, transparent 75%)`,
+          background:
+            "linear-gradient(to top, #050101 35%, rgba(5, 1, 1, 0.8) 65%, transparent)",
         }}
       />
     </div>
@@ -121,8 +83,8 @@ export function GlowField({ className }: FxProps) {
 }
 
 /**
- * AuroraBeam — a soft diagonal green light beam sweeping across a dark
- * section: blurred, low opacity, slow drift. Pure gradient + blur with a gentle
+ * AuroraBeam — a soft diagonal red light beam sweeping across a dark section:
+ * blurred, low opacity, slow drift. Pure gradient + blur with a gentle
  * translate/opacity loop.
  */
 export function AuroraBeam({ className }: FxProps) {
@@ -135,9 +97,9 @@ export function AuroraBeam({ className }: FxProps) {
       )}
     >
       <motion.div
-        className="absolute -inset-x-1/4 top-1/2 h-[140%] -translate-y-1/2 will-change-transform"
+        className="-inset-x-1/4 -translate-y-1/2 absolute top-1/2 h-[140%] will-change-transform"
         style={{
-          background: `linear-gradient(115deg, transparent 30%, rgba(${ACCENT}, 0.22) 48%, rgba(${ACCENT}, 0.10) 56%, transparent 70%)`,
+          background: `linear-gradient(115deg, transparent 30%, rgba(${ACCENT}, 0.18) 48%, rgba(${ACCENT}, 0.08) 56%, transparent 70%)`,
           filter: "blur(48px)",
           transform: "rotate(-8deg)",
         }}
@@ -154,8 +116,9 @@ export function AuroraBeam({ className }: FxProps) {
 }
 
 /**
- * DotGrid — scattered fading green dots for a CTA backdrop. Uses the global
- * `.dot-grid` pattern with a radial mask so the dots fade out toward the edges.
+ * DotGrid — scattered fading red-tinted dots for a CTA backdrop. Uses the
+ * global `.dot-grid` pattern with a radial mask so the dots fade toward the
+ * edges.
  */
 export function DotGrid({ className }: FxProps) {
   return (

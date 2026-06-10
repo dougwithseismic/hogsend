@@ -5,21 +5,29 @@ import { Eyebrow } from "./badge";
 type Tone = "dark" | "light";
 
 type SectionProps = {
+  /** Accepted for compatibility — every tone renders the dark crimzon style. */
   tone?: Tone;
   id?: string;
+  /**
+   * Full-viewport-width horizontal hairline above the section (crosses the
+   * gutters and intersects the page frame's vertical lines). On by default;
+   * pass false for the hero / sections that sit flush under the nav hairline.
+   */
+  divider?: boolean;
   className?: string;
   containerClassName?: string;
   children: ReactNode;
 };
 
 /**
- * Page section wrapper. Sets the background + default text color from `tone`
- * and frames children in the shared `container-page section-py` rhythm.
- * Pass `containerClassName` to override the inner frame entirely.
+ * Page section wrapper. Background stays transparent over the global #050101
+ * page so the frame hairlines run through; a full-bleed top hairline
+ * separates sections. Children sit in the shared 1200px frame rhythm.
  */
 export function Section({
-  tone = "dark",
+  tone: _tone,
   id,
+  divider = true,
   className,
   containerClassName,
   children,
@@ -28,8 +36,8 @@ export function Section({
     <section
       id={id}
       className={cn(
-        "relative overflow-hidden",
-        tone === "light" ? "bg-paper text-black" : "bg-ink text-white",
+        "relative overflow-hidden text-white",
+        divider && "border-hairline-faint border-t",
         className,
       )}
     >
@@ -44,20 +52,21 @@ type SectionHeadingProps = {
   eyebrow?: string;
   title: ReactNode;
   subtitle?: ReactNode;
+  /** Accepted for compatibility — every tone renders the dark crimzon style. */
   tone?: Tone;
   align?: "left" | "center";
   className?: string;
 };
 
 /**
- * Standard section header: optional eyebrow pill, a large display heading, and
- * an optional muted subtitle. Colors follow `tone`; layout follows `align`.
+ * Standard section header: red sentence-case kicker, a 40/48 Inter Display
+ * heading (usually 2 lines max), and an optional 16px white/60 subtitle.
  */
 export function SectionHeading({
   eyebrow,
   title,
   subtitle,
-  tone = "dark",
+  tone: _tone,
   align = "left",
   className,
 }: SectionHeadingProps) {
@@ -71,29 +80,14 @@ export function SectionHeading({
         className,
       )}
     >
-      {eyebrow ? (
-        <Eyebrow tone={tone} className="mb-5">
-          {eyebrow}
-        </Eyebrow>
-      ) : null}
+      {eyebrow ? <Eyebrow className="mb-4">{eyebrow}</Eyebrow> : null}
 
-      <h2
-        className={cn(
-          "font-display text-3xl leading-[1.08] md:text-5xl",
-          "max-w-3xl",
-          tone === "light" ? "text-black" : "text-white",
-        )}
-      >
+      <h2 className="max-w-3xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
         {title}
       </h2>
 
       {subtitle ? (
-        <p
-          className={cn(
-            "mt-5 max-w-2xl text-base md:text-lg",
-            tone === "light" ? "text-black/60" : "text-white/60",
-          )}
-        >
+        <p className="mt-5 max-w-2xl text-base text-white/60 leading-6">
           {subtitle}
         </p>
       ) : null}

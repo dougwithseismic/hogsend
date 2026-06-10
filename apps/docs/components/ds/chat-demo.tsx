@@ -3,7 +3,6 @@
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
-import { CornerTicks } from "./card";
 
 type ChatMessage = { from: "user" | "agent"; text: string };
 
@@ -13,8 +12,8 @@ type ChatDemoProps = {
 };
 
 /**
- * Hero animated chat panel: a bordered frame with corner registration ticks
- * whose messages fade/slide in on a timed, looping reveal.
+ * Animated chat panel in crimzon glass: a 12px-radius hairline frame whose
+ * messages fade/slide in on a timed, looping reveal.
  */
 export function ChatDemo({ messages, className }: ChatDemoProps) {
   // Number of messages currently revealed. Starts at 0, climbs to messages.length,
@@ -50,12 +49,10 @@ export function ChatDemo({ messages, className }: ChatDemoProps) {
   return (
     <div
       className={cn(
-        "relative rounded-[10px] border border-white/10 bg-black/80 p-5 md:p-6",
+        "relative rounded-xl border border-white/10 bg-white/[0.02] p-5 backdrop-blur-md md:p-6",
         className,
       )}
     >
-      <CornerTicks tone="dark" />
-
       {/* panel header */}
       <div className="mb-5 flex items-center justify-between border-white/[0.08] border-b pb-4">
         <div className="flex items-center gap-2.5">
@@ -63,13 +60,9 @@ export function ChatDemo({ messages, className }: ChatDemoProps) {
             aria-hidden="true"
             className="size-2 rounded-full bg-accent shadow-[0_0_10px] shadow-accent/60"
           />
-          <span className="font-mono text-[11px] text-white/50 uppercase tracking-wide">
-            Journey runtime
-          </span>
+          <span className="eyebrow text-white/50">Journey runtime</span>
         </div>
-        <span className="font-mono text-[11px] text-white/40 uppercase tracking-wide">
-          Live
-        </span>
+        <span className="eyebrow text-white/40">Live</span>
       </div>
 
       {/* message thread */}
@@ -100,7 +93,7 @@ export function ChatDemo({ messages, className }: ChatDemoProps) {
               {isAgent ? (
                 <span
                   aria-hidden="true"
-                  className="grid size-7 shrink-0 place-items-center rounded-[4px] bg-accent font-display text-[13px] text-black"
+                  className="grid size-7 shrink-0 place-items-center rounded-md bg-accent font-medium text-[13px] text-white"
                 >
                   H
                 </span>
@@ -111,7 +104,7 @@ export function ChatDemo({ messages, className }: ChatDemoProps) {
                   "max-w-[80%] rounded-[10px] px-3.5 py-2.5 text-[13px] leading-relaxed",
                   isAgent
                     ? "border border-white/[0.08] bg-white/[0.04] text-white/80"
-                    : "bg-accent text-black",
+                    : "bg-white text-[#0a0a0a]",
                 )}
               >
                 {message.text}

@@ -5,15 +5,21 @@ import Link from "next/link";
 import { type JSX, useEffect, useState } from "react";
 import { Button } from "@/components/ds/button";
 import { cn } from "@/lib/cn";
+import { GITHUB_URL } from "@/lib/site";
 import { Logo } from "./logo";
-
-const GITHUB_URL = "https://github.com/dougwithseismic/hogsend";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Docs", href: "/docs" },
-  { label: "Integrations", href: "/integrations" },
-  { label: "Recipes", href: "/recipes" },
-  { label: "Compare", href: "/docs/compare" },
+  { label: "Pricing", href: "/pricing" },
+  { label: "Templates", href: "/emails" },
+  { label: "Changelog", href: "/changelog" },
+];
+
+/** Extra rows shown only in the mobile panel. */
+const MOBILE_EXTRA_LINKS: Array<{ label: string; href: string }> = [
+  { label: "Onboarding", href: "/use-cases/onboarding" },
+  { label: "Trial conversion", href: "/use-cases/trial-conversion" },
+  { label: "Win-back", href: "/use-cases/winback" },
 ];
 
 /** GitHub mark (inline so we don't pull an icon dep for the wordmark). */
@@ -36,19 +42,12 @@ function GitHubMark({ className }: { className?: string }): JSX.Element {
 }
 
 /**
- * Sticky homepage navigation. Transparent while over the hero, then fades to a
- * blurred ink bar with a hairline border once the page scrolls past 8px.
+ * Fixed site navigation — crimzon chrome: 80px tall, transparent over the
+ * page with a constant backdrop blur, full-width bottom hairline. The frame's
+ * vertical hairlines pass straight through it.
  */
 export function SiteNav({ className }: { className?: string }): JSX.Element {
-  const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 8);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
 
   // Close the mobile panel on Escape for keyboard accessibility.
   useEffect(() => {
@@ -63,55 +62,54 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
   return (
     <header
       className={cn(
-        "fixed inset-x-0 top-0 z-50 text-white transition-[background-color,border-color,backdrop-filter] duration-300",
-        scrolled || menuOpen
-          ? "border-b border-white/10 bg-ink/80 backdrop-blur-md"
-          : "border-b border-transparent bg-transparent",
+        "fixed inset-x-0 top-0 z-50 border-b border-hairline-faint text-white backdrop-blur-[7px]",
+        menuOpen ? "bg-ink/95" : "bg-ink/30",
         className,
       )}
     >
       <nav
         aria-label="Primary"
-        className="container-page flex h-[68px] items-center justify-between"
+        className="container-page flex h-20 items-center justify-between md:grid md:grid-cols-[1fr_auto_1fr]"
       >
         {/* Left: brand */}
-        <Link
-          href="/"
-          className="rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          aria-label="Hogsend home"
-        >
-          <Logo />
-        </Link>
+        <div className="flex items-center">
+          <Link
+            href="/"
+            className="rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            aria-label="Hogsend home"
+          >
+            <Logo />
+          </Link>
+        </div>
 
-        {/* Center/right: desktop links */}
-        <div className="hidden items-center gap-8 md:flex">
-          <ul className="flex items-center gap-7">
-            {NAV_LINKS.map((link) => (
-              <li key={link.href}>
-                <Link
-                  href={link.href}
-                  className="rounded text-sm text-white/70 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  {link.label}
-                </Link>
-              </li>
-            ))}
-          </ul>
+        {/* Center: desktop links */}
+        <ul className="hidden items-center gap-8 md:flex">
+          {NAV_LINKS.map((link) => (
+            <li key={link.href}>
+              <Link
+                href={link.href}
+                className="rounded text-[15px] tracking-[-0.02em] text-white/90 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {link.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
 
-          <div className="flex items-center gap-3">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Hogsend on GitHub"
-              className="flex size-9 items-center justify-center rounded-[6px] text-white/70 outline-none transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              <GitHubMark className="size-5" />
-            </a>
-            <Button href="/docs" variant="accent">
-              Get started
-            </Button>
-          </div>
+        {/* Right: GitHub + CTA */}
+        <div className="hidden items-center justify-end gap-4 md:flex">
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Hogsend on GitHub"
+            className="flex size-9 items-center justify-center rounded-[6px] text-white/70 outline-none transition-colors hover:bg-white/5 hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <GitHubMark className="size-5" />
+          </a>
+          <Button href="/docs/getting-started" variant="outline" icon>
+            Start building
+          </Button>
         </div>
 
         {/* Mobile: GitHub + hamburger */}
@@ -146,9 +144,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
       <div
         id="site-nav-mobile"
         hidden={!menuOpen}
-        className={cn(
-          "border-t border-white/10 bg-ink/95 backdrop-blur-md md:hidden",
-        )}
+        className="border-t border-hairline-faint bg-ink/95 backdrop-blur-md md:hidden"
       >
         <div className="container-page flex flex-col gap-1 py-4">
           {NAV_LINKS.map((link) => (
@@ -161,13 +157,24 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
               {link.label}
             </Link>
           ))}
+          <div className="my-2 h-px bg-hairline-faint" />
+          {MOBILE_EXTRA_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMenuOpen(false)}
+              className="rounded-[6px] px-1 py-2.5 text-base text-white/80 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {link.label}
+            </Link>
+          ))}
           <div className="mt-3">
             <Button
-              href="/docs"
+              href="/docs/getting-started"
               variant="accent"
               className="w-full justify-center"
             >
-              Get started
+              Start building
             </Button>
           </div>
         </div>

@@ -19,6 +19,12 @@ type TabbedShowcaseProps = {
   className?: string;
 };
 
+/**
+ * Crimzon product showcase: a full-width tab row (labels spread edge-to-edge
+ * inside the frame, hairline above + below, active label in red) over one
+ * giant glass panel — the media floats in a dark glass card on a red
+ * atmospheric backdrop.
+ */
 export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
   const [activeId, setActiveId] = useState(tabs[0]?.id);
   const active = tabs.find((t) => t.id === activeId) ?? tabs[0];
@@ -26,18 +32,13 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
   if (!active) return null;
 
   return (
-    <div
-      className={cn(
-        "grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)] lg:gap-14",
-        className,
-      )}
-    >
-      {/* Left vertical tab list */}
+    <div className={cn("flex flex-col", className)}>
+      {/* Full-width tab row */}
       <div
         role="tablist"
-        aria-orientation="vertical"
+        aria-orientation="horizontal"
         aria-label="Showcase"
-        className="flex flex-col"
+        className="flex w-full flex-wrap items-center justify-between gap-x-6 gap-y-1 border-hairline-faint border-y"
       >
         {tabs.map((tab) => {
           const isActive = tab.id === active.id;
@@ -51,18 +52,11 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
               aria-controls={`panel-${tab.id}`}
               onClick={() => setActiveId(tab.id)}
               className={cn(
-                "group relative flex items-center gap-3 border-b border-white/[0.08] py-4 text-left font-mono text-xs uppercase tracking-wide transition-colors outline-none focus-visible:text-white",
-                isActive ? "text-white" : "text-white/40 hover:text-white/70",
+                "relative py-5 text-left text-base tracking-[-0.02em] outline-none transition-colors focus-visible:text-accent",
+                isActive ? "text-accent" : "text-white hover:text-white/70",
               )}
             >
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "h-[7px] w-[7px] shrink-0 rounded-[2px] transition-colors",
-                  isActive ? "bg-accent" : "bg-white/20",
-                )}
-              />
-              <span>{tab.label}</span>
+              {tab.label}
               {isActive ? (
                 <motion.span
                   layoutId="tabbed-showcase-underline"
@@ -75,8 +69,21 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
         })}
       </div>
 
-      {/* Right active panel */}
-      <div className="relative min-h-[20rem]">
+      {/* Giant glass product panel */}
+      <div className="relative mt-10 overflow-hidden rounded-xl border border-white/10 bg-[#0a0606]">
+        {/* Red atmospheric backdrop — pure CSS, recreated (never copied). */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background: [
+              "radial-gradient(90% 70% at 50% 110%, rgba(246,72,56,0.3), rgba(246,72,56,0.08) 50%, transparent 75%)",
+              "radial-gradient(50% 40% at 80% 0%, rgba(246,72,56,0.12), transparent 70%)",
+            ].join(","),
+            filter: "blur(20px)",
+          }}
+        />
+
         <AnimatePresence mode="wait">
           <motion.div
             key={active.id}
@@ -87,26 +94,26 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
-            className="flex flex-col gap-6"
+            className="relative flex flex-col gap-8 p-6 md:p-10"
           >
             <div className="max-w-xl">
-              <h3 className="font-display text-2xl leading-[1.15] text-white md:text-3xl">
+              <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
                 {active.title}
               </h3>
-              <p className="mt-4 text-base text-white/60 md:text-lg">
+              <p className="mt-3 text-base text-white/60 leading-6">
                 {active.description}
               </p>
               {active.tags && active.tags.length > 0 ? (
                 <div className="mt-5 flex flex-wrap gap-2">
                   {active.tags.map((tag) => (
-                    <TagPill key={tag} tone="dark">
-                      {tag}
-                    </TagPill>
+                    <TagPill key={tag}>{tag}</TagPill>
                   ))}
                 </div>
               ) : null}
             </div>
-            <div className="min-w-0">{active.media}</div>
+            <div className="glass-panel min-w-0 overflow-hidden">
+              {active.media}
+            </div>
           </motion.div>
         </AnimatePresence>
       </div>

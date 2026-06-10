@@ -1,0 +1,59 @@
+# Hogsend
+
+> Hogsend is a source-available (ELv2), self-hosted lifecycle email engine.
+> Journeys are plain TypeScript (defineJourney()) triggered by PostHog and
+> product events, executed durably by Hatchet, and sent through your own
+> Resend or Postmark account. It installs as a versioned npm framework
+> (@hogsend/engine) into a scaffolded app you own. Free to self-host;
+> no per-contact pricing.
+> Scaffold: pnpm create hogsend@latest my-app --domain mysite.com
+> then: cd my-app && hogsend dev — sends redirect to your own inbox
+> until the sending domain verifies (test mode).
+
+## Getting started
+- [Introduction](https://hogsend.com/docs)
+- [Getting started](https://hogsend.com/docs/getting-started)
+- [Installation](https://hogsend.com/docs/getting-started/installation)
+- [Configuration](https://hogsend.com/docs/getting-started/configuration)
+- [PostHog setup](https://hogsend.com/docs/getting-started/posthog-setup)
+- [Hogsend for AI agents](https://hogsend.com/docs/agents)
+
+## Concepts
+- [How it works](https://hogsend.com/docs/concepts/how-it-works)
+- [Buckets](https://hogsend.com/docs/concepts/buckets)
+- [Philosophy](https://hogsend.com/docs/concepts/philosophy)
+
+## Building
+- [Journeys](https://hogsend.com/docs/guides/journeys)
+- [Buckets](https://hogsend.com/docs/guides/buckets)
+- [Email & templates](https://hogsend.com/docs/guides/email)
+- [Webhook sources](https://hogsend.com/docs/guides/webhook-sources)
+- [Outbound destinations](https://hogsend.com/docs/guides/destinations)
+
+## Data API & SDK
+- [Data API](https://hogsend.com/docs/data-api)
+- [Client SDK](https://hogsend.com/docs/data-api/client-sdk)
+- [Transactional email](https://hogsend.com/docs/data-api/emails)
+
+## CLI & agents
+- [CLI](https://hogsend.com/docs/cli)
+- [hogsend dev](https://hogsend.com/docs/cli/dev)
+- [hogsend domain](https://hogsend.com/docs/cli/domain)
+- [Agent skills catalog](https://hogsend.com/docs/cli/skills)
+
+## Operating
+- [Deployment](https://hogsend.com/docs/operating/deployment)
+- [Studio](https://hogsend.com/docs/operating/studio)
+- [Test mode](https://hogsend.com/docs/operating/test-mode)
+- [Upgrading](https://hogsend.com/docs/operating/upgrading)
+
+## Comparisons
+- [vs PostHog Workflows](https://hogsend.com/docs/compare/posthog-workflows)
+- [vs Loops](https://hogsend.com/docs/compare/loops)
+- [vs Customer.io](https://hogsend.com/docs/compare/customer-io)
+- [Feature matrix](https://hogsend.com/docs/compare/feature-matrix)
+
+## Optional
+- [Pricing & license](https://hogsend.com/pricing)
+- [Templates gallery](https://hogsend.com/emails)
+- [Changelog](https://hogsend.com/changelog)
