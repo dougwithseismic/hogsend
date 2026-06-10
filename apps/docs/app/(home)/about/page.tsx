@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { JSX } from "react";
+import { TrackDeployClick } from "@/components/analytics/track";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
@@ -285,9 +286,11 @@ export default function AboutPage(): JSX.Element {
                   <Button href="/docs/getting-started" icon>
                     Start building
                   </Button>
-                  <Button href={RAILWAY_URL} variant="outline" external>
-                    Deploy on Railway
-                  </Button>
+                  <TrackDeployClick placement="about">
+                    <Button href={RAILWAY_URL} variant="outline" external>
+                      Deploy on Railway
+                    </Button>
+                  </TrackDeployClick>
                   <Link
                     href="/docs"
                     className="text-base text-white/70 transition-colors hover:text-white"

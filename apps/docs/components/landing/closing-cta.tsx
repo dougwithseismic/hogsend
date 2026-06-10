@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { TrackDeployClick } from "@/components/analytics/track";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { CopyButton } from "@/components/ds/copy-button";
@@ -77,17 +78,19 @@ export function ClosingCta({ className }: { className?: string }) {
                     Start building
                   </Button>
 
-                  <a
-                    href="https://railway.com/deploy/hogsend-posthog-audience-stack"
-                    className="inline-flex"
-                  >
-                    {/* biome-ignore lint/performance/noImgElement: external Railway button SVG, not a local asset */}
-                    <img
-                      src="https://railway.com/button.svg"
-                      alt="Deploy on Railway"
-                      className="h-[42px]"
-                    />
-                  </a>
+                  <TrackDeployClick placement="closing-cta">
+                    <a
+                      href="https://railway.com/deploy/hogsend-posthog-audience-stack"
+                      className="inline-flex"
+                    >
+                      {/* biome-ignore lint/performance/noImgElement: external Railway button SVG, not a local asset */}
+                      <img
+                        src="https://railway.com/button.svg"
+                        alt="Deploy on Railway"
+                        className="h-[42px]"
+                      />
+                    </a>
+                  </TrackDeployClick>
 
                   <Link
                     href="/docs"
