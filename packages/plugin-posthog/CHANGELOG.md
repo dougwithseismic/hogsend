@@ -1,5 +1,13 @@
 # @hogsend/plugin-posthog
 
+## 0.12.2
+
+### Patch Changes
+
+- d9a1a47: Keep the engine version line uniform for the plugin-resend tag-sanitization patch — all engine-line packages move to the same patch version together.
+- Updated dependencies [d9a1a47]
+  - @hogsend/core@0.12.2
+
 ## 0.12.1
 
 ### Patch Changes
