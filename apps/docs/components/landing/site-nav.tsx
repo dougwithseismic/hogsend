@@ -1,6 +1,6 @@
 "use client";
 
-import { Menu, X } from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { type JSX, useEffect, useState } from "react";
 import { Button } from "@/components/ds/button";
@@ -9,17 +9,38 @@ import { GITHUB_URL } from "@/lib/site";
 import { Logo } from "./logo";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
-  { label: "Docs", href: "/docs" },
-  { label: "Pricing", href: "/pricing" },
   { label: "Templates", href: "/emails" },
+  { label: "Pricing", href: "/pricing" },
+  { label: "Docs", href: "/docs" },
   { label: "Changelog", href: "/changelog" },
 ];
 
-/** Extra rows shown only in the mobile panel. */
-const MOBILE_EXTRA_LINKS: Array<{ label: string; href: string }> = [
-  { label: "Onboarding", href: "/use-cases/onboarding" },
-  { label: "Trial conversion", href: "/use-cases/trial-conversion" },
-  { label: "Win-back", href: "/use-cases/winback" },
+/** Items in the "Use cases" dropdown (and the mobile panel's second group). */
+const USE_CASE_LINKS: Array<{
+  label: string;
+  description: string;
+  href: string;
+}> = [
+  {
+    label: "Onboarding",
+    description: "Welcome flows that branch on what new users actually do.",
+    href: "/use-cases/onboarding",
+  },
+  {
+    label: "Trial conversion",
+    description: "Usage-driven nudges that stop the moment they pay.",
+    href: "/use-cases/trial-conversion",
+  },
+  {
+    label: "Win-back",
+    description: "Spot who's gone quiet and bring them back.",
+    href: "/use-cases/winback",
+  },
+  {
+    label: "Failed payments",
+    description: "Reminders that sound human and stop when payment clears.",
+    href: "/docs/recipes/transactional-emails",
+  },
 ];
 
 /** GitHub mark (inline so we don't pull an icon dep for the wordmark). */
@@ -84,6 +105,51 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
 
         {/* Center: desktop links */}
         <ul className="hidden items-center gap-8 md:flex">
+          {/* "Use cases" opens a hover/focus panel; the trigger itself still
+              navigates to the landing section, so it works without a pointer. */}
+          <li className="group relative">
+            <Link
+              href="/#use-cases"
+              className="flex items-center gap-1 rounded text-[15px] tracking-[-0.02em] text-white/90 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              Use cases
+              <ChevronDown
+                className="size-3.5 text-white/50 transition-transform duration-200 group-hover:rotate-180"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              />
+            </Link>
+
+            <div className="invisible absolute top-full left-1/2 -translate-x-1/2 pt-4 opacity-0 transition-[opacity,visibility] duration-150 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100">
+              <div className="w-[540px] rounded-lg border border-white/10 bg-ink/95 p-2 shadow-black/50 shadow-xl backdrop-blur-md">
+                <div className="grid grid-cols-2 gap-1">
+                  {USE_CASE_LINKS.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className="flex flex-col gap-1 rounded-md p-3 outline-none transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      <span className="text-[15px] text-white tracking-[-0.02em]">
+                        {item.label}
+                      </span>
+                      <span className="text-sm text-white/55 leading-5">
+                        {item.description}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+                <div className="mt-1 border-t border-white/[0.08] px-3 pt-2.5 pb-1.5">
+                  <Link
+                    href="/emails"
+                    className="rounded text-sm text-white/70 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    Browse the 13 templates they send →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </li>
+
           {NAV_LINKS.map((link) => (
             <li key={link.href}>
               <Link
@@ -158,7 +224,10 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             </Link>
           ))}
           <div className="my-2 h-px bg-hairline-faint" />
-          {MOBILE_EXTRA_LINKS.map((link) => (
+          <span className="px-1 pt-1 pb-1.5 text-white/40 text-xs uppercase tracking-[0.08em]">
+            Use cases
+          </span>
+          {USE_CASE_LINKS.map((link) => (
             <Link
               key={link.href}
               href={link.href}

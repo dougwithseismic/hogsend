@@ -12,11 +12,11 @@ import { SITE_URL } from "@/lib/site";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Hogsend — Lifecycle email, written in TypeScript",
+    default: "Hogsend — Lifecycle email, shipped like a feature",
     template: "%s — Hogsend",
   },
   description:
-    "Source-available lifecycle email engine for teams on PostHog. Durable TypeScript journeys in your repo, sent through your own Resend or Postmark account. No contact tax.",
+    "Welcome series, trial nudges, win-backs, payment saves — running from your repo on PostHog and product events, sent through your own Resend or Postmark account. Free to self-host.",
   openGraph: {
     siteName: "Hogsend",
     type: "website",

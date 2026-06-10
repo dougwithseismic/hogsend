@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
-export const alt = "Hogsend — Lifecycle email, written in TypeScript";
+export const alt = "Hogsend — Lifecycle email is a feature. Ship it like one.";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -119,22 +119,22 @@ export default async function OpengraphImage() {
           display: "flex",
           flexDirection: "column",
           gap: 28,
-          maxWidth: 980,
+          maxWidth: 1040,
         }}
       >
         <div
           style={{
             display: "flex",
             flexDirection: "column",
-            fontSize: 84,
+            fontSize: 72,
             fontWeight: 500,
             lineHeight: 1.04,
             letterSpacing: "-0.05em",
             color: "#ffffff",
           }}
         >
-          <span>Lifecycle email,</span>
-          <span>written in TypeScript</span>
+          <span>Lifecycle email is a feature.</span>
+          <span>Ship it like one.</span>
         </div>
       </div>
 
