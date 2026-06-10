@@ -118,6 +118,38 @@ describe("sendEmail", () => {
     expect(arg.tags).toEqual(tags);
   });
 
+  it("sanitizes tag names/values to Resend's allowed charset", async () => {
+    const sendFn = vi.fn().mockResolvedValue({
+      data: { id: "resend_123" },
+      error: null,
+    });
+    const client = mockResendClient({ sendFn });
+
+    await sendEmail({
+      client,
+      options: {
+        from: "test@hogsend.com",
+        to: "user@example.com",
+        subject: "Test",
+        html: HTML,
+        // The engine's neutral tags carry journey names and slashed template
+        // keys — Resend only allows [A-Za-z0-9_-].
+        tags: [
+          { name: "journeyId", value: "Docs Subscriber" },
+          { name: "templateKey", value: "docs/welcome" },
+        ],
+      },
+    });
+
+    const arg = sendFn.mock.calls[0]?.[0] as {
+      tags?: Array<{ name: string; value: string }>;
+    };
+    expect(arg.tags).toEqual([
+      { name: "journeyId", value: "Docs-Subscriber" },
+      { name: "templateKey", value: "docs-welcome" },
+    ]);
+  });
+
   it("omits Resend tags when none are set", async () => {
     const sendFn = vi.fn().mockResolvedValue({
       data: { id: "resend_123" },

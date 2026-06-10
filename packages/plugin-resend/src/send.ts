@@ -9,6 +9,21 @@ import type { BatchEmailItem, SendEmailOptions, SendResult } from "./types.js";
 
 const BATCH_CHUNK_SIZE = 100;
 
+/**
+ * Resend rejects tag names/values outside ASCII letters, numbers, underscores
+ * and dashes. The engine's neutral tags carry journey names ("Docs Subscriber")
+ * and template keys ("docs/welcome"), so map anything else to "-" rather than
+ * failing the whole send.
+ */
+function sanitizeTags(
+  tags: SendEmailOptions["tags"],
+): SendEmailOptions["tags"] {
+  return tags?.map((tag) => ({
+    name: tag.name.replace(/[^a-zA-Z0-9_-]/g, "-"),
+    value: tag.value.replace(/[^a-zA-Z0-9_-]/g, "-"),
+  }));
+}
+
 function isRetryableStatusCode(statusCode: number): boolean {
   return statusCode === 429 || statusCode >= 500;
 }
@@ -109,8 +124,9 @@ export async function sendEmail(args: {
       cc: options.cc,
       bcc: options.bcc,
       scheduledAt: options.scheduledAt,
-      // Resend accepts neutral `{name,value}[]` tags natively — pass them through.
-      tags: options.tags,
+      // Resend accepts neutral `{name,value}[]` tags natively — sanitized to
+      // its allowed charset (see sanitizeTags).
+      tags: sanitizeTags(options.tags),
       headers: options.headers,
     });
 
@@ -182,8 +198,8 @@ async function sendBatchChunk(
         replyTo: email.replyTo,
         cc: email.cc,
         bcc: email.bcc,
-        // Resend accepts neutral `{name,value}[]` tags natively.
-        tags: email.tags,
+        // Resend accepts neutral `{name,value}[]` tags — sanitized to its charset.
+        tags: sanitizeTags(email.tags),
         headers: email.headers,
       })),
     );
