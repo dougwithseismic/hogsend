@@ -87,12 +87,33 @@ const ACTIVITY_WINDOW_HOURS = 24;
 
 type Activity = z.infer<typeof activitySchema>;
 
+const NULL_ACTIVITY: Activity = {
+  windowHours: ACTIVITY_WINDOW_HOURS,
+  journeys: { failed: null, completed: null },
+  emails: { failed: null, sent: null },
+};
+
+// Reporting must never slow the healthcheck down: an unreachable DB makes the
+// COUNT queries hang on connect (the component check above answers "down"
+// fast, but a fresh query can queue behind the pool), so the whole thing is
+// raced against a short deadline and degrades to nulls.
+const ACTIVITY_TIMEOUT_MS = 1500;
+
 // Cheap windowed COUNTs (one FILTER query per table; the time columns are
 // indexed — email_sends_created_at_idx and journey_states_updated_at_idx —
 // so each prunes by index instead of seq-scanning on every healthcheck hit).
 // Never throws — any failure degrades to nulls so a reporting hiccup can't
 // take the healthcheck down.
 async function getRecentActivity(db: Database): Promise<Activity> {
+  return Promise.race([
+    queryRecentActivity(db),
+    new Promise<Activity>((resolve) =>
+      setTimeout(() => resolve(NULL_ACTIVITY), ACTIVITY_TIMEOUT_MS).unref?.(),
+    ),
+  ]);
+}
+
+async function queryRecentActivity(db: Database): Promise<Activity> {
   const since = new Date(Date.now() - ACTIVITY_WINDOW_HOURS * 60 * 60 * 1000);
   try {
     const [journeyRows, emailRows] = await Promise.all([
@@ -125,11 +146,7 @@ async function getRecentActivity(db: Database): Promise<Activity> {
       },
     };
   } catch {
-    return {
-      windowHours: ACTIVITY_WINDOW_HOURS,
-      journeys: { failed: null, completed: null },
-      emails: { failed: null, sent: null },
-    };
+    return NULL_ACTIVITY;
   }
 }
 
