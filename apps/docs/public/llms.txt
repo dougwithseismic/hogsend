@@ -43,6 +43,7 @@
 
 ## Operating
 - [Deployment](https://hogsend.com/docs/operating/deployment)
+- [Production email on a fresh domain](https://hogsend.com/docs/operating/production-email)
 - [Studio](https://hogsend.com/docs/operating/studio)
 - [Test mode](https://hogsend.com/docs/operating/test-mode)
 - [Upgrading](https://hogsend.com/docs/operating/upgrading)

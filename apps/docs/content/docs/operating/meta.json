@@ -6,6 +6,7 @@
     "deploy-docker",
     "deploy-railway",
     "deploy-byo",
+    "production-email",
     "upgrading",
     "authentication",
     "studio",

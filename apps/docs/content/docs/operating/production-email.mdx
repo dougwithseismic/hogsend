@@ -1,0 +1,137 @@
+---
+title: Production email on a fresh domain
+description: A domain registered this morning to DKIM-signed lifecycle email in about thirty minutes — no mailbox provider needed.
+---
+
+This guide takes a fresh domain to production lifecycle email: DNS verified, a deployed Hogsend instance, a welcome email landing DKIM-signed from your own domain — and replies coming back, without paying for a mailbox. Every step was run for real on hogsend.com itself, and every step ends with a check you can verify. Budget about thirty minutes, most of it waiting on DNS.
+
+## What you need
+
+- **A domain.** Any DNS host works; the examples use Cloudflare, which also gets you the inbound trick in step 4 for free.
+- **A Resend account.** The free plan holds one domain, which is all this needs.
+- **Somewhere to deploy.** The [Railway template](/docs/operating/deploy-railway), or your own infrastructure.
+
+## 1. Create a Resend key and add your domain
+
+In Resend, create (or pick) a team, then create one API key with **full access**.
+
+<Callout type="warn">
+  **Full access matters.** A send-only restricted key can send, but the domains API returns 401 — Hogsend warns once and assumes the domain is verified (fail-open), which silently disables the automatic [test mode](/docs/operating/test-mode) safety. If you must run a restricted key, set `HOGSEND_TEST_MODE=true` to keep the redirect-to-inbox behaviour.
+</Callout>
+
+Then add your domain under Domains, picking a region (the examples use `eu-west-1`).
+
+<Callout type="info">
+  The Resend free plan holds exactly one domain. Repurposing an existing team means removing the old domain first.
+</Callout>
+
+**Check:** the domain appears in the Resend dashboard with status `not_started`.
+
+## 2. Add four DNS records
+
+Resend's records live on the `send` subdomain, so they coexist with anything already on the root. Add all four as DNS-only (unproxied) records, swapping `eu-west-1` for your chosen region:
+
+| Type | Name | Value | Priority |
+|---|---|---|---|
+| TXT | `resend._domainkey` | the DKIM key Resend shows you | — |
+| MX | `send` | `feedback-smtp.eu-west-1.amazonses.com` | 10 |
+| TXT | `send` | `"v=spf1 include:amazonses.com ~all"` | — |
+| TXT | `_dmarc` | `"v=DMARC1; p=none;"` | — |
+
+<Callout type="info">
+  DMARC `p=none` is the right starting point — it asks receivers to report, not reject. Watch the reports for a while before tightening to `quarantine` or `reject`.
+</Callout>
+
+**Check:**
+
+```bash
+dig +short TXT resend._domainkey.yourdomain.com
+```
+
+returns the DKIM key.
+
+## 3. Verify the domain
+
+Trigger verification from the dashboard button, or via the API:
+
+```bash
+curl -X POST https://api.resend.com/domains/{domain_id}/verify \
+  -H "Authorization: Bearer re_your_api_key"
+```
+
+Then poll until the status flips:
+
+```bash
+curl https://api.resend.com/domains/{domain_id} \
+  -H "Authorization: Bearer re_your_api_key"
+```
+
+**Check:** `status` is `verified`. On Cloudflare this usually takes under a minute.
+
+## 4. Receive replies without a mailbox
+
+Sending is solved; you also want `hello@yourdomain.com` to be a real address people can reply to — without buying a mailbox plan. Cloudflare Email Routing does it free:
+
+1. In Cloudflare: Email → Email Routing → enable. It adds its own MX and SPF records on the root — no conflict with step 2, whose records live on `send`.
+2. Add a destination address (your existing inbox). A verification email lands there — click it.
+3. Create a rule routing `hello@yourdomain.com` to that inbox, plus a catch-all if you want one.
+
+To reply *as* `hello@yourdomain.com`, use Gmail's "Send mail as": SMTP server `smtp.resend.com`, username `resend`, password your Resend API key.
+
+Total mailbox cost: zero.
+
+## 5. Deploy
+
+Two paths.
+
+**The Railway template** stands up the whole topology in one click — see [Deploy on Railway](/docs/operating/deploy-railway). It asks for `RESEND_API_KEY` and `STUDIO_ADMIN_EMAIL`; then mint `HATCHET_CLIENT_TOKEN` headlessly and set it:
+
+```bash
+hogsend hatchet token --url https://your-hatchet-url \
+  --email you@yourdomain.com --password 'your-password'
+```
+
+**Or scaffold and deploy yourself:**
+
+```bash
+pnpm dlx create-hogsend@latest my-app --domain yourdomain.com
+```
+
+As of engine 0.13.0 a fresh deploy mints an ingest-scoped API key on first boot and prints it once in the deploy log — copy it from there.
+
+<Callout type="warn">
+  **Root domains on Cloudflare + Railway.** Cloudflare flattens root CNAMEs, which breaks Railway's certificate validation. Set the record to Proxied with the zone's SSL mode on Full (never Flexible), or use Railway's one-click Cloudflare connect. Subdomains like `api.yourdomain.com` are unaffected.
+</Callout>
+
+**Check:**
+
+```bash
+curl https://api.yourdomain.com/v1/health
+```
+
+returns `"status": "healthy"` with an `activity` section.
+
+## 6. Fire the first event
+
+```bash
+curl -X POST https://api.yourdomain.com/v1/events \
+  -H "Authorization: Bearer <ingest-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"user.created","email":"you@yourdomain.com"}'
+```
+
+The welcome journey enrols the contact, and the email arrives from your own domain, DKIM-signed.
+
+**Check:** `activity.emails.sent` on `/v1/health` increments, and the email is in your inbox.
+
+That's it. A fresh domain, production lifecycle email, replies routed to your existing inbox, and not a mailbox subscription in sight.
+
+## Hand it to an agent
+
+Every step above is a command or an API call with a checkable result, which means an agent can run the whole thing. Hogsend is built for that:
+
+- **[llms.txt](https://hogsend.com/llms.txt)** — the docs index in a machine-readable form.
+- **Vendored skills** — every scaffold ships [Claude Code skills](/docs/cli/skills) in `.claude/skills`, including deploy and CLI know-how.
+- **The `hogsend` CLI** — domain status, health checks, and token minting, all scriptable with `--json` output.
+
+Point your agent at this guide and say "set up my domain". A one-command version — `hogsend email setup` — is planned; this guide is its spec.
