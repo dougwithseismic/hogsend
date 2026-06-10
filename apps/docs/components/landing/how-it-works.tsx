@@ -88,7 +88,7 @@ export function HowItWorks() {
           column inside ProcessSteps. */}
       <ProcessSteps
         eyebrow="How it works"
-        title="One loop, not another platform"
+        title="The whole job is one loop"
         subtitle="Activity comes in from PostHog or any webhook, the right emails go out through your provider, and what people do with them fans back out to your tools — PostHog, Segment, Slack, or anywhere. Nothing new to buy or keep in sync."
         steps={STEPS}
       />

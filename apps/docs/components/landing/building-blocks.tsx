@@ -111,7 +111,7 @@ export async function BuildingBlocks() {
       label: "Journeys",
       title: "Emails that play out over time",
       description:
-        "Trigger on an event, send, sleep, then branch on what happened while you waited. Plain TypeScript control flow — no YAML, no canvas.",
+        "Trigger on an event, send, sleep, then branch on what happened while you waited. The control flow is plain TypeScript.",
       tags: ["Trigger on events", "Sleep & branch", "Stop on conversion"],
       media: <MockupFrame>{journeyMedia}</MockupFrame>,
     },
@@ -120,7 +120,7 @@ export async function BuildingBlocks() {
       label: "Wait for event",
       title: "Wait for what they do next",
       description:
-        "React to behavior, not just elapsed time — pause the journey until the user does the thing (or a timeout wins), as a durable wait that survives restarts.",
+        "Pause the journey until the user acts or a timeout wins. The wait is durable, so it survives deploys, and the branch afterwards is an if statement.",
       tags: ["Durable wait", "Event or timeout", "Survives deploys"],
       media: <MockupFrame>{waitMedia}</MockupFrame>,
     },

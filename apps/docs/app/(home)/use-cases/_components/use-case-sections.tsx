@@ -52,7 +52,7 @@ function FrictionMicrocopy({ className }: { className?: string }): JSX.Element {
     <p
       className={`font-mono text-[11px] text-white/50 uppercase tracking-[0.08em] ${className ?? ""}`}
     >
-      Free to self-host · One scaffold command · 3 env vars on Railway
+      Free to self-host · One scaffold command · No per-contact billing
     </p>
   );
 }

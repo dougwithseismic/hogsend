@@ -112,8 +112,8 @@ export function FeatureCards({ className }: { className?: string }) {
       <Reveal>
         <SectionHeading
           eyebrow="Agent-native"
-          title="Agent-writable, not agent-clickable"
-          subtitle="Everyone bolted an MCP server onto their UI this year. Hogsend skipped the step: the entire surface is already the thing agents are best at — typed code in a repo."
+          title="Agents can write all of it"
+          subtitle="Everyone bolted an MCP server onto their UI this year. Hogsend skipped the step. The whole surface is typed code in a repo, which is what agents are already best at."
         />
       </Reveal>
 
@@ -132,7 +132,7 @@ export function FeatureCards({ className }: { className?: string }) {
               </h3>
               <p className="text-base text-white/60 leading-6">
                 Journeys are .ts files. Agents read them, write them, and open
-                PRs against them. You review a diff, not a screen recording.
+                PRs against them. You review the diff like any other change.
               </p>
               <div className="mt-auto pt-3">
                 <CardLink href="/docs/guides/journeys">
@@ -182,7 +182,7 @@ export function FeatureCards({ className }: { className?: string }) {
             </MediaBackdrop>
             <div className="flex flex-1 flex-col gap-2.5 px-6 pb-6">
               <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                Studio observes, never authors
+                Studio sees everything and changes nothing
               </h3>
               <p className="text-base text-white/60 leading-6">
                 Every send, journey run, and contact in one dashboard — preview

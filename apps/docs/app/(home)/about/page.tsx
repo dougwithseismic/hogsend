@@ -297,8 +297,8 @@ export default function AboutPage(): JSX.Element {
                 </div>
 
                 <p className="mt-6 font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
-                  Free to self-host · One scaffold command · 3 env vars on
-                  Railway
+                  Free to self-host · One scaffold command · No per-contact
+                  billing
                 </p>
               </div>
 

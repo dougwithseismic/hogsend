@@ -39,14 +39,14 @@ const USE_CASES: UseCase[] = [
     icon: <Clock size={ICON_SIZE} strokeWidth={1.5} />,
     title: "Failed payments",
     description:
-      "Send friendly reminders when a payment fails — that stop the instant it goes through.",
+      "Send friendly reminders when a payment fails, and stop the moment it goes through.",
     href: "/docs/recipes/transactional-emails",
   },
   {
     icon: <Boxes size={ICON_SIZE} strokeWidth={1.5} />,
     title: "The right moment",
     description:
-      "ctx.when schedules sends for 9am in the user's timezone, inside your send window — auto-resolved, not guessed.",
+      "ctx.when schedules sends for 9am in the user's timezone, inside your send window. The timezone resolves itself from PostHog or the contact.",
     href: "/docs/guides/journeys",
   },
   {

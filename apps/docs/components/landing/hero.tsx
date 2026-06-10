@@ -25,8 +25,9 @@ export function Hero({ className }: HeroProps): JSX.Element {
     <section
       className={cn("relative overflow-hidden bg-ink text-white", className)}
     >
-      {/* Red planet-horizon backdrop behind all content. */}
-      <GlowField />
+      {/* Red planet-horizon backdrop behind all content, dimmed so the
+          headline stays the brightest thing on screen. */}
+      <GlowField className="opacity-70" />
 
       <div className="container-page relative z-10 flex flex-col items-center pt-40 pb-36 text-center md:pt-[188px] md:pb-44">
         <Reveal className="flex flex-col items-center">
@@ -72,7 +73,7 @@ export function Hero({ className }: HeroProps): JSX.Element {
           </div>
 
           <p className="text-sm text-white/50">
-            Free to self-host · 3 env vars on Railway
+            Free to self-host · No per-contact billing
           </p>
         </Reveal>
       </div>

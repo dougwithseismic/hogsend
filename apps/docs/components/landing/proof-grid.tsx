@@ -23,7 +23,7 @@ type ProofCard = {
 const PROOF_CARDS: ProofCard[] = [
   {
     title: "11 packages on npm",
-    body: "The engine, CLI, Studio, providers, and client SDK — all published at v0.11.0, semver-versioned. Upgrading is pnpm up, never a fork merge.",
+    body: "The engine, CLI, Studio, providers, and client SDK — all published at v0.11.0, semver-versioned. Upgrading is one pnpm up.",
     linkLabel: "@hogsend/engine on npm",
     href: "https://www.npmjs.com/package/@hogsend/engine",
     external: true,
@@ -37,7 +37,7 @@ const PROOF_CARDS: ProofCard[] = [
   },
   {
     title: "One-click Railway template",
-    body: "Postgres, Redis, Hatchet-Lite, API, and worker — provisioned in your Railway account with 3 required env vars.",
+    body: "Postgres, Redis, Hatchet-Lite, API, and worker — provisioned in your Railway account, ready to send.",
     linkLabel: "Deploy on Railway",
     href: "https://railway.com/deploy/hogsend-posthog-audience-stack",
     external: true,
