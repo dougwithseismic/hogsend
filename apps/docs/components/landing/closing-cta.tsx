@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/ds/copy-button";
 import { DotGrid } from "@/components/ds/fx";
 import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
+import { EmailCapture } from "@/components/landing/email-capture";
 import studioJourneys from "@/public/images/studio/studio-journeys.png";
 import studioSends from "@/public/images/studio/studio-sends.png";
 
@@ -100,6 +101,8 @@ export function ClosingCta({ className }: { className?: string }) {
                 <p className="mt-6 text-sm text-white/50">
                   Free to self-host · PostHog + your provider · no contact tax
                 </p>
+
+                <EmailCapture className="mt-10 w-full max-w-md border-white/10 border-t pt-8" />
               </div>
 
               {/* Right: product collage bleeding off the card edge. */}
