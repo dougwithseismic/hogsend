@@ -138,8 +138,8 @@ export function EmailCapture({
           </form>
 
           <p className="mt-3 text-white/40 text-xs leading-5">
-            We&apos;ll send the welcome journey and occasional product notes.
-            Unsubscribe in one click.{" "}
+            We&apos;ll send the welcome journey — nothing else unless you opt
+            in. Unsubscribe in one click.{" "}
             <Link
               href="/privacy"
               className="underline underline-offset-2 transition-colors hover:text-white/70"

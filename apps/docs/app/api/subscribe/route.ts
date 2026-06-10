@@ -70,7 +70,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         email: normalizedEmail,
         eventProperties: { source: "docs-site" },
         contactProperties: firstName ? { firstName } : {},
-        lists: { "product-updates": true },
+        // Marketing list membership is NOT set here — product-updates is
+        // opt-in from the welcome email's preference centre (unbundled
+        // consent: the form only buys you the journey it advertises).
       }),
     });
 

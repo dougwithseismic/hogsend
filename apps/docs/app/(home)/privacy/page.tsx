@@ -28,7 +28,7 @@ const SECTIONS: PolicySection[] = [
   {
     heading: "What we do with it",
     paragraphs: [
-      "Your email address gets you the welcome journey and occasional product notes. Nothing else.",
+      "Your email address gets you the welcome journey you asked for. Product notes are a separate list you can opt into from the preference centre linked in every email — we never add you to it ourselves.",
       "Every email we send carries a one-click unsubscribe and a link to a preference centre. Both work immediately and neither asks why.",
     ],
   },
