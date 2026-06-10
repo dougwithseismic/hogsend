@@ -41,6 +41,11 @@ const USE_CASE_LINKS: Array<{
     description: "Reminders that sound human and stop when payment clears.",
     href: "/docs/recipes/transactional-emails",
   },
+  {
+    label: "Fire and forget",
+    description: "Built for agents — domain to first send in half an hour.",
+    href: "/fire-and-forget",
+  },
 ];
 
 /** GitHub mark (inline so we don't pull an icon dep for the wordmark). */
