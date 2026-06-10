@@ -139,6 +139,17 @@ function renderStatus(ctx: CommandContext, status: EngineDomainStatus): void {
           ` — reason: ${status.testMode.reason ?? "unknown"}`,
       )}`,
     );
+    if (!status.testMode.redirectTo) {
+      ctx.out.log(
+        color.dim(
+          "  set HOGSEND_TEST_EMAIL (or STUDIO_ADMIN_EMAIL) — sends are BLOCKED until one is configured",
+        ),
+      );
+    }
+  } else if (status.status?.state === "verified") {
+    // Domain verified + test mode off → sends go to real recipients.
+    ctx.out.log("");
+    ctx.out.log(`${color.green("✓")} sends live`);
   }
 }
 
