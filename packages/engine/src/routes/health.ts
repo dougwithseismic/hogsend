@@ -152,8 +152,32 @@ async function queryRecentActivity(db: Database): Promise<Activity> {
 
 // A component that can't answer quickly IS down for healthcheck purposes —
 // an unreachable Redis otherwise stalls the probe on ioredis reconnect
-// backoff (each successive ping waits longer), slowing /v1/health itself.
+// backoff, and a connection-refused Postgres makes postgres-js retry the
+// connect (default connect_timeout 30s) rather than reject, so EVERY db
+// consumer in this handler must be raced against a deadline or /v1/health
+// itself hangs.
 const COMPONENT_TIMEOUT_MS = 1500;
+
+// Race a read against the component deadline, degrading to `fallback`.
+// Unlike checkComponent this preserves the read's value type.
+async function withDeadline<T>(read: Promise<T>, fallback: T): Promise<T> {
+  return Promise.race([
+    read,
+    new Promise<T>((resolve) =>
+      setTimeout(() => resolve(fallback), COMPONENT_TIMEOUT_MS).unref?.(),
+    ),
+  ]);
+}
+
+// Degraded schema read: the timeout means the DB didn't answer, which the
+// `database` component already reports — claiming `migration_pending` on top
+// of that would be spurious, so an unreadable track degrades to in-sync.
+const NULL_SCHEMA = {
+  required: null,
+  applied: null,
+  pending: [] as string[],
+  inSync: true,
+};
 
 async function checkComponent(
   fn: () => Promise<void>,
@@ -198,9 +222,12 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
           // host is genuinely unreachable → a truthful "down").
           await getRedis().ping();
         }),
-        getWorkerHeartbeat(),
-        getEngineSchemaVersion(db),
-        getClientSchemaVersion(db, clientJournal ?? { entries: [] }),
+        withDeadline(getWorkerHeartbeat(), { alive: false }),
+        withDeadline(getEngineSchemaVersion(db), NULL_SCHEMA),
+        withDeadline(
+          getClientSchemaVersion(db, clientJournal ?? { entries: [] }),
+          NULL_SCHEMA,
+        ),
         getRecentActivity(db),
       ]);
 
