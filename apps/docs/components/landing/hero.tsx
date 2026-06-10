@@ -41,9 +41,9 @@ export function Hero({ className }: HeroProps): JSX.Element {
 
           <p className="mt-7 max-w-[520px] text-base text-white/80 leading-6">
             Welcome series, trial nudges, win-backs, payment saves — every
-            product needs them, and they never make the sprint. Hogsend turns
-            PostHog and product events into journeys that live in your repo and
-            send through your own Resend or Postmark account.
+            product needs them. Hogsend turns PostHog and product events into
+            journeys that live in your repo and send through your own Resend or
+            Postmark account, working by this afternoon.
           </p>
         </Reveal>
 

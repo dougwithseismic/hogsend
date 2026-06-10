@@ -13,20 +13,19 @@ import { cn } from "@/lib/cn";
  * Manifesto — the crimzon word-reveal statement: a red kicker over one
  * centered 40/48 display sentence whose words start at white/20 and turn
  * white as the section scrolls through the viewport (per-word, scroll-linked
- * opacity). Carries the leaky-bucket narrative: without lifecycle email,
- * marketing pours signups into a bucket full of holes; Hogsend plugs it in
- * an afternoon.
+ * opacity). Carries the silent-churn narrative: signups leave because no
+ * email ever asked them back, the fix has sat on the backlog for months,
+ * and Hogsend ships it in an afternoon.
  *
  * Client island: motion's useScroll/useTransform need the browser. Respects
  * prefers-reduced-motion via the media query — words render fully white.
  */
 
 const STATEMENT =
-  "Every product has a list of emails it should be sending and isn't. " +
-  "Which means marketing pours new signups into a bucket full of holes: " +
-  "people arrive, meet silence, and quietly leave. Hogsend plugs the holes " +
-  "in one afternoon. The welcome, the nudge, the win-back, all sitting in " +
-  "your repo.";
+  "Most people who sign up never come back. The product was fine; nothing " +
+  "asked them to return. The welcome, the nudge, the win-back have sat at " +
+  "the bottom of the backlog for months. Hogsend ships the lot in an " +
+  "afternoon, from your repo.";
 
 const WORDS = STATEMENT.split(" ");
 
