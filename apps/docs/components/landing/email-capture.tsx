@@ -42,6 +42,8 @@ export function EmailCapture({
 }: EmailCaptureProps): JSX.Element {
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [productNotes, setProductNotes] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -55,13 +57,16 @@ export function EmailCapture({
       const res = await fetch("/api/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          trimmedName ? { email, firstName: trimmedName } : { email },
-        ),
+        body: JSON.stringify({
+          email,
+          ...(trimmedName ? { firstName: trimmedName } : {}),
+          termsAccepted,
+          productNotes,
+        }),
       });
       if (res.ok) {
         setStatus("success");
-        capture("capture_form_submitted", { placement });
+        capture("capture_form_submitted", { placement, productNotes });
       } else {
         setStatus("error");
       }
@@ -109,7 +114,7 @@ export function EmailCapture({
                 autoComplete="given-name"
                 maxLength={80}
                 disabled={status === "submitting"}
-                className={cn(INPUT_CLASS, "sm:w-[42%]")}
+                className={cn(INPUT_CLASS, "sm:w-44")}
               />
               <input
                 type="email"
@@ -122,32 +127,62 @@ export function EmailCapture({
                 disabled={status === "submitting"}
                 className={cn(INPUT_CLASS, "flex-1")}
               />
+              <button
+                type="submit"
+                disabled={status === "submitting"}
+                className={cn(
+                  "inline-flex h-12 w-full select-none items-center justify-center",
+                  "rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] text-base",
+                  "tracking-[-0.02em] transition-colors duration-200 hover:bg-white/90",
+                  "disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:shrink-0",
+                )}
+              >
+                {status === "submitting" ? "Sending…" : "Subscribe"}
+              </button>
             </div>
-            <button
-              type="submit"
-              disabled={status === "submitting"}
-              className={cn(
-                "inline-flex h-12 w-full select-none items-center justify-center",
-                "rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] text-base",
-                "tracking-[-0.02em] transition-colors duration-200 hover:bg-white/90",
-                "disabled:cursor-not-allowed disabled:opacity-70 sm:w-auto sm:self-start",
-              )}
-            >
-              {status === "submitting" ? "Sending…" : "Subscribe"}
-            </button>
-          </form>
 
-          <p className="mt-3 text-white/40 text-xs leading-5">
-            We&apos;ll send the welcome journey — nothing else unless you opt
-            in. Unsubscribe in one click.{" "}
-            <Link
-              href="/privacy"
-              className="underline underline-offset-2 transition-colors hover:text-white/70"
-            >
-              Privacy
-            </Link>
-            .
-          </p>
+            <label className="flex items-start gap-2.5 text-white/50 text-xs leading-5">
+              <input
+                type="checkbox"
+                required
+                checked={termsAccepted}
+                onChange={(event) => setTermsAccepted(event.target.checked)}
+                disabled={status === "submitting"}
+                className="mt-1 size-3.5 shrink-0 accent-accent"
+              />
+              <span>
+                I agree to the{" "}
+                <Link
+                  href="/terms"
+                  className="underline underline-offset-2 transition-colors hover:text-white/70"
+                >
+                  terms
+                </Link>{" "}
+                and{" "}
+                <Link
+                  href="/privacy"
+                  className="underline underline-offset-2 transition-colors hover:text-white/70"
+                >
+                  privacy policy
+                </Link>
+                . The welcome journey arrives by email.
+              </span>
+            </label>
+
+            <label className="flex items-start gap-2.5 text-white/50 text-xs leading-5">
+              <input
+                type="checkbox"
+                checked={productNotes}
+                onChange={(event) => setProductNotes(event.target.checked)}
+                disabled={status === "submitting"}
+                className="mt-1 size-3.5 shrink-0 accent-accent"
+              />
+              <span>
+                Send me product notes when something ships. Optional —
+                unsubscribe is one click either way.
+              </span>
+            </label>
+          </form>
 
           {status === "error" ? (
             <p className="mt-3 text-sm text-white/70">

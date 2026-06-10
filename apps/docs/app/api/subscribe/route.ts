@@ -40,13 +40,19 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   let email: unknown;
   let firstName: string | undefined;
+  let termsAccepted = false;
+  let productNotes = false;
   try {
     const body = (await request.json()) as {
       email?: unknown;
       firstName?: unknown;
+      termsAccepted?: unknown;
+      productNotes?: unknown;
     };
     email = body?.email;
     firstName = sanitizeFirstName(body?.firstName);
+    termsAccepted = body?.termsAccepted === true;
+    productNotes = body?.productNotes === true;
   } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
@@ -68,11 +74,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       body: JSON.stringify({
         name: "docs.subscribed",
         email: normalizedEmail,
-        eventProperties: { source: "docs-site" },
         contactProperties: firstName ? { firstName } : {},
-        // Marketing list membership is NOT set here — product-updates is
-        // opt-in from the welcome email's preference centre (unbundled
-        // consent: the form only buys you the journey it advertises).
+        // termsAccepted is recorded on the event as the consent audit trail.
+        eventProperties: { source: "docs-site", termsAccepted },
+        // product-updates membership ONLY on the explicit, unticked-by-default
+        // checkbox — unbundled consent, recorded at the point of capture.
+        ...(productNotes ? { lists: { "product-updates": true } } : {}),
       }),
     });
 
