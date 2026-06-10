@@ -12,7 +12,7 @@
  * an engine version that actually exports them yields a scaffold that won't
  * compile. Bump in lockstep — see the `release` skill.
  */
-export const ENGINE_VERSION = "0.13.1";
+export const ENGINE_VERSION = "0.13.2";
 
 /** Every `@hogsend/*` package the scaffolded app depends on. */
 export const HOGSEND_PACKAGES = [
