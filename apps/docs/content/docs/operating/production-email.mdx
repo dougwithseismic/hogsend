@@ -80,6 +80,17 @@ To reply *as* `hello@yourdomain.com`, use Gmail's "Send mail as": SMTP server `s
 
 Total mailbox cost: zero.
 
+While you're at it, send as a person rather than a department — the from address
+accepts a display name (engine ≥0.13.1):
+
+```bash
+EMAIL_FROM="Doug at Hogsend <doug@yourdomain.com>"
+```
+
+A founder's name in the from line reads like a note from a human; `noreply@`
+reads like a receipt. Pair it with the reply routing above so answers actually
+reach you.
+
 ## 5. Deploy
 
 Two paths.

@@ -15,7 +15,9 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./eject": "./src/eject.ts"
+    "./eject": "./src/eject.ts",
+    "./bin": "./dist/bin.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

@@ -49,7 +49,7 @@ The active provider resolves as `email.defaultProvider` (passed to `createHogsen
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
 | `EMAIL_PROVIDER` | No | `resend` | API, Worker | Active provider id (lowercase `resend`, `postmark`, …). Absent → `resend`. Set to `postmark` to make an installed Postmark provider the active wire. |
-| `EMAIL_FROM` | No | — | Worker | Neutral default-from address. The mailer's default-from resolves as `EMAIL_FROM ?? RESEND_FROM_EMAIL`. Use this (not `RESEND_FROM_EMAIL`) on a non-Resend deploy. |
+| `EMAIL_FROM` | No | — | Worker | Neutral default-from address. The mailer's default-from resolves as `EMAIL_FROM ?? RESEND_FROM_EMAIL`. Use this (not `RESEND_FROM_EMAIL`) on a non-Resend deploy. Accepts a bare address or a display name: `Doug at Hogsend <doug@hogsend.com>`. |
 | `EMAIL_DOMAIN` | No | host part of `EMAIL_FROM` (falling back to `RESEND_FROM_EMAIL`) | API, Worker | The sending domain the [domain-status service](/docs/cli/domain) reports on, and the domain [test mode](/docs/operating/test-mode)'s `auto` arming keys on. `create-hogsend --domain` writes it for you. Set it explicitly when you send from a subaddress domain that differs from the one registered at the provider. |
 | `HOGSEND_TEST_MODE` | No | `auto` | API, Worker | `auto` \| `true` \| `false`. Controls the [test-mode](/docs/operating/test-mode) send redirect. `auto` redirects only while the active provider supports domains **and** `EMAIL_DOMAIN` is set **and** unverified (fail-open: a provider outage never silently redirects prod mail; no `EMAIL_DOMAIN` ⇒ stays live). `true` always redirects; `false` never does. |
 | `HOGSEND_TEST_EMAIL` | No | falls back to `STUDIO_ADMIN_EMAIL` | API, Worker | The safe inbox every redirected send is delivered to while test mode is active. When **neither** resolves while active, the send is blocked (recorded as `failed`, never delivered to the real recipient). |
@@ -59,7 +59,7 @@ The active provider resolves as `email.defaultProvider` (passed to `createHogsen
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
 | `RESEND_API_KEY` | No | — | Worker | Resend API key for sending emails (starts with `re_`). From the [Resend dashboard](https://resend.com/api-keys). Required only when Resend is the active provider — a Postmark-only deploy boots without it. The scaffold ships a placeholder; set a real key before sending. |
-| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Worker | Default sender address when `EMAIL_FROM` is unset. Must be on a domain verified in your Resend account. |
+| `RESEND_FROM_EMAIL` | No | `noreply@hogsend.com` | Worker | Default sender address when `EMAIL_FROM` is unset. Must be on a domain verified in your Resend account. Accepts a bare address or a display name: `Doug at Hogsend <doug@hogsend.com>`. |
 | `RESEND_WEBHOOK_SECRET` | No | — | API | Signing secret for verifying Resend webhook payloads. Enables delivery tracking (delivered, opened, clicked, bounced, complained). From Resend → Webhooks. Starts with `whsec_`. |
 
 <Callout type="info">
@@ -266,7 +266,7 @@ NODE_ENV=production
 LOG_LEVEL=info
 API_PUBLIC_URL=https://api.yourdomain.com
 BETTER_AUTH_URL=https://api.yourdomain.com
-RESEND_FROM_EMAIL=noreply@yourdomain.com   # or EMAIL_FROM for a non-Resend provider
+RESEND_FROM_EMAIL=noreply@yourdomain.com   # or EMAIL_FROM; "Name <addr>" works too
 STUDIO_ADMIN_EMAIL=you@yourdomain.com       # bootstraps the first Studio admin on a fresh DB
 ENABLED_JOURNEYS=*
 ```

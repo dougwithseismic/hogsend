@@ -1,0 +1,32 @@
+{
+  "name": "hogsend",
+  "version": "0.13.1",
+  "description": "Hogsend CLI — bare-name alias for @hogsend/cli, so `npx hogsend` and `pnpm dlx hogsend` just work.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dougwithseismic/hogsend.git",
+    "directory": "packages/hogsend"
+  },
+  "homepage": "https://hogsend.com",
+  "bin": {
+    "hogsend": "./bin.js"
+  },
+  "files": [
+    "bin.js",
+    "README.md"
+  ],
+  "scripts": {
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "@hogsend/cli": "workspace:^"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
