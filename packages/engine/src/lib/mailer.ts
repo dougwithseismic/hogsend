@@ -14,6 +14,7 @@ import type {
 } from "@hogsend/email";
 import { getTemplate, renderToHtml, renderToPlainText } from "@hogsend/email";
 import { eq, inArray, sql } from "drizzle-orm";
+import type { DomainStatusService } from "./domain-status.js";
 import {
   type EmailService,
   type EmailServiceConfig,
@@ -27,6 +28,14 @@ import {
 import { hatchet } from "./hatchet.js";
 import { createLogger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
+import {
+  buildRedirect,
+  isUnaddressable,
+  logRedirect,
+  NO_REDIRECT_MESSAGE,
+  resolveTestMode,
+  TestModeNoRedirectError,
+} from "./test-mode.js";
 import type { PrepareTrackedHtmlFn } from "./tracked.js";
 import { sendTrackedEmail } from "./tracked.js";
 import { resolveEmailSendContextByMessageId } from "./tracking-events.js";
@@ -71,12 +80,20 @@ export function createTrackedMailer(
   deps: {
     provider: EmailProvider;
     prepareTrackedHtml?: PrepareTrackedHtmlFn;
+    /**
+     * Cached sending-domain status, injected by the container. Drives test-mode
+     * redirect: when `testModeCached().active`, every send is redirected to the
+     * safe inbox before reaching the provider. OPTIONAL — direct construction
+     * without it (tests) keeps today's behavior; the container always passes it.
+     */
+    domainStatus?: DomainStatusService;
   },
 ): EmailService {
-  const { provider } = deps;
+  const { provider, domainStatus } = deps;
   const db = config.db as Database | undefined;
   const retryDefaults = config.retryOptions;
   const registry = config.templates;
+  const logger = config.logger ?? emitLogger;
 
   function resolveFrom(overrideFrom?: string): string {
     return overrideFrom ?? config.defaultFrom;
@@ -109,6 +126,11 @@ export function createTrackedMailer(
     ): Promise<TrackedSendResult> {
       const from = resolveFrom(options.from);
 
+      // Resolve test mode ONCE (cache-only, fires the fire-and-forget refresh).
+      // The DB path threads the resolved state into sendTrackedEmail so
+      // tracked.ts stays domainStatus-unaware; the no-db path applies it inline.
+      const testMode = resolveTestMode(domainStatus);
+
       if (db) {
         return sendTrackedEmail({
           db,
@@ -118,6 +140,7 @@ export function createTrackedMailer(
           prepareTrackedHtml: deps.prepareTrackedHtml,
           frequencyCap: config.frequencyCap,
           logger: config.logger,
+          testMode,
           options: {
             templateKey: options.template,
             props: options.props,
@@ -143,14 +166,47 @@ export function createTrackedMailer(
         props: options.props,
         registry,
       });
+      const subject = options.subject ?? defaultSubject;
       // HTML-ONLY wire — the engine ALWAYS renders React → HTML itself before
       // the provider. React Email stays first-class for authoring/Studio; it
       // never crosses the provider boundary.
       const html = await renderToHtml(element);
+
+      // Test-mode redirect on the no-db path. Hard-fail (no row to write here)
+      // by returning a skipped result rather than reaching the real recipient.
+      let wireTo: string | string[] = options.to;
+      let wireSubject = subject;
+      let wireFrom = from;
+      if (testMode) {
+        if (isUnaddressable(testMode)) {
+          logger.error(NO_REDIRECT_MESSAGE, { originalTo: options.to });
+          return trackedSendResult({
+            emailSendId: "",
+            messageId: "",
+            status: "skipped",
+            reason: "test_mode_blocked",
+          });
+        }
+        const r = buildRedirect({
+          from,
+          to: options.to,
+          subject,
+          state: testMode,
+        });
+        wireTo = r.to;
+        wireSubject = r.subject;
+        wireFrom = r.from;
+        logRedirect(logger, {
+          originalTo: r.originalTo,
+          redirectTo: testMode.redirectTo,
+          reason: testMode.reason,
+        });
+      }
+
       const result = await provider.send({
-        from,
-        to: options.to,
-        subject: options.subject ?? defaultSubject,
+        from: wireFrom,
+        to: wireTo,
+        subject: wireSubject,
         html,
         tags: options.tags,
         headers: options.headers,
@@ -166,12 +222,82 @@ export function createTrackedMailer(
 
     async sendRaw(options: SendRawOptions): Promise<SendResult> {
       const gated = applyScheduledAtGate(options);
-      return provider.send({ ...gated, from: resolveFrom(options.from) });
+      const from = resolveFrom(options.from);
+
+      const testMode = resolveTestMode(domainStatus);
+      if (testMode) {
+        // Raw sends have no email_sends row to record a skip against, so an
+        // unaddressable test mode THROWS loudly rather than silently delivering.
+        if (isUnaddressable(testMode)) {
+          logger.error(NO_REDIRECT_MESSAGE, { originalTo: gated.to });
+          throw new TestModeNoRedirectError();
+        }
+        const r = buildRedirect({
+          from,
+          to: gated.to,
+          cc: gated.cc,
+          bcc: gated.bcc,
+          subject: gated.subject,
+          state: testMode,
+        });
+        logRedirect(logger, {
+          originalTo: r.originalTo,
+          redirectTo: testMode.redirectTo,
+          reason: testMode.reason,
+        });
+        // Drop cc/bcc entirely — never leak the test mail to an original recipient.
+        const { cc: _cc, bcc: _bcc, ...rest } = gated;
+        return provider.send({
+          ...rest,
+          from: r.from,
+          to: r.to,
+          subject: r.subject,
+        });
+      }
+
+      return provider.send({ ...gated, from });
     },
 
     async sendBatch(options: {
       emails: BatchEmailItem[];
     }): Promise<{ results: SendResult[] }> {
+      const testMode = resolveTestMode(domainStatus);
+
+      if (testMode) {
+        // Unaddressable ⇒ throw before any item reaches the provider.
+        if (isUnaddressable(testMode)) {
+          logger.error(NO_REDIRECT_MESSAGE, {
+            count: options.emails.length,
+          });
+          throw new TestModeNoRedirectError();
+        }
+        // Each item gets its OWN [TEST → …] prefix; ONE structured WARN for the
+        // whole batch (never N log lines for a 1000-item batch).
+        const originalTos: string[] = [];
+        const emails = options.emails.map((e) => {
+          const from = resolveFrom(e.from);
+          const r = buildRedirect({
+            from,
+            to: e.to,
+            cc: e.cc,
+            bcc: e.bcc,
+            subject: e.subject,
+            state: testMode,
+          });
+          originalTos.push(r.originalTo);
+          const { cc: _cc, bcc: _bcc, ...rest } = e;
+          return { ...rest, from: r.from, to: r.to, subject: r.subject };
+        });
+        logger.warn("email.test_mode_redirect", {
+          event: "email.test_mode_redirect",
+          count: emails.length,
+          redirectTo: testMode.redirectTo,
+          reason: testMode.reason,
+          originalTo: originalTos,
+        });
+        return provider.sendBatch(emails);
+      }
+
       const emails = options.emails.map((e) => ({
         ...e,
         from: resolveFrom(e.from),

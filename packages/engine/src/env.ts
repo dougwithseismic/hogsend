@@ -58,6 +58,24 @@ export const env = createEnv({
     // RESEND_FROM_EMAIL) — set it when you send from a subaddress domain that
     // differs from the one registered at the provider.
     EMAIL_DOMAIN: z.string().optional(),
+    // --- Test mode (provider-neutral send redirect) ---
+    // Controls whether the engine redirects every send to a safe inbox while the
+    // sending domain isn't verified yet:
+    //   auto  (default) — test mode iff the active provider supports domains AND
+    //                      an EMAIL_DOMAIN is configured AND it is UNVERIFIED per
+    //                      the cached DomainStatusService. Fail-OPEN: a cache miss
+    //                      or provider outage resolves to LIVE (never silently
+    //                      redirects prod mail). With no domains capability or no
+    //                      EMAIL_DOMAIN, `auto` stays LIVE — existing deploys are
+    //                      unaffected.
+    //   true            — always redirect (reason: "env_flag").
+    //   false           — never redirect, even with an unverified domain.
+    HOGSEND_TEST_MODE: z.enum(["auto", "true", "false"]).default("auto"),
+    // The safe inbox every redirected send is delivered to in test mode. Falls
+    // back to STUDIO_ADMIN_EMAIL when unset; when NEITHER resolves while test
+    // mode is active, the send is BLOCKED (recorded, never delivered to the real
+    // recipient) with a loud, actionable log.
+    HOGSEND_TEST_EMAIL: z.string().email().optional(),
     // --- Postmark (opt-in BYO provider) ---
     // Postmark stays OPT-IN: a preset is built only when POSTMARK_SERVER_TOKEN
     // is present, and it NEVER changes the default active provider — set

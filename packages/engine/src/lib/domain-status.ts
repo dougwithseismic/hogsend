@@ -78,14 +78,73 @@ function hostPartOf(email: string | undefined): string | null {
   return email.slice(at + 1).toLowerCase();
 }
 
-// F3 test-mode-sends replaces this stub (HOGSEND_TEST_MODE / HOGSEND_TEST_EMAIL
-// env vars + the domain-unverified auto mode are F3-owned).
-const TEST_MODE_STUB: TestModeState = {
-  active: false,
-  reason: null,
-  redirectTo: null,
-  fromOverride: null,
-};
+/** The Resend unverified-domain from-address fallback (so a redirected mail
+ * still delivers while the real sending domain isn't verified yet). */
+const RESEND_UNVERIFIED_FROM = "onboarding@resend.dev";
+
+/** Inputs to the pure test-mode resolver — single-object-in/result-object-out. */
+interface ResolveTestModeDeps {
+  /** env.HOGSEND_TEST_MODE. */
+  mode: "auto" | "true" | "false";
+  /**
+   * Whether the sending domain is verified per the CACHE. FAIL-OPEN: a cache
+   * miss / provider outage / `!supported` / no domain resolves to `true`
+   * (verified assumed), so a provider outage can never silently redirect prod
+   * mail (inherits {@link DomainStatusService.isVerifiedCached}).
+   */
+  verifiedCached: boolean;
+  /**
+   * Whether `auto` is allowed to ARM at all. `auto` only redirects when an
+   * EMAIL_DOMAIN is explicitly configured AND the provider supports domains —
+   * a bare deploy (no domain / no capability) keeps today's LIVE behavior, so
+   * existing users' sends are never silently redirected.
+   */
+  autoArmable: boolean;
+  providerId: string;
+  /** env.HOGSEND_TEST_EMAIL. */
+  testEmail?: string;
+  /** env.STUDIO_ADMIN_EMAIL (the fallback redirect target). */
+  adminEmail?: string;
+}
+
+/**
+ * Pure resolver for the {@link TestModeState} (PROJECT_SPEC §b, frozen rules):
+ * - `active` = `mode === "true"` OR (`mode === "auto"` AND `autoArmable` AND
+ *   `!verifiedCached`). `mode === "false"` ⇒ never active.
+ * - `reason` = `"env_flag"` when forced by `mode === "true"`, else
+ *   `"domain_unverified"` when auto-activated, else `null`.
+ * - `redirectTo` = `testEmail ?? adminEmail ?? null`.
+ * - `fromOverride` = `onboarding@resend.dev` iff `active && providerId === "resend"`,
+ *   else `null` (Postmark et al. get a provider-neutral redirect, no from-override).
+ */
+function resolveTestMode(deps: ResolveTestModeDeps): TestModeState {
+  const {
+    mode,
+    verifiedCached,
+    autoArmable,
+    providerId,
+    testEmail,
+    adminEmail,
+  } = deps;
+
+  const forced = mode === "true";
+  const autoActive = mode === "auto" && autoArmable && !verifiedCached;
+  const active = forced || autoActive;
+
+  const reason: TestModeState["reason"] = forced
+    ? "env_flag"
+    : autoActive
+      ? "domain_unverified"
+      : null;
+
+  return {
+    active,
+    reason,
+    redirectTo: active ? (testEmail ?? adminEmail ?? null) : null,
+    fromOverride:
+      active && providerId === "resend" ? RESEND_UNVERIFIED_FROM : null,
+  };
+}
 
 /**
  * Build the cached {@link DomainStatusService} for the active email provider.
@@ -106,6 +165,13 @@ export function createDomainStatusService(deps: {
     hostPartOf(env.EMAIL_FROM) ??
     hostPartOf(env.RESEND_FROM_EMAIL);
 
+  // `auto` only ARMS when an EMAIL_DOMAIN is explicitly configured AND the
+  // provider has the domains capability. A deploy with no EMAIL_DOMAIN or no
+  // capability keeps today's LIVE behavior under `auto` — this is the critical
+  // back-compat guard, NOT to be broadened.
+  const autoArmable = supported && Boolean(env.EMAIL_DOMAIN);
+  const mode = env.HOGSEND_TEST_MODE;
+
   let cache: { snapshot: EngineDomainStatus; fetchedAt: number } | null = null;
   let inflight: Promise<EngineDomainStatus> | null = null;
 
@@ -118,42 +184,96 @@ export function createDomainStatusService(deps: {
     return Date.now() - cache.fetchedAt < ttl;
   };
 
+  // FAIL-OPEN verified check against the live cache (shared by the resolver and
+  // the public `isVerifiedCached`): no cache entry, or nothing to verify
+  // (unsupported provider / underivable domain), ⇒ verified-assumed.
+  const verifiedCachedNow = (): boolean => {
+    if (!cache || cache.snapshot.status === null) return true;
+    return cache.snapshot.status.state === "verified";
+  };
+
+  /** Compute the CURRENT live test-mode snapshot off the cache + env. Pure +
+   * synchronous; never throws (fail-open inherits from `verifiedCachedNow`). */
+  const computeTestMode = (): TestModeState =>
+    resolveTestMode({
+      mode,
+      verifiedCached: verifiedCachedNow(),
+      autoArmable,
+      providerId,
+      testEmail: env.HOGSEND_TEST_EMAIL,
+      adminEmail: env.STUDIO_ADMIN_EMAIL,
+    });
+
+  // Previous-active flag drives one transition log per flip. Seeded `false` so
+  // the FIRST resolution that activates test mode logs the entering banner once
+  // (the boot warm-up refresh IS the banner — no separate boot code path).
+  let previousActive = false;
+
+  /** Log the entering/exiting transition exactly once per flip of `active`. */
+  const logTransition = (testMode: TestModeState): void => {
+    if (testMode.active === previousActive) return;
+    if (testMode.active) {
+      logger.warn(
+        "test mode ACTIVE — domain unverified, redirecting all sends",
+        { redirectTo: testMode.redirectTo, reason: testMode.reason },
+      );
+    } else {
+      logger.info("test mode exited — domain verified, sends are LIVE", {
+        domain,
+      });
+    }
+    previousActive = testMode.active;
+  };
+
+  /**
+   * Refill the cache snapshot with the resolved `status`, then compute the live
+   * `testMode` off the JUST-written cache and fire the transition log on a flip.
+   * Test mode is computed last so it reads the fresh verification state.
+   */
+  const commitSnapshot = (status: DomainStatus | null): EngineDomainStatus => {
+    // Seed the cache with a placeholder testMode so `computeTestMode` reads the
+    // fresh `status`, then overwrite the block with the resolved state.
+    const snapshot: EngineDomainStatus = {
+      domain,
+      providerId,
+      supported,
+      status,
+      testMode: {
+        active: false,
+        reason: null,
+        redirectTo: null,
+        fromOverride: null,
+      },
+    };
+    cache = { snapshot, fetchedAt: Date.now() };
+    const testMode = computeTestMode();
+    snapshot.testMode = testMode;
+    logTransition(testMode);
+    return snapshot;
+  };
+
   /** Always queries the provider (when supported) and refills the cache. */
   const fetchSnapshot = async (): Promise<EngineDomainStatus> => {
     // No capability / no derivable domain: resolve instantly, NEVER call the
     // provider. status stays null per the pinned EngineDomainStatus contract.
     if (!supported || !domain) {
-      const snapshot: EngineDomainStatus = {
-        domain,
-        providerId,
-        supported,
-        status: null,
-        testMode: { ...TEST_MODE_STUB },
-      };
-      cache = { snapshot, fetchedAt: Date.now() };
-      return snapshot;
+      return commitSnapshot(null);
     }
 
     // biome-ignore lint/style/noNonNullAssertion: `supported` guarantees it.
     const capability = provider.domains!;
     const providerStatus = await capability.get(domain);
-    const snapshot: EngineDomainStatus = {
-      domain,
-      providerId,
-      supported,
+    return commitSnapshot(
       // Provider doesn't know the domain yet → an explicit not_found status
       // (the Studio Setup view keys its add-domain form off this).
-      status: providerStatus ?? {
+      providerStatus ?? {
         domain,
         state: "not_found",
         records: [],
         providerId,
         checkedAt: new Date().toISOString(),
       },
-      testMode: { ...TEST_MODE_STUB },
-    };
-    cache = { snapshot, fetchedAt: Date.now() };
-    return snapshot;
+    );
   };
 
   /** Deduped fetch: concurrent callers share one in-flight provider call. */
@@ -182,13 +302,15 @@ export function createDomainStatusService(deps: {
       // FAIL-OPEN: no cache entry, or nothing to verify (unsupported provider /
       // underivable domain) ⇒ treat as verified so a provider outage or a bare
       // deploy can never silently redirect production mail.
-      if (!cache || cache.snapshot.status === null) return true;
-      return cache.snapshot.status.state === "verified";
+      return verifiedCachedNow();
     },
 
     testModeCached(): TestModeState {
-      // F3 test-mode-sends replaces this stub with the real cached snapshot.
-      return { ...TEST_MODE_STUB };
+      // Sync, cache-only, never throws. Recomputed off the CURRENT cache so the
+      // per-send path always sees the freshest verification state without
+      // awaiting (env-flag mode resolves even with a cold cache; auto fails open
+      // to LIVE while the cache is empty/unknown).
+      return computeTestMode();
     },
 
     refreshIfStale(): void {

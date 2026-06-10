@@ -397,6 +397,11 @@ export function createHogsendClient(
       {
         provider,
         prepareTrackedHtml,
+        // Test-mode redirect: the mailer reads `domainStatus.testModeCached()`
+        // (sync, cache-only) per send to decide whether to redirect to the safe
+        // inbox. Constructed above (right after provider resolution) so it binds
+        // the SAME active provider the mailer sends through.
+        domainStatus,
       },
     );
 
