@@ -59,6 +59,23 @@ const EngineDomainStatusSchema = z.object({
 /** Pinned domain validation regex (PROJECT_SPEC §e). */
 const DOMAIN_RE = /^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
 
+/**
+ * Provider domains calls can fail for configuration reasons the operator must
+ * act on (e.g. a send-only restricted Resend key cannot read the domains API).
+ * Surface those as 502 with the provider's message — `hogsend domain` and
+ * Studio render this string directly — instead of an opaque 500.
+ */
+const providerErrorBody = (providerId: string, err: unknown) => ({
+  error: `domains request to provider "${providerId}" failed: ${
+    err instanceof Error ? err.message : String(err)
+  }`,
+});
+
+const providerErrorResponse = {
+  content: { "application/json": { schema: errorSchema } },
+  description: "The provider rejected or failed the domains request",
+} as const;
+
 const getDomainRoute = createRoute({
   method: "get",
   path: "/",
@@ -77,6 +94,7 @@ const getDomainRoute = createRoute({
       description:
         "Cached domain status for the active email provider; ?refresh=true forces a provider round-trip",
     },
+    502: providerErrorResponse,
   },
 });
 
@@ -107,6 +125,7 @@ const addDomainRoute = createRoute({
       content: { "application/json": { schema: errorSchema } },
       description: "The active provider has no domains capability",
     },
+    502: providerErrorResponse,
   },
 });
 
@@ -130,15 +149,23 @@ const verifyDomainRoute = createRoute({
       content: { "application/json": { schema: errorSchema } },
       description: "The active provider has no domains capability",
     },
+    502: providerErrorResponse,
   },
 });
 
 export const domainRouter = new OpenAPIHono<AppEnv>()
   .openapi(getDomainRoute, async (c) => {
-    const { domainStatus } = c.get("container");
+    const { domainStatus, emailProvider } = c.get("container");
     const { refresh } = c.req.valid("query");
-    const status = await domainStatus.getStatus({ refresh });
-    return c.json(status, 200);
+    try {
+      const status = await domainStatus.getStatus({ refresh });
+      return c.json(status, 200);
+    } catch (err) {
+      return c.json(
+        providerErrorBody(emailProvider.meta?.id ?? "email", err),
+        502,
+      );
+    }
   })
   .openapi(addDomainRoute, async (c) => {
     const { domainStatus, emailProvider } = c.get("container");
@@ -148,12 +175,19 @@ export const domainRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "provider_unsupported" }, 501);
     }
 
-    // Idempotent at the provider (an existing domain falls through to lookup).
-    await emailProvider.domains.create(domain);
+    try {
+      // Idempotent at the provider (an existing domain falls through to lookup).
+      await emailProvider.domains.create(domain);
 
-    // Bust + refresh the cached snapshot so the response reflects the create.
-    const status = await domainStatus.getStatus({ refresh: true });
-    return c.json(status, 200);
+      // Bust + refresh the cached snapshot so the response reflects the create.
+      const status = await domainStatus.getStatus({ refresh: true });
+      return c.json(status, 200);
+    } catch (err) {
+      return c.json(
+        providerErrorBody(emailProvider.meta?.id ?? "email", err),
+        502,
+      );
+    }
   })
   .openapi(verifyDomainRoute, async (c) => {
     const { domainStatus, emailProvider } = c.get("container");
@@ -162,20 +196,27 @@ export const domainRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: "provider_unsupported" }, 501);
     }
 
-    const current = await domainStatus.getStatus();
-    if (!current.domain) {
-      return c.json({ error: "no_domain_configured" }, 400);
-    }
+    try {
+      const current = await domainStatus.getStatus();
+      if (!current.domain) {
+        return c.json({ error: "no_domain_configured" }, 400);
+      }
 
-    // Prefer the provider's explicit verification pass; fall back to a plain
-    // status fetch for providers without one.
-    const capability = emailProvider.domains;
-    if (capability.verify) {
-      await capability.verify(current.domain);
-    } else {
-      await capability.get(current.domain);
-    }
+      // Prefer the provider's explicit verification pass; fall back to a plain
+      // status fetch for providers without one.
+      const capability = emailProvider.domains;
+      if (capability.verify) {
+        await capability.verify(current.domain);
+      } else {
+        await capability.get(current.domain);
+      }
 
-    const status = await domainStatus.getStatus({ refresh: true });
-    return c.json(status, 200);
+      const status = await domainStatus.getStatus({ refresh: true });
+      return c.json(status, 200);
+    } catch (err) {
+      return c.json(
+        providerErrorBody(emailProvider.meta?.id ?? "email", err),
+        502,
+      );
+    }
   });

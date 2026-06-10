@@ -265,6 +265,46 @@ describe("per-send safety contract (sync, cache-only)", () => {
   });
 });
 
+describe("provider errors surface as 502 (not an opaque 500)", () => {
+  it("GET ?refresh=true returns 502 with the provider message when the domains call throws", async () => {
+    domainsGet.mockRejectedValueOnce(
+      new Error(
+        "Resend domains API 401: This API key is restricted to only send emails",
+      ),
+    );
+    const res = await app.request("/v1/admin/domain?refresh=true", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toContain('provider "resend"');
+    expect(body.error).toContain("restricted to only send emails");
+  });
+
+  it("POST /v1/admin/domain returns 502 when the provider create throws", async () => {
+    domainsCreate.mockRejectedValueOnce(new Error("Resend domains API 401"));
+    const res = await app.request("/v1/admin/domain", {
+      method: "POST",
+      headers: { ...AUTH_HEADER, "Content-Type": "application/json" },
+      body: JSON.stringify({ domain: "mysite.com" }),
+    });
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toContain("Resend domains API 401");
+  });
+
+  it("POST /v1/admin/domain/verify returns 502 when the provider verify throws", async () => {
+    domainsVerify.mockRejectedValueOnce(new Error("Resend domains API 401"));
+    const res = await app.request("/v1/admin/domain/verify", {
+      method: "POST",
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toContain("Resend domains API 401");
+  });
+});
+
 describe("OpenAPI registration", () => {
   it("exposes the domain routes in /openapi.json", async () => {
     const res = await app.request("/openapi.json");
