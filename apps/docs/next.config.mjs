@@ -15,6 +15,21 @@ const config = {
   outputFileTracingRoot: fileURLToPath(new URL("../../", import.meta.url)),
   async redirects() {
     return [
+      // Host-based 301s: the site is served at hogsend.com (root). The old
+      // docs.hogsend.com host and www both redirect path-preserving — docs
+      // URLs live under /docs on every host, so no path rewriting is needed.
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "docs.hogsend.com" }],
+        destination: "https://hogsend.com/:path*",
+        permanent: true,
+      },
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.hogsend.com" }],
+        destination: "https://hogsend.com/:path*",
+        permanent: true,
+      },
       {
         source: "/docs/installation",
         destination: "/docs/getting-started/installation",

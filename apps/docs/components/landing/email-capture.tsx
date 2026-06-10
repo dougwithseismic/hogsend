@@ -5,6 +5,16 @@ import { cn } from "@/lib/cn";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
+type EmailCaptureProps = {
+  className?: string;
+  /** Heading above the field. Defaults to the changelog framing. */
+  heading?: string;
+  /** Supporting line under the heading. */
+  sub?: string;
+  /** Drop the heading block entirely (the surrounding section supplies it). */
+  hideHeading?: boolean;
+};
+
 /**
  * EmailCapture — single email field + the primary white button, posting to
  * /api/subscribe (which forwards to the Hogsend ingest API server-side).
@@ -13,9 +23,10 @@ type Status = "idle" | "submitting" | "success" | "error";
  */
 export function EmailCapture({
   className,
-}: {
-  className?: string;
-}): JSX.Element {
+  heading = "Get the changelog",
+  sub = "Ships when something ships. No drip nonsense.",
+  hideHeading = false,
+}: EmailCaptureProps): JSX.Element {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<Status>("idle");
 
@@ -38,15 +49,22 @@ export function EmailCapture({
 
   return (
     <div className={className}>
-      <p className="font-medium text-base text-white tracking-[-0.02em]">
-        Get the changelog
-      </p>
-      <p className="mt-1.5 text-sm text-white/50">
-        Ships when something ships. No drip nonsense.
-      </p>
+      {hideHeading ? null : (
+        <>
+          <p className="font-medium text-base text-white tracking-[-0.02em]">
+            {heading}
+          </p>
+          <p className="mt-1.5 text-sm text-white/50">{sub}</p>
+        </>
+      )}
 
       {status === "success" ? (
-        <p className="mt-4 flex h-12 items-center gap-2 text-base text-white">
+        <p
+          className={cn(
+            "flex h-12 items-center gap-2 text-base text-white",
+            !hideHeading && "mt-4",
+          )}
+        >
           <span aria-hidden="true" className="text-accent">
             ✓
           </span>
@@ -56,7 +74,10 @@ export function EmailCapture({
         <>
           <form
             onSubmit={handleSubmit}
-            className="mt-4 flex flex-col gap-3 sm:flex-row"
+            className={cn(
+              "flex flex-col gap-3 sm:flex-row",
+              !hideHeading && "mt-4",
+            )}
           >
             <input
               type="email"
