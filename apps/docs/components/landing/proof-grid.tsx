@@ -1,5 +1,6 @@
 import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
+import { TrackDeployClick } from "@/components/analytics/track";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
@@ -101,14 +102,27 @@ export function ProofGrid({ className }: { className?: string }) {
               className="h-full"
             >
               {card.external ? (
-                <a
-                  href={card.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={cardClass}
-                >
-                  {inner}
-                </a>
+                card.href.includes("railway.com/deploy") ? (
+                  <TrackDeployClick placement="proof-grid">
+                    <a
+                      href={card.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cardClass}
+                    >
+                      {inner}
+                    </a>
+                  </TrackDeployClick>
+                ) : (
+                  <a
+                    href={card.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={cardClass}
+                  >
+                    {inner}
+                  </a>
+                )
               ) : (
                 <Link href={card.href} className={cardClass}>
                   {inner}

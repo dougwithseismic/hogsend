@@ -2,6 +2,7 @@ import { RootProvider } from "fumadocs-ui/provider/next";
 import "./global.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { PageViewTracker } from "@/components/analytics/page-view-tracker";
 import {
   OrganizationJsonLd,
   SoftwareApplicationJsonLd,
@@ -36,6 +37,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <body className="flex min-h-screen flex-col bg-ink font-sans text-white antialiased">
         {/* Dark-only site (matches the brand). The theme toggle is disabled. */}
         <RootProvider theme={{ enabled: false }}>{children}</RootProvider>
+        <PageViewTracker />
         <SoftwareApplicationJsonLd />
         <OrganizationJsonLd />
       </body>
