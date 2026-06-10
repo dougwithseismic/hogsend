@@ -3,16 +3,16 @@ services:
     image: timescale/timescaledb:latest-pg18
     restart: unless-stopped
     environment:
-      POSTGRES_USER: growthhog
-      POSTGRES_PASSWORD: growthhog
-      POSTGRES_DB: growthhog
+      POSTGRES_USER: hogsend
+      POSTGRES_PASSWORD: hogsend
+      POSTGRES_DB: hogsend
     ports:
       # Host port is parameterized so `pnpm bootstrap` can remap on conflict.
       - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - pgdata:/home/postgres/pgdata/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U growthhog"]
+      test: ["CMD-SHELL", "pg_isready -U hogsend"]
       interval: 5s
       timeout: 5s
       retries: 5

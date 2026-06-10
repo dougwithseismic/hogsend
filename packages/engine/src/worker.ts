@@ -5,7 +5,7 @@ import {
 } from "./buckets/registry.js";
 import type { HogsendClient } from "./container.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
-import { selectJourneyTasks } from "./journeys/registry.js";
+import { parseEnabledFilter, selectJourneyTasks } from "./journeys/registry.js";
 import { reportWorkerReady } from "./lib/boot.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getRedisIfConnected } from "./lib/redis.js";
@@ -49,6 +49,13 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
   const { container, journeys } = opts;
   const enabled = opts.enabledJourneys ?? container.env.ENABLED_JOURNEYS;
   const journeyTasks = selectJourneyTasks(journeys, enabled);
+  // The enabled journey IDs, logged at startup so a stale worker (one missing a
+  // newly added journey because the dev watcher never restarted it) is visible
+  // at a glance — counts alone can't show WHICH journeys are registered.
+  const journeyFilter = parseEnabledFilter(enabled);
+  const journeyIds = journeys
+    .filter((j) => journeyFilter === "*" || journeyFilter.has(j.meta.id))
+    .map((j) => j.meta.id);
 
   const enabledBuckets = opts.enabledBuckets ?? container.env.ENABLED_BUCKETS;
   // The single place a bucket's per-user fast-expiry timer task is constructed
@@ -111,6 +118,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     // "ready" line only fires once `hatchet.worker()` resolves).
     container.logger.info("Hogsend worker starting", {
       hatchet: container.env.HATCHET_CLIENT_HOST_PORT,
+      journeys: journeyIds,
     });
 
     _worker = await hatchet.worker("hogsend-worker", { workflows });

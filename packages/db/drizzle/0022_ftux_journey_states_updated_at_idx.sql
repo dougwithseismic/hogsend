@@ -1,0 +1,1 @@
+CREATE INDEX "journey_states_updated_at_idx" ON "journey_states" USING btree ("updated_at");

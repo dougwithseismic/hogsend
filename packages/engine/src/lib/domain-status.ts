@@ -69,6 +69,27 @@ export interface DomainStatusService {
 const VERIFIED_TTL_MS = 10 * 60 * 1000;
 /** TTL while unverified/failed/unknown — keeps test-mode auto-exit ≤60 s. */
 const UNVERIFIED_TTL_MS = 60 * 1000;
+/**
+ * Back-off TTL after a permission-denied (401/403) refresh failure — e.g. a
+ * send-only restricted Resend key that cannot read the domains API. Re-probing
+ * every UNVERIFIED_TTL_MS would warn-spam forever and can never succeed until
+ * the key changes, so we assume-verified (fail-open) and go quiet for 6 h.
+ * An explicit `getStatus({ refresh: true })` (admin route / CLI) still probes.
+ */
+const PERMISSION_BLOCKED_TTL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Permission-style domains-API failure detection. Matches ONLY the providers'
+ * own structured messages — plugin-resend `domains.ts` and plugin-postmark
+ * `index.ts` both emit exactly "<Provider> domains API 401: <message>" or
+ * "<Provider> domains API request failed with status 403". Deliberately
+ * narrow: a bare 401/403/"forbidden" from an intermediary (WAF/proxy/CDN) in
+ * front of the provider must NOT match — it stays on the transient path so a
+ * blip can never displace a real cached status for the long back-off TTL.
+ */
+function isPermissionDeniedMessage(message: string): boolean {
+  return /\bdomains API (?:request failed with status )?40[13]\b/.test(message);
+}
 
 /** Extract the host part of an email address ("hello@x.com" → "x.com"). */
 function hostPartOf(email: string | undefined): string | null {
@@ -174,11 +195,19 @@ export function createDomainStatusService(deps: {
 
   let cache: { snapshot: EngineDomainStatus; fetchedAt: number } | null = null;
   let inflight: Promise<EngineDomainStatus> | null = null;
+  // Permission-denied (401/403) back-off state: blocked extends the cache TTL
+  // so the background refresh stops re-probing a key that can never read
+  // domains; warned gates the explanatory warn to exactly ONCE per restriction
+  // episode (a later successful probe resets both, so a NEW restriction after
+  // recovery warns again).
+  let permissionBlocked = false;
+  let permissionWarned = false;
 
   const isFresh = (): boolean => {
     if (!cache) return false;
-    const ttl =
-      cache.snapshot.status?.state === "verified"
+    const ttl = permissionBlocked
+      ? PERMISSION_BLOCKED_TTL_MS
+      : cache.snapshot.status?.state === "verified"
         ? VERIFIED_TTL_MS
         : UNVERIFIED_TTL_MS;
     return Date.now() - cache.fetchedAt < ttl;
@@ -210,12 +239,22 @@ export function createDomainStatusService(deps: {
   let previousActive = false;
 
   /** Log the entering/exiting transition exactly once per flip of `active`. */
-  const logTransition = (testMode: TestModeState): void => {
+  const logTransition = (
+    testMode: TestModeState,
+    opts?: { assumedVerified?: boolean },
+  ): void => {
     if (testMode.active === previousActive) return;
     if (testMode.active) {
       logger.warn(
         "test mode ACTIVE — domain unverified, redirecting all sends",
         { redirectTo: testMode.redirectTo, reason: testMode.reason },
+      );
+    } else if (opts?.assumedVerified) {
+      // Permission-block fail-open: verification was UNREADABLE, not
+      // confirmed — never claim "domain verified" on this path.
+      logger.warn(
+        "test mode exited — domain status unreadable (permission denied), failing open to LIVE sends",
+        { domain },
       );
     } else {
       logger.info("test mode exited — domain verified, sends are LIVE", {
@@ -230,7 +269,10 @@ export function createDomainStatusService(deps: {
    * `testMode` off the JUST-written cache and fire the transition log on a flip.
    * Test mode is computed last so it reads the fresh verification state.
    */
-  const commitSnapshot = (status: DomainStatus | null): EngineDomainStatus => {
+  const commitSnapshot = (
+    status: DomainStatus | null,
+    opts?: { assumedVerified?: boolean },
+  ): EngineDomainStatus => {
     // Seed the cache with a placeholder testMode so `computeTestMode` reads the
     // fresh `status`, then overwrite the block with the resolved state.
     const snapshot: EngineDomainStatus = {
@@ -248,7 +290,7 @@ export function createDomainStatusService(deps: {
     cache = { snapshot, fetchedAt: Date.now() };
     const testMode = computeTestMode();
     snapshot.testMode = testMode;
-    logTransition(testMode);
+    logTransition(testMode, opts);
     return snapshot;
   };
 
@@ -263,6 +305,10 @@ export function createDomainStatusService(deps: {
     // biome-ignore lint/style/noNonNullAssertion: `supported` guarantees it.
     const capability = provider.domains!;
     const providerStatus = await capability.get(domain);
+    // The key CAN read domains after all — clear any permission back-off so a
+    // key swap recovers immediately and a future restriction warns once again.
+    permissionBlocked = false;
+    permissionWarned = false;
     return commitSnapshot(
       // Provider doesn't know the domain yet → an explicit not_found status
       // (the Studio Setup view keys its add-domain form off this).
@@ -284,6 +330,41 @@ export function createDomainStatusService(deps: {
       });
     }
     return inflight;
+  };
+
+  /**
+   * A 401/403 from the provider domains API (e.g. a send-only restricted
+   * Resend key): warn ONCE with what it means, then back off under the long
+   * {@link PERMISSION_BLOCKED_TTL_MS} so the background refresh stops
+   * re-probing + re-warning every UNVERIFIED_TTL_MS. When the cache already
+   * holds a REAL snapshot it is KEPT (TTL extended only) — overwriting a
+   * genuinely-unverified status with assumed-verified `null` would disarm an
+   * armed auto test-mode for 6h off one permission-shaped failure. Only a
+   * cold cache commits the assumed-verified `null` snapshot (fail-open
+   * verified, the existing contract — production mail is never redirected).
+   */
+  const markPermissionBlocked = (message: string): void => {
+    permissionBlocked = true;
+    if (!permissionWarned) {
+      permissionWarned = true;
+      logger.warn(
+        "domain-status: the email provider API key cannot read domains " +
+          "(permission denied). Keeping the last fetched domain status; " +
+          "without one, verification is assumed-verified (fail-open: " +
+          "production mail is never redirected) and HOGSEND_TEST_MODE=auto " +
+          "cannot arm. Set HOGSEND_TEST_MODE=true to force test-mode " +
+          "redirects, or use a full-access API key. Suppressing domain " +
+          "checks for 6h.",
+        { domain, providerId, error: message },
+      );
+    }
+    if (cache) {
+      // Preserve the last real snapshot as the truth; just push its
+      // freshness window out to the back-off TTL.
+      cache.fetchedAt = Date.now();
+      return;
+    }
+    commitSnapshot(null, { assumedVerified: true });
   };
 
   return {
@@ -316,10 +397,19 @@ export function createDomainStatusService(deps: {
     refreshIfStale(): void {
       if (isFresh()) return;
       void fetchDeduped().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        // Permission-style failure (401/403, e.g. a send-only restricted key):
+        // one explanatory warn + long back-off instead of warn-spam forever.
+        if (isPermissionDeniedMessage(message)) {
+          markPermissionBlocked(message);
+          return;
+        }
+        // Transient failures (network, 5xx) keep the existing behavior: warn
+        // every stale refresh, short TTL, fail-open verified via the cache.
         logger.warn("domain-status refresh failed", {
           domain,
           providerId,
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
         });
       });
     },

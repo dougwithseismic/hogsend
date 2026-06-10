@@ -26,7 +26,16 @@ It stands up six services, pre-wired:
 
 The template wires everything it can on its own: `DATABASE_URL` and `REDIS_URL` (service references), the Hatchet gRPC address, a freshly generated `BETTER_AUTH_SECRET`, and `API_PUBLIC_URL` / `BETTER_AUTH_URL` derived from the api's Railway domain. A couple of things still need you after the first deploy:
 
-1. **Hatchet token** (one-time) — Hatchet mints its client token *after* the server boots, so it can't be pre-filled. Open the **hatchet-lite** dashboard → Settings → API Tokens → create one, set it as `HATCHET_CLIENT_TOKEN` on both the api and worker, and redeploy. This is the same single step Hatchet's own Railway template requires. See [Get a Hatchet token](/docs/getting-started/hatchet).
+1. **Hatchet token** (one-time) — Hatchet mints its client token *after* the server boots, so it can't be pre-filled. Mint it headlessly with the CLI and pipe it straight into the api service (the worker references the api's value):
+
+   ```bash
+   railway variables --service hogsend-api --set \
+     "HATCHET_CLIENT_TOKEN=$(hogsend hatchet token \
+       --url https://<hatchet-lite-public-url> \
+       --email you@yourdomain.com --password '<password>')"
+   ```
+
+   `hogsend hatchet token` registers the account (or logs in if it exists — on a locked-down instance use its seeded `ADMIN_EMAIL`/`ADMIN_PASSWORD`), ensures the tenant, creates the token, and prints **only** the token to stdout. Prefer the manual route? The hatchet-lite dashboard → Settings → API Tokens → Create works too. Then redeploy. See [Get a Hatchet token](/docs/getting-started/hatchet).
 2. **An email provider** — Hogsend sends email through a swappable provider, Resend by default. For Resend, set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` on **both** the api and worker. For Postmark, set `EMAIL_PROVIDER=postmark` plus the `POSTMARK_*` vars instead. `RESEND_API_KEY` is **optional** now — a Postmark-only deploy boots without it — so the api no longer fails its `/v1/health` check just because no Resend key is set. Set the active provider's credentials before sending real email.
 3. **First Studio admin** — public sign-up is disabled, so set `STUDIO_ADMIN_EMAIL` (and optionally `STUDIO_ADMIN_PASSWORD`) on the api service and the API mints the first admin on boot into an empty user table. Or mint it from a shell with `railway run hogsend studio admin create`. See [Authentication](/docs/operating/authentication#studio-admin-login).
 
@@ -135,7 +144,11 @@ Deploy as a separate Railway service from the Docker image `ghcr.io/hatchet-dev/
 | `SERVER_GRPC_BROADCAST_ADDRESS` | Internal Railway address for gRPC |
 | `SERVER_MSGQUEUE_KIND` | `postgres` |
 
-Once it is running, **mint an API token from its dashboard** and set it as `HATCHET_CLIENT_TOKEN` in both Hogsend services. See [Get a Hatchet token](/docs/getting-started/hatchet).
+Once it is running, mint an API token — either headlessly with `hogsend hatchet token --url <hatchet-url> --email <e> --password <p>` (prints only the token, pipeable) or from the dashboard — and set it as `HATCHET_CLIENT_TOKEN` in both Hogsend services. See [Get a Hatchet token](/docs/getting-started/hatchet).
+
+<Callout type="warn">
+  **Lock down a public hatchet-lite.** It ships with open registration — anyone who finds the public URL can create an account on your Hatchet dashboard. Set `SERVER_ALLOW_SIGNUP=false`, and give it a real seeded admin via `ADMIN_EMAIL` / `ADMIN_PASSWORD` (never leave the `admin@example.com` / `Admin123!!` defaults). `hogsend hatchet token` then logs in with those credentials.
+</Callout>
 
 ### Postgres & Redis
 

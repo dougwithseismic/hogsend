@@ -14,6 +14,13 @@ export interface ResolvedConfig {
    * to the admin key since `full-admin` implies `ingest`.
    */
   dataKey: string | undefined;
+  /**
+   * True when `baseUrl` came from an explicit `--url` flag (vs env / .env /
+   * the localhost default). Commands that target a DIFFERENT host than the
+   * Hogsend API (e.g. `hatchet token`) must only honor `baseUrl` when this is
+   * set, so a cwd `.env`'s HOGSEND_API_URL can't silently become their target.
+   */
+  urlExplicit: boolean;
 }
 
 /** Global flags parsed off the front of any command's argv. */
@@ -165,5 +172,6 @@ export function resolveConfig(
     baseUrl: baseUrlRaw.replace(/\/+$/, ""),
     adminKey: adminKey && adminKey.length > 0 ? adminKey : undefined,
     dataKey: dataKey && dataKey.length > 0 ? dataKey : undefined,
+    urlExplicit: flags.url !== undefined,
   };
 }

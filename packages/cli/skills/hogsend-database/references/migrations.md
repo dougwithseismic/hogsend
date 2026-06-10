@@ -31,7 +31,7 @@ export default defineConfig({
   dbCredentials: {
     url:
       process.env.DATABASE_URL ??
-      "postgresql://growthhog:growthhog@localhost:5434/growthhog",
+      "postgresql://hogsend:hogsend@localhost:5434/hogsend",
   },
 });
 ```

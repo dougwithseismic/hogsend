@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import {
   bootstrapAdminFromEnv,
+  bootstrapApiKeyFromEnv,
   createApp,
   createHogsendClient,
   getEngineSchemaVersion,
@@ -61,6 +62,13 @@ if (process.env.SKIP_SCHEMA_CHECK !== "true") {
 // supplied. Idempotent (no-op once any user exists) and never fatal — runs in
 // the API process only (not the worker) so two boots can't race the create.
 await bootstrapAdminFromEnv({ client });
+
+// First-key bootstrap (data-plane sibling of the admin bootstrap): a template
+// deploy never runs the local `pnpm bootstrap`, so on a TRULY empty api_keys
+// table the engine mints one ingest-scoped key and prints it ONCE to the log.
+// Idempotent (no-op once any key exists), opt out with
+// HOGSEND_BOOTSTRAP_API_KEY=false. API process only — never the worker.
+await bootstrapApiKeyFromEnv({ client });
 
 const app = createApp(client, { webhookSources });
 const { logger, env } = client;

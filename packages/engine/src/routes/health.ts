@@ -1,6 +1,12 @@
-import { getClientSchemaVersion, getEngineSchemaVersion } from "@hogsend/db";
+import {
+  type Database,
+  emailSends,
+  getClientSchemaVersion,
+  getEngineSchemaVersion,
+  journeyStates,
+} from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { sql } from "drizzle-orm";
+import { gte, sql } from "drizzle-orm";
 import type { AppEnv } from "../app.js";
 import { API_VERSION } from "../env.js";
 import { getRedis } from "../lib/redis.js";
@@ -29,6 +35,22 @@ const trackSchema = z.object({
   pending: z.array(z.string()),
 });
 
+// Recent activity counts (last 24h). Surfaces silent failures — a failed
+// journey or send otherwise only shows in worker logs while health stays
+// green. Informational only: counts never affect `status`, and a query
+// failure degrades each count to null rather than breaking health.
+const activitySchema = z.object({
+  windowHours: z.number(),
+  journeys: z.object({
+    failed: z.number().nullable(),
+    completed: z.number().nullable(),
+  }),
+  emails: z.object({
+    failed: z.number().nullable(),
+    sent: z.number().nullable(),
+  }),
+});
+
 const healthResponseSchema = z.object({
   status: z.enum(["healthy", "degraded", "migration_pending"]),
   uptime: z.number(),
@@ -43,6 +65,7 @@ const healthResponseSchema = z.object({
     engine: trackSchema,
     client: trackSchema,
   }),
+  activity: activitySchema,
 });
 
 const healthRoute = createRoute({
@@ -59,6 +82,56 @@ const healthRoute = createRoute({
     },
   },
 });
+
+const ACTIVITY_WINDOW_HOURS = 24;
+
+type Activity = z.infer<typeof activitySchema>;
+
+// Cheap windowed COUNTs (one FILTER query per table; the time columns are
+// indexed — email_sends_created_at_idx and journey_states_updated_at_idx —
+// so each prunes by index instead of seq-scanning on every healthcheck hit).
+// Never throws — any failure degrades to nulls so a reporting hiccup can't
+// take the healthcheck down.
+async function getRecentActivity(db: Database): Promise<Activity> {
+  const since = new Date(Date.now() - ACTIVITY_WINDOW_HOURS * 60 * 60 * 1000);
+  try {
+    const [journeyRows, emailRows] = await Promise.all([
+      db
+        .select({
+          failed: sql<number>`count(*) filter (where ${journeyStates.status} = 'failed')`,
+          completed: sql<number>`count(*) filter (where ${journeyStates.status} = 'completed')`,
+        })
+        .from(journeyStates)
+        // updatedAt (set on every status transition) so a journey entered
+        // days ago that failed/completed within the window still counts.
+        .where(gte(journeyStates.updatedAt, since)),
+      db
+        .select({
+          failed: sql<number>`count(*) filter (where ${emailSends.status} = 'failed')`,
+          sent: sql<number>`count(*) filter (where ${emailSends.status} in ('sent', 'delivered', 'opened', 'clicked', 'bounced', 'complained'))`,
+        })
+        .from(emailSends)
+        .where(gte(emailSends.createdAt, since)),
+    ]);
+    return {
+      windowHours: ACTIVITY_WINDOW_HOURS,
+      journeys: {
+        failed: Number(journeyRows[0]?.failed ?? 0),
+        completed: Number(journeyRows[0]?.completed ?? 0),
+      },
+      emails: {
+        failed: Number(emailRows[0]?.failed ?? 0),
+        sent: Number(emailRows[0]?.sent ?? 0),
+      },
+    };
+  } catch {
+    return {
+      windowHours: ACTIVITY_WINDOW_HOURS,
+      journeys: { failed: null, completed: null },
+      emails: { failed: null, sent: null },
+    };
+  }
+}
 
 async function checkComponent(
   fn: () => Promise<void>,
@@ -83,23 +156,25 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
   async (c) => {
     const { db, clientJournal } = c.get("container");
 
-    const [dbCheck, redisCheck, heartbeat, engine, client] = await Promise.all([
-      checkComponent(async () => {
-        await db.execute(sql`SELECT 1`);
-      }),
-      checkComponent(async () => {
-        // Actively probe: getRedis() lazily creates + connects the client (with
-        // family:0 for Railway IPv6). The old getRedisIfConnected() only returned
-        // a client if something had ALREADY created one — which nothing does when
-        // PostHog is disabled — so redis always read "down" even though it was
-        // reachable. ioredis buffers the ping until connected (or rejects if the
-        // host is genuinely unreachable → a truthful "down").
-        await getRedis().ping();
-      }),
-      getWorkerHeartbeat(),
-      getEngineSchemaVersion(db),
-      getClientSchemaVersion(db, clientJournal ?? { entries: [] }),
-    ]);
+    const [dbCheck, redisCheck, heartbeat, engine, client, activity] =
+      await Promise.all([
+        checkComponent(async () => {
+          await db.execute(sql`SELECT 1`);
+        }),
+        checkComponent(async () => {
+          // Actively probe: getRedis() lazily creates + connects the client (with
+          // family:0 for Railway IPv6). The old getRedisIfConnected() only returned
+          // a client if something had ALREADY created one — which nothing does when
+          // PostHog is disabled — so redis always read "down" even though it was
+          // reachable. ioredis buffers the ping until connected (or rejects if the
+          // host is genuinely unreachable → a truthful "down").
+          await getRedis().ping();
+        }),
+        getWorkerHeartbeat(),
+        getEngineSchemaVersion(db),
+        getClientSchemaVersion(db, clientJournal ?? { entries: [] }),
+        getRecentActivity(db),
+      ]);
 
     // `migration_pending` if EITHER track is behind. The engine track also gates
     // boot (fatal); the client track surfaces here non-fatally (client-owned).
@@ -139,6 +214,7 @@ export const healthRouter = new OpenAPIHono<AppEnv>().openapi(
             lastSeenAt: heartbeat.lastSeenAt,
           },
         },
+        activity,
       },
       200,
     );

@@ -33,6 +33,17 @@ This is the **consumer** deploy guide — for shipping the app you scaffolded wi
 - **Hatchet-Lite is your orchestration engine.** The worker connects to it over
   gRPC with `HATCHET_CLIENT_TOKEN` + `HATCHET_CLIENT_HOST_PORT`. Locally it runs
   via `docker-compose.yml`; in prod it's its own service.
+- **Mint `HATCHET_CLIENT_TOKEN` headlessly.** `hogsend hatchet token
+  --url <hatchet-url> --email <e> --password <p> [--tenant <slug>]` drives
+  hatchet-lite's REST API (register-or-login → ensure tenant → create token)
+  and prints ONLY the token to stdout — pipe it straight into
+  `railway variables --set "HATCHET_CLIENT_TOKEN=$(...)"`. No dashboard
+  copy-paste needed.
+- **Lock down a public hatchet-lite.** It ships with OPEN registration — anyone
+  who finds the public URL can create an account on your Hatchet dashboard. Set
+  `SERVER_ALLOW_SIGNUP=false` and seed a real admin via `ADMIN_EMAIL` /
+  `ADMIN_PASSWORD` (never leave the `admin@example.com` / `Admin123!!`
+  defaults). `hogsend hatchet token` then logs in with those credentials.
 - **Three required env vars, the rest optional.** `DATABASE_URL`,
   `BETTER_AUTH_SECRET`, `RESEND_API_KEY` are hard-required at boot; PostHog,
   webhook secrets, and the admin key are opt-in.

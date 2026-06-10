@@ -50,5 +50,8 @@ export const journeyStates = pgTable(
       table.journeyId,
       table.status,
     ),
+    // Time-windowed activity counts (GET /v1/health) range-scan on updatedAt —
+    // without this the healthcheck seq-scans the whole table on every hit.
+    index("journey_states_updated_at_idx").on(table.updatedAt),
   ],
 );
