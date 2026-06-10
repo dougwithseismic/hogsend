@@ -203,6 +203,7 @@ export type {
 // --- Enrollment guards ---
 export { checkEmailPreferences } from "./lib/enrollment-guards.js";
 export { isFrequencyCapped } from "./lib/frequency-cap.js";
+export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { hatchet } from "./lib/hatchet.js";
 // --- Ingestion pipeline ---
 export {

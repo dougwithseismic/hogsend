@@ -1,8 +1,5 @@
+import { addrSpecOf, hostOfFromAddress } from "@hogsend/engine";
 import { describe, expect, it } from "vitest";
-import {
-  addrSpecOf,
-  hostOfFromAddress,
-} from "../../../../packages/engine/src/lib/from-address.js";
 
 describe("addrSpecOf", () => {
   it("accepts a bare addr-spec", () => {
