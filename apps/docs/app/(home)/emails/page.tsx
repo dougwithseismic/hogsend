@@ -9,6 +9,7 @@ import { AuroraBeam, DotGrid } from "@/components/ds/fx";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section } from "@/components/ds/section";
+import { SampleRequest } from "@/components/landing/sample-request";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL, SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -23,6 +24,11 @@ type TemplateEntry = {
   /** Basename shared by the screenshot png and the source tsx. */
   name: string;
   blurb: string;
+  /**
+   * Backend template registry key for "Email me this one" — only set where a
+   * gallery template has a real counterpart the sample sender can render.
+   */
+  sampleKey?: string;
 };
 
 type StageGroup = {
@@ -46,10 +52,12 @@ const GROUPS: StageGroup[] = [
       {
         name: "activation-quickstart",
         blurb: "Day one: the shortest path to a first win.",
+        sampleKey: "activation/welcome",
       },
       {
         name: "activation-nudge",
         blurb: "For the user who signed up and went quiet.",
+        sampleKey: "activation/nudge",
       },
       {
         name: "activation-feature-highlight",
@@ -72,6 +80,7 @@ const GROUPS: StageGroup[] = [
       {
         name: "conversion-trial-expiring",
         blurb: "Days-left honesty without countdown theatrics.",
+        sampleKey: "lifecycle/trial-expiring",
       },
       {
         name: "conversion-winback-offer",
@@ -223,6 +232,8 @@ function TemplateCard({ entry, stage, link, index }: TemplateCardProps) {
             {link.label} →
           </Link>
         </div>
+
+        {entry.sampleKey ? <SampleRequest template={entry.sampleKey} /> : null}
       </Card>
     </Reveal>
   );

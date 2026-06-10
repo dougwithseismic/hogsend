@@ -11,6 +11,7 @@ import { AuroraBeam, DotGrid } from "@/components/ds/fx";
 import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
+import { PricingCalculator } from "@/components/landing/pricing-calculator";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -406,6 +407,9 @@ export default function PricingPage(): JSX.Element {
           </Reveal>
         </div>
       </Section>
+
+      {/* ---- 3.3b Pricing calculator ------------------------------------ */}
+      <PricingCalculator />
 
       {/* ---- 3.4 The rent models, compared ------------------------------ */}
       <Section>
