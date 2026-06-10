@@ -35,6 +35,10 @@ RUN pnpm fetch
 # public into the standalone tree, which Next does not do automatically.
 # ---------------------------------------------------------------------------
 FROM base AS build
+# NEXT_PUBLIC_* vars are inlined at build time — Railway only passes service
+# variables into Docker builds that declare them as ARGs.
+ARG NEXT_PUBLIC_POSTHOG_KEY
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
 COPY --from=fetch /pnpm/store /pnpm/store
 COPY . .
 RUN pnpm install --frozen-lockfile --offline
