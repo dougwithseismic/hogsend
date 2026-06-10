@@ -385,7 +385,7 @@ export default function EmailsPage() {
           </div>
 
           <p className="eyebrow mt-8 text-white/40">
-            Free to self-host · One scaffold command · 3 env vars on Railway
+            Free to self-host · One scaffold command · No per-contact billing
           </p>
         </Reveal>
       </Section>

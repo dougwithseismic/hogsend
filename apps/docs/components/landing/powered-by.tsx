@@ -64,9 +64,9 @@ export function PoweredByHatchet() {
                 </a>
                 , the durable execution engine underneath Hogsend. It's what
                 lets a long ctx.sleep survive a deploy and resume two days later
-                exactly where it left off — retries and timeouts handled for
-                you. We didn't reimplement durability. We built on the engine
-                that does it for real.
+                exactly where it left off, with retries and timeouts handled for
+                you. Hogsend builds on Hatchet rather than rolling its own
+                durability.
               </>
             }
           />

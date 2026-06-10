@@ -1,9 +1,13 @@
 import type { JSX } from "react";
 import { PillBadge } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
+import { CopyButton } from "@/components/ds/copy-button";
 import { GlowField } from "@/components/ds/fx";
 import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
+import { RAILWAY_DEPLOY_URL } from "@/lib/site";
+
+const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
 
 type HeroProps = {
   className?: string;
@@ -11,18 +15,19 @@ type HeroProps = {
 
 /**
  * Crimzon hero: the red planet-horizon backdrop, a pill badge carrying the
- * license line, a two-line 80px Inter Display H1, a two-line subhead, then
- * the primary white CTA + a plain-text secondary link, with friction
- * microcopy beneath. No terminal here — the scaffold command lives in
- * HowItWorks and the closing CTA.
+ * license line, a two-line 72px Inter Display H1, a subhead, then the primary
+ * white CTA + the Railway deploy button, the scaffold command with a copy
+ * button, and friction microcopy beneath. The command repeats in the closing
+ * CTA on purpose.
  */
 export function Hero({ className }: HeroProps): JSX.Element {
   return (
     <section
       className={cn("relative overflow-hidden bg-ink text-white", className)}
     >
-      {/* Red planet-horizon backdrop behind all content. */}
-      <GlowField />
+      {/* Red planet-horizon backdrop behind all content, dimmed so the
+          headline stays the brightest thing on screen. */}
+      <GlowField className="opacity-70" />
 
       <div className="container-page relative z-10 flex flex-col items-center pt-40 pb-36 text-center md:pt-[188px] md:pb-44">
         <Reveal className="flex flex-col items-center">
@@ -36,24 +41,39 @@ export function Hero({ className }: HeroProps): JSX.Element {
 
           <p className="mt-7 max-w-[520px] text-base text-white/80 leading-6">
             Welcome series, trial nudges, win-backs, payment saves — every
-            product needs them, and they never make the sprint. Hogsend turns
-            PostHog and product events into journeys that live in your repo and
-            send through your own Resend or Postmark account.
+            product needs them. Hogsend turns PostHog and product events into
+            journeys that live in your repo and send through your own Resend or
+            Postmark account, working by this afternoon.
           </p>
         </Reveal>
 
-        <Reveal delay={0.1} className="mt-12 flex flex-col items-center gap-5">
+        <Reveal delay={0.1} className="mt-12 flex flex-col items-center gap-6">
           <div className="flex flex-wrap items-center justify-center gap-5">
             <Button href="/docs/getting-started" variant="accent" icon>
               Start building
             </Button>
-            <Button href="/docs" variant="outline">
-              Read the docs
-            </Button>
+            <a
+              href={RAILWAY_DEPLOY_URL}
+              className="inline-flex rounded-[6px] outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {/* biome-ignore lint/performance/noImgElement: external Railway button SVG, not a local asset */}
+              <img
+                src="https://railway.com/button.svg"
+                alt="Deploy on Railway"
+                className="h-[42px]"
+              />
+            </a>
+          </div>
+
+          <div className="flex items-center gap-4 rounded-md border border-white/10 bg-white/[0.03] py-2.5 pr-3 pl-4">
+            <code className="font-mono text-sm text-white/80">
+              <span className="text-accent">$</span> {INSTALL_COMMAND}
+            </code>
+            <CopyButton value={INSTALL_COMMAND} />
           </div>
 
           <p className="text-sm text-white/50">
-            Free to self-host · one scaffold command · 3 env vars on Railway
+            Free to self-host · No per-contact billing
           </p>
         </Reveal>
       </div>

@@ -52,11 +52,11 @@ export default function HomePage() {
       <ProofStrip />
       <Manifesto />
       <UseCases />
-      <GrowthLessons />
       <BuildingBlocks />
-      <Pillars />
       <FeatureCards />
       <HowItWorks />
+      <GrowthLessons />
+      <Pillars />
       <PoweredByHatchet />
       <Economics />
       <ProofGrid />

@@ -53,9 +53,9 @@ export function ClosingCta({ className }: { className?: string }) {
                 </h2>
 
                 <p className="mt-5 max-w-lg text-base text-white/70 leading-6">
-                  One scaffold command sets up the app, Docker, env, and 10
-                  production journeys. Or click once on Railway and fill in
-                  three env vars.
+                  One scaffold command sets up the app, Docker, env, and ten
+                  production journeys. Or deploy the Railway template in a
+                  click.
                 </p>
 
                 <div className="mt-8 w-full max-w-md">

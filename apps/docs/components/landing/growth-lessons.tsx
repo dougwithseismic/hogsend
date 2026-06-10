@@ -12,41 +12,40 @@ const LESSONS: Lesson[] = [
   {
     label: "Version control",
     title: "Every change has a history",
-    body: "Edit a template in a dashboard and the previous version is gone — nobody can say what the welcome email looked like in March. In a repo, every subject line has a diff, an author, and a way back.",
+    body: "Edit a template in a dashboard and the old version is gone. Nobody can say what the welcome email said in March, who changed it, or why. In a repo every subject line has a diff and a way back.",
   },
   {
     label: "Code review",
     title: "A second pair of eyes before it sends",
-    body: "Your welcome email gets read more often than your homepage, and in most tools it goes live because someone clicked Save. In a repo it ships the way the rest of the product does — through a pull request.",
+    body: "Your welcome email gets read more often than your homepage. In most tools it goes live the moment someone clicks Save. In a repo it goes out through the same pull request as everything else you ship.",
   },
   {
     label: "Experiments",
     title: "Tests you can still read next quarter",
-    body: "Most A/B tests end as a memory of which variant won — the losing copy deleted, the result in someone's head. When variants are code, an experiment is a branch: dated, diffed, and still answerable a year later.",
+    body: "Most A/B tests survive as a memory of which variant won. The losing copy gets deleted and the reasoning lives in someone's head. When variants are code, the whole experiment stays on the record.",
   },
   {
     label: "Automation",
     title: "Why click what you could type?",
-    body: "A canvas flow is forty drag-and-drops nobody can review, reuse, or hand off. The same logic is a dozen lines of TypeScript — and typed code in a repo is exactly the surface coding agents are already good at.",
+    body: "A canvas flow is forty drag-and-drops that nobody can review, reuse, or hand to an agent. The same logic is a dozen lines of TypeScript, and agents are already very good at writing those.",
   },
   {
     label: "Time to ship",
-    title: "An afternoon, not a quarter",
-    body: "Standing lifecycle email up in a platform means weeks of building templates and clicking flows together before anything sends. The scaffold ships 10 journeys and 13 templates in one command — you edit, you don't assemble.",
+    title: "Working by this afternoon",
+    body: "Most platforms want weeks of template building and flow clicking before the first send. The scaffold puts 10 journeys and 13 templates in your repo with one command, so the work starts at editing.",
   },
   {
     label: "Cost",
     title: "Growth shouldn't be a billing event",
-    body: "Rented platforms meter contacts, so your list growing is their revenue. Software you run costs the same at 50,000 contacts as it did at 500 — Postgres doesn't charge per row.",
+    body: "Rented platforms meter contacts, which makes your growth their revenue. Self-hosted software costs the same at 50,000 contacts as it did at 500. Postgres has never charged anyone per row.",
   },
 ];
 
 /**
- * "What growth can learn from engineering" — the worldview section: six
- * editorial rows contrasting dashboard habits with engineering practice
- * (versioning, review, experiments, typing over clicking, setup time, rent).
- * Stacked hairline rows rather than a card grid, so it reads as an argument,
- * not a feature list.
+ * "What growth can learn from engineering" — six compact entries contrasting
+ * dashboard habits with engineering practice (versioning, review,
+ * experiments, typing over clicking, setup time, rent). Two-column hairline
+ * list so it reads as an argument without dominating the page.
  */
 export function GrowthLessons() {
   return (
@@ -55,29 +54,28 @@ export function GrowthLessons() {
         <SectionHeading
           eyebrow="Growth, meet engineering"
           title="What growth can learn from engineering"
-          subtitle="Lifecycle email has been run from dashboards for fifteen years, and dashboards never picked up the habits that make software dependable. Run it like the rest of your product and a few old problems stop being problems."
+          subtitle="Email tools never picked up the habits that make software dependable. Bring lifecycle email into the repo and it inherits all of them at once."
         />
       </Reveal>
 
-      <div className="mt-12 md:mt-16">
+      <div className="mt-10 grid grid-cols-1 gap-x-14 md:mt-12 md:grid-cols-2">
         {LESSONS.map((lesson, index) => (
-          <Reveal key={lesson.label} delay={Math.min(index, 2) * 0.06}>
-            <div className="grid grid-cols-1 gap-4 border-white/[0.08] border-t py-8 md:grid-cols-[260px_1fr] md:gap-10 md:py-10">
-              <div className="flex items-baseline gap-4">
-                <span className="font-mono text-sm text-white/35">
+          <Reveal key={lesson.label} delay={(index % 2) * 0.06}>
+            <div className="flex flex-col gap-2.5 border-white/[0.08] border-t py-7">
+              <div className="flex items-baseline gap-3">
+                <span className="font-mono text-white/35 text-xs">
                   {String(index + 1).padStart(2, "0")}
                 </span>
                 <span className="eyebrow text-white/50">{lesson.label}</span>
               </div>
 
-              <div className="flex flex-col gap-3">
-                <h3 className="font-display font-medium text-2xl text-white tracking-[-0.02em] md:text-[28px] md:leading-[34px]">
-                  {lesson.title}
-                </h3>
-                <p className="max-w-2xl text-base text-white/60 leading-6">
-                  {lesson.body}
-                </p>
-              </div>
+              <h3 className="font-display font-medium text-white text-xl tracking-[-0.02em] md:text-[22px] md:leading-[28px]">
+                {lesson.title}
+              </h3>
+
+              <p className="text-[15px] text-white/60 leading-6">
+                {lesson.body}
+              </p>
             </div>
           </Reveal>
         ))}

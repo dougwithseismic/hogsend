@@ -338,7 +338,7 @@ function ClosingCta() {
             </div>
 
             <p className="eyebrow mt-6 text-white/40">
-              Free to self-host · One scaffold command · 3 env vars on Railway
+              Free to self-host · One scaffold command · No per-contact billing
             </p>
 
             <div className="mt-8 flex w-full max-w-md items-center justify-between gap-4 rounded-[10px] border border-white/10 bg-[#0a0606] px-4 py-3">

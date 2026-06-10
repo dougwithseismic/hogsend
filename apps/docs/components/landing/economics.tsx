@@ -46,7 +46,7 @@ export function Economics({ className }: { className?: string }) {
         <SectionHeading
           eyebrow="Economics"
           title="And nobody meters your contacts"
-          subtitle="Rent models are fine prices for software they host. Hogsend's position is different: lifecycle email is a feature of your product, and features live in your repo, not on someone else's meter."
+          subtitle="Rent models are fine prices for software they host. Hogsend takes a different view: lifecycle email is a feature of your product, and features belong in your repo."
         />
       </Reveal>
 

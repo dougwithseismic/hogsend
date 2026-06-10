@@ -33,7 +33,7 @@ const PILLARS: Pillar[] = [
     icon: <MousePointerClick size={ICON_SIZE} strokeWidth={1.5} />,
     title: "First-party tracking",
     description:
-      "The engine rewrites links and tracks opens and clicks itself, whichever provider you plug in. Your data, not theirs.",
+      "The engine rewrites links and tracks opens and clicks itself, whichever provider you plug in. The data lands in your own Postgres.",
   },
   {
     icon: <RefreshCw size={ICON_SIZE} strokeWidth={1.5} />,

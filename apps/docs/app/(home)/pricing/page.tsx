@@ -206,7 +206,7 @@ export default function PricingPage(): JSX.Element {
           <div className="mt-10">
             <CtaTrio centered />
             <Microcopy>
-              Free to self-host · One scaffold command · 3 env vars on Railway
+              Free to self-host · One scaffold command · No per-contact billing
             </Microcopy>
           </div>
         </Reveal>
@@ -628,8 +628,8 @@ export default function PricingPage(): JSX.Element {
             </h2>
             <p className="mt-5 max-w-2xl text-base text-white/70 leading-6">
               <code className="font-mono text-sm">{SCAFFOLD_COMMAND}</code>{" "}
-              scaffolds the app, Docker, env, and 10 production journeys. Or
-              click once on Railway and fill in three env vars.
+              scaffolds the app, Docker, env, and ten production journeys. Or
+              deploy the Railway template in a click.
             </p>
           </Reveal>
 
