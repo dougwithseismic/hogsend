@@ -1,11 +1,18 @@
-import { spawnSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { confirm } from "@clack/prompts";
 import { color } from "../lib/output.js";
 import { bail } from "../lib/prompt.js";
+import {
+  detectRunningInfra,
+  dockerComposeUp,
+  ensureAuthSecret,
+  ensureEnvFile,
+  hasComposeFile,
+  runMigrations,
+  type StepResult,
+} from "../lib/setup-steps.js";
 import type { Command, CommandContext } from "./types.js";
 
 const usage = `hogsend setup [--cwd <dir>] [--yes] [--json]
@@ -25,139 +32,6 @@ Options:
   -h, --help     Show this help.
 
 Run ${color.cyan("hogsend doctor")} afterwards to verify the instance is healthy.`;
-
-/** Generate a 64-char hex secret (32 bytes) for BETTER_AUTH_SECRET. */
-function generateSecret(): string {
-  return randomBytes(32).toString("hex");
-}
-
-const SECRET_KEY = "BETTER_AUTH_SECRET";
-const PLACEHOLDER_PREFIX = "change-me";
-
-interface StepResult {
-  step: string;
-  status: "ok" | "skipped" | "failed";
-  detail: string;
-}
-
-/**
- * Ensure a `.env` exists (copying `.env.example` when absent) and that
- * BETTER_AUTH_SECRET holds a real generated value rather than the placeholder.
- * Pure-ish: only touches the filesystem, returns a structured result.
- */
-function ensureEnv(cwd: string): { copied: StepResult; secret: StepResult } {
-  const envPath = join(cwd, ".env");
-  const examplePath = join(cwd, ".env.example");
-
-  let copied: StepResult;
-  if (existsSync(envPath)) {
-    copied = {
-      step: "env",
-      status: "skipped",
-      detail: ".env already exists",
-    };
-  } else if (existsSync(examplePath)) {
-    copyFileSync(examplePath, envPath);
-    copied = {
-      step: "env",
-      status: "ok",
-      detail: "copied .env.example -> .env",
-    };
-  } else {
-    copied = {
-      step: "env",
-      status: "failed",
-      detail: "no .env and no .env.example to copy from",
-    };
-    return {
-      copied,
-      secret: {
-        step: "secret",
-        status: "skipped",
-        detail: "skipped — no .env",
-      },
-    };
-  }
-
-  // (Re)read the file we just ensured exists and refresh the secret if it is
-  // missing or still the scaffold placeholder. Never overwrite a real secret.
-  let raw: string;
-  try {
-    raw = readFileSync(envPath, "utf8");
-  } catch (err) {
-    return {
-      copied,
-      secret: {
-        step: "secret",
-        status: "failed",
-        detail: `could not read .env: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
-  }
-
-  const lines = raw.split(/\r?\n/);
-  const idx = lines.findIndex((l) =>
-    l
-      .replace(/^export\s+/, "")
-      .trimStart()
-      .startsWith(`${SECRET_KEY}=`),
-  );
-  const existingLine = idx === -1 ? undefined : lines[idx];
-  const current =
-    existingLine === undefined
-      ? undefined
-      : existingLine.slice(existingLine.indexOf("=") + 1).trim();
-  const isPlaceholder =
-    current === undefined ||
-    current === "" ||
-    current.startsWith(PLACEHOLDER_PREFIX);
-
-  if (!isPlaceholder) {
-    return {
-      copied,
-      secret: {
-        step: "secret",
-        status: "skipped",
-        detail: `${SECRET_KEY} already set`,
-      },
-    };
-  }
-
-  const secret = generateSecret();
-  const newLine = `${SECRET_KEY}=${secret}`;
-  if (idx === -1) {
-    if (raw.length > 0 && !raw.endsWith("\n")) lines.push("");
-    lines.push(newLine);
-  } else {
-    lines[idx] = newLine;
-  }
-  writeFileSync(envPath, lines.join("\n"));
-
-  return {
-    copied,
-    secret: {
-      step: "secret",
-      status: "ok",
-      detail: `generated ${SECRET_KEY} (64-char hex)`,
-    },
-  };
-}
-
-/** Run a shell command, capturing exit status. */
-function runCmd(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  json: boolean,
-): { status: number | null; ok: boolean } {
-  const result = spawnSync(cmd, args, {
-    cwd,
-    // In json mode stay silent (we report structured status); otherwise stream
-    // so the user sees docker / migration output inline.
-    stdio: json ? "ignore" : "inherit",
-  });
-  return { status: result.status, ok: result.status === 0 };
-}
 
 async function run(ctx: CommandContext): Promise<void> {
   const { values } = parseArgs({
@@ -183,11 +57,7 @@ async function run(ctx: CommandContext): Promise<void> {
     );
   }
 
-  const hasCompose =
-    existsSync(join(cwd, "docker-compose.yml")) ||
-    existsSync(join(cwd, "docker-compose.yaml")) ||
-    existsSync(join(cwd, "compose.yml")) ||
-    existsSync(join(cwd, "compose.yaml"));
+  const hasCompose = hasComposeFile(cwd);
 
   // --json implies non-interactive; in TTY human mode we confirm first.
   const skipConfirm = ctx.json || values.yes;
@@ -212,19 +82,25 @@ async function run(ctx: CommandContext): Promise<void> {
 
   const results: StepResult[] = [];
 
-  // 1. docker compose up -d
+  // 1. docker compose up -d — but skip the (slow, noisy) compose call when
+  // detection shows the whole trio is already running (no double-start).
   if (hasCompose) {
-    const docker = await ctx.out.step(
-      "Starting infra (docker compose up -d)",
-      async () => runCmd("docker", ["compose", "up", "-d"], cwd, ctx.json),
+    const infra = await ctx.out.step("Checking infra", async () =>
+      detectRunningInfra(cwd),
     );
-    results.push({
-      step: "docker",
-      status: docker.ok ? "ok" : "failed",
-      detail: docker.ok
-        ? "Postgres + Redis + Hatchet-Lite up"
-        : `docker compose exited with code ${docker.status ?? "?"}`,
-    });
+    if (infra.postgres && infra.redis && infra.hatchet) {
+      results.push({
+        step: "docker",
+        status: "skipped",
+        detail: "infra already running",
+      });
+    } else {
+      const docker = await ctx.out.step(
+        "Starting infra (docker compose up -d)",
+        async () => dockerComposeUp(cwd, { quiet: ctx.json }),
+      );
+      results.push(docker);
+    }
   } else {
     results.push({
       step: "docker",
@@ -234,9 +110,10 @@ async function run(ctx: CommandContext): Promise<void> {
   }
 
   // 2 + 3. .env + secret (synchronous fs work, wrapped in a step for the spinner)
-  const env = await ctx.out.step("Preparing .env + auth secret", async () =>
-    ensureEnv(cwd),
-  );
+  const env = await ctx.out.step("Preparing .env + auth secret", async () => ({
+    copied: ensureEnvFile(cwd),
+    secret: ensureAuthSecret(cwd),
+  }));
   results.push(env.copied, env.secret);
 
   // 4. db:migrate (only attempt if docker didn't hard-fail; still try if skipped)
@@ -253,15 +130,9 @@ async function run(ctx: CommandContext): Promise<void> {
   } else {
     const migrate = await ctx.out.step(
       "Running migrations (pnpm db:migrate)",
-      async () => runCmd("pnpm", ["db:migrate"], cwd, ctx.json),
+      async () => runMigrations(cwd, { quiet: ctx.json }),
     );
-    results.push({
-      step: "migrate",
-      status: migrate.ok ? "ok" : "failed",
-      detail: migrate.ok
-        ? "engine + client migrations applied"
-        : `pnpm db:migrate exited with code ${migrate.status ?? "?"}`,
-    });
+    results.push(migrate);
   }
 
   const failed = results.filter((r) => r.status === "failed");

@@ -3,6 +3,7 @@ import {
   Boxes,
   FlaskConical,
   GitBranch,
+  Globe,
   LayoutDashboard,
   type LucideIcon,
   Mail,
@@ -26,5 +27,6 @@ export const navItems: NavItem[] = [
   { label: "Contacts", path: "/contacts", icon: Users },
   { label: "Suppressions", path: "/suppressions", icon: Ban },
   { label: "Debug", path: "/debug", icon: FlaskConical },
+  { label: "Setup", path: "/setup", icon: Globe },
   { label: "Settings", path: "/settings", icon: Settings },
 ];

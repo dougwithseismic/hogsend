@@ -361,6 +361,10 @@ Note that this does not reset the bounce count. If the email bounces again, the 
 
 ## Troubleshooting
 
+### Every email goes to one address
+
+If all sends land in a single inbox with a `[TEST → …]` subject prefix, the instance is in [test mode](/docs/operating/test-mode) — the engine redirects every send while the sending domain is unverified. Verify it with [`hogsend domain check`](/docs/cli/domain); sends go live within a minute of DNS verifying.
+
 ### High Bounce Rates
 
 If your bounce rate exceeds 3%:

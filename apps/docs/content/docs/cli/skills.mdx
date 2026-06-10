@@ -1,34 +1,85 @@
 ---
 title: hogsend skills
-description: Manage the Claude Code skills bundled with @hogsend/cli — list them and copy them into your project's .claude/skills directory.
+description: The full catalog of 14 vendorable Claude Code skills bundled with @hogsend/cli — what each is for, and how to install and refresh them.
 ---
 
-Manage the Claude Code skills bundled with `@hogsend/cli`. Bundled skills teach agents how to drive the hogsend CLI; `add` copies them into your project's `./.claude/skills/<name>/` so Claude Code can discover them.
+`@hogsend/cli` bundles 14 Claude Code skills — agent-executable playbooks that
+teach an agent how to author Hogsend content, operate a running instance, and
+wire other codebases to it. Every app scaffolded with `create-hogsend` vendors
+the full set into `.claude/skills/` by default (`--no-skills` to opt out);
+anywhere else, `hogsend skills add` copies them into your project so Claude
+Code can discover them.
+
+Each skill is a `SKILL.md` with a trigger-oriented description plus deeper
+`references/` files an agent loads on demand. See
+[Hogsend for AI agents](/docs/agents) for how the skills fit alongside the
+`--json` CLI contract and
+[`/llms.txt`](https://docs.hogsend.com/llms.txt), the stable machine
+entrypoint.
+
+## The catalog
+
+### Authoring (inside a scaffolded Hogsend app)
+
+| Skill | Use it when… |
+|---|---|
+| `hogsend-authoring-journeys` | Adding or editing a lifecycle journey in `src/journeys/` — `defineJourney()` triggers, durable sleeps, branching on history, and the register-in-index ritual. |
+| `hogsend-authoring-emails` | Adding or editing a transactional email in `src/emails/` — the four-file react-email contract, with link-click/open tracking and unsubscribe applied automatically on send. |
+| `hogsend-authoring-buckets` | Adding or editing a real-time audience bucket in `src/buckets/` — `defineBucket()` criteria trees, typed entered/left transition refs, enter/leave/dwell reactions, member access. |
+| `hogsend-authoring-lists` | Adding or editing a code-defined email list in `src/lists/` — `defineList()`, opt-in vs opt-out polarity, reserved ids. |
+| `hogsend-authoring-destinations` | Adding or editing an outbound destination in `src/destinations/` — `defineDestination()` transforms that fan the event stream to PostHog, Segment, Slack, a CRM, or a warehouse. |
+| `hogsend-webhooks-and-workflows` | Adding an inbound webhook source (`defineWebhookSource`), reaching for a Clerk/Supabase/Stripe/Segment preset, or registering a custom Hatchet task via `extraWorkflows`. |
+| `hogsend-conditions` | Writing any condition or duration — a journey's `trigger.where`, an `exitOn` rule, a bucket criteria tree, and `days()`/`hours()`/`minutes()`. |
+| `hogsend-database` | Changing the schema or running migrations — your client-track tables in `src/schema/`, the two-track system, reading schema drift off `/v1/health`. |
+| `hogsend-extending` | Extending beyond journeys/emails/buckets — swapping the email or analytics provider behind its engine-owned contract, or publishing a reusable `@hogsend/plugin-*` package. |
+
+### Operating (driving an instance, your product code, production)
+
+| Skill | Use it when… |
+|---|---|
+| `hogsend-cli` | Inspecting or operating a running instance with the `hogsend` CLI — metrics, contacts, events, journeys, health, all with `--json`. |
+| `hogsend-client-sdk` | Calling Hogsend from your own product code via `@hogsend/client` — contacts, events, transactional emails, lists, and outbound webhooks. |
+| `hogsend-deploy` | Deploying or configuring production infra for a scaffolded app — the Railway two-service layout, Hatchet-Lite, required env, and upgrades. |
+
+### Integration (working in someone else's codebase)
+
+| Skill | Use it when… |
+|---|---|
+| `hogsend-integrate` | Wiring an **existing product codebase** (Next.js, Express, Hono, Remix, SvelteKit) to a running instance — find the signup/auth/billing seams, wire `@hogsend/client`, verify ingestion. |
+| `hogsend-migrate` | Migrating off **Loops, Customer.io, or Resend Broadcasts** — audit the incumbent's code and GUI halves, map every concept to its Hogsend equivalent, run a dual-write cutover that preserves unsubscribes. |
+
+## Installing and refreshing
+
+Inside a scaffolded app the skills are already there. Anywhere else — including
+a host product codebase you're integrating — install them with the CLI:
+
+```bash
+hogsend skills list                    # what's bundled + what's installed
+hogsend skills add                     # interactive picker
+hogsend skills add --all               # install every bundled skill
+hogsend skills add hogsend-integrate   # just one
+hogsend skills add --all --force       # refresh after upgrading the CLI
+```
+
+Inside a scaffolded app, `hogsend upgrade` bumps the `@hogsend/*` dependencies
+**and** refreshes the vendored skills in one pass — `hogsend upgrade
+--skills-only` refreshes just the skills. `hogsend doctor` nudges when
+installed skills have fallen behind the CLI version that produced them.
+
+## Command reference
 
 ```bash
 hogsend skills <subcommand> [options]
 ```
 
-## Subcommands
-
 | Subcommand | Description |
 |---|---|
 | `list` | List bundled skills and whether each is installed. |
-| `add [name] [--force]` | Copy a bundled skill into `./.claude/skills/<name>/`. Omit `name` for an interactive multiselect (human), or copy all bundled skills (`--json` / non-interactive). |
-
-## Options
+| `add [name]` | Copy a bundled skill into `./.claude/skills/<name>/`. Omit `name` for an interactive multiselect (human), or copy all bundled skills (`--all` / `--json` / non-interactive). |
 
 | Option | Description |
 |---|---|
-| `--force` | Overwrite an already-installed skill. |
+| `--all` | Install every bundled skill (skips the interactive picker). |
+| `--force` | Overwrite an already-installed skill — use after an upgrade to refresh to the latest guidance. |
 | `--json` | Emit machine-readable JSON only (implies non-interactive). |
 | `-h, --help` | Show this help. |
-
-## Examples
-
-```bash
-hogsend skills list
-hogsend skills list --json
-hogsend skills add
-hogsend skills add hogsend-cli --force
-```

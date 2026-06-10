@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/dougwithseismic/hogsend/actions/workflows/ci.yml/badge.svg)](https://github.com/dougwithseismic/hogsend/actions/workflows/ci.yml)
 
-The lifecycle email automation that PostHog teams actually need. Code-first, self-hosted, open source.
+The lifecycle email automation that PostHog teams actually need. Code-first, self-hosted, source-available.
 
 PostHog tells you what users do. Resend delivers your emails. Hogsend is the bit in the middle — it listens for events, decides who gets what, waits, checks conditions, and sends. Journeys (email sequences) and buckets (real-time segments) are plain TypeScript functions, not YAML configs or drag-and-drop canvases — and because a user joining a bucket can itself trigger a journey, segmentation and messaging live in one event stream.
 
@@ -16,9 +16,20 @@ Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog an
 
 **[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[Integrations](https://docs.hogsend.com/docs/integrations)** | **[Recipes](https://docs.hogsend.com/docs/recipes)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
 
-Everything ships on npm: scaffold an app with `pnpm dlx create-hogsend@latest`, self-host with Docker, or one-click on Railway.
+Everything ships on npm: scaffold an app with `pnpm create hogsend@latest --domain mysite.com`, self-host with Docker, or one-click on Railway.
 
-> **A note from Doug** — I built Hogsend to do more for my clients, faster. I kept rebuilding the same PostHog + Resend lifecycle plumbing for every team, so I built it properly once and opened it up for everyone. If you'd like a hand getting it running — PostHog setup, journeys, templates, deploy — I can have you live in days. It's open source and yours to run solo; the offer to help is there if you want it.
+## Quickstart
+
+```bash
+pnpm create hogsend@latest my-app --domain mysite.com
+cd my-app && pnpm hogsend dev
+```
+
+One command boots the lot — infra, migrations, API, worker, and Studio at `localhost:3002/studio`. Sends are test-mode-safe from the first minute: every email redirects to your own inbox until `hogsend domain check` verifies your DNS (records printed for your DNS host, auto-applied on Cloudflare/Vercel when a token is set).
+
+> Full guide: **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[hogsend dev](https://docs.hogsend.com/docs/cli/dev)** | **[hogsend domain](https://docs.hogsend.com/docs/cli/domain)** | **[Test mode](https://docs.hogsend.com/docs/operating/test-mode)**
+
+> **A note from Doug** — I built Hogsend to do more for my clients, faster. I kept rebuilding the same PostHog + Resend lifecycle plumbing for every team, so I built it properly once and opened it up for everyone. If you'd like a hand getting it running — PostHog setup, journeys, templates, deploy — I can have you live in days. It's source-available and yours to run solo; the offer to help is there if you want it.
 >
 > → **[About Hogsend & how to get in touch](https://docs.hogsend.com/docs/about)** — _Doug Silkstone_
 
@@ -189,17 +200,14 @@ That `ctx.sleep(days(2))` literally pauses for two days and picks up exactly whe
 Scaffold a fresh app with `create-hogsend`. It generates a thin app that pins `@hogsend/engine` and holds your content — journeys, email templates, webhook sources — then installs everything from npm:
 
 ```bash
-pnpm dlx create-hogsend@latest my-app
+pnpm create hogsend@latest my-app --domain mysite.com
 cd my-app
 
-cp .env.example .env        # set BETTER_AUTH_SECRET, RESEND_API_KEY, HATCHET_CLIENT_TOKEN
-docker compose up -d        # Postgres, Redis, Hatchet-Lite
-pnpm db:migrate             # engine track, then your client track
-pnpm dev                    # API on http://localhost:3002
-pnpm worker:dev             # Hatchet worker, in a second terminal
+pnpm bootstrap              # Docker, .env, Hatchet token, data-plane key, migrations
+pnpm hogsend dev            # API + worker + Studio, one terminal (Ctrl+C stops it all)
 ```
 
-Fire a `user_signed_up` event and watch the journey run. Upgrade the framework with `pnpm up "@hogsend/*"` — never a fork or a merge.
+`--domain` wires `EMAIL_FROM` + `EMAIL_DOMAIN` into the scaffold, and the create flow offers to run bootstrap for you. Prefer it by hand? `pnpm dev` + `pnpm worker:dev` in two terminals is the manual equivalent of `hogsend dev`'s run phase. Fire a `user.created` event (`pnpm hogsend dev --fire user.created --email you@example.com`) and watch the journey run. Upgrade the framework with `pnpm up "@hogsend/*"` — never a fork or a merge.
 
 > Full guide: **[Installation](https://docs.hogsend.com/docs/getting-started/installation)** | **[Configuration](https://docs.hogsend.com/docs/getting-started/configuration)** | **[PostHog Setup](https://docs.hogsend.com/docs/getting-started/posthog-setup)**
 
@@ -224,6 +232,8 @@ Same app, deployed your way. One-click on Railway, or self-host the full stack a
 `@hogsend/cli` is the agent-native companion — install it with `pnpm add -g @hogsend/cli`, or run any command through `pnpm dlx @hogsend/cli`. It talks to a running instance's admin API; pass `--json` for machine-readable output.
 
 ```bash
+hogsend dev         # Run the full local stack: infra, API + worker, health, URLs
+hogsend domain      # Set up + verify the sending domain (DNS records, auto-apply)
 hogsend doctor      # Probe a running instance's health
 hogsend journeys    # List, inspect, enable, and disable journeys
 hogsend contacts    # List, inspect, and trace contact activity

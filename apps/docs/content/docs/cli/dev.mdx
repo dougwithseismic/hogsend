@@ -1,0 +1,60 @@
+---
+title: hogsend dev
+description: Run the full local Hogsend stack from one command — infra, .env, migrations, API + worker, health wait, and the local URLs.
+---
+
+One command runs the whole local loop for a scaffolded Hogsend app. From the app directory:
+
+```bash
+hogsend dev
+```
+
+It orchestrates five steps, in order:
+
+1. **Infra** — detects whether Postgres, Redis, and Hatchet-Lite are already running (`docker compose ps` plus TCP probes against the ports in your `.env`); runs `docker compose up -d` only when something is missing. Apps without a compose file skip this step entirely.
+2. **`.env`** — copies `.env.example` → `.env` when `.env` is missing, and replaces a placeholder `BETTER_AUTH_SECRET` with a generated 64-char hex secret (a real secret is never overwritten).
+3. **Migrate** — `pnpm db:migrate` (engine track, then your client track), when the app has the script.
+4. **Spawn** — starts `[api] pnpm run dev` and `[worker] hatchet worker dev` as line-prefixed child processes. The hatchet CLI mode is used only when both the `hatchet` binary and a `hatchet.yaml` exist; otherwise the worker runs as `pnpm run worker:dev` (the scaffold's default).
+5. **Health** — waits for `GET /v1/health`, then prints the local URL block: the API, Studio at `/studio`, the Hatchet dashboard, and the docs.
+
+When an admin key is configured (`--admin-key` / `HOGSEND_ADMIN_KEY`), the URL block also carries a one-line domain/test-mode status from `GET /v1/admin/domain` — `Test mode active — emails redirect to you@example.com (domain pending)` or `Domain mysite.com — verified`. The call is guarded: with no key, or against an engine without the domain feature, the line is simply omitted.
+
+Ctrl+C stops everything — the API, the worker, and their whole process trees (SIGTERM, then SIGKILL after 5 seconds for stragglers). If either child dies on its own, the rest is taken down and `hogsend dev` exits with that child's code.
+
+```bash
+hogsend dev [options]
+hogsend dev --fire <event> [event-send options]
+```
+
+## Options
+
+| Option | Description |
+|---|---|
+| `--cwd <dir>` | Project root to run in (defaults to the current directory). |
+| `--no-worker` | Start the API only (skip the worker process). |
+| `--no-infra` | Skip the docker/.env/migrate steps (infra managed elsewhere). |
+| `--fire <event>` | Don't boot anything — send a test event to the **running** instance via `POST /v1/events`. |
+| `-h, --help` | Show this help. |
+
+`hogsend dev` refuses to start when the configured `PORT` is already in use (another dev server, or a second `hogsend dev`), and fails early with the missing piece named when the directory isn't a runnable Hogsend app (it needs a `package.json` with `dev` + `worker:dev` scripts and `@hogsend/engine` as a dependency).
+
+## Firing a test event
+
+`--fire` works standalone, from a second terminal, while `hogsend dev` runs in the first. It checks the instance is reachable, then delegates to [`hogsend events send`](/docs/cli/events) — so it accepts every event-send option: `--email`, `--user-id`, `--prop`, `--props`, `--contact-prop`, `--contact-props`, `--list`, `--unlist`, `--idempotency-key`, `--timestamp`.
+
+```bash
+hogsend dev --fire signup --email a@b.com --prop plan=pro
+```
+
+## Examples
+
+```bash
+hogsend dev
+hogsend dev --cwd apps/api
+hogsend dev --no-worker
+hogsend dev --fire signup --email a@b.com --prop plan=pro
+```
+
+<Callout type="info">
+  `hogsend dev` shares its setup steps with [`hogsend setup`](/docs/cli/setup) — it is the "setup **and** run, one command" superset. Scaffolded apps also ship `pnpm bootstrap`, which additionally mints the local Hatchet token and an ingest-scoped `HOGSEND_API_KEY`, and remaps conflicting host ports; `hogsend dev` detects and reuses everything bootstrap set up. A typical first run is `pnpm bootstrap` once, then `hogsend dev` every day after.
+</Callout>

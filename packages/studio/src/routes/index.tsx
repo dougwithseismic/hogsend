@@ -11,6 +11,7 @@ import { JourneysView } from "@/views/journeys-view";
 import { OverviewView } from "@/views/overview-view";
 import { SendsView } from "@/views/sends-view";
 import { SettingsView } from "@/views/settings-view";
+import { SetupView } from "@/views/setup-view";
 import { SuppressionsView } from "@/views/suppressions-view";
 import { TemplatesView } from "@/views/templates-view";
 
@@ -60,6 +61,12 @@ const suppressionsRoute = createRoute({
   component: SuppressionsView,
 });
 
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/setup",
+  component: SetupView,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -81,6 +88,7 @@ const routeTree = rootRoute.addChildren([
   contactsRoute,
   suppressionsRoute,
   debugRoute,
+  setupRoute,
   settingsRoute,
 ]);
 

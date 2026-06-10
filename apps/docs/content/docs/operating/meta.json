@@ -13,6 +13,7 @@
     "journeys",
     "buckets",
     "emails",
+    "test-mode",
     "monitoring",
     "metrics",
     "bulk-operations",

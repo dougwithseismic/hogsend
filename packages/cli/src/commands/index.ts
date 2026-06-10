@@ -1,6 +1,8 @@
 import { campaignsCommand } from "./campaigns.js";
 import { contactsCommand } from "./contacts.js";
+import { devCommand } from "./dev.js";
 import { doctorCommand } from "./doctor.js";
+import { domainCommand } from "./domain.js";
 import { ejectCommand } from "./eject.js";
 import { emailsCommand } from "./emails.js";
 import { eventsCommand } from "./events.js";
@@ -31,7 +33,9 @@ export const commands: Command[] = [
   emailsCommand,
   campaignsCommand,
   webhooksCommand,
+  domainCommand,
   studioCommand,
+  devCommand,
   setupCommand,
   skillsCommand,
   upgradeCommand,

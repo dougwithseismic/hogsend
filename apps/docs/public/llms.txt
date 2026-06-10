@@ -5,7 +5,10 @@
 > product events, executed durably by Hatchet, and sent through your own
 > Resend or Postmark account. It installs as a versioned npm framework
 > (@hogsend/engine) into a scaffolded app you own. Free to self-host;
-> no per-contact pricing. Scaffold: pnpm dlx create-hogsend@latest
+> no per-contact pricing.
+> Scaffold: pnpm create hogsend@latest my-app --domain mysite.com
+> then: cd my-app && hogsend dev — sends redirect to your own inbox
+> until the sending domain verifies (test mode).
 
 ## Getting started
 - [Introduction](https://hogsend.com/docs)
@@ -13,6 +16,7 @@
 - [Installation](https://hogsend.com/docs/getting-started/installation)
 - [Configuration](https://hogsend.com/docs/getting-started/configuration)
 - [PostHog setup](https://hogsend.com/docs/getting-started/posthog-setup)
+- [Hogsend for AI agents](https://hogsend.com/docs/agents)
 
 ## Concepts
 - [How it works](https://hogsend.com/docs/concepts/how-it-works)
@@ -33,11 +37,14 @@
 
 ## CLI & agents
 - [CLI](https://hogsend.com/docs/cli)
-- [Claude Code skills](https://hogsend.com/docs/cli/skills)
+- [hogsend dev](https://hogsend.com/docs/cli/dev)
+- [hogsend domain](https://hogsend.com/docs/cli/domain)
+- [Agent skills catalog](https://hogsend.com/docs/cli/skills)
 
 ## Operating
 - [Deployment](https://hogsend.com/docs/operating/deployment)
 - [Studio](https://hogsend.com/docs/operating/studio)
+- [Test mode](https://hogsend.com/docs/operating/test-mode)
 - [Upgrading](https://hogsend.com/docs/operating/upgrading)
 
 ## Comparisons

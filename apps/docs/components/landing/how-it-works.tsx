@@ -5,13 +5,18 @@ import { Section } from "@/components/ds/section";
 
 const SCAFFOLD_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
   { text: "# Scaffold a thin app that pins the engine", tone: "comment" },
-  { text: "$ pnpm dlx create-hogsend@latest my-app", tone: "accent" },
+  {
+    text: "$ pnpm create hogsend@latest my-app --domain mysite.com",
+    tone: "accent",
+  },
   { text: "", tone: "plain" },
   { text: "$ cd my-app", tone: "plain" },
-  { text: "$ pnpm bootstrap   # Docker, .env, token, migrate", tone: "plain" },
-  { text: "$ pnpm dev", tone: "plain" },
+  {
+    text: "$ hogsend dev   # infra, .env, migrate, API + worker",
+    tone: "plain",
+  },
   { text: "", tone: "plain" },
-  { text: "→ API on :3002", tone: "comment" },
+  { text: "→ API on :3002 · Studio at /studio", tone: "comment" },
 ];
 
 const JOURNEY_LINES: Parameters<typeof CodeMock>[0]["lines"] = [
@@ -57,7 +62,7 @@ const STEPS = [
     n: "01",
     title: "Scaffold your app",
     description:
-      "pnpm dlx create-hogsend@latest emits a thin app that pins @hogsend/engine and holds your content.",
+      "pnpm create hogsend@latest emits a thin app that pins @hogsend/engine and holds your content. Pass --domain to wire your sending domain from the start — sends redirect to your own inbox until the domain verifies.",
     media: <CodeMock filename="terminal" lines={SCAFFOLD_LINES} />,
   },
   {

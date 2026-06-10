@@ -1,0 +1,67 @@
+---
+title: Test mode
+description: The provider-neutral safety net — while your sending domain is unverified, every email redirects to your own inbox instead of the real recipient. How it activates, what a redirected send looks like, and how to exit it.
+---
+
+Test mode is the engine's send-safety net: while it's active, **every email is redirected to a single safe inbox** — yours — instead of the real recipient. It exists so a fresh deploy can exercise real journeys and real sends from minute one, without a single message reaching a customer before the sending domain has verified DNS.
+
+It is provider-neutral: the redirect lives in the engine's mailer, not the provider, so it protects Resend, Postmark, and any BYO provider identically.
+
+## When is test mode active?
+
+`HOGSEND_TEST_MODE` controls it:
+
+| Value | Behavior |
+|---|---|
+| `auto` (default) | Active **iff** the active provider supports domain management **and** `EMAIL_DOMAIN` is set **and** that domain is unverified per the cached domain status. With no `EMAIL_DOMAIN` (or a provider without the domains capability), `auto` stays live — existing deploys are unaffected. |
+| `true` | Always redirect, regardless of domain state. |
+| `false` | Never redirect, even with an unverified domain. |
+
+The reported `reason` is `env_flag` when forced by `HOGSEND_TEST_MODE=true`, or `domain_unverified` when `auto` armed itself.
+
+<Callout type="info">
+  **Fail-open by design.** The per-send check is cache-only — it never awaits a provider call, and an empty or stale cache resolves to *live*. A provider outage can therefore never silently start redirecting production mail; the worst case of a cache miss is a normal send.
+</Callout>
+
+## What a redirected send looks like
+
+When test mode is active and a redirect address resolves:
+
+- **`to`** becomes the single redirect inbox: `HOGSEND_TEST_EMAIL`, falling back to `STUDIO_ADMIN_EMAIL`. cc/bcc are **dropped entirely** — a test mail never leaks to an original cc recipient.
+- **Subject** is prefixed with the original recipients: `[TEST → ada@customer.com] Welcome — let's get you set up`.
+- **`from`** is overridden to `onboarding@resend.dev` on the Resend provider (so the redirected mail still delivers while your domain is unverified); other providers keep the original from.
+- The `email_sends` row records what actually went out the wire, plus `metadata.originalTo` with the original recipient list.
+
+When test mode is active but **neither** `HOGSEND_TEST_EMAIL` nor `STUDIO_ADMIN_EMAIL` resolves, the send is **blocked** — recorded as `failed` with `metadata.originalTo`, never delivered to the real recipient — with a loud, actionable error log. Set one of the two addresses to unblock.
+
+## How to tell you're in it
+
+Every surface reports the same `testMode` block, so pick whichever you're nearest to:
+
+| Surface | What you see |
+|---|---|
+| Server log (boot / transition) | A WARN banner when test mode activates — `test mode ACTIVE — domain unverified, redirecting all sends` — and an INFO line when it exits. One line per flip, starting at boot. |
+| Server log (per send) | A structured `email.test_mode_redirect` WARN with `originalTo`, `redirectTo`, and `reason`. |
+| `GET /v1/admin/domain` | The `testMode` block: `{ active, reason, redirectTo, fromOverride }`. |
+| [`hogsend domain status`](/docs/cli/domain) | A **TEST MODE** banner with the redirect target and reason. |
+| [`hogsend dev`](/docs/cli/dev) | A one-line status under the URL block when an admin key is configured. |
+| Studio `/setup` | The setup view renders the domain + test-mode state. |
+| `email_sends` rows | Redirected sends carry `metadata.originalTo`. |
+
+## How to exit it
+
+**Verify the domain.** This is the intended path: add the DNS records (`hogsend domain add`), then poll with [`hogsend domain check`](/docs/cli/domain). While a domain is unverified the engine re-checks its status every **60 seconds**, so test mode auto-exits within a minute of DNS verifying — no restart needed. (Once verified, the re-check relaxes to every 10 minutes.)
+
+**Or force it off.** `HOGSEND_TEST_MODE=false` disables the redirect unconditionally. You almost always want the verified domain instead — with the flag forced off and the domain unverified, sends go to real recipients and the provider will reject or junk them.
+
+## Environment reference
+
+| Variable | Schema | Default | Notes |
+|---|---|---|---|
+| `HOGSEND_TEST_MODE` | `auto` \| `true` \| `false` | `auto` | See the table above. |
+| `HOGSEND_TEST_EMAIL` | email, optional | falls back to `STUDIO_ADMIN_EMAIL` | The safe inbox redirected sends are delivered to. |
+| `EMAIL_DOMAIN` | string, optional | derived from `EMAIL_FROM` host | The sending domain the status (and `auto` arming) keys on. `create-hogsend --domain` writes it for you. |
+
+<Callout type="info">
+  The scaffolded `env.example` ships a commented "Sending domain" block; `pnpm create hogsend@latest --domain mysite.com` fills in `EMAIL_FROM=hello@mysite.com` + `EMAIL_DOMAIN=mysite.com` at scaffold time, so a fresh app is born with test mode armed and safe.
+</Callout>

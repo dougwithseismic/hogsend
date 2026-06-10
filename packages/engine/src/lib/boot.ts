@@ -81,6 +81,12 @@ export function reportApiReady(info: ApiReadyInfo): void {
   const templates = Object.keys(client.templates).length;
   const localUrl = `http://localhost:${port}`;
 
+  // Cache-only, sync, never throws — so reading it here adds no boot latency.
+  // Loud when env-flag-forced (resolves even with a cold cache); the
+  // domain-unverified auto banner is additionally fired as a transition WARN by
+  // the warm-up refresh in the container.
+  const testMode = client.domainStatus.testModeCached();
+
   if (!bannerMode(client)) {
     client.logger.info("Hogsend API ready", {
       engineVersion,
@@ -91,6 +97,14 @@ export function reportApiReady(info: ApiReadyInfo): void {
       buckets,
       templates,
       schema: info.schemaVersion ?? undefined,
+      ...(testMode.active
+        ? {
+            testMode: {
+              redirectTo: testMode.redirectTo,
+              reason: testMode.reason,
+            },
+          }
+        : {}),
     });
     return;
   }
@@ -104,6 +118,13 @@ export function reportApiReady(info: ApiReadyInfo): void {
   ].join(dim(" · "));
   const label = (text: string) => dim(text.padEnd(7));
 
+  const testModeLine = testMode.active
+    ? `  ${color.bgYellow(color.black(" TEST MODE "))} ${color.yellow(
+        `all sends → ${testMode.redirectTo ?? "(no redirect address — sends will fail!)"} ` +
+          dim(`(${testMode.reason ?? "unknown"})`),
+      )}`
+    : null;
+
   writeBanner([
     `${BADGE} ${dim(`engine ${engineVersion} · api ${API_VERSION}`)}`,
     "",
@@ -111,6 +132,7 @@ export function reportApiReady(info: ApiReadyInfo): void {
     info.schemaVersion
       ? `  ${ok} schema in sync ${dim(`(${info.schemaVersion})`)}`
       : null,
+    testModeLine,
     "",
     `  ${label("API")}${color.cyan(localUrl)}`,
     `  ${label("Docs")}${color.cyan(`${localUrl}/docs`)}`,

@@ -1,5 +1,6 @@
 import type { RetryOptions } from "@hogsend/email";
 import { createResendClient } from "./client.js";
+import { createResendDomains } from "./domains.js";
 import { sendBatchEmails, sendEmail } from "./send.js";
 import {
   type BatchEmailItem,
@@ -38,6 +39,10 @@ export function createResendProvider(
       scheduledSend: true,
       signedWebhooks: true,
     },
+
+    // Sending-domain management (Resend Domains REST API). Presence of this
+    // member is the engine's capability gate for /v1/admin/domain.
+    domains: createResendDomains({ apiKey: config.apiKey }),
 
     async send(options: SendEmailOptions): Promise<SendResult> {
       return sendEmail({ client, options, retryOptions });

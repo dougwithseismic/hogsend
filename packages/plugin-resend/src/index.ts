@@ -1,5 +1,10 @@
 // Client
 export { createResendClient } from "./client.js";
+// Sending-domain capability (Resend Domains REST API)
+export {
+  createResendDomains,
+  type ResendDomainsConfig,
+} from "./domains.js";
 // EmailProvider (the provider contract + Resend implementation)
 export {
   createResendProvider,

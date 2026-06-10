@@ -73,8 +73,14 @@ export interface TrackedSendResult {
    */
   resendId: string;
   status: "sent" | "suppressed" | "unsubscribed" | "skipped";
-  /** Present only when `status === "skipped"` by the frequency cap. */
-  reason?: "frequency_capped";
+  /**
+   * Present only when `status === "skipped"`:
+   * - `"frequency_capped"` — the per-recipient frequency cap was hit.
+   * - `"test_mode_blocked"` — test mode was active but no redirect address
+   *   resolved (no `HOGSEND_TEST_EMAIL` / `STUDIO_ADMIN_EMAIL`), so the send was
+   *   blocked rather than delivered to the real recipient.
+   */
+  reason?: "frequency_capped" | "test_mode_blocked";
 }
 
 /**

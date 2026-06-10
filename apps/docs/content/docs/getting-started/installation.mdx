@@ -10,18 +10,20 @@ The whole local spine is one scaffold command plus one bootstrap command. `pnpm 
 ## 1. Scaffold the app
 
 ```bash
-pnpm dlx create-hogsend@latest my-app
-# or: npx create-hogsend@latest my-app
+pnpm create hogsend@latest my-app --domain mysite.com
+# or: npx create-hogsend@latest my-app --domain mysite.com
 # or scaffold into the current folder:
-pnpm dlx create-hogsend@latest .
+pnpm create hogsend@latest . --domain mysite.com
 ```
 
 This copies the starter template into `./my-app` (or the current folder with `.`), substitutes the app name and pinned engine version, runs `git init` with an initial commit, installs dependencies, and offers to run local setup for you (Docker, `.env`, Hatchet token, data-plane key, migrations — that's [step 2](#2-bootstrap-your-local-stack)). The app name must match `^[a-z0-9][a-z0-9._-]*$`.
 
+`--domain` wires your sending domain at scaffold time: `env.example` gets `EMAIL_FROM=hello@mysite.com` + `EMAIL_DOMAIN=mysite.com`, and the bootstrap-copied `.env` inherits them. That arms [test mode](/docs/operating/test-mode) — until the domain verifies, every send redirects safely to your own inbox. Skip the flag and the env keeps a commented placeholder block to fill in later; in an interactive terminal you're prompted for it (blank to configure later).
+
 For a fully hands-off run with no prompts, add `--yes`:
 
 ```bash
-pnpm dlx create-hogsend@latest my-app --yes   # scaffold + install + bootstrap, zero prompts
+pnpm create hogsend@latest my-app --domain mysite.com --yes   # scaffold + install + bootstrap, zero prompts
 ```
 
 Useful flags:
@@ -29,6 +31,7 @@ Useful flags:
 | Flag | Effect |
 |---|---|
 | `--yes`, `-y` | Accept all defaults and run local setup — no prompts |
+| `--domain <domain>` | Sending domain — writes `EMAIL_FROM=hello@<domain>` + `EMAIL_DOMAIN=<domain>` into `env.example`. With no app-name positional, the app name defaults to the first domain label (`mysite.com` → `mysite`) |
 | `--pm <pnpm\|npm\|yarn\|bun>` | Package manager to use (default `pnpm`) |
 | `--setup` / `--no-setup` | Run / skip the post-install local setup (`bootstrap`) |
 | `--no-install` | Skip the dependency install |
@@ -119,6 +122,16 @@ Using npm / yarn / bun? Run `npm run bootstrap` / `yarn bootstrap` / `bun run bo
 
 ## 3. Run the app
 
+One command, one terminal:
+
+```bash
+pnpm hogsend dev
+```
+
+[`hogsend dev`](/docs/cli/dev) skips the docker step when bootstrap's containers are already running, checks `.env`, runs migrations, spawns the API and the worker as line-prefixed child processes, waits for `GET /v1/health`, then prints the local URLs (API, Studio, Hatchet dashboard) plus a one-line domain/test-mode status when an admin key is configured. Ctrl+C tears the whole tree down.
+
+### Manual alternative — two terminals
+
 ```bash
 # Terminal 1 — HTTP API on http://localhost:3002
 pnpm dev
@@ -205,9 +218,20 @@ curl -XPOST http://localhost:3002/v1/events \
 
 Only the **first** welcome email (subject `Welcome — let's get you set up`) is sent right away. The follow-up nudge sits behind a **2-day durable sleep**, so assert success on the first email only — don't wait around for the second.
 
-<Callout type="warn">
-  The one slow prerequisite is a **verified Resend sender**: a real `RESEND_API_KEY` plus a verified domain in the [Resend dashboard](https://resend.com/domains). This is the single setup gate in the whole quickstart — and it sits **off the path** to the aha in step 4. Do step 4 first with zero accounts; only reach for Resend when you want a real email to land.
+<Callout type="info">
+  With a real `RESEND_API_KEY` but an unverified domain, this send still works — [test mode](/docs/operating/test-mode) redirects it to your own inbox with a `[TEST → you@yourdomain.com]` subject prefix. You see the real template, real tracking, real Studio rows, with zero risk of mailing a customer. The smoke journey in step 4 needs no provider at all.
 </Callout>
+
+### Verify your sending domain
+
+To send to real recipients, verify the domain with your provider. If you scaffolded with `--domain`, `EMAIL_DOMAIN` is already set; otherwise set it (or `EMAIL_FROM`) in `.env` first. Then, with the app running:
+
+```bash
+pnpm hogsend domain add yourdomain.com   # register + print DNS records for YOUR DNS host
+pnpm hogsend domain check                # poll every 15s until verified
+```
+
+`add` detects your DNS host via NS lookup, formats the records for that host's panel with a deep link, and on Cloudflare/Vercel offers to apply them automatically when a `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN` is set. The moment `check` reports verified, test mode auto-exits (≤ 60 s) and sends go live. These commands need an admin key — see [hogsend domain](/docs/cli/domain).
 
 ### Watch it in Studio
 
@@ -240,7 +264,7 @@ Your `welcome-1` send shows up under **Sends**; open it and you'll see open and 
   **Required — the dependency-free aha (step 4).** You fired `test.signup` twice and read **two different event trails**: the `smoke-pro` run emitted `journey.pro_path`, the `smoke-free` run emitted `journey.free_path`. That alone proves the engine end-to-end with no external accounts.
 
   **Optional adapters.** Layer these in once the required path is green:
-  - **Email** — a real `welcome` send visible in [Studio → Sends](http://localhost:3002/studio/sends), behind a verified Resend sender (step 5).
+  - **Email** — a `welcome` send visible in [Studio → Sends](http://localhost:3002/studio/sends). A provider key is enough to start ([test mode](/docs/operating/test-mode) redirects to your inbox until the domain verifies); `hogsend domain check` takes it live (step 5).
   - **Analytics** — one PostHog event reaching Hogsend. See [PostHog setup](/docs/getting-started/posthog-setup).
 </Callout>
 
@@ -260,7 +284,7 @@ pnpm db:migrate          # apply any new engine migrations, then your client tra
 This is never a git merge of a fork. See [Upgrading & Customizing](/docs/operating/upgrading) for the full upgrade flow and the Extend → Patch → Eject ladder — how to change engine behavior without losing clean upgrades.
 
 <Callout type="info">
-  Need a one-by-one breakdown of every step, with `--json` output for agents? `pnpm dlx hogsend setup` is the CLI equivalent of `pnpm bootstrap`. See [hogsend setup](/docs/cli/setup).
+  Need a one-by-one breakdown of every step, with `--json` output for agents? `pnpm dlx hogsend setup` is the CLI equivalent of `pnpm bootstrap`, and [`hogsend dev`](/docs/cli/dev) is the setup-and-run superset. See [hogsend setup](/docs/cli/setup).
 </Callout>
 
 ## Contributing to the engine

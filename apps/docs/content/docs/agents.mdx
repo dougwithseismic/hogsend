@@ -1,0 +1,90 @@
+---
+title: Hogsend for AI agents
+description: The agent-ready surface — 14 vendorable Claude Code skills in every scaffolded app, the hogsend skills CLI, and /llms.txt as the stable machine entrypoint.
+---
+
+Hogsend is built to be operated by coding agents as much as by people. Three
+surfaces make that work:
+
+1. **Skills** — 14 agent-executable playbooks vendored into every scaffolded
+   app at `.claude/skills/`, so an agent opening the project already knows how
+   to author journeys, drive the CLI, and wire your product to the instance.
+2. **The `hogsend` CLI** — every data command takes `--json` and prints exactly
+   one machine-readable JSON document, designed for programmatic use.
+3. **`/llms.txt`** — a stable plain-text entrypoint at
+   [`https://docs.hogsend.com/llms.txt`](https://docs.hogsend.com/llms.txt)
+   that an agent can fetch to orient itself: what Hogsend is, where the docs
+   live, and which skills exist.
+
+## What ships in `.claude/skills/`
+
+Every app scaffolded with `create-hogsend` includes the full skill set (the
+same tree `@hogsend/cli` bundles). Each skill is a `SKILL.md` with a
+trigger-oriented description plus deeper `references/` files an agent loads on
+demand. The same catalog, grouped by workflow and with the full `skills`
+subcommand reference, lives at [`hogsend skills`](/docs/cli/skills).
+
+| Skill | Use it when… |
+| --- | --- |
+| `hogsend-integrate` | Wiring an **existing product codebase** (Next.js, Express, Hono, Remix, SvelteKit) to a running Hogsend instance via `@hogsend/client` — detect the stack, find signup/billing seams, wire, verify. |
+| `hogsend-migrate` | Migrating off **Loops, Customer.io, or Resend Broadcasts** — audit the incumbent, map every concept to its Hogsend equivalent, run a dual-write cutover. |
+| `hogsend-client-sdk` | Calling Hogsend from product code via `@hogsend/client` — contacts, events, transactional emails, lists, outbound webhooks. |
+| `hogsend-cli` | Inspecting or operating a running instance with the `hogsend` CLI — stats, contacts, events, journeys, all `--json`. |
+| `hogsend-authoring-journeys` | Adding or editing a lifecycle journey (`defineJourney`) — triggers, durable sleeps, branching, registration. |
+| `hogsend-authoring-emails` | Adding a transactional email — the four-file react-email contract, tracking + unsubscribe behavior. |
+| `hogsend-authoring-lists` | Adding a code-defined email list (`defineList`) — opt-in vs opt-out polarity, reserved ids. |
+| `hogsend-authoring-buckets` | Adding a real-time audience bucket (`defineBucket`) — criteria trees, enter/leave/dwell reactions. |
+| `hogsend-authoring-destinations` | Fanning the outbound event stream to PostHog/Segment/Slack/CRMs (`defineDestination`). |
+| `hogsend-webhooks-and-workflows` | Inbound webhook sources (`defineWebhookSource`), the Clerk/Supabase/Stripe/Segment presets, and custom Hatchet tasks. |
+| `hogsend-conditions` | Writing any condition or duration — `trigger.where`, `exitOn`, bucket criteria, `days()/hours()/minutes()`. |
+| `hogsend-database` | Schema changes and migrations — client-track tables, the two-track system, schema drift. |
+| `hogsend-deploy` | Deploying a scaffolded app to production — Railway two-service layout, env, upgrades. |
+| `hogsend-extending` | Swapping the email/analytics provider behind its contract, or publishing a reusable plugin. |
+
+## Installing and refreshing skills
+
+Inside a scaffolded app the skills are already there. Anywhere else (including
+a **host product codebase** you're integrating), install them with the CLI:
+
+```bash
+hogsend skills list            # what's bundled + what's installed
+hogsend skills add             # interactive picker
+hogsend skills add --all      # install every bundled skill
+hogsend skills add hogsend-integrate   # just one
+hogsend skills add --all --force       # refresh after upgrading the CLI
+```
+
+`add` copies each skill into `./.claude/skills/<name>/` where Claude Code
+discovers it. `hogsend doctor` nudges when installed skills have fallen behind
+the CLI version that produced them; `--force` refreshes them. Inside a
+scaffolded app, `hogsend upgrade` bumps the `@hogsend/*` dependencies AND
+refreshes the vendored skills in one pass (`--skills-only` to refresh just the
+skills).
+
+## The two flagship agent flows
+
+**Integrate a product** — in your product's repo (not the Hogsend app), the
+`hogsend-integrate` skill drives the whole loop: detect the framework, grep out
+the signup/auth/billing seams (better-auth, Clerk, Supabase, Stripe, NextAuth),
+install `@hogsend/client`, add `contacts.upsert` / `events.send` /
+`emails.send` at the seams, then verify ingestion end-to-end with
+`hogsend events send … --json` and `hogsend events <userId> --json`.
+
+**Migrate from another platform** — the `hogsend-migrate` skill audits an
+existing Loops / Customer.io / Resend-Broadcasts integration (SDK calls in code
+plus GUI-side workflows and templates), maps each concept to its Hogsend
+equivalent (journeys, four-file templates, lists, buckets, campaigns), and
+executes a dual-write → verify → switch → remove cutover that imports
+suppression state before anything sends.
+
+```bash
+# in either flow, point the agent at the skill and let it drive:
+hogsend skills add hogsend-integrate   # or hogsend-migrate
+```
+
+## `/llms.txt`
+
+[`https://docs.hogsend.com/llms.txt`](https://docs.hogsend.com/llms.txt) is the
+stable machine entrypoint: a plain-text index of the docs (getting started,
+data API, CLI, integrations) plus the skill catalog above. If you're building
+an agent that needs to learn Hogsend from a URL, start there.

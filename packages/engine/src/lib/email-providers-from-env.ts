@@ -27,6 +27,7 @@ type CreatePostmarkProvider = (cfg: {
   serverToken: string;
   messageStream?: string;
   webhookBasicAuth?: { user: string; pass: string };
+  accountToken?: string;
 }) => EmailProvider;
 
 const POSTMARK_PACKAGE = ["@hogsend", "plugin-postmark"].join("/");
@@ -77,6 +78,10 @@ export function emailProvidersFromEnv(env: typeof envSchema): EmailProvider[] {
         serverToken: env.POSTMARK_SERVER_TOKEN,
         ...(env.POSTMARK_MESSAGE_STREAM
           ? { messageStream: env.POSTMARK_MESSAGE_STREAM }
+          : {}),
+        // Account token unlocks the Domains API capability (optional).
+        ...(env.POSTMARK_ACCOUNT_TOKEN
+          ? { accountToken: env.POSTMARK_ACCOUNT_TOKEN }
           : {}),
         ...(env.POSTMARK_WEBHOOK_USER && env.POSTMARK_WEBHOOK_PASS
           ? {

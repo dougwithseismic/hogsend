@@ -14,6 +14,7 @@ import {
 } from "@hogsend/email";
 import { eq } from "drizzle-orm";
 import { getListRegistry } from "../lists/registry-singleton.js";
+import type { TestModeState } from "./domain-status.js";
 import {
   type FrequencyCapConfig,
   type SendTrackedEmailOptions,
@@ -24,6 +25,12 @@ import { isFrequencyCapped } from "./frequency-cap.js";
 import { hatchet } from "./hatchet.js";
 import { createLogger, type Logger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
+import {
+  buildRedirect,
+  isUnaddressable,
+  logRedirect,
+  NO_REDIRECT_MESSAGE,
+} from "./test-mode.js";
 
 // Module-level fallback logger for the outbound emit — the tracked-mailer's
 // `logger` dep is optional, but `emitOutbound` requires one. Mirrors the
@@ -49,6 +56,13 @@ interface TrackedEmailDeps {
   frequencyCap?: FrequencyCapConfig;
   /** Optional structured logger for operational events (e.g. cap skips). */
   logger?: Logger;
+  /**
+   * The active test-mode state, resolved ONCE by the mailer (cache-only) and
+   * threaded in so this module stays domainStatus-unaware. `null` ⇒ live send.
+   * When active, suppression/frequency/unsubscribe still key to the ORIGINAL
+   * recipient (`options.to`); only the wire + `email_sends` row are redirected.
+   */
+  testMode?: TestModeState | null;
 }
 
 export async function sendTrackedEmail<K extends TemplateName>(
@@ -61,8 +75,18 @@ export async function sendTrackedEmail<K extends TemplateName>(
     prepareTrackedHtml,
     frequencyCap,
     logger,
+    testMode,
     options,
   } = opts;
+
+  // Test-mode redirect (resolved by the mailer; null ⇒ live). When active, the
+  // wire `to`/`from`/`subject` + the email_sends row are redirected, but EVERY
+  // preference statement below (suppression, frequency cap, unsubscribe token)
+  // still keys to the ORIGINAL recipient `options.to` — preferences belong to
+  // the real user, never the shared test inbox. Resolved lazily after the
+  // suppression/frequency-cap branch so the original recipient's preferences are
+  // honored first.
+  const redirectActive = Boolean(testMode?.active);
 
   // The idempotency-collision result, built identically whether the prior row is
   // found by the up-front short-circuit select OR the concurrent-insert loser
@@ -220,17 +244,80 @@ export async function sendTrackedEmail<K extends TemplateName>(
         }).element
       : element;
 
+  // Test-mode redirect — resolved AFTER the original-recipient preference checks
+  // above (suppression/frequency/unsubscribe), so preferences belong to the real
+  // user. Hard-fail branch: active but unaddressable ⇒ write a `failed` row with
+  // the metadata marker (so Studio surfaces the blocked send) and return a
+  // skipped result. The provider is NEVER reached — the real recipient must not
+  // receive mail from an unverified domain just because no test inbox is set.
+  if (redirectActive && testMode && isUnaddressable(testMode)) {
+    (logger ?? emitLogger).error(NO_REDIRECT_MESSAGE, {
+      originalTo: options.to,
+      templateKey: options.templateKey,
+    });
+    const rows = await db
+      .insert(emailSends)
+      .values({
+        templateKey: options.templateKey,
+        fromEmail: options.from,
+        toEmail: options.to,
+        subject: options.subject ?? "",
+        category: effectiveCategory,
+        journeyStateId: options.journeyStateId,
+        userId: options.userId,
+        userEmail: options.userEmail ?? options.to,
+        status: "failed",
+        metadata: { testMode: true, originalTo: options.to },
+      })
+      .returning({ id: emailSends.id });
+    const blockedRow = rows[0];
+    if (!blockedRow) throw new Error("Failed to insert email_sends row");
+    return trackedSendResult({
+      emailSendId: blockedRow.id,
+      messageId: "",
+      status: "skipped",
+      reason: "test_mode_blocked",
+    });
+  }
+
+  // Active + addressable: compute the redirected wire fields ONCE. `email_sends`
+  // records what ACTUALLY went out the wire (redirect inbox, prefixed subject,
+  // effective from) plus the `metadata.originalTo` marker, while preferences
+  // above stayed keyed to `options.to`.
+  const redirect =
+    redirectActive && testMode
+      ? buildRedirect({
+          from: options.from,
+          to: options.to,
+          subject,
+          state: testMode,
+        })
+      : null;
+  if (redirect && testMode) {
+    logRedirect(logger ?? emitLogger, {
+      originalTo: redirect.originalTo,
+      redirectTo: testMode.redirectTo,
+      reason: testMode.reason,
+    });
+  }
+  const wireTo = redirect ? redirect.to : options.to;
+  const wireSubject = redirect ? redirect.subject : subject;
+  const wireFrom = redirect ? redirect.from : options.from;
+
   const baseInsert = db.insert(emailSends).values({
     templateKey: options.templateKey,
-    fromEmail: options.from,
-    toEmail: options.to,
-    subject,
+    fromEmail: wireFrom,
+    toEmail: redirect ? redirect.redirectTo : options.to,
+    subject: wireSubject,
     category: effectiveCategory,
     journeyStateId: options.journeyStateId,
     userId: options.userId,
     userEmail: options.userEmail ?? options.to,
     status: "queued",
     idempotencyKey: options.idempotencyKey,
+    ...(redirect
+      ? { metadata: { testMode: true, originalTo: options.to } }
+      : {}),
   });
 
   // With an idempotency key, swallow a concurrent-insert collision on the unique
@@ -274,9 +361,9 @@ export async function sendTrackedEmail<K extends TemplateName>(
         : rawHtml;
 
     const result = await provider.send({
-      from: options.from,
-      to: options.to,
-      subject,
+      from: wireFrom,
+      to: wireTo,
+      subject: wireSubject,
       html,
       tags: options.tags,
       headers: sendHeaders,

@@ -167,7 +167,10 @@ async function runRead(ctx: CommandContext, argv: string[]): Promise<void> {
   );
 }
 
-async function runSend(ctx: CommandContext, argv: string[]): Promise<void> {
+export async function runSend(
+  ctx: CommandContext,
+  argv: string[],
+): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,

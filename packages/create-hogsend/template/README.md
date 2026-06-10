@@ -15,22 +15,52 @@ and is yours to edit.
 ## Quickstart
 
 ```bash
-pnpm bootstrap     # one command: Docker + .env + Hatchet token + migrate
-pnpm dev           # HTTP API on http://localhost:3002
-pnpm worker:dev    # Hatchet worker (run in a second terminal)
+pnpm bootstrap     # first run only: Docker + .env + Hatchet token + migrate
+pnpm hogsend dev   # the daily driver: API + worker + health + URLs, one terminal
 ```
+
+`hogsend dev` runs the whole local stack from one command — it reuses the infra
+and credentials bootstrap set up, runs migrations, spawns the API and worker as
+prefixed child processes, waits for health, and prints the local URLs (API,
+Studio, Hatchet dashboard). Ctrl+C stops everything. Fire a test event from a
+second terminal with `pnpm hogsend dev --fire test.signup --email you@example.com`.
+
+Prefer the processes by hand? `pnpm dev` (HTTP API on `http://localhost:3002`)
+plus `pnpm worker:dev` (Hatchet worker) in two terminals is the manual
+equivalent.
 
 `pnpm bootstrap` is idempotent — re-run it any time. It creates `.env` (with a
 fresh `BETTER_AUTH_SECRET`), brings up Timescale + Redis + Hatchet-Lite
 (auto-remapping any host ports already in use, so multiple stacks coexist),
-mints a Hatchet token for you, and runs both migration tracks. Set
-`RESEND_API_KEY` in `.env` before sending real email.
+mints a Hatchet token for you, and runs both migration tracks.
 
 Using npm / yarn / bun? Swap `pnpm` for `npm run` / `yarn` / `bun run`
 (e.g. `npm run bootstrap`).
 
 API docs: `http://localhost:3002/docs`. Health: `GET /v1/health`. Full docs:
 [docs.hogsend.com](https://docs.hogsend.com).
+
+## Sending domain & test mode
+
+Set a real `RESEND_API_KEY` in `.env` to send email — and note that while your
+sending domain is unverified, **test mode** redirects every send to your own
+inbox (subject prefixed `[TEST → …]`), so nothing reaches a real recipient
+prematurely. If you scaffolded with `--domain`, `EMAIL_FROM` + `EMAIL_DOMAIN`
+are already set in `.env`; otherwise uncomment them in the "Sending domain"
+block.
+
+Verify the domain from the CLI (admin key required), with the app running:
+
+```bash
+pnpm hogsend domain add yourdomain.com   # register + print DNS records for your DNS host
+pnpm hogsend domain check                # poll until verified — test mode exits within 60s
+pnpm hogsend domain status               # state, records, test-mode banner
+```
+
+`add` detects your DNS host via NS lookup and, on Cloudflare/Vercel, offers to
+apply the records automatically when a `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN`
+is set. Details:
+[docs.hogsend.com/docs/operating/test-mode](https://docs.hogsend.com/docs/operating/test-mode).
 
 ## Verify the pipeline (end-to-end smoke)
 

@@ -1,3 +1,5 @@
+import type { DomainsCapability } from "./domains.js";
+
 // ---------------------------------------------------------------------------
 // Send options (HTML-only wire — NO React)
 // ---------------------------------------------------------------------------
@@ -292,6 +294,13 @@ export interface EmailProvider {
    * is treated conservatively (no native tracking assumed, no scheduled send).
    */
   readonly capabilities?: EmailProviderCapabilities;
+  /**
+   * Optional sending-domain management capability ({@link DomainsCapability}).
+   * PRESENCE IS THE GATE — no `capabilities` flag mirrors it. Absent ⇒ the
+   * engine's domain-status service reports `supported: false` and the admin
+   * domain POSTs return 501; everything else degrades gracefully.
+   */
+  readonly domains?: DomainsCapability;
 
   /** Deliver a single message. Returns the provider message id. */
   send(options: SendEmailOptions): Promise<SendResult>;
