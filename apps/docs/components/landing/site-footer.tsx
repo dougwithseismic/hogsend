@@ -72,6 +72,7 @@ const COLUMNS: FooterColumn[] = [
       { label: "Contact", href: `mailto:${CONTACT_EMAIL}` },
       { label: "License", href: "/pricing#license" },
       { label: "Privacy", href: "/privacy" },
+      { label: "Terms", href: "/terms" },
     ],
   },
 ];
