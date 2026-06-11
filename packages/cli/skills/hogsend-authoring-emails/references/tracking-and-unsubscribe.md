@@ -184,3 +184,12 @@ Semantics at click time:
 - The answering journey reads the payload from
   `ctx.waitForEvent(...) → { timedOut, properties }` — see the
   hogsend-authoring-journeys skill.
+- **No landing page?** `href={HOSTED_ANSWER_HREF}` (from `@hogsend/email`)
+  resolves to the engine-hosted answer page: a thanks page with an optional
+  free-text box whose submission ingests `<event>.comment` (one comment per
+  send + event). Possession of the link is the auth, like unsubscribe.
+- **Cross-device stitch (opt-in):** `TRACKING_IDENTITY_TOKEN=true` appends an
+  encrypted one-hour `hs_t` token to tracked redirects; the landing site
+  exchanges it at `POST /v1/t/identify` for the distinct id and calls
+  `posthog.identify`. Never put a raw email in a URL — the token exists so
+  you don't have to.

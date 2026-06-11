@@ -205,6 +205,12 @@ export { checkEmailPreferences } from "./lib/enrollment-guards.js";
 export { isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { hatchet } from "./lib/hatchet.js";
+export {
+  generateIdentityToken,
+  type IdentityTokenPayload,
+  InvalidIdentityTokenError,
+  validateIdentityToken,
+} from "./lib/identity-token.js";
 // --- Ingestion pipeline ---
 export {
   type IngestEvent,

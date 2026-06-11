@@ -1,4 +1,4 @@
-import { EmailAction } from "@hogsend/email";
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
 import { Section } from "react-email";
@@ -22,7 +22,10 @@ const ANSWER_NO = { answer: "no" };
 
 export default function FeedbackCheckinEmail({
   name = "there",
-  landingUrl = "https://app.example.com/thanks",
+  // Default to the ENGINE-HOSTED answer page: a thanks page with an optional
+  // free-text box (submissions ingest as `checkin.answered.comment`). Pass
+  // your own URL to land answers on your site instead.
+  landingUrl = HOSTED_ANSWER_HREF,
   unsubscribeUrl,
 }: FeedbackCheckinEmailProps) {
   const buttonClass =

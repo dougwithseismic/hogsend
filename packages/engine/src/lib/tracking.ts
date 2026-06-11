@@ -4,10 +4,12 @@ import { trackedLinks } from "@hogsend/db";
 import {
   EMAIL_ACTION_EVENT_ATTR,
   EMAIL_ACTION_PROPS_ATTR,
+  HOSTED_ANSWER_HREF,
 } from "@hogsend/email";
 
 const ANCHOR_RE = /<a\b[^>]*>/gi;
 const HREF_RE = /\bhref="(https?:\/\/[^"]+)"/i;
+const SENTINEL_HREF_RE = new RegExp(`\\bhref="${HOSTED_ANSWER_HREF}"`, "i");
 const EVENT_ATTR_RE = new RegExp(
   `\\b${EMAIL_ACTION_EVENT_ATTR}="([^"]*)"`,
   "i",
@@ -137,9 +139,30 @@ export async function rewriteLinks(opts: {
 
   for (const match of html.matchAll(ANCHOR_RE)) {
     const tag = match[0];
-    const url = tag.match(HREF_RE)?.[1];
     const semantic = parseSemanticAttrs(tag);
 
+    // Sentinel destination: the engine-hosted answer page. Only meaningful on
+    // a semantic link, and resolvable only here (the page URL embeds the
+    // tracked link's own id, generated client-side below).
+    if (SENTINEL_HREF_RE.test(tag)) {
+      if (!semantic) {
+        throw new Error(
+          `href="${HOSTED_ANSWER_HREF}" is only valid on a semantic link (EmailAction)`,
+        );
+      }
+      const key = linkKey(HOSTED_ANSWER_HREF, semantic);
+      if (!pending.has(key)) {
+        const id = randomUUID();
+        pending.set(key, {
+          id,
+          url: `${baseUrl}/v1/t/a/${id}`,
+          semantic,
+        });
+      }
+      continue;
+    }
+
+    const url = tag.match(HREF_RE)?.[1];
     if (!url || shouldSkipUrl(url)) {
       if (semantic) {
         throw new Error(
@@ -168,6 +191,15 @@ export async function rewriteLinks(opts: {
   );
 
   return html.replace(ANCHOR_RE, (tag) => {
+    if (SENTINEL_HREF_RE.test(tag)) {
+      const link = pending.get(
+        linkKey(HOSTED_ANSWER_HREF, parseSemanticAttrs(tag)),
+      );
+      if (!link) return tag;
+      return tag
+        .replace(SENTINEL_HREF_RE, `href="${baseUrl}/v1/t/c/${link.id}"`)
+        .replace(STRIP_SEMANTIC_ATTRS_RE, "");
+    }
     const url = tag.match(HREF_RE)?.[1];
     if (!url || shouldSkipUrl(url)) return tag;
     const link = pending.get(linkKey(url, parseSemanticAttrs(tag)));

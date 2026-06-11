@@ -2,6 +2,7 @@ import { emailSends, linkClicks, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { generateIdentityToken } from "../../lib/identity-token.js";
 import { emitOutbound } from "../../lib/outbound.js";
 import { EMAIL_LINK_CLICKED } from "../../lib/tracking-event-names.js";
 import {
@@ -108,13 +109,49 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
         });
     }
 
+    // Cross-device identity stitch (opt-in): append a short-lived signed
+    // `hs_t` token to the destination so the landing site can identify the
+    // session. This is the ONE path that needs the send context BEFORE the
+    // redirect — the awaited resolve is shared with the async chain below so
+    // the read still happens once.
+    let redirectUrl = link.originalUrl;
+    let preResolved: Awaited<
+      ReturnType<typeof resolveEmailSendContext>
+    > | null = null;
+    let preResolvedSet = false;
+    if (env.TRACKING_IDENTITY_TOKEN) {
+      preResolved = await resolveEmailSendContext(db, link.emailSendId);
+      preResolvedSet = true;
+      if (preResolved?.userId) {
+        try {
+          const url = new URL(link.originalUrl);
+          url.searchParams.set(
+            "hs_t",
+            generateIdentityToken({
+              secret: env.BETTER_AUTH_SECRET,
+              distinctId: preResolved.userId,
+              emailSendId: link.emailSendId,
+            }),
+          );
+          redirectUrl = url.toString();
+        } catch {
+          // Unparseable destination — redirect untouched rather than break it.
+          redirectUrl = link.originalUrl;
+        }
+      }
+    }
+
     // Resolve the send context ONCE (off the response path) and feed both the
     // re-ingest and the PER-HIT outbound emit — avoiding a duplicate
     // `resolveEmailSendContext` read on the click hot path. NO `dedupeKey`: a
     // NULL dedupe key is distinct in Postgres, so every click creates a fresh
     // delivery to every subscribed destination (per-hit, not first-touch).
     const emailSendId = link.emailSendId;
-    void resolveEmailSendContext(db, emailSendId)
+    void (
+      preResolvedSet
+        ? Promise.resolve(preResolved)
+        : resolveEmailSendContext(db, emailSendId)
+    )
       .then(async (ctx) => {
         await pushTrackingEvent({
           db,
@@ -157,6 +194,6 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
       })
       .catch(logger.warn);
 
-    return c.redirect(link.originalUrl, 302);
+    return c.redirect(redirectUrl, 302);
   },
 );

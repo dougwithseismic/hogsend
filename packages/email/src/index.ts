@@ -11,6 +11,7 @@ export {
   EMAIL_ACTION_EVENT_ATTR,
   EMAIL_ACTION_PROPS_ATTR,
   EmailAction,
+  HOSTED_ANSWER_HREF,
 } from "./email-action.js";
 // Template registry
 export {

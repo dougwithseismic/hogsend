@@ -180,6 +180,51 @@ preset captures it under **your** event name (`nps.submitted`, not
 `email.action`) with the properties flattened, so the answer is immediately
 usable in insights, cohorts, and flags.
 
+## The hosted answer page
+
+No landing page? Point the action at the engine's own:
+
+```tsx
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
+
+<EmailAction event="checkin.answered" properties={ANSWER_YES} href={HOSTED_ANSWER_HREF}>
+  Going great
+</EmailAction>
+```
+
+The sentinel resolves at send time to `GET /v1/t/a/:linkId` — a minimal
+engine-served page (same trust model as unsubscribe: possession of the
+unguessable link is the auth) that confirms the recorded answer and offers an
+optional free-text box. A submitted comment ingests as **`<event>.comment`**
+(`checkin.answered.comment`) with the original answer's properties attached —
+a real event journeys can wait on and destinations receive. One comment per
+(send, event); repeats are no-ops.
+
+## Cross-device identity (`hs_t`)
+
+With `TRACKING_IDENTITY_TOKEN=true`, every tracked-link redirect appends a
+short-lived `hs_t` token to the destination URL. Your landing site exchanges
+it for the distinct id and identifies the session:
+
+```ts
+// on the landing site, after arrival
+const res = await fetch("https://api.example.com/v1/t/identify", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ token: params.get("hs_t") }),
+});
+const { distinctId } = await res.json();
+posthog.identify(distinctId); // the email click and the web session merge
+```
+
+The token is **encrypted** (AES-256-GCM keyed off `BETTER_AUTH_SECRET`), not
+merely signed — the distinct id can be an email address, and nothing readable
+may sit in a URL, browser history, or a referrer header. Tokens expire after
+an hour; tampering fails decryption. Strip `hs_t` from the address bar after
+the exchange, and gate the `identify` call behind whatever analytics consent
+your site operates under. Opt-in by design: appending a parameter changes
+outbound URLs, which can break pre-signed destinations.
+
 ## What it is not
 
 - **Not for destructive actions.** "Cancel my account" should never be one

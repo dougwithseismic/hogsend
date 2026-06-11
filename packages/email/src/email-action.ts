@@ -13,6 +13,14 @@ import {
 export const EMAIL_ACTION_EVENT_ATTR = "data-hs-event";
 export const EMAIL_ACTION_PROPS_ATTR = "data-hs-props";
 
+/**
+ * Sentinel `href` for semantic links with no landing page of their own:
+ * `href={HOSTED_ANSWER_HREF}` resolves at send time to the engine-hosted
+ * answer page (`/v1/t/a/:linkId`) — a thanks page with an optional free-text
+ * box whose submission ingests `<event>.comment`.
+ */
+export const HOSTED_ANSWER_HREF = "hogsend://answer";
+
 /** Scalar-only payload — non-scalar values don't survive the Hatchet wire. */
 export type EmailActionProperties = Record<
   string,
