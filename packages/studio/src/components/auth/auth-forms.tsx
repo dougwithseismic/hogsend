@@ -16,12 +16,15 @@ export type FormMode = "login" | "forgot" | "reset";
 /**
  * Where better-auth redirects the browser after the user clicks the reset link
  * in their email. better-auth appends `?token=…`; the {@link AuthGate} reads that
- * token and renders the `reset` view. We point at the Studio mount (`/studio`)
- * on the current origin so the redirect lands back inside the SPA.
+ * token and renders the `reset` view. We point at the Studio mount WITH the
+ * trailing slash (`/studio/`) so the link lands directly on the SPA without
+ * going through the engine's `/studio` → `/studio/` prefix redirect (the
+ * engine preserves the query on that hop too, but skipping it entirely is one
+ * less place for the token to get lost).
  */
 function resetRedirectUrl(): string {
-  if (typeof window === "undefined") return "/studio";
-  return `${window.location.origin}/studio`;
+  if (typeof window === "undefined") return "/studio/";
+  return `${window.location.origin}/studio/`;
 }
 
 // ---------------------------------------------------------------------------

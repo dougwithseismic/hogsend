@@ -88,7 +88,13 @@ export function mountStudio(app: OpenAPIHono<AppEnv>): MountStudioResult {
   });
 
   // Redirect the bare `/studio` to `/studio/` so relative/base assets resolve.
-  app.get("/studio", (c) => c.redirect("/studio/"));
+  // The query string MUST survive the hop: better-auth's password-reset link
+  // redirects to `/studio?token=…`, and dropping the token here strands the
+  // user on the login card instead of the reset form.
+  app.get("/studio", (c) => {
+    const { search } = new URL(c.req.url);
+    return c.redirect(`/studio/${search}`);
+  });
 
   // Static assets (js/css/images) under /studio/*.
   app.use("/studio/*", staticHandler);

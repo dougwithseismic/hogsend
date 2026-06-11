@@ -29,6 +29,15 @@ describe.skipIf(!studioBuilt)("Studio static mount", () => {
     expect(res.headers.get("location")).toBe("/studio/");
   });
 
+  it("preserves the query string on the /studio prefix redirect", async () => {
+    // Regression: better-auth's password-reset link redirects to
+    // `/studio?token=…` — dropping the query here stranded users on the
+    // login card instead of the reset form.
+    const res = await app.request("/studio?token=abc123&foo=bar");
+    expect([301, 302, 307, 308]).toContain(res.status);
+    expect(res.headers.get("location")).toBe("/studio/?token=abc123&foo=bar");
+  });
+
   it("falls back to index.html for client-side routes (deep links)", async () => {
     const res = await app.request("/studio/contacts");
     expect(res.status).toBe(200);
