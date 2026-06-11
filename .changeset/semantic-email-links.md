@@ -5,6 +5,11 @@
 "@hogsend/engine": minor
 "@hogsend/cli": minor
 "@hogsend/client": minor
+"@hogsend/plugin-posthog": minor
+"@hogsend/plugin-postmark": minor
+"@hogsend/plugin-resend": minor
+"@hogsend/studio": minor
+"hogsend": minor
 "create-hogsend": minor
 ---
 
