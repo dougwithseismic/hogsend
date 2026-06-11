@@ -1,5 +1,16 @@
 # hogsend
 
+## 0.17.0
+
+### Minor Changes
+
+- a3e15c4: Keep the engine version line uniform for the Studio crimzon design-system release — all engine-line packages move to the same minor together, and the scaffold republishes with the matching `ENGINE_VERSION` pins.
+
+### Patch Changes
+
+- Updated dependencies [a3e15c4]
+  - @hogsend/cli@0.17.0
+
 ## 0.16.0
 
 ### Minor Changes
