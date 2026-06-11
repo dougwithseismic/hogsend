@@ -210,6 +210,58 @@ describe("ctx.waitForEvent", () => {
     expect(res.properties).toBeUndefined();
   });
 
+  it("resolves from a recent user_events row when lookback is set (no wait)", async () => {
+    const waitFor = vi.fn();
+    const { db } = makeWaitDbStub();
+    // The lookback pre-check is a select chain — stub it to return a hit.
+    (db as unknown as Record<string, unknown>).select = vi.fn(() => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: () =>
+              Promise.resolve([{ properties: { score: 7, source: "email" } }]),
+          }),
+        }),
+      }),
+    }));
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "nps.submitted",
+      timeout: days(7),
+      lookback: { hours: 1 },
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toMatchObject({ score: 7 });
+    // The durable wait was never established — the gap event satisfied it.
+    expect(waitFor).not.toHaveBeenCalled();
+  });
+
+  it("falls through to the durable wait when lookback finds nothing", async () => {
+    const waitFor = vi.fn().mockResolvedValue({ CREATE: { timeout: [{}] } });
+    const { db } = makeWaitDbStub();
+    (db as unknown as Record<string, unknown>).select = vi.fn(() => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: () => Promise.resolve([]),
+          }),
+        }),
+      }),
+    }));
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "nps.submitted",
+      timeout: days(1),
+      lookback: { hours: 1 },
+    });
+
+    expect(res.timedOut).toBe(true);
+    expect(waitFor).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a timeout beyond the 720h execution limit before waiting", async () => {
     const waitFor = vi.fn();
     const { db } = makeWaitDbStub([]);

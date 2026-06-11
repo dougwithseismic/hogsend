@@ -12,7 +12,9 @@ import type { FeedbackCheckinEmailProps } from "./types.js";
 // (`checkin.answered { answer }`) through the full ingest pipeline. The
 // engine lifts the metadata at send time and the journey reacts via
 // `ctx.waitForEvent` (see `src/journeys/feedback-checkin.ts`). First answer
-// per send wins; scanner click-bursts are suppressed automatically.
+// per send wins; answers confirm after a ~30s window so scanner click-bursts
+// (Outlook SafeLinks etc.) are seen in full and suppressed before anything is
+// recorded.
 export default function FeedbackCheckinEmail({
   name = "there",
   landingUrl = "https://app.example.com/thanks",

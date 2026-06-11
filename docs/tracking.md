@@ -150,14 +150,20 @@ Answer semantics at click time:
   push, so journeys and destinations see at most one answer per send. An NPS
   row of 11 buttons = one answer slot. The winning link's
   `semantic_emitted_at` is stamped.
-- **Scanner-burst suppression** — security scanners (Outlook SafeLinks,
-  Proofpoint) follow every link within seconds. When ≥ 3 distinct links of one
-  send are clicked inside a 30-second window, the semantic emit is suppressed
-  (the generic `email.link_clicked` still fires per hit). Known limitation: a
-  scanner's very FIRST click can slip through before the burst is visible —
-  don't make destructive actions one-click EmailActions. The
-  `semantic_emitted_at` column is the anchor for a future
-  provisional-then-confirm flow if inline heuristics prove insufficient.
+- **Deferred confirmation + scanner-burst suppression** — security scanners
+  (Outlook SafeLinks, Proofpoint) follow every link within seconds. A click on
+  a semantic link is therefore only a PROVISIONAL answer: a Hatchet task
+  (`confirm-semantic-click`) judges it after the 30-second burst window has
+  fully elapsed, counting distinct links of the send clicked in the window
+  around the candidate — before AND after it. At ≥ 3 distinct links the whole
+  burst (including the scanner's first click) is suppressed; the generic
+  `email.link_clicked` still fires per hit. The cost is ~30s of answer
+  latency, invisible to journeys waiting on day-scale timeouts. A failed
+  Hatchet publish rolls back the idempotency claim, and the `email.action`
+  outbound emit carries the same `sem:` key as `dedupeKey`, so task retries
+  are exactly-once per endpoint. Still: don't make destructive actions
+  one-click EmailActions (a scanner spreading clicks beyond the window could
+  in principle slip one through).
 - **The generic event is never suppressed** — a semantic click fires BOTH
   `email.link_clicked` (per hit) and the semantic event (once). They are
   different event names; don't sum them as "clicks".
@@ -176,6 +182,13 @@ if (!answer.timedOut && typeof answer.properties?.score === "number") {
 
 Do NOT put the awaited event in `exitOn` — an exit match mid-wait aborts the
 run before the post-wait branch executes.
+
+`waitForEvent` also takes an optional `lookback` duration: the durable wait
+only matches events pushed AFTER it is established, so an answer landing
+between two waits (or between a send and its wait) would otherwise be missed —
+and the `sem:` key means it can never re-push. With `lookback`, recent
+`user_events` are checked first and a hit resolves the wait immediately,
+payload included. Keep the window tight (just the gap it covers).
 
 Note for existing deployments: the seeded PostHog destination subscribes to
 `email.action` only when seeded fresh — add `email.action` to an existing

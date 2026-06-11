@@ -16,6 +16,7 @@ import {
 } from "./workflows/bucket-backfill.js";
 import { bucketReconcileTask } from "./workflows/bucket-reconcile.js";
 import { checkAlertsTask } from "./workflows/check-alerts.js";
+import { confirmSemanticClickTask } from "./workflows/confirm-semantic-click.js";
 import {
   deliverWebhookTask,
   reapDueWebhookDeliveriesTask,
@@ -81,6 +82,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     reapStuckCampaignsTask,
     deliverWebhookTask,
     reapDueWebhookDeliveriesTask,
+    confirmSemanticClickTask,
     checkAlertsTask,
     bucketReconcileTask,
     bucketBackfillTask,

@@ -107,6 +107,17 @@ export interface WaitForEventOptions {
   timeout: DurationObject;
   /** Optional observability label written to `currentNodeId` while waiting. */
   label?: string;
+  /**
+   * Look BACK this far before waiting forward. The wait is normally
+   * forward-looking (only events pushed after it is established match), which
+   * leaves a gap: an event landing between two waits — or between a send and
+   * its wait — is never seen. With `lookback`, recent `user_events` matching
+   * (user, event) are checked first; a hit resolves immediately with
+   * `{ timedOut: false, properties }`. Keep the window tight (just the gap it
+   * covers, e.g. `hours(1)` between back-to-back waits) so a stale answer
+   * isn't mistaken for a fresh one.
+   */
+  lookback?: DurationObject;
 }
 
 export interface WaitForEventResult {

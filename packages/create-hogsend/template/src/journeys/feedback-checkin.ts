@@ -9,6 +9,8 @@ import { Events, Templates } from "./constants/index.js";
  * `checkin.answered { answer }` through the full ingest pipeline (journeys,
  * user_events, outbound destinations). This journey waits durably for that
  * answer and branches on `properties` — no polling, no landing-page wiring.
+ * Answers confirm after a ~30s window so scanner click-bursts are judged in
+ * full before anything is recorded.
  *
  * Two rules worth copying:
  *   - An event you REACT to via `ctx.waitForEvent` must NOT be in `exitOn`

@@ -172,11 +172,13 @@ Semantics at click time:
   EmailActions shares one answer slot — only the first clicked score ingests
   (idempotency key `sem:<emailSendId>:<event>`). The generic `email.link_clicked`
   still fires for every hit.
-- **Scanner bursts are suppressed.** When several distinct links of one send
-  are clicked within a ~30s window (Outlook SafeLinks / Proofpoint behaviour),
-  the semantic emit is skipped. A scanner's very FIRST click can still slip
-  through — keep that in mind for destructive actions (don't make "cancel my
-  account" a one-click EmailAction).
+- **Answers confirm after a ~30s window.** A click is only a provisional
+  answer: a deferred task judges it once the burst window has fully elapsed,
+  so a scanner that clicks every link (Outlook SafeLinks / Proofpoint) is seen
+  in full — including its first click — and suppressed before anything is
+  recorded. Cost: ~30s of answer latency (invisible to day-scale journey
+  waits). Still don't make destructive actions ("cancel my account") a
+  one-click EmailAction.
 - Two EmailActions may share the same `href` with different
   `event`/`properties` — they get separate tracked links (no URL collapse).
 - The answering journey reads the payload from

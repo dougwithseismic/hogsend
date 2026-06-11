@@ -55,6 +55,12 @@ NEVER put the awaited event in `exitOn` too: an `exitOn` match mid-wait aborts
 the run (`JourneyExitedError`) BEFORE your post-wait branch executes. React via
 `waitForEvent` OR exit via `exitOn` — one event name, one role.
 
+Waiting twice for the same event (e.g. after a reminder send)? Pass
+`lookback: hours(1)` on the second wait — the wait is forward-looking, so an
+answer landing in the gap between the two waits would otherwise be missed;
+`lookback` checks recent `user_events` first and resolves immediately with the
+payload.
+
 If the journey `exitOn`-matches (or is cancelled) WHILE waiting, the run aborts
 cleanly — state goes `"exited"`, the durable run is cancelled, and no post-wait
 step (or email) fires. You don't catch anything; the engine handles it.

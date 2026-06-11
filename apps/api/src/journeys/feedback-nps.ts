@@ -1,12 +1,13 @@
-import { days } from "@hogsend/core";
+import { days, hours } from "@hogsend/core";
 import { defineJourney, getPostHog, sendEmail } from "@hogsend/engine";
 import { Events, Templates } from "./constants/index.js";
 
 /**
  * NPS survey via SEMANTIC LINKS: the score buttons in the email are
  * EmailActions carrying `nps.submitted { score }` — the click IS the answer.
- * The journey waits durably for that event (first answer per send wins,
- * scanner bursts suppressed by the engine), then branches on the score:
+ * The journey waits durably for that event (first answer per send wins;
+ * confirmation is deferred ~30s so scanner click-bursts are judged with the
+ * whole burst visible), then branches on the score:
  * promoters get a thank-you path, detractors fire `nps.detractor` for any
  * follow-up journey to pick up.
  *
@@ -57,6 +58,10 @@ export const feedbackNps = defineJourney({
         event: Events.NPS_SUBMITTED,
         timeout: days(7),
         label: "await-score-reminder",
+        // Covers the gap between wait 1 timing out and this wait being
+        // established — an answer landing in between is found in user_events
+        // instead of being permanently missed.
+        lookback: hours(1),
       });
     }
 

@@ -68,6 +68,7 @@ export async function ingestEvent(opts: {
 
   // (2) Idempotency dedup + `user_events` insert keyed on the resolved key, with
   // ONLY eventProperties in the properties bag (D2).
+  let idempotentInsertId: string | undefined;
   if (event.idempotencyKey) {
     const result = await db
       .insert(userEvents)
@@ -86,6 +87,7 @@ export async function ingestEvent(opts: {
     if (result.length === 0) {
       return { stored: false, exits: [] };
     }
+    idempotentInsertId = result[0]?.id;
   } else {
     await db.insert(userEvents).values({
       userId: resolvedKey,
@@ -109,7 +111,13 @@ export async function ingestEvent(opts: {
 
   // (4) Hatchet push + (5) checkExits, both keyed on the resolved key. The push
   // payload wire key STAYS `properties` (bucket tests assert on it — risk 9).
-  const [, exits] = await Promise.all([
+  //
+  // An idempotency claim must not outlive a FAILED publish: journeys were never
+  // notified, and the consumed key would make every retry a silent no-op (the
+  // event becomes permanently invisible to journeys/destinations). So on a push
+  // failure the just-inserted row is compensating-deleted before rethrowing —
+  // the caller's retry (same key) can then re-claim and re-publish.
+  const [pushResult, exitsResult] = await Promise.allSettled([
     hatchet.events.push(event.event, {
       userId: resolvedKey,
       userEmail: event.userEmail ?? "",
@@ -121,6 +129,29 @@ export async function ingestEvent(opts: {
       properties: event.eventProperties,
     }),
   ]);
+  if (pushResult.status === "rejected") {
+    if (idempotentInsertId) {
+      try {
+        await db
+          .delete(userEvents)
+          .where(eq(userEvents.id, idempotentInsertId));
+      } catch (cleanupErr) {
+        logger.warn("ingestEvent: failed to roll back idempotency claim", {
+          event: event.event,
+          idempotencyKey: event.idempotencyKey,
+          error:
+            cleanupErr instanceof Error
+              ? cleanupErr.message
+              : String(cleanupErr),
+        });
+      }
+    }
+    throw pushResult.reason;
+  }
+  if (exitsResult.status === "rejected") {
+    throw exitsResult.reason;
+  }
+  const exits = exitsResult.value;
 
   // (6) Real-time bucket membership re-evaluation (Section 6.1). NOT part of the
   // Promise.all above: its property eval reads contact state ⊕ this-ingest

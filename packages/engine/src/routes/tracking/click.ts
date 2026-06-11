@@ -1,6 +1,6 @@
 import { emailSends, linkClicks, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, countDistinct, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { emitOutbound } from "../../lib/outbound.js";
 import { EMAIL_LINK_CLICKED } from "../../lib/tracking-event-names.js";
@@ -8,13 +8,7 @@ import {
   pushTrackingEvent,
   resolveEmailSendContext,
 } from "../../lib/tracking-events.js";
-
-// Scanner-burst window: SafeLinks/Proofpoint-style scanners follow EVERY link
-// in an email within seconds of delivery; humans don't. When this many DISTINCT
-// links of one send are clicked inside the window, the semantic emit is
-// suppressed (the generic email.link_clicked still fires per hit).
-const SEMANTIC_BURST_WINDOW_MS = 30_000;
-const SEMANTIC_BURST_DISTINCT_LINKS = 3;
+import { confirmSemanticClickTask } from "../../workflows/confirm-semantic-click.js";
 
 const clickRoute = createRoute({
   method: "get",
@@ -94,6 +88,26 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
 
     const { hatchet, registry, logger } = c.get("container");
 
+    // SEMANTIC link: the click is a PROVISIONAL answer. Confirmation is
+    // deferred past the scanner-burst window (a Hatchet task) so the gate can
+    // see the WHOLE burst — an inline check could never suppress a scanner's
+    // first click. The task claims the send's answer slot (first answer wins)
+    // and emits the consumer event + email.action outbound.
+    if (link.event) {
+      void confirmSemanticClickTask
+        .runNoWait({
+          trackedLinkId: link.id,
+          clickedAt: new Date().toISOString(),
+        })
+        .catch((err: unknown) => {
+          logger.warn("Failed to enqueue semantic click confirmation", {
+            linkId: link.id,
+            event: link.event,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
+
     // Resolve the send context ONCE (off the response path) and feed both the
     // re-ingest and the PER-HIT outbound emit — avoiding a duplicate
     // `resolveEmailSendContext` read on the click hot path. NO `dedupeKey`: a
@@ -139,90 +153,6 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
               linkId: link.id,
             },
           });
-        }
-
-        // SEMANTIC link: this click MEANS something (an in-email answer).
-        // First answer per (send, event name) wins — the `sem:` idempotency
-        // key dedupes inside ingestEvent BEFORE the Hatchet push, so journeys
-        // and destinations see at most one answer per send.
-        if (link.event && ctx) {
-          // Scanner-burst suppression: if several DISTINCT links of this send
-          // were clicked within the window, treat the hit as a scanner and
-          // skip the semantic emit (the raw click is already recorded above).
-          const windowStart = new Date(Date.now() - SEMANTIC_BURST_WINDOW_MS);
-          const burst = await db
-            .select({ n: countDistinct(linkClicks.trackedLinkId) })
-            .from(linkClicks)
-            .innerJoin(
-              trackedLinks,
-              eq(linkClicks.trackedLinkId, trackedLinks.id),
-            )
-            .where(
-              and(
-                eq(trackedLinks.emailSendId, emailSendId),
-                gte(linkClicks.clickedAt, windowStart),
-              ),
-            );
-          const distinctLinks = burst[0]?.n ?? 0;
-          if (distinctLinks >= SEMANTIC_BURST_DISTINCT_LINKS) {
-            logger.warn("Semantic emit suppressed: scanner-like click burst", {
-              emailSendId,
-              linkId: link.id,
-              event: link.event,
-              distinctLinks,
-            });
-            return;
-          }
-
-          const result = await pushTrackingEvent({
-            db,
-            hatchet,
-            registry,
-            logger,
-            event: link.event,
-            emailSendId,
-            properties: {
-              ...(link.eventProperties ?? {}),
-              linkId: link.id,
-            },
-            resolvedContext: ctx,
-            idempotencyKey: `sem:${emailSendId}:${link.event}`,
-          });
-
-          // stored=false means a prior click already answered for this send —
-          // no outbound either, so destinations mirror journey semantics.
-          if (result?.stored) {
-            // Mark THIS link as the recorded answer (observability now, the
-            // provisional-then-confirm anchor later). `IS NULL` keeps it
-            // idempotent under concurrent clicks.
-            await db
-              .update(trackedLinks)
-              .set({ semanticEmittedAt: new Date(), updatedAt: new Date() })
-              .where(
-                and(
-                  eq(trackedLinks.id, link.id),
-                  isNull(trackedLinks.semanticEmittedAt),
-                ),
-              );
-
-            await emitOutbound({
-              db,
-              hatchet,
-              logger,
-              event: "email.action",
-              payload: {
-                event: link.event,
-                properties: link.eventProperties ?? null,
-                emailSendId,
-                templateKey: ctx.templateKey ?? null,
-                userId: ctx.userId ?? null,
-                to: ctx.to ?? ctx.userEmail ?? "",
-                at: new Date().toISOString(),
-                linkId: link.id,
-                linkUrl: link.originalUrl,
-              },
-            });
-          }
         }
       })
       .catch(logger.warn);

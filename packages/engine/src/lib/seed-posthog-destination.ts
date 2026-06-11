@@ -52,7 +52,11 @@ export async function seedPostHogDestination(opts: {
     );
 
     const existing = await tx
-      .select({ id: webhookEndpoints.id })
+      .select({
+        id: webhookEndpoints.id,
+        url: webhookEndpoints.url,
+        eventTypes: webhookEndpoints.eventTypes,
+      })
       .from(webhookEndpoints)
       .where(
         and(
@@ -62,7 +66,34 @@ export async function seedPostHogDestination(opts: {
       )
       .limit(1);
 
-    if (existing.length > 0) {
+    const found = existing[0];
+    if (found) {
+      // Reconcile the ENGINE-seeded row (identified by its sentinel URL) when
+      // the funnel list has grown since it was inserted — its stored
+      // eventTypes are a snapshot, and emitOutbound matches by jsonb
+      // containment, so a pre-upgrade row would silently never receive newer
+      // events (e.g. email.action). Operator-created endpoints are left
+      // untouched: subscriber-chooses-events is the contract there.
+      if (found.url === "posthog://capture") {
+        const current = Array.isArray(found.eventTypes)
+          ? (found.eventTypes as string[])
+          : [];
+        const missing = POSTHOG_FUNNEL_EVENTS.filter(
+          (e) => !current.includes(e),
+        );
+        if (missing.length > 0) {
+          await tx
+            .update(webhookEndpoints)
+            .set({
+              eventTypes: [...current, ...missing],
+              updatedAt: new Date(),
+            })
+            .where(eq(webhookEndpoints.id, found.id));
+          logger.info("Reconciled seeded PostHog destination event types", {
+            added: missing,
+          });
+        }
+      }
       return { seeded: false };
     }
 
