@@ -120,7 +120,7 @@ export function JourneysView() {
           }
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="rounded-lg border bg-white/[0.015]">
           <Table>
             <TableHeader>
               <TableRow>
@@ -149,8 +149,8 @@ export function JourneysView() {
                   }
                 >
                   <TableCell>
-                    <span className="font-medium">{row.name}</span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="font-medium text-white">{row.name}</span>
+                    <span className="block font-mono text-xs text-white/70">
                       {row.journeyId}
                     </span>
                   </TableCell>
@@ -166,7 +166,7 @@ export function JourneysView() {
                   <TableCell className="text-right">
                     {formatPercent(row.completionRate)}
                   </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
+                  <TableCell className="text-right text-white/60">
                     {formatDuration(row.avgDurationSecs)}
                   </TableCell>
                   <TableCell>
@@ -196,9 +196,7 @@ export function JourneysView() {
       {selected ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              {selected.name} — funnel
-            </CardTitle>
+            <CardTitle>{selected.name} — funnel</CardTitle>
           </CardHeader>
           <CardContent>
             <JourneyFunnel journeyId={selected.journeyId} />

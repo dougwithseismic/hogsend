@@ -135,7 +135,7 @@ export function SuppressionsView() {
           description="Recipients who bounce, unsubscribe, or complain appear here."
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="rounded-lg border bg-white/[0.015]">
           <Table>
             <TableHeader>
               <TableRow>
@@ -149,14 +149,16 @@ export function SuppressionsView() {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.email}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="font-medium text-white">
+                    {row.email}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs text-white/70">
                     {row.userId}
                   </TableCell>
                   <TableCell>
                     <SuppressionTags row={row} />
                   </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
+                  <TableCell className="text-right text-white/60">
                     {formatDateTime(row.suppressedAt)}
                   </TableCell>
                   <TableCell className="text-right">

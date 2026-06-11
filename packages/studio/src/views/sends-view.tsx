@@ -120,7 +120,7 @@ export function SendsView() {
       <TableHead>
         <button
           type="button"
-          className="inline-flex items-center gap-1 font-medium hover:text-foreground"
+          className="inline-flex items-center gap-1 transition-colors duration-200 hover:text-white"
           onClick={() => toggleSort(column)}
         >
           {label}
@@ -143,7 +143,7 @@ export function SendsView() {
         description="Every email sent — filter, sort, and drill into the timeline."
       />
 
-      <div className="grid gap-3 rounded-lg border p-4 md:grid-cols-3 lg:grid-cols-4">
+      <div className="grid gap-3 rounded-lg border bg-white/[0.015] p-4 md:grid-cols-3 lg:grid-cols-4">
         <div className="space-y-1.5">
           <Label htmlFor="f-template">Template</Label>
           <Input
@@ -249,7 +249,7 @@ export function SendsView() {
           }
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="rounded-lg border bg-white/[0.015]">
           <Table>
             <TableHeader>
               <TableRow>
@@ -268,18 +268,22 @@ export function SendsView() {
                   className="cursor-pointer"
                   onClick={() => setSelectedId(email.id)}
                 >
-                  <TableCell className="font-medium">{email.toEmail}</TableCell>
-                  <TableCell>{truncate(email.subject, 40)}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="font-medium text-white">
+                    {email.toEmail}
+                  </TableCell>
+                  <TableCell className="text-white/80">
+                    {truncate(email.subject, 40)}
+                  </TableCell>
+                  <TableCell className="text-white/60">
                     {email.templateKey ?? "—"}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={email.status} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-white/60">
                     {formatDateTime(email.sentAt)}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-white/60">
                     {formatDateTime(email.createdAt)}
                   </TableCell>
                 </TableRow>
@@ -290,7 +294,7 @@ export function SendsView() {
       )}
 
       {total > 0 ? (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <div className="flex items-center justify-between text-sm text-white/60">
           <span>
             {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
           </span>

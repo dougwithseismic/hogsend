@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export function StatCard({
   label,
@@ -15,16 +15,16 @@ export function StatCard({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {label}
-        </CardTitle>
-        {Icon ? <Icon className="h-4 w-4 text-muted-foreground" /> : null}
+        <span className="eyebrow text-white/50">{label}</span>
+        {Icon ? (
+          <Icon strokeWidth={1.5} className="h-4 w-4 text-white/30" />
+        ) : null}
       </CardHeader>
       <CardContent>
-        <div className="text-2xl font-semibold tracking-tight">{value}</div>
-        {hint ? (
-          <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
-        ) : null}
+        <div className="font-display text-[28px] leading-none text-white tracking-[-0.02em]">
+          {value}
+        </div>
+        {hint ? <p className="mt-2 text-xs text-white/50">{hint}</p> : null}
       </CardContent>
     </Card>
   );

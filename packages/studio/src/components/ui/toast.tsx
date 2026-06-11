@@ -63,25 +63,31 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           <div
             key={t.id}
             className={cn(
-              "pointer-events-auto flex items-start gap-3 rounded-md border bg-card p-4 shadow-lg",
-              t.variant === "error" && "border-destructive/40",
+              "glass-panel pointer-events-auto flex items-start gap-3 p-4 text-white shadow-black/50 shadow-xl",
+              t.variant === "error" && "border-accent/40",
             )}
           >
             {t.variant === "success" ? (
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500" />
+              <CheckCircle2
+                strokeWidth={1.5}
+                className="mt-0.5 h-5 w-5 shrink-0 text-white/90"
+              />
             ) : (
-              <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+              <XCircle
+                strokeWidth={1.5}
+                className="mt-0.5 h-5 w-5 shrink-0 text-accent"
+              />
             )}
             <div className="flex-1 space-y-0.5">
-              <p className="text-sm font-medium">{t.title}</p>
+              <p className="text-sm font-medium text-white">{t.title}</p>
               {t.description ? (
-                <p className="text-sm text-muted-foreground">{t.description}</p>
+                <p className="text-sm text-white/60">{t.description}</p>
               ) : null}
             </div>
             <button
               type="button"
               aria-label="Dismiss"
-              className="text-muted-foreground transition-colors hover:text-foreground"
+              className="text-white/50 transition-colors hover:text-white"
               onClick={() => remove(t.id)}
             >
               <X className="h-4 w-4" />

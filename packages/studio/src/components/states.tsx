@@ -41,11 +41,11 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-12 text-center">
-      <Icon className="h-8 w-8 text-muted-foreground" />
-      <p className="text-sm font-medium">{title}</p>
+    <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-white/15 p-12 text-center">
+      <Icon strokeWidth={1.5} className="h-8 w-8 text-white/30" />
+      <p className="text-sm font-medium text-white">{title}</p>
       {description ? (
-        <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
+        <p className="max-w-sm text-sm text-white/60">{description}</p>
       ) : null}
       {action ? (
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
@@ -71,11 +71,11 @@ export function ErrorState({
         ? error.message
         : "Something went wrong.";
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-12 text-center">
-      <AlertCircle className="h-8 w-8 text-destructive" />
+    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-accent/40 bg-accent/5 p-12 text-center">
+      <AlertCircle strokeWidth={1.5} className="h-8 w-8 text-accent" />
       <div className="space-y-1">
-        <p className="text-sm font-medium">Failed to load</p>
-        <p className="max-w-sm text-sm text-muted-foreground">{message}</p>
+        <p className="text-sm font-medium text-white">Failed to load</p>
+        <p className="max-w-sm text-sm text-white/60">{message}</p>
       </div>
       {onRetry ? (
         <Button variant="outline" size="sm" onClick={onRetry}>
@@ -99,9 +99,11 @@ export function PageHeader({
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="font-display text-2xl text-white tracking-[-0.02em]">
+          {title}
+        </h1>
         {description ? (
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <p className="mt-1 text-sm text-white/60">{description}</p>
         ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}

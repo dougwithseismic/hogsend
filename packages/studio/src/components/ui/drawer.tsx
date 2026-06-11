@@ -40,26 +40,24 @@ export function Drawer({
       <button
         type="button"
         aria-label="Close panel"
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/60"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         className={cn(
-          "absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l bg-card shadow-xl",
+          "absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l border-white/10 bg-raised text-white shadow-black/50 shadow-xl",
           className,
         )}
       >
-        <div className="flex items-start justify-between gap-4 border-b p-6">
+        <div className="flex items-start justify-between gap-4 border-b border-hairline-faint p-6">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold leading-none tracking-tight">
+            <h2 className="font-display text-lg leading-none tracking-[-0.02em] text-white">
               {title}
             </h2>
             {description ? (
-              <p className="break-all text-sm text-muted-foreground">
-                {description}
-              </p>
+              <p className="break-all text-sm text-white/60">{description}</p>
             ) : null}
           </div>
           <Button

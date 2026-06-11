@@ -34,25 +34,21 @@ export function BucketTrend({ bucketId }: { bucketId: string }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap gap-6 text-sm">
-        <div>
-          <span className="block text-xs text-muted-foreground">
-            Current size
+        <div className="space-y-1">
+          <span className="eyebrow block text-white/50">Current size</span>
+          <span className="font-display text-lg text-white">
+            {formatNumber(d.size)}
           </span>
-          <span className="text-lg font-semibold">{formatNumber(d.size)}</span>
         </div>
-        <div>
-          <span className="block text-xs text-muted-foreground">
-            Entered (range)
-          </span>
-          <span className="text-lg font-semibold">
+        <div className="space-y-1">
+          <span className="eyebrow block text-white/50">Entered (range)</span>
+          <span className="font-display text-lg text-white">
             {formatNumber(totalEntered)}
           </span>
         </div>
-        <div>
-          <span className="block text-xs text-muted-foreground">
-            Left (range)
-          </span>
-          <span className="text-lg font-semibold">
+        <div className="space-y-1">
+          <span className="eyebrow block text-white/50">Left (range)</span>
+          <span className="font-display text-lg text-white">
             {formatNumber(totalLeft)}
           </span>
         </div>
@@ -60,11 +56,11 @@ export function BucketTrend({ bucketId }: { bucketId: string }) {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-2">
-          <span className="text-sm font-medium">Entered over time</span>
+          <span className="eyebrow block text-white/50">Entered over time</span>
           <BarChart data={enteredPoints} label="joined" />
         </div>
         <div className="space-y-2">
-          <span className="text-sm font-medium">Left over time</span>
+          <span className="eyebrow block text-white/50">Left over time</span>
           <BarChart data={leftPoints} label="left" />
         </div>
       </div>

@@ -34,7 +34,7 @@ function isFreshInstall(m: OverviewMetrics): boolean {
 
 function OnboardingCard() {
   return (
-    <Card className="border-primary/30 bg-primary/5">
+    <Card className="border-accent/40 bg-accent-tint hover:border-accent/40">
       <CardHeader>
         <CardTitle className="text-base">Welcome to Hogsend Studio</CardTitle>
         <CardDescription>
@@ -43,18 +43,18 @@ function OnboardingCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <ol className="space-y-1.5 text-sm text-muted-foreground">
+        <ol className="space-y-1.5 text-sm text-white/60">
           <li>
-            <span className="font-medium text-foreground">1.</span> Define a
-            journey in code and start the worker.
+            <span className="font-medium text-white">1.</span> Define a journey
+            in code and start the worker.
           </li>
           <li>
-            <span className="font-medium text-foreground">2.</span> Fire its
-            trigger event to enrol a test user.
+            <span className="font-medium text-white">2.</span> Fire its trigger
+            event to enrol a test user.
           </li>
           <li>
-            <span className="font-medium text-foreground">3.</span> Watch
-            enrolments, sends, and exits land here.
+            <span className="font-medium text-white">3.</span> Watch enrolments,
+            sends, and exits land here.
           </li>
         </ol>
         <div className="flex flex-wrap gap-2">

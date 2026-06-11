@@ -42,7 +42,7 @@ const STATE_STYLES: Record<
 > = {
   verified: {
     variant: "outline",
-    className: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+    className: "border-white/15 bg-white/[0.06] text-white/80",
   },
   pending: { variant: "secondary" },
   failed: { variant: "destructive" },
@@ -66,8 +66,8 @@ function StateBadge({ state }: { state: DomainVerificationState }) {
 function TestModeBanner({ testMode }: { testMode: TestModeState }) {
   if (!testMode.active) return null;
   return (
-    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
-      <p className="font-medium text-amber-600 dark:text-amber-400">
+    <div className="rounded-md border border-accent/40 bg-accent-tint p-4 text-sm">
+      <p className="font-medium text-accent">
         Test mode is active
         {testMode.reason === "domain_unverified"
           ? " — sending domain not verified"
@@ -75,7 +75,7 @@ function TestModeBanner({ testMode }: { testMode: TestModeState }) {
             ? " — forced via HOGSEND_TEST_MODE"
             : ""}
       </p>
-      <p className="mt-1 text-muted-foreground">
+      <p className="mt-1 text-white/60">
         {testMode.redirectTo
           ? `All sends are redirected to ${testMode.redirectTo}.`
           : "No redirect address is configured — sends will fail until one is set."}
@@ -100,7 +100,7 @@ function CopyButton({ value }: { value: string }) {
         });
       }}
     >
-      <Copy className="h-3.5 w-3.5" />
+      <Copy className="h-3.5 w-3.5" strokeWidth={1.5} />
     </Button>
   );
 }
@@ -249,23 +249,23 @@ export function SetupView() {
         <>
           <TestModeBanner testMode={data.testMode} />
 
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border p-4 text-sm">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border bg-white/[0.015] p-4 text-sm">
             <span>
-              <span className="text-muted-foreground">Domain: </span>
-              <span className="font-medium">
+              <span className="text-white/60">Domain: </span>
+              <span className="font-medium text-white">
                 {data.domain ?? "not configured"}
               </span>
             </span>
             <span>
-              <span className="text-muted-foreground">Provider: </span>
-              <span className="font-medium">{data.providerId}</span>
+              <span className="text-white/60">Provider: </span>
+              <span className="font-medium text-white">{data.providerId}</span>
             </span>
             <span className="flex items-center gap-2">
-              <span className="text-muted-foreground">State:</span>
+              <span className="text-white/60">State:</span>
               <StateBadge state={data.status?.state ?? "not_found"} />
             </span>
             {data.status?.checkedAt ? (
-              <span className="text-muted-foreground">
+              <span className="text-white/50">
                 Checked {formatDateTime(data.status.checkedAt)}
               </span>
             ) : null}
@@ -273,7 +273,7 @@ export function SetupView() {
 
           {needsDomain ? (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-white/60">
                 {data.domain
                   ? `${data.domain} isn't registered with ${data.providerId} yet — add it to get the DNS records.`
                   : "No sending domain configured. Add one to get the DNS records to verify."}
@@ -286,7 +286,7 @@ export function SetupView() {
           ) : null}
 
           {records.length > 0 ? (
-            <div className="rounded-lg border">
+            <div className="rounded-lg border bg-white/[0.015]">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -303,16 +303,16 @@ export function SetupView() {
                     <TableRow
                       key={`${record.type}-${record.name}-${record.value}`}
                     >
-                      <TableCell className="font-medium">
+                      <TableCell className="font-medium text-white">
                         {record.type}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">
+                      <TableCell className="font-mono text-xs text-white/70">
                         <span className="flex items-center gap-1">
                           {record.name}
                           <CopyButton value={record.name} />
                         </span>
                       </TableCell>
-                      <TableCell className="max-w-[18rem] font-mono text-xs">
+                      <TableCell className="max-w-[18rem] font-mono text-xs text-white/70">
                         <span className="flex items-center gap-1">
                           <span className="truncate" title={record.value}>
                             {record.value}
@@ -320,10 +320,10 @@ export function SetupView() {
                           <CopyButton value={record.value} />
                         </span>
                       </TableCell>
-                      <TableCell className="text-right text-muted-foreground">
+                      <TableCell className="text-right text-white/60">
                         {record.priority ?? ""}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-white/60">
                         {record.purpose}
                       </TableCell>
                       <TableCell>

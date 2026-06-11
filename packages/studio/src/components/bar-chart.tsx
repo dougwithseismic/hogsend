@@ -21,7 +21,7 @@ export function BarChart({
   if (data.length === 0) {
     return (
       <div
-        className="flex items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground"
+        className="flex items-center justify-center rounded-md border border-dashed border-white/15 text-sm text-white/50"
         style={{ height }}
       >
         No data in range
@@ -34,7 +34,7 @@ export function BarChart({
   return (
     <div className="space-y-2">
       <div
-        className="flex items-end gap-1 rounded-md border bg-muted/20 p-3"
+        className="flex items-end gap-1 rounded-md border border-hairline-faint bg-white/[0.015] p-3"
         style={{ height }}
       >
         {data.map((point) => {
@@ -46,14 +46,14 @@ export function BarChart({
               title={`${formatDate(point.date)}: ${point.value} ${label}`}
             >
               <div
-                className="w-full min-w-[2px] rounded-t bg-primary/70 transition-colors group-hover:bg-primary"
+                className="w-full min-w-[2px] rounded-t bg-white/15 transition-colors duration-200 group-hover:bg-accent"
                 style={{ height: `${Math.max(pct, point.value > 0 ? 4 : 0)}%` }}
               />
             </div>
           );
         })}
       </div>
-      <div className="flex justify-between text-xs text-muted-foreground">
+      <div className="flex justify-between text-[11px] text-white/40 uppercase tracking-[0.04em]">
         <span>{formatDate(data[0]?.date)}</span>
         <span>{formatDate(data[data.length - 1]?.date)}</span>
       </div>

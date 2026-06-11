@@ -8,14 +8,12 @@ export function AppShell() {
   const { data: session } = useSession();
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-ink text-white">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center justify-end gap-3 border-b bg-card px-6">
+        <header className="flex h-14 items-center justify-end gap-3 border-b border-hairline-faint bg-ink/30 px-6 backdrop-blur-[7px]">
           {session?.user ? (
-            <span className="text-sm text-muted-foreground">
-              {session.user.email}
-            </span>
+            <span className="text-sm text-white/50">{session.user.email}</span>
           ) : null}
           <Button
             variant="ghost"
@@ -24,7 +22,7 @@ export function AppShell() {
               void signOut();
             }}
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut strokeWidth={1.5} className="h-4 w-4" />
             Sign out
           </Button>
         </header>

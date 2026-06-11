@@ -23,9 +23,11 @@ import { formatNumber, formatPercent } from "@/lib/format";
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border p-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-lg font-semibold">{value}</p>
+    <div className="rounded-md border border-hairline-faint bg-white/[0.015] p-3">
+      <p className="eyebrow text-white/50">{label}</p>
+      <p className="mt-2 font-display text-lg text-white tracking-[-0.02em]">
+        {value}
+      </p>
     </div>
   );
 }
@@ -82,16 +84,14 @@ export function TemplateDetail({
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-xl font-semibold tracking-tight">
+            <h2 className="font-display text-xl text-white tracking-[-0.02em]">
               {template.key}
             </h2>
             {template.category ? (
               <Badge variant="secondary">{template.category}</Badge>
             ) : null}
           </div>
-          <p className="text-sm text-muted-foreground">
-            {template.defaultSubject}
-          </p>
+          <p className="text-sm text-white/60">{template.defaultSubject}</p>
         </div>
         <Button onClick={() => setTestOpen(true)}>
           <Send className="h-4 w-4" />
@@ -101,11 +101,11 @@ export function TemplateDetail({
 
       {/* Report totals + series */}
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold">Performance</h3>
+        <h3 className="eyebrow text-white/50">Performance</h3>
         {report.isPending ? (
           <Skeleton className="h-28 w-full" />
         ) : reportNotFound ? (
-          <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+          <p className="rounded-md border border-dashed border-white/15 p-6 text-center text-sm text-white/60">
             This template has never been sent.
           </p>
         ) : report.isError ? (
@@ -132,7 +132,7 @@ export function TemplateDetail({
             </div>
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+                <CardTitle className="eyebrow text-white/50">
                   Sends over time
                 </CardTitle>
               </CardHeader>
@@ -152,7 +152,7 @@ export function TemplateDetail({
 
       {/* Rendered preview */}
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold">Preview</h3>
+        <h3 className="eyebrow text-white/50">Preview</h3>
         {preview.isPending ? (
           <Skeleton className="h-96 w-full" />
         ) : preview.isError ? (
