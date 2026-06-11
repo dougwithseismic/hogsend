@@ -25,6 +25,7 @@ export const feedbackCheckin = defineJourney({
     enabled: true,
     trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
+    suppress: days(1),
     exitOn: [{ event: Events.USER_DELETED }],
   },
 

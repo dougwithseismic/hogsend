@@ -15,6 +15,11 @@ import type { FeedbackCheckinEmailProps } from "./types.js";
 // per send wins; answers confirm after a ~30s window so scanner click-bursts
 // (Outlook SafeLinks etc.) are seen in full and suppressed before anything is
 // recorded.
+// Hoisted property payloads — the scaffolder's template-token residue check
+// forbids double-brace sequences, so avoid inline object literals in JSX props.
+const ANSWER_YES = { answer: "yes" };
+const ANSWER_NO = { answer: "no" };
+
 export default function FeedbackCheckinEmail({
   name = "there",
   landingUrl = "https://app.example.com/thanks",
@@ -30,15 +35,12 @@ export default function FeedbackCheckinEmail({
       unsubscribeUrl={unsubscribeUrl}
     >
       <Title>How's it going so far?</Title>
-      <Body>
-        Hey {name} — one tap, honest answer. Are you getting what you came
-        for?
-      </Body>
+      <Body>Hey {name} — one tap. Are you getting what you came for?</Body>
 
       <Section className="my-6 text-center">
         <EmailAction
           event={Events.CHECKIN_ANSWERED}
-          properties={{ answer: "yes" }}
+          properties={ANSWER_YES}
           href={landingUrl}
           className={buttonClass}
         >
@@ -46,7 +48,7 @@ export default function FeedbackCheckinEmail({
         </EmailAction>
         <EmailAction
           event={Events.CHECKIN_ANSWERED}
-          properties={{ answer: "no" }}
+          properties={ANSWER_NO}
           href={landingUrl}
           className={buttonClass}
         >
