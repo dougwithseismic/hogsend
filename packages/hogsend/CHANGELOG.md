@@ -1,5 +1,34 @@
 # hogsend
 
+## 0.15.0
+
+### Minor Changes
+
+- ee3b670: Journey `where` builder — code-first trigger/exit conditions.
+
+  `trigger.where` and `exitOn[].where` now accept a builder function alongside
+  the declarative array, mirroring bucket criteria:
+
+  ```ts
+  trigger: {
+    event: "nps.detractor",
+    where: (b) => b.prop("score").lte(3),
+  },
+  ```
+
+  The function resolves ONCE at `defineJourney` time (via the existing
+  `criteriaBuilder`) into the byte-identical `PropertyCondition[]` POJOs, so the
+  stored `JourneyMeta`, registry zod parse, `checkExits`, admin routes, and
+  Studio all keep seeing plain data. Return a single condition or an array
+  (AND-ed). New types: `JourneyMetaInput`, `JourneyWhere`, `JourneyWhereBuilder`
+  in `@hogsend/core`. Fully backward compatible — the array form is unchanged
+  and remains the wire/HTTP format.
+
+### Patch Changes
+
+- Updated dependencies [ee3b670]
+  - @hogsend/cli@0.15.0
+
 ## 0.14.0
 
 ### Minor Changes
