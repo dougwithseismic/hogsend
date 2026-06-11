@@ -55,6 +55,47 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.14.0",
+    anchor: "0-14-0",
+    date: "June 11, 2026",
+    title: "Semantic links — in-email surveys and one-tap actions",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>{"<EmailAction>"}</Code> (new in <Code>@hogsend/email</Code>):
+          an anchor whose click fires a real event — an NPS score, a yes/no —
+          through the full ingest pipeline. The metadata is lifted into the
+          tracked link at send time and never reaches the inbox.
+        </Bullet>
+        <Bullet>
+          First answer per send wins, and confirmation is deferred past a
+          30-second window so scanner click-bursts (Outlook SafeLinks,
+          Proofpoint) are judged in full — including the scanner's first click —
+          before anything is recorded.
+        </Bullet>
+        <Bullet>
+          <Code>ctx.waitForEvent</Code> now returns the matched event's{" "}
+          <Code>properties</Code>, so a journey branches on the answer directly;
+          an optional <Code>lookback</Code> window closes the gap between
+          back-to-back waits.
+        </Bullet>
+        <Bullet>
+          New <Code>email.action</Code> outbound event — the PostHog preset
+          captures it under your event name with the answer's properties
+          flattened, ready for insights and cohorts.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code> and run{" "}
+        <Code>db:migrate</Code> (one additive migration on{" "}
+        <Code>tracked_links</Code>). The scaffold ships a{" "}
+        <Code>feedback-checkin</Code> example showing the whole loop.
+      </>
+    ),
+  },
+  {
     version: "0.11.0",
     anchor: "0-11-0",
     date: "June 9, 2026",

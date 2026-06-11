@@ -172,7 +172,7 @@ All `href="https://..."` and `href="http://..."` attributes in the email HTML.
 
 ### Deduplication
 
-If the same URL appears multiple times in an email, only one `tracked_links` row is created. All occurrences in the HTML share the same tracking ID and redirect URL.
+If the same URL appears multiple times in an email, only one `tracked_links` row is created — all occurrences share the same tracking ID and redirect URL. Semantic links dedupe on the full (URL, event, properties) tuple instead, so two answers pointing at the same thanks page keep separate rows.
 
 ### Open tracking pixel
 
@@ -182,6 +182,20 @@ A 1x1 transparent GIF `<img>` tag is injected before `</body>`:
 <img src="https://api.hogsend.com/v1/t/o/{emailSendId}"
      width="1" height="1" alt="" style="display:none" />
 ```
+
+---
+
+## Semantic links (`email.action`)
+
+A [semantic link](/docs/guides/semantic-links) is a tracked link that carries an event name + scalar properties, authored with `EmailAction`. The metadata is lifted into the `tracked_links` row at send time (`event`, `event_properties` columns) and stripped from the HTML.
+
+At click time the link behaves like any tracked link (redirect, `link_clicks` row, `email.link_clicked`), **plus** the click is recorded as a provisional answer. A deferred confirmation task (`confirm-semantic-click`) judges it once the 30-second burst window around the click has fully elapsed:
+
+- **Burst suppression** — if ≥ 3 distinct links of the send were clicked inside the window (before or after the candidate), the whole burst is treated as a security scanner (Outlook SafeLinks, Proofpoint) and the answer is suppressed. The deferral is what makes the scanner's *first* click suppressible.
+- **First answer wins** — the confirmed answer is ingested with idempotency key `sem:<emailSendId>:<event>`, so each (send, event name) pair gets at most one answer. The winning link's `semantic_emitted_at` is stamped.
+- **Fan-out** — confirmed answers route to journeys (waking `ctx.waitForEvent`), persist to `user_events`, and emit an `email.action` outbound envelope (`{ event, properties, emailSendId, templateKey, userId, to, at, linkId, linkUrl }`) with the same `sem:` key as `dedupeKey`. The PostHog destination preset captures it under the consumer's event name with properties flattened.
+
+Reserved namespaces (`email.`, `journey.`, `bucket.`, `contact.`) are rejected for semantic event names at send time, properties are scalars-only and size-capped, and a semantic link must have an absolute http(s) `href`.
 
 ---
 

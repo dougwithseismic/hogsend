@@ -309,12 +309,28 @@ waitForEvent(opts: {
   event: string;
   timeout: DurationObject;
   label?: string;
-}): Promise<{ timedOut: boolean }>
+  lookback?: DurationObject;
+}): Promise<{
+  timedOut: boolean;
+  properties?: Record<string, string | number | boolean | null>;
+}>
 ```
 
-While waiting, the journey state is `"waiting"`; it flips back to `"active"` on resume. The result tells you which side won: `timedOut: false` means the event fired, `timedOut: true` means the `timeout` elapsed first.
+While waiting, the journey state is `"waiting"`; it flips back to `"active"` on resume. The result tells you which side won: `timedOut: false` means the event fired, `timedOut: true` means the `timeout` elapsed first. When the event fired, `properties` carries the matched event's payload (best-effort, scalars only) — so a journey can branch on _what_ the user answered, not just _that_ they did. An in-email [semantic link](/docs/guides/semantic-links) answer (an NPS score, a yes/no) arrives here directly:
 
-The wait is **forward-looking** — only events emitted _after_ the wait begins count. Use [`ctx.history.hasEvent()`](#ctxhistoryhasevent) to check whether something already happened. `timeout` is required and capped at the journey's execution limit (`720h` / 30 days).
+```ts
+const answer = await ctx.waitForEvent({
+  event: Events.NPS_SUBMITTED,
+  timeout: days(3),
+});
+if (!answer.timedOut && typeof answer.properties?.score === "number") {
+  // branch on the score
+}
+```
+
+The wait is **forward-looking** — only events emitted _after_ the wait begins count. Use [`ctx.history.hasEvent()`](#ctxhistoryhasevent) to check whether something already happened, or pass `lookback`: a short window of recent `user_events` checked _before_ the durable wait is established. A hit resolves immediately, payload included. This closes the gap where an event lands between two back-to-back waits (or between a send and its wait) — without it, a first-answer-deduped event in that gap would be missed for good. Keep the window tight: just the gap it covers (e.g. `hours(1)` on the second of two waits). `timeout` is required and capped at the journey's execution limit (`720h` / 30 days).
+
+One rule when reacting to an event: **don't also list it in `exitOn`** — an exit match mid-wait aborts the run before your post-wait branch executes. One event name, one role.
 
 If the journey [exits](#exit-conditions) (or is cancelled) while waiting, the run is aborted cleanly — no post-wait email fires. After a long wait, still re-check [`ctx.guard.isSubscribed()`](#ctxguardissubscribed) before sending, since an unsubscribe doesn't exit the journey.
 

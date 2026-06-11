@@ -94,6 +94,18 @@ The `journeyStateId` links the email to the journey, which enables the tracking 
 
 Every email sent through `sendEmail()` gets first-party link tracking and open tracking automatically. See the [Tracking API reference](/docs/api/tracking) for full details on how it works, the events it pushes, and how to use tracking data in journeys.
 
+## In-email actions (semantic links)
+
+A link can carry an answer, not just a destination. `EmailAction` (from `@hogsend/email`) renders an anchor whose click fires a real event — `nps.submitted { score: 9 }`, `checkin.answered { answer: "yes" }` — through the full ingest pipeline: journeys react via `ctx.waitForEvent`, the answer lands in `user_events`, and destinations receive it as `email.action`. First answer per send wins; scanner click-bursts are judged in full (after a ~30s window) before anything is recorded.
+
+```tsx
+<EmailAction event="nps.submitted" properties={{ score }} href={thanksUrl}>
+  {String(score)}
+</EmailAction>
+```
+
+See the [Semantic links guide](/docs/guides/semantic-links) for the full pattern — answer semantics, validation rules, and the journey side.
+
 ## Delivery and retries
 
 Email delivery uses the `@hogsend/plugin-resend` package which includes automatic retries with exponential backoff. Errors are classified as retryable or non-retryable. Rate limits (429), server errors (5xx), timeouts, and connection resets are retried up to 3 times. Client errors (4xx) like validation errors and invalid API keys fail immediately.

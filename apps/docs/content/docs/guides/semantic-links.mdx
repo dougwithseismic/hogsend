@@ -1,0 +1,197 @@
+---
+title: Semantic links
+description: In-email surveys and one-tap actions — links whose clicks fire real events, with EmailAction.
+---
+
+A plain tracked link tells you it **was** clicked. A semantic link tells you
+what the click **meant**: "yes", "I'm stuck", "NPS 9". The click is the form
+submission — recorded server-side at the redirect, routed to journeys, stored
+in `user_events`, and fanned out to your destinations. No landing-page wiring,
+no JavaScript in the email, no polling.
+
+Real `<form>` elements in email are a dead end — JavaScript is stripped
+universally and the major clients break forms — so the working pattern across
+the industry is *every answer is a link*. A yes/no question is two links; an
+NPS survey is eleven. `EmailAction` makes those links carry their meaning.
+
+## Quick example
+
+In a template, each answer is an `EmailAction` — an anchor that carries an
+event name and a scalar payload:
+
+```tsx
+import { EmailAction } from "@hogsend/email";
+import { Events } from "../journeys/constants/index.js";
+
+<Section className="my-6 text-center">
+  <EmailAction
+    event={Events.CHECKIN_ANSWERED}
+    properties={{ answer: "yes" }}
+    href="https://app.example.com/thanks"
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    Going great
+  </EmailAction>
+  <EmailAction
+    event={Events.CHECKIN_ANSWERED}
+    properties={{ answer: "no" }}
+    href="https://app.example.com/thanks"
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    I'm stuck
+  </EmailAction>
+</Section>
+```
+
+In the journey that sent it, wait for the answer and branch on the payload:
+
+```ts
+const answer = await ctx.waitForEvent({
+  event: Events.CHECKIN_ANSWERED,
+  timeout: days(5),
+  label: "await-answer",
+});
+
+if (answer.timedOut) return; // no answer — leave them be
+
+if (answer.properties?.answer === "no") {
+  await sendEmail({
+    to: user.email,
+    userId: user.id,
+    journeyStateId: user.stateId,
+    template: Templates.ACTIVATION_NUDGE,
+    subject: "Let's get you unstuck",
+    journeyName: user.journeyName,
+  });
+}
+```
+
+That's the whole loop: a question in an email, a durable wait, a branch on
+the answer.
+
+## How it works
+
+1. **At send time** the engine's link rewriter lifts the `event` +
+   `properties` off each anchor into its `tracked_links` row and **strips the
+   attributes** — the metadata never reaches the inbox. The in-HTML encoding
+   is internal wire format; the database row is the contract.
+2. **At click time** the recipient is redirected as normal (the `href` is
+   where they land), and the click is recorded as a *provisional* answer.
+3. **~30 seconds later** a confirmation task judges the click with the whole
+   scanner-burst window visible (see below), then emits the event through the
+   full ingest pipeline: `user_events`, journey routing, exit checks, and the
+   `email.action` outbound envelope to your destinations.
+
+## Answer semantics
+
+- **First answer wins, per (send, event name).** An NPS row of eleven
+  buttons shares one answer slot — only the first confirmed score counts.
+  Repeat clicks and later different answers are recorded as raw clicks but
+  not re-emitted.
+- **Scanner bursts are suppressed.** Corporate mail gateways (Outlook
+  SafeLinks, Proofpoint) follow every link in an email within seconds of
+  delivery. Because confirmation is deferred past the burst window, the gate
+  sees the whole burst — including the scanner's first click — and suppresses
+  it. The cost is ~30 seconds of answer latency, which is invisible to a
+  journey waiting on a days-scale timeout.
+- **The generic events still fire.** A semantic click also records
+  `email.link_clicked` per hit, exactly like any tracked link. The semantic
+  event is additional, under its own (your) name.
+
+## Rules the engine enforces
+
+A violation fails the **send**, loudly, so you find out in development:
+
+- `event` must not use an engine-reserved namespace — `email.`, `journey.`,
+  `bucket.`, `contact.` (dot or colon form).
+- `properties` must be a flat object of scalars (`string | number | boolean |
+  null`), under 2 KB as JSON. Non-scalars don't survive the event wire.
+- The `href` must be an absolute `http(s)` URL (it doubles as a normal
+  tracked link), and not an unsubscribe/preferences URL.
+
+Two `EmailAction`s may share the same `href` with different events or
+properties — they get separate tracked links, so "yes" and "no" can both land
+on the same thanks page.
+
+## Reading the answer in a journey
+
+`ctx.waitForEvent()` returns the matched event's payload:
+
+```ts
+const answer = await ctx.waitForEvent({
+  event: Events.NPS_SUBMITTED,
+  timeout: days(3),
+});
+
+if (!answer.timedOut && typeof answer.properties?.score === "number") {
+  const score = answer.properties.score;
+  // identify, branch, trigger follow-ups…
+}
+```
+
+Two rules worth copying into every journey that does this:
+
+- **Don't put the awaited event in `exitOn`.** An exit match mid-wait aborts
+  the run before your post-wait branch executes. React via `waitForEvent`
+  *or* exit via `exitOn` — one event name, one role.
+- **Waiting twice for the same event** (say, after a reminder send)? Pass
+  `lookback` on the second wait. The wait is forward-looking, so an answer
+  landing in the gap between the two waits would otherwise be missed;
+  `lookback` checks recent `user_events` first and resolves immediately,
+  payload included:
+
+```ts
+answer = await ctx.waitForEvent({
+  event: Events.NPS_SUBMITTED,
+  timeout: days(7),
+  lookback: hours(1), // covers the gap since the first wait timed out
+});
+```
+
+## Cross-journey fan-out
+
+Because the answer is a real ingested event with properties, a *separate*
+journey can trigger on it with a property condition — no coupling to the
+journey that asked the question:
+
+```ts
+export const detractorRescue = defineJourney({
+  meta: {
+    id: "detractor-rescue",
+    trigger: {
+      event: Events.NPS_SUBMITTED,
+      where: [
+        { type: "property", property: "score", operator: "lte", value: 6 },
+      ],
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+  },
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: hours(2), label: "cool-off" });
+    await sendEmail({ /* a personal follow-up */ });
+  },
+});
+```
+
+## Destinations and PostHog
+
+Confirmed answers emit an `email.action` envelope on the outbound spine —
+durable, signed, retried like every other destination delivery. The PostHog
+preset captures it under **your** event name (`nps.submitted`, not
+`email.action`) with the properties flattened, so the answer is immediately
+usable in insights, cohorts, and flags.
+
+## What it is not
+
+- **Not for destructive actions.** "Cancel my account" should never be one
+  click from an email — a scanner spreading clicks beyond the burst window
+  could in principle slip one through. Semantic links are for answers, not
+  irreversible operations.
+- **Not free text.** The answer space is whatever you can enumerate as links.
+  For a comment box, land the click on a page that collects it — the click
+  has already recorded the structured part.
+
+See also: [Tracking API](/docs/api/tracking) for the click mechanics,
+[Journeys](/docs/guides/journeys) for `waitForEvent`, and
+[Destinations](/docs/guides/destinations) for the outbound spine.
