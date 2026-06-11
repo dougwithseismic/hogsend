@@ -311,6 +311,23 @@ Internally, the schema composes the per-condition schemas (`propertyConditionSch
 
 Filter which events enroll users into a journey. All conditions in the `where` array must pass (implicit AND). These are `PropertyCondition[]` — only property checks are supported at the trigger level.
 
+Author them either declaratively or with the **builder function** — the same machinery bucket criteria use. The function resolves once at `defineJourney` time to the identical data, so the registry, admin routes, and Studio still see plain conditions:
+
+```ts
+trigger: {
+  event: "nps.detractor",
+  where: (b) => b.prop("score").lte(3),
+},
+
+// Multiple conditions: return an array (AND-ed)
+trigger: {
+  event: "checkout.abandoned",
+  where: (b) => [b.prop("plan").eq("pro"), b.prop("cartValue").gte(100)],
+},
+```
+
+`exitOn[].where` accepts the same builder form.
+
 ```ts
 import { hours } from "@hogsend/engine";
 import { defineJourney } from "@hogsend/engine";

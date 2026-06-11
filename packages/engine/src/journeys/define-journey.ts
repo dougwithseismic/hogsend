@@ -1,9 +1,12 @@
 import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
-import { evaluatePropertyConditions } from "@hogsend/core";
+import { criteriaBuilder, evaluatePropertyConditions } from "@hogsend/core";
 import type {
   JourneyMeta,
+  JourneyMetaInput,
   JourneyRunFn,
   JourneyUser,
+  JourneyWhere,
+  PropertyCondition,
 } from "@hogsend/core/types";
 import { contacts, journeyConfigs, journeyStates } from "@hogsend/db";
 import { and, eq, inArray, notInArray } from "drizzle-orm";
@@ -37,11 +40,45 @@ export interface DefinedJourney {
   task: ReturnType<typeof hatchet.durableTask>;
 }
 
+/**
+ * Resolve a builder-function `where` to its `PropertyCondition[]` — a
+ * one-shot, definition-time call mirroring `defineBucket`'s criteria
+ * normalization. A declarative array passes straight through, so existing
+ * journeys are unaffected; downstream (registry parse, checkExits, admin
+ * routes, Studio) only ever sees plain data.
+ */
+function normalizeWhere(
+  where: JourneyWhere | undefined,
+): PropertyCondition[] | undefined {
+  if (typeof where !== "function") return where;
+  const resolved = where(criteriaBuilder);
+  return Array.isArray(resolved) ? resolved : [resolved];
+}
+
 export function defineJourney(options: {
-  meta: JourneyMeta;
+  meta: JourneyMetaInput;
   run: JourneyRunFn;
 }): DefinedJourney {
-  const { meta } = options;
+  const { trigger, exitOn, ...rest } = options.meta;
+  const triggerWhere = normalizeWhere(trigger.where);
+  const meta: JourneyMeta = {
+    ...rest,
+    trigger: {
+      event: trigger.event,
+      ...(triggerWhere ? { where: triggerWhere } : {}),
+    },
+    ...(exitOn
+      ? {
+          exitOn: exitOn.map((exit) => {
+            const exitWhere = normalizeWhere(exit.where);
+            return {
+              event: exit.event,
+              ...(exitWhere ? { where: exitWhere } : {}),
+            };
+          }),
+        }
+      : {}),
+  };
 
   const task = hatchet.durableTask({
     name: `journey-${meta.id}`,

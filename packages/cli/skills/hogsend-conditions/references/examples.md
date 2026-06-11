@@ -14,6 +14,23 @@ properties. Only `property` conditions are valid here — there is no `within`,
 no event count, no composite. (Need a count or a window? Put that logic in the
 `run` body via `ctx.history.hasEvent`, or model it as a bucket.)
 
+Author it either way — the builder form resolves once at `defineJourney` time
+to the identical data (same machinery as bucket criteria):
+
+```ts
+// Builder form (recommended)
+trigger: {
+  event: Events.NPS_DETRACTOR,
+  where: (b) => b.prop("score").lte(3),
+},
+
+// Multiple conditions: return an array (AND-ed)
+trigger: {
+  event: Events.CHECKOUT_ABANDONED,
+  where: (b) => [b.prop("plan").eq("pro"), b.prop("cartValue").gte(100)],
+},
+```
+
 ```ts
 import { days, hours } from "@hogsend/core";
 import { defineJourney, sendEmail } from "@hogsend/engine";
@@ -56,7 +73,8 @@ export const proCheckoutAbandoned = defineJourney({
 
 `exitOn` is an array of `{ event, where? }`. The engine matches the incoming
 event name; if `where` is present it must pass (`PropertyCondition[]`, AND-ed)
-for the exit to fire. Omit `where` to exit on the event name alone.
+for the exit to fire. Omit `where` to exit on the event name alone. The
+builder form works here too: `where: (b) => b.prop("plan").eq("pro")`.
 
 ```ts
 meta: {
