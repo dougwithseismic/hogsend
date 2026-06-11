@@ -141,6 +141,13 @@ export const env = createEnv({
     // Default OFF to avoid a surprise double-emit alongside the existing
     // fire-and-forget PostHog capture path.
     ENABLE_POSTHOG_DESTINATION: z.coerce.boolean().default(false),
+    /**
+     * Append a short-lived signed identity token (`hs_t`) to tracked-link
+     * redirect destinations, so the landing site can stitch the email click
+     * to its web session (`POST /v1/t/identify` + posthog.identify). Opt-in:
+     * it changes outbound URLs, which can break pre-signed destinations.
+     */
+    TRACKING_IDENTITY_TOKEN: z.coerce.boolean().default(false),
     RESEND_WEBHOOK_SECRET: z.string().min(1).optional(),
     ADMIN_API_KEY: z.string().min(1).optional(),
     API_PUBLIC_URL: z.string().url().default("http://localhost:3002"),

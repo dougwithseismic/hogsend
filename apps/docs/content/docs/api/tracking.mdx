@@ -195,7 +195,15 @@ At click time the link behaves like any tracked link (redirect, `link_clicks` ro
 - **First answer wins** — the confirmed answer is ingested with idempotency key `sem:<emailSendId>:<event>`, so each (send, event name) pair gets at most one answer. The winning link's `semantic_emitted_at` is stamped.
 - **Fan-out** — confirmed answers route to journeys (waking `ctx.waitForEvent`), persist to `user_events`, and emit an `email.action` outbound envelope (`{ event, properties, emailSendId, templateKey, userId, to, at, linkId, linkUrl }`) with the same `sem:` key as `dedupeKey`. The PostHog destination preset captures it under the consumer's event name with properties flattened.
 
-Reserved namespaces (`email.`, `journey.`, `bucket.`, `contact.`) are rejected for semantic event names at send time, properties are scalars-only and size-capped, and a semantic link must have an absolute http(s) `href`.
+Reserved namespaces (`email.`, `journey.`, `bucket.`, `contact.`) are rejected for semantic event names at send time, properties are scalars-only and size-capped, and a semantic link must have an absolute http(s) `href` — or the `HOSTED_ANSWER_HREF` sentinel (below).
+
+### `GET /v1/t/a/:id` — hosted answer page
+
+The engine-served landing for a semantic link authored with `href={HOSTED_ANSWER_HREF}` (`hogsend://answer`). Shows the recorded answer and a free-text box. **`POST /v1/t/a/:id`** (form-encoded `comment`, ≤ 2000 chars) ingests `<event>.comment` with the answer's properties attached — idempotency key `semc:<emailSendId>:<event>`, so one comment per (send, event).
+
+### `POST /v1/t/identify` — redirect identity exchange
+
+With `TRACKING_IDENTITY_TOKEN=true`, tracked-link redirects append an encrypted, one-hour `hs_t` token to the destination. The landing site posts `{ token }` here and receives `{ distinctId, emailSendId }` for its `posthog.identify` call. Tokens are AES-256-GCM encrypted with `BETTER_AUTH_SECRET` (a distinct id can be an email — nothing readable travels in the URL); invalid or expired tokens return `400`.
 
 ---
 

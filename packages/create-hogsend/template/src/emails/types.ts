@@ -77,7 +77,11 @@ export interface ProductUpdateEmailProps {
 
 export interface FeedbackCheckinEmailProps {
   name: string;
-  /** Where the recipient lands after answering (a thanks page). */
+  /**
+   * Where the recipient lands after answering. Defaults to the engine-hosted
+   * answer page (`HOSTED_ANSWER_HREF`) — pass your own thanks-page URL to
+   * land on your site instead.
+   */
   landingUrl?: string;
   unsubscribeUrl?: string;
 }
