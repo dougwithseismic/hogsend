@@ -24,7 +24,7 @@ type EmailCaptureProps = {
   /** Drop the heading block entirely (the surrounding section supplies it). */
   hideHeading?: boolean;
   /** Where the form is mounted — sent as a non-PII analytics property. */
-  placement?: "hero" | "footer";
+  placement?: "hero" | "footer" | "referral";
 };
 
 /**
