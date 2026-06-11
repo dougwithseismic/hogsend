@@ -27,8 +27,10 @@ function sanitizeTemplate(value: unknown): SampleTemplate | undefined {
  * POST /api/sample — accepts { email, template } from the /emails gallery and
  * forwards a `docs.sample_requested` event to the Hogsend ingest API. The
  * dogfood app listens for it and sends a real rendered sample of that
- * template. Idempotency is per template per day per address, so repeat clicks
- * don't stack sends.
+ * template. Idempotency is per template per HOUR per address — wide enough to
+ * absorb double-clicks (the UI lockout and the journey's 10-minute suppress
+ * already guard abuse), narrow enough that a request swallowed downstream
+ * (e.g. mid-deploy) doesn't poison the whole day's retries.
  */
 export async function POST(request: Request): Promise<NextResponse> {
   if (!ingestConfigured()) {
@@ -60,7 +62,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const normalizedEmail = email.trim().toLowerCase();
   const templateSlug = template.replaceAll("/", "-");
-  const day = new Date().toISOString().slice(0, 10);
+  const hour = new Date().toISOString().slice(0, 13);
 
   const ok = await forwardToIngest(
     {
@@ -68,7 +70,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       email: normalizedEmail,
       eventProperties: { source: "docs-site", template },
     },
-    `docs-sample-${templateSlug}-${day}-${normalizedEmail}`,
+    `docs-sample-${templateSlug}-${hour}-${normalizedEmail}`,
   );
 
   if (!ok) {
