@@ -53,6 +53,41 @@ export const posthogDestination = defineDestination({
       userEmail?: string | null;
     };
     const distinctId = data.userId ?? data.to ?? data.userEmail ?? undefined;
+    // `email.action` is the semantic-link envelope: the CONSUMER's event name
+    // (data.event, e.g. "nps.submitted") is what PostHog should capture, with
+    // the author's properties flattened to the top level. Other catalog events
+    // capture under their spine name (with the optional remap).
+    if (envelope.type === "email.action") {
+      const action = envelope.data as {
+        event: string;
+        properties: Record<string, unknown> | null;
+        emailSendId: string;
+        templateKey: string | null;
+        linkId: string;
+        linkUrl: string;
+        to: string;
+        userId: string | null;
+        at: string;
+      };
+      return {
+        url: `${host}/capture/`,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: config.apiKey,
+          event: action.event,
+          distinct_id: distinctId,
+          timestamp: envelope.timestamp,
+          properties: {
+            ...(action.properties ?? {}),
+            emailSendId: action.emailSendId,
+            templateKey: action.templateKey,
+            linkId: action.linkId,
+            $lib: "hogsend",
+          },
+        }),
+      };
+    }
     // Optional event-name remap (identity by default).
     const eventName = config.eventNames?.[envelope.type] ?? envelope.type;
     return {

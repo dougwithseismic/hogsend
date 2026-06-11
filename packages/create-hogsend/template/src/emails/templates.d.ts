@@ -7,6 +7,7 @@
 
 import type {
   ActivationNudgeEmailProps,
+  FeedbackCheckinEmailProps,
   MagicLinkEmailProps,
   ProductUpdateEmailProps,
   ReceiptEmailProps,
@@ -22,5 +23,6 @@ declare module "@hogsend/email" {
     "transactional/receipt": ReceiptEmailProps;
     "lifecycle/trial-expiring": TrialExpiringEmailProps;
     "marketing/product-update": ProductUpdateEmailProps;
+    "feedback/checkin": FeedbackCheckinEmailProps;
   }
 }

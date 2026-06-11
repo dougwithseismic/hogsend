@@ -36,7 +36,7 @@ await ctx.sleepUntil(at, { label: "morning-nudge" });
 // whichever first. The reactive alternative to "sleep a fixed window, then poll
 // ctx.history": it resumes the INSTANT the event lands. Forward-looking — only
 // events fired AFTER the wait begins count (use ctx.history.hasEvent for the past).
-const { timedOut } = await ctx.waitForEvent({
+const { timedOut, properties } = await ctx.waitForEvent({
   event: Events.FEATURE_USED,
   timeout: days(7),           // REQUIRED, capped at the 720h task execution limit
   label: "await-activation",  // optional — written as currentNodeId
@@ -44,9 +44,16 @@ const { timedOut } = await ctx.waitForEvent({
 if (timedOut) {
   // they never did it — nudge (re-check ctx.guard.isSubscribed() first after a long wait)
 } else {
-  // event arrived — they activated on their own
+  // event arrived — they activated on their own. `properties` carries the
+  // matched event's payload (best-effort, scalars only) — branch on the
+  // answer directly, e.g. a semantic-link NPS score:
+  // if (typeof properties?.score === "number" && properties.score <= 6) { … }
 }
 ```
+
+NEVER put the awaited event in `exitOn` too: an `exitOn` match mid-wait aborts
+the run (`JourneyExitedError`) BEFORE your post-wait branch executes. React via
+`waitForEvent` OR exit via `exitOn` — one event name, one role.
 
 If the journey `exitOn`-matches (or is cancelled) WHILE waiting, the run aborts
 cleanly — state goes `"exited"`, the durable run is cancelled, and no post-wait

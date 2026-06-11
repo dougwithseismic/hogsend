@@ -1,12 +1,125 @@
+import { randomUUID } from "node:crypto";
 import type { Database } from "@hogsend/db";
 import { trackedLinks } from "@hogsend/db";
+import {
+  EMAIL_ACTION_EVENT_ATTR,
+  EMAIL_ACTION_PROPS_ATTR,
+} from "@hogsend/email";
 
-const HREF_RE = /href="(https?:\/\/[^"]+)"/gi;
+const ANCHOR_RE = /<a\b[^>]*>/gi;
+const HREF_RE = /\bhref="(https?:\/\/[^"]+)"/i;
+const EVENT_ATTR_RE = new RegExp(
+  `\\b${EMAIL_ACTION_EVENT_ATTR}="([^"]*)"`,
+  "i",
+);
+const PROPS_ATTR_RE = new RegExp(
+  `\\b${EMAIL_ACTION_PROPS_ATTR}="([^"]*)"`,
+  "i",
+);
+const STRIP_SEMANTIC_ATTRS_RE = new RegExp(
+  `\\s*(?:${EMAIL_ACTION_EVENT_ATTR}|${EMAIL_ACTION_PROPS_ATTR})="[^"]*"`,
+  "gi",
+);
 
 const SKIP_PATTERNS = ["/v1/email/unsubscribe", "/v1/email/preferences"];
 
+// Engine-owned event vocabularies (both `email.opened` dot-style and
+// `journey:completed` colon-style exist) — a consumer semantic event in these
+// namespaces would corrupt insights or trigger engine-internal logic.
+const RESERVED_EVENT_NAME_RE = /^(?:email|journey|bucket|contact)[.:]/;
+
+// Semantic payloads re-emit on every answer and persist indefinitely — keep
+// them small and scalar (non-scalars don't survive the Hatchet wire anyway).
+const MAX_PROPS_JSON_LENGTH = 2048;
+
 function shouldSkipUrl(url: string): boolean {
   return SKIP_PATTERNS.some((pattern) => url.includes(pattern));
+}
+
+// React entity-escapes attribute values at render time. Decode the five
+// entities it emits; `&amp;` LAST so `&amp;quot;` round-trips to `&quot;`.
+function decodeAttributeValue(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+interface SemanticAttrs {
+  event: string;
+  /** Raw (encoded) props attribute — part of the dedupe key. */
+  propsRaw: string | null;
+  properties: Record<string, unknown> | null;
+}
+
+/**
+ * Extract + validate the semantic metadata off one `<a …>` tag. Returns null
+ * for a plain link. Throws on author error — a semantic link that can't be
+ * honored must fail the SEND loudly, not degrade into a silent plain link.
+ */
+function parseSemanticAttrs(tag: string): SemanticAttrs | null {
+  const eventMatch = tag.match(EVENT_ATTR_RE);
+  if (!eventMatch) return null;
+
+  const event = decodeAttributeValue(eventMatch[1] ?? "").trim();
+  if (!event) {
+    throw new Error(`Semantic link has an empty ${EMAIL_ACTION_EVENT_ATTR}`);
+  }
+  if (RESERVED_EVENT_NAME_RE.test(event)) {
+    throw new Error(
+      `Semantic link event "${event}" uses a reserved namespace (email/journey/bucket/contact)`,
+    );
+  }
+
+  const propsMatch = tag.match(PROPS_ATTR_RE);
+  if (!propsMatch) return { event, propsRaw: null, properties: null };
+
+  const propsRaw = propsMatch[1] ?? "";
+  const decoded = decodeAttributeValue(propsRaw);
+  if (decoded.length > MAX_PROPS_JSON_LENGTH) {
+    throw new Error(
+      `Semantic link "${event}" properties exceed ${MAX_PROPS_JSON_LENGTH} chars`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoded);
+  } catch {
+    throw new Error(
+      `Semantic link "${event}" has unparseable ${EMAIL_ACTION_PROPS_ATTR}`,
+    );
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(
+      `Semantic link "${event}" properties must be a JSON object`,
+    );
+  }
+  for (const [key, value] of Object.entries(parsed)) {
+    const t = typeof value;
+    if (value !== null && t !== "string" && t !== "number" && t !== "boolean") {
+      throw new Error(
+        `Semantic link "${event}" property "${key}" must be a scalar (string/number/boolean/null)`,
+      );
+    }
+  }
+
+  return {
+    event,
+    propsRaw,
+    properties: parsed as Record<string, unknown>,
+  };
+}
+
+// One tracked_links row per distinct (url, event, props) tuple: identical
+// semantic links share a row; the same URL under DIFFERENT events/props must
+// NOT collapse (the old URL-only dedupe would merge "yes" and "no" answers
+// that point at the same thanks page).
+function linkKey(url: string, semantic: SemanticAttrs | null): string {
+  const sep = String.fromCharCode(0);
+  return [url, semantic?.event ?? "", semantic?.propsRaw ?? ""].join(sep);
 }
 
 export async function rewriteLinks(opts: {
@@ -17,32 +130,51 @@ export async function rewriteLinks(opts: {
 }): Promise<string> {
   const { html, emailSendId, baseUrl, db } = opts;
 
-  const uniqueUrls = new Set<string>();
+  const pending = new Map<
+    string,
+    { id: string; url: string; semantic: SemanticAttrs | null }
+  >();
 
-  for (const match of html.matchAll(HREF_RE)) {
-    const url = match[1];
-    if (url && !shouldSkipUrl(url)) {
-      uniqueUrls.add(url);
+  for (const match of html.matchAll(ANCHOR_RE)) {
+    const tag = match[0];
+    const url = tag.match(HREF_RE)?.[1];
+    const semantic = parseSemanticAttrs(tag);
+
+    if (!url || shouldSkipUrl(url)) {
+      if (semantic) {
+        throw new Error(
+          `Semantic link "${semantic.event}" needs an absolute http(s) href outside unsubscribe/preference URLs`,
+        );
+      }
+      continue;
+    }
+
+    const key = linkKey(url, semantic);
+    if (!pending.has(key)) {
+      pending.set(key, { id: randomUUID(), url, semantic });
     }
   }
 
-  if (uniqueUrls.size === 0) return html;
+  if (pending.size === 0) return html;
 
-  const urlList = [...uniqueUrls];
-  const rows = await db
-    .insert(trackedLinks)
-    .values(urlList.map((url) => ({ emailSendId, originalUrl: url })))
-    .returning({ id: trackedLinks.id, originalUrl: trackedLinks.originalUrl });
+  await db.insert(trackedLinks).values(
+    [...pending.values()].map((link) => ({
+      id: link.id,
+      emailSendId,
+      originalUrl: link.url,
+      event: link.semantic?.event,
+      eventProperties: link.semantic?.properties ?? undefined,
+    })),
+  );
 
-  const urlToId = new Map<string, string>();
-  for (const row of rows) {
-    urlToId.set(row.originalUrl, row.id);
-  }
-
-  return html.replace(HREF_RE, (full, url: string) => {
-    if (shouldSkipUrl(url)) return full;
-    const linkId = urlToId.get(url);
-    return linkId ? `href="${baseUrl}/v1/t/c/${linkId}"` : full;
+  return html.replace(ANCHOR_RE, (tag) => {
+    const url = tag.match(HREF_RE)?.[1];
+    if (!url || shouldSkipUrl(url)) return tag;
+    const link = pending.get(linkKey(url, parseSemanticAttrs(tag)));
+    if (!link) return tag;
+    return tag
+      .replace(HREF_RE, `href="${baseUrl}/v1/t/c/${link.id}"`)
+      .replace(STRIP_SEMANTIC_ATTRS_RE, "");
   });
 }
 

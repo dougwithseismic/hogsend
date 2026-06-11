@@ -23,6 +23,7 @@ export const Events = {
   CHECKOUT_COMPLETED: "checkout.completed",
 
   NPS_SUBMITTED: "nps.submitted",
+  NPS_DETRACTOR: "nps.detractor",
 
   TRIAL_STARTED: "trial.started",
 

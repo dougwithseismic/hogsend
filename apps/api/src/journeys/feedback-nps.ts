@@ -1,7 +1,19 @@
 import { days } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
+import { defineJourney, getPostHog, sendEmail } from "@hogsend/engine";
 import { Events, Templates } from "./constants/index.js";
 
+/**
+ * NPS survey via SEMANTIC LINKS: the score buttons in the email are
+ * EmailActions carrying `nps.submitted { score }` — the click IS the answer.
+ * The journey waits durably for that event (first answer per send wins,
+ * scanner bursts suppressed by the engine), then branches on the score:
+ * promoters get a thank-you path, detractors fire `nps.detractor` for any
+ * follow-up journey to pick up.
+ *
+ * NOTE: `nps.submitted` is deliberately NOT in `exitOn` — an event the run
+ * REACTS to via `ctx.waitForEvent` must not also exit the journey (the exit
+ * would abort the wait before the branching code runs).
+ */
 export const feedbackNps = defineJourney({
   meta: {
     id: "feedback-nps",
@@ -10,7 +22,7 @@ export const feedbackNps = defineJourney({
     trigger: { event: Events.USER_CREATED },
     entryLimit: "once",
     suppress: days(1),
-    exitOn: [{ event: Events.USER_DELETED }, { event: Events.NPS_SUBMITTED }],
+    exitOn: [{ event: Events.USER_DELETED }],
   },
 
   run: async (user, ctx) => {
@@ -25,15 +37,13 @@ export const feedbackNps = defineJourney({
       journeyName: user.journeyName,
     });
 
-    await ctx.sleep({ duration: days(3), label: "nps-reminder" });
-
-    const { found: hasSubmitted } = await ctx.history.hasEvent({
-      userId: user.id,
+    let answer = await ctx.waitForEvent({
       event: Events.NPS_SUBMITTED,
-      within: days(3),
+      timeout: days(3),
+      label: "await-score",
     });
 
-    if (!hasSubmitted) {
+    if (answer.timedOut) {
       await sendEmail({
         to: user.email,
         userId: user.id,
@@ -42,23 +52,35 @@ export const feedbackNps = defineJourney({
         subject: "We'd still love your feedback (10 seconds)",
         journeyName: user.journeyName,
       });
+
+      answer = await ctx.waitForEvent({
+        event: Events.NPS_SUBMITTED,
+        timeout: days(7),
+        label: "await-score-reminder",
+      });
     }
 
-    await ctx.sleep({ duration: days(46), label: "day-60" });
+    if (answer.timedOut) return;
 
-    const { found: hasSubmittedDay60 } = await ctx.history.hasEvent({
-      userId: user.id,
-      event: Events.NPS_SUBMITTED,
-      within: days(46),
+    const score =
+      typeof answer.properties?.score === "number"
+        ? answer.properties.score
+        : null;
+    if (score === null) return;
+
+    await ctx.checkpoint(`scored-${score}`);
+    // Person enrichment is a standalone service, not a ctx primitive — no-op
+    // without POSTHOG_API_KEY.
+    getPostHog()?.identify(user.id, {
+      nps_score: score,
+      nps_responded_at: new Date().toISOString(),
     });
-    if (!hasSubmittedDay60) {
-      await sendEmail({
-        to: user.email,
+
+    if (score <= 6) {
+      await ctx.trigger({
+        event: Events.NPS_DETRACTOR,
         userId: user.id,
-        journeyStateId: user.stateId,
-        template: Templates.FEEDBACK_NPS_SURVEY,
-        subject: "How's it going? Quick check-in",
-        journeyName: user.journeyName,
+        properties: { score },
       });
     }
   },

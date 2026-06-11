@@ -25,7 +25,7 @@ import { Webhook } from "svix";
  */
 
 /**
- * The 13-event catalog — the SINGLE source of truth (schema, routes, client,
+ * The 14-event catalog — the SINGLE source of truth (schema, routes, client,
  * CLI all derive from this). The `webhook.test` sentinel is intentionally NOT a
  * member (it is delivered out-of-band regardless of an endpoint's `eventTypes`).
  */
@@ -38,6 +38,7 @@ export const WEBHOOK_EVENT_TYPES = [
   "email.delivered",
   "email.opened",
   "email.clicked",
+  "email.action",
   "email.bounced",
   "email.complained",
   "journey.completed",

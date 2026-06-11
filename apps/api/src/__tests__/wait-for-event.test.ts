@@ -150,6 +150,66 @@ describe("ctx.waitForEvent", () => {
     expect(res).toEqual({ timedOut: true });
   });
 
+  // The engine returns matches as `[{ id, data }]` where `data` is the pushed
+  // ingest payload ({ userId, userEmail, properties }). The matched event's
+  // properties must surface so journeys can branch on the answer.
+  it("surfaces the matched event's properties (eviction envelope)", async () => {
+    const waitFor = vi.fn().mockResolvedValue({
+      CREATE: {
+        event: [
+          {
+            id: "evt-1",
+            data: {
+              userId: "user-1",
+              userEmail: "user@example.com",
+              properties: { score: 9, emailSendId: "send-1" },
+            },
+          },
+        ],
+      },
+    });
+    const { db } = makeWaitDbStub();
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "nps.submitted",
+      timeout: days(7),
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toMatchObject({ score: 9 });
+  });
+
+  it("surfaces properties from an un-wrapped pre-eviction payload", async () => {
+    const waitFor = vi.fn().mockResolvedValue({
+      event: [{ userId: "user-1", properties: { answer: "yes" } }],
+    });
+    const { db } = makeWaitDbStub();
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "checkin.answered",
+      timeout: days(1),
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toMatchObject({ answer: "yes" });
+  });
+
+  it("omits properties when the match carries no payload", async () => {
+    const waitFor = vi.fn().mockResolvedValue({ CREATE: { event: [{}] } });
+    const { db } = makeWaitDbStub();
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "activated",
+      timeout: days(1),
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toBeUndefined();
+  });
+
   it("rejects a timeout beyond the 720h execution limit before waiting", async () => {
     const waitFor = vi.fn();
     const { db } = makeWaitDbStub([]);

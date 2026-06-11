@@ -22,6 +22,7 @@ import type {
   IfPast,
   JourneyContext,
   TimeOfDayBuilder,
+  WaitForEventResult,
   Weekday,
   WhenBuilder,
 } from "@hogsend/core/types";
@@ -206,7 +207,7 @@ export function createJourneyContext(
     event: string,
     timeout: DurationObject,
     nodeId: string,
-  ): Promise<{ timedOut: boolean }> => {
+  ): Promise<WaitForEventResult> => {
     // Reject a timeout longer than the journey task's executionTimeout up front
     // so it fails fast at authoring time. (Eviction-capable engines may allow
     // longer wall-clock waits, but we cap to the configured ceiling — raise
@@ -241,9 +242,34 @@ export function createJourneyContext(
       {}) as Record<string, unknown>;
     const timedOut = !("event" in fired);
 
+    // Surface the matched event's payload (best-effort). The engine returns
+    // matches as `[{ id, data }]` where `data` is the pushed ingest payload
+    // ({ userId, userEmail, properties }); the pre-eviction path may hand the
+    // payload back un-wrapped — tolerate both, mirroring the CREATE-strip.
+    let properties: WaitForEventResult["properties"];
+    if (!timedOut) {
+      const matches = fired.event;
+      const first = Array.isArray(matches) ? matches[0] : matches;
+      const payload =
+        first && typeof first === "object" && "data" in first
+          ? (first as { data?: unknown }).data
+          : first;
+      const candidate =
+        payload && typeof payload === "object" && "properties" in payload
+          ? (payload as { properties?: unknown }).properties
+          : undefined;
+      if (
+        candidate &&
+        typeof candidate === "object" &&
+        !Array.isArray(candidate)
+      ) {
+        properties = candidate as NonNullable<WaitForEventResult["properties"]>;
+      }
+    }
+
     await resumeFromWait();
 
-    return { timedOut };
+    return { timedOut, ...(properties ? { properties } : {}) };
   };
 
   return {

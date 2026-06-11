@@ -18,6 +18,7 @@ const POSTHOG_FUNNEL_EVENTS = [
   "email.delivered",
   "email.opened",
   "email.clicked",
+  "email.action",
   "email.bounced",
   "email.complained",
 ] as const;

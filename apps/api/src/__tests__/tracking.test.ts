@@ -106,6 +106,97 @@ describe("rewriteLinks", () => {
   });
 });
 
+describe("rewriteLinks — semantic links", () => {
+  it("lifts event + properties into the row and strips the data attributes", async () => {
+    // JSON quotes arrive entity-escaped, exactly as React renders them.
+    const html =
+      '<a href="https://example.com/thanks" data-hs-event="nps.submitted" data-hs-props="{&quot;score&quot;:9}">9</a>';
+    const result = await rewriteLinks({
+      html,
+      emailSendId: testEmailSendId,
+      baseUrl: "https://api.hogsend.com",
+      db,
+    });
+
+    expect(result).toContain("/v1/t/c/");
+    expect(result).not.toContain("data-hs-event");
+    expect(result).not.toContain("data-hs-props");
+
+    const rows = await db
+      .select()
+      .from(trackedLinks)
+      .where(eq(trackedLinks.event, "nps.submitted"));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows[0]?.eventProperties).toEqual({ score: 9 });
+    expect(rows[0]?.originalUrl).toBe("https://example.com/thanks");
+  });
+
+  it("does NOT collapse same-href links carrying different answers", async () => {
+    const html = [
+      '<a href="https://example.com/done" data-hs-event="checkin.answered" data-hs-props="{&quot;answer&quot;:&quot;yes&quot;}">Yes</a>',
+      '<a href="https://example.com/done" data-hs-event="checkin.answered" data-hs-props="{&quot;answer&quot;:&quot;no&quot;}">No</a>',
+      '<a href="https://example.com/done">plain</a>',
+    ].join("");
+    const result = await rewriteLinks({
+      html,
+      emailSendId: testEmailSendId,
+      baseUrl: "https://api.hogsend.com",
+      db,
+    });
+
+    const ids = [...result.matchAll(/\/v1\/t\/c\/([0-9a-f-]+)/g)].map(
+      (m) => m[1],
+    );
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+
+    const rows = await db
+      .select()
+      .from(trackedLinks)
+      .where(eq(trackedLinks.event, "checkin.answered"));
+    const answers = rows.map((r) => r.eventProperties?.answer).sort();
+    expect(answers).toEqual(["no", "yes"]);
+  });
+
+  it("rejects reserved event namespaces", async () => {
+    const html =
+      '<a href="https://example.com/x" data-hs-event="email.clicked">x</a>';
+    await expect(
+      rewriteLinks({
+        html,
+        emailSendId: testEmailSendId,
+        baseUrl: "https://api.hogsend.com",
+        db,
+      }),
+    ).rejects.toThrow(/reserved namespace/);
+  });
+
+  it("rejects unparseable properties", async () => {
+    const html =
+      '<a href="https://example.com/x" data-hs-event="my.event" data-hs-props="not json">x</a>';
+    await expect(
+      rewriteLinks({
+        html,
+        emailSendId: testEmailSendId,
+        baseUrl: "https://api.hogsend.com",
+        db,
+      }),
+    ).rejects.toThrow(/unparseable/);
+  });
+
+  it("rejects a semantic link without a trackable href", async () => {
+    const html = '<a href="mailto:hi@x.com" data-hs-event="my.event">x</a>';
+    await expect(
+      rewriteLinks({
+        html,
+        emailSendId: testEmailSendId,
+        baseUrl: "https://api.hogsend.com",
+        db,
+      }),
+    ).rejects.toThrow(/absolute http/);
+  });
+});
+
 describe("injectOpenPixel", () => {
   it("injects pixel before </body>", () => {
     const html = "<html><body><p>Hello</p></body></html>";

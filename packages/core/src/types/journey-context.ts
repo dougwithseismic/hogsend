@@ -112,6 +112,13 @@ export interface WaitForEventOptions {
 export interface WaitForEventResult {
   /** `true` when the `timeout` elapsed first; `false` when the event fired. */
   timedOut: boolean;
+  /**
+   * The matched event's properties, present (best-effort) when the event
+   * branch fired and the pushed payload carried them. Scalars only — that is
+   * all the ingest pipeline puts on the wire. Branch on these to react to the
+   * answer (e.g. an in-email NPS score) without a separate history lookup.
+   */
+  properties?: Record<string, string | number | boolean | null>;
 }
 
 export interface JourneyContext {

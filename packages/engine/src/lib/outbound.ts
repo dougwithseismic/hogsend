@@ -90,6 +90,23 @@ export interface OutboundPayloads {
   "email.delivered": EmailEventPayload;
   "email.opened": EmailEventPayload;
   "email.clicked": EmailEventPayload & { linkUrl?: string; linkId?: string };
+  /**
+   * A SEMANTIC link answered — the in-email action event (consumer-named, e.g.
+   * "nps.submitted"). Emitted at most once per (send, event name): first
+   * answer wins, scanner bursts are suppressed. `event`/`properties` carry the
+   * consumer semantics; the rest is send context.
+   */
+  "email.action": {
+    event: string;
+    properties: Record<string, unknown> | null;
+    emailSendId: string;
+    templateKey: string | null;
+    userId: string | null;
+    to: string;
+    at: string;
+    linkId: string;
+    linkUrl: string;
+  };
   "email.bounced": EmailEventPayload & {
     bounceType?: string;
     bounceReason?: string;

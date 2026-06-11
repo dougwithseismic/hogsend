@@ -1,6 +1,8 @@
+import { EmailAction } from "@hogsend/email";
 // biome-ignore lint/correctness/noUnusedImports: required for JSX runtime
 import React from "react";
-import { Link, Section, Text } from "react-email";
+import { Section, Text } from "react-email";
+import { Events } from "../journeys/constants/index.js";
 import { BRAND } from "./_components/brand.js";
 import { Layout } from "./_components/layout.js";
 import { Body, Title } from "./_components/ui.js";
@@ -27,13 +29,15 @@ export default function FeedbackNpsSurveyEmail({
 
       <Section className="my-6 text-center">
         {scores.map((score) => (
-          <Link
+          <EmailAction
             key={score}
+            event={Events.NPS_SUBMITTED}
+            properties={{ score }}
             href={`${surveyUrl}?score=${score}`}
             className="mx-0.5 mb-1 inline-block h-9 w-9 rounded-lg border border-solid border-zinc-200 bg-white text-center text-sm font-semibold leading-9 text-zinc-700 no-underline"
           >
             {String(score)}
-          </Link>
+          </EmailAction>
         ))}
         <Section className="mt-2">
           <Text className="m-0 text-xs text-zinc-400">

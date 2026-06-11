@@ -74,3 +74,10 @@ export interface ProductUpdateEmailProps {
   ctaText?: string;
   unsubscribeUrl?: string;
 }
+
+export interface FeedbackCheckinEmailProps {
+  name: string;
+  /** Where the recipient lands after answering (a thanks page). */
+  landingUrl?: string;
+  unsubscribeUrl?: string;
+}

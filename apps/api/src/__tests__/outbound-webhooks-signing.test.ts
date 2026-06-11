@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 13-event catalog, in order", () => {
+  it("is exactly the 14-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -212,6 +212,7 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       "email.delivered",
       "email.opened",
       "email.clicked",
+      "email.action",
       "email.bounced",
       "email.complained",
       "journey.completed",
