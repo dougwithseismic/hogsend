@@ -1,5 +1,14 @@
 # @hogsend/plugin-resend
 
+## 0.17.1
+
+### Patch Changes
+
+- e459fb5: Fix the Studio password-reset link landing on the login card instead of the reset form. The engine's bare `/studio` → `/studio/` redirect dropped the query string, losing better-auth's `?token=…`; the redirect now preserves it, and the Studio's reset redirect targets `/studio/` directly so the link skips the hop entirely. (The full engine line rides together per release discipline.)
+- Updated dependencies [e459fb5]
+  - @hogsend/core@0.17.1
+  - @hogsend/email@0.17.1
+
 ## 0.17.0
 
 ### Minor Changes
