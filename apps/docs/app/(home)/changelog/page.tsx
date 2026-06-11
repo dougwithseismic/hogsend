@@ -55,6 +55,49 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.16.0",
+    anchor: "0-16-0",
+    date: "June 11, 2026",
+    title:
+      "The where builder, the hosted answer page, and cross-device identity",
+    bullets: (
+      <>
+        <Bullet>
+          Journey conditions read like code:{" "}
+          <Code>{'where: (b) => b.prop("score").lte(6)'}</Code> on{" "}
+          <Code>trigger</Code> and <Code>exitOn</Code>, resolved once at
+          definition time to the same plain data — Studio and the admin API are
+          unchanged.
+        </Bullet>
+        <Bullet>
+          Semantic links without a landing page:{" "}
+          <Code>{"href={HOSTED_ANSWER_HREF}"}</Code> lands answers on an
+          engine-hosted page with an optional comment box; comments arrive as{" "}
+          <Code>{"<event>.comment"}</Code> events.
+        </Bullet>
+        <Bullet>
+          Cross-device identity, opt-in: <Code>TRACKING_IDENTITY_TOKEN</Code>{" "}
+          appends an encrypted one-hour <Code>hs_t</Code> token to tracked
+          redirects; the landing site exchanges it at{" "}
+          <Code>POST /v1/t/identify</Code> and calls{" "}
+          <Code>posthog.identify</Code> — the email click and the web session
+          become one person.
+        </Bullet>
+        <Bullet>
+          <Code>ctx.waitForEvent</Code> accepts <Code>lookback</Code> to catch
+          answers landing between two waits.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. All three are additive;
+        the identity token is off until you set{" "}
+        <Code>TRACKING_IDENTITY_TOKEN=true</Code>.
+      </>
+    ),
+  },
+  {
     version: "0.14.0",
     anchor: "0-14-0",
     date: "June 11, 2026",
