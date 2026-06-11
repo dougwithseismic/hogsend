@@ -27,10 +27,30 @@ export const AnalyticsEvent = {
   /** Email capture form submitted (UI funnel step — the domain fact is the
    * server-side `docs.subscribed`), with `{ placement, product_notes }`. */
   CAPTURE_SUBMITTED: "docs.capture_submitted",
-  /** Post-signup "who are you" answer, with `{ role, placement }`. */
+  /** "Who are you" answer — post-signup steps AND the anonymous built-for
+   * chips, distinguished by `{ placement }`; with `{ role }`. */
   ROLE_SELECTED: "docs.role_selected",
   /** Post-signup website provided (the URL itself goes to Hogsend only). */
   WEBSITE_PROVIDED: "docs.website_provided",
+  /** An FAQ accordion row opened, with `{ question }`. */
+  FAQ_OPENED: "docs.faq_opened",
+  /** A showcase/code tab selected, with `{ tab }`. */
+  TAB_SELECTED: "docs.tab_selected",
+  /** A docs search ran (server-side, anonymous), with `{ query }`. */
+  SEARCH_PERFORMED: "docs.search_performed",
+  /** Homepage use-case picker, with `{ use_case }`. */
+  USE_CASE_SELECTED: "docs.use_case_selected",
+  /** Integrations stack picker, with `{ source }`. */
+  STACK_SELECTED: "docs.stack_selected",
+  /** Resend/Postmark toggle in code samples, with `{ provider }`. */
+  PROVIDER_SELECTED: "docs.provider_selected",
+  /** "Email me this template" request, with `{ template }` (no email here —
+   * the address goes to the Hogsend ingest API only). */
+  SAMPLE_REQUESTED: "docs.sample_requested",
+  /** Event-name checker on /event-naming, with `{ value, valid, rule }`. */
+  NAME_CHECKED: "docs.name_checked",
+  /** Pricing calculator interaction, with `{ contacts, sends }`. */
+  CALCULATOR_USED: "docs.calculator_used",
 } as const;
 
 export type AnalyticsEventName =

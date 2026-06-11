@@ -13,8 +13,10 @@ import { TagPill } from "@/components/ds/badge";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
+import { CodeHighlight } from "@/components/ds/code-highlight";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
+import { type StackItem, StackPicker } from "@/components/landing/stack-picker";
 
 export const metadata: Metadata = {
   title: "Integrations",
@@ -169,6 +171,131 @@ const DESTINATIONS: Connector[] = [
 ];
 
 /**
+ * Stack picker snippets — each condensed from the real docs page it links
+ * to. URLs, header names, env vars, and event names are verbatim from the
+ * docs; nothing here is invented.
+ */
+const STACK_SNIPPETS: Record<string, string> = {
+  // From content/docs/getting-started/posthog-setup.mdx
+  posthog: `# PostHog → Data → Destinations → HTTP Webhook
+#   Webhook URL  https://your-hogsend-api.com/v1/webhooks/posthog
+#   Method       POST
+#   JSON body    default — sends {event} and {person}
+#   Header       x-posthog-webhook-secret: <your secret>
+# Add event matchers — forward only the 5–15 events your
+# journeys care about (e.g. user_signed_up), not $pageview.
+
+# Hogsend .env — must match the header value exactly
+POSTHOG_WEBHOOK_SECRET=your-shared-secret
+
+# event.distinct_id → userId · person.properties.email → email
+# The event name passes through as-is — trigger on it directly.`,
+
+  // From content/docs/integrations/segment.mdx
+  segment: `# Segment → Connections → Destinations → Webhooks (Actions)
+#   URL     https://api.hogsend.com/v1/webhooks/segment
+#   Header  x-signature — HMAC-SHA256 hex of the raw body
+#   Secret  the same value on both sides
+
+# Hogsend .env — enables the preset and verifies signatures
+SEGMENT_WEBHOOK_SECRET=your-segment-shared-secret
+
+# identify → contact.updated (traits merge onto the contact)
+# track "Order Completed" → event "Order Completed", name as-is
+# page / screen / group / alias → skipped (200, skipped: true)`,
+
+  // From content/docs/integrations/stripe.mdx
+  stripe: `# Stripe → Developers → Webhooks → Add endpoint
+#   URL  https://api.hogsend.com/v1/webhooks/stripe
+#   Subscribe to customer.created at minimum, plus the
+#   subscription / invoice events you trigger on.
+
+# Hogsend .env — the endpoint's signing secret
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Verifies the stripe-signature header itself (HMAC-SHA256,
+# 5-minute tolerance) — no Stripe SDK required.
+# customer.created          → contact.created
+# customer.subscription.<x> → subscription.<x>
+# invoice.<x>               → invoice.<x>  (invoice.payment_failed)`,
+
+  // From content/docs/integrations/clerk.mdx
+  clerk: `# Clerk Dashboard → Webhooks → Add Endpoint
+#   URL  https://api.hogsend.com/v1/webhooks/clerk
+#   Subscribe: user.created, user.updated, user.deleted,
+#   waitlistEntry.created
+
+# Hogsend .env — the endpoint's signing secret
+CLERK_WEBHOOK_SECRET=whsec_...
+
+# Deliveries are Svix-signed — svix-id / svix-timestamp /
+# svix-signature are verified before the payload is processed.
+# user.created          → contact.created
+# user.updated          → contact.updated
+# waitlistEntry.created → waitlist.joined`,
+
+  // From content/docs/integrations/supabase.mdx
+  supabase: `# Supabase → Database → Webhooks → Create a new hook
+#   Table   auth.users · Events: Insert, Update, Delete
+#   Type    HTTP Request · Method POST
+#   URL     https://api.hogsend.com/v1/webhooks/supabase
+#   Header  x-supabase-webhook-secret: <same value as below>
+
+# Hogsend .env — mounts the preset; fail-closed without it
+SUPABASE_WEBHOOK_SECRET=whsec_your_secret_value
+
+# INSERT → contact.created · UPDATE → contact.updated
+# DELETE → contact.deleted
+# raw_user_meta_data merges onto the contact record.`,
+};
+
+const STACK_ITEMS: StackItem[] = [
+  {
+    id: "posthog",
+    label: "PostHog",
+    brand: "posthog",
+    blurb:
+      "An HTTP Webhook destination in PostHog's pipeline. The source is scaffold code you own — change the mapping whenever you like.",
+    guideHref: "/docs/getting-started/posthog-setup",
+    snippet: <CodeHighlight code={STACK_SNIPPETS.posthog ?? ""} lang="bash" />,
+  },
+  {
+    id: "segment",
+    label: "Segment",
+    brand: "segment",
+    blurb:
+      "A Webhooks (Actions) destination. identify and track calls become contacts and events; everything else is skipped.",
+    guideHref: "/docs/integrations/segment",
+    snippet: <CodeHighlight code={STACK_SNIPPETS.segment ?? ""} lang="bash" />,
+  },
+  {
+    id: "stripe",
+    label: "Stripe",
+    brand: "stripe",
+    blurb:
+      "A built-in preset. Set the signing secret and billing events become journey triggers — no SDK, no handler.",
+    guideHref: "/docs/integrations/stripe",
+    snippet: <CodeHighlight code={STACK_SNIPPETS.stripe ?? ""} lang="bash" />,
+  },
+  {
+    id: "clerk",
+    label: "Clerk",
+    blurb:
+      "A built-in, Svix-verified preset. User lifecycle and waitlist events normalise into Hogsend's contact vocabulary.",
+    guideHref: "/docs/integrations/clerk",
+    snippet: <CodeHighlight code={STACK_SNIPPETS.clerk ?? ""} lang="bash" />,
+  },
+  {
+    id: "supabase",
+    label: "Supabase",
+    blurb:
+      "A built-in preset watching auth.users. Signups, profile changes, and deletions become contact lifecycle events.",
+    guideHref: "/docs/integrations/supabase",
+    snippet: <CodeHighlight code={STACK_SNIPPETS.supabase ?? ""} lang="bash" />,
+  },
+];
+
+/**
  * Connector card: a brand mark or icon, a 20px/500 title, a 16px white/60
  * description, and a small 3px-radius wire chip pinned to the bottom. Used in
  * both source/destination grids so the rows read consistently.
@@ -223,6 +350,21 @@ export default function IntegrationsPage(): JSX.Element {
           </Reveal>
         </div>
       </section>
+
+      {/* Stack picker — pick a source, see the real wiring. */}
+      <Section id="stack">
+        <Reveal>
+          <SectionHeading
+            eyebrow="Pick your stack"
+            title="See the actual wiring"
+            subtitle="Select a source. Each snippet is the real setup — the URL, the header, the secret — condensed from its docs page. Most of these are one env var and a webhook form."
+          />
+        </Reveal>
+
+        <Reveal delay={0.1}>
+          <StackPicker items={STACK_ITEMS} className="mt-12 md:mt-16" />
+        </Reveal>
+      </Section>
 
       {/* Sources — events in. Full-bleed top hairline via Section. */}
       <Section id="sources">

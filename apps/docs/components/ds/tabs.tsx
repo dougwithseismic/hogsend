@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { AnalyticsEvent, capture } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 import { TagPill } from "./badge";
 
@@ -50,7 +51,12 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
               id={`tab-${tab.id}`}
               aria-selected={isActive}
               aria-controls={`panel-${tab.id}`}
-              onClick={() => setActiveId(tab.id)}
+              onClick={() => {
+                if (tab.id !== active.id) {
+                  capture(AnalyticsEvent.TAB_SELECTED, { tab: tab.id });
+                }
+                setActiveId(tab.id);
+              }}
               className={cn(
                 "relative py-5 text-left text-base tracking-[-0.02em] outline-none transition-colors focus-visible:text-accent",
                 isActive ? "text-accent" : "text-white hover:text-white/70",

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { JSX } from "react";
+import { EventNameChecker } from "@/components/landing/event-name-checker";
 import {
   ClosingCta,
   CodeWalkthrough,
@@ -158,6 +159,8 @@ export default function EventNamingPage(): JSX.Element {
         subtitle="Short enough to fit in a code review comment. Strict enough that two engineers naming events a year apart produce the same name."
         points={POINTS}
       />
+
+      <EventNameChecker />
 
       <UseCaseFaq
         items={FAQ_ITEMS}

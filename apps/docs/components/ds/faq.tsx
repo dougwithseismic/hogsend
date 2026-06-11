@@ -3,6 +3,7 @@
 import { Plus } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
+import { AnalyticsEvent, capture } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 
 type FaqItem = {
@@ -45,7 +46,14 @@ export function FaqAccordion({
                 id={buttonId}
                 aria-expanded={isOpen}
                 aria-controls={panelId}
-                onClick={() => setOpenIndex(isOpen ? -1 : index)}
+                onClick={() => {
+                  // Which questions get opened is an objections map — track
+                  // opens only, not closes.
+                  if (!isOpen) {
+                    capture(AnalyticsEvent.FAQ_OPENED, { question: item.q });
+                  }
+                  setOpenIndex(isOpen ? -1 : index);
+                }}
                 className="flex w-full items-center gap-4 p-6 text-left text-white outline-none transition-colors focus-visible:text-accent"
               >
                 <span className="flex-1 font-medium font-sans text-base leading-snug tracking-[-0.02em] md:text-lg">
