@@ -5,6 +5,9 @@ import { cn } from "@/lib/utils";
  * Maps an email-send status to a badge variant + colour. Engine statuses:
  * queued | rendered | sent | delivered | opened | clicked | bounced |
  * complained | failed.
+ *
+ * Crimzon is single-accent: engagement depth is encoded as progressively
+ * brighter white chips; red is reserved for failure states.
  */
 const STATUS_STYLES: Record<
   string,
@@ -12,19 +15,28 @@ const STATUS_STYLES: Record<
 > = {
   delivered: {
     variant: "outline",
-    className: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+    className: "border-white/15 bg-white/[0.06] text-white/80",
   },
   opened: {
     variant: "outline",
-    className: "border-sky-500/40 text-sky-600 dark:text-sky-400",
+    className: "border-white/20 bg-white/[0.08] text-white/90",
   },
   clicked: {
     variant: "outline",
-    className: "border-violet-500/40 text-violet-600 dark:text-violet-400",
+    className: "border-white/30 bg-white/[0.12] text-white",
   },
-  sent: { variant: "secondary" },
-  rendered: { variant: "secondary" },
-  queued: { variant: "secondary" },
+  sent: {
+    variant: "outline",
+    className: "border-white/[0.08] bg-white/[0.04] text-white/50",
+  },
+  rendered: {
+    variant: "outline",
+    className: "border-white/[0.08] bg-white/[0.04] text-white/50",
+  },
+  queued: {
+    variant: "outline",
+    className: "border-white/[0.08] bg-white/[0.04] text-white/50",
+  },
   bounced: { variant: "destructive" },
   complained: { variant: "destructive" },
   failed: { variant: "destructive" },

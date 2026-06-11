@@ -37,17 +37,17 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
         : String(data.subject ?? data.templateKey ?? "email");
   return (
     <li className="flex gap-3">
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border bg-card">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-hairline-faint bg-white/[0.04]">
+        <Icon className="h-3.5 w-3.5 text-white/50" strokeWidth={1.5} />
       </span>
       <div className="min-w-0 flex-1 pb-3">
         <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium">{title}</p>
+          <p className="truncate text-sm font-medium text-white">{title}</p>
           {entry.type === "email" && data.status ? (
             <StatusBadge status={String(data.status)} />
           ) : null}
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-white/50">
           {formatDateTime(entry.timestamp)}
         </p>
       </div>
@@ -148,7 +148,7 @@ export function ContactDetailDrawer({
               {!isSuppressed ? (
                 <Badge
                   variant="outline"
-                  className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                  className="border-white/15 bg-white/[0.06] text-white/80"
                 >
                   Subscribed
                 </Badge>
@@ -167,28 +167,28 @@ export function ContactDetailDrawer({
 
             <dl className="grid grid-cols-2 gap-4">
               <div>
-                <dt className="text-xs text-muted-foreground">First seen</dt>
-                <dd className="text-sm">
+                <dt className="text-xs text-white/50">First seen</dt>
+                <dd className="text-sm text-white">
                   {formatDateTime(contact.firstSeenAt)}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs text-muted-foreground">Last seen</dt>
-                <dd className="text-sm">
+                <dt className="text-xs text-white/50">Last seen</dt>
+                <dd className="text-sm text-white">
                   {formatDateTime(contact.lastSeenAt)}
                 </dd>
               </div>
             </dl>
 
             <section>
-              <h3 className="mb-3 text-sm font-semibold">
+              <h3 className="eyebrow mb-3 text-white/50">
                 Email activity
                 {activityQuery.data ? ` (${activityQuery.data.total})` : ""}
               </h3>
               {activityQuery.isPending ? (
                 <Skeleton className="h-20 w-full" />
               ) : activityQuery.isError ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/60">
                   Could not load email activity.
                 </p>
               ) : activityQuery.data && activityQuery.data.sends.length > 0 ? (
@@ -196,13 +196,13 @@ export function ContactDetailDrawer({
                   {activityQuery.data.sends.slice(0, 10).map((send) => (
                     <li
                       key={send.id}
-                      className="flex items-center justify-between gap-3 rounded-md border p-3"
+                      className="flex items-center justify-between gap-3 rounded-md border bg-white/[0.015] p-3"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
+                        <p className="truncate text-sm font-medium text-white">
                           {send.subject}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-white/50">
                           {formatDateTime(send.createdAt)}
                         </p>
                       </div>
@@ -211,16 +211,16 @@ export function ContactDetailDrawer({
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">No emails sent.</p>
+                <p className="text-sm text-white/60">No emails sent.</p>
               )}
             </section>
 
             <section>
-              <h3 className="mb-3 text-sm font-semibold">Timeline</h3>
+              <h3 className="eyebrow mb-3 text-white/50">Timeline</h3>
               {timelineQuery.isPending ? (
                 <Skeleton className="h-20 w-full" />
               ) : timelineQuery.isError ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/60">
                   Could not load timeline.
                 </p>
               ) : timelineQuery.data &&
@@ -235,9 +235,7 @@ export function ContactDetailDrawer({
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  No activity yet.
-                </p>
+                <p className="text-sm text-white/60">No activity yet.</p>
               )}
             </section>
           </div>

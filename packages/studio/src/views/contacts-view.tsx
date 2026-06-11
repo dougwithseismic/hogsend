@@ -47,7 +47,10 @@ export function ContactsView() {
       />
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search
+          className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40"
+          strokeWidth={1.5}
+        />
         <Input
           placeholder="Search by email or external ID…"
           className="pl-9"
@@ -70,7 +73,7 @@ export function ContactsView() {
           }
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="rounded-lg border bg-white/[0.015]">
           <Table>
             <TableHeader>
               <TableRow>
@@ -86,13 +89,13 @@ export function ContactsView() {
                   className="cursor-pointer"
                   onClick={() => setSelectedId(contact.id)}
                 >
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium text-white">
                     {contact.email ?? "—"}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="font-mono text-xs text-white/70">
                     {contact.externalId}
                   </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
+                  <TableCell className="text-right text-white/60">
                     {formatRelative(contact.lastSeenAt)}
                   </TableCell>
                 </TableRow>

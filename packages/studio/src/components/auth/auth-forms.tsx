@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+import { Logo } from "@/components/layout/logo";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,6 +22,22 @@ export type FormMode = "login" | "forgot" | "reset";
 function resetRedirectUrl(): string {
   if (typeof window === "undefined") return "/studio";
   return `${window.location.origin}/studio`;
+}
+
+// ---------------------------------------------------------------------------
+// Shell — centered brand lockup over a glass card on the ink page
+// ---------------------------------------------------------------------------
+
+export function AuthShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-8 bg-ink p-6">
+      <div className="flex flex-col items-center gap-3">
+        <Logo />
+        <span className="eyebrow text-white/50">Studio</span>
+      </div>
+      {children}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -59,7 +76,7 @@ function CredentialsCard({
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="glass-panel w-full max-w-sm">
       <CardHeader>
         <CardTitle>Sign in to Studio</CardTitle>
         <CardDescription>
@@ -69,7 +86,10 @@ function CredentialsCard({
       <CardContent>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-1.5">
-            <label className="text-sm font-medium" htmlFor="email">
+            <label
+              className="text-sm font-medium text-white/80"
+              htmlFor="email"
+            >
               Email
             </label>
             <Input
@@ -84,13 +104,16 @@ function CredentialsCard({
           </div>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium" htmlFor="password">
+              <label
+                className="text-sm font-medium text-white/80"
+                htmlFor="password"
+              >
                 Password
               </label>
               <button
                 type="button"
                 onClick={onForgot}
-                className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                className="text-white/50 text-xs transition-colors duration-200 hover:text-white"
               >
                 Forgot password?
               </button>
@@ -106,7 +129,7 @@ function CredentialsCard({
               autoComplete="current-password"
             />
           </div>
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? <p className="text-sm text-accent">{error}</p> : null}
           <Button type="submit" className="w-full" disabled={submitting}>
             {submitting ? "Please wait…" : "Sign in"}
           </Button>
@@ -128,7 +151,7 @@ function CredentialsCard({
  */
 export function SetupNeededCard({ onReload }: { onReload: () => void }) {
   return (
-    <Card className="w-full max-w-md">
+    <Card className="glass-panel w-full max-w-md">
       <CardHeader>
         <CardTitle>No admin exists yet</CardTitle>
         <CardDescription>
@@ -137,9 +160,9 @@ export function SetupNeededCard({ onReload }: { onReload: () => void }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="space-y-2 text-sm text-muted-foreground">
+        <div className="space-y-2 text-sm text-white/60">
           <p>Run the CLI where your app is deployed:</p>
-          <pre className="rounded-md bg-muted p-3 text-xs text-foreground">
+          <pre className="rounded-md border border-hairline-faint bg-white/[0.04] p-3 font-mono text-white/90 text-xs">
             <code>hogsend studio admin create</code>
           </pre>
           <p>
@@ -189,7 +212,7 @@ function ForgotCard({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="glass-panel w-full max-w-sm">
       <CardHeader>
         <CardTitle>Reset your password</CardTitle>
         <CardDescription>
@@ -199,7 +222,7 @@ function ForgotCard({ onBack }: { onBack: () => void }) {
       <CardContent>
         {sent ? (
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-white/60">
               If that email matches an account, a reset link is on its way. The
               link expires in 15 minutes and can be used once.
             </p>
@@ -215,7 +238,10 @@ function ForgotCard({ onBack }: { onBack: () => void }) {
         ) : (
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="forgot-email">
+              <label
+                className="text-sm font-medium text-white/80"
+                htmlFor="forgot-email"
+              >
                 Email
               </label>
               <Input
@@ -228,14 +254,14 @@ function ForgotCard({ onBack }: { onBack: () => void }) {
                 autoComplete="email"
               />
             </div>
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {error ? <p className="text-sm text-accent">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? "Sending…" : "Send reset link"}
             </Button>
             <button
               type="button"
               onClick={onBack}
-              className="w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+              className="w-full text-center text-white/50 text-xs transition-colors duration-200 hover:text-white"
             >
               Back to sign in
             </button>
@@ -283,7 +309,7 @@ function ResetCard({ token, onBack }: { token: string; onBack: () => void }) {
   }
 
   return (
-    <Card className="w-full max-w-sm">
+    <Card className="glass-panel w-full max-w-sm">
       <CardHeader>
         <CardTitle>Choose a new password</CardTitle>
         <CardDescription>
@@ -300,7 +326,10 @@ function ResetCard({ token, onBack }: { token: string; onBack: () => void }) {
         ) : (
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="new-password">
+              <label
+                className="text-sm font-medium text-white/80"
+                htmlFor="new-password"
+              >
                 New password
               </label>
               <Input
@@ -315,7 +344,10 @@ function ResetCard({ token, onBack }: { token: string; onBack: () => void }) {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium" htmlFor="confirm-password">
+              <label
+                className="text-sm font-medium text-white/80"
+                htmlFor="confirm-password"
+              >
                 Confirm password
               </label>
               <Input
@@ -329,14 +361,14 @@ function ResetCard({ token, onBack }: { token: string; onBack: () => void }) {
                 autoComplete="new-password"
               />
             </div>
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+            {error ? <p className="text-sm text-accent">{error}</p> : null}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? "Updating…" : "Update password"}
             </Button>
             <button
               type="button"
               onClick={onBack}
-              className="w-full text-center text-xs text-muted-foreground underline-offset-2 hover:underline"
+              className="w-full text-center text-white/50 text-xs transition-colors duration-200 hover:text-white"
             >
               Back to sign in
             </button>
@@ -384,9 +416,5 @@ export function AuthScreen({
     );
   }
 
-  return (
-    <div className="flex h-full items-center justify-center bg-muted/30 p-6">
-      {card}
-    </div>
-  );
+  return <AuthShell>{card}</AuthShell>;
 }

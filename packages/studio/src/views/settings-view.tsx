@@ -125,7 +125,7 @@ export function SettingsView() {
           description="Create a key to authenticate API and webhook requests."
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="rounded-lg border bg-white/[0.015]">
           <Table>
             <TableHeader>
               <TableRow>
@@ -142,8 +142,10 @@ export function SettingsView() {
                 const revoked = key.revokedAt !== null;
                 return (
                   <TableRow key={key.id}>
-                    <TableCell className="font-medium">{key.name}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
+                    <TableCell className="font-medium text-white">
+                      {key.name}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-white/70">
                       {key.keyPrefix}…
                     </TableCell>
                     <TableCell>
@@ -155,16 +157,16 @@ export function SettingsView() {
                         ))}
                       </div>
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="text-white/60">
                       {formatDateTime(key.lastUsedAt)}
                     </TableCell>
                     <TableCell>
                       {revoked ? (
-                        <Badge variant="outline">Revoked</Badge>
+                        <Badge variant="destructive">Revoked</Badge>
                       ) : (
                         <Badge
                           variant="outline"
-                          className="border-emerald-500/40 text-emerald-600 dark:text-emerald-400"
+                          className="border-white/15 bg-white/[0.06] text-white/80"
                         >
                           Active
                         </Badge>
@@ -224,13 +226,13 @@ export function SettingsView() {
             {SCOPES.map((scope) => (
               <label
                 key={scope}
-                className="flex items-center gap-2 text-sm"
+                className="flex items-center gap-2 text-sm text-white/80"
                 htmlFor={`scope-${scope}`}
               >
                 <input
                   id={`scope-${scope}`}
                   type="checkbox"
-                  className="h-4 w-4 rounded border-input"
+                  className="h-4 w-4 rounded border-hairline-faint accent-accent"
                   checked={scopes.includes(scope)}
                   onChange={() => toggleScope(scope)}
                 />
@@ -253,7 +255,7 @@ export function SettingsView() {
           <div className="space-y-2">
             <Label>Secret key</Label>
             <div className="flex items-center gap-2">
-              <code className="flex-1 break-all rounded-md border bg-muted px-3 py-2 font-mono text-xs">
+              <code className="flex-1 break-all rounded-md border border-hairline-faint bg-white/[0.04] px-3 py-2 font-mono text-xs text-white/90">
                 {createdKey.key}
               </code>
               <Button

@@ -140,7 +140,7 @@ export function BucketsView() {
           }
         />
       ) : (
-        <div className="rounded-lg border">
+        <div className="rounded-lg border bg-white/[0.015]">
           <Table>
             <TableHeader>
               <TableRow>
@@ -169,8 +169,8 @@ export function BucketsView() {
                   }
                 >
                   <TableCell>
-                    <span className="font-medium">{row.name}</span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="font-medium text-white">{row.name}</span>
+                    <span className="block font-mono text-xs text-white/70">
                       {row.bucketId}
                     </span>
                   </TableCell>
@@ -183,7 +183,7 @@ export function BucketsView() {
                   <TableCell className="text-right">
                     {formatNumber(row.left)}
                   </TableCell>
-                  <TableCell className="text-right text-muted-foreground">
+                  <TableCell className="text-right text-white/60">
                     {formatDuration(row.avgDwellSecs)}
                   </TableCell>
                   <TableCell>
@@ -273,11 +273,19 @@ export function BucketsView() {
  */
 function FreshnessBadge({ timeBased }: { timeBased: boolean }) {
   return timeBased ? (
-    <Badge variant="outline" title="Time-based — leaves lag the reconcile cron">
+    <Badge
+      variant="outline"
+      className="border-white/[0.08] bg-white/[0.04] text-white/50"
+      title="Time-based — leaves lag the reconcile cron"
+    >
       Building
     </Badge>
   ) : (
-    <Badge variant="outline" title="Event-driven — transitions in real time">
+    <Badge
+      variant="outline"
+      className="border-white/15 bg-white/[0.06] text-white/80"
+      title="Event-driven — transitions in real time"
+    >
       Live
     </Badge>
   );
@@ -318,7 +326,7 @@ function BucketFeeds({ bucketId }: { bucketId: string }) {
       ) : null}
 
       {feeds.length === 0 ? (
-        <div className="space-y-1 text-sm text-muted-foreground">
+        <div className="space-y-1 text-sm text-white/60">
           <p>
             No journeys are bound to this bucket's transitions yet. Bind one to
             THIS bucket with the typed refs{" "}
@@ -344,7 +352,7 @@ function BucketFeeds({ bucketId }: { bucketId: string }) {
             >
               {j.name}
               {j.owned ? (
-                <span className="ml-1.5 text-[10px] uppercase tracking-wide opacity-70">
+                <span className="ml-1.5 text-[10px] uppercase tracking-[0.04em] text-white/50">
                   owned
                 </span>
               ) : null}

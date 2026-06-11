@@ -2,11 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { getAuthStatus } from "@/lib/api";
 import { useSession } from "@/lib/auth-client";
-import { AuthScreen, type FormMode, SetupNeededCard } from "./auth-forms";
+import {
+  AuthScreen,
+  AuthShell,
+  type FormMode,
+  SetupNeededCard,
+} from "./auth-forms";
 
 function FullScreenMessage({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+    <div className="flex h-full items-center justify-center bg-ink text-sm text-white/50">
       {children}
     </div>
   );
@@ -103,14 +108,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (status?.needsSetup) {
     return (
-      <div className="flex h-full items-center justify-center bg-muted/30 p-6">
+      <AuthShell>
         <SetupNeededCard
           onReload={() => {
             void refetchStatus();
             void refetchSession();
           }}
         />
-      </div>
+      </AuthShell>
     );
   }
 

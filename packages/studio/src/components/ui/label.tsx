@@ -9,7 +9,7 @@ export function Label({
     // biome-ignore lint/a11y/noLabelWithoutControl: htmlFor/children supplied by callers
     <label
       className={cn(
-        "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+        "text-sm font-medium leading-none text-white/80 peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
         className,
       )}
       {...props}

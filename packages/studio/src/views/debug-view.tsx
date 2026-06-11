@@ -191,7 +191,7 @@ export function DebugView() {
               <textarea
                 id="props"
                 spellCheck={false}
-                className="flex min-h-[140px] w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                className="flex min-h-[140px] w-full rounded-md border border-hairline-faint bg-white/[0.04] px-3 py-2 font-mono text-sm text-white transition-colors duration-200 placeholder:text-white/40 hover:border-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 value={propsText}
                 onChange={(e) => {
                   setPropsText(e.target.value);
@@ -199,7 +199,7 @@ export function DebugView() {
                 }}
               />
               {jsonError ? (
-                <p className="text-xs text-destructive">{jsonError}</p>
+                <p className="text-xs text-accent">{jsonError}</p>
               ) : null}
             </div>
 
@@ -222,7 +222,7 @@ export function DebugView() {
             </CardHeader>
             <CardContent>
               {presets.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/60">
                   No journeys registered yet. Any event name still works —
                   define a journey to see triggers here.
                 </p>
@@ -248,7 +248,7 @@ export function DebugView() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  <CheckCircle2 className="h-4 w-4 text-white/90" />
                   Result
                 </CardTitle>
               </CardHeader>
@@ -257,20 +257,26 @@ export function DebugView() {
                   <Badge variant={result.stored ? "default" : "secondary"}>
                     {result.stored ? "Stored" : "Not stored"}
                   </Badge>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-sm text-white/60">
                     {result.exits.length} journey exit(s)
                   </span>
                 </div>
-                <pre className="max-h-48 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
+                <pre className="max-h-48 overflow-auto rounded-md border border-hairline-faint bg-white/[0.04] p-3 font-mono text-xs text-white/90">
                   {JSON.stringify(result, null, 2)}
                 </pre>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/60">
                   See the effect in{" "}
-                  <Link to="/journeys" className="underline underline-offset-4">
+                  <Link
+                    to="/journeys"
+                    className="text-white transition-colors duration-200 hover:text-white/80"
+                  >
                     Journeys
                   </Link>{" "}
                   or the{" "}
-                  <Link to="/contacts" className="underline underline-offset-4">
+                  <Link
+                    to="/contacts"
+                    className="text-white transition-colors duration-200 hover:text-white/80"
+                  >
                     contact's timeline
                   </Link>
                   . Make sure the worker is running.

@@ -37,20 +37,20 @@ function TimelineRow({ event }: { event: EmailEvent }) {
   return (
     <li className="flex gap-3">
       <div className="flex flex-col items-center">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full border bg-card">
-          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-hairline-faint bg-white/[0.04]">
+          <Icon strokeWidth={1.5} className="h-3.5 w-3.5 text-white/50" />
         </span>
-        <span className="w-px flex-1 bg-border" />
+        <span className="w-px flex-1 bg-white/[0.08]" />
       </div>
       <div className="pb-4">
-        <p className="text-sm font-medium capitalize">{event.type}</p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm font-medium capitalize text-white">
+          {event.type}
+        </p>
+        <p className="text-xs text-white/50">
           {formatDateTime(event.timestamp)}
         </p>
         {event.url ? (
-          <p className="mt-0.5 break-all text-xs text-muted-foreground">
-            {event.url}
-          </p>
+          <p className="mt-0.5 break-all text-xs text-white/50">{event.url}</p>
         ) : null}
       </div>
     </li>
@@ -60,14 +60,24 @@ function TimelineRow({ event }: { event: EmailEvent }) {
 function DetailField({
   label,
   value,
+  mono = false,
 }: {
   label: string;
   value: React.ReactNode;
+  mono?: boolean;
 }) {
   return (
     <div className="space-y-0.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="break-all text-sm">{value}</dd>
+      <dt className="text-xs text-white/50">{label}</dt>
+      <dd
+        className={
+          mono
+            ? "break-all font-mono text-xs text-white/70"
+            : "break-all text-sm text-white"
+        }
+      >
+        {value}
+      </dd>
     </div>
   );
 }
@@ -150,8 +160,8 @@ export function SendDetailDrawer({
             </div>
 
             <dl className="grid grid-cols-2 gap-4">
-              <DetailField label="To" value={detail.email.toEmail} />
-              <DetailField label="From" value={detail.email.fromEmail} />
+              <DetailField label="To" value={detail.email.toEmail} mono />
+              <DetailField label="From" value={detail.email.fromEmail} mono />
               <DetailField
                 label="Template"
                 value={detail.email.templateKey ?? "—"}
@@ -163,11 +173,17 @@ export function SendDetailDrawer({
               <DetailField
                 label="Journey"
                 value={detail.email.journeyId ?? "—"}
+                mono
               />
-              <DetailField label="User" value={detail.email.userId ?? "—"} />
+              <DetailField
+                label="User"
+                value={detail.email.userId ?? "—"}
+                mono
+              />
               <DetailField
                 label="Message ID"
                 value={detail.email.messageId ?? "—"}
+                mono
               />
               <DetailField
                 label="Created"
@@ -176,9 +192,9 @@ export function SendDetailDrawer({
             </dl>
 
             <section>
-              <h3 className="mb-3 text-sm font-semibold">Timeline</h3>
+              <h3 className="eyebrow mb-3 text-white/50">Timeline</h3>
               {detail.events.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/60">
                   No delivery events recorded yet.
                 </p>
               ) : (
@@ -195,11 +211,11 @@ export function SendDetailDrawer({
             </section>
 
             <section>
-              <h3 className="mb-3 text-sm font-semibold">
+              <h3 className="eyebrow mb-3 text-white/50">
                 Tracked links ({detail.trackedLinks.length})
               </h3>
               {detail.trackedLinks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-white/60">
                   No tracked links in this email.
                 </p>
               ) : (
@@ -207,12 +223,12 @@ export function SendDetailDrawer({
                   {detail.trackedLinks.map((link) => (
                     <li
                       key={link.id}
-                      className="flex items-center justify-between gap-3 rounded-md border p-3"
+                      className="flex items-center justify-between gap-3 rounded-md border bg-white/[0.015] p-3"
                     >
-                      <span className="break-all text-sm">
+                      <span className="break-all text-sm text-white/80">
                         {link.originalUrl}
                       </span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
+                      <span className="shrink-0 text-xs text-white/50">
                         {link.clickCount} click
                         {link.clickCount === 1 ? "" : "s"}
                       </span>

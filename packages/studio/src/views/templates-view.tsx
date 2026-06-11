@@ -47,10 +47,10 @@ export function TemplatesView() {
                 key={t.key}
                 onClick={() => setSelectedKey(t.key)}
                 className={cn(
-                  "w-full rounded-md px-3 py-2 text-left text-sm transition-colors",
+                  "w-full rounded-md px-3 py-2 text-left text-sm transition-colors duration-200",
                   t.key === selectedKey
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    ? "bg-accent-tint text-accent"
+                    : "text-white/60 hover:bg-white/5 hover:text-white",
                 )}
               >
                 <span className="block font-medium">{t.key}</span>
