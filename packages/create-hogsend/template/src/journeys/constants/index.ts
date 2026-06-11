@@ -30,6 +30,10 @@ export const Events = {
   BUCKET_ENTERED: "bucket:entered",
   BUCKET_LEFT: "bucket:left",
 
+  // Fired by the semantic yes/no links in the bundled check-in email — the
+  // click IS the answer (see src/emails/feedback-checkin.tsx).
+  CHECKIN_ANSWERED: "checkin.answered",
+
   // The smoke-test event the bundled test-onboarding journey listens for.
   TEST_SIGNUP: "test.signup",
 } as const;
@@ -85,6 +89,9 @@ export const Templates = {
 
   // Marketing — broadcast to a list via hs.campaigns.send.
   MARKETING_PRODUCT_UPDATE: "marketing/product-update",
+
+  // Feedback — semantic-link check-in (sent from the feedback-checkin journey).
+  FEEDBACK_CHECKIN: "feedback/checkin",
 } as const;
 
 export type TemplateName = (typeof Templates)[keyof typeof Templates];

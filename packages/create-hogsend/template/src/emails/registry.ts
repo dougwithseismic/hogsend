@@ -1,5 +1,6 @@
 import type { TemplateRegistry } from "@hogsend/email";
 import ActivationNudgeEmail from "./activation-nudge.js";
+import FeedbackCheckinEmail from "./feedback-checkin.js";
 import MagicLinkEmail from "./magic-link.js";
 import ProductUpdateEmail from "./product-update.js";
 import ReceiptEmail from "./receipt.js";
@@ -24,6 +25,14 @@ import WelcomeEmail from "./welcome.js";
 //   - a LIST id (e.g. "product-updates")  ties a broadcast to that list's opt-in
 //     (see `productUpdates` in `src/lists/index.ts`)
 export const templates: TemplateRegistry = {
+  // Feedback — semantic yes/no links (sent from the feedback-checkin journey).
+  "feedback/checkin": {
+    component: FeedbackCheckinEmail,
+    defaultSubject: "Quick check-in — how's it going?",
+    category: "journey",
+    preview: (props) => `${props.name}, one-tap question`,
+  },
+
   // Activation (sent from the bundled `welcome` journey).
   "activation/welcome": {
     component: WelcomeEmail,

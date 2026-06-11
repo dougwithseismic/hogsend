@@ -131,3 +131,56 @@ the click endpoint. You don't need to do anything for this; it's handled.
 
 Author the component; the engine guarantees tracking + unsubscribe on send.
 Full system docs: `docs/tracking.md`.
+
+---
+
+## Semantic links — in-email answers via `EmailAction`
+
+A plain tracked link tells you it WAS clicked; a semantic link tells you what
+the click MEANT. `EmailAction` (from `@hogsend/email`) renders an anchor that
+carries an event name + scalar properties; the engine lifts that metadata into
+the `tracked_links` row at send time (the attributes never reach the inbox) and
+emits the event through the FULL ingest pipeline at click time — journeys can
+`ctx.waitForEvent` it, destinations (PostHog et al) receive it as
+`email.action`, and `user_events` records it.
+
+```tsx
+import { EmailAction } from "@hogsend/email";
+import { Events } from "../journeys/constants/index.js";
+
+<EmailAction
+  event={Events.CHECKIN_ANSWERED}      // your event — NOT email.*/journey.*/bucket.*/contact.*
+  properties={{ answer: "yes" }}        // scalars only (string/number/boolean/null)
+  href="https://app.example.com/thanks" // where the human lands after the click
+  className="…"                          // styled like any anchor (Tailwind works)
+>
+  Going great
+</EmailAction>
+```
+
+Rules the engine enforces (a violation FAILS the send, loudly):
+
+- `event` must not use a reserved namespace (`email.`, `journey.`, `bucket.`,
+  `contact.` — dot or colon form).
+- `properties` values must be scalars; the JSON must stay under 2 KB.
+- The `href` must be an absolute http(s) URL (it is also click-tracked as
+  normal).
+
+Semantics at click time:
+
+- **First answer wins, per (send, event name).** An NPS row of eleven
+  EmailActions shares one answer slot — only the first clicked score ingests
+  (idempotency key `sem:<emailSendId>:<event>`). The generic `email.link_clicked`
+  still fires for every hit.
+- **Answers confirm after a ~30s window.** A click is only a provisional
+  answer: a deferred task judges it once the burst window has fully elapsed,
+  so a scanner that clicks every link (Outlook SafeLinks / Proofpoint) is seen
+  in full — including its first click — and suppressed before anything is
+  recorded. Cost: ~30s of answer latency (invisible to day-scale journey
+  waits). Still don't make destructive actions ("cancel my account") a
+  one-click EmailAction.
+- Two EmailActions may share the same `href` with different
+  `event`/`properties` — they get separate tracked links (no URL collapse).
+- The answering journey reads the payload from
+  `ctx.waitForEvent(...) → { timedOut, properties }` — see the
+  hogsend-authoring-journeys skill.

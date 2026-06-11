@@ -8,6 +8,7 @@ import {
   pushTrackingEvent,
   resolveEmailSendContext,
 } from "../../lib/tracking-events.js";
+import { confirmSemanticClickTask } from "../../workflows/confirm-semantic-click.js";
 
 const clickRoute = createRoute({
   method: "get",
@@ -36,6 +37,8 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
         id: trackedLinks.id,
         originalUrl: trackedLinks.originalUrl,
         emailSendId: trackedLinks.emailSendId,
+        event: trackedLinks.event,
+        eventProperties: trackedLinks.eventProperties,
       })
       .from(trackedLinks)
       .where(eq(trackedLinks.id, id))
@@ -84,6 +87,26 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
     ]);
 
     const { hatchet, registry, logger } = c.get("container");
+
+    // SEMANTIC link: the click is a PROVISIONAL answer. Confirmation is
+    // deferred past the scanner-burst window (a Hatchet task) so the gate can
+    // see the WHOLE burst — an inline check could never suppress a scanner's
+    // first click. The task claims the send's answer slot (first answer wins)
+    // and emits the consumer event + email.action outbound.
+    if (link.event) {
+      void confirmSemanticClickTask
+        .runNoWait({
+          trackedLinkId: link.id,
+          clickedAt: new Date().toISOString(),
+        })
+        .catch((err: unknown) => {
+          logger.warn("Failed to enqueue semantic click confirmation", {
+            linkId: link.id,
+            event: link.event,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }
 
     // Resolve the send context ONCE (off the response path) and feed both the
     // re-ingest and the PER-HIT outbound emit — avoiding a duplicate

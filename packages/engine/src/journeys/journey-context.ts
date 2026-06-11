@@ -22,11 +22,17 @@ import type {
   IfPast,
   JourneyContext,
   TimeOfDayBuilder,
+  WaitForEventResult,
   Weekday,
   WhenBuilder,
 } from "@hogsend/core/types";
-import { type Database, emailSends, journeyStates } from "@hogsend/db";
-import { and, count, eq, max, notInArray } from "drizzle-orm";
+import {
+  type Database,
+  emailSends,
+  journeyStates,
+  userEvents,
+} from "@hogsend/db";
+import { and, count, desc, eq, gte, max, notInArray } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { ingestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
@@ -206,7 +212,8 @@ export function createJourneyContext(
     event: string,
     timeout: DurationObject,
     nodeId: string,
-  ): Promise<{ timedOut: boolean }> => {
+    lookback?: DurationObject,
+  ): Promise<WaitForEventResult> => {
     // Reject a timeout longer than the journey task's executionTimeout up front
     // so it fails fast at authoring time. (Eviction-capable engines may allow
     // longer wall-clock waits, but we cap to the configured ceiling — raise
@@ -215,6 +222,41 @@ export function createJourneyContext(
       throw new RangeError(
         `waitForEvent timeout exceeds the journey execution limit (${JOURNEY_EXECUTION_TIMEOUT})`,
       );
+    }
+
+    // Optional lookback: the durable wait only matches events pushed AFTER it
+    // is established, so an answer landing in the gap (between a send and its
+    // wait, or between two back-to-back waits) would otherwise be permanently
+    // unobservable — its first-answer idempotency key is already claimed and
+    // can never re-push. A recent matching user_events row resolves the wait
+    // immediately, payload included.
+    if (lookback) {
+      const since = new Date(Date.now() - durationToMs(lookback));
+      const recent = await db
+        .select({ properties: userEvents.properties })
+        .from(userEvents)
+        .where(
+          and(
+            eq(userEvents.userId, userId),
+            eq(userEvents.event, event),
+            gte(userEvents.occurredAt, since),
+          ),
+        )
+        .orderBy(desc(userEvents.occurredAt))
+        .limit(1);
+      const row = recent[0];
+      if (row) {
+        const scalars = Object.fromEntries(
+          Object.entries(row.properties ?? {}).filter(
+            ([, v]) =>
+              typeof v === "string" ||
+              typeof v === "number" ||
+              typeof v === "boolean" ||
+              v === null,
+          ),
+        ) as NonNullable<WaitForEventResult["properties"]>;
+        return { timedOut: false, properties: scalars };
+      }
     }
 
     await enterWait(nodeId);
@@ -241,9 +283,34 @@ export function createJourneyContext(
       {}) as Record<string, unknown>;
     const timedOut = !("event" in fired);
 
+    // Surface the matched event's payload (best-effort). The engine returns
+    // matches as `[{ id, data }]` where `data` is the pushed ingest payload
+    // ({ userId, userEmail, properties }); the pre-eviction path may hand the
+    // payload back un-wrapped — tolerate both, mirroring the CREATE-strip.
+    let properties: WaitForEventResult["properties"];
+    if (!timedOut) {
+      const matches = fired.event;
+      const first = Array.isArray(matches) ? matches[0] : matches;
+      const payload =
+        first && typeof first === "object" && "data" in first
+          ? (first as { data?: unknown }).data
+          : first;
+      const candidate =
+        payload && typeof payload === "object" && "properties" in payload
+          ? (payload as { properties?: unknown }).properties
+          : undefined;
+      if (
+        candidate &&
+        typeof candidate === "object" &&
+        !Array.isArray(candidate)
+      ) {
+        properties = candidate as NonNullable<WaitForEventResult["properties"]>;
+      }
+    }
+
     await resumeFromWait();
 
-    return { timedOut };
+    return { timedOut, ...(properties ? { properties } : {}) };
   };
 
   return {
@@ -275,11 +342,12 @@ export function createJourneyContext(
       );
     },
 
-    async waitForEvent({ event, timeout, label }) {
+    async waitForEvent({ event, timeout, label, lookback }) {
       return performWaitForEvent(
         event,
         timeout,
         label ?? `wait-event:${event}`,
+        lookback,
       );
     },
 

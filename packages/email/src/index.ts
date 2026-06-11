@@ -2,6 +2,16 @@
 // baked in here; clients own their `.tsx` templates + registry and augment the
 // open `TemplateRegistryMap` interface (Option B).
 
+// Semantic links (in-email actions)
+export type {
+  EmailActionProperties,
+  EmailActionProps,
+} from "./email-action.js";
+export {
+  EMAIL_ACTION_EVENT_ATTR,
+  EMAIL_ACTION_PROPS_ATTR,
+  EmailAction,
+} from "./email-action.js";
 // Template registry
 export {
   createRegistry,
@@ -10,7 +20,6 @@ export {
   getTemplateDefinition,
   getTemplateNames,
 } from "./registry.js";
-
 // Rendering
 export { renderToHtml, renderToPlainText } from "./render.js";
 

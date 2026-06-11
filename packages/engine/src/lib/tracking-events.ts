@@ -2,7 +2,7 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, emailSends, journeyStates } from "@hogsend/db";
 import { eq } from "drizzle-orm";
-import { ingestEvent } from "./ingestion.js";
+import { type IngestResult, ingestEvent } from "./ingestion.js";
 import type { Logger } from "./logger.js";
 
 interface EmailSendContext {
@@ -122,6 +122,13 @@ export interface PushTrackingEventOpts {
    * lazily.
    */
   resolvedContext?: EmailSendContext | null;
+  /**
+   * Threaded straight into `ingestEvent` — a duplicate key returns
+   * `{ stored: false }` BEFORE the Hatchet push, so journeys never see the
+   * duplicate. Semantic link answers use `sem:<emailSendId>:<event>` for
+   * first-answer-per-send semantics.
+   */
+  idempotencyKey?: string;
 }
 
 /**
@@ -136,14 +143,14 @@ export interface PushTrackingEventOpts {
  */
 export async function pushTrackingEvent(
   opts: PushTrackingEventOpts,
-): Promise<void> {
+): Promise<IngestResult | undefined> {
   const { db, hatchet, registry, logger, event, emailSendId } = opts;
 
   const ctx =
     opts.resolvedContext !== undefined
       ? opts.resolvedContext
       : await resolveEmailSendContext(db, emailSendId);
-  if (!ctx) return;
+  if (!ctx) return undefined;
 
   const properties: Record<string, unknown> = {
     emailSendId,
@@ -151,7 +158,7 @@ export async function pushTrackingEvent(
     ...opts.properties,
   };
 
-  await ingestEvent({
+  return await ingestEvent({
     db,
     registry,
     hatchet,
@@ -161,6 +168,7 @@ export async function pushTrackingEvent(
       userId: ctx.userId,
       userEmail: ctx.userEmail,
       eventProperties: properties,
+      idempotencyKey: opts.idempotencyKey,
     },
   });
 }

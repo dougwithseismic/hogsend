@@ -107,11 +107,29 @@ export interface WaitForEventOptions {
   timeout: DurationObject;
   /** Optional observability label written to `currentNodeId` while waiting. */
   label?: string;
+  /**
+   * Look BACK this far before waiting forward. The wait is normally
+   * forward-looking (only events pushed after it is established match), which
+   * leaves a gap: an event landing between two waits — or between a send and
+   * its wait — is never seen. With `lookback`, recent `user_events` matching
+   * (user, event) are checked first; a hit resolves immediately with
+   * `{ timedOut: false, properties }`. Keep the window tight (just the gap it
+   * covers, e.g. `hours(1)` between back-to-back waits) so a stale answer
+   * isn't mistaken for a fresh one.
+   */
+  lookback?: DurationObject;
 }
 
 export interface WaitForEventResult {
   /** `true` when the `timeout` elapsed first; `false` when the event fired. */
   timedOut: boolean;
+  /**
+   * The matched event's properties, present (best-effort) when the event
+   * branch fired and the pushed payload carried them. Scalars only — that is
+   * all the ingest pipeline puts on the wire. Branch on these to react to the
+   * answer (e.g. an in-email NPS score) without a separate history lookup.
+   */
+  properties?: Record<string, string | number | boolean | null>;
 }
 
 export interface JourneyContext {

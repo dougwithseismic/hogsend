@@ -48,7 +48,9 @@ Emails sent through `emailService.send()` (the tracked path) automatically get l
 
 ### `tracked_links`
 
-One row per unique URL per email. Created at send time.
+One row per unique (URL, semantic event, semantic properties) tuple per email.
+Created at send time. Plain links dedupe by URL; two semantic links sharing an
+`href` but carrying different answers get SEPARATE rows.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -56,6 +58,9 @@ One row per unique URL per email. Created at send time.
 | `email_send_id` | UUID | FK → `email_sends` |
 | `original_url` | TEXT | The original destination URL |
 | `click_count` | INTEGER | Denormalized click counter |
+| `event` | TEXT | Semantic event name (NULL for plain links) |
+| `event_properties` | JSONB | Semantic event payload (scalars only) |
+| `semantic_emitted_at` | TIMESTAMPTZ | Set once when this link's click was recorded as THE answer |
 | `created_at` | TIMESTAMP | When the link was created |
 
 ### `link_clicks`
@@ -86,6 +91,9 @@ Looks up the tracked link, records a click, and redirects.
 - **Response**: `302` redirect to original URL
 - **Fallback**: unknown link IDs redirect to `API_PUBLIC_URL`
 - **Records**: `link_clicks` row + `tracked_links.clickCount` increment + `emailSends.clickedAt` (first click only)
+- **Semantic links**: when the row carries an `event`, additionally ingests the
+  consumer event (first answer per send wins) and emits `email.action` on the
+  outbound spine — see "Semantic links" below
 
 ### `GET /v1/t/o/:id` — Open Tracking
 
@@ -101,6 +109,90 @@ These URLs are never rewritten:
 - **Unsubscribe links** — URLs containing `/v1/email/unsubscribe`
 - **Preference links** — URLs containing `/v1/email/preferences`
 - **Non-HTTP** — `mailto:`, `tel:`, etc. (regex only matches `https?://`)
+
+## Semantic links — in-email answers
+
+A plain tracked link records THAT it was clicked; a **semantic link** records
+what the click MEANT. Template authors use `EmailAction` (from
+`@hogsend/email`) instead of a plain anchor:
+
+```tsx
+import { EmailAction } from "@hogsend/email";
+
+<EmailAction
+  event="nps.submitted"           // consumer event name
+  properties={{ score: 9 }}        // scalars only, < 2 KB JSON
+  href={`${surveyUrl}?score=9`}    // where the human lands
+>
+  9
+</EmailAction>
+```
+
+At send time `rewriteLinks` lifts the metadata into the `tracked_links` row and
+**strips the attributes** — the in-HTML encoding is internal wire format; the DB
+row is the contract. At click time the route emits the event through the FULL
+ingest pipeline (`user_events`, Hatchet journey routing, exit checks) plus an
+`email.action` envelope on the outbound spine (the PostHog preset captures it
+under the CONSUMER event name with the properties flattened).
+
+Validation at send time (violations fail the send loudly):
+
+- Reserved namespaces are barred for `event`: `email.`, `journey.`, `bucket.`,
+  `contact.` (dot or colon form).
+- `properties` must be a flat object of scalars (string/number/boolean/null);
+  non-scalars don't survive the Hatchet wire.
+- The `href` must be absolute http(s) and not an unsubscribe/preference URL.
+
+Answer semantics at click time:
+
+- **First answer wins, per (send, event name)** — idempotency key
+  `sem:<emailSendId>:<event>` dedupes inside `ingestEvent` BEFORE the Hatchet
+  push, so journeys and destinations see at most one answer per send. An NPS
+  row of 11 buttons = one answer slot. The winning link's
+  `semantic_emitted_at` is stamped.
+- **Deferred confirmation + scanner-burst suppression** — security scanners
+  (Outlook SafeLinks, Proofpoint) follow every link within seconds. A click on
+  a semantic link is therefore only a PROVISIONAL answer: a Hatchet task
+  (`confirm-semantic-click`) judges it after the 30-second burst window has
+  fully elapsed, counting distinct links of the send clicked in the window
+  around the candidate — before AND after it. At ≥ 3 distinct links the whole
+  burst (including the scanner's first click) is suppressed; the generic
+  `email.link_clicked` still fires per hit. The cost is ~30s of answer
+  latency, invisible to journeys waiting on day-scale timeouts. A failed
+  Hatchet publish rolls back the idempotency claim, and the `email.action`
+  outbound emit carries the same `sem:` key as `dedupeKey`, so task retries
+  are exactly-once per endpoint. Still: don't make destructive actions
+  one-click EmailActions (a scanner spreading clicks beyond the window could
+  in principle slip one through).
+- **The generic event is never suppressed** — a semantic click fires BOTH
+  `email.link_clicked` (per hit) and the semantic event (once). They are
+  different event names; don't sum them as "clicks".
+
+Journeys react via `ctx.waitForEvent`, which returns the matched payload:
+
+```ts
+const answer = await ctx.waitForEvent({
+  event: "nps.submitted",
+  timeout: days(3),
+});
+if (!answer.timedOut && typeof answer.properties?.score === "number") {
+  // branch on the score, enrich the person, trigger a follow-up journey…
+}
+```
+
+Do NOT put the awaited event in `exitOn` — an exit match mid-wait aborts the
+run before the post-wait branch executes.
+
+`waitForEvent` also takes an optional `lookback` duration: the durable wait
+only matches events pushed AFTER it is established, so an answer landing
+between two waits (or between a send and its wait) would otherwise be missed —
+and the `sem:` key means it can never re-push. With `lookback`, recent
+`user_events` are checked first and a hit resolves the wait immediately,
+payload included. Keep the window tight (just the gap it covers).
+
+Note for existing deployments: the seeded PostHog destination subscribes to
+`email.action` only when seeded fresh — add `email.action` to an existing
+endpoint's `event_types` to receive semantic answers.
 
 ## Event Loop — PostHog + Journey Integration
 

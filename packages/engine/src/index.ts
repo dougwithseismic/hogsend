@@ -229,6 +229,13 @@ export {
 } from "./lib/redis.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---
 export { sendResetPasswordEmail } from "./lib/reset-email.js";
+export {
+  type ConfirmSemanticClickInput,
+  type ConfirmSemanticClickResult,
+  confirmSemanticClick,
+  SEMANTIC_BURST_DISTINCT_LINKS,
+  SEMANTIC_BURST_WINDOW_MS,
+} from "./lib/semantic-click.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
 export {
   type ResolveTimezoneInput,

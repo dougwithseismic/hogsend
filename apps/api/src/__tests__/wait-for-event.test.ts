@@ -150,6 +150,118 @@ describe("ctx.waitForEvent", () => {
     expect(res).toEqual({ timedOut: true });
   });
 
+  // The engine returns matches as `[{ id, data }]` where `data` is the pushed
+  // ingest payload ({ userId, userEmail, properties }). The matched event's
+  // properties must surface so journeys can branch on the answer.
+  it("surfaces the matched event's properties (eviction envelope)", async () => {
+    const waitFor = vi.fn().mockResolvedValue({
+      CREATE: {
+        event: [
+          {
+            id: "evt-1",
+            data: {
+              userId: "user-1",
+              userEmail: "user@example.com",
+              properties: { score: 9, emailSendId: "send-1" },
+            },
+          },
+        ],
+      },
+    });
+    const { db } = makeWaitDbStub();
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "nps.submitted",
+      timeout: days(7),
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toMatchObject({ score: 9 });
+  });
+
+  it("surfaces properties from an un-wrapped pre-eviction payload", async () => {
+    const waitFor = vi.fn().mockResolvedValue({
+      event: [{ userId: "user-1", properties: { answer: "yes" } }],
+    });
+    const { db } = makeWaitDbStub();
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "checkin.answered",
+      timeout: days(1),
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toMatchObject({ answer: "yes" });
+  });
+
+  it("omits properties when the match carries no payload", async () => {
+    const waitFor = vi.fn().mockResolvedValue({ CREATE: { event: [{}] } });
+    const { db } = makeWaitDbStub();
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "activated",
+      timeout: days(1),
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toBeUndefined();
+  });
+
+  it("resolves from a recent user_events row when lookback is set (no wait)", async () => {
+    const waitFor = vi.fn();
+    const { db } = makeWaitDbStub();
+    // The lookback pre-check is a select chain — stub it to return a hit.
+    (db as unknown as Record<string, unknown>).select = vi.fn(() => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: () =>
+              Promise.resolve([{ properties: { score: 7, source: "email" } }]),
+          }),
+        }),
+      }),
+    }));
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "nps.submitted",
+      timeout: days(7),
+      lookback: { hours: 1 },
+    });
+
+    expect(res.timedOut).toBe(false);
+    expect(res.properties).toMatchObject({ score: 7 });
+    // The durable wait was never established — the gap event satisfied it.
+    expect(waitFor).not.toHaveBeenCalled();
+  });
+
+  it("falls through to the durable wait when lookback finds nothing", async () => {
+    const waitFor = vi.fn().mockResolvedValue({ CREATE: { timeout: [{}] } });
+    const { db } = makeWaitDbStub();
+    (db as unknown as Record<string, unknown>).select = vi.fn(() => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({
+            limit: () => Promise.resolve([]),
+          }),
+        }),
+      }),
+    }));
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "nps.submitted",
+      timeout: days(1),
+      lookback: { hours: 1 },
+    });
+
+    expect(res.timedOut).toBe(true);
+    expect(waitFor).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a timeout beyond the 720h execution limit before waiting", async () => {
     const waitFor = vi.fn();
     const { db } = makeWaitDbStub([]);

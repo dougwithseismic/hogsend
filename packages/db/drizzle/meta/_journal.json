@@ -162,6 +162,13 @@
       "when": 1781101598164,
       "tag": "0022_ftux_journey_states_updated_at_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1781164526837,
+      "tag": "0023_semantic_tracked_links",
+      "breakpoints": true
     }
   ]
 }

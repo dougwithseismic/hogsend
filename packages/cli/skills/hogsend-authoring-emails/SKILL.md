@@ -50,6 +50,12 @@ get a type error at the send call site — the #1 trap. See
   snippet; `category` drives frequency-cap exemption (`transactional` is exempt).
 - **Tracking + unsubscribe are automatic on `emailService.send` / `sendEmail`.**
   You never call `prepareTrackedHtml` or `generateUnsubscribeUrl` yourself.
+- **Semantic links (`EmailAction` from `@hogsend/email`)** make a click MEAN
+  something: an anchor that fires a real event (`event` + scalar `properties`)
+  through the full ingest pipeline — in-email yes/no questions, NPS scores,
+  one-tap choices. First answer per (send, event name) wins; scanner
+  click-bursts are suppressed. Details + rules in
+  `references/tracking-and-unsubscribe.md`.
 
 ## Task playbooks — load the matching reference
 

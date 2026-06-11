@@ -36,6 +36,20 @@ const WAIT_CODE = `run: async (user, ctx) => {
   }
 }`;
 
+const ACTIONS_CODE = `// In the email: each answer is a link that MEANS something.
+<EmailAction event="nps.submitted" properties={{ score }} href={thanksUrl}>
+  {String(score)}
+</EmailAction>
+
+// In the journey: wait for the answer, branch on the payload.
+const { timedOut, properties } = await ctx.waitForEvent({
+  event: "nps.submitted",
+  timeout: days(3),
+});
+if (!timedOut && Number(properties?.score) <= 6) {
+  await ctx.trigger({ event: "nps.detractor", userId: user.id });
+}`;
+
 const TRACKING_CODE = `run: async (user, ctx) => {
   await sendEmail({ to: user.email, template: "welcome" });
   await ctx.sleep({ duration: days(1) });
@@ -84,9 +98,9 @@ export const crm = defineDestination({
 /**
  * BuildingBlocks — the what-it-does showcase: a split header (red kicker +
  * H2 left, supporting paragraph right) over the giant tabbed product panel
- * with five real-code tabs: Journeys, waiting for what the user does next
- * (ctx.waitForEvent), first-party tracking, Buckets, and outbound
- * Destinations. The async server `CodeHighlight` nodes are rendered here and
+ * with six real-code tabs: Journeys, waiting for what the user does next
+ * (ctx.waitForEvent), in-email answers (semantic links), first-party
+ * tracking, Buckets, and outbound Destinations. The async server `CodeHighlight` nodes are rendered here and
  * passed as `media` props into the client `TabbedShowcase` (RSC composes
  * server-rendered nodes into client islands).
  */
@@ -94,12 +108,14 @@ export async function BuildingBlocks() {
   const [
     journeyMedia,
     waitMedia,
+    actionsMedia,
     trackingMedia,
     bucketMedia,
     destinationsMedia,
   ] = await Promise.all([
     CodeHighlight({ code: JOURNEY_CODE, lang: "ts" }),
     CodeHighlight({ code: WAIT_CODE, lang: "ts" }),
+    CodeHighlight({ code: ACTIONS_CODE, lang: "tsx" }),
     CodeHighlight({ code: TRACKING_CODE, lang: "ts" }),
     CodeHighlight({ code: BUCKET_CODE, lang: "ts" }),
     CodeHighlight({ code: DESTINATIONS_CODE, lang: "ts" }),
@@ -123,6 +139,15 @@ export async function BuildingBlocks() {
         "Pause the journey until the user acts or a timeout wins. The wait is durable, so it survives deploys, and the branch afterwards is an if statement.",
       tags: ["Durable wait", "Event or timeout", "Survives deploys"],
       media: <MockupFrame>{waitMedia}</MockupFrame>,
+    },
+    {
+      id: "actions",
+      label: "In-email answers",
+      title: "Ask a question inside the email",
+      description:
+        "A yes/no, an NPS score, a one-tap choice — each answer is a link whose click fires a real event with its payload. The journey branches on the answer; PostHog receives it under your event name. First answer wins, and scanner click-bursts are filtered before anything is recorded.",
+      tags: ["NPS & yes/no", "Answer = event", "Scanner-safe"],
+      media: <MockupFrame>{actionsMedia}</MockupFrame>,
     },
     {
       id: "tracking",
