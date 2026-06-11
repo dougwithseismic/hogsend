@@ -37,10 +37,12 @@ Not every surface accepts all four types — match the type to the field:
 
 - **`trigger.where`** (journey) → `PropertyCondition[]` ONLY. Property
   conditions, AND-ed together, evaluated against the triggering event's
-  properties. No event/engagement/composite legs here.
+  properties. No event/engagement/composite legs here. Authoring sugar: a
+  builder function — `where: (b) => b.prop("score").lte(6)` (or an array of
+  terminals) — resolves ONCE at `defineJourney` time to the identical POJOs.
 - **`exitOn[].where`** (journey) → `PropertyCondition[]` ONLY. Same shape;
   AND-ed against the incoming event's properties. Omit `where` to exit on the
-  event name alone.
+  event name alone. Accepts the same builder-function sugar.
 - **`criteria`** (bucket) → a single `ConditionEval` tree — ALL FOUR types,
   composed with `composite` / `b.all()` / `b.any()`. This is the only surface
   that runs against the database (event counts, engagement, windows).
@@ -57,7 +59,8 @@ Not every surface accepts all four types — match the type to the field:
 
 ## Golden rules
 
-1. `trigger.where` and `exitOn[].where` take `PropertyCondition[]` only — if
+1. `trigger.where` and `exitOn[].where` take `PropertyCondition[]` (write them
+   with the `(b) => b.prop(...)` builder for short) — if
    you need an event count or a time window, that logic belongs in the
    journey's `run` body (`ctx.history.hasEvent`) or in a bucket's `criteria`,
    not in `where`.

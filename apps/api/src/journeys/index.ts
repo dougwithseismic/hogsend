@@ -4,6 +4,7 @@ import { activationWelcome } from "./activation-welcome.js";
 import { churnPrevention } from "./churn-prevention.js";
 import { conversionAbandonedCheckout } from "./conversion-abandoned-checkout.js";
 import { conversionTrialUpgrade } from "./conversion-trial-upgrade.js";
+import { detractorRescue } from "./detractor-rescue.js";
 import { feedbackNps } from "./feedback-nps.js";
 import { reactivationDormancy } from "./reactivation-dormancy.js";
 import { referralInvite } from "./referral-invite.js";
@@ -22,6 +23,7 @@ export const journeys: DefinedJourney[] = [
   retentionMilestone,
   referralInvite,
   feedbackNps,
+  detractorRescue,
   reactivationDormancy,
   churnPrevention,
   testOnboarding,
@@ -34,6 +36,7 @@ export {
   churnPrevention,
   conversionAbandonedCheckout,
   conversionTrialUpgrade,
+  detractorRescue,
   feedbackNps,
   reactivationDormancy,
   referralInvite,

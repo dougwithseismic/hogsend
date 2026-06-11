@@ -160,9 +160,7 @@ export const detractorRescue = defineJourney({
     id: "detractor-rescue",
     trigger: {
       event: Events.NPS_SUBMITTED,
-      where: [
-        { type: "property", property: "score", operator: "lte", value: 6 },
-      ],
+      where: (b) => b.prop("score").lte(6),
     },
     entryLimit: "once_per_period",
     entryPeriod: days(30),

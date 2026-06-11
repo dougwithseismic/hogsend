@@ -102,7 +102,7 @@ interface JourneyMeta {
 
   trigger: {
     event: string;
-    where?: PropertyCondition[];
+    where?: PropertyCondition[] | ((b) => PropertyCondition | PropertyCondition[]);
   };
 
   entryLimit: "once" | "once_per_period" | "unlimited";
@@ -110,7 +110,7 @@ interface JourneyMeta {
 
   exitOn?: Array<{
     event: string;
-    where?: PropertyCondition[];
+    where?: PropertyCondition[] | ((b) => PropertyCondition | PropertyCondition[]);
   }>;
 
   suppress: DurationObject;
