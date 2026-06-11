@@ -11,8 +11,8 @@ export function Sidebar() {
   });
 
   return (
-    <aside className="flex h-full w-60 flex-col border-r border-hairline bg-ink">
-      <div className="flex h-14 items-center border-b border-hairline px-5">
+    <aside className="flex h-full w-60 flex-col border-r border-hairline-faint bg-ink">
+      <div className="flex h-14 items-center border-b border-hairline-faint px-5">
         <Logo />
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">
@@ -39,7 +39,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="border-t border-hairline p-2">
+      <div className="border-t border-hairline-faint p-2">
         <a
           href={links.docs}
           target="_blank"

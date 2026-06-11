@@ -11,7 +11,7 @@ export function AppShell() {
     <div className="flex h-full bg-ink text-white">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center justify-end gap-3 border-b border-hairline bg-ink/30 px-6 backdrop-blur-[7px]">
+        <header className="flex h-14 items-center justify-end gap-3 border-b border-hairline-faint bg-ink/30 px-6 backdrop-blur-[7px]">
           {session?.user ? (
             <span className="text-sm text-white/50">{session.user.email}</span>
           ) : null}
