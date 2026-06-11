@@ -29,7 +29,9 @@ export default function robots(): MetadataRoute.Robots {
 
   return {
     rules: [
-      { userAgent: "*", allow: "/", disallow: ["/api/"] },
+      // /hey is the personalised referral page family (bare page included) —
+      // noindex via page metadata, and excluded here as belt-and-braces.
+      { userAgent: "*", allow: "/", disallow: ["/api/", "/hey"] },
       ...AI_CRAWLERS.map((ua) => ({ userAgent: ua, allow: "/" })),
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,

@@ -51,6 +51,9 @@ export const AnalyticsEvent = {
   NAME_CHECKED: "docs.name_checked",
   /** Pricing calculator interaction, with `{ contacts, sends }`. */
   CALCULATOR_USED: "docs.calculator_used",
+  /** Referral landing page (/hey/[name]) viewed, with `{ personalised }` —
+   * the name in the URL is PII-adjacent and never sent. */
+  REFERRAL_VIEWED: "docs.referral_viewed",
 } as const;
 
 export type AnalyticsEventName =

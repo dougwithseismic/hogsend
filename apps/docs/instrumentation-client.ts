@@ -8,12 +8,38 @@ import posthog from "posthog-js";
  */
 const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
+/**
+ * Replace the name segment of any /hey/<name> URL with /hey/_ in strings,
+ * recursing through nested objects/arrays — PostHog nests $initial_current_url
+ * et al. inside $set_once on person-profile events.
+ */
+const scrubHeyUrls = (value: unknown): unknown => {
+  if (typeof value === "string") {
+    return value.replace(/\/hey\/[^/?#]+/g, "/hey/_");
+  }
+  if (Array.isArray(value)) {
+    return value.map(scrubHeyUrls);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, v]) => [key, scrubHeyUrls(v)]),
+    );
+  }
+  return value;
+};
+
 if (posthogKey) {
   posthog.init(posthogKey, {
     api_host: "https://eu.i.posthog.com",
     persistence: "memory",
     capture_pageview: true,
     capture_pageleave: true,
+    // /hey/<name> referral pages carry a first name in the URL. PostHog gets
+    // zero PII, so every string property ($current_url, $pathname, $referrer,
+    // $initial_*…) is scrubbed before send — recursively, since the
+    // $initial_* values travel nested inside $set_once.
+    sanitize_properties: (properties) =>
+      scrubHeyUrls(properties) as typeof properties,
   });
 
   // Cross-device stitch: a visitor arriving from a tracked email link carries

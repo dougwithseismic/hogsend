@@ -31,6 +31,12 @@ export function classifyPath(pathname: string): {
     };
   }
 
+  if (segments[0] === "hey") {
+    // Personalised referral pages carry a first name in the URL — classify
+    // without it so the name never reaches PostHog.
+    return { area: "marketing", section: "hey", slug: "hey" };
+  }
+
   return {
     area: "marketing",
     section: segments[0] ?? "home",
@@ -54,11 +60,13 @@ export function PageViewTracker(): JSX.Element | null {
     lastTracked.current = pathname;
 
     const { area, section, slug } = classifyPath(pathname);
+    // /hey/<name> carries a first name in the path — mask the raw prop too.
+    const safePath = section === "hey" ? "/hey" : pathname;
     capture(AnalyticsEvent.PAGE_VIEWED, {
       area,
       section,
       slug,
-      path: pathname,
+      path: safePath,
     });
   }, [pathname]);
 
