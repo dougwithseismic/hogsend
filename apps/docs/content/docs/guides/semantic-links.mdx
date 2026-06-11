@@ -231,9 +231,10 @@ outbound URLs, which can break pre-signed destinations.
   click from an email — a scanner spreading clicks beyond the burst window
   could in principle slip one through. Semantic links are for answers, not
   irreversible operations.
-- **Not free text.** The answer space is whatever you can enumerate as links.
-  For a comment box, land the click on a page that collects it — the click
-  has already recorded the structured part.
+- **Not free text in the email itself.** The answer space is whatever you can
+  enumerate as links; the click records the structured part. For the comment,
+  the hosted answer page already collects one (`<event>.comment`) — or land
+  on your own page and do the same.
 
 See also: [Tracking API](/docs/api/tracking) for the click mechanics,
 [Journeys](/docs/guides/journeys) for `waitForEvent`, and

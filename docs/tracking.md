@@ -190,6 +190,29 @@ and the `sem:` key means it can never re-push. With `lookback`, recent
 `user_events` are checked first and a hit resolves the wait immediately,
 payload included. Keep the window tight (just the gap it covers).
 
+### The hosted answer page
+
+A semantic link with no landing page can point at the engine:
+`href={HOSTED_ANSWER_HREF}` (`hogsend://answer`, exported by
+`@hogsend/email`) resolves at send time to `GET /v1/t/a/:linkId` — a minimal
+engine-served page (possession of the unguessable link id is the auth, like
+unsubscribe) that confirms the recorded answer and offers a free-text box.
+`POST /v1/t/a/:id` (form field `comment`, ≤ 2000 chars) ingests
+**`<event>.comment`** with the answer's properties attached — idempotency key
+`semc:<emailSendId>:<event>`, so one comment per (send, event).
+
+### Cross-device identity (`hs_t`)
+
+Opt-in via `TRACKING_IDENTITY_TOKEN=true`: tracked-link redirects append a
+one-hour identity token to the destination URL. The landing site exchanges it
+at `POST /v1/t/identify` (`{ token } → { distinctId, emailSendId }`) and calls
+`posthog.identify`, merging the email click with the web session. Tokens are
+AES-256-GCM **encrypted** with `BETTER_AUTH_SECRET` — a distinct id can be an
+email address, so nothing readable may travel in a URL, history entry, or
+referrer. Invalid/expired tokens return `400`. Strip `hs_t` from the address
+bar after the exchange and gate the identify call behind whatever analytics
+consent the site operates under.
+
 Note for existing deployments: the seeded PostHog destination subscribes to
 `email.action` only when seeded fresh — add `email.action` to an existing
 endpoint's `event_types` to receive semantic answers.

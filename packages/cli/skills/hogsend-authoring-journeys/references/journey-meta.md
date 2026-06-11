@@ -49,17 +49,26 @@ trigger: { event: Events.USER_CREATED },
 
 A `PropertyCondition[]` evaluated against the **enrolling event's properties**.
 If present and not met, the event is skipped with reason
-`trigger_conditions_not_met`. Use it to enroll only a slice of an event:
+`trigger_conditions_not_met`. Use it to enroll only a slice of an event.
+Author it with the builder function (preferred) or the declarative array —
+both resolve to identical data at `defineJourney` time:
 
 ```ts
+// Builder form (preferred)
 trigger: {
   event: Events.USER_CREATED,
-  where: [{ property: "plan", operator: "equals", value: "pro" }],
+  where: (b) => b.prop("plan").eq("pro"),
+},
+
+// Declarative form (identical result)
+trigger: {
+  event: Events.USER_CREATED,
+  where: [{ type: "property", property: "plan", operator: "eq", value: "pro" }],
 },
 ```
 
-For the full operator set and how `PropertyCondition` is shaped, see the
-**hogsend-conditions** skill.
+`exitOn[].where` accepts the same two forms. For the full operator set and how
+`PropertyCondition` is shaped, see the **hogsend-conditions** skill.
 
 ### `entryLimit` + `entryPeriod`
 
