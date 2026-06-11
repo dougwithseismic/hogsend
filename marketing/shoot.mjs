@@ -1,7 +1,8 @@
-import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
+import { chromium } from "playwright";
 
-const OUT = "/Users/godzillaaa/Documents/WEB_PROJECTS/clients/growthhog/marketing/screenshots";
+const OUT =
+  "/Users/godzillaaa/Documents/WEB_PROJECTS/clients/growthhog/marketing/screenshots";
 mkdirSync(`${OUT}/studio`, { recursive: true });
 mkdirSync(`${OUT}/site`, { recursive: true });
 
@@ -24,7 +25,10 @@ async function shot(page, path, opts = {}) {
 
 // ── Studio: logged-out login screen ─────────────────────────────
 {
-  const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2 });
+  const ctx = await browser.newContext({
+    viewport: VIEWPORT,
+    deviceScaleFactor: 2,
+  });
   const page = await newPage(ctx);
   await page.goto(`${STUDIO}/`, { waitUntil: "networkidle" });
   await shot(page, `${OUT}/studio/00-login.png`);
@@ -33,10 +37,15 @@ async function shot(page, path, opts = {}) {
 
 // ── Studio: authenticated views ─────────────────────────────────
 {
-  const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2 });
+  const ctx = await browser.newContext({
+    viewport: VIEWPORT,
+    deviceScaleFactor: 2,
+  });
   const page = await newPage(ctx);
   await page.goto(`${STUDIO}/`, { waitUntil: "networkidle" });
-  await page.getByLabel(/email/i).fill(process.env.STUDIO_EMAIL ?? "admin@example.com");
+  await page
+    .getByLabel(/email/i)
+    .fill(process.env.STUDIO_EMAIL ?? "admin@example.com");
   await page.getByLabel(/password/i).fill(process.env.STUDIO_PASSWORD ?? "");
   await page.getByRole("button", { name: /sign in/i }).click();
   await page.waitForURL(/studio/, { timeout: 15000 });
@@ -81,11 +90,17 @@ async function shot(page, path, opts = {}) {
 
 // ── Marketing site (live) ───────────────────────────────────────
 {
-  const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 2 });
+  const ctx = await browser.newContext({
+    viewport: VIEWPORT,
+    deviceScaleFactor: 2,
+  });
   const page = await newPage(ctx);
   await page.goto("https://hogsend.com", { waitUntil: "networkidle" });
   await shot(page, `${OUT}/site/00-hero.png`, { settle: 2500 });
-  await shot(page, `${OUT}/site/01-landing-full.png`, { fullPage: true, settle: 500 });
+  await shot(page, `${OUT}/site/01-landing-full.png`, {
+    fullPage: true,
+    settle: 500,
+  });
 
   await page.goto("https://hogsend.com/docs", { waitUntil: "networkidle" });
   await shot(page, `${OUT}/site/02-docs.png`, { settle: 2000 });
