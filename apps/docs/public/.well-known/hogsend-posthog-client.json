@@ -1,0 +1,15 @@
+{
+  "client_id": "https://hogsend.com/.well-known/hogsend-posthog-client.json",
+  "client_name": "Hogsend",
+  "client_uri": "https://hogsend.com",
+  "logo_uri": "https://hogsend.com/icon.svg",
+  "redirect_uris": [
+    "http://127.0.0.1:8423/callback",
+    "http://127.0.0.1:8424/callback",
+    "http://127.0.0.1:8425/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "scope": "person:read person:write project:read hog_function:write"
+}
