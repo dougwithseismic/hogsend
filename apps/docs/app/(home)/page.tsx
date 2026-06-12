@@ -94,7 +94,7 @@ export const trialConversion = defineJourney({
       event: "usage.milestone_reached",
     });
     if (found) {
-      // The upgrade ask, at the moment of value — not the deadline.
+      // They've found value — ask while it's fresh.
       await sendEmail({ to: user.email, template: "conversion-usage-milestone" });
     }
 

@@ -23,19 +23,19 @@ const RAILWAY_URL = "https://railway.com/deploy/hogsend-posthog-audience-stack";
 const PILLARS = [
   {
     title: "Code-first",
-    body: "Journeys are TypeScript because lifecycle logic is product logic, and product logic gets reviewed, tested, and blamed.",
+    body: "Journeys are TypeScript because lifecycle logic is product logic, and product logic gets reviewed, tested, and versioned.",
     href: "/docs/concepts/philosophy",
     linkLabel: "Philosophy",
   },
   {
-    title: "Studio observes, it doesn't author",
-    body: "The moment a UI can edit what's in git, git stops being the truth. Studio shows you everything and changes nothing.",
+    title: "Studio watches the run",
+    body: "If a dashboard could edit journeys, the repo would stop being the source of truth. So Studio shows you every send, run, and contact — and changes to the journeys themselves happen in your editor, through review.",
     href: "/docs/operating/studio",
     linkLabel: "Studio",
   },
   {
     title: "PostHog-first, not PostHog-only",
-    body: "Events in from anywhere, engagement out to anywhere. PostHog is the default center of gravity, not a cage.",
+    body: "Events come in from anywhere and engagement fans out to anywhere. PostHog is the default center of gravity, and every wire in and out is swappable.",
     href: "/docs/concepts/how-it-works",
     linkLabel: "How it works",
   },
@@ -76,7 +76,7 @@ export default function AboutPage(): JSX.Element {
         <Reveal className="flex flex-col items-center">
           <Eyebrow>About</Eyebrow>
           <h1 className="mt-6 max-w-4xl font-display font-medium text-5xl text-white leading-[1.05] tracking-[-0.04em] md:text-[64px] md:leading-[1.0]">
-            Built from client work, not a pitch deck
+            Built from fifteen years of client work
           </h1>
           <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
             Hogsend exists because one engineer kept rebuilding the same thing.
@@ -186,8 +186,7 @@ export default function AboutPage(): JSX.Element {
               changelog
             </Link>
             . Pre-1.0 and versioned properly: the public surface is
-            semver-committed, and breaking changes are documented, not
-            discovered.
+            semver-committed, and breaking changes come with migration notes.
           </p>
         </Reveal>
       </Section>
@@ -275,7 +274,8 @@ export default function AboutPage(): JSX.Element {
             <div className="relative grid gap-10 p-8 md:p-14 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:items-center">
               <div className="flex flex-col items-start">
                 <h2 className="max-w-xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-                  Your events are already flowing. Put them to work.
+                  Your events are already flowing — the missing piece is the
+                  journeys that act on them.
                 </h2>
                 <p className="mt-5 max-w-lg text-base text-white/70 leading-6">
                   One scaffold command gives you the engine, 10 journeys, and 13

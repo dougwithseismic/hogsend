@@ -245,7 +245,7 @@ export function Gotchas(): JSX.Element {
       <SectionHeading
         eyebrow="Gotchas"
         title="The parts that bite"
-        subtitle="Found by doing this for real, not by reading documentation. The guide covers each in full."
+        subtitle="Found by setting this up for real on hogsend.com. The guide covers each in full."
       />
       <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2">
         {GOTCHAS.map((gotcha, index) => (

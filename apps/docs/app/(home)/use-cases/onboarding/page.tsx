@@ -116,16 +116,16 @@ export default function OnboardingUseCasePage(): JSX.Element {
 
       <UseCaseHero
         eyebrow="Use case: onboarding"
-        title="Onboarding that waits for behavior, not the calendar"
-        subhead="Day-2, day-4, day-7 drips email everyone the same. A journey watches what each user actually does — in TypeScript you can read."
+        title="Onboarding that waits for what people actually do"
+        subhead="A timed drip emails everyone the same, whatever they did. A journey waits for the signup to become a first project, and sends a different email depending on whether it happened."
       />
 
       <ProblemStatement label="The drip problem">
         A timed sequence sends “how's it going?” to someone who's been in the
         product all morning, and “just checking in!” to someone who churned at
         signup. Both are the same bug: the sequence can't see product events —
-        and your product events are in PostHog. The fix isn't better copy. It's
-        branching, and branching is code.
+        and your product events are in PostHog. Once it can see them, the fix is
+        ordinary branching: an if statement on what the user did.
       </ProblemStatement>
 
       <CodeWalkthrough

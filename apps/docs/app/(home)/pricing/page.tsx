@@ -15,7 +15,7 @@ import { PricingCalculator } from "@/components/landing/pricing-calculator";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Pricing: free to self-host, no contact tax",
+  title: "Pricing: free to self-host, no per-contact billing",
   description:
     "Hogsend is free to self-host under ELv2. You pay your own infra and email provider — no per-contact, per-profile, or per-send pricing. Here's the math.",
 };
@@ -75,17 +75,17 @@ const RENT_ROWS: RentRow[] = [
   {
     vendor: "Customer.io",
     chargesBy: "profiles + emails + credits",
-    whenYouGrow: "talk to sales",
+    whenYouGrow: "custom pricing at scale",
   },
   {
     vendor: "PostHog Workflows",
     chargesBy: "$0.003/send after 10k free/mo*",
-    whenYouGrow: "per-send creep",
+    whenYouGrow: "costs scale with volume",
   },
   {
     vendor: "Hogsend",
     chargesBy: "nothing — it's your infra",
-    whenYouGrow: "Postgres doesn't charge per row",
+    whenYouGrow: "same software, same infra bill",
     highlight: true,
   },
 ];
@@ -119,7 +119,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "What happens when my list grows 10x?",
-    a: "Your Postgres gets more rows. Postgres doesn't charge per row — your costs scale with your traffic and infrastructure, not your contact count.",
+    a: "Your Postgres gets more rows, and that's the whole event. Costs scale with your traffic and infrastructure, not your contact count.",
   },
   {
     q: "Can I use Hogsend for client work?",
@@ -196,7 +196,7 @@ export default function PricingPage(): JSX.Element {
         <Reveal className="relative z-10 flex flex-col items-center">
           <Eyebrow className="mb-4">Pricing</Eyebrow>
           <h1 className="max-w-3xl font-display text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[44px] md:leading-[52px]">
-            Free. Self-hosted. No contact tax.
+            Free to self-host. The rest of the bill was already yours.
           </h1>
           <p className="mt-5 max-w-2xl text-base text-white/70 leading-6">
             The software has no paid tier. Hogsend runs on your infrastructure
@@ -354,7 +354,7 @@ export default function PricingPage(): JSX.Element {
         <SectionHeading
           eyebrow="Real costs"
           title="What you actually pay for"
-          subtitle="Two line items. Neither of them is ours."
+          subtitle="Two line items, and neither of them comes from us."
         />
 
         <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -397,11 +397,12 @@ export default function PricingPage(): JSX.Element {
           <Reveal delay={0.16}>
             <Card className="h-full">
               <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                That&apos;s the list.
+                And that&apos;s the whole list
               </h3>
               <p className="mt-2.5 text-base text-white/60 leading-6">
-                No Hogsend line item. The trade: you run a small stack instead
-                of paying rent on your contact list.
+                There&apos;s no Hogsend line item. The trade is simple: you run
+                a small stack yourself, and in exchange nobody meters your
+                contacts.
               </p>
             </Card>
           </Reveal>
@@ -414,8 +415,8 @@ export default function PricingPage(): JSX.Element {
       {/* ---- 3.4 The rent models, compared ------------------------------ */}
       <Section>
         <SectionHeading
-          eyebrow="The contact tax"
-          title="The rent models, compared"
+          eyebrow="Compared"
+          title="How the hosted tools price it"
         />
 
         <Reveal delay={0.08} className="mt-12">
@@ -488,9 +489,9 @@ export default function PricingPage(): JSX.Element {
             Loops meters subscribed contacts. Customer.io meters profiles,
             emails, and credits. PostHog Workflows is free to 10,000 messages a
             month, then from $0.003 per send (at the time of writing). All three
-            are fine prices for software they host. Hogsend&apos;s position is
-            different: lifecycle email is a feature of your product, and
-            features live in your repo, not on someone else&apos;s meter.
+            are fair prices for software they host and run for you. Hogsend sits
+            on the other side of that trade: you host it yourself, so
+            there&apos;s nothing left to meter.
           </p>
 
           <p className="mt-8 text-sm text-white/60">
@@ -605,7 +606,7 @@ export default function PricingPage(): JSX.Element {
             <SectionHeading
               eyebrow="FAQ"
               title="Pricing questions"
-              subtitle="The short version: there is no meter, and there never was one."
+              subtitle="The short version: there is no meter."
             />
           </Reveal>
           <Reveal delay={0.08}>
@@ -628,12 +629,13 @@ export default function PricingPage(): JSX.Element {
           <Reveal className="flex flex-col items-center">
             <Eyebrow className="mb-4">Get started</Eyebrow>
             <h2 className="max-w-2xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-              One loop. Your repo. Tonight.
+              Start with the welcome series.
             </h2>
             <p className="mt-5 max-w-2xl text-base text-white/70 leading-6">
               <code className="font-mono text-sm">{SCAFFOLD_COMMAND}</code>{" "}
-              scaffolds the app, Docker, env, and ten production journeys. Or
-              deploy the Railway template in a click.
+              scaffolds the app, Docker, env, and ten journeys ready to edit —
+              the welcome series among them. Or deploy the Railway template in a
+              click.
             </p>
           </Reveal>
 
@@ -654,8 +656,8 @@ export default function PricingPage(): JSX.Element {
           <Reveal delay={0.18} className="mt-10">
             <CtaTrio centered />
             <Microcopy>
-              Free to self-host (ELv2) · PostHog + your provider · No contact
-              tax
+              Free to self-host (ELv2) · PostHog + your provider · No
+              per-contact billing
             </Microcopy>
           </Reveal>
         </div>

@@ -50,7 +50,7 @@ export const trialConversion = defineJourney({
     });
 
     if (hitMilestone) {
-      // The upgrade ask, at the moment of value — not the deadline.
+      // They've found value — ask while it's fresh.
       await sendEmail({
         to: user.email,
         userId: user.id,
@@ -111,16 +111,17 @@ export default function TrialConversionUseCasePage(): JSX.Element {
 
       <UseCaseHero
         eyebrow="Use case: trial conversion"
-        title="Trial emails driven by usage, not days remaining"
-        subhead="“Your trial ends in 3 days” converts nobody who hasn't found value. Branch on what they did; stop the second they pay."
+        title="Trial emails that check usage before they ask"
+        subhead="The same countdown email lands very differently depending on whether the trial ever found value. A journey can check usage before it asks — and the moment Stripe says they've paid, the sequence cancels itself, even mid-wait."
       />
 
-      <ProblemStatement label="Countdown spam is a state machine with one state">
-        Every trial email tool can count down. The conversion question is
-        behavioral: did they hit the milestone that predicts paying? If yes, ask
-        early. If no, sell the milestone — not the deadline. That requires your
-        email tool to see product usage, and to stop instantly when Stripe says
-        they paid.
+      <ProblemStatement label="The countdown problem">
+        Every trial email tool can count down. The question that decides
+        conversion is behavioral: did this user hit the milestone that predicts
+        paying? If they did, the upgrade ask can come early; if they didn't, the
+        most useful email sells the milestone rather than the deadline. Either
+        way, your email tool needs to see product usage — and to stop the moment
+        Stripe says they've paid.
       </ProblemStatement>
 
       <CodeWalkthrough
@@ -163,7 +164,7 @@ export default function TrialConversionUseCasePage(): JSX.Element {
         title="Measure what matters"
         points={[
           {
-            title: "Branch on behavior, not opens",
+            title: "Branch on signals you can trust",
             body: "Clicks and conversion events are reliable; opens are directional — Apple Mail Privacy Protection inflates them. The milestone event is the signal worth branching on.",
           },
           {

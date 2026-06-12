@@ -79,7 +79,7 @@ const GROUPS: StageGroup[] = [
       },
       {
         name: "conversion-trial-expiring",
-        blurb: "Days-left honesty without countdown theatrics.",
+        blurb: "A clear days-left note, without the countdown theatrics.",
         sampleKey: "lifecycle/trial-expiring",
       },
       {
@@ -98,7 +98,8 @@ const GROUPS: StageGroup[] = [
       },
       {
         name: "retention-achievement",
-        blurb: "Milestones worth an email, nothing that isn't.",
+        blurb:
+          "Celebrates milestones worth an email, and skips the ones that aren't.",
       },
     ],
   },
@@ -132,7 +133,7 @@ const GROUPS: StageGroup[] = [
     entries: [
       {
         name: "feedback-nps-survey",
-        blurb: "One click, one number, done.",
+        blurb: "One click to answer; the score lands as an event.",
       },
     ],
   },
@@ -258,8 +259,8 @@ export default function EmailsPage() {
           </h1>
           <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
             Every scaffold ships 13 production React Email + Tailwind templates
-            — TypeScript components you own, not rows in our database. Edit them
-            in your editor, preview them in Studio, review them in a PR.
+            as TypeScript components in your repo. Edit them in your editor,
+            preview them in Studio, review them in a PR.
           </p>
         </Reveal>
       </Section>
@@ -339,9 +340,9 @@ export default function EmailsPage() {
             steps={[
               {
                 n: "01",
-                title: "Your editor is the editor",
+                title: "Edited where you edit everything else",
                 description:
-                  "Templates are React Email + Tailwind components in src/emails/ — edit them like any component. Studio previews them with live props and per-template stats. It doesn't edit them. Your editor does — that's the point.",
+                  "Templates are React Email + Tailwind components in src/emails/ — edit them like any component. Studio previews them with live props and per-template stats, while the editing itself stays in your editor, where changes get reviewed.",
               },
               {
                 n: "02",
