@@ -122,6 +122,10 @@ interface ResolveKey {
   value: string;
 }
 
+/** Postgres uuid syntax — guards the `contacts.id` fallback cast below. */
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * Look up the single live contact owning `(kind, value)`, falling back to
  * `contact_aliases` on a miss so a stale (loser/promoted) key still resolves to
@@ -153,14 +157,34 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
       ),
     )
     .limit(1);
-  if (!alias[0]) return null;
+  if (alias[0]) {
+    const aliased = await tx
+      .select()
+      .from(contacts)
+      .where(
+        and(eq(contacts.id, alias[0].contactId), isNull(contacts.deletedAt)),
+      )
+      .limit(1);
+    if (aliased[0]) return aliased[0];
+  }
 
-  const aliased = await tx
-    .select()
-    .from(contacts)
-    .where(and(eq(contacts.id, alias[0].contactId), isNull(contacts.deletedAt)))
-    .limit(1);
-  return aliased[0] ?? null;
+  // Row-id fallback (external keys only): an email-only / anonymous-only
+  // contact's canonical key (`external_id ?? anonymous_id ?? id`) IS its row id,
+  // and that key leaves the system — in Hatchet event payloads, outbound
+  // destination `userId`s, and `hs_t` identity tokens. When such a key round-trips
+  // back through ingest as a `userId` (e.g. a PostHog webhook forwarding events
+  // for a person identified via the `hs_t` stitch), it must resolve to the SAME
+  // contact, not mint a duplicate keyed by the old row's id.
+  if (key.kind === "external" && UUID_PATTERN.test(key.value)) {
+    const byId = await tx
+      .select()
+      .from(contacts)
+      .where(and(eq(contacts.id, key.value), isNull(contacts.deletedAt)))
+      .limit(1);
+    return byId[0] ?? null;
+  }
+
+  return null;
 }
 
 /**
@@ -925,6 +949,20 @@ async function recordMergeAliases(
       contactId: survivorId,
       aliasKind: "anonymous",
       aliasValue: loser.anonymousId,
+      fromContactId: loser.id,
+      reason: "merge",
+    });
+  }
+  // When the loser had neither external_id nor anonymous_id, its CANONICAL key
+  // (`external_id ?? anonymous_id ?? id`) was its row id — and that key has
+  // circulated (Hatchet payloads, outbound `userId`s, `hs_t` tokens). Alias it
+  // as an external key so a round-trip still resolves to the survivor after the
+  // soft-delete takes the row out of findByKey's id fallback.
+  if (!loser.externalId && !loser.anonymousId) {
+    aliasRows.push({
+      contactId: survivorId,
+      aliasKind: "external",
+      aliasValue: loser.id,
       fromContactId: loser.id,
       reason: "merge",
     });

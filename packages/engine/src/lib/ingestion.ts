@@ -36,6 +36,15 @@ export interface ExitResult {
 export interface IngestResult {
   stored: boolean;
   exits: ExitResult[];
+  /**
+   * The contact's canonical text key after this ingest's identity resolve
+   * (`external_id ?? anonymous_id ?? id`). This is the same key outbound
+   * destinations emit as `userId` and `hs_t` identity tokens carry — callers
+   * (e.g. a site's subscribe endpoint) can hand it to their analytics
+   * `identify()` so the session joins the person the contact's email events
+   * land on, without any PII leaving Hogsend.
+   */
+  contactKey: string;
 }
 
 export async function ingestEvent(opts: {
@@ -85,7 +94,7 @@ export async function ingestEvent(opts: {
       .returning({ id: userEvents.id });
 
     if (result.length === 0) {
-      return { stored: false, exits: [] };
+      return { stored: false, exits: [], contactKey: resolvedKey };
     }
     idempotentInsertId = result[0]?.id;
   } else {
@@ -185,7 +194,7 @@ export async function ingestEvent(opts: {
     exits: exits.filter((e) => e.exited).length,
   });
 
-  return { stored: true, exits };
+  return { stored: true, exits, contactKey: resolvedKey };
 }
 
 async function checkExits(

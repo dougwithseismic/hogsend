@@ -20,18 +20,29 @@ export function ingestConfigured(): boolean {
   );
 }
 
+type IngestAccepted = {
+  /**
+   * The contact's canonical Hogsend key, when the upstream provides it (engine
+   * ≥0.18). It carries no PII — safe to hand to client-side analytics
+   * `identify()` so the session joins the person the contact's email events
+   * land on.
+   */
+  contactKey?: string;
+};
+
 /**
- * forwardToIngest — POSTs one lifecycle event to /v1/events. Returns true
- * when the upstream accepted it. Throws nothing: network and upstream
- * failures both come back as false so callers map them to a 502.
+ * forwardToIngest — POSTs one lifecycle event to /v1/events. Returns the
+ * accepted-response body (truthy) on success, null on any failure. Throws
+ * nothing: network and upstream failures both come back as null so callers
+ * map them to a 502.
  */
 export async function forwardToIngest(
   body: IngestEventBody,
   idempotencyKey: string,
-): Promise<boolean> {
+): Promise<IngestAccepted | null> {
   const ingestUrl = process.env.HOGSEND_INGEST_URL;
   const ingestKey = process.env.HOGSEND_INGEST_KEY;
-  if (!ingestUrl || !ingestKey) return false;
+  if (!ingestUrl || !ingestKey) return null;
 
   try {
     const upstream = await fetch(`${ingestUrl.replace(/\/+$/, "")}/v1/events`, {
@@ -43,8 +54,14 @@ export async function forwardToIngest(
       },
       body: JSON.stringify(body),
     });
-    return upstream.ok;
+    if (!upstream.ok) return null;
+    const accepted = (await upstream.json().catch(() => ({}))) as {
+      contactKey?: unknown;
+    };
+    return typeof accepted.contactKey === "string"
+      ? { contactKey: accepted.contactKey }
+      : {};
   } catch {
-    return false;
+    return null;
   }
 }

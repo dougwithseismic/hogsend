@@ -7,6 +7,7 @@ import {
   AnalyticsEvent,
   capture,
   getDistinctId,
+  identify,
   sessionIdentity,
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
@@ -119,6 +120,13 @@ export function EmailCapture({
         // clicks in this browsing session reach the docs-subscriber journey
         // via /api/deploy-clicked.
         sessionIdentity.email = email.trim().toLowerCase();
+        // Identify the session under the contact's canonical Hogsend key (an
+        // opaque id, no PII) — the same PostHog person the contact's email
+        // events land on, and the one hs_t email clicks resolve to.
+        const { contactKey } = (await res.json().catch(() => ({}))) as {
+          contactKey?: string;
+        };
+        if (contactKey) identify(contactKey);
         capture(AnalyticsEvent.CAPTURE_SUBMITTED, {
           placement,
           product_notes: productNotes,
