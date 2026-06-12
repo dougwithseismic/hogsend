@@ -755,7 +755,7 @@ const WaitRow: React.FC<{
   const resolveAt = at + 56;
   const r = glide(frame, fps, resolveAt);
   const resolved = frame >= resolveAt;
-  const dots = ".".repeat((Math.floor((frame - at) / 14) % 3) + 1);
+  const dots = ".".repeat((Math.floor(Math.max(0, frame - at) / 14) % 3) + 1);
   return (
     <RowShell at={at} height={height} s={s}>
       <KindChip label="wait" s={s} />
