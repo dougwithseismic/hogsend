@@ -45,7 +45,7 @@ function analyticsNudge(ctx: CommandContext): void {
       "contact properties. Capture and person WRITES are unaffected.",
       "",
       `Fix: create a personal API key scoped ${color.cyan("person:read")} and set ${color.cyan("POSTHOG_PERSONAL_API_KEY")}.`,
-      `Docs: ${color.cyan("https://hogsend.com/docs/analytics-access")}`,
+      `Docs: ${color.cyan("https://hogsend.com/docs/guides/analytics-access")}`,
     ].join("\n"),
     "PostHog person reads disabled",
   );

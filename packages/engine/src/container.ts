@@ -552,7 +552,7 @@ export function createHogsendClient(
       `analytics provider "${analytics.meta.id}" has person reads DISABLED — ` +
         "timezone resolution falls back to contact properties. For PostHog, " +
         "set POSTHOG_PERSONAL_API_KEY (a personal API key scoped person:read). " +
-        "Docs: https://hogsend.com/docs/analytics-access",
+        "Docs: https://hogsend.com/docs/guides/analytics-access",
     );
   }
 
