@@ -1,12 +1,7 @@
-import posthog from "posthog-js";
+"use client";
 
-/**
- * Client instrumentation (Next.js `instrumentation-client.ts`) — boots
- * PostHog only when NEXT_PUBLIC_POSTHOG_KEY is set. Memory persistence keeps
- * it strictly cookieless (nothing written to cookies or localStorage), so no
- * consent banner is needed. Without a key this file does nothing.
- */
-const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+import posthog from "posthog-js";
+import { type JSX, useEffect } from "react";
 
 /**
  * Replace the name segment of any /hey/<name> URL with /hey/_ in strings,
@@ -28,7 +23,7 @@ const scrubHeyUrls = (value: unknown): unknown => {
   return value;
 };
 
-if (posthogKey) {
+function boot(posthogKey: string): void {
   posthog.init(posthogKey, {
     api_host: "https://eu.i.posthog.com",
     persistence: "memory",
@@ -73,4 +68,39 @@ if (posthogKey) {
         // Best-effort: an expired or invalid token simply means no stitch.
       });
   }
+}
+
+/**
+ * PosthogBoot — boots PostHog with a key fetched from `/api/posthog-config`
+ * (a force-dynamic handler reading the server's RUNTIME env). This replaces
+ * the old `instrumentation-client.ts`, which inlined
+ * `NEXT_PUBLIC_POSTHOG_KEY` at BUILD time — fragile on Railway, where a
+ * build that misses the build-arg ships a silently analytics-dead bundle.
+ * (A layout-prop read is no better: static pages freeze the layout's RSC
+ * output at build.) Runtime fetch means: change the variable, restart, done.
+ *
+ * Memory persistence keeps it strictly cookieless (nothing written to
+ * cookies or localStorage), so no consent banner is needed.
+ */
+export function PosthogBoot(): JSX.Element | null {
+  useEffect(() => {
+    if (posthog.__loaded) return;
+    let cancelled = false;
+
+    void fetch("/api/posthog-config")
+      .then(async (res) => (res.ok ? res.json() : { key: null }))
+      .then(({ key }: { key: string | null }) => {
+        if (cancelled || !key || posthog.__loaded) return;
+        boot(key);
+      })
+      .catch(() => {
+        // Best-effort: no config endpoint, no analytics.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return null;
 }
