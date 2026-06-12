@@ -43,7 +43,7 @@ The secret must match on both sides — the `POSTHOG_WEBHOOK_SECRET` your app ve
 
 **Symptom:** PostHog shows thousands of deliveries but they are all `$pageview`, `$autocapture`, or other internal events. Your journey events are not being sent.
 
-**Fix:** Add event matchers in the PostHog destination. Without matchers, PostHog sends every event. Add a matcher for each event your journeys care about (e.g., `user_signed_up`, `trial_started`). See [PostHog Setup](/docs/getting-started/posthog-setup#step-4-add-event-matchers-critical) for the full walkthrough.
+**Fix:** Add event matchers in the PostHog destination. Without matchers, PostHog sends every event. Add a matcher for each event your journeys care about (e.g., `user_signed_up`, `trial_started`). See [Manual Webhook Setup](/docs/integrations/posthog/manual-setup#step-4-add-event-matchers-critical) for the full walkthrough.
 
 ### API is not reachable
 

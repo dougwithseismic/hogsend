@@ -114,12 +114,15 @@ The public data plane (`/v1/contacts`, `/v1/events`, `/v1/emails`, `/v1/lists`, 
 
 ### PostHog
 
-Optional — connects to your PostHog instance for event ingestion and person property fetching.
+Optional — connects to your PostHog instance for event ingestion, person property access, and the outbound engagement stream. The full integration reference (OAuth scopes, credential resolution, degradation) is the [PostHog reference](/docs/integrations/posthog/reference).
 
 | Variable | Required | Default | Process | Description |
 |---|---|---|---|---|
-| `POSTHOG_API_KEY` | No | — | Worker | PostHog project API key for fetching person properties (Redis-cached) and event capture. Without it, `container.analytics` is a no-op and journeys can't read PostHog person properties. |
-| `POSTHOG_HOST` | No | — | Worker | PostHog instance URL. Cloud (US): `https://us.i.posthog.com`. Self-hosted: your instance URL. Required if `POSTHOG_API_KEY` is set. |
+| `POSTHOG_API_KEY` | No | — | Worker | PostHog **project** API key (`phc_…`) for event capture and person property writes. Without it, `container.analytics` is a no-op. |
+| `POSTHOG_HOST` | No | `https://us.i.posthog.com` | Worker | PostHog ingestion host. EU Cloud: `https://eu.i.posthog.com`. Self-hosted: your instance URL. |
+| `POSTHOG_PERSONAL_API_KEY` | No | — | Worker | Fallback **read** credential for person properties (timezone resolution, property conditions) — used when no OAuth credential from [`hogsend connect posthog`](/docs/integrations/posthog/connect) is stored. Without either, reads soft-fail to contact properties. |
+| `POSTHOG_PROJECT_ID` | No | discovered | Worker | Skips the one-shot `@current` project discovery on the private API. |
+| `POSTHOG_PRIVATE_HOST` | No | derived | Worker | Overrides the private (app) API host — by default derived from `POSTHOG_HOST` by stripping the `.i.` ingestion label. |
 | `POSTHOG_WEBHOOK_SECRET` | No | — | API | Shared secret for verifying incoming PostHog webhook payloads. Set this and send the same value in the destination's `x-posthog-webhook-secret` header. |
 | `ENABLE_POSTHOG_DESTINATION` | No | `false` | API | When `true` **and** `POSTHOG_API_KEY` is set, the engine idempotently auto-seeds one `kind="posthog"` [outbound destination](/docs/data-api/destinations) subscribed to the email funnel, so the full email lifecycle fans out to PostHog durably on the delivery spine. |
 

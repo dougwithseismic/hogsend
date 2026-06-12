@@ -1,4 +1,4 @@
 {
   "title": "Integrations",
-  "pages": ["index", "clerk", "supabase", "stripe", "segment"]
+  "pages": ["index", "posthog", "clerk", "supabase", "stripe", "segment"]
 }

@@ -1,0 +1,124 @@
+---
+title: PostHog Reference
+description: Every PostHog env var, the OAuth client document and scopes, credential resolution and refresh, the admin routes behind hogsend connect posthog, and what degrades when each credential is absent.
+---
+
+The lookup page for the PostHog integration. For the narrative versions: [the hub](/docs/integrations/posthog), [Connect PostHog](/docs/integrations/posthog/connect), and [Manual Webhook Setup](/docs/integrations/posthog/manual-setup). For the identity story — the two-credential model, the contactKey loop, person reads vs writes — see [Analytics access & identity](/docs/guides/analytics-access); this page deliberately doesn't repeat it.
+
+## Environment variables
+
+All optional — PostHog layers onto a running instance. The full boot-env reference is in [Configuration](/docs/getting-started/configuration).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `POSTHOG_API_KEY` | — | Project API key (`phc_…`). Powers event capture, person **writes** (`$set` via the capture pipeline), and the seeded outbound destination. Public-by-design: it can never read. |
+| `POSTHOG_HOST` | `https://us.i.posthog.com` | Ingestion host. EU Cloud: `https://eu.i.posthog.com`. Self-hosted: your instance URL. |
+| `POSTHOG_WEBHOOK_SECRET` | — | Shared secret the inbound `posthog` webhook source matches against the `x-posthog-webhook-secret` header. Gates [loop provisioning](/docs/integrations/posthog/connect) — the source is **open** when it's unset. |
+| `ENABLE_POSTHOG_DESTINATION` | `false` | With `POSTHOG_API_KEY` set, idempotently auto-seeds one `kind="posthog"` [outbound destination](/docs/data-api/destinations) subscribed to the email funnel, with `syncPersons` on — contact changes propagate to PostHog persons. |
+| `POSTHOG_PERSONAL_API_KEY` | — | Fallback **read** credential for person properties — used when no OAuth credential is stored. The documented path for self-hosted PostHog without OAuth. |
+| `POSTHOG_PROJECT_ID` | discovered | Skips the one-shot `GET /api/projects/@current/` project discovery. |
+| `POSTHOG_PRIVATE_HOST` | derived | Overrides the private (app) API host. By default it's derived from `POSTHOG_HOST` by stripping the `.i.` ingestion label (`eu.i.posthog.com` → `eu.posthog.com`) — set this for self-hosted layouts where the two hosts don't follow that pattern. |
+
+<Callout type="info">
+  **Two hosts, on purpose.** Capture goes to the *ingestion* host; person reads, project discovery, OAuth discovery, and provisioning go to the *app* (private) host. The engine derives the second from the first so you normally configure only `POSTHOG_HOST`.
+</Callout>
+
+## The OAuth client
+
+Hogsend is a **public** OAuth client — PKCE (S256), no client secret anywhere. Its client identity is a CIMD document: the `client_id` is the URL of a JSON file Hogsend hosts, which PostHog fetches at authorize time.
+
+```json title="https://hogsend.com/.well-known/hogsend-posthog-client.json"
+{
+  "client_id": "https://hogsend.com/.well-known/hogsend-posthog-client.json",
+  "client_name": "Hogsend",
+  "client_uri": "https://hogsend.com",
+  "redirect_uris": [
+    "http://127.0.0.1:8423/callback",
+    "http://127.0.0.1:8424/callback",
+    "http://127.0.0.1:8425/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "scope": "person:read person:write project:read hog_function:write"
+}
+```
+
+The redirect URIs are the three fixed loopback ports the CLI's callback server binds (which is why `hogsend connect` needs one of 8423–8425 free on `127.0.0.1`). The OAuth server itself is **discovered per instance** — `GET {privateHost}/.well-known/oauth-authorization-server` — never hardcoded, so EU, US, and self-hosted regions all resolve correctly.
+
+### Scopes
+
+The connect flow requests four scopes, and team-level access (the narrowest consent PostHog offers — the grant is scoped to one project's team):
+
+| Scope | Used for |
+|---|---|
+| `person:read` | Person property reads — `ctx.when` timezone resolution, person-property conditions |
+| `person:write` | Person mutations on the private API (routine writes ride the capture pipeline with the project key instead) |
+| `project:read` | One-shot `GET /api/projects/@current/` project discovery |
+| `hog_function:write` | Creating/updating the PostHog → Hogsend webhook destination |
+
+## Credential resolution & refresh
+
+For person **reads** and **provisioning**, the engine resolves a credential in this order:
+
+1. **The stored OAuth credential** (`provider_credentials` row, written by `hogsend connect posthog`)
+2. **`POSTHOG_PERSONAL_API_KEY`**
+3. **Disabled** — reads soft-fail to contact properties → client default timezone, surfaced once at boot and by [`hogsend doctor`](/docs/cli/doctor)
+
+Token lifecycle, all engine-side:
+
+- Access tokens (`pha_…`) live ~10 hours; the engine refreshes about **60 seconds before expiry**, using the token endpoint discovered at connect time.
+- A refresh response without a new refresh token **keeps the old one** — rotation-safe either way.
+- Failed refreshes back off (one attempt per minute); the read path never throws — it degrades and warns.
+- A credential stored at runtime is picked up within ~30 seconds — no restart needed after `hogsend connect posthog`.
+- The payload is encrypted at rest with `BETTER_AUTH_SECRET`. Rotating that secret makes the credential undecryptable: the meta route returns `409`, reads degrade, and the fix is `DELETE` + reconnect.
+
+## Admin routes
+
+The server half of the connect flow. All require admin auth ([`ADMIN_API_KEY`](/docs/operating/authentication)) and are what the CLI calls — nothing here is PostHog-specific to the CLI, so you can drive them directly.
+
+| Route | What it does |
+|---|---|
+| `GET /v1/admin/analytics/connect-info` | The instance's PostHog env signal — region, readiness flags, `API_PUBLIC_URL`. Pure env projection: secret **values** never appear, only whether each is configured. |
+| `POST /v1/admin/analytics/provision-loop` | Runs the idempotent provisioner server-side with the stored credential (falling back to the personal key). Returns `{ provisioned, created, action, hogFunctionId, webhookUrl, dashboardUrl }`. |
+| `PUT /v1/admin/provider-credentials/posthog` | Upserts the OAuth credential (encrypted at rest). Returns meta only. |
+| `GET /v1/admin/provider-credentials/posthog` | Credential meta — scopes, expiry, timestamps. Decrypted tokens are **never** returned. `409` when the payload can't be decrypted (`BETTER_AUTH_SECRET` rotated). |
+| `DELETE /v1/admin/provider-credentials/posthog` | Hard-deletes the credential. Never decrypts, so it works even after a secret rotation — the operator's escape hatch. |
+
+`provision-loop` refuses with a specific `409` code rather than half-provisioning:
+
+| Code | Meaning |
+|---|---|
+| `no_posthog_credential` | No OAuth credential stored and no `POSTHOG_PERSONAL_API_KEY` |
+| `posthog_not_configured` | A credential exists but the server has no PostHog env signal (no key, no host) to say which region to provision against |
+| `webhook_secret_missing` | `POSTHOG_WEBHOOK_SECRET` unset — provisioning won't point PostHog at an open ingest route |
+| `api_public_url_unreachable` | `API_PUBLIC_URL` is a loopback address — PostHog Cloud can't deliver to it |
+
+PostHog-side failures (bad token, missing scope, no hog functions API) come back as `502` with the provisioner's error code and an operator-facing `remediation` string, printed verbatim by the CLI.
+
+## Degradation table
+
+Each capability stands alone — losing one credential never takes down the others.
+
+| Capability | Needs | Without it |
+|---|---|---|
+| Event capture, feature flags | `POSTHOG_API_KEY` | Silent no-op (`getPostHog()` returns `undefined`) |
+| Person writes (`setPersonProperties`, destination `syncPersons`, bucket mirror) | `POSTHOG_API_KEY` | Silent no-op |
+| Person reads (`ctx.when` timezone, `getPersonProperties`, property conditions) | OAuth credential **or** `POSTHOG_PERSONAL_API_KEY` | Falls back to contact properties → client default timezone; surfaced at boot and by `hogsend doctor` |
+| Events in (PostHog triggers journeys) | The webhook destination + `POSTHOG_WEBHOOK_SECRET` | No PostHog-triggered journeys; the [data plane](/docs/data-api/events) still ingests everything else |
+| Engagement out (email lifecycle into PostHog) | `ENABLE_POSTHOG_DESTINATION=true` + `POSTHOG_API_KEY` | Opens/clicks recorded in Hogsend only |
+| Loop provisioning | A credential with `hog_function:write` + `POSTHOG_WEBHOOK_SECRET` + a reachable `API_PUBLIC_URL` | Refused with one of the `409` codes above |
+
+## Self-hosted / the personal-key fallback
+
+Self-hosted PostHog builds may not ship an OAuth server. The connect flow detects this cleanly — discovery returns 404, the CLI reports `oauth_unsupported` — and the documented fallback is a scoped personal API key:
+
+1. In PostHog: **Settings → User → Personal API keys** → create a key scoped to your project with **Person: Read** and **Project: Read** (add **Hog function: Write** if you want `--provision-only` to work through it; otherwise set the destination up [manually](/docs/integrations/posthog/manual-setup)).
+2. Set `POSTHOG_PERSONAL_API_KEY=<key>` on your Hogsend instance — api **and** worker.
+3. Redeploy. Person reads (and provisioning, if scoped for it) use the key automatically.
+
+The step-by-step key creation walkthrough, with the scoping rationale, is in [Analytics access & identity](/docs/guides/analytics-access#creating-the-personal-api-key).
+
+<Callout type="warn">
+  Resist "All access" — a personal key acts as *you*. Scope it to one project and the scopes above.
+</Callout>

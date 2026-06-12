@@ -265,7 +265,7 @@ Your `welcome-1` send shows up under **Sends**; open it and you'll see open and 
 
   **Optional adapters.** Layer these in once the required path is green:
   - **Email** — a `welcome` send visible in [Studio → Sends](http://localhost:3002/studio/sends). A provider key is enough to start ([test mode](/docs/operating/test-mode) redirects to your inbox until the domain verifies); `hogsend domain check` takes it live (step 5).
-  - **Analytics** — one PostHog event reaching Hogsend. See [PostHog setup](/docs/getting-started/posthog-setup).
+  - **Analytics** — one PostHog event reaching Hogsend. Once deployed, [`hogsend connect posthog`](/docs/integrations/posthog/connect) wires it in one command; see [the PostHog integration](/docs/integrations/posthog).
 </Callout>
 
 ## 7. Author and upgrade
@@ -303,7 +303,7 @@ The in-repo dogfood app lives at `apps/api` and exercises the engine directly. T
 
 <Cards>
   <Card title="Get a Hatchet token" href="/docs/getting-started/hatchet" />
-  <Card title="PostHog Webhook Setup" href="/docs/getting-started/posthog-setup" />
+  <Card title="Connect PostHog" href="/docs/integrations/posthog" />
   <Card title="Configuration" href="/docs/getting-started/configuration" />
   <Card title="Journeys" href="/docs/guides/journeys" />
 </Cards>

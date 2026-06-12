@@ -39,7 +39,7 @@ Every PostHog event can trigger a Hogsend journey. Set up the webhook once (abou
 - `subscription_cancelled` → churn recovery
 - Custom events from PostHog Actions → any journey you define
 
-PostHog forwards each event to `POST /v1/events`, the same [data-plane endpoint](/docs/data-api/events) your own app code can call. Hogsend stores the event, routes it to any journey whose `trigger.event` matches, and upserts the contact. See [PostHog Webhook Setup](/docs/getting-started/posthog-setup) for the wiring.
+PostHog forwards each event to `POST /v1/events`, the same [data-plane endpoint](/docs/data-api/events) your own app code can call. Hogsend stores the event, routes it to any journey whose `trigger.event` matches, and upserts the contact. See [Connect PostHog](/docs/integrations/posthog/connect) for the wiring — `hogsend connect posthog` provisions it in one command.
 
 ### Person properties enrich journeys
 
@@ -82,7 +82,7 @@ When you're ready for more — push notifications, SMS, in-app messages, or Post
 
 <Cards>
   <Card title="Installation" href="/docs/getting-started/installation" />
-  <Card title="PostHog Webhook Setup" href="/docs/getting-started/posthog-setup" />
+  <Card title="Connect PostHog" href="/docs/integrations/posthog" />
   <Card title="How It Works" href="/docs/concepts/how-it-works" />
   <Card title="Journeys" href="/docs/guides/journeys" />
 </Cards>

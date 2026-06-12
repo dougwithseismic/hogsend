@@ -10,10 +10,11 @@ needs two of them, and how Hogsend's identity loop keeps your site sessions,
 email engagement, and analytics persons joined on a single key.
 
 <Callout type="info">
-  This page is about **credentials and identity**. For forwarding PostHog
-  events *into* Hogsend (the webhook source), see [PostHog Webhook
-  Setup](/docs/getting-started/posthog-setup); for fanning Hogsend's event
-  stream *out* to PostHog and other tools, see
+  This page is about **credentials and identity**. For the end-to-end setup —
+  including [`hogsend connect posthog`](/docs/integrations/posthog/connect),
+  which wires person reads and the inbound webhook in one command — see
+  [the PostHog integration](/docs/integrations/posthog); for fanning Hogsend's
+  event stream *out* to PostHog and other tools, see
   [Outbound destinations](/docs/data-api/destinations).
 </Callout>
 
@@ -70,13 +71,14 @@ API key (`phc_…`) and region (EU Cloud, US Cloud, or a custom host URL) and
 the scaffold writes `POSTHOG_API_KEY` + `POSTHOG_HOST` as active values,
 switches on `ENABLE_POSTHOG_DESTINATION` (the email lifecycle fans out to
 PostHog durably), and mints a `POSTHOG_WEBHOOK_SECRET` for the inbound
-[webhook source](/docs/getting-started/posthog-setup). Non-interactive:
+[webhook source](/docs/integrations/posthog/manual-setup). Non-interactive:
 `--posthog-key phc_… --posthog-host https://eu.i.posthog.com`
 (`--no-posthog` skips the prompt; skipping leaves the env untouched).
 
 That covers capture and person writes from day one. Once the app is
-deployed, `hogsend connect posthog` finishes the loop — it wires person
-reads (the personal API key below) and the PostHog→Hogsend event loop.
+deployed, [`hogsend connect posthog`](/docs/integrations/posthog/connect)
+finishes the loop — it wires person reads (no personal key needed) and the
+PostHog→Hogsend event loop, in one command with one browser consent click.
 
 ### Creating the personal API key
 
@@ -109,7 +111,7 @@ That key is deliberately the *same one* everywhere it matters:
 3. **Outbound destinations emit it as `userId`** — so the email lifecycle
    events Hogsend fans out to PostHog land on that same person.
 4. **It round-trips.** Events forwarded back from PostHog (the
-   [webhook source](/docs/getting-started/posthog-setup)) under that key
+   [webhook source](/docs/integrations/posthog/manual-setup)) under that key
    resolve to the *same contact* — never a duplicate.
 
 The result: the anonymous visitor who subscribed, the contact your journeys
