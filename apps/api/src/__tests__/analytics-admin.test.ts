@@ -336,3 +336,27 @@ describe("POST /v1/admin/analytics/provision-loop", () => {
     expect(String(json.remediation)).toContain("hog_function:write");
   });
 });
+
+describe("isLoopbackPublicUrl", () => {
+  it("classifies loopback and public hosts correctly", async () => {
+    const { isLoopbackPublicUrl } = (await import(
+      /* @vite-ignore */ analyticsModulePath
+    )) as { isLoopbackPublicUrl: (url: string) => boolean };
+    for (const url of [
+      "http://localhost:3002",
+      "http://127.0.0.1:3002",
+      "http://0.0.0.0:8080",
+      "http://[::1]:3002",
+      "https://api.myapp.localhost",
+    ]) {
+      expect(isLoopbackPublicUrl(url), url).toBe(true);
+    }
+    for (const url of [
+      "https://t.hogsend.com",
+      "https://api.example.com:8443",
+      "not a url",
+    ]) {
+      expect(isLoopbackPublicUrl(url), url).toBe(false);
+    }
+  });
+});

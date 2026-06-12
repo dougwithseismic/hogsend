@@ -378,6 +378,24 @@ describe("runConnectPosthog — provisioning outcomes", () => {
     expect(note).toContain("--provision-only");
   });
 
+  it("soft-skips when API_PUBLIC_URL is loopback (PostHog can't reach it)", async () => {
+    const h = makeHarness({
+      info: connectInfo({ apiPublicUrl: "http://localhost:3002" }),
+    });
+    const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
+
+    expect(result.verdict).toBe("connected_no_provision");
+    expect(h.calls.put).toHaveLength(1);
+    expect(h.calls.post).toHaveLength(0);
+    expect(result.provision).toEqual({
+      attempted: false,
+      skipped: "api_public_url_unreachable",
+    });
+    const note = h.sink.find((s) => s.includes("loopback"));
+    expect(note).toBeDefined();
+    expect(note).toContain("--provision-only");
+  });
+
   it("a failed provision POST resolves connected_no_provision (exit stays 0)", async () => {
     const h = makeHarness({
       postResult: makeHttpError(500, { error: "boom" }),
@@ -435,6 +453,17 @@ describe("runConnectPosthog — --provision-only", () => {
         return true;
       },
     );
+  });
+
+  it("hard-fails api_public_url_unreachable under --provision-only", async () => {
+    const h = makeHarness({
+      info: connectInfo({ apiPublicUrl: "http://127.0.0.1:3002" }),
+    });
+    await expectConnectError(
+      runConnectPosthog(h.deps, PROVISION_ONLY),
+      "api_public_url_unreachable",
+    );
+    expect(h.calls.post).toHaveLength(0);
   });
 
   it("hard-fails webhook_secret_missing BEFORE calling the route", async () => {

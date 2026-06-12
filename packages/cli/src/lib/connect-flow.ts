@@ -61,7 +61,8 @@ export type ConnectFailure =
   | "exchange_failed"
   | "store_failed"
   | "no_credential" // --provision-only with nothing stored
-  | "webhook_secret_missing" // --provision-only without POSTHOG_WEBHOOK_SECRET
+  | "webhook_secret_missing"
+  | "api_public_url_unreachable" // --provision-only without POSTHOG_WEBHOOK_SECRET
   | "provision_failed"; // --provision-only and the POST itself failed
 
 export class ConnectError extends Error {
@@ -100,7 +101,10 @@ export interface ConnectResult {
     | { attempted: true; ok: false; error: string }
     | {
         attempted: false;
-        skipped: "webhook_secret_missing" | "no_provision_flag";
+        skipped:
+          | "webhook_secret_missing"
+          | "no_provision_flag"
+          | "api_public_url_unreachable";
       };
 }
 
@@ -159,6 +163,35 @@ const SSH_NOTE = `The consent page must open in a browser on THIS machine — th
 returns to 127.0.0.1 here. On a remote/SSH session this cannot complete: run
 the command from your laptop instead and point --url at the instance (the CLI
 never needs to run on the server).`;
+
+/**
+ * Loopback detector — kept in LOCKSTEP with the engine's
+ * `isLoopbackPublicUrl` (packages/engine/src/routes/admin/analytics.ts);
+ * the CLI has no engine dependency (same reasoning as POSTHOG_CLIENT_ID).
+ */
+function isLoopbackUrl(publicUrl: string): boolean {
+  try {
+    const host = new URL(publicUrl).hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "0.0.0.0" ||
+      host === "[::1]" ||
+      host === "::1" ||
+      host.endsWith(".localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
+const LOOPBACK_URL_NOTE = `Credential stored — but this instance's API_PUBLIC_URL is a loopback
+address, so PostHog Cloud cannot deliver webhooks to it. Provisioning was
+skipped (a destination pointing at localhost would be unreachable).
+
+Once deployed, wire the loop against the real instance:
+
+  hogsend connect posthog --provision-only --url https://your-instance`;
 
 const WEBHOOK_SECRET_NOTE = `Credential stored — but the PostHog -> Hogsend event loop needs a shared
 webhook secret, and this instance doesn't have one yet. Finish the loop:
@@ -226,6 +259,15 @@ async function runProvisionOnly(
       "webhook_secret_missing",
       "POSTHOG_WEBHOOK_SECRET is not set on the instance — nothing to " +
         "provision against",
+    );
+  }
+
+  if (isLoopbackUrl(info.apiPublicUrl)) {
+    deps.out.note(LOOPBACK_URL_NOTE, "Instance not publicly reachable");
+    throw new ConnectError(
+      "api_public_url_unreachable",
+      `API_PUBLIC_URL is ${info.apiPublicUrl} — PostHog cannot deliver ` +
+        "webhooks to a loopback address",
     );
   }
 
@@ -507,6 +549,15 @@ export async function runConnectPosthog(
       verdict: "connected_no_provision",
       ...stored,
       provision: { attempted: false, skipped: "webhook_secret_missing" },
+    };
+  }
+
+  if (isLoopbackUrl(info.apiPublicUrl)) {
+    deps.out.note(LOOPBACK_URL_NOTE, "Instance not publicly reachable");
+    return {
+      verdict: "connected_no_provision",
+      ...stored,
+      provision: { attempted: false, skipped: "api_public_url_unreachable" },
     };
   }
 

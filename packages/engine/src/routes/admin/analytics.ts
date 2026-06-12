@@ -34,6 +34,27 @@ export const connectInfoSchema = z.object({
 export type ConnectInfo = z.infer<typeof connectInfoSchema>;
 
 /**
+ * True when a public URL points at a loopback/unspecified address — PostHog
+ * Cloud can never deliver to it, so provisioning must refuse rather than
+ * create (or repoint!) a destination nobody can reach.
+ */
+export function isLoopbackPublicUrl(publicUrl: string): boolean {
+  try {
+    const host = new URL(publicUrl).hostname.toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "0.0.0.0" ||
+      host === "[::1]" ||
+      host === "::1" ||
+      host.endsWith(".localhost")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Pure env projection, exported for unit tests — no app boot needed.
  *
  * `privateHost: null` only when the server has NO PostHog signal at all (no
@@ -134,7 +155,9 @@ const provisionLoopRoute = createRoute({
       description:
         "Refused: `no_posthog_credential` (no OAuth credential and no " +
         "personal API key), `posthog_not_configured` (no PostHog env signal " +
-        "at all), or `webhook_secret_missing` (POSTHOG_WEBHOOK_SECRET unset)",
+        "at all), `webhook_secret_missing` (POSTHOG_WEBHOOK_SECRET unset), " +
+        "or `api_public_url_unreachable` (API_PUBLIC_URL is loopback — " +
+        "PostHog cannot deliver to it)",
     },
     502: {
       content: { "application/json": { schema: provisionFailureSchema } },
@@ -175,6 +198,21 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
       // A credential exists but the server has no PostHog env signal to tell
       // us which region to provision against.
       return c.json({ error: "posthog_not_configured" }, 409);
+    }
+
+    // PostHog Cloud cannot deliver webhooks to a loopback address — and a
+    // local instance with a misconfigured API_PUBLIC_URL must never repoint
+    // a production destination at localhost. Refuse BEFORE any PostHog call.
+    if (isLoopbackPublicUrl(info.apiPublicUrl)) {
+      return c.json(
+        {
+          error: "api_public_url_unreachable",
+          detail: `API_PUBLIC_URL is ${info.apiPublicUrl} — PostHog cannot reach a loopback address.`,
+          remediation:
+            "Run this against your DEPLOYED instance (the credential is already stored there if you connected it): hogsend connect posthog --provision-only --url https://your-instance",
+        },
+        409,
+      );
     }
 
     try {
