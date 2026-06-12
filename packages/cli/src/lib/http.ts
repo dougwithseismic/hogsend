@@ -28,6 +28,7 @@ export interface AdminClient {
   ): Promise<T>;
   patch<T = unknown>(path: string, body: unknown): Promise<T>;
   post<T = unknown>(path: string, body: unknown): Promise<T>;
+  put<T = unknown>(path: string, body: unknown): Promise<T>;
   del<T = unknown>(path: string, body?: unknown): Promise<T>;
   /** The resolved config this client is bound to (for messages/JSON output). */
   readonly cfg: ResolvedConfig;
@@ -162,6 +163,11 @@ export function createAdminClient(cfg: ResolvedConfig): AdminClient {
       }),
     post: <T>(path: string, body: unknown) =>
       request<T>(cfg.baseUrl, cfg.adminKey, missing, "POST", path, {
+        body,
+        auth: true,
+      }),
+    put: <T>(path: string, body: unknown) =>
+      request<T>(cfg.baseUrl, cfg.adminKey, missing, "PUT", path, {
         body,
         auth: true,
       }),
