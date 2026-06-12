@@ -94,7 +94,7 @@ export function getDistinctId(): string | undefined {
  * contact's email-lifecycle events, and post-click visits all converge on ONE
  * PostHog person. Memory persistence keeps the merge session-scoped,
  * matching the site's cookieless posture (same as the `hs_t` stitch in
- * instrumentation-client.ts).
+ * posthog-boot.tsx).
  */
 export function identify(distinctId: string): void {
   if (typeof window === "undefined") return;

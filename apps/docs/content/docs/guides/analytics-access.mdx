@@ -1,0 +1,146 @@
+---
+title: Analytics access & identity
+description: The provider-neutral analytics contract, PostHog's two-credential model (and why it exists), person reads vs writes, and how the contactKey identity loop joins your site, your emails, and your analytics into one person.
+---
+
+Hogsend talks to your analytics platform through one neutral contract — the
+`AnalyticsProvider` — and PostHog is the reference implementation, not the
+architecture. This page covers what each credential can do, **why** PostHog
+needs two of them, and how Hogsend's identity loop keeps your site sessions,
+email engagement, and analytics persons joined on a single key.
+
+<Callout type="info">
+  This page is about **credentials and identity**. For forwarding PostHog
+  events *into* Hogsend (the webhook source), see [PostHog Webhook
+  Setup](/docs/getting-started/posthog-setup); for fanning Hogsend's event
+  stream *out* to PostHog and other tools, see
+  [Outbound destinations](/docs/data-api/destinations).
+</Callout>
+
+## The two-credential model (and why it isn't Hogsend ceremony)
+
+PostHog splits its API in half, on purpose:
+
+| Credential | What it is | What it can do | What it can NEVER do |
+|---|---|---|---|
+| **Project API key** (`phc_…`) | Public. Ships in every browser bundle on your site. | Capture events, evaluate feature flags — and therefore **person property WRITES** (they ride the capture pipeline as `$set` / `$set_once` / `$unset`). | Read anything. |
+| **Personal API key** | Secret. Created per-user, scoped per-resource and per-project. | Private-API **reads** (and more, per its scopes). | Nothing it's scoped for — scope it tightly. |
+
+The project key is write-only **by PostHog's design**: anyone can View Source
+on your site and copy it, so if it could read, anyone could dump your entire
+persons database. Every read goes through the private API with a personal API
+key instead. This is PostHog protecting your users' data — Hogsend just
+inherits the split, and degrades gracefully when the read credential is
+absent.
+
+## What Hogsend uses each credential for
+
+```bash title=".env"
+# Capture + person WRITES (the propagation rail) — no-op if unset.
+POSTHOG_API_KEY=phc_...
+POSTHOG_HOST=https://eu.i.posthog.com
+
+# Person READS — per-user timezone resolution (ctx.when), property conditions.
+POSTHOG_PERSONAL_API_KEY=...
+# Optional overrides — both are derived/discovered automatically:
+# POSTHOG_PROJECT_ID=12345
+# POSTHOG_PRIVATE_HOST=https://eu.posthog.com
+```
+
+| Capability | Needs | Without it |
+|---|---|---|
+| Event capture (`getPostHog().captureEvent`, destinations) | `POSTHOG_API_KEY` | Silent no-op |
+| Person **writes** (`setPersonProperties`, bucket mirror) | `POSTHOG_API_KEY` | Silent no-op |
+| Person **reads** (`ctx.when` timezone, `getPersonProperties`) | `POSTHOG_PERSONAL_API_KEY` | Soft-fails to **contact properties → client default timezone**; surfaced once at boot and by `hogsend doctor` |
+
+Two details the engine handles for you, because they're easy to get wrong:
+
+- **The private API lives on a different host.** Capture goes to the
+  ingestion host (`eu.i.posthog.com`); reads go to the app host
+  (`eu.posthog.com`). Hogsend derives the private host by stripping the
+  `.i.` label — override with `POSTHOG_PRIVATE_HOST` for self-hosted layouts.
+- **Reads are environment-scoped.** Hogsend discovers your project id once
+  via `GET /api/projects/@current/` and caches it — set
+  `POSTHOG_PROJECT_ID` to skip discovery.
+
+### Creating the personal API key
+
+1. PostHog → **Settings → Personal API keys** → *Create personal API key*
+   (PostHog will ask you to re-authenticate).
+2. **Scope it**: Organization & project access → *Projects* → pick your
+   project. Scopes → **Person: Write** (write includes read) and
+   **Project: Read** (for the `@current` project discovery).
+3. Copy the key (shown once) into `POSTHOG_PERSONAL_API_KEY` on your api
+   **and** worker.
+
+<Callout type="warn">
+  Resist "All access" — the key acts as *you*. Person: Write + Project: Read
+  is everything Hogsend needs.
+</Callout>
+
+## The identity loop: one person across site, email, and analytics
+
+Hogsend's canonical identity is the **contact key** — `external_id ??
+anonymous_id ?? id`, resolved by the engine's alias-aware identity system.
+That key is deliberately the *same one* everywhere it matters:
+
+1. **`POST /v1/events` returns it** (`contactKey`, engine ≥0.18). Your site's
+   subscribe endpoint can hand it to the browser, which calls
+   `posthog.identify(contactKey)` — an opaque id, zero PII in PostHog.
+2. **Tracked email links carry it** (opt-in `TRACKING_IDENTITY_TOKEN`): a
+   click lands on your site with a short-lived `hs_t` token, exchanged at
+   `POST /v1/t/identify` for the same key → `posthog.identify` again. Email
+   clicks and web sessions become one person.
+3. **Outbound destinations emit it as `userId`** — so the email lifecycle
+   events Hogsend fans out to PostHog land on that same person.
+4. **It round-trips.** Events forwarded back from PostHog (the
+   [webhook source](/docs/getting-started/posthog-setup)) under that key
+   resolve to the *same contact* — never a duplicate.
+
+The result: the anonymous visitor who subscribed, the contact your journeys
+email, the person whose opens/clicks land in PostHog, and the PostHog events
+that trigger your journeys are all **one identity**, joined on a key you own.
+
+## Person writes: the propagation rail
+
+`setPersonProperties` on the provider (or the legacy `identify()` shim) puts
+contact truth onto the analytics person — plan, role, lifecycle stage — using
+only the project key:
+
+```ts
+import { getPostHog } from "@hogsend/engine";
+
+getPostHog()?.identify(user.id, { plan: "pro" });
+```
+
+[Buckets](/docs/guides/buckets) can mirror membership automatically
+(`syncToPostHog: true`), and contact-change propagation via the outbound
+spine is coming to the `posthog` destination preset.
+
+## Provider-neutral by contract
+
+The engine speaks `AnalyticsProvider` (from `@hogsend/core`): `meta`,
+`capabilities`, `getPersonProperties`, `setPersonProperties`, `capture`.
+PostHog ships as `createPostHogProvider` from `@hogsend/plugin-posthog`; any
+platform that can read/write a person and capture an event can implement the
+same contract and plug into `createHogsendClient`:
+
+```ts
+import { defineAnalyticsProvider } from "@hogsend/engine";
+
+const myProvider = defineAnalyticsProvider({
+  meta: { id: "my-analytics", name: "My analytics" },
+  capabilities: { personReads: true, personWrites: true },
+  async getPersonProperties(distinctId) { /* … */ return {}; },
+  async setPersonProperties({ distinctId, set, setOnce, unset }) { /* … */ },
+  capture({ distinctId, event, properties }) { /* … */ },
+});
+
+const client = createHogsendClient({
+  analytics: { provider: myProvider },
+});
+```
+
+The identity loop above doesn't change — the contact key is Hogsend's, not
+PostHog's, so step 1, 2 and 4 work identically with any provider; only the
+capture/read wires swap.
