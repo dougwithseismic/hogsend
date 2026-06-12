@@ -209,14 +209,8 @@ export default function OnboardingUseCasePage(): JSX.Element {
       <MoreUseCases current="onboarding" />
 
       <ClosingCta
-        title={
-          <>
-            Onboarding your team
-            <br />
-            can code-review
-          </>
-        }
-        subtitle="The scaffold ships 10 journeys and 13 templates to start from — including a welcome sequence shaped like this one."
+        title="Onboarding your team can review"
+        subtitle="The scaffold ships 10 journeys and 13 templates to start from, including a welcome sequence shaped like this one."
       />
     </main>
   );

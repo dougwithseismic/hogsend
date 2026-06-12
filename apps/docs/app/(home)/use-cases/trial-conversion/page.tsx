@@ -228,14 +228,8 @@ export default function TrialConversionUseCasePage(): JSX.Element {
       <MoreUseCases current="trial-conversion" />
 
       <ClosingCta
-        title={
-          <>
-            Trial emails that stop
-            <br />
-            when Stripe says stop
-          </>
-        }
-        subtitle="The scaffold ships 10 journeys and 13 templates to start from — wire the Stripe preset and the upgrade sequence is one reviewable file."
+        title="Trial emails that stop on payment"
+        subtitle="The scaffold ships 10 journeys and 13 templates to start from. Wire the Stripe preset and the upgrade sequence is one reviewable file."
       />
     </main>
   );

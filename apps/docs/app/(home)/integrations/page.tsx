@@ -21,7 +21,7 @@ import { type StackItem, StackPicker } from "@/components/landing/stack-picker";
 export const metadata: Metadata = {
   title: "Integrations",
   description:
-    "PostHog is where you start, not where you stop. Events flow in from signed webhooks, your own app, or any custom source — and fan back out to PostHog, Segment, Slack, your CRM, your warehouse, or any signed webhook.",
+    "PostHog is the default source. Events also flow in from signed webhooks (Stripe, Clerk, Supabase, Segment), your own app, or any custom source, and fan back out to PostHog, Segment, Slack, your CRM, your warehouse, or any signed webhook.",
 };
 
 const ICON_SIZE = 20;
@@ -346,8 +346,8 @@ export default function IntegrationsPage(): JSX.Element {
           <Reveal>
             <SectionHeading
               eyebrow="Integrations"
-              title="Any source in. Any destination out."
-              subtitle="Events flow in from signed webhooks, your own app, or anything you can wire up — and fan back out to the tools you already run. PostHog is where you start, not where you stop."
+              title="Sources in, destinations out"
+              subtitle="Events flow in from signed webhooks, your own app, or any custom source, and fan back out to the tools you already run. PostHog is the default source; every other wire in and out is configuration."
             />
           </Reveal>
         </div>

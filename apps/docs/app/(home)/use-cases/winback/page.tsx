@@ -16,7 +16,7 @@ import {
 export const metadata: Metadata = {
   title: "Win-back email automation in code",
   description:
-    "Turn silence into a trigger: real-time inactivity buckets enroll a durable win-back journey that stops the instant users return. Self-hosted, your provider.",
+    "Trigger win-back on inactivity: a real-time bucket detects 'no activity for 7 days' and enrolls a durable journey that exits the instant the user returns. Self-hosted, your provider.",
 };
 
 /* Mirrors apps/api/src/buckets/went-dormant.ts — string literals stand in for
@@ -127,22 +127,22 @@ export default function WinbackUseCasePage(): JSX.Element {
 
       <UseCaseHero
         eyebrow="Use case: win-back"
-        title="Win-back that knows when someone actually left"
-        subhead="Inactivity isn't an event your app fires — it's the absence of one. Buckets turn “no activity for 7 days” into a trigger."
+        title="Win-back triggered by inactivity"
+        subhead="No app fires an “inactive” event, so a bucket watches for the absence of activity. “Was active, but nothing in 7 days” becomes an enter event the win-back journey triggers on."
       />
 
-      <ProblemStatement label="You can't webhook on silence">
-        Webhooks tell you what happened, never what stopped happening. Most
-        tools solve this with batch segments that update daily — PostHog cohorts
+      <ProblemStatement label="Triggering on the absence of activity">
+        Webhooks tell you what happened, not what stopped happening. Most tools
+        handle this with batch segments that update daily — PostHog cohorts
         recalculate in roughly 24-hour batches. A Hogsend bucket is code,
-        evaluated in real time: membership changes fire first-class enter/leave
-        events the moment someone crosses the line. (Buckets are segments, not a
-        CDP — which is exactly enough here.)
+        evaluated in real time: membership changes fire enter and leave events
+        the moment someone crosses the line. Buckets are segments rather than a
+        full CDP, which is what this needs.
       </ProblemStatement>
 
       <CodeWalkthrough
         eyebrow="The code"
-        title="A bucket detects silence; a journey answers it"
+        title="A bucket detects inactivity; a journey responds"
         subtitle="Both mirror the dormancy pair that ships in the scaffold."
         blocks={[
           {
@@ -176,11 +176,11 @@ export default function WinbackUseCasePage(): JSX.Element {
           },
           {
             title: <code>once_per_period</code>,
-            body: "A flapping user isn't “won back” monthly — one enrollment per 60 days, enforced by the engine.",
+            body: "entryPeriod: days(60) caps re-enrollment, so a user who flaps in and out isn't enrolled in win-back more than once every 60 days.",
           },
           {
-            title: "The final nudge is final",
-            body: "The fastest way to lose a domain reputation is emailing people who left — and it's your domain, because it's your provider.",
+            title: "Stop after the final nudge",
+            body: "Emailing people who left is one of the faster ways to lose domain reputation — and the reputation is yours, because the sends go through your provider.",
           },
         ]}
       />
@@ -216,12 +216,12 @@ export default function WinbackUseCasePage(): JSX.Element {
       <ClosingCta
         title={
           <>
-            Turn silence
+            Trigger win-back
             <br />
-            into a trigger
+            on inactivity
           </>
         }
-        subtitle="Buckets, journeys, and suppression ship in the scaffold — no nightly cohort export, and it stops the instant they return."
+        subtitle="Buckets, journeys, and suppression ship in the scaffold. Membership updates in real time — no nightly cohort export — and the journey exits the instant the user returns."
       />
     </main>
   );

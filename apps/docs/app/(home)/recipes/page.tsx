@@ -10,7 +10,7 @@ import { Section, SectionHeading } from "@/components/ds/section";
 export const metadata: Metadata = {
   title: "Recipes",
   description:
-    "A cookbook for Hogsend. Pick an outcome — transactional email, lifecycle journeys, campaigns, events and contacts — and reach for the primitives that build it.",
+    "Recipes for common Hogsend outcomes — transactional email, lifecycle journeys, campaigns, events and contacts — each built from a few primitives.",
 };
 
 const ICON_SIZE = 20;
@@ -76,8 +76,8 @@ export default function RecipesPage(): JSX.Element {
           <Reveal>
             <SectionHeading
               eyebrow="Recipes"
-              title="A cookbook, not a blank page"
-              subtitle="Every outcome is a few primitives combined — pick the result, reach for the pieces."
+              title="Recipes for the common outcomes"
+              subtitle="Each outcome is a few primitives combined. Pick the result; the recipe shows the pieces."
             />
           </Reveal>
 
@@ -143,8 +143,8 @@ export default function RecipesPage(): JSX.Element {
           <SectionHeading
             align="center"
             eyebrow="Start cooking"
-            title="Browse the full cookbook"
-            subtitle="Read every recipe end to end, or scaffold an app and start from a working flow."
+            title="Browse every recipe"
+            subtitle="Read each recipe end to end, or scaffold an app and start from a working flow."
             className="mx-auto"
           />
         </Reveal>
