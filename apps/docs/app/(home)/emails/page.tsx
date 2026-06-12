@@ -371,7 +371,7 @@ export default function EmailsPage() {
           </h2>
           <p className="mt-5 max-w-xl text-base text-white/70 leading-6">
             The scaffold puts all 13 templates — plus 10 journeys, Docker, and
-            env — in a repo you own. Edit the first one tonight.
+            env — in a repo you own. Edit the first one in your editor.
           </p>
 
           <div className="mt-10 flex w-full max-w-xl items-center justify-between gap-4 rounded-[10px] border border-white/10 bg-[#0a0606] px-4 py-3.5">

@@ -24,7 +24,7 @@ Until then, Hogsend exists. And it's designed with that future in mind:
 - **Clean event model** — Hogsend uses your PostHog events directly. No proprietary event format. When PostHog ships their own tool, your events are already in the right shape.
 - **Durable fan-out to PostHog** — email engagement (`email.sent`, `email.delivered`, `email.opened`, `email.clicked`, `email.bounced`, `email.complained`) fans out to PostHog as a [destination](/docs/data-api/destinations) on Hogsend's durable webhook spine, with retries and a dead-letter queue. You can build cohorts like "users who opened the welcome email but haven't used feature X" — email engagement alongside product metrics, in PostHog where it belongs. PostHog is one subscriber among many here: Segment, Slack, a CRM, or a warehouse can receive the exact same stream.
 - **No lock-in** — journeys are TypeScript files in your repo. Templates are React components. Data lives in your Postgres. Nothing is trapped in a proprietary format.
-- **Gateway drug** — if you outgrow Hogsend before PostHog ships their solution, you can migrate to Customer.io, Brevo, or any other platform. Your event model and journey logic translate directly.
+- **A clean migration path** — if you outgrow Hogsend before PostHog ships their solution, you can migrate to Customer.io, Brevo, or any other platform. Your event model and journey logic translate directly.
 
 ## What PostHog gives Hogsend
 

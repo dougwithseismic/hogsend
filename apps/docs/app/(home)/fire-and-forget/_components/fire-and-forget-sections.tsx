@@ -29,13 +29,14 @@ export function FireForgetHero(): JSX.Element {
         <Reveal className="flex flex-col items-center">
           <Eyebrow>Fire and forget</Eyebrow>
           <h1 className="mt-6 max-w-4xl font-display font-medium text-[40px] text-white leading-[1.05] tracking-[-0.05em] md:text-[64px] md:leading-[1.0]">
-            Lifecycle marketing
+            Production email,
             <br />
-            built for agents
+            set up once
           </h1>
           <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
-            Set the loop up once — by hand in half an hour, or hand the guide to
-            your agent. Journeys run from your repo after that.
+            Take a fresh domain to production lifecycle email — by hand in about
+            half an hour, or by handing the guide to an agent. After that,
+            journeys run from your repo.
           </p>
         </Reveal>
         <Reveal delay={0.1} className="mt-12 flex flex-col items-center gap-5">
@@ -75,9 +76,9 @@ export function Premise(): JSX.Element {
         <Eyebrow className="mb-8">The premise</Eyebrow>
         <p className="mx-auto max-w-[900px] font-display text-[24px] text-white/90 leading-[34px] tracking-[-0.02em] md:text-[34px] md:leading-[46px]">
           We took a fresh domain to production lifecycle email in about half an
-          hour — on hogsend.com itself. No mailbox provider, no Google account.
-          Every step has a checkable result, which is exactly what an agent
-          needs.
+          hour, on hogsend.com itself — no mailbox provider, no Google account.
+          Every step ends in a command whose output confirms it worked, which is
+          the property an agent needs to run the whole thing.
         </p>
       </Reveal>
     </Section>
@@ -177,7 +178,7 @@ export function ThePath(): JSX.Element {
       <SectionHeading
         eyebrow="The path"
         title="Seven steps, each with a check"
-        subtitle="The short version of the guide. Every step ends with a command whose output tells you it worked — run, check, proceed."
+        subtitle="The short version of the guide. Every step ends with a command whose output tells you whether it worked before you move to the next one."
       />
       <div className="mt-12 flex flex-col">
         {STEPS.map((step, index) => (
@@ -244,7 +245,7 @@ export function Gotchas(): JSX.Element {
     <Section>
       <SectionHeading
         eyebrow="Gotchas"
-        title="The parts that bite"
+        title="Common gotchas"
         subtitle="Found by setting this up for real on hogsend.com. The guide covers each in full."
       />
       <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -293,7 +294,7 @@ export function AgentSection(): JSX.Element {
             <SectionHeading
               eyebrow="Built for agents"
               title="Hand the guide to your agent"
-              subtitle="Every step on this page is a command or an API call with a checkable result. That is the property agents need: run, check, proceed. Point one at the guide and say set up my domain."
+              subtitle="Every step on this page is a command or an API call that returns a checkable result, so an agent can run a step, read the output, and decide whether to continue. Point one at the guide and ask it to set up your domain."
             />
             <div className="mt-10 flex flex-col gap-6">
               {AGENT_POINTS.map((point) => (
@@ -362,7 +363,7 @@ export function FinalCta(): JSX.Element {
               <h2 className="max-w-xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
                 Fresh domain to
                 <br />
-                first send, tonight
+                first send
               </h2>
               <p className="mt-5 max-w-md text-base text-white/70 leading-6">
                 The full guide has every record, every key, and every check —
