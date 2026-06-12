@@ -89,7 +89,7 @@ await hs.events.send({                          // POST /v1/events
   eventProperties: { source: "landing" },       // stored ON the event
   contactProperties: { country: "GB" },         // merged onto the CONTACT
   idempotencyKey: "evt_abc",
-});                                              // -> { stored, exits, listsError? }
+});                                              // -> { stored, exits, contactKey?, listsError? }
 hs.events.track(/* … */);                       // alias of events.send
 
 // Emails ------------------------------------------------------------------
@@ -185,13 +185,17 @@ same split is exposed by the CLI as `--prop` (event) vs `--contact-prop`
 ## The 202 + `listsError` warning
 
 `POST /v1/events` returns **202 Accepted** (the event is durably stored and
-queued for routing), NOT 200. The result is `{ stored, exits }` plus an optional
-`listsError`:
+queued for routing), NOT 200. The result is `{ stored, exits, contactKey }`
+plus an optional `listsError`:
 
 - `stored` — `true` once the event row is written (`false` only on a dedup via
   `idempotencyKey`).
 - `exits` — the `{ journeyId, stateId, exited }[]` from evaluating active
   journeys' `exitOn` rules for this user.
+- `contactKey` — the contact's canonical key (engine ≥0.18): the same key
+  outbound destinations emit as `userId` and `hs_t` identity tokens resolve
+  to. Hand it to your analytics `identify()` to join the session to the
+  contact's person — it carries no PII.
 - **`listsError?`** — present ONLY when the event was ingested fine but the
   (non-atomic, post-ingest) `lists` membership write failed. **The event itself
   is durably stored** — this is a soft warning surfaced on the 202, not a 400.

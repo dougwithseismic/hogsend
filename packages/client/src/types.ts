@@ -72,6 +72,15 @@ export interface IngestResult {
   stored: boolean;
   exits: ExitResult[];
   /**
+   * The contact's canonical key (`external_id ?? anonymous_id ?? id`) after
+   * this ingest's identity resolve — the same key outbound destinations emit
+   * as `userId` and `hs_t` identity tokens resolve to. Hand it to your
+   * analytics `identify()` so the session joins the person the contact's
+   * email events land on, with no PII round-trip. Optional: servers on engine
+   * <0.18 don't return it.
+   */
+  contactKey?: string;
+  /**
    * Present only when the event was ingested but the (non-atomic, post-ingest)
    * list-membership write failed. The event itself is durably stored.
    */
