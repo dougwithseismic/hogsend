@@ -153,6 +153,33 @@ NOSKILLS_DIR="$APP_PARENT/no-skills"
 [ ! -e "$NOSKILLS_DIR/CLAUDE.md" ] || fail "--no-skills emitted CLAUDE.md"
 echo "    --no-skills OK"
 
+# --- 3c. --posthog-key materializes active PostHog env --------------------
+echo "==> [3c] scaffold (--posthog-key) writes active PostHog env"
+POSTHOG_DIR="$APP_PARENT/with-posthog"
+(cd "$APP_PARENT" && node "$CLI" with-posthog --pm pnpm --no-install --no-git \
+  --posthog-key phc_verify_test --posthog-host https://eu.i.posthog.com \
+  --use-tarballs "$TARBALLS")
+[ -e "$POSTHOG_DIR/.env.example" ] \
+  || fail "--posthog-key scaffold produced no .env.example"
+# CRITICAL: capture the file into a variable FIRST, then grep a here-string.
+# A `cat … | grep -q` pipeline can SIGPIPE the producer under
+# `set -o pipefail` and falsely trip the check (same gotcha as tar_has above).
+POSTHOG_ENV="$(cat "$POSTHOG_DIR/.env.example")"
+grep -q '^POSTHOG_API_KEY=phc_verify_test$' <<<"$POSTHOG_ENV" \
+  || fail "active POSTHOG_API_KEY not written by --posthog-key"
+grep -q '^POSTHOG_HOST=https://eu.i.posthog.com$' <<<"$POSTHOG_ENV" \
+  || fail "active POSTHOG_HOST not written by --posthog-host"
+grep -q '^ENABLE_POSTHOG_DESTINATION=true$' <<<"$POSTHOG_ENV" \
+  || fail "ENABLE_POSTHOG_DESTINATION not activated"
+grep -Eq '^POSTHOG_WEBHOOK_SECRET=[0-9a-f]{64}$' <<<"$POSTHOG_ENV" \
+  || fail "POSTHOG_WEBHOOK_SECRET not minted (expected 64 hex chars)"
+# Without the PostHog flags, the env must be UNTOUCHED — the default scaffold
+# from step 3 keeps .env.example byte-identical to the template.
+diff -q "$APPDIR/.env.example" "$PKG_DIR/template/env.example" >/dev/null \
+  || fail "default scaffold .env.example drifted from template/env.example \
+(skipping PostHog must be a no-op)"
+echo "    --posthog-key env OK"
+
 # --- 4. install -----------------------------------------------------------
 echo "==> [4/8] pnpm install (scaffolded app)"
 (cd "$APPDIR" && pnpm install --ignore-workspace >/dev/null 2>&1) \

@@ -62,6 +62,33 @@ apply the records automatically when a `CLOUDFLARE_API_TOKEN` / `VERCEL_TOKEN`
 is set. Details:
 [docs.hogsend.com/docs/operating/test-mode](https://docs.hogsend.com/docs/operating/test-mode).
 
+## PostHog
+
+If you answered the scaffolder's PostHog prompt (or passed
+`--posthog-key phc_… [--posthog-host https://eu.i.posthog.com]`), `.env`
+already carries the wiring as **active** values:
+
+- `POSTHOG_API_KEY` + `POSTHOG_HOST` — event capture + person property writes
+- `ENABLE_POSTHOG_DESTINATION=true` — the email lifecycle fans out to PostHog
+  durably, on the delivery spine
+- `POSTHOG_WEBHOOK_SECRET` — freshly minted; verifies inbound PostHog
+  webhooks at `POST /v1/webhooks/posthog`
+
+Skipped it (or passed `--no-posthog`)? Nothing was touched — uncomment the
+same lines in `.env` whenever you're ready.
+
+Once the app is deployed, finish the loop with one command:
+
+```bash
+pnpm hogsend connect posthog   # wires person reads + the PostHog→Hogsend event loop
+```
+
+The `phc_` project key is write-only by PostHog's design, so `connect` sets up
+the read credential (per-user timezone resolution, property conditions) and
+points PostHog's event stream back at your instance — the people your journeys
+email and the persons in PostHog stay one identity. Details:
+[docs.hogsend.com/docs/guides/analytics-access](https://docs.hogsend.com/docs/guides/analytics-access).
+
 ## Verify the pipeline (end-to-end smoke)
 
 With `pnpm dev` + `pnpm worker:dev` running (and an ingest-scoped
