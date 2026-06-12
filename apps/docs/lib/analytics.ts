@@ -87,6 +87,22 @@ export function getDistinctId(): string | undefined {
 }
 
 /**
+ * identify — identifies the PostHog session under the Hogsend contact key
+ * (an opaque id, never an email or name — PostHog still gets zero PII). The
+ * same key is what the engine's outbound destinations emit as `userId` and
+ * what `hs_t` email-click tokens resolve to, so the subscribing session, the
+ * contact's email-lifecycle events, and post-click visits all converge on ONE
+ * PostHog person. Memory persistence keeps the merge session-scoped,
+ * matching the site's cookieless posture (same as the `hs_t` stitch in
+ * instrumentation-client.ts).
+ */
+export function identify(distinctId: string): void {
+  if (typeof window === "undefined") return;
+  if (!posthog.__loaded) return;
+  posthog.identify(distinctId);
+}
+
+/**
  * Session identity — set by EmailCapture after a successful subscribe.
  * Deliberately a plain in-memory object (no cookies, no storage) so the
  * site stays strictly cookieless; it survives client-side navigation but

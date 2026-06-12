@@ -74,7 +74,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const normalizedEmail = email.trim().toLowerCase();
 
-  const ok = await forwardToIngest(
+  const accepted = await forwardToIngest(
     {
       name: "docs.subscribed",
       email: normalizedEmail,
@@ -91,9 +91,18 @@ export async function POST(request: Request): Promise<NextResponse> {
     `docs-subscribed-${normalizedEmail}`,
   );
 
-  if (!ok) {
+  if (!accepted) {
     return NextResponse.json({ error: "upstream failed" }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true }, { status: 202 });
+  // The canonical contact key (no PII) rides back so the client can
+  // posthog.identify() the session — joining this visit to the PostHog person
+  // the contact's email-lifecycle events land on.
+  return NextResponse.json(
+    {
+      ok: true,
+      ...(accepted.contactKey ? { contactKey: accepted.contactKey } : {}),
+    },
+    { status: 202 },
+  );
 }

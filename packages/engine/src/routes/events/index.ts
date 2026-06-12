@@ -25,6 +25,11 @@ const eventResponseSchema = z.object({
       exited: z.boolean(),
     }),
   ),
+  // The contact's canonical key (`external_id ?? anonymous_id ?? id`) — the
+  // same key outbound destinations and `hs_t` identity tokens carry, so the
+  // caller can `identify()` its analytics session against the contact without
+  // any PII round-trip.
+  contactKey: z.string(),
   // Present only when the event was durably ingested but the (non-atomic,
   // post-ingest) list-membership write failed. The ingest itself succeeded —
   // surfaced as a warning on a 202, not a 400 that conflates "nothing happened"
