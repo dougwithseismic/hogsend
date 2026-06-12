@@ -4,6 +4,7 @@ import {
   ClosingCta,
   CodeWalkthrough,
   type FaqItem,
+  JourneyRun,
   MoreUseCases,
   PointsGrid,
   ProblemStatement,
@@ -157,6 +158,12 @@ export default function WinbackUseCasePage(): JSX.Element {
               "The instant they come back, the bucket's left event matches exitOn and cancels the run — mid-sleep, mid-anything.",
           },
         ]}
+      />
+
+      <JourneyRun
+        title="The same file, executing"
+        subtitle="Dormancy detected, the check-in email, the plan check picking the offer — and the send that wins them back."
+        clip="journey-winback"
       />
 
       <PointsGrid

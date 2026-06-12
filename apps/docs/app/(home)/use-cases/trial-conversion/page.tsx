@@ -5,6 +5,7 @@ import {
   ClosingCta,
   CodeWalkthrough,
   type FaqItem,
+  JourneyRun,
   MoreUseCases,
   PointsGrid,
   ProblemStatement,
@@ -149,6 +150,12 @@ export default function TrialConversionUseCasePage(): JSX.Element {
             .
           </>
         }
+      />
+
+      <JourneyRun
+        title="The same mechanics, executing"
+        subtitle="A conversion journey running: trigger, a short wait, the usage check coming back empty, and the recovery email going out."
+        clip="journey-checkout"
       />
 
       <PointsGrid

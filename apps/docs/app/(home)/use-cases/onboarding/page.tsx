@@ -4,6 +4,7 @@ import {
   ClosingCta,
   CodeWalkthrough,
   type FaqItem,
+  JourneyRun,
   MoreUseCases,
   PointsGrid,
   ProblemStatement,
@@ -139,6 +140,12 @@ export default function OnboardingUseCasePage(): JSX.Element {
               "Trigger, durable wait, branch — one file, one reviewable diff.",
           },
         ]}
+      />
+
+      <JourneyRun
+        title="The same file, executing"
+        subtitle="Enrol, send, a durable wait that resolves when the project lands, branch, write-back to PostHog."
+        clip="journey-onboarding"
       />
 
       <PointsGrid

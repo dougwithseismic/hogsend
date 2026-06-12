@@ -50,3 +50,9 @@ backups/
 # Hogsend CLI
 .hogsend.yaml
 cli/hogsend
+
+# Marketing videos (Remotion) — generated assets + renders
+marketing/renders/
+marketing/video/out/
+marketing/video/public/screenshots/
+marketing/video/public/logos/
