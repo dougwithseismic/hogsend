@@ -25,14 +25,14 @@ export function derivePrivateHost(host: string): string {
  */
 async function discoverProjectId(opts: {
   privateHost: string;
-  personalApiKey: string;
+  token: string;
 }): Promise<string | undefined> {
   try {
     const response = await fetch(
       new URL("/api/projects/@current/", opts.privateHost).toString(),
       {
         headers: {
-          Authorization: `Bearer ${opts.personalApiKey}`,
+          Authorization: `Bearer ${opts.token}`,
           Accept: "application/json",
         },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -46,16 +46,22 @@ async function discoverProjectId(opts: {
   }
 }
 
-/** Per-(host,key) one-shot project-id discovery, shared across calls. */
+/** Per-(host,credential) one-shot project-id discovery, shared across calls. */
 const projectIdCache = new Map<string, Promise<string | undefined>>();
 
 function resolveProjectId(opts: {
   privateHost: string;
-  personalApiKey: string;
+  token: string;
+  /**
+   * Cache identity, NOT the bearer token: OAuth access tokens rotate every
+   * ~10h, so keying on `token` would re-discover after every refresh. Callers
+   * pass the (stable) personal key or a fixed "oauth" marker.
+   */
+  cacheKey: string;
   projectId?: string;
 }): Promise<string | undefined> {
   if (opts.projectId) return Promise.resolve(opts.projectId);
-  const cacheKey = `${opts.privateHost}::${opts.personalApiKey}`;
+  const cacheKey = `${opts.privateHost}::${opts.cacheKey}`;
   let pending = projectIdCache.get(cacheKey);
   if (!pending) {
     pending = discoverProjectId(opts).then((id) => {
@@ -71,11 +77,12 @@ function resolveProjectId(opts: {
 /**
  * Person-property READ via PostHog's private API.
  *
- * Requires a PERSONAL API key (scope `person:read`) — the `phc_` project key
- * is write-only by design (it ships in browser bundles) and can never read.
- * Without `personalApiKey` this resolves `{}` immediately (reads disabled);
- * the engine's timezone fallbacks (contact properties → client default) take
- * over. All upstream errors also soft-fail to `{}`.
+ * Requires a privileged credential (scope `person:read`) — the `phc_` project
+ * key is write-only by design (it ships in browser bundles) and can never
+ * read. An OAuth token (via `getAuthToken`) is preferred; `personalApiKey` is
+ * the fallback. With NEITHER configured this resolves `{}` immediately (reads
+ * disabled); the engine's timezone fallbacks (contact properties → client
+ * default) take over. All upstream errors also soft-fail to `{}`.
  *
  * The private API lives on the APP host (`eu.posthog.com`), not the
  * ingestion host (`eu.i.posthog.com`) — derived via {@link derivePrivateHost}.
@@ -87,7 +94,7 @@ export async function getPersonProperties(opts: {
 }): Promise<Record<string, unknown>> {
   const { config, distinctId, cache } = opts;
 
-  if (!config.personalApiKey) return {};
+  if (!config.personalApiKey && !config.getAuthToken) return {};
 
   if (cache) {
     try {
@@ -105,9 +112,16 @@ export async function getPersonProperties(opts: {
   let properties: Record<string, unknown> = {};
 
   try {
+    // OAuth preferred, personal key fallback — a revoked/failed OAuth
+    // credential degrades to the personal key for free.
+    const oauthToken = config.getAuthToken ? await config.getAuthToken() : null;
+    const token = oauthToken ?? config.personalApiKey;
+    if (!token) return {};
+
     const projectId = await resolveProjectId({
       privateHost,
-      personalApiKey: config.personalApiKey,
+      token,
+      cacheKey: config.personalApiKey ?? "oauth",
       projectId: config.projectId,
     });
     if (!projectId) return {};
@@ -120,7 +134,7 @@ export async function getPersonProperties(opts: {
 
     const response = await fetch(url.toString(), {
       headers: {
-        Authorization: `Bearer ${config.personalApiKey}`,
+        Authorization: `Bearer ${token}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

@@ -518,7 +518,7 @@ export function createHogsendClient(
       : undefined;
 
   const analyticsProviders = new AnalyticsProviderRegistry([
-    ...analyticsProvidersFromEnv(env),
+    ...analyticsProvidersFromEnv(env, { db, logger }),
     ...(analyticsGroup?.providers ?? []),
     ...(analyticsGroup?.provider ? [analyticsGroup.provider] : []),
   ]);
@@ -551,7 +551,7 @@ export function createHogsendClient(
     logger.info(
       `analytics provider "${analytics.meta.id}" has person reads DISABLED — ` +
         "timezone resolution falls back to contact properties. For PostHog, " +
-        "set POSTHOG_PERSONAL_API_KEY (a personal API key scoped person:read). " +
+        "set POSTHOG_PERSONAL_API_KEY or run `hogsend connect posthog`. " +
         "Docs: https://hogsend.com/docs/guides/analytics-access",
     );
   }

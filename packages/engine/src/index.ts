@@ -227,6 +227,18 @@ export {
 // --- Logging ---
 export { createLogger, type Logger } from "./lib/logger.js";
 export { createTrackedMailer } from "./lib/mailer.js";
+// --- OAuth token manager (provider access-token cache + refresh) ---
+export {
+  ABSENT_RECHECK_MS,
+  type CredentialState,
+  type CredentialStore,
+  createTokenManager,
+  EXPIRY_SKEW_MS,
+  FAILURE_BACKOFF_MS,
+  HOGSEND_POSTHOG_CLIENT_ID,
+  oauthCredentialPayloadSchema,
+  type TokenManager,
+} from "./lib/oauth-token-manager.js";
 // --- Outbound webhooks: emit spine (Section 1.4) ---
 export {
   emitOutbound,

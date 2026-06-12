@@ -9,6 +9,7 @@ export type {
   PersonPropertiesCache,
   PersonPropertiesConfig,
   PersonPropertiesWrite,
+  PostHogAuthTokenAccessor,
   PostHogService,
   PostHogServiceConfig,
 } from "./types.js";
