@@ -97,8 +97,8 @@ export function ReferralLanding({
         <Reveal>
           <SectionHeading
             align="center"
-            title="Try the loop on yourself first"
-            subtitle="Drop your email and the welcome journey fires — the first thing you get is the product working."
+            title="See it run on yourself"
+            subtitle="Drop your email and the welcome journey fires through a stock create-hogsend app — the same code you'd scaffold."
           />
           <EmailCapture
             hideHeading

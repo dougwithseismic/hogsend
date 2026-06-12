@@ -111,17 +111,15 @@ export default function TrialConversionUseCasePage(): JSX.Element {
 
       <UseCaseHero
         eyebrow="Use case: trial conversion"
-        title="Trial emails that check usage before they ask"
-        subhead="The same countdown email lands very differently depending on whether the trial ever found value. A journey can check usage before it asks — and the moment Stripe says they've paid, the sequence cancels itself, even mid-wait."
+        title="Trial emails that check usage first"
+        subhead="This journey waits three days, checks whether the user hit a usage milestone, and sends the upgrade ask only if they did. When the Stripe subscription.created event arrives, exitOn cancels the journey — even mid-wait."
       />
 
       <ProblemStatement label="The countdown problem">
-        Every trial email tool can count down. The question that decides
-        conversion is behavioral: did this user hit the milestone that predicts
-        paying? If they did, the upgrade ask can come early; if they didn't, the
-        most useful email sells the milestone rather than the deadline. Either
-        way, your email tool needs to see product usage — and to stop the moment
-        Stripe says they've paid.
+        Every trial email tool can count down. The signal that predicts paying
+        is behavioral: did this user hit the activation milestone? Branching on
+        that means the email tool has to see product usage — and it has to stop
+        the moment the Stripe webhook says they've paid.
       </ProblemStatement>
 
       <CodeWalkthrough

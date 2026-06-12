@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
 export const alt =
-  "Hogsend — Lifecycle email, written like the rest of your product.";
+  "Hogsend — The lifecycle email layer PostHog doesn't have yet";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -134,8 +134,8 @@ export default async function OpengraphImage() {
             color: "#ffffff",
           }}
         >
-          <span>Lifecycle email, written like</span>
-          <span>the rest of your product.</span>
+          <span>The lifecycle email layer</span>
+          <span>PostHog doesn&apos;t have yet</span>
         </div>
       </div>
 

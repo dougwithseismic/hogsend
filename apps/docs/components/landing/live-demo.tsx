@@ -37,16 +37,14 @@ export function LiveDemo({ className }: { className?: string }): JSX.Element {
             <Eyebrow className="mb-4">Live demo</Eyebrow>
 
             <h2 className="font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-              Put an email in.
-              <br />
-              The product does the rest.
+              The product, running on itself
             </h2>
 
             <p className="mt-5 max-w-xl text-base text-white/60 leading-6">
               This form feeds a stock create-hogsend app running in production.
               It ingests the event, runs its welcome journey, and the email
               arrives from hello@hogsend.com a few seconds later. A nudge
-              follows in two days unless you deploy first.
+              follows two days on.
             </p>
 
             <EmailCapture

@@ -29,12 +29,12 @@ const USE_CASES: Record<
 > = {
   onboarding: {
     title: "Onboarding",
-    description: "Onboarding that waits for what people actually do.",
+    description: "Onboarding that reacts to product events, not the calendar.",
     href: "/use-cases/onboarding",
   },
   "trial-conversion": {
     title: "Trial conversion",
-    description: "Trial emails that check usage before they ask.",
+    description: "Trial emails that check usage and stop on payment.",
     href: "/use-cases/trial-conversion",
   },
   winback: {

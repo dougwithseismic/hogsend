@@ -116,16 +116,16 @@ export default function OnboardingUseCasePage(): JSX.Element {
 
       <UseCaseHero
         eyebrow="Use case: onboarding"
-        title="Onboarding that waits for what people actually do"
-        subhead="A timed drip emails everyone the same, whatever they did. A journey waits for the signup to become a first project, and sends a different email depending on whether it happened."
+        title="Onboarding that reacts to product events"
+        subhead="A timed drip emails everyone the same, whatever they did. This journey waits for the user to create a project — up to three days — then sends one of two emails depending on whether it happened."
       />
 
       <ProblemStatement label="The drip problem">
         A timed sequence sends “how's it going?” to someone who's been in the
         product all morning, and “just checking in!” to someone who churned at
-        signup. Both are the same bug: the sequence can't see product events —
-        and your product events are in PostHog. Once it can see them, the fix is
-        ordinary branching: an if statement on what the user did.
+        signup. Both are the same bug: the sequence can't see product events,
+        and your product events are in PostHog. With the events in hand, the
+        branch is an ordinary `if` on what the user did.
       </ProblemStatement>
 
       <CodeWalkthrough

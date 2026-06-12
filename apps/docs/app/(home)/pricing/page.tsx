@@ -119,7 +119,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "What happens when my list grows 10x?",
-    a: "Your Postgres gets more rows, and that's the whole event. Costs scale with your traffic and infrastructure, not your contact count.",
+    a: "Your Postgres gets more rows. Costs scale with your traffic and infrastructure, not your contact count.",
   },
   {
     q: "Can I use Hogsend for client work?",
@@ -196,13 +196,13 @@ export default function PricingPage(): JSX.Element {
         <Reveal className="relative z-10 flex flex-col items-center">
           <Eyebrow className="mb-4">Pricing</Eyebrow>
           <h1 className="max-w-3xl font-display text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[44px] md:leading-[52px]">
-            Free to self-host. The rest of the bill was already yours.
+            Free to self-host. No per-contact billing.
           </h1>
           <p className="mt-5 max-w-2xl text-base text-white/70 leading-6">
-            The software has no paid tier. Hogsend runs on your infrastructure
-            and sends through your email provider — and if you&apos;d like it
-            installed for you, that&apos;s a week of work with the person who
-            built it.
+            There is no paid tier. You pay for hosting and for your own Resend
+            or Postmark account — contact count appears in neither bill. If
+            you&apos;d rather have it installed for you, that&apos;s a one-week
+            engagement with the person who built it.
           </p>
           <div className="mt-10">
             <CtaTrio centered />
@@ -397,12 +397,11 @@ export default function PricingPage(): JSX.Element {
           <Reveal delay={0.16}>
             <Card className="h-full">
               <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                And that&apos;s the whole list
+                That&apos;s the whole list
               </h3>
               <p className="mt-2.5 text-base text-white/60 leading-6">
-                There&apos;s no Hogsend line item. The trade is simple: you run
-                a small stack yourself, and in exchange nobody meters your
-                contacts.
+                There is no Hogsend line item. You run the stack yourself, and
+                contact count meters into neither bill.
               </p>
             </Card>
           </Reveal>
@@ -488,10 +487,9 @@ export default function PricingPage(): JSX.Element {
           <p className="mt-10 max-w-3xl text-base text-white/70 leading-6">
             Loops meters subscribed contacts. Customer.io meters profiles,
             emails, and credits. PostHog Workflows is free to 10,000 messages a
-            month, then from $0.003 per send (at the time of writing). All three
-            are fair prices for software they host and run for you. Hogsend sits
-            on the other side of that trade: you host it yourself, so
-            there&apos;s nothing left to meter.
+            month, then from $0.003 per send (at the time of writing). Those are
+            the prices for software they host and run for you. Hogsend you host
+            yourself, so there is no per-contact or per-send line.
           </p>
 
           <p className="mt-8 text-sm text-white/60">
@@ -629,13 +627,12 @@ export default function PricingPage(): JSX.Element {
           <Reveal className="flex flex-col items-center">
             <Eyebrow className="mb-4">Get started</Eyebrow>
             <h2 className="max-w-2xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-              Start with the welcome series.
+              First send in minutes
             </h2>
             <p className="mt-5 max-w-2xl text-base text-white/70 leading-6">
               <code className="font-mono text-sm">{SCAFFOLD_COMMAND}</code>{" "}
-              scaffolds the app, Docker, env, and ten journeys ready to edit —
-              the welcome series among them. Or deploy the Railway template in a
-              click.
+              scaffolds the app, Docker, env, and ten journeys — the welcome
+              series included. Or deploy the Railway template in a click.
             </p>
           </Reveal>
 

@@ -45,8 +45,8 @@ export function Economics({ className }: { className?: string }) {
       <Reveal>
         <SectionHeading
           eyebrow="Economics"
-          title="What it costs to run"
-          subtitle="Hosted tools charge by contacts because they're holding your list for you — which is fair, that's the service you're buying. Hogsend runs on your own infrastructure, so the software itself is free and the bill stays whatever your infra already costs."
+          title="What it costs"
+          subtitle="There is no paid tier. You pay for hosting — the Railway template provisions Postgres, Redis, Hatchet, the API, and the worker — and for your own Resend or Postmark account. That's the entire cost structure; contact count appears in neither bill."
         />
       </Reveal>
 
@@ -143,13 +143,11 @@ export function Economics({ className }: { className?: string }) {
         </p>
 
         <p className="mt-10 max-w-3xl text-base text-white/70 leading-6">
-          Hogsend is free to self-host — run it commercially, deploy it for
-          clients. Your contacts, events, and templates live in your own
-          Postgres and your own repo, so if it ever stops being the right tool,
-          there's nothing dramatic about leaving: the data was yours the whole
-          time. And if you'd rather have it set up for you, that's a week of
-          work — deployed on your infrastructure, wired to PostHog and your
-          provider, first journeys live.
+          Hogsend is free to self-host under ELv2 — run it commercially, deploy
+          it for clients. Contacts, events, and templates live in your own
+          Postgres and your own repo, so leaving means taking your database with
+          you. If you&apos;d rather have it installed for you: one week, $2,300,
+          deployed on your infrastructure with your first journeys live.
         </p>
 
         <div className="mt-6">

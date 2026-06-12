@@ -79,7 +79,8 @@ export default function AboutPage(): JSX.Element {
             Built from fifteen years of client work
           </h1>
           <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
-            Hogsend exists because one engineer kept rebuilding the same thing.
+            Hogsend is the lifecycle stack Doug Silkstone rebuilt on every
+            client engagement, shipped once as a versioned framework.
           </p>
         </Reveal>
       </Section>
@@ -274,8 +275,8 @@ export default function AboutPage(): JSX.Element {
             <div className="relative grid gap-10 p-8 md:p-14 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:items-center">
               <div className="flex flex-col items-start">
                 <h2 className="max-w-xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-                  Your events are already flowing — the missing piece is the
-                  journeys that act on them.
+                  Your events are already flowing. Add the journeys that act on
+                  them.
                 </h2>
                 <p className="mt-5 max-w-lg text-base text-white/70 leading-6">
                   One scaffold command gives you the engine, 10 journeys, and 13
