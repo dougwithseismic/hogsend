@@ -1,3 +1,4 @@
+import type { OutboundPayloads } from "../../lib/outbound.js";
 import { WEBHOOK_EVENT_TYPES } from "../../lib/webhook-signing.js";
 import { defineDestination } from "../define-destination.js";
 
@@ -16,6 +17,60 @@ interface PostHogConfig {
    * be remapped this way; absent or unmapped keys pass through unchanged.
    */
   eventNames?: Record<string, string>;
+  /**
+   * Person-property propagation (the contact → analytics-person rail). When
+   * true, `contact.created` / `contact.updated` events become `$set` captures
+   * of the contact's `properties` under the contact's canonical key — the
+   * SAME distinct id the identify loop uses — so PostHog person profiles
+   * accumulate contact truth (plan, role, lifecycle stage…) and cohorts can
+   * segment on it. `contact.unsubscribed` (scope `all`) sets
+   * `hogsend_unsubscribed: true`.
+   *
+   * Privacy posture: ONLY `contact.properties` syncs — never email or any
+   * other identifier. Anything but a boolean `true` (config is a loose jsonb
+   * bag) leaves `contact.*` events SKIPPED entirely — they carry no
+   * `userId`/`to`, so the generic capture branch could never address them
+   * correctly anyway.
+   */
+  syncPersons?: boolean;
+  /**
+   * The person property a scope-`all` unsubscribe sets (default
+   * `hogsend_unsubscribed`) — overridable like the bucket mirror's
+   * `postHogPropertyKey`, so operators can match their own naming scheme.
+   */
+  unsubscribedPropertyKey?: string;
+}
+
+/**
+ * The one place the PostHog capture request is built — all three transform
+ * branches (person `$set`, `email.action`, generic catalog capture) share it,
+ * so a change to the capture wire shape happens once.
+ */
+function captureRequest(opts: {
+  host: string;
+  apiKey: string;
+  event: string;
+  distinctId: string | undefined;
+  timestamp: string;
+  properties: Record<string, unknown>;
+}): {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: string;
+} {
+  return {
+    url: `${opts.host}/capture/`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: opts.apiKey,
+      event: opts.event,
+      distinct_id: opts.distinctId,
+      timestamp: opts.timestamp,
+      properties: { ...opts.properties, $lib: "hogsend" },
+    }),
+  };
 }
 
 /**
@@ -47,6 +102,62 @@ export const posthogDestination = defineDestination({
       );
     }
     const host = config.host ?? "https://us.i.posthog.com";
+
+    // Person-property propagation: `contact.*` events carry a contact payload
+    // (id/externalId/email/properties), NOT the userId/to identity chain the
+    // generic capture branch keys on — so they are handled here exclusively
+    // and SKIPPED (null) when `config.syncPersons` is off.
+    if (envelope.type.startsWith("contact.")) {
+      // Strict `=== true`: config is a loose jsonb bag, and a stray string
+      // value ("false") must not enable the sync.
+      if (config.syncPersons !== true) return null;
+
+      const setCapture = (distinctId: string, set: Record<string, unknown>) =>
+        captureRequest({
+          host,
+          apiKey: config.apiKey as string,
+          event: "$set",
+          distinctId,
+          timestamp: envelope.timestamp,
+          properties: { $set: set },
+        });
+
+      if (
+        envelope.type === "contact.created" ||
+        envelope.type === "contact.updated"
+      ) {
+        const contact =
+          envelope.data as unknown as OutboundPayloads["contact.updated"];
+        const props = contact.properties ?? {};
+        // Nothing to propagate — a successful no-op, not a delivery failure.
+        if (Object.keys(props).length === 0) return null;
+        // The contact's canonical key (externalId ?? id) — the same distinct
+        // id the identify loop and hs_t stitch use, so the $set lands on the
+        // person the contact's web sessions and email events already share.
+        // Known limitation: the serialized payload omits anonymousId, so an
+        // anonymous-keyed contact syncs under its row id rather than its
+        // anonymous key — fixed properly when contact.* payloads grow a
+        // first-class `contactKey` field.
+        return setCapture(contact.externalId ?? contact.id, props);
+      }
+
+      if (envelope.type === "contact.unsubscribed") {
+        const data =
+          envelope.data as unknown as OutboundPayloads["contact.unsubscribed"];
+        // Category-scoped opt-outs are too granular for a person flag, and a
+        // payload without externalId can't be addressed safely (the canonical
+        // key of an email-only contact is its row id, which this payload
+        // doesn't carry — guessing by email would mint a wrong person).
+        if (data.scope !== "all" || !data.externalId) return null;
+        const flag = config.unsubscribedPropertyKey ?? "hogsend_unsubscribed";
+        return setCapture(data.externalId, { [flag]: true });
+      }
+
+      // contact.deleted: PostHog person deletion is a private-API operation,
+      // not a capture — out of scope for this rail.
+      return null;
+    }
+
     const data = envelope.data as {
       userId?: string | null;
       to?: string | null;
@@ -69,38 +180,29 @@ export const posthogDestination = defineDestination({
         userId: string | null;
         at: string;
       };
-      return {
-        url: `${host}/capture/`,
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: config.apiKey,
-          event: action.event,
-          distinct_id: distinctId,
-          timestamp: envelope.timestamp,
-          properties: {
-            ...(action.properties ?? {}),
-            emailSendId: action.emailSendId,
-            templateKey: action.templateKey,
-            linkId: action.linkId,
-            $lib: "hogsend",
-          },
-        }),
-      };
+      return captureRequest({
+        host,
+        apiKey: config.apiKey,
+        event: action.event,
+        distinctId,
+        timestamp: envelope.timestamp,
+        properties: {
+          ...(action.properties ?? {}),
+          emailSendId: action.emailSendId,
+          templateKey: action.templateKey,
+          linkId: action.linkId,
+        },
+      });
     }
     // Optional event-name remap (identity by default).
     const eventName = config.eventNames?.[envelope.type] ?? envelope.type;
-    return {
-      url: `${host}/capture/`,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: config.apiKey,
-        event: eventName,
-        distinct_id: distinctId,
-        timestamp: envelope.timestamp,
-        properties: { ...envelope.data, $lib: "hogsend" },
-      }),
-    };
+    return captureRequest({
+      host,
+      apiKey: config.apiKey,
+      event: eventName,
+      distinctId,
+      timestamp: envelope.timestamp,
+      properties: envelope.data as Record<string, unknown>,
+    });
   },
 });

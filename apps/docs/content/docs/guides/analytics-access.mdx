@@ -114,8 +114,13 @@ getPostHog()?.identify(user.id, { plan: "pro" });
 ```
 
 [Buckets](/docs/guides/buckets) can mirror membership automatically
-(`syncToPostHog: true`), and contact-change propagation via the outbound
-spine is coming to the `posthog` destination preset.
+(`syncToPostHog: true`), and the `posthog` [outbound
+destination](/docs/data-api/destinations) propagates contact changes
+automatically when its `config.syncPersons` is true (the seeded destination
+has it on by default): `contact.created` / `contact.updated` become `$set`
+captures of the contact's `properties` under its canonical key, and a
+full unsubscribe sets `hogsend_unsubscribed: true` — only `properties`
+travel, never email or any identifier.
 
 ## Provider-neutral by contract
 
