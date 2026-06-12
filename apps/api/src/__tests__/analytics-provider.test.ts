@@ -321,3 +321,37 @@ describe("container analytics resolution", () => {
     ).toThrow(/not a registered analytics provider/);
   });
 });
+
+describe("factory nudge — truthful after prime settles", () => {
+  it("logs DISABLED only when prime finds no credential and no personal key", async () => {
+    const { analyticsProvidersFromEnv, env } = await import("@hogsend/engine");
+    const infos: string[] = [];
+    const logger = {
+      info: (m: string) => infos.push(m),
+      warn() {},
+      error() {},
+      debug() {},
+    };
+    // env preset requires POSTHOG_API_KEY; ensure no personal key for the test.
+    const testEnv = {
+      ...env,
+      POSTHOG_API_KEY: "phc_nudge_test",
+      POSTHOG_PERSONAL_API_KEY: undefined,
+    } as typeof env;
+    // Store that reports NO credential — prime resolves to absent.
+    const fakeDb = {
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: async () => [] }),
+        }),
+      }),
+    };
+    analyticsProvidersFromEnv(testEnv, {
+      db: fakeDb as never,
+      logger: logger as never,
+    });
+    // prime is fire-and-forget — give the microtask queue a beat.
+    await new Promise((r) => setTimeout(r, 25));
+    expect(infos.some((m) => m.includes("person reads DISABLED"))).toBe(true);
+  });
+});

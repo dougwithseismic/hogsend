@@ -38,8 +38,25 @@ export function analyticsProvidersFromEnv(
         providerId: "posthog",
         logger: deps.logger,
       });
-      // Load-only warm-up (no refresh, never blocks construction).
-      void tokenManager.prime();
+      // Load-only warm-up (no refresh, never blocks construction). The
+      // person-reads nudge logs HERE, after the load settles — the container
+      // can't log it truthfully at boot because capabilities resolve async
+      // for OAuth-capable providers (a connected instance would otherwise
+      // log "DISABLED" once on every boot).
+      const personalKeySet = Boolean(env.POSTHOG_PERSONAL_API_KEY);
+      void tokenManager
+        .prime()
+        .then(() => {
+          if (!personalKeySet && tokenManager.credentialState() !== "present") {
+            deps.logger?.info(
+              'analytics provider "posthog" has person reads DISABLED — ' +
+                "timezone resolution falls back to contact properties. Set " +
+                "POSTHOG_PERSONAL_API_KEY or run `hogsend connect posthog`. " +
+                "Docs: https://hogsend.com/docs/guides/analytics-access",
+            );
+          }
+        })
+        .catch(() => {});
       authToken = {
         getToken: () => tokenManager.getAccessToken(),
         isAvailable: () => tokenManager.credentialState() === "present",
