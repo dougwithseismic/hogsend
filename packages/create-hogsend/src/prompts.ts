@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { stdin, stdout } from "node:process";
 import { parseArgs } from "node:util";
-import { cancel, confirm, isCancel, select, text } from "@clack/prompts";
+import { cancel, confirm, isCancel, log, select, text } from "@clack/prompts";
 
 export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
 
@@ -23,8 +23,22 @@ export interface CliOptions {
    * `.env` copy inherits them).
    */
   domain?: string;
+  /**
+   * PostHog project config. When set, the scaffolded `env.example` gets active
+   * `POSTHOG_API_KEY` + `POSTHOG_HOST` values, `ENABLE_POSTHOG_DESTINATION=true`,
+   * and a freshly minted `POSTHOG_WEBHOOK_SECRET` (and bootstrap's `.env` copy
+   * inherits them).
+   */
+  posthog?: PosthogOptions;
   /** TEST-ONLY: resolve `@hogsend/*` from `file:` tarballs in this dir. */
   useTarballs?: string;
+}
+
+export interface PosthogOptions {
+  /** PostHog project API key (`phc_...`). */
+  apiKey: string;
+  /** PostHog host URL, e.g. https://eu.i.posthog.com. */
+  host: string;
 }
 
 const VALID_PMS: PackageManager[] = ["pnpm", "npm", "yarn", "bun"];
@@ -41,6 +55,13 @@ Options:
   --pm <pnpm|npm|yarn|bun>   Package manager (default: pnpm)
   --domain <domain>          Sending domain — writes EMAIL_FROM=hello@<domain>
                              + EMAIL_DOMAIN=<domain> into env.example
+  --posthog-key <phc_...>    PostHog project API key — writes POSTHOG_API_KEY +
+                             POSTHOG_HOST as active values, sets
+                             ENABLE_POSTHOG_DESTINATION=true and mints a
+                             POSTHOG_WEBHOOK_SECRET in env.example
+  --posthog-host <url>       PostHog host URL (default: https://us.i.posthog.com;
+                             requires --posthog-key)
+  --no-posthog               Skip the PostHog prompt
   --setup                    Run local setup after install (Docker, .env, migrate)
   --no-setup                 Skip local setup
   --no-install               Skip dependency install
@@ -63,6 +84,34 @@ function validateDomain(value: string): string | undefined {
     return `Invalid domain "${value}" — expected something like mysite.com.`;
   }
   return undefined;
+}
+
+export const POSTHOG_EU_HOST = "https://eu.i.posthog.com";
+export const POSTHOG_US_HOST = "https://us.i.posthog.com";
+
+function validatePosthogKey(value: string): string | undefined {
+  if (!/^phc_.+$/.test(value)) {
+    return `Invalid PostHog key "${value}" — project API keys start with "phc_".`;
+  }
+  return undefined;
+}
+
+function validatePosthogHost(value: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return `Invalid PostHog host "${value}" — expected a URL like ${POSTHOG_EU_HOST}.`;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return `Invalid PostHog host "${value}" — must be an http(s) URL.`;
+  }
+  return undefined;
+}
+
+/** Drop trailing slashes so the emitted POSTHOG_HOST env value stays tidy. */
+function normalizePosthogHost(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 /** "mysite.com" → "mysite" (the default app name when only --domain is given). */
@@ -111,6 +160,9 @@ interface RawArgs {
     "no-git"?: boolean;
     skills?: boolean;
     "no-skills"?: boolean;
+    "posthog-key"?: string;
+    "posthog-host"?: string;
+    "no-posthog"?: boolean;
     "use-tarballs"?: string;
     help?: boolean;
   };
@@ -133,6 +185,9 @@ function parse(argv: string[]): RawArgs {
       "no-git": { type: "boolean", default: false },
       skills: { type: "boolean", default: false },
       "no-skills": { type: "boolean", default: false },
+      "posthog-key": { type: "string" },
+      "posthog-host": { type: "string" },
+      "no-posthog": { type: "boolean", default: false },
       "use-tarballs": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
@@ -183,6 +238,30 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     domain = domain.toLowerCase();
   }
 
+  // PostHog from flags (validated up front; prompted later if absent).
+  // --posthog-key implies "yes"; --no-posthog skips the prompt entirely.
+  if (values["no-posthog"] && values["posthog-key"] !== undefined) {
+    throw new Error("--no-posthog and --posthog-key are mutually exclusive.");
+  }
+  if (
+    values["posthog-host"] !== undefined &&
+    values["posthog-key"] === undefined
+  ) {
+    throw new Error("--posthog-host requires --posthog-key.");
+  }
+  let posthog: PosthogOptions | undefined;
+  if (values["posthog-key"] !== undefined) {
+    const keyErr = validatePosthogKey(values["posthog-key"]);
+    if (keyErr) throw new Error(keyErr);
+    const rawHost = values["posthog-host"] ?? POSTHOG_US_HOST;
+    const hostErr = validatePosthogHost(rawHost);
+    if (hostErr) throw new Error(hostErr);
+    posthog = {
+      apiKey: values["posthog-key"],
+      host: normalizePosthogHost(rawHost),
+    };
+  }
+
   let rawDir = positionals[0];
   // `--domain mysite.com` with no app name defaults the name to "mysite".
   const defaultDirFromDomain =
@@ -220,6 +299,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       skills: !values["no-skills"],
       setup: wantSetup && !values["no-setup"] && install,
       domain,
+      posthog,
       useTarballs: values["use-tarballs"],
     };
   }
@@ -255,6 +335,61 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       }),
     );
     domain = answer ? answer.toLowerCase() : undefined;
+  }
+
+  // PostHog: opt-in — --posthog-key already resolved it above, --no-posthog
+  // skips the prompt entirely, and a blank key means "configure later" (the
+  // env.example placeholders stay commented).
+  if (posthog === undefined && !values["no-posthog"]) {
+    const usingPosthog = bail(
+      await confirm({
+        message: "Are you using PostHog?",
+        initialValue: true,
+      }),
+    );
+    if (usingPosthog) {
+      const apiKey = bail(
+        await text({
+          message: "PostHog project API key? (blank to skip)",
+          placeholder: "phc_...",
+          validate: (value) =>
+            value === undefined || value === ""
+              ? undefined
+              : validatePosthogKey(value),
+        }),
+      );
+      if (!apiKey) {
+        log.info(
+          "Skipping PostHog — uncomment POSTHOG_API_KEY in .env.example later.",
+        );
+      } else {
+        const region = bail(
+          await select({
+            message: "PostHog region?",
+            initialValue: POSTHOG_EU_HOST,
+            options: [
+              { value: POSTHOG_EU_HOST, label: "EU Cloud (eu.i.posthog.com)" },
+              { value: POSTHOG_US_HOST, label: "US Cloud (us.i.posthog.com)" },
+              { value: "custom", label: "Custom host URL" },
+            ],
+          }),
+        );
+        const host =
+          region === "custom"
+            ? bail(
+                await text({
+                  message: "PostHog host URL?",
+                  placeholder: "https://posthog.mycompany.com",
+                  validate: (value) =>
+                    value === undefined || value === ""
+                      ? "PostHog host is required."
+                      : validatePosthogHost(value),
+                }),
+              )
+            : region;
+        posthog = { apiKey, host: normalizePosthogHost(host) };
+      }
+    }
   }
 
   if (packageManager === undefined) {
@@ -321,6 +456,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     skills,
     setup,
     domain,
+    posthog,
     useTarballs: values["use-tarballs"],
   };
 }

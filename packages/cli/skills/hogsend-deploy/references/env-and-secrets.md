@@ -107,6 +107,14 @@ Notes:
   timezone resolution) need `POSTHOG_PERSONAL_API_KEY` — a personal API key
   scoped `person:read`, created in PostHog → Settings → Personal API keys.
   `hogsend doctor` warns when capture is configured without it.
+- **Scaffold-time PostHog setup mints `POSTHOG_WEBHOOK_SECRET`.** If the app
+  was scaffolded with the PostHog prompt answered (or `--posthog-key`),
+  `.env` already carries active `POSTHOG_API_KEY`/`POSTHOG_HOST` values,
+  `ENABLE_POSTHOG_DESTINATION=true`, and a randomly minted
+  `POSTHOG_WEBHOOK_SECRET`. Copy the first three to BOTH Railway services and
+  the webhook secret to the api. Then `hogsend connect posthog` against the
+  DEPLOYED instance finishes the loop — it wires person reads and the
+  PostHog→Hogsend event loop (the webhook back into `/v1/webhooks/posthog`).
 - **Webhook secrets are per-source.** Only set the secret for a webhook source
   you've actually registered (see the consumer's `src/webhook-sources`).
 - **`ADMIN_API_KEY` gates `/v1/admin/*`.** Set it in prod if you want to drive
