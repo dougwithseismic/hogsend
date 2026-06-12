@@ -48,15 +48,13 @@ export function ClosingCta({ className }: { className?: string }) {
                 <Eyebrow className="mb-4">Get started</Eyebrow>
 
                 <h2 className="font-display text-[32px] text-white leading-[1.15] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-                  One loop. Your repo.
-                  <br />
-                  Tonight.
+                  Start with the welcome series.
                 </h2>
 
                 <p className="mt-5 max-w-lg text-base text-white/70 leading-6">
                   One scaffold command sets up the app, Docker, env, and ten
-                  production journeys. Or deploy the Railway template in a
-                  click.
+                  journeys ready to edit — the welcome series among them. When
+                  it looks right, deploy the Railway template in a click.
                 </p>
 
                 <div className="mt-8 w-full max-w-md">
@@ -101,7 +99,8 @@ export function ClosingCta({ className }: { className?: string }) {
                 </div>
 
                 <p className="mt-6 text-sm text-white/50">
-                  Free to self-host · PostHog + your provider · no contact tax
+                  Free to self-host · PostHog + your provider · no per-contact
+                  pricing
                 </p>
               </div>
 

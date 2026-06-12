@@ -25,7 +25,7 @@ import { UseCases } from "@/components/landing/use-cases";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — Lifecycle email, shipped like a feature",
+    absolute: "Hogsend — Lifecycle email that lives in your repo",
   },
   description:
     "Welcome series, trial nudges, win-backs, payment saves — running from your repo on PostHog and product events, sent through your own Resend or Postmark account. Free to self-host.",

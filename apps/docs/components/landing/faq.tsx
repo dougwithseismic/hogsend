@@ -33,7 +33,7 @@ export const FAQ_ITEMS = [
   },
   {
     q: "Can I self-host Hogsend?",
-    a: "That's the only way it runs. Scaffold with create-hogsend, then deploy via the one-click Railway template (3 required env vars), Docker Compose, or any Node 22 host with Postgres and Redis. Single-tenant: your instance, your data. There is no cloud version.",
+    a: "Self-hosting is the only way it runs — there's no cloud version. Scaffold with create-hogsend, then deploy via the one-click Railway template (3 required env vars), Docker Compose, or any Node 22 host with Postgres and Redis. It's single-tenant: your instance, your data.",
   },
   {
     q: "Do I need PostHog to use Hogsend?",
@@ -41,7 +41,7 @@ export const FAQ_ITEMS = [
   },
   {
     q: "Can AI agents write Hogsend journeys?",
-    a: "Yes — that's the point. Journeys are plain TypeScript files (defineJourney()), so Claude Code or Cursor can write and modify them like any other code, your type-checker validates them, and hogsend skills plus --json on every CLI command give agents a first-class interface.",
+    a: "Yes, and they're genuinely good at it: journeys are plain TypeScript files (defineJourney()), so Claude Code or Cursor can write and modify them like any other code. Your type-checker validates them, and hogsend skills plus --json on every CLI command give agents a first-class interface.",
   },
   {
     q: "Will my emails survive a deploy mid-journey?",

@@ -14,7 +14,7 @@ import { SITE_URL } from "@/lib/site";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "Hogsend — Lifecycle email, shipped like a feature",
+    default: "Hogsend — Lifecycle email that lives in your repo",
     template: "%s — Hogsend",
   },
   description:

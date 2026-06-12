@@ -24,8 +24,8 @@ import { cn } from "@/lib/cn";
 const STATEMENT =
   "Most people who sign up never come back. The product was fine; nothing " +
   "asked them to return. The welcome, the nudge, the win-back have sat at " +
-  "the bottom of the backlog for months. Hogsend ships the lot in an " +
-  "afternoon, from your repo.";
+  "the bottom of the backlog for months. Hogsend turns them into a few " +
+  "TypeScript files in your repo — working by this afternoon.";
 
 const WORDS = STATEMENT.split(" ");
 

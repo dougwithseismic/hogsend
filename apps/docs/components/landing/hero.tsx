@@ -34,16 +34,16 @@ export function Hero({ className }: HeroProps): JSX.Element {
           <PillBadge>Self-hosted · your repo, your provider</PillBadge>
 
           <h1 className="mt-8 max-w-6xl font-display font-medium text-5xl text-white leading-[1.02] tracking-[-0.06em] md:text-[72px] md:leading-[74px]">
-            Lifecycle email is a feature.
+            Lifecycle email, written like
             <br />
-            Ship it like one.
+            the rest of your product.
           </h1>
 
           <p className="mt-7 max-w-[520px] text-base text-white/80 leading-6">
-            Welcome series, trial nudges, win-backs, payment saves — every
-            product needs them. Hogsend turns PostHog and product events into
-            journeys that live in your repo and send through your own Resend or
-            Postmark account, working by this afternoon.
+            A user signs up, PostHog fires the event, and a journey picks it up
+            — the welcome, the nudge, the win-back, written as TypeScript in
+            your repo and sent through your own Resend or Postmark account.
+            Every send, open, and click flows straight back into PostHog.
           </p>
         </Reveal>
 

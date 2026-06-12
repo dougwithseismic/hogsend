@@ -113,7 +113,7 @@ export function FeatureCards({ className }: { className?: string }) {
         <SectionHeading
           eyebrow="Agent-native"
           title="Agents can write all of it"
-          subtitle="Everyone bolted an MCP server onto their UI this year. Hogsend skipped the step. The whole surface is typed code in a repo, which is what agents are already best at."
+          subtitle="Because journeys, templates, and config are typed code in a repo, an agent can work on them the same way it works on the rest of your codebase — no special integration needed, and you review the diff like any other change."
         />
       </Reveal>
 
@@ -182,12 +182,13 @@ export function FeatureCards({ className }: { className?: string }) {
             </MediaBackdrop>
             <div className="flex flex-1 flex-col gap-2.5 px-6 pb-6">
               <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                Studio sees everything and changes nothing
+                Watch it all run in Studio
               </h3>
               <p className="text-base text-white/60 leading-6">
                 Every send, journey run, and contact in one dashboard — preview
                 templates with live props, resend a failed message, pause a
-                sequence. Your editor stays the author.
+                sequence. The journeys themselves stay in your editor, where
+                changes get reviewed before they go out.
               </p>
               <div className="mt-auto pt-3">
                 <CardLink href="/docs/operating/studio">Studio docs</CardLink>

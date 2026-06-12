@@ -26,8 +26,8 @@ const LESSONS: Lesson[] = [
   },
   {
     label: "Automation",
-    title: "Why click what you could type?",
-    body: "A canvas flow is forty drag-and-drops that nobody can review, reuse, or hand to an agent. The same logic is a dozen lines of TypeScript, and agents are already very good at writing those.",
+    title: "A dozen lines instead of a canvas",
+    body: "A drag-and-drop flow is forty clicks that nobody can review, reuse, or hand to an agent. The same logic in TypeScript fits in a pull request, and agents are already very good at writing it.",
   },
   {
     label: "Time to ship",
@@ -36,8 +36,8 @@ const LESSONS: Lesson[] = [
   },
   {
     label: "Cost",
-    title: "Growth shouldn't be a billing event",
-    body: "Rented platforms meter contacts, which makes your growth their revenue. Self-hosted software costs the same at 50,000 contacts as it did at 500. Postgres has never charged anyone per row.",
+    title: "Your list can grow without a pricing call",
+    body: "Metered contacts turn growth into a bigger bill. Self-hosted software costs the same at 50,000 contacts as it did at 500 — the database doesn't notice.",
   },
 ];
 
@@ -53,7 +53,7 @@ export function GrowthLessons() {
       <Reveal>
         <SectionHeading
           eyebrow="Growth, meet engineering"
-          title="What growth can learn from engineering"
+          title="Everything email inherits from the repo"
           subtitle="Email tools never picked up the habits that make software dependable. Bring lifecycle email into the repo and it inherits all of them at once."
         />
       </Reveal>
