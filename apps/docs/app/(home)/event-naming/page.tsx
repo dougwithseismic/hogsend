@@ -121,7 +121,7 @@ export default function EventNamingPage(): JSX.Element {
 
       <UseCaseHero
         eyebrow="Guide: event naming"
-        title="Events are facts. Name them like facts."
+        title="One way to name events, written down"
         subhead="context.object_action — lowercase, snake_case, past tense, one dot. The convention every Hogsend event already follows, written down so your whole stack can follow it too."
       />
 
@@ -182,7 +182,7 @@ export default function EventNamingPage(): JSX.Element {
       />
 
       <ClosingCta
-        title="One convention. Every event."
+        title="One convention for every event"
         subtitle="The scaffold ships the constants file, the journeys that consume it, and the engine events that already follow the same pattern."
       />
     </main>

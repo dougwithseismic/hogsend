@@ -76,7 +76,7 @@ export function ReferralLanding({
           <SectionHeading
             eyebrow="The offer, plainly"
             title="Hogsend puts them in your repo"
-            subtitle="Journeys are TypeScript functions — versioned, reviewed, and deployed like the rest of your stack — triggered by your PostHog events, sent through your own Resend or Postmark account. Free to self-host. One scaffold command, working by this afternoon."
+            subtitle="Journeys are TypeScript functions in your repo — versioned, reviewed, and deployed like the rest of your stack — triggered by your PostHog events and sent through your own Resend or Postmark account. It's free to self-host, and one scaffold command has it working by this afternoon."
           />
           <div className="mt-8 flex flex-wrap items-center gap-4">
             <Button href="/docs/getting-started" icon>
@@ -97,8 +97,8 @@ export function ReferralLanding({
         <Reveal>
           <SectionHeading
             align="center"
-            title="One loop. Your repo. Tonight."
-            subtitle="Drop your email and the welcome journey fires — the first thing you get is the product working."
+            title="See it run on yourself"
+            subtitle="Drop your email and the welcome journey fires through a stock create-hogsend app — the same code you'd scaffold."
           />
           <EmailCapture
             hideHeading

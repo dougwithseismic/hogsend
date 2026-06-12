@@ -2,7 +2,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ImageResponse } from "next/og";
 
-export const alt = "Hogsend — Lifecycle email is a feature. Ship it like one.";
+export const alt =
+  "Hogsend — The lifecycle email layer PostHog doesn't have yet";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -133,8 +134,8 @@ export default async function OpengraphImage() {
             color: "#ffffff",
           }}
         >
-          <span>Lifecycle email is a feature.</span>
-          <span>Ship it like one.</span>
+          <span>The lifecycle email layer</span>
+          <span>PostHog doesn&apos;t have yet</span>
         </div>
       </div>
 
@@ -148,7 +149,8 @@ export default async function OpengraphImage() {
           color: "#F64838",
         }}
       >
-        SOURCE-AVAILABLE (ELV2) · POSTHOG + YOUR PROVIDER · NO CONTACT TAX
+        SOURCE-AVAILABLE (ELV2) · POSTHOG + YOUR PROVIDER · NO PER-CONTACT
+        PRICING
       </div>
     </div>,
     {

@@ -25,7 +25,7 @@ import { UseCases } from "@/components/landing/use-cases";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — Lifecycle email, shipped like a feature",
+    absolute: "Hogsend — The lifecycle email layer PostHog doesn't have yet",
   },
   description:
     "Welcome series, trial nudges, win-backs, payment saves — running from your repo on PostHog and product events, sent through your own Resend or Postmark account. Free to self-host.",
@@ -94,7 +94,7 @@ export const trialConversion = defineJourney({
       event: "usage.milestone_reached",
     });
     if (found) {
-      // The upgrade ask, at the moment of value — not the deadline.
+      // They've found value — ask while it's fresh.
       await sendEmail({ to: user.email, template: "conversion-usage-milestone" });
     }
 

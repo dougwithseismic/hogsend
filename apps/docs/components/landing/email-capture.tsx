@@ -73,7 +73,7 @@ const SKIP_CLASS =
 export function EmailCapture({
   className,
   heading = "Get the changelog",
-  sub = "Ships when something ships. No drip nonsense.",
+  sub = "One email when something ships, and nothing in between.",
   hideHeading = false,
   placement = "footer",
 }: EmailCaptureProps): JSX.Element {

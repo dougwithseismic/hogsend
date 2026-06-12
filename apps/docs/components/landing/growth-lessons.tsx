@@ -12,32 +12,32 @@ const LESSONS: Lesson[] = [
   {
     label: "Version control",
     title: "Every change has a history",
-    body: "Edit a template in a dashboard and the old version is gone. Nobody can say what the welcome email said in March, who changed it, or why. In a repo every subject line has a diff and a way back.",
+    body: "Every template and journey has a git history. What the welcome email said in March is one git log away, with who changed it and why.",
   },
   {
     label: "Code review",
-    title: "A second pair of eyes before it sends",
-    body: "Your welcome email gets read more often than your homepage. In most tools it goes live the moment someone clicks Save. In a repo it goes out through the same pull request as everything else you ship.",
+    title: "The same pull request as everything else",
+    body: "A journey ships through the same pull request as the rest of your product. Nothing goes live because someone clicked Save.",
   },
   {
     label: "Experiments",
-    title: "Tests you can still read next quarter",
-    body: "Most A/B tests survive as a memory of which variant won. The losing copy gets deleted and the reasoning lives in someone's head. When variants are code, the whole experiment stays on the record.",
+    title: "Finished tests stay on the record",
+    body: "Variants are code, so finished A/B tests stay in history — the losing copy, the reasoning, the result.",
   },
   {
     label: "Automation",
-    title: "Why click what you could type?",
-    body: "A canvas flow is forty drag-and-drops that nobody can review, reuse, or hand to an agent. The same logic is a dozen lines of TypeScript, and agents are already very good at writing those.",
+    title: "A dozen lines instead of a canvas",
+    body: "A canvas flow is forty drag-and-drops; the same logic is a dozen lines of TypeScript that fit in a diff.",
   },
   {
     label: "Time to ship",
-    title: "Working by this afternoon",
-    body: "Most platforms want weeks of template building and flow clicking before the first send. The scaffold puts 10 journeys and 13 templates in your repo with one command, so the work starts at editing.",
+    title: "The work starts at editing",
+    body: "The scaffold puts 10 journeys and 13 templates in your repo with one command. The work starts at editing, not building.",
   },
   {
     label: "Cost",
-    title: "Growth shouldn't be a billing event",
-    body: "Rented platforms meter contacts, which makes your growth their revenue. Self-hosted software costs the same at 50,000 contacts as it did at 500. Postgres has never charged anyone per row.",
+    title: "Costs scale with infrastructure",
+    body: "Self-hosted software costs the same at 50,000 contacts as at 500. Costs scale with your infrastructure, not your list.",
   },
 ];
 
@@ -52,9 +52,9 @@ export function GrowthLessons() {
     <Section id="growth-lessons">
       <Reveal>
         <SectionHeading
-          eyebrow="Growth, meet engineering"
-          title="What growth can learn from engineering"
-          subtitle="Email tools never picked up the habits that make software dependable. Bring lifecycle email into the repo and it inherits all of them at once."
+          eyebrow="Why a repo"
+          title="What the repo gives you"
+          subtitle="Lifecycle email in a repo inherits the habits that make software dependable."
         />
       </Reveal>
 

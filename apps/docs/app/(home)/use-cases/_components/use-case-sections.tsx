@@ -29,12 +29,12 @@ const USE_CASES: Record<
 > = {
   onboarding: {
     title: "Onboarding",
-    description: "Onboarding that waits for behavior, not the calendar.",
+    description: "Onboarding that reacts to product events, not the calendar.",
     href: "/use-cases/onboarding",
   },
   "trial-conversion": {
     title: "Trial conversion",
-    description: "Trial emails driven by usage, not days remaining.",
+    description: "Trial emails that check usage and stop on payment.",
     href: "/use-cases/trial-conversion",
   },
   winback: {
@@ -370,7 +370,7 @@ export function UseCaseFaq({ items, links }: UseCaseFaqProps): JSX.Element {
             <SectionHeading
               eyebrow="FAQ"
               title="Questions, answered"
-              subtitle="The short versions. The docs have the long ones."
+              subtitle="Short answers here; the docs go deeper."
             />
             <p className="mt-10 font-medium text-base text-white tracking-[-0.02em]">
               Go deeper

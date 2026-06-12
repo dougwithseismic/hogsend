@@ -26,12 +26,12 @@ const RENT_CARDS: RentCard[] = [
   {
     name: "Customer.io",
     chargesBy: "Profiles + emails + credits",
-    whenYouGrow: "Talk to sales.",
+    whenYouGrow: "Custom pricing at scale.",
   },
   {
     name: "PostHog Workflows",
     chargesBy: "$0.003/send after 10k free/mo*",
-    whenYouGrow: "Per-send creep.",
+    whenYouGrow: "Costs scale with send volume.",
   },
 ];
 
@@ -45,8 +45,8 @@ export function Economics({ className }: { className?: string }) {
       <Reveal>
         <SectionHeading
           eyebrow="Economics"
-          title="And nobody meters your contacts"
-          subtitle="Rent models are fine prices for software they host. Hogsend takes a different view: lifecycle email is a feature of your product, and features belong in your repo."
+          title="What it costs"
+          subtitle="There is no paid tier. You pay for hosting — the Railway template provisions Postgres, Redis, Hatchet, the API, and the worker — and for your own Resend or Postmark account. That's the entire cost structure; contact count appears in neither bill."
         />
       </Reveal>
 
@@ -88,7 +88,7 @@ export function Economics({ className }: { className?: string }) {
               <div className="mt-5 flex flex-col gap-1.5">
                 <MicroLabel>When your list grows</MicroLabel>
                 <span className="text-base text-white/80 leading-6">
-                  Postgres doesn't charge per row.
+                  Same software, same infra bill.
                 </span>
               </div>
 
@@ -143,10 +143,11 @@ export function Economics({ className }: { className?: string }) {
         </p>
 
         <p className="mt-10 max-w-3xl text-base text-white/70 leading-6">
-          Hogsend is free to self-host — run it commercially, deploy it for
-          clients. It's your Postgres, your event log, your templates, your
-          provider account — pg_dump is the exit interview. And if you'd rather
-          have it installed for you, that's a week of work, done properly.
+          Hogsend is free to self-host under ELv2 — run it commercially, deploy
+          it for clients. Contacts, events, and templates live in your own
+          Postgres and your own repo, so leaving means taking your database with
+          you. If you&apos;d rather have it installed for you: one week, $2,300,
+          deployed on your infrastructure with your first journeys live.
         </p>
 
         <div className="mt-6">

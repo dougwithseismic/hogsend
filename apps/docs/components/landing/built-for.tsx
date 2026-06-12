@@ -26,7 +26,7 @@ const ROLES: { value: RoleValue; label: string; copy: string }[] = [
   {
     value: "founder",
     label: "Founder",
-    copy: "Lifecycle email shipped like a feature — in the repo you already have, with no second platform to buy and babysit.",
+    copy: "Lifecycle email in the repo you already have — no second platform to buy and babysit.",
   },
   {
     value: "engineer",

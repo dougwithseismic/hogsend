@@ -22,10 +22,11 @@ import { cn } from "@/lib/cn";
  */
 
 const STATEMENT =
-  "Most people who sign up never come back. The product was fine; nothing " +
-  "asked them to return. The welcome, the nudge, the win-back have sat at " +
-  "the bottom of the backlog for months. Hogsend ships the lot in an " +
-  "afternoon, from your repo.";
+  "PostHog is incredible at showing you where users drop off. Acting on it " +
+  "— the welcome, the nudge, the win-back — has meant buying a second " +
+  "platform and syncing your data into it. Hogsend is that layer as code: " +
+  "TypeScript journeys in your repo, triggered by the events you already " +
+  "have.";
 
 const WORDS = STATEMENT.split(" ");
 
