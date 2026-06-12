@@ -235,6 +235,18 @@ export {
   type OutboundPayloads,
 } from "./lib/outbound.js";
 export { getPostHog } from "./lib/posthog.js";
+// --- Provider credentials (encrypted-at-rest OAuth token store) ---
+export {
+  type CredentialKind,
+  type DecryptedProviderCredential,
+  deleteProviderCredential,
+  getProviderCredential,
+  type OAuthCredentialPayload,
+  ProviderCredentialDecryptError,
+  type ProviderCredentialMeta,
+  saveProviderCredential,
+  toCredentialMeta,
+} from "./lib/provider-credentials.js";
 export {
   type AuthSecondaryStorage,
   createRedisSecondaryStorage,

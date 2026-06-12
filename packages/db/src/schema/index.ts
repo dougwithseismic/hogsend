@@ -17,6 +17,7 @@ export * from "./journey-configs.js";
 export * from "./journey-logs.js";
 export * from "./journey-states.js";
 export * from "./link-clicks.js";
+export * from "./provider-credentials.js";
 export * from "./relations.js";
 export * from "./tracked-links.js";
 export * from "./user-events.js";
