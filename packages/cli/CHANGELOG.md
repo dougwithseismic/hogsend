@@ -1,5 +1,42 @@
 # @hogsend/cli
 
+## 0.20.0
+
+### Minor Changes
+
+- e44d400: `hogsend connect posthog` — one command wires the whole PostHog loop. The
+  CLI runs a public-client OAuth flow (PKCE S256, loopback callback, no
+  client secret; the OAuth server is discovered from your instance's own
+  PostHog host so the region is always right and self-hosted instances
+  degrade to the personal-key path), stores the credential encrypted at rest
+  (new `provider_credentials` table + admin routes; tokens never leave the
+  server once stored), and provisions the PostHog → Hogsend webhook
+  destination idempotently (adopts an existing destination instead of
+  duplicating; refuses when `POSTHOG_WEBHOOK_SECRET` is unset rather than
+  wiring an unauthenticated endpoint). Person reads prefer the OAuth token
+  and fall back to `POSTHOG_PERSONAL_API_KEY`; a credential stored at
+  runtime is picked up by the running api and worker within ~30 seconds, no
+  restart. (The full engine line rides together per release discipline.)
+- 9710ced: Contact → analytics-person propagation: the `posthog` destination preset
+  gains `config.syncPersons` — `contact.created` / `contact.updated` events
+  become `$set` captures of the contact's `properties` under its canonical
+  key (the same distinct id the identify loop uses), and a scope-`all`
+  `contact.unsubscribed` sets `hogsend_unsubscribed: true`. Privacy-first:
+  only `properties` travel, never email or identifiers; without the flag,
+  `contact.*` events are skipped (previously they fell through to the
+  generic capture branch, which could never address them correctly). The
+  engine-seeded destination (`ENABLE_POSTHOG_DESTINATION`) subscribes the
+  contact events and enables the flag, reconciling pre-upgrade seeded rows
+  without overriding an explicit operator `syncPersons: false`. (The full
+  engine line rides together per release discipline.)
+
+### Patch Changes
+
+- Updated dependencies [e44d400]
+- Updated dependencies [9710ced]
+  - @hogsend/engine@0.20.0
+  - @hogsend/db@0.20.0
+
 ## 0.19.0
 
 ### Minor Changes
