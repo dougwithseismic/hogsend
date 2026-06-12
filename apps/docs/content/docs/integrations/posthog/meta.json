@@ -1,0 +1,4 @@
+{
+  "title": "PostHog",
+  "pages": ["index", "connect", "manual-setup", "reference"]
+}

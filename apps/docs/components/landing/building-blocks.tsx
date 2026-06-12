@@ -95,12 +95,28 @@ export const crm = defineDestination({
   }),
 });`;
 
+const POSTHOG_CODE = `# The scaffold already asked "Are you using PostHog?"
+# → POSTHOG_API_KEY · POSTHOG_HOST · webhook secret minted
+#   · outbound PostHog destination enabled
+
+# Once deployed, one command finishes the loop:
+$ hogsend connect posthog
+
+→ browser opens · one consent click (OAuth, PKCE)
+→ credential stored encrypted, server-side
+→ person reads wired — timezones, property conditions
+→ PostHog → Hogsend webhook provisioned (idempotent)
+
+# Self-hosted PostHog, or no OAuth? Use a personal key
+# scoped to person:read + project:read instead.`;
+
 /**
  * BuildingBlocks — the what-it-does showcase: a split header (red kicker +
  * H2 left, supporting paragraph right) over the giant tabbed product panel
- * with six real-code tabs: Journeys, waiting for what the user does next
+ * with seven real-code tabs: Journeys, waiting for what the user does next
  * (ctx.waitForEvent), in-email answers (semantic links), first-party
- * tracking, Buckets, and outbound Destinations. The async server `CodeHighlight` nodes are rendered here and
+ * tracking, Buckets, outbound Destinations, and the one-command PostHog
+ * connection. The async server `CodeHighlight` nodes are rendered here and
  * passed as `media` props into the client `TabbedShowcase` (RSC composes
  * server-rendered nodes into client islands).
  */
@@ -112,6 +128,7 @@ export async function BuildingBlocks() {
     trackingMedia,
     bucketMedia,
     destinationsMedia,
+    posthogMedia,
   ] = await Promise.all([
     CodeHighlight({ code: JOURNEY_CODE, lang: "ts" }),
     CodeHighlight({ code: WAIT_CODE, lang: "ts" }),
@@ -119,6 +136,7 @@ export async function BuildingBlocks() {
     CodeHighlight({ code: TRACKING_CODE, lang: "ts" }),
     CodeHighlight({ code: BUCKET_CODE, lang: "ts" }),
     CodeHighlight({ code: DESTINATIONS_CODE, lang: "ts" }),
+    CodeHighlight({ code: POSTHOG_CODE, lang: "bash" }),
   ]);
 
   const tabs = [
@@ -179,6 +197,15 @@ export async function BuildingBlocks() {
         "Define your own",
       ],
       media: <MockupFrame>{destinationsMedia}</MockupFrame>,
+    },
+    {
+      id: "posthog",
+      label: "PostHog",
+      title: "Connect PostHog in one command",
+      description:
+        "The scaffold asks if you're using PostHog and writes the keys. Once deployed, hogsend connect posthog opens one browser consent and wires the rest — person reads for timezones and conditions, the PostHog → Hogsend webhook, and contact properties syncing back onto persons. Prefer your own keys? A scoped personal key works the same way.",
+      tags: ["One command, one click", "Person reads wired", "Round-trip safe"],
+      media: <MockupFrame>{posthogMedia}</MockupFrame>,
     },
   ];
 

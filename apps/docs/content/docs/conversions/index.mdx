@@ -10,7 +10,7 @@ You **don't** wire ad-platform conversion APIs into Hogsend. You let **PostHog**
 Hogsend's job is to decide *when a conversion happened* and fire a clean, well-named event. PostHog's **Destinations** pipeline (its CDP) is the part that forwards that event server-side to Meta's Conversions API, Google Ads, TikTok Events API, LinkedIn, Reddit, and more — with the SHA-256 hashing, click-id reconstruction, deduplication, retries, and rate-limit handling all maintained by PostHog.
 
 <Callout type="info">
-  This is the **outbound** mirror of [PostHog Webhook Setup](/docs/getting-started/posthog-setup). That guide forwards PostHog events *into* Hogsend to trigger journeys. This one forwards events *out* of PostHog to ad platforms. Same pipeline, opposite direction.
+  This is the **outbound** mirror of the [PostHog integration](/docs/integrations/posthog)'s inbound half. That section forwards PostHog events *into* Hogsend to trigger journeys. This one forwards events *out* of PostHog to ad platforms. Same pipeline, opposite direction.
 </Callout>
 
 ## Why PostHog, not a built-in destination

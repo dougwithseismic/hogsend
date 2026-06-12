@@ -1,0 +1,57 @@
+---
+title: PostHog
+description: The full PostHog integration — events in, person reads, engagement out, person writes — set up by one scaffold prompt and one `hogsend connect posthog` command.
+---
+
+PostHog is where most Hogsend apps start: it already knows what your users do, and Hogsend turns that into lifecycle email. The integration runs in **both directions** — PostHog events trigger journeys, journeys read person properties, and everything Hogsend does (sends, opens, clicks, journey completions) fans back out onto the same PostHog persons.
+
+Setting all of that up used to be a dashboard walkthrough. Now it's two moments:
+
+```bash
+# 1. At scaffold time — answers one prompt, writes the env
+npx create-hogsend@latest my-app
+
+# 2. Once deployed — one command, one browser consent click
+hogsend connect posthog --url https://api.your-app.com
+```
+
+The scaffold asks **"Are you using PostHog?"** — hand it your project API key and region and it writes `POSTHOG_API_KEY` + `POSTHOG_HOST`, mints a `POSTHOG_WEBHOOK_SECRET`, and switches on the outbound destination. [`hogsend connect posthog`](/docs/integrations/posthog/connect) then finishes the loop: a PKCE OAuth flow stores an encrypted credential on your instance (wiring person reads) and provisions the PostHog → Hogsend webhook destination for you — idempotently, so re-running it adopts an existing destination rather than creating a duplicate.
+
+## What the integration does
+
+Five things, each independently useful:
+
+| Direction | What happens | Set up by |
+|---|---|---|
+| **Events in** | Identified PostHog events POST to `/v1/webhooks/posthog` and trigger journeys | [`hogsend connect posthog`](/docs/integrations/posthog/connect), or [by hand](/docs/integrations/posthog/manual-setup) |
+| **Person reads** | Journeys resolve per-user timezones (`ctx.when`) and evaluate person-property conditions | The connect flow's OAuth credential, or a [personal API key](/docs/integrations/posthog/reference#self-hosted--the-personal-key-fallback) |
+| **Engagement out** | Email lifecycle events (sent, opened, clicked, bounced…) land in your PostHog project, durably | `ENABLE_POSTHOG_DESTINATION=true` — the scaffold sets it; see [destinations](/docs/data-api/destinations) |
+| **Person writes** | Contact properties propagate onto PostHog persons (`$set` via the project key) — `syncPersons` is on by default for the seeded destination | Same seeded destination |
+| **One identity** | Site sessions, email clicks, and analytics persons join on one canonical contact key — round-trip safe, so events forwarded back never create duplicates | The [identity loop](/docs/guides/analytics-access) |
+
+## How it's wired
+
+PostHog is deliberately **not** one of the [signed engine presets](/docs/integrations) (Clerk, Supabase, Stripe, Segment). The inbound receiver ships in your scaffold — `src/webhook-sources/posthog.ts`, a [`defineWebhookSource()`](/docs/guides/webhook-sources) you own and can reshape — and it authenticates with a plain shared secret (`POSTHOG_WEBHOOK_SECRET`), because PostHog's webhook destinations send a header you configure rather than a signature.
+
+The rest is engine-owned: the `AnalyticsProvider` contract behind person reads and writes (PostHog is the reference implementation, not the architecture — see [Analytics access & identity](/docs/guides/analytics-access)), the outbound `posthog` destination preset on the durable delivery spine, and the OAuth credential store + provisioner behind the connect command.
+
+<Callout type="info">
+  None of this is required to boot. Hogsend runs entirely on its own data plane — `POST /v1/events` and the [client SDK](/docs/data-api/client-sdk) — and PostHog layers on whenever you're ready.
+</Callout>
+
+## The pages
+
+<Cards>
+  <Card title="Connect PostHog" href="/docs/integrations/posthog/connect" description="The one-command flow: what hogsend connect posthog does, step by step, and how to re-run, skip, or undo it." />
+  <Card title="Manual Webhook Setup" href="/docs/integrations/posthog/manual-setup" description="The dashboard walkthrough the connect command automates — and the path for self-hosted PostHog without OAuth." />
+  <Card title="Reference" href="/docs/integrations/posthog/reference" description="Every env var, the OAuth client and scopes, credential resolution, and what degrades when each credential is absent." />
+</Cards>
+
+## Related
+
+<Cards>
+  <Card title="Analytics access & identity" href="/docs/guides/analytics-access" description="The two-credential model, person reads vs writes, and the contactKey identity loop." />
+  <Card title="Outbound destinations" href="/docs/data-api/destinations" description="The posthog destination preset — engagement events out, person sync." />
+  <Card title="Why PostHog?" href="/docs/concepts/why-posthog" description="The positioning: PostHog is great, it just doesn't do lifecycle emails." />
+  <Card title="Hogsend vs. PostHog Workflows" href="/docs/compare/posthog-workflows" description="When PostHog's own automation builder is the right tool instead." />
+</Cards>

@@ -1,9 +1,11 @@
 ---
 title: Integrations
-description: Built-in webhook presets that turn Clerk, Supabase, Stripe, and Segment webhooks into Hogsend events — signature-verified, env-driven, and served at /v1/webhooks/{id}.
+description: PostHog (the headline source, with its own section) plus built-in webhook presets that turn Clerk, Supabase, Stripe, and Segment webhooks into Hogsend events — signature-verified, env-driven, and served at /v1/webhooks/{id}.
 ---
 
-**Integration presets** are inbound webhook sources that ship inside the engine. Each one receives a provider's webhook, verifies its signature, and transforms the payload into a Hogsend event that flows straight through the [ingestion pipeline](/docs/api/ingestion) — so a Clerk signup, a Stripe payment, or a Segment track call can trigger a journey without you writing any glue code.
+**[PostHog](/docs/integrations/posthog)** is the headline integration and gets its own section — it runs in both directions (events in, person reads, engagement out), its inbound receiver ships in your scaffold rather than the engine, and [`hogsend connect posthog`](/docs/integrations/posthog/connect) provisions the PostHog side for you: one command, one browser consent click.
+
+The rest of this page covers **integration presets** — inbound webhook sources that ship inside the engine. Each one receives a provider's webhook, verifies its signature, and transforms the payload into a Hogsend event that flows straight through the [ingestion pipeline](/docs/api/ingestion) — so a Clerk signup, a Stripe payment, or a Segment track call can trigger a journey without you writing any glue code.
 
 <Callout type="info">
   These are the **inbound** half of the engine. The symmetric outbound half is [destinations](/docs/data-api/destinations) — keyed `defineDestination()` transforms that fan Hogsend's event stream *out* to PostHog, Segment, Slack, or a custom transport on the durable webhook spine.
@@ -36,6 +38,8 @@ Provider webhook  →  POST /v1/webhooks/{id}
 | [Supabase](/docs/integrations/supabase) | `POST /v1/webhooks/supabase` | `SUPABASE_WEBHOOK_SECRET` | `svix` (+ plain-secret fallback) |
 | [Stripe](/docs/integrations/stripe) | `POST /v1/webhooks/stripe` | `STRIPE_WEBHOOK_SECRET` | `stripe` |
 | [Segment](/docs/integrations/segment) | `POST /v1/webhooks/segment` | `SEGMENT_WEBHOOK_SECRET` | `hmac-hex` |
+
+PostHog is deliberately absent from this table: its receiver is scaffold content with match auth (PostHog's webhook destinations send a configurable header, not a signature), and it's set up by [`hogsend connect posthog`](/docs/integrations/posthog/connect) or [by hand](/docs/integrations/posthog/manual-setup).
 
 Each provider's exact event mapping — which provider events become which Hogsend events, and how each field is split — lives on its own page. Start with the one you use.
 
@@ -98,6 +102,7 @@ Building a webhook source from scratch — auth, schema, and `transform()` — i
 ## Per-provider pages
 
 <Cards>
+  <Card title="PostHog" href="/docs/integrations/posthog" />
   <Card title="Clerk" href="/docs/integrations/clerk" />
   <Card title="Supabase" href="/docs/integrations/supabase" />
   <Card title="Stripe" href="/docs/integrations/stripe" />

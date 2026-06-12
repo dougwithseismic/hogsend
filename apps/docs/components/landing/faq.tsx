@@ -37,7 +37,7 @@ export const FAQ_ITEMS = [
   },
   {
     q: "Do I need PostHog to use Hogsend?",
-    a: "No. PostHog is the best-supported source, but events can come from Stripe, Clerk, Supabase, or Segment via built-in signed webhook presets, from your own app via the Data API or the @hogsend/client SDK, or from any custom webhook source.",
+    a: "No. PostHog is the best-supported source — the scaffold asks for your key, and once deployed, hogsend connect posthog wires person reads and the webhook loop with one browser consent. But events can come from Stripe, Clerk, Supabase, or Segment via built-in signed webhook presets, from your own app via the Data API or the @hogsend/client SDK, or from any custom webhook source.",
   },
   {
     q: "Can AI agents write Hogsend journeys?",

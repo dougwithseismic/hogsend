@@ -76,7 +76,7 @@ Hogsend is everything on top of Hatchet that makes it a lifecycle platform:
 
 | Concern | Hatchet alone | Hogsend |
 |---|---|---|
-| Event ingestion | You build it | `POST /v1/events` + `defineWebhookSource()`; PostHog connects via the [Destinations pipeline](/docs/getting-started/posthog-setup) |
+| Event ingestion | You build it | `POST /v1/events` + `defineWebhookSource()`; PostHog connects via [one command](/docs/integrations/posthog/connect) |
 | Journey definition | Raw Hatchet task API | `defineJourney()` with metadata, guards, and a typed `ctx` |
 | Enrollment guards | You build it | Automatic: entry limits, trigger conditions, subscription checks |
 | Exit conditions | You build it | Declarative `exitOn` rules evaluated on every incoming event |

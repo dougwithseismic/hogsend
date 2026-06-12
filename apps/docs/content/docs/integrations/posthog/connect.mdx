@@ -1,0 +1,120 @@
+---
+title: Connect PostHog
+description: hogsend connect posthog — a PKCE OAuth flow with one browser consent click that stores an encrypted credential on your instance and idempotently provisions the PostHog → Hogsend webhook destination.
+---
+
+`hogsend connect posthog` is the one-command path to a fully wired PostHog integration. It authorizes Hogsend against your PostHog region (one browser consent click), stores the resulting credential **encrypted on your instance**, and provisions the PostHog → Hogsend webhook destination — the same one the [manual walkthrough](/docs/integrations/posthog/manual-setup) builds by hand.
+
+```bash
+hogsend connect posthog --url https://api.your-app.com
+```
+
+Run it from your laptop. The OAuth callback lands on `127.0.0.1` on the machine running the CLI, so the browser consent must happen **there** — the target instance can be anywhere; `--url` points at it. From an SSH session on the server this cannot complete (there is no paste-the-redirect fallback).
+
+## Prerequisites
+
+- **A deployed instance.** `API_PUBLIC_URL` must be a host PostHog Cloud can reach — provisioning refuses loopback addresses outright, so a local `http://localhost:3002` instance can store the credential but never gets a destination pointed at it.
+- **An admin key** (`--admin-key` or `HOGSEND_ADMIN_KEY`), like every admin CLI command.
+- **PostHog env signal on the server.** The CLI needs no PostHog env vars locally — it asks the instance which region to authorize against. The server needs `POSTHOG_API_KEY` (and `POSTHOG_HOST` for EU or self-hosted; without a host the CLI assumes US Cloud and asks you to confirm).
+- **`POSTHOG_WEBHOOK_SECRET` set on the server** — for the provisioning half. Without it the credential still stores; provisioning is skipped with instructions and you finish later with `--provision-only`.
+
+## What it does, step by step
+
+1. **Asks the instance for its connect info** — `GET /v1/admin/analytics/connect-info` returns the region, readiness flags, and `API_PUBLIC_URL`. Secrets never appear in the response, only whether they're configured.
+2. **Discovers the OAuth server** — `GET {your-region}/.well-known/oauth-authorization-server` against your instance's own PostHog host. Nothing is hardcoded, so EU, US, and self-hosted instances all authorize against the right place. A 404 here means the instance doesn't ship OAuth (older self-hosted builds) — the CLI points you at the [personal-key fallback](/docs/integrations/posthog/reference#self-hosted--the-personal-key-fallback) instead.
+3. **Starts a loopback server and opens your browser.** PKCE (S256) with a one-shot state value; the callback lands on `127.0.0.1` port 8423, 8424, or 8425 — the three redirect URIs registered in [Hogsend's OAuth client document](/docs/integrations/posthog/reference#the-oauth-client). Hogsend is a public OAuth client: there is no client secret anywhere in the flow.
+4. **You click consent in PostHog.** Once. The requested scopes are `person:read person:write project:read hog_function:write`, and the flow requests **team-level** access — the narrowest grant PostHog offers.
+5. **Exchanges the code for tokens** — a ~10-hour access token and a long-lived refresh token, straight from PostHog to the CLI over the PKCE-bound exchange.
+6. **Stores the credential on the instance** — `PUT /v1/admin/provider-credentials/posthog`. The payload is encrypted at rest with `BETTER_AUTH_SECRET`. Nothing is written on your laptop, and no token ever appears in the CLI's output, JSON or human.
+7. **Provisions the loop** — `POST /v1/admin/analytics/provision-loop` runs server-side with the just-stored credential and creates (or adopts) the PostHog destination that POSTs identified events to `{API_PUBLIC_URL}/v1/webhooks/posthog` with your webhook secret header.
+
+The whole run looks like this:
+
+```text
+┌  hogsend  connect
+◇  GET https://api.your-app.com/v1/admin/analytics/connect-info ✓
+◇  OAuth discovery at https://eu.posthog.com ✓
+│
+│  About to authorize Hogsend against PostHog
+│    instance   https://api.your-app.com
+│    posthog    https://eu.posthog.com
+│    scopes     person:read person:write project:read hog_function:write
+│    callback   http://127.0.0.1:8423/callback
+│
+◇  Waiting for PostHog authorization (Ctrl-C aborts) ✓
+◇  Exchanging code at https://eu.posthog.com/oauth/token/ ✓
+◇  PUT https://api.your-app.com/v1/admin/provider-credentials/posthog ✓
+◇  POST https://api.your-app.com/v1/admin/analytics/provision-loop ✓
+│
+│  PostHog -> Hogsend loop provisioned
+│    webhookUrl     https://api.your-app.com/v1/webhooks/posthog
+│    hogFunctionId  hf_…
+│    created        yes
+│
+└  connect: posthog connected
+```
+
+A running worker picks the new credential up within about thirty seconds — no restart.
+
+## Provisioning is idempotent
+
+Re-running the command is always safe. The provisioner matches the destination by its webhook URL path (`/v1/webhooks/posthog`), not by name, so a renamed destination, a host migration, or one created by hand is **adopted** rather than duplicated. It reports what it did: `created`, `updated`, or `unchanged`.
+
+It enforces only what it manages — the URL, method, and body, its two headers (`Content-Type` and `x-posthog-webhook-secret`), the identified-events filter, and `enabled: true` — and preserves what you've added: extra headers, extra filter properties, a rename, a description. Rotate `POSTHOG_WEBHOOK_SECRET` on the instance, re-run with `--provision-only`, and the destination's header is reconciled to match.
+
+The destination only forwards **identified** events (`$is_identified = true`). Anonymous pageviews never reach your journeys; if you want different filtering, add matchers in PostHog — the provisioner won't remove them.
+
+## Flags
+
+| Flag | What it does |
+|---|---|
+| `--provision-only` | Skip OAuth entirely; (re-)provision the loop using the already-stored credential. Useful after setting `POSTHOG_WEBHOOK_SECRET`, rotating it, or migrating hosts. Unlike the full flow, a provisioning failure here fails the command. |
+| `--no-provision` | Stop after storing the credential — wire the loop yourself, or later. |
+| `--no-browser` | Don't spawn a browser; print the authorize URL to open yourself. |
+| `--url`, `--admin-key`, `--json` | The usual [global flags](/docs/cli). `--json` emits exactly one document — and never any token material. |
+
+Exit code is `0` whenever a credential is stored, even if provisioning was skipped or failed — the loop can always be finished later with `--provision-only`.
+
+## When it refuses, and why
+
+| What you see | Why | What to do |
+|---|---|---|
+| `webhook_secret_missing` | `POSTHOG_WEBHOOK_SECRET` is unset on the instance. The `posthog` webhook source uses match auth, which is **open** when its secret is unset — provisioning won't point PostHog at an unauthenticated ingest route. | `openssl rand -hex 32`, set it on api **and** worker, redeploy, then `hogsend connect posthog --provision-only`. The full flow soft-skips this (credential stored, instructions printed); `--provision-only` hard-fails. |
+| `api_public_url_unreachable` | The instance's `API_PUBLIC_URL` is a loopback address. PostHog Cloud can't deliver to it — and a local instance must never repoint a production destination at `localhost`. | Run against your deployed instance: `hogsend connect posthog --provision-only --url https://your-instance`. |
+| `no_credential` | `--provision-only` with nothing stored. | Run the full `hogsend connect posthog` first. |
+| `not_configured` | The instance has no PostHog env signal at all — the CLI can't tell which region to authorize against. | Set `POSTHOG_API_KEY` (and `POSTHOG_HOST` for EU/self-hosted) on the instance and redeploy. |
+| `oauth_unsupported` | Discovery returned 404 — the PostHog instance doesn't ship OAuth. | Use the [personal-key fallback](/docs/integrations/posthog/reference#self-hosted--the-personal-key-fallback). |
+| `port_unavailable` | Ports 8423–8425 on `127.0.0.1` are all in use. | Free one and re-run — the callback must land on one of these fixed ports; they're registered in the OAuth client document. |
+| Consent denied / timeout / state mismatch | You declined in PostHog, the five-minute wait elapsed, or the callback state didn't match. | Re-run the command. |
+
+One warning worth heeding: if `--url` is plain `http://` to a non-local host, the CLI tells you so — the credential PUT would carry OAuth tokens unencrypted. Use https for remote instances.
+
+## What gets stored where
+
+- **On the instance**: one `provider_credentials` row — the access token, refresh token, expiry, token endpoint, and granted scopes, encrypted at rest with `BETTER_AUTH_SECRET`. The engine refreshes the access token about a minute before expiry and keeps the old refresh token whenever a refresh response omits one. Admin routes expose **meta only** (scopes, expiry, timestamps) — decrypted tokens never leave the server.
+- **On your laptop**: nothing.
+- **In PostHog**: the webhook destination, with `POSTHOG_WEBHOOK_SECRET` riding in a (non-secret) header input. Anyone with access to your PostHog project can read it — same trust domain, deliberate: it's what makes re-runs able to detect secret drift.
+
+With the credential stored, person reads go live: `ctx.when` resolves per-user timezones from PostHog, person-property conditions evaluate against live profiles, and `hogsend doctor`'s person-reads nudge goes quiet. Person **writes** and event capture are unaffected — they ride the project key (`POSTHOG_API_KEY`), with or without OAuth. The credential takes precedence over `POSTHOG_PERSONAL_API_KEY` when both exist; full resolution order in the [reference](/docs/integrations/posthog/reference#credential-resolution--refresh).
+
+## Undoing it
+
+Delete the credential from the instance:
+
+```bash
+curl -X DELETE \
+  -H "Authorization: Bearer $ADMIN_API_KEY" \
+  "https://api.your-app.com/v1/admin/provider-credentials/posthog"
+```
+
+Person reads degrade gracefully — back to `POSTHOG_PERSONAL_API_KEY` if set, otherwise to contact properties and the client default timezone. The PostHog-side destination keeps forwarding events until you disable or delete it in PostHog (Data → Pipeline → Destinations), and the OAuth grant itself can be revoked from your PostHog account settings.
+
+If you rotate `BETTER_AUTH_SECRET`, the stored credential becomes undecryptable — the meta route returns `409` and the engine degrades as above. `DELETE` the row and reconnect.
+
+## Next steps
+
+<Cards>
+  <Card title="Manual Webhook Setup" href="/docs/integrations/posthog/manual-setup" description="What the provisioner builds, by hand — and the self-hosted path." />
+  <Card title="Reference" href="/docs/integrations/posthog/reference" description="Env vars, scopes, the OAuth client document, degradation table." />
+  <Card title="Analytics access & identity" href="/docs/guides/analytics-access" description="Why PostHog has two credentials, and the identity loop." />
+</Cards>

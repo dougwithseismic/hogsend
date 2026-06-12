@@ -69,8 +69,8 @@ const SOURCES: Connector[] = [
     mark: { kind: "brand", brand: "posthog" },
     title: "PostHog",
     description:
-      "Forward PostHog actions and events straight into Hogsend. Set the secret and the signed-webhook preset turns itself on.",
-    tag: "signed webhook · preset",
+      "One command after deploy. hogsend connect posthog opens a single browser consent, wires person reads, and provisions the PostHog → Hogsend webhook for you — or set the keys yourself if you prefer.",
+    tag: "hogsend connect posthog",
   },
   {
     mark: { kind: "brand", brand: "stripe" },
@@ -176,20 +176,22 @@ const DESTINATIONS: Connector[] = [
  * docs; nothing here is invented.
  */
 const STACK_SNIPPETS: Record<string, string> = {
-  // From content/docs/getting-started/posthog-setup.mdx
-  posthog: `# PostHog → Data → Destinations → HTTP Webhook
-#   Webhook URL  https://your-hogsend-api.com/v1/webhooks/posthog
-#   Method       POST
-#   JSON body    default — sends {event} and {person}
-#   Header       x-posthog-webhook-secret: <your secret>
-# Add event matchers — forward only the 5–15 events your
-# journeys care about (e.g. user_signed_up), not $pageview.
+  // The one-command connect; manual wiring stays documented at
+  // content/docs/getting-started/posthog-setup.mdx
+  posthog: `# The scaffold asks "Are you using PostHog?" and writes
+#   POSTHOG_API_KEY · POSTHOG_HOST · a minted webhook secret
+#   — and enables the outbound PostHog destination.
 
-# Hogsend .env — must match the header value exactly
-POSTHOG_WEBHOOK_SECRET=your-shared-secret
+# Once deployed, one command finishes the loop:
+$ hogsend connect posthog
 
-# event.distinct_id → userId · person.properties.email → email
-# The event name passes through as-is — trigger on it directly.`,
+# One browser consent (OAuth, PKCE). The credential is stored
+# encrypted server-side; person reads are wired (timezones,
+# property conditions) and the PostHog → Hogsend webhook is
+# provisioned for you — idempotent, adopts an existing one.
+
+# Self-hosted PostHog, or no OAuth? Use a personal key
+# scoped to person:read + project:read instead.`,
 
   // From content/docs/integrations/segment.mdx
   segment: `# Segment → Connections → Destinations → Webhooks (Actions)
@@ -255,7 +257,7 @@ const STACK_ITEMS: StackItem[] = [
     label: "PostHog",
     brand: "posthog",
     blurb:
-      "An HTTP Webhook destination in PostHog's pipeline. The source is scaffold code you own — change the mapping whenever you like.",
+      "One command and one browser consent — hogsend connect posthog wires person reads and the webhook loop. The inbound source is still scaffold code you own.",
     guideHref: "/docs/getting-started/posthog-setup",
     snippet: <CodeHighlight code={STACK_SNIPPETS.posthog ?? ""} lang="bash" />,
   },
@@ -372,7 +374,7 @@ export default function IntegrationsPage(): JSX.Element {
           <SectionHeading
             eyebrow="Sources — events in"
             title="Everything your users do, in one stream"
-            subtitle="Five signed-webhook presets auto-enable the moment you set their secret — no handler, no glue. Or send from your own code, or define a source of your own."
+            subtitle="One command connects PostHog; four signed-webhook presets auto-enable the moment you set their secret — no handler, no glue. Or send from your own code, or define a source of your own."
           />
         </Reveal>
 
