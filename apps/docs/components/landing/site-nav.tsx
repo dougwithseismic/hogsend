@@ -88,7 +88,8 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
   return (
     <header
       className={cn(
-        "fixed inset-x-0 top-0 z-50 border-b border-hairline-faint text-white backdrop-blur-[7px]",
+        // top offset = the announcement banner's height (0 once dismissed).
+        "fixed inset-x-0 top-[var(--fd-banner-height,0px)] z-50 border-b border-hairline-faint text-white backdrop-blur-[7px]",
         menuOpen ? "bg-ink/95" : "bg-ink/30",
         className,
       )}

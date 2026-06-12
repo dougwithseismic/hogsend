@@ -319,7 +319,7 @@ function Entry({ entry, first }: { entry: ChangelogEntry; first: boolean }) {
     <article
       id={entry.anchor}
       className={cn(
-        "grid scroll-mt-28 gap-5 py-12 md:grid-cols-[200px_minmax(0,1fr)] md:gap-12",
+        "grid scroll-mt-[calc(7rem+var(--fd-banner-height,0px))] gap-5 py-12 md:grid-cols-[200px_minmax(0,1fr)] md:gap-12",
         first && "pt-0",
       )}
     >

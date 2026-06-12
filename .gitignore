@@ -56,3 +56,6 @@ marketing/renders/
 marketing/video/out/
 marketing/video/public/screenshots/
 marketing/video/public/logos/
+
+# Marketing screenshots — regenerable from the live site via marketing/shoot.mjs
+marketing/screenshots/
