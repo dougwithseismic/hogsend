@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   copyFile,
   mkdir,
@@ -6,6 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join, relative } from "node:path";
+import type { PosthogOptions } from "./prompts.js";
 import {
   ENGINE_VERSION,
   HOGSEND_PACKAGES,
@@ -94,6 +96,31 @@ export async function applyDomainToEnv(
   let content = await readFile(envPath, "utf8");
   content = setEnvLine(content, "EMAIL_FROM", `hello@${domain}`);
   content = setEnvLine(content, "EMAIL_DOMAIN", domain);
+  await writeFile(envPath, content);
+}
+
+/**
+ * Patch the scaffolded env example for a PostHog-enabled scaffold: uncomments/
+ * sets `POSTHOG_API_KEY` + `POSTHOG_HOST` as active values, activates
+ * `ENABLE_POSTHOG_DESTINATION=true`, and mints a fresh `POSTHOG_WEBHOOK_SECRET`.
+ * Same mechanism + timing as `applyDomainToEnv` — runs right after
+ * `copyTemplate` and BEFORE install/bootstrap, so the bootstrap-copied `.env`
+ * inherits the values.
+ */
+export async function applyPosthogToEnv(
+  targetDir: string,
+  posthog: PosthogOptions,
+): Promise<void> {
+  const envPath = join(targetDir, RENAME_MAP["env.example"] ?? ".env.example");
+  let content = await readFile(envPath, "utf8");
+  content = setEnvLine(content, "POSTHOG_API_KEY", posthog.apiKey);
+  content = setEnvLine(content, "POSTHOG_HOST", posthog.host);
+  content = setEnvLine(content, "ENABLE_POSTHOG_DESTINATION", "true");
+  content = setEnvLine(
+    content,
+    "POSTHOG_WEBHOOK_SECRET",
+    randomBytes(32).toString("hex"),
+  );
   await writeFile(envPath, content);
 }
 

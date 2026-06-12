@@ -8,6 +8,7 @@ import { cancel, intro, log, note, outro, spinner } from "@clack/prompts";
 import color from "picocolors";
 import {
   applyDomainToEnv,
+  applyPosthogToEnv,
   copyTemplate,
   emittedTopLevelNames,
 } from "./copy.js";
@@ -121,6 +122,11 @@ function runBootstrap(
   return result.status === 0;
 }
 
+/** Post-deploy PostHog hint — shown only when PostHog was configured. */
+const POSTHOG_NEXT_STEP = `${color.dim("once deployed:")} ${color.cyan("hogsend connect posthog")}   ${color.dim("(wires person reads + the PostHog→Hogsend event loop)")}`;
+const POSTHOG_NEXT_STEP_PLAIN =
+  "once deployed: hogsend connect posthog   (wires person reads + the PostHog→Hogsend event loop)";
+
 /** The guided "what now" — the difference between a scaffold and an onboarding. */
 function nextSteps(opts: CliOptions, setupDone: boolean): string {
   const pm = opts.packageManager;
@@ -135,6 +141,7 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     "",
     `${color.dim("First journey:")} ${color.cyan("src/journeys/welcome.ts")}   ${color.dim(`· ${DOCS}`)}`,
     skillsLine,
+    opts.posthog ? POSTHOG_NEXT_STEP : null,
   ];
 
   const lines = setupDone
@@ -201,6 +208,17 @@ async function main(): Promise<void> {
     }
   }
 
+  // Same timing as the domain patch: the bootstrap-copied .env inherits the
+  // PostHog values + the minted webhook secret.
+  if (opts.posthog) {
+    await applyPosthogToEnv(targetDir, opts.posthog);
+    if (interactive) {
+      log.step(
+        `${color.dim("PostHog —")} POSTHOG_HOST=${opts.posthog.host} ${color.dim("+ ENABLE_POSTHOG_DESTINATION=true + minted POSTHOG_WEBHOOK_SECRET")}`,
+      );
+    }
+  }
+
   if (opts.git) {
     if (interactive) {
       const s = spinner();
@@ -260,6 +278,9 @@ async function main(): Promise<void> {
   const cdHint = isCurrentDir(opts) ? "" : `cd ${opts.dir} · `;
   if (interactive) {
     if (!setupDone) note(nextSteps(opts, setupDone), "Next steps");
+    // Bootstrap's own summary can't know about PostHog — surface the connect
+    // hint here when the next-steps note was skipped.
+    if (setupDone && opts.posthog) log.info(POSTHOG_NEXT_STEP);
     outro(
       setupDone
         ? `${color.green("Done.")} ${color.dim(`${cdHint}Docs: ${DOCS}`)}`
@@ -273,9 +294,10 @@ async function main(): Promise<void> {
     const skillsNote = opts.skills
       ? "  Agent skills: .claude/skills (Claude Code discovers them automatically)"
       : `  Add agent skills later: ${dlxCmd(pm, "hogsend skills add")}`;
+    const posthogNote = opts.posthog ? `\n  ${POSTHOG_NEXT_STEP_PLAIN}` : "";
     if (setupDone) {
       console.log(`
-  Done. ${cdHint}Docs: ${DOCS}
+  Done. ${cdHint}Docs: ${DOCS}${posthogNote}
 `);
     } else {
       console.log(`
@@ -286,7 +308,7 @@ ${cd}${opts.install ? "" : `    ${pm} install\n`}    ${scriptCmd(pm, "bootstrap"
     ${worker}    # Hatchet worker (second terminal)
 
   First journey: src/journeys/welcome.ts — docs at ${DOCS}
-${skillsNote}
+${skillsNote}${posthogNote}
 `);
     }
   }
