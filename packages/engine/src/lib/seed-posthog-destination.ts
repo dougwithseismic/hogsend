@@ -116,7 +116,7 @@ export async function seedPostHogDestination(opts: {
             .where(eq(webhookEndpoints.id, found.id));
           logger.info("Reconciled seeded PostHog destination", {
             added: missing,
-            syncPersons: needsSyncFlag ? true : undefined,
+            syncPersonsEnabled: needsSyncFlag,
           });
         }
       }

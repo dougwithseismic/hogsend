@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 process.env.DATABASE_URL =
   "postgresql://growthhog:growthhog@localhost:5434/growthhog";
@@ -120,6 +120,32 @@ describe("posthog preset — person sync (contact.* → $set)", () => {
     expect(keyless).toBeNull();
   });
 
+  it("the gate is STRICTLY boolean true — jsonb string pollution never enables sync", () => {
+    const result = posthogDestination.transform(
+      contactEnvelope("contact.updated", CONTACT),
+      ctxWith({ apiKey: "phc_x", syncPersons: "true" }),
+    );
+    expect(result).toBeNull();
+  });
+
+  it("honours config.unsubscribedPropertyKey over the default flag name", () => {
+    const result = posthogDestination.transform(
+      contactEnvelope("contact.unsubscribed", {
+        externalId: "u_42",
+        email: null,
+        category: null,
+        scope: "all",
+      }),
+      ctxWith({
+        apiKey: "phc_x",
+        syncPersons: true,
+        unsubscribedPropertyKey: "user_unsubscribed",
+      }),
+    );
+    const body = JSON.parse((result as { body: string }).body);
+    expect(body.properties.$set).toEqual({ user_unsubscribed: true });
+  });
+
   it("contact.deleted always skips (person deletion is a private-API op)", () => {
     const result = posthogDestination.transform(
       contactEnvelope("contact.deleted", {
@@ -148,12 +174,45 @@ describe("posthog preset — person sync (contact.* → $set)", () => {
 });
 
 describe("seedPostHogDestination — person-sync reconcile", () => {
+  // Hatchet via the override seam (suite convention for createHogsendClient
+  // with DB access) — the seed path never dials the engine, but the container
+  // must not depend on a live gRPC endpoint in CI.
+  const mockHatchet = {
+    durableTask: vi.fn(() => ({
+      run: vi.fn(),
+      runNoWait: vi.fn(),
+      runAndWait: vi.fn(),
+    })),
+    task: vi.fn(() => ({ run: vi.fn(), runNoWait: vi.fn() })),
+    events: { push: vi.fn() },
+    runs: { cancel: vi.fn(), get: vi.fn() },
+    worker: vi.fn(),
+  };
+
+  // Unconditional cleanup: a mid-test throw must not leave the sentinel row
+  // polluting the shared dev DB (or the pool open).
+  const cleanup: { container?: import("@hogsend/engine").HogsendClient } = {};
+  afterAll(async () => {
+    const container = cleanup.container;
+    if (!container) return;
+    await container.db
+      .delete(webhookEndpoints)
+      .where(eq(webhookEndpoints.url, "posthog://capture"))
+      .catch(() => {});
+    await container.dbClient.end({ timeout: 5 }).catch(() => {});
+  });
+
   it("seeds with person-sync events + syncPersons, and reconciles a pre-upgrade row", async () => {
     const { createHogsendClient, seedPostHogDestination } = await import(
       "@hogsend/engine"
     );
-    const mod = { seedPostHogDestination };
-    const container = createHogsendClient();
+    const container = createHogsendClient({
+      overrides: {
+        hatchet:
+          mockHatchet as unknown as import("@hogsend/engine").HogsendClient["hatchet"],
+      },
+    });
+    cleanup.container = container;
     const { db } = container;
 
     // Clean slate for the sentinel row.
@@ -172,7 +231,7 @@ describe("seedPostHogDestination — person-sync reconcile", () => {
       disabled: false,
     });
 
-    const result = await mod.seedPostHogDestination({
+    const result = await seedPostHogDestination({
       db,
       logger: container.logger,
       apiKey: "phc_x",
@@ -195,7 +254,7 @@ describe("seedPostHogDestination — person-sync reconcile", () => {
       .update(webhookEndpoints)
       .set({ config: { apiKey: "phc_x", syncPersons: false } })
       .where(eq(webhookEndpoints.url, "posthog://capture"));
-    await mod.seedPostHogDestination({
+    await seedPostHogDestination({
       db,
       logger: container.logger,
       apiKey: "phc_x",
@@ -207,11 +266,5 @@ describe("seedPostHogDestination — person-sync reconcile", () => {
     expect((after?.config as { syncPersons?: boolean }).syncPersons).toBe(
       false,
     );
-
-    // Cleanup.
-    await db
-      .delete(webhookEndpoints)
-      .where(eq(webhookEndpoints.url, "posthog://capture"));
-    await container.dbClient.end({ timeout: 5 }).catch(() => {});
   });
 });
