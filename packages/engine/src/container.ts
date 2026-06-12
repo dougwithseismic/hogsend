@@ -518,7 +518,7 @@ export function createHogsendClient(
       : undefined;
 
   const analyticsProviders = new AnalyticsProviderRegistry([
-    ...analyticsProvidersFromEnv(env),
+    ...analyticsProvidersFromEnv(env, { db, logger }),
     ...(analyticsGroup?.providers ?? []),
     ...(analyticsGroup?.provider ? [analyticsGroup.provider] : []),
   ]);
@@ -547,11 +547,18 @@ export function createHogsendClient(
   // personal API key — the phc_ project key is write-only by design). Surface
   // the degraded mode once at boot instead of letting tz resolution silently
   // fall back for months.
-  if (analytics && !analytics.capabilities.personReads) {
+  // OAuth-capable providers resolve their credential ASYNC (the env factory
+  // logs the truthful nudge after the load settles) — a sync check here would
+  // log a false "DISABLED" on every boot of a connected instance.
+  if (
+    analytics &&
+    !analytics.capabilities.oauth &&
+    !analytics.capabilities.personReads
+  ) {
     logger.info(
       `analytics provider "${analytics.meta.id}" has person reads DISABLED — ` +
         "timezone resolution falls back to contact properties. For PostHog, " +
-        "set POSTHOG_PERSONAL_API_KEY (a personal API key scoped person:read). " +
+        "set POSTHOG_PERSONAL_API_KEY or run `hogsend connect posthog`. " +
         "Docs: https://hogsend.com/docs/guides/analytics-access",
     );
   }

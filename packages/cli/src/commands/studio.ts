@@ -1,9 +1,9 @@
-import { spawn } from "node:child_process";
 import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { openBrowser } from "../lib/browser.js";
 import { color } from "../lib/output.js";
 import { runStudioAdmin } from "./studio-admin.js";
 import type { Command, CommandContext } from "./types.js";
@@ -113,21 +113,6 @@ function indexHtml(distPath: string, baseUrl: string | undefined): string {
     return raw.replace("</head>", `${inject}</head>`);
   }
   return `${inject}${raw}`;
-}
-
-/** Open a URL in the OS default browser (best-effort, never throws). */
-function openBrowser(url: string): void {
-  const platform = process.platform;
-  const cmd =
-    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
-  try {
-    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
-    child.on("error", () => {});
-    child.unref();
-  } catch {
-    // best-effort
-  }
 }
 
 async function run(ctx: CommandContext): Promise<void> {

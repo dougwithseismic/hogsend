@@ -75,6 +75,23 @@ describe("createPostHogProvider", () => {
     await provider.setPersonProperties({ distinctId: "u_1" });
     expect(captureSpy).not.toHaveBeenCalled();
   });
+
+  it("capabilities.personReads is LIVE over the OAuth accessor (+ oauth flag)", () => {
+    let avail = false;
+    const provider = createPostHogProvider({
+      apiKey: "phc_x",
+      authToken: {
+        getToken: async () => null,
+        isAvailable: () => avail,
+      },
+    });
+    expect(provider.capabilities.personReads).toBe(false);
+    expect(provider.capabilities.oauth).toBe(true);
+    // Same instance flips when the credential lands (runtime connect) —
+    // no provider rebuild.
+    avail = true;
+    expect(provider.capabilities.personReads).toBe(true);
+  });
 });
 
 describe("getPersonProperties (private API read)", () => {
@@ -149,6 +166,121 @@ describe("getPersonProperties (private API read)", () => {
     expect(result).toEqual({});
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("prefers the OAuth token over the personal key", async () => {
+    const fetchSpy = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ results: [{ properties: {} }] }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await getPersonProperties({
+      config: {
+        host: "https://oauth-pref.i.posthog.com",
+        personalApiKey: "phx_fb",
+        getAuthToken: async () => "pha_live",
+        projectId: "77",
+      },
+      distinctId: "u_1",
+    });
+
+    const headers = fetchSpy.mock.calls[0]?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    expect(headers.Authorization).toBe("Bearer pha_live");
+  });
+
+  it("falls back to the personal key when the accessor yields null", async () => {
+    const fetchSpy = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ results: [{ properties: {} }] }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await getPersonProperties({
+      config: {
+        host: "https://oauth-fb.i.posthog.com",
+        personalApiKey: "phx_fb",
+        getAuthToken: async () => null,
+        projectId: "77",
+      },
+      distinctId: "u_1",
+    });
+
+    const headers = fetchSpy.mock.calls[0]?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    expect(headers.Authorization).toBe("Bearer phx_fb");
+  });
+
+  it("is NOT gated when only the OAuth accessor is configured", async () => {
+    const fetchSpy = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(JSON.stringify({ results: [{ properties: {} }] }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await getPersonProperties({
+      config: {
+        host: "https://oauth-only.i.posthog.com",
+        getAuthToken: async () => "pha_only",
+        projectId: "77",
+      },
+      distinctId: "u_1",
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const headers = fetchSpy.mock.calls[0]?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    expect(headers.Authorization).toBe("Bearer pha_only");
+  });
+
+  it("keeps the project-id discovery cache stable across token rotation", async () => {
+    const calls: Array<{ url: string; auth?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({
+          url,
+          auth: (init?.headers as Record<string, string>)?.Authorization,
+        });
+        if (url.includes("/api/projects/@current/")) {
+          return new Response(JSON.stringify({ id: 9090 }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ results: [{ properties: {} }] }), {
+          status: 200,
+        });
+      }),
+    );
+
+    // pha_ tokens rotate ~10h; the discovery cache must NOT key on them.
+    const tokens = ["pha_1", "pha_2"];
+    const config = {
+      host: "https://oauth-rotate.i.posthog.com",
+      getAuthToken: async () => tokens.shift() ?? null,
+    };
+
+    await getPersonProperties({ config, distinctId: "u_1" });
+    await getPersonProperties({ config, distinctId: "u_2" });
+
+    const discoveries = calls.filter((c) =>
+      c.url.includes("/api/projects/@current/"),
+    );
+    expect(discoveries).toHaveLength(1);
+    const personReads = calls.filter((c) => c.url.includes("/persons/"));
+    expect(personReads[0]?.auth).toBe("Bearer pha_1");
+    expect(personReads[1]?.auth).toBe("Bearer pha_2");
+  });
 });
 
 describe("container analytics resolution", () => {
@@ -187,5 +319,46 @@ describe("container analytics resolution", () => {
     expect(() =>
       createHogsendClient({ analytics: { defaultProvider: "amplitude" } }),
     ).toThrow(/not a registered analytics provider/);
+  });
+});
+
+describe("factory nudge — truthful after prime settles", () => {
+  it("logs DISABLED only when prime finds no credential and no personal key", async () => {
+    const { analyticsProvidersFromEnv, env } = await import("@hogsend/engine");
+    const infos: string[] = [];
+    const logger = {
+      info: (m: string) => infos.push(m),
+      warn() {},
+      error() {},
+      debug() {},
+    };
+    // env preset requires POSTHOG_API_KEY; ensure no personal key for the test.
+    const testEnv = {
+      ...env,
+      POSTHOG_API_KEY: "phc_nudge_test",
+      POSTHOG_PERSONAL_API_KEY: undefined,
+    } as typeof env;
+    // Store that reports NO credential — prime resolves to absent.
+    const fakeDb = {
+      select: () => ({
+        from: () => ({
+          where: () => ({ limit: async () => [] }),
+        }),
+      }),
+    };
+    analyticsProvidersFromEnv(testEnv, {
+      db: fakeDb as never,
+      logger: logger as never,
+    });
+    // prime is fire-and-forget — poll briefly instead of a fixed sleep so a
+    // loaded parallel suite can't flake this.
+    const deadline = Date.now() + 2_000;
+    while (
+      !infos.some((m) => m.includes("person reads DISABLED")) &&
+      Date.now() < deadline
+    ) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(infos.some((m) => m.includes("person reads DISABLED"))).toBe(true);
   });
 });

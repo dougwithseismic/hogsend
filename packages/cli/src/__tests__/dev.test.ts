@@ -79,6 +79,7 @@ function makeCtx(opts: {
       ),
     post: () => Promise.reject(new Error("unexpected POST")),
     patch: () => Promise.reject(new Error("unexpected PATCH")),
+    put: () => Promise.reject(new Error("unexpected PUT")),
     del: () => Promise.reject(new Error("unexpected DELETE")),
   } as AdminClient;
 

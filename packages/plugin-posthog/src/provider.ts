@@ -16,19 +16,23 @@ import type {
  * - **capture + person WRITES** use the public project key (`apiKey`) — person
  *   writes ride the capture pipeline as `$set`/`$set_once`, so propagation
  *   needs NO extra credential.
- * - **person READS** need `personalApiKey` (a personal API key scoped
- *   `person:read`) against the private API host. Without it,
- *   `capabilities.personReads` is false and reads soft-fail to `{}` — the
- *   engine falls back to contact properties for timezone resolution.
+ * - **person READS** need a privileged credential against the private API
+ *   host: an engine-injected OAuth accessor (`authToken`, preferred) or
+ *   `personalApiKey` (a personal API key scoped `person:read`, the fallback).
+ *   With neither, `capabilities.personReads` is false and reads soft-fail to
+ *   `{}` — the engine falls back to contact properties for timezone
+ *   resolution.
  */
 export function createPostHogProvider(
   config: PostHogServiceConfig,
 ): AnalyticsProvider {
   const host = config.host ?? DEFAULT_HOST;
   const client = createPostHogClient({ apiKey: config.apiKey, host });
+  const authToken = config.authToken;
 
   const propsConfig: PersonPropertiesConfig = {
     personalApiKey: config.personalApiKey,
+    getAuthToken: authToken ? () => authToken.getToken() : undefined,
     host,
     privateHost: config.privateHost,
     projectId: config.projectId,
@@ -46,8 +50,17 @@ export function createPostHogProvider(
         "PostHog capture + person reads/writes (reads need a personal API key).",
     },
     capabilities: {
-      personReads: Boolean(config.personalApiKey),
+      // LIVE getter: the container builds providers at BOOT, but the OAuth
+      // credential can be stored at RUNTIME via `hogsend connect posthog`.
+      // A getter means every reader (boot nudge, doctor, future Studio
+      // status) sees current truth without rebuilding the provider.
+      get personReads() {
+        return (
+          Boolean(config.personalApiKey) || (authToken?.isAvailable() ?? false)
+        );
+      },
       personWrites: true,
+      oauth: true,
     },
 
     async getPersonProperties(distinctId: string) {

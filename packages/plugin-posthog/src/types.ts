@@ -1,5 +1,16 @@
 import type { Redis } from "ioredis";
 
+/**
+ * Engine-injected OAuth auth accessor. `getToken()` resolves a live bearer
+ * token (or null — degrade); `isAvailable()` is the synchronous best-known
+ * credential state, used for live capability reporting. The plugin stays a
+ * dumb wire: it neither refreshes nor stores anything.
+ */
+export interface PostHogAuthTokenAccessor {
+  getToken(): Promise<string | null>;
+  isAvailable(): boolean;
+}
+
 export interface PostHogServiceConfig {
   /** Project API key (`phc_…`) — capture/flags. Public + WRITE-ONLY by design. */
   apiKey: string;
@@ -28,6 +39,8 @@ export interface PostHogServiceConfig {
   projectId?: string;
   redis?: Redis;
   cacheTtlSeconds?: number;
+  /** OAuth accessor — preferred over `personalApiKey` when it yields a token. */
+  authToken?: PostHogAuthTokenAccessor;
 }
 
 // The analytics-provider contract now lives in the neutral @hogsend/core
@@ -41,8 +54,11 @@ export type {
 } from "@hogsend/core";
 
 export interface PersonPropertiesConfig {
-  /** Personal API key — reads are DISABLED (soft-fail `{}`) without it. */
+  /** Personal API key — fallback when OAuth yields no token. Reads are
+   *  DISABLED (soft-fail `{}`) when BOTH this and `getAuthToken` are absent. */
   personalApiKey?: string;
+  /** Async OAuth token resolver (the accessor's getToken, pre-bound). */
+  getAuthToken?: () => Promise<string | null>;
   /** Capture/ingestion host (private host is derived from it). */
   host: string;
   /** Private API host override. */
