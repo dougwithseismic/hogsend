@@ -111,6 +111,9 @@ importers:
       '@types/react':
         specifier: ^19.2.15
         version: 19.2.15
+      posthog-node:
+        specifier: ^5.35.1
+        version: 5.35.1
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.3)(typescript@5.9.2)(yaml@2.9.0)

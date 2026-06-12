@@ -73,9 +73,18 @@ dashboard at `http://localhost:8888`, login `admin@example.com` / `Admin123!!`.)
 All commented-out in `.env.example` — add only what you use:
 
 ```bash
-# PostHog person properties + event capture (no-op if unset).
+# PostHog event capture + person property WRITES (no-op if unset).
 POSTHOG_API_KEY=phc_...
 POSTHOG_HOST=https://us.i.posthog.com
+
+# PostHog person property READS (timezone resolution, property conditions).
+# The phc_ key is write-only by PostHog's design — reads need a PERSONAL API
+# key scoped person:read. Without it reads soft-fail to contact properties.
+POSTHOG_PERSONAL_API_KEY=...
+# Project id for the private API — discovered automatically when unset.
+# POSTHOG_PROJECT_ID=12345
+# Private API host — derived (eu.i.posthog.com → eu.posthog.com) when unset.
+# POSTHOG_PRIVATE_HOST=https://us.posthog.com
 
 # Verify incoming PostHog webhooks (POST /v1/webhooks/posthog).
 POSTHOG_WEBHOOK_SECRET=...
@@ -92,6 +101,12 @@ Notes:
 
 - **PostHog is fully optional.** Without `POSTHOG_API_KEY`, person-property
   fetches and event captures are no-ops — journeys still run.
+- **Two PostHog credentials, by PostHog's design.** The `phc_` project key is
+  public (it ships in browser bundles) so PostHog makes it WRITE-only: capture
+  and `$set` person writes work, reads never will. Person READS (per-user
+  timezone resolution) need `POSTHOG_PERSONAL_API_KEY` — a personal API key
+  scoped `person:read`, created in PostHog → Settings → Personal API keys.
+  `hogsend doctor` warns when capture is configured without it.
 - **Webhook secrets are per-source.** Only set the secret for a webhook source
   you've actually registered (see the consumer's `src/webhook-sources`).
 - **`ADMIN_API_KEY` gates `/v1/admin/*`.** Set it in prod if you want to drive

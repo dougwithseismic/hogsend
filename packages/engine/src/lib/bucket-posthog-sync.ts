@@ -42,16 +42,18 @@ export function syncBucketToPostHog(opts: {
 
   try {
     if (kind === "entered") {
-      // $set { key: true } — mirrors plugin-posthog identify() ($set path).
-      posthog.identify(userId, { [propertyKey]: true });
+      // set { key: true } — the provider's person-write wire ($set on PostHog).
+      void posthog.setPersonProperties({
+        distinctId: userId,
+        set: { [propertyKey]: true },
+      });
     } else {
-      // $unset [key] — RECOMMENDED on leave (Section 12). The property is absent
+      // unset [key] — RECOMMENDED on leave (Section 12). The property is absent
       // unless the user is currently a member, so both `key = true` and
       // `key is set` cohorts behave correctly.
-      posthog.captureEvent({
+      void posthog.setPersonProperties({
         distinctId: userId,
-        event: "$set",
-        properties: { $unset: [propertyKey] },
+        unset: [propertyKey],
       });
     }
   } catch (err) {

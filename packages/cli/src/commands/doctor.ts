@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { loadDotEnv } from "../lib/config.js";
 import { isHttpError } from "../lib/http.js";
 import { color } from "../lib/output.js";
 import { skillsStaleness } from "../lib/skills.js";
@@ -19,6 +20,34 @@ function skillsNudge(ctx: CommandContext): void {
       `Refresh: ${color.cyan("hogsend upgrade")} ${color.dim("(deps + skills)")} or ${color.cyan("hogsend skills add --all --force")}.`,
     ].join("\n"),
     "Skills out of date",
+  );
+}
+
+/**
+ * Best-effort nudge: PostHog capture configured (`POSTHOG_API_KEY` in the
+ * cwd's `.env` or process env) without `POSTHOG_PERSONAL_API_KEY` means
+ * person READS are silently disabled — the phc_ project key is write-only by
+ * PostHog's design, so timezone resolution falls back to contact properties.
+ * Warn-not-fail: capture and person writes still work.
+ */
+function analyticsNudge(ctx: CommandContext): void {
+  if (ctx.json) return;
+  const dotenv = loadDotEnv(process.cwd());
+  const captureKey = process.env.POSTHOG_API_KEY ?? dotenv.POSTHOG_API_KEY;
+  const personalKey =
+    process.env.POSTHOG_PERSONAL_API_KEY ?? dotenv.POSTHOG_PERSONAL_API_KEY;
+  if (!captureKey || personalKey) return;
+  ctx.out.note(
+    [
+      "POSTHOG_API_KEY is set without POSTHOG_PERSONAL_API_KEY — person",
+      "property READS are disabled (the phc_ project key is write-only by",
+      "PostHog's design), so per-user timezone resolution falls back to",
+      "contact properties. Capture and person WRITES are unaffected.",
+      "",
+      `Fix: create a personal API key scoped ${color.cyan("person:read")} and set ${color.cyan("POSTHOG_PERSONAL_API_KEY")}.`,
+      `Docs: ${color.cyan("https://hogsend.com/docs/analytics-access")}`,
+    ].join("\n"),
+    "PostHog person reads disabled",
   );
 }
 
@@ -221,6 +250,7 @@ async function run(ctx: CommandContext): Promise<void> {
   ctx.out.note(lines.join("\n"), "Doctor");
 
   skillsNudge(ctx);
+  analyticsNudge(ctx);
 
   if (ok) {
     ctx.out.outro(color.green("doctor: ok"));

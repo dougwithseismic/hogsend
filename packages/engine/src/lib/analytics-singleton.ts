@@ -1,4 +1,4 @@
-import type { PostHogService } from "@hogsend/core";
+import type { AnalyticsProvider } from "@hogsend/core";
 import { createOptionalSingleton } from "./singleton.js";
 
 /**
@@ -24,7 +24,7 @@ import { createOptionalSingleton } from "./singleton.js";
  * container resolves `analytics` to `undefined` and installs it here, so every
  * read remains a no-op exactly as before — hence the optional singleton variant.
  */
-const singleton = createOptionalSingleton<PostHogService>();
+const singleton = createOptionalSingleton<AnalyticsProvider>();
 
 export const setAnalytics = singleton.set;
 export const getAnalytics = singleton.get;

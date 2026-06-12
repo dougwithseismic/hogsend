@@ -149,7 +149,10 @@ orchestration:
 - **`getPostHog()`** — `import { getPostHog } from "@hogsend/engine"` for the raw
   PostHog service (a fire-and-forget escape hatch). For fanning lifecycle data out
   to product/data tools, prefer an outbound DESTINATION (see above) — it delivers
-  durably and is vendor-neutral.
+  durably and is vendor-neutral. Note: capture and `$set` person WRITES use the
+  `phc_` project key; person READS (`getPersonProperties`) additionally need
+  `POSTHOG_PERSONAL_API_KEY` (the project key is write-only by PostHog's design)
+  and soft-fail to `{}` without it.
 - **SMS / push / Slack** — plain functions you import, never on `ctx`.
 - There is **no `ctx.db`, no `ctx.sendEmail`, no `ctx.hatchet`** surfaced to
   consumer journeys. If you reach for one of those, you are modelling it wrong —
