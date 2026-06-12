@@ -1,5 +1,10 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type { EmailProvider, PostHogService, TimeZone } from "@hogsend/core";
+import type {
+  AnalyticsProvider,
+  EmailProvider,
+  PostHogService,
+  TimeZone,
+} from "@hogsend/core";
 import type { BucketRegistry, JourneyRegistry } from "@hogsend/core/registry";
 import type { SendWindow } from "@hogsend/core/schedule";
 import {
@@ -25,6 +30,12 @@ import { env } from "./env.js";
 import { setClientScheduleDefaults } from "./journeys/client-defaults-singleton.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
 import { buildJourneyRegistry } from "./journeys/registry.js";
+import {
+  isAnalyticsProvider,
+  wrapLegacyAnalyticsService,
+} from "./lib/analytics-adapter.js";
+import { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
+import { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
 import { setAnalytics } from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import {
@@ -41,7 +52,6 @@ import type {
 import { hatchet } from "./lib/hatchet.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
-import { getPostHog } from "./lib/posthog.js";
 import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
 import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
@@ -92,7 +102,18 @@ export interface HogsendClient {
    * templates without going through a send. Empty when no templates are wired.
    */
   templates: TemplateRegistry;
-  analytics?: PostHogService;
+  /**
+   * The container-held registry of analytics providers, keyed by `meta.id` —
+   * the analytics sibling of {@link emailProviders}. Built from env presets
+   * (`analyticsProvidersFromEnv`) merged consumer-last.
+   */
+  analyticsProviders: AnalyticsProviderRegistry;
+  /**
+   * The single resolved ACTIVE analytics provider (identity PULL + person
+   * writes + capture). Undefined when nothing is configured — every consumer
+   * treats that as a silent no-op.
+   */
+  analytics?: AnalyticsProvider;
   registry: JourneyRegistry;
   /**
    * The bucket registry (id map + event/property inverted indexes for candidate
@@ -171,25 +192,43 @@ export interface HogsendClientOptions {
     templates?: TemplateRegistry;
   };
   /**
-   * The PostHog-style analytics service. As of the destinations spine its role
+   * The analytics provider(s) — provider-neutral since the
+   * `AnalyticsProvider` contract (the analytics sibling of `EmailProvider`;
+   * PostHog is the reference implementation, not the architecture). Its role
    * is deliberately NARROW — it is NOT the outbound-catalog firing path (the
-   * email/contact/journey/bucket lifecycle now fans out durably via
-   * DESTINATIONS on the webhook spine, keyed by `webhook_endpoints.kind`). It
-   * remains for exactly two things:
+   * email/contact/journey/bucket lifecycle fans out durably via DESTINATIONS
+   * on the webhook spine). The ACTIVE provider serves:
    *
    * 1. The identity PULL — `getPersonProperties` for per-user timezone
    *    resolution at journey enrollment (`define-journey` / `lib/timezone.ts`).
-   *    This read role is UNCHANGED and load-bearing.
-   * 2. The opt-in `bucket.syncToPostHog` person-property mirror — `$set`/`$unset`
-   *    of a boolean cohort property on bucket transitions (`bucket-posthog-sync`).
-   *    Off by default; PostHog `$set`/`$unset` identity semantics have no
-   *    vendor-neutral envelope, so this stays a PostHog-direct write.
+   *    On PostHog this needs `POSTHOG_PERSONAL_API_KEY` (the phc_ project key
+   *    is write-only by design); reads soft-fail to contact-property
+   *    fallbacks without it.
+   * 2. Person WRITES — `setPersonProperties` (the opt-in `bucket.syncToPostHog`
+   *    mirror, and trait propagation). Rides the capture pipeline; no extra
+   *    credential.
+   *
+   * Accepted shapes (mirrors `email`):
+   * - a group: `{ provider?, providers?, defaultProvider? }` — register one or
+   *   many `AnalyticsProvider`s; env presets (`analyticsProvidersFromEnv` —
+   *   PostHog when `POSTHOG_API_KEY` is set) merge consumer-LAST;
+   *   `defaultProvider` / env `ANALYTICS_PROVIDER` picks the active id
+   *   (default `"posthog"`).
+   * - a bare `AnalyticsProvider` — registered and made active.
+   * - @deprecated a legacy `PostHogService` — wrapped via
+   *   `wrapLegacyAnalyticsService` and made active.
    *
    * Lives at the top level (not under `email`) because the engine itself uses
-   * it for the PULL. Defaults to {@link getPostHog} (a no-op when
-   * `POSTHOG_API_KEY` is unset).
+   * it for the PULL.
    */
-  analytics?: PostHogService;
+  analytics?:
+    | PostHogService
+    | AnalyticsProvider
+    | {
+        provider?: AnalyticsProvider;
+        providers?: AnalyticsProvider[];
+        defaultProvider?: string;
+      };
   /**
    * Code-defined outbound DESTINATIONS (Phase 3). Each is a
    * `defineDestination()` delivery-time transform keyed by its `meta.id`, which
@@ -462,16 +501,69 @@ export function createHogsendClient(
       },
     });
 
-  const analytics = opts.analytics ?? getPostHog();
+  // Resolve the analytics provider(s) — mirrors the email-provider shape:
+  // env presets first, consumer registrations LAST (last-writer-wins), then
+  // ONE active provider picked by id. The deprecated bare-PostHogService and
+  // bare-AnalyticsProvider forms register-and-activate directly.
+  const analyticsOpt = opts.analytics;
+  const analyticsGroup =
+    analyticsOpt &&
+    !isAnalyticsProvider(analyticsOpt as AnalyticsProvider) &&
+    typeof (analyticsOpt as PostHogService).captureEvent !== "function"
+      ? (analyticsOpt as {
+          provider?: AnalyticsProvider;
+          providers?: AnalyticsProvider[];
+          defaultProvider?: string;
+        })
+      : undefined;
+
+  const analyticsProviders = new AnalyticsProviderRegistry([
+    ...analyticsProvidersFromEnv(env),
+    ...(analyticsGroup?.providers ?? []),
+    ...(analyticsGroup?.provider ? [analyticsGroup.provider] : []),
+  ]);
+
+  let analytics: AnalyticsProvider | undefined;
+  if (analyticsOpt && !analyticsGroup) {
+    // Bare provider or legacy service: register and activate it directly.
+    analytics = isAnalyticsProvider(analyticsOpt as AnalyticsProvider)
+      ? (analyticsOpt as AnalyticsProvider)
+      : wrapLegacyAnalyticsService(analyticsOpt as PostHogService);
+    analyticsProviders.register(analytics);
+  } else {
+    const activeId = analyticsGroup?.defaultProvider ?? env.ANALYTICS_PROVIDER;
+    analytics = analyticsProviders.get(activeId);
+    if (analyticsGroup?.defaultProvider && !analytics) {
+      throw new Error(
+        `analytics.defaultProvider "${analyticsGroup.defaultProvider}" is not a registered analytics provider (registered: ${analyticsProviders
+          .getAll()
+          .map((p) => p.meta.id)
+          .join(", ")})`,
+      );
+    }
+  }
+
+  // Person reads need a privileged credential on most platforms (PostHog: a
+  // personal API key — the phc_ project key is write-only by design). Surface
+  // the degraded mode once at boot instead of letting tz resolution silently
+  // fall back for months.
+  if (analytics && !analytics.capabilities.personReads) {
+    logger.info(
+      `analytics provider "${analytics.meta.id}" has person reads DISABLED — ` +
+        "timezone resolution falls back to contact properties. For PostHog, " +
+        "set POSTHOG_PERSONAL_API_KEY (a personal API key scoped person:read). " +
+        "Docs: https://hogsend.com/docs/guides/analytics-access",
+    );
+  }
 
   // Expose the resolved analytics instance to the module-level task-execution
   // sites that have no client reference. Its role is NARROW (see the
   // `analytics?` option doc): the identity PULL (`getPersonProperties` for tz
-  // resolution in the journey durable task) plus the opt-in
-  // `bucket.syncToPostHog` person-property mirror — NOT the outbound catalog
-  // firing path (that is the destinations spine). `createHogsendClient` runs in
-  // both the API and worker, so this is installed before any worker task runs.
-  // May be undefined (no POSTHOG_API_KEY) — the reads stay no-ops.
+  // resolution in the journey durable task) plus person writes (the opt-in
+  // `bucket.syncToPostHog` mirror) — NOT the outbound catalog firing path
+  // (that is the destinations spine). `createHogsendClient` runs in both the
+  // API and worker, so this is installed before any worker task runs. May be
+  // undefined (no provider configured) — the reads stay no-ops.
   setAnalytics(analytics);
 
   // Build + install the outbound DESTINATION registry (Phase 3) the
@@ -527,6 +619,7 @@ export function createHogsendClient(
     emailProvider: provider,
     domainStatus,
     templates,
+    analyticsProviders,
     analytics,
     registry,
     bucketRegistry,

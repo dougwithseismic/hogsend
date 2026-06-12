@@ -9,6 +9,13 @@ import type {
   PostHogServiceConfig,
 } from "./types.js";
 
+/**
+ * @deprecated Prefer {@link createPostHogProvider} (the neutral
+ * `AnalyticsProvider` contract). This PostHog-shaped service predates it and
+ * is kept so existing `createHogsendClient({ analytics })` call sites and
+ * `getPostHog()` consumers keep compiling; person reads honour the same
+ * `personalApiKey` config as the provider.
+ */
 export function createPostHogService(
   config: PostHogServiceConfig,
 ): PostHogService {
@@ -16,8 +23,10 @@ export function createPostHogService(
   const client = createPostHogClient({ apiKey: config.apiKey, host });
 
   const propsConfig: PersonPropertiesConfig = {
-    apiKey: config.apiKey,
+    personalApiKey: config.personalApiKey,
     host,
+    privateHost: config.privateHost,
+    projectId: config.projectId,
   };
 
   const propsCache: PersonPropertiesCache | undefined = config.redis

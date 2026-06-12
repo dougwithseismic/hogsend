@@ -134,6 +134,21 @@ export const env = createEnv({
     CLIENT_MIGRATIONS_FOLDER: z.string().min(1).optional(),
     POSTHOG_API_KEY: z.string().min(1).optional(),
     POSTHOG_HOST: z.string().url().optional(),
+    // Personal API key (scoped `person:read`, optionally `person:write`) for
+    // person-property READS on the private API. The phc_ project key cannot
+    // read — it is public + write-only by PostHog's design. Without this,
+    // person reads soft-fail and timezone resolution falls back to contact
+    // properties. See the "Analytics access" docs page.
+    POSTHOG_PERSONAL_API_KEY: z.string().min(1).optional(),
+    // PostHog project id for environment-scoped private endpoints. Discovered
+    // automatically via GET /api/projects/@current/ when unset.
+    POSTHOG_PROJECT_ID: z.string().min(1).optional(),
+    // Private (app) API host override. Defaults to POSTHOG_HOST with the
+    // `.i.` ingestion label stripped (eu.i.posthog.com → eu.posthog.com).
+    POSTHOG_PRIVATE_HOST: z.string().url().optional(),
+    // Selects the ACTIVE analytics provider id out of the registry (env
+    // presets + consumer-registered providers). Mirrors EMAIL_PROVIDER.
+    ANALYTICS_PROVIDER: z.string().min(1).default("posthog"),
     POSTHOG_WEBHOOK_SECRET: z.string().min(1).optional(),
     // When true AND POSTHOG_API_KEY is set, the engine idempotently auto-seeds
     // ONE kind="posthog" webhook endpoint subscribed to the email funnel so the

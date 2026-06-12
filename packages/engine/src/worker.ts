@@ -108,8 +108,9 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
       _worker?.stop(),
       // Shut down the injected analytics instance (same object the worker's
       // tasks use), not the module singleton. Undefined when no analytics is
-      // configured — the optional chain makes that a no-op.
-      container.analytics?.shutdown(),
+      // configured, and `shutdown` is optional on the provider contract —
+      // both optional chains make that a no-op.
+      container.analytics?.shutdown?.(),
       getRedisIfConnected()?.quit(),
     ]);
   }

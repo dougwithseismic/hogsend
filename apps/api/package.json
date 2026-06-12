@@ -43,6 +43,7 @@
     "@types/node": "^22.15.3",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.15",
+    "posthog-node": "^5.35.1",
     "tsup": "^8.5.1",
     "tsx": "^4.22.3",
     "vitest": "^4.1.7"

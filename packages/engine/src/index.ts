@@ -37,7 +37,11 @@ export * from "@hogsend/core";
 // omitted here: the engine's public `SendEmailOptions` is the high-level
 // journey-facing send options from `./lib/email.js`; the provider-contract
 // `SendEmailOptions` remains available via `@hogsend/core`.)
-export { defineEmailProvider, WebhookHandshakeSignal } from "@hogsend/core";
+export {
+  defineAnalyticsProvider,
+  defineEmailProvider,
+  WebhookHandshakeSignal,
+} from "@hogsend/core";
 export {
   BucketRegistry,
   JourneyRegistry,
@@ -136,6 +140,9 @@ export {
   getJourneyRegistrySingleton,
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
+// --- Analytics provider registry (the analytics sibling) ---
+export { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
+export { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
 // --- Auth ---
 export {
   type Auth,
