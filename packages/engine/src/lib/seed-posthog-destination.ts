@@ -24,6 +24,19 @@ const POSTHOG_FUNNEL_EVENTS = [
 ] as const;
 
 /**
+ * Person-property propagation events (the contact → analytics-person rail).
+ * The preset's `syncPersons` flag turns these into `$set` captures of the
+ * contact's properties under its canonical key; without the flag the
+ * transform SKIPS them, so subscribing them is only meaningful together
+ * with `config.syncPersons: true`.
+ */
+const POSTHOG_PERSON_SYNC_EVENTS = [
+  "contact.created",
+  "contact.updated",
+  "contact.unsubscribed",
+] as const;
+
+/**
  * Idempotently seed ONE `kind="posthog"` webhook endpoint subscribed to the
  * email funnel, so the full email lifecycle fans out to PostHog DURABLY on the
  * delivery spine.
@@ -56,6 +69,7 @@ export async function seedPostHogDestination(opts: {
         id: webhookEndpoints.id,
         url: webhookEndpoints.url,
         eventTypes: webhookEndpoints.eventTypes,
+        config: webhookEndpoints.config,
       })
       .from(webhookEndpoints)
       .where(
@@ -78,19 +92,31 @@ export async function seedPostHogDestination(opts: {
         const current = Array.isArray(found.eventTypes)
           ? (found.eventTypes as string[])
           : [];
-        const missing = POSTHOG_FUNNEL_EVENTS.filter(
-          (e) => !current.includes(e),
-        );
-        if (missing.length > 0) {
+        const missing = [
+          ...POSTHOG_FUNNEL_EVENTS,
+          ...POSTHOG_PERSON_SYNC_EVENTS,
+        ].filter((e) => !current.includes(e));
+        // Person-sync default-on for the ENGINE-seeded row, but never override
+        // an explicit operator choice: only set the flag when it is ABSENT
+        // from config (an explicit `false` stays false).
+        const existingConfig = (found.config ?? {}) as Record<string, unknown>;
+        const needsSyncFlag = existingConfig.syncPersons === undefined;
+        if (missing.length > 0 || needsSyncFlag) {
           await tx
             .update(webhookEndpoints)
             .set({
-              eventTypes: [...current, ...missing],
+              ...(missing.length > 0
+                ? { eventTypes: [...current, ...missing] }
+                : {}),
+              ...(needsSyncFlag
+                ? { config: { ...existingConfig, syncPersons: true } }
+                : {}),
               updatedAt: new Date(),
             })
             .where(eq(webhookEndpoints.id, found.id));
-          logger.info("Reconciled seeded PostHog destination event types", {
+          logger.info("Reconciled seeded PostHog destination", {
             added: missing,
+            syncPersons: needsSyncFlag ? true : undefined,
           });
         }
       }
@@ -110,8 +136,13 @@ export async function seedPostHogDestination(opts: {
         // remaps the canonical "email.clicked" back so existing PostHog funnels
         // keep working after the cutover.
         eventNames: { "email.clicked": "email.link_clicked" },
+        // Person-property propagation ON for the seeded destination: contact
+        // truth ($set of contact.properties) lands on the same PostHog person
+        // the identify loop addresses. Disable per-endpoint via the admin API
+        // (config.syncPersons: false).
+        syncPersons: true,
       },
-      eventTypes: [...POSTHOG_FUNNEL_EVENTS],
+      eventTypes: [...POSTHOG_FUNNEL_EVENTS, ...POSTHOG_PERSON_SYNC_EVENTS],
       secret: null,
       secretPrefix: null,
       disabled: false,
