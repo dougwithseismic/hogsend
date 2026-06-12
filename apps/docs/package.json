@@ -10,6 +10,7 @@
     "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)"
   },
   "dependencies": {
+    "aws4fetch": "^1.0.20",
     "clsx": "^2.1.1",
     "fumadocs-core": "^16.9.1",
     "fumadocs-mdx": "^15.0.8",

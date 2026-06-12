@@ -1,5 +1,11 @@
 import type React from "react";
-import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
+import {
+  interpolate,
+  spring,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from "remotion";
 import { CardChrome } from "../../components/CardChrome";
 import { Eyebrow } from "../../components/Labels";
 import { SceneShell } from "../../components/SceneShell";
@@ -49,7 +55,18 @@ export type ClipStep =
       resolve: string;
       band: [number, number];
     }
-  | { kind: "exit"; event: string; note: string; band: [number, number] };
+  | { kind: "exit"; event: string; note: string; band: [number, number] }
+  | {
+      kind: "fanout";
+      /** Kind-chip label (default "emit"). */
+      label?: string;
+      /** Payloads that fly out, in order. */
+      events: string[];
+      /** Destination name + logo (public/logos). */
+      dest?: string;
+      logo?: string;
+      band: [number, number];
+    };
 
 export type ClipSpec = {
   id: string;
@@ -73,6 +90,8 @@ const stepFrames = (s: ClipStep): number => {
       return 100;
     case "exit":
       return 75;
+    case "fanout":
+      return 44 + s.events.length * 20 + 30;
   }
 };
 
@@ -194,10 +213,12 @@ const useStage = (rowCount: number): Stage => {
   const f = useFormat();
   const content = f.width - 2 * f.pad;
   if (f.ratio === "169") {
+    // Slightly wider code column than the launch videos — clip journeys
+    // carry longer real-API lines (getPostHog()?.identify(...)).
     return {
       sideBySide: true,
-      codeWidth: 860,
-      railWidth: content - 860 - 60,
+      codeWidth: 940,
+      railWidth: content - 940 - 60,
       codeFont: 25,
       codeLineH: 1.6,
       maxVisible: rowCount,
@@ -848,6 +869,132 @@ const ExitRow: React.FC<{
   );
 };
 
+/** fan-out row — payload pills fly across the lane into a destination chip. */
+const FanoutRow: React.FC<{
+  at: number;
+  height: number;
+  s: number;
+  label?: string;
+  events: string[];
+  dest?: string;
+  logo?: string;
+}> = ({
+  at,
+  height,
+  s,
+  label = "emit",
+  events,
+  dest = "PostHog",
+  logo = "posthog.svg",
+}) => {
+  const frame = useCurrentFrame();
+  const FLIGHT = 26;
+  const arrivals = events.map((_, i) => at + 14 + i * 20 + FLIGHT);
+  // The chip bumps on every arrival.
+  const bump = arrivals.reduce((acc, a) => {
+    const p = frame - a;
+    return Math.max(acc, p >= 0 && p < 12 ? 1 - p / 12 : 0);
+  }, 0);
+  return (
+    <RowShell at={at} height={height} s={s}>
+      <KindChip label={label} s={s} />
+      {/* Flight lane */}
+      <div style={{ position: "relative", flex: 1, height: "100%" }}>
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: "50%",
+            height: 1,
+            backgroundColor: theme.hairlineFaint,
+          }}
+        />
+        {events.map((ev, i) => {
+          const launch = at + 14 + i * 20;
+          const t = interpolate(frame, [launch, launch + FLIGHT], [0, 1], {
+            extrapolateLeft: "clamp",
+            extrapolateRight: "clamp",
+          });
+          const visible =
+            frame >= launch && frame <= launch + FLIGHT + 4 ? 1 : 0;
+          if (!visible) {
+            return null;
+          }
+          return (
+            <span
+              key={ev}
+              style={{
+                position: "absolute",
+                left: `${t * 100}%`,
+                top: "50%",
+                transform: `translate(${-t * 100}%, -50%)`,
+                opacity: interpolate(t, [0, 0.08, 0.85, 1], [0, 1, 1, 0]),
+                fontFamily: FONT_MONO,
+                fontSize: 16 * s,
+                color: theme.text,
+                border: `1px solid ${theme.hairline}`,
+                borderRadius: 6 * s,
+                padding: `${6 * s}px ${12 * s}px`,
+                backgroundColor: theme.paperPure,
+                whiteSpace: "pre",
+              }}
+            >
+              {ev}
+            </span>
+          );
+        })}
+      </div>
+      {/* Destination chip */}
+      <span
+        style={{
+          position: "relative",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 10 * s,
+          padding: `${9 * s}px ${16 * s}px`,
+          borderRadius: 7 * s,
+          border: `1px solid ${theme.hairline}`,
+          backgroundColor: theme.slotFill,
+          transform: `scale(${1 + 0.09 * bump})`,
+          flexShrink: 0,
+        }}
+      >
+        {arrivals.map((a) => (
+          <Ripple key={a} at={a} size={30 * s} />
+        ))}
+        <span
+          style={{
+            width: 20 * s,
+            height: 20 * s,
+            backgroundColor: theme.text,
+            maskImage: `url(${staticFile(`logos/${logo}`)})`,
+            maskSize: "contain",
+            maskRepeat: "no-repeat",
+            maskPosition: "center",
+            WebkitMaskImage: `url(${staticFile(`logos/${logo}`)})`,
+            WebkitMaskSize: "contain",
+            WebkitMaskRepeat: "no-repeat",
+            WebkitMaskPosition: "center",
+          }}
+        />
+        <span
+          style={{
+            fontFamily: FONT_BODY,
+            fontWeight: 500,
+            fontSize: 17 * s,
+            letterSpacing: "-0.02em",
+            color: theme.text,
+            whiteSpace: "pre",
+          }}
+        >
+          {dest}
+        </span>
+      </span>
+    </RowShell>
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Rail + stage
 // ---------------------------------------------------------------------------
@@ -978,6 +1125,19 @@ const Rail: React.FC<{
                   s={s}
                   event={step.event}
                   note={step.note}
+                />
+              );
+            case "fanout":
+              return (
+                <FanoutRow
+                  key={key}
+                  at={at}
+                  height={h}
+                  s={s}
+                  label={step.label}
+                  events={step.events}
+                  dest={step.dest}
+                  logo={step.logo}
                 />
               );
             default:

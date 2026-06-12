@@ -5,6 +5,7 @@ import { microDrift } from "../lib/anim";
 import { useFormat } from "../lib/format";
 import { theme } from "../lib/theme";
 import { Aurora, DotGrid, Horizon, Noise } from "./Fx";
+import { Watermark } from "./Watermark";
 
 /**
  * The canvas every scene sits in, replicating the docs PageFrame: ink
@@ -28,6 +29,8 @@ export const SceneShell: React.FC<{
   dots?: boolean;
   /** The hero's red-rimmed planet rising from the bottom. */
   horizon?: boolean;
+  /** Corner watermark (hogsend.com + tagline). On by default. */
+  watermark?: boolean;
   /** Slow 1.00→1.02 scale on children across the hold. */
   drift?: boolean;
   /** Frames the drift spans (default 75). */
@@ -42,6 +45,7 @@ export const SceneShell: React.FC<{
   glowIntensity = 1,
   dots = false,
   horizon = false,
+  watermark = true,
   drift = false,
   driftFrames = 75,
   justify = "center",
@@ -106,6 +110,7 @@ export const SceneShell: React.FC<{
           {children}
         </div>
       </AbsoluteFill>
+      {watermark ? <Watermark /> : null}
       <Noise />
     </AbsoluteFill>
   );

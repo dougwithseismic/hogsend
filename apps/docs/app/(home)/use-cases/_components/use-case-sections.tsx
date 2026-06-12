@@ -5,6 +5,7 @@ import type { JSX, ReactNode } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
+import { ClipVideo } from "@/components/ds/clip-video";
 import { CodeHighlight } from "@/components/ds/code-highlight";
 import { CopyButton } from "@/components/ds/copy-button";
 import { FaqAccordion } from "@/components/ds/faq";
@@ -210,6 +211,32 @@ export function CodeWalkthrough({
           </p>
         </Reveal>
       ) : null}
+    </Section>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/* "The run" — the journey executing, as a looping clip                      */
+/* ------------------------------------------------------------------------ */
+
+type JourneyRunProps = {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  /** Clip id from the marketing/video journey-clips set. */
+  clip: string;
+};
+
+export function JourneyRun({
+  title,
+  subtitle,
+  clip,
+}: JourneyRunProps): JSX.Element {
+  return (
+    <Section>
+      <SectionHeading eyebrow="The run" title={title} subtitle={subtitle} />
+      <Reveal className="mt-12">
+        <ClipVideo clip={clip} title="Journey run" />
+      </Reveal>
     </Section>
   );
 }

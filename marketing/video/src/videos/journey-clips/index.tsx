@@ -9,6 +9,66 @@ import { type ClipSpec, clipDuration, JourneyClip } from "./trace";
 // ---------------------------------------------------------------------------
 
 const SPECS: ClipSpec[] = [
+  // The full onboarding journey from the use-case page — every mechanic
+  // in one run: send, engine fan-out, a durable wait that RESOLVES,
+  // branch on the answer, person write-back.
+  {
+    id: "journey-onboarding",
+    file: "src/journeys/onboarding.ts",
+    code: `export const onboarding = defineJourney({
+  meta: { trigger: { event: Events.USER_SIGNED_UP } },
+  run: async (user, ctx) => {
+    await sendEmail({ template: "quickstart" });
+
+    const { timedOut } = await ctx.waitForEvent({
+      event: Events.PROJECT_CREATED,
+      timeout: days(3),
+    });
+
+    await sendEmail({
+      template: timedOut
+        ? "activation-nudge"
+        : "feature-highlight",
+    });
+
+    getPostHog()?.identify(user.id, { activated: true });
+  },
+});`,
+    steps: [
+      { kind: "event", event: "user.signed_up", band: [1, 1] },
+      {
+        kind: "send",
+        subject: "Welcome — your shortest path to a first win",
+        band: [3, 1],
+      },
+      {
+        kind: "fanout",
+        events: ["email.delivered", "email.opened"],
+        band: [3, 1],
+      },
+      {
+        kind: "wait",
+        event: "project.created",
+        timeout: "3d",
+        resolve: "arrived · 41h",
+        band: [5, 4],
+      },
+      {
+        kind: "send",
+        subject: "Nice — here's what to try next",
+        clicked: true,
+        accent: true,
+        band: [10, 5],
+      },
+      {
+        kind: "fanout",
+        label: "identify",
+        events: ["activated: true"],
+        band: [16, 1],
+      },
+    ],
+  },
+
   // activation-welcome.ts — welcome, then branch on what they actually did.
   {
     id: "journey-welcome",
@@ -207,6 +267,56 @@ const SPECS: ClipSpec[] = [
         clicked: true,
         accent: true,
         band: [8, 5],
+      },
+    ],
+  },
+
+  // feedback-nps.ts — everything fans back out to PostHog: the engine
+  // emits the email lifecycle first-party, the journey writes the score
+  // back as a person property.
+  {
+    id: "journey-posthog",
+    file: "src/journeys/feedback-nps.ts",
+    code: `export const survey = defineJourney({
+  meta: { trigger: { event: Events.USER_CREATED } },
+  run: async (user, ctx) => {
+    await sendEmail({ template: "nps-survey" });
+
+    const answer = await ctx.waitForEvent({
+      event: Events.NPS_SUBMITTED,
+      timeout: days(3),
+    });
+
+    const score = answer.properties?.score;
+    getPostHog()?.identify(user.id, {
+      nps_score: score,
+    });
+  },
+});`,
+    steps: [
+      { kind: "event", event: "user.created", band: [1, 1] },
+      {
+        kind: "send",
+        subject: "Quick question — how are we doing?",
+        band: [3, 1],
+      },
+      {
+        kind: "fanout",
+        events: ["email.delivered", "email.opened", "email.link_clicked"],
+        band: [3, 1],
+      },
+      {
+        kind: "wait",
+        event: "nps.submitted",
+        timeout: "3d",
+        resolve: "score: 9",
+        band: [5, 4],
+      },
+      {
+        kind: "fanout",
+        label: "identify",
+        events: ["nps_score: 9"],
+        band: [11, 3],
       },
     ],
   },
