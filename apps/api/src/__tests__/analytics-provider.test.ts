@@ -350,8 +350,15 @@ describe("factory nudge — truthful after prime settles", () => {
       db: fakeDb as never,
       logger: logger as never,
     });
-    // prime is fire-and-forget — give the microtask queue a beat.
-    await new Promise((r) => setTimeout(r, 25));
+    // prime is fire-and-forget — poll briefly instead of a fixed sleep so a
+    // loaded parallel suite can't flake this.
+    const deadline = Date.now() + 2_000;
+    while (
+      !infos.some((m) => m.includes("person reads DISABLED")) &&
+      Date.now() < deadline
+    ) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     expect(infos.some((m) => m.includes("person reads DISABLED"))).toBe(true);
   });
 });
