@@ -148,7 +148,11 @@ export default function RecipesPage(): JSX.Element {
         if (recipes.length === 0) return null;
 
         return (
-          <Section key={categoryId} id={`recipes-${categoryId}`}>
+          <Section
+            key={categoryId}
+            id={`recipes-${categoryId}`}
+            className="scroll-mt-24"
+          >
             <SectionHeading
               eyebrow={`${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`}
               title={category.title}

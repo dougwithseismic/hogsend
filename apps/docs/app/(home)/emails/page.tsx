@@ -43,7 +43,7 @@ type StageGroup = {
 const GROUPS: StageGroup[] = [
   {
     stage: "Activation",
-    link: { label: "Recipe", href: "/docs/recipes/lifecycle-journeys" },
+    link: { label: "Recipe", href: "/recipes/welcome-series" },
     headerLink: {
       label: "Onboarding use case",
       href: "/use-cases/onboarding",
@@ -71,7 +71,11 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Conversion",
-    link: { label: "Use case", href: "/use-cases/trial-conversion" },
+    link: { label: "Recipe", href: "/recipes/trial-conversion-sequence" },
+    headerLink: {
+      label: "Trial conversion use case",
+      href: "/use-cases/trial-conversion",
+    },
     entries: [
       {
         name: "conversion-usage-milestone",
@@ -90,7 +94,7 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Retention",
-    link: { label: "Recipe", href: "/docs/recipes/marketing-campaigns" },
+    link: { label: "Recipe", href: "/recipes/weekly-digest" },
     entries: [
       {
         name: "retention-weekly-digest",
@@ -105,7 +109,8 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Reactivation",
-    link: { label: "Use case", href: "/use-cases/winback" },
+    link: { label: "Recipe", href: "/recipes/winback-and-sunset" },
+    headerLink: { label: "Win-back use case", href: "/use-cases/winback" },
     entries: [
       {
         name: "reactivation-checkin",
@@ -119,7 +124,7 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Churn prevention",
-    link: { label: "Recipe", href: "/docs/recipes/transactional-emails" },
+    link: { label: "Recipe", href: "/recipes/failed-payment-dunning" },
     entries: [
       {
         name: "churn-payment-failed",
@@ -129,7 +134,7 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Feedback",
-    link: { label: "Recipe", href: "/docs/recipes/events-and-contacts" },
+    link: { label: "Recipe", href: "/recipes/nps-survey" },
     entries: [
       {
         name: "feedback-nps-survey",
