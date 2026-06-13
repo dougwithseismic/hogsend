@@ -6,6 +6,7 @@ import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
+import { RecipeCard } from "./_components/recipe-sections";
 import { RECIPE_LANDERS } from "./_data";
 import { RECIPE_CATEGORIES, type RecipeCategoryId } from "./_data/types";
 
@@ -147,42 +148,37 @@ export default function RecipesPage(): JSX.Element {
         );
         if (recipes.length === 0) return null;
 
+        const categoryHref = `/recipes/category/${categoryId}`;
+
         return (
           <Section
             key={categoryId}
             id={`recipes-${categoryId}`}
             className="scroll-mt-24"
           >
-            <SectionHeading
-              eyebrow={`${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`}
-              title={category.title}
-              subtitle={category.description}
-            />
+            <Reveal>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <SectionHeading
+                  eyebrow={`${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`}
+                  title={category.title}
+                  subtitle={category.description}
+                />
+                <Link
+                  href={categoryHref}
+                  className="group inline-flex shrink-0 items-center gap-1.5 rounded text-sm text-white/60 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent sm:pb-1"
+                >
+                  Open category
+                  <ArrowUpRight
+                    aria-hidden="true"
+                    className="size-4 transition-transform duration-200 group-hover:translate-x-0.5"
+                    strokeWidth={1.5}
+                  />
+                </Link>
+              </div>
+            </Reveal>
             <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {recipes.map((recipe, index) => (
-                <Reveal key={recipe.slug} delay={(index % 3) * 0.08}>
-                  <Link
-                    href={`/recipes/${recipe.slug}`}
-                    className="group block h-full rounded-md outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-ink"
-                  >
-                    <Card className="flex h-full flex-col gap-3 group-hover:border-white/15">
-                      <h3 className="font-medium text-white text-xl leading-[1.2] tracking-[-0.02em]">
-                        {recipe.title}
-                      </h3>
-                      <p className="text-base text-white/60 leading-6">
-                        {recipe.cardDescription}
-                      </p>
-                      <span className="mt-auto inline-flex items-center gap-1.5 pt-2 text-sm text-white/60 transition-colors group-hover:text-white">
-                        Read the recipe
-                        <ArrowUpRight
-                          aria-hidden="true"
-                          className="size-4 transition-transform duration-200 group-hover:translate-x-0.5"
-                          strokeWidth={1.5}
-                        />
-                      </span>
-                    </Card>
-                  </Link>
-                </Reveal>
+                <RecipeCard key={recipe.slug} recipe={recipe} index={index} />
               ))}
             </div>
           </Section>

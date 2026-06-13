@@ -6,7 +6,7 @@ import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { ClipVideo } from "@/components/ds/clip-video";
-import { CodeHighlight } from "@/components/ds/code-highlight";
+import { CodeWindow } from "@/components/ds/code-window";
 import { CopyButton } from "@/components/ds/copy-button";
 import { FaqAccordion } from "@/components/ds/faq";
 import { AuroraBeam } from "@/components/ds/fx";
@@ -145,44 +145,6 @@ type CodeWalkthroughProps = {
   /** Optional prose note rendered after the last block. */
   note?: ReactNode;
 };
-
-function CodeWindow({
-  filename,
-  code,
-}: {
-  filename: string;
-  code: string;
-}): JSX.Element {
-  return (
-    <div className="relative">
-      {/* Red atmospheric bloom behind the glass panel. */}
-      <div
-        aria-hidden="true"
-        className="-inset-x-10 -inset-y-6 pointer-events-none absolute"
-        style={{
-          background:
-            "radial-gradient(60% 60% at 50% 65%, rgba(246, 72, 56, 0.14), transparent 70%)",
-          filter: "blur(40px)",
-        }}
-      />
-      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0a0606]">
-        <div className="flex items-center gap-3 border-white/[0.08] border-b px-4 py-2.5">
-          <div aria-hidden="true" className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full bg-white/15" />
-            <span className="size-2.5 rounded-full bg-white/15" />
-            <span className="size-2.5 rounded-full bg-white/15" />
-          </div>
-          <span className="font-mono text-[11px] text-white/40 tracking-wide">
-            {filename}
-          </span>
-        </div>
-        <div className="px-4 py-4">
-          <CodeHighlight code={code} lang="ts" />
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function CodeWalkthrough({
   eyebrow,

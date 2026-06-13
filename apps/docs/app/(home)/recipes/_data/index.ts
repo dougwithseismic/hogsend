@@ -20,7 +20,7 @@ import { reviewRequest } from "./review-request";
 import { supportFollowup } from "./support-followup";
 import { timezoneAwareScheduling } from "./timezone-aware-scheduling";
 import { trialConversionSequence } from "./trial-conversion-sequence";
-import type { RecipeLander } from "./types";
+import type { RecipeCategoryId, RecipeLander } from "./types";
 import { usageLimitUpgrade } from "./usage-limit-upgrade";
 import { verificationChase } from "./verification-chase";
 import { waitlistLaunch } from "./waitlist-launch";
@@ -72,4 +72,11 @@ const BY_SLUG = new Map(RECIPE_LANDERS.map((recipe) => [recipe.slug, recipe]));
 
 export function getRecipeLander(slug: string): RecipeLander | undefined {
   return BY_SLUG.get(slug);
+}
+
+/** Every recipe in a category, in catalog order. */
+export function getRecipesByCategory(
+  category: RecipeCategoryId,
+): RecipeLander[] {
+  return RECIPE_LANDERS.filter((recipe) => recipe.category === category);
 }
