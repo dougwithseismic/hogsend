@@ -60,8 +60,7 @@ export default async function RecipeCategoryPage(props: {
               {meta.title}
             </h1>
             <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
-              {meta.description} Each one below is the working code — copy it
-              into your app.
+              {meta.description}
             </p>
           </Reveal>
           <Reveal delay={0.1} className="mt-8">
@@ -75,26 +74,50 @@ export default async function RecipeCategoryPage(props: {
         </div>
       </Section>
 
-      {/* The cookbook — every recipe in the category, with its code inline */}
+      {/* Intro — frame the category before any code appears */}
       <Section>
-        <div className="flex flex-col gap-20">
+        <Reveal>
+          <p className="max-w-3xl font-display text-[22px] text-white/90 leading-[32px] tracking-[-0.02em] md:text-[26px] md:leading-[38px]">
+            {meta.intro}
+          </p>
+        </Reveal>
+        <Reveal delay={0.08}>
+          <p className="mt-6 max-w-2xl text-base text-white/55 leading-6">
+            Every recipe below is the working code — copy it straight in, or
+            open the full write-up for the wiring and the reasoning.
+          </p>
+        </Reveal>
+      </Section>
+
+      {/* The cookbook — each recipe as description beside its code */}
+      <Section>
+        <SectionHeading
+          eyebrow={`${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`}
+          title="The recipes"
+        />
+        <div className="mt-12 flex flex-col gap-16">
           {recipes.map((recipe) => {
             const primary = recipe.code[0];
             return (
               <Reveal key={recipe.slug}>
-                <article id={recipe.slug} className="scroll-mt-24">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="max-w-2xl">
-                      <h2 className="font-medium font-sans text-2xl text-white leading-[1.2] tracking-[-0.02em]">
-                        {recipe.title}
-                      </h2>
-                      <p className="mt-3 text-base text-white/60 leading-6">
-                        {recipe.cardDescription}
-                      </p>
-                    </div>
+                <article
+                  id={recipe.slug}
+                  className="grid scroll-mt-24 grid-cols-1 gap-6 lg:grid-cols-[2fr_3fr] lg:items-start lg:gap-12"
+                >
+                  {/* Description — sticks alongside taller code blocks */}
+                  <div className="lg:sticky lg:top-28">
+                    <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
+                      {recipe.title}
+                    </h3>
+                    <p className="mt-3 text-base text-white/60 leading-6">
+                      {recipe.cardDescription}
+                    </p>
+                    <p className="mt-3 text-sm text-white/45 leading-6">
+                      {primary.caption}
+                    </p>
                     <Link
                       href={`/docs/recipes/${recipe.slug}`}
-                      className="group inline-flex shrink-0 items-center gap-1.5 rounded text-sm text-white/60 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent sm:mt-1"
+                      className="group mt-5 inline-flex items-center gap-1.5 rounded text-sm text-white/70 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
                     >
                       Full write-up
                       <ArrowUpRight
@@ -104,14 +127,12 @@ export default async function RecipeCategoryPage(props: {
                       />
                     </Link>
                   </div>
-                  <div className="mt-6">
+                  {/* Code — min-w-0 lets the panel scroll instead of overflow */}
+                  <div className="min-w-0">
                     <CodeWindow
                       filename={primary.filename}
                       code={primary.code}
                     />
-                    <p className="mt-4 max-w-2xl text-sm text-white/50 leading-6">
-                      {primary.caption}
-                    </p>
                   </div>
                 </article>
               </Reveal>
