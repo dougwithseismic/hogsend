@@ -1,0 +1,209 @@
+---
+title: Event reminder sequence
+description: Schedule webinar reminders off the trigger event itself — ctx.sleepUntil() at T-24h and T-1h computed from a start_time property, a post-event waitForEvent branch on webinar.joined, and an exitOn that kills the sequence on cancellation.
+---
+
+A reminder sequence schedules against a deadline the trigger event carries: `webinar.registered` arrives with a `start_time` ISO property, and every wait in the journey is a `ctx.sleepUntil()` on a `Date` computed from it. The journey confirms immediately, reminds at T-24h and T-1h, then branches on a `ctx.waitForEvent()` for `webinar.joined` — attendees get a thanks email, no-shows get the replay. `meta.exitOn` ends the whole sequence the moment a `webinar.cancelled` event lands, even mid-sleep.
+
+| Stage | How you express it |
+|---|---|
+| Schedule against the event's own clock | `ctx.sleepUntil(new Date(startsAt.getTime() - 24 * HOUR))` |
+| Skip touches already in the past | `if (Date.now() < …)` — `sleepUntil` resolves *immediately* for past instants |
+| Know whether they showed up | `ctx.waitForEvent({ event: "webinar.joined", timeout, lookback })` |
+| Replay vs thanks | a plain `if` on the wait result |
+| Cancellation stops everything | `meta.exitOn: [{ event: "webinar.cancelled" }]` |
+| Only schedulable registrations enter | `trigger.where: (b) => b.prop("start_time").exists()` |
+
+## The journey
+
+```ts
+// src/journeys/event-reminder-sequence.ts
+import { hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+const HOUR = 60 * 60 * 1000;
+
+export const eventReminderSequence = defineJourney({
+  meta: {
+    id: "event-reminder-sequence",
+    name: "Webinar — reminder sequence",
+    enabled: true,
+    trigger: {
+      event: Events.WEBINAR_REGISTERED,
+      // a registration without a start time can't be scheduled against
+      where: (b) => b.prop("start_time").exists(),
+    },
+    entryLimit: "unlimited",
+    suppress: hours(1),
+    exitOn: [{ event: Events.WEBINAR_CANCELLED }],
+  },
+
+  run: async (user, ctx) => {
+    const title = String(user.properties.title ?? "the session");
+    const startsAt = new Date(String(user.properties.start_time ?? ""));
+    if (Number.isNaN(startsAt.getTime())) return; // unparseable — nothing to schedule
+
+    // Confirm straight away.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.WEBINAR_CONFIRMATION, // "webinar/confirmation"
+      subject: "You're registered",
+      journeyName: user.journeyName,
+      props: { title },
+    });
+
+    // T-24h. Guard each reminder: sleepUntil resolves IMMEDIATELY for a past
+    // instant, so without the check a late registration would get a stale
+    // "starts tomorrow" email right now instead of skipping it.
+    if (Date.now() < startsAt.getTime() - 24 * HOUR) {
+      await ctx.sleepUntil(new Date(startsAt.getTime() - 24 * HOUR), {
+        label: "t-24h",
+      });
+      if (!(await ctx.guard.isSubscribed())) return;
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.WEBINAR_REMINDER, // "webinar/reminder"
+        subject: "Starts tomorrow",
+        journeyName: user.journeyName,
+        props: { title, hoursToGo: 24 },
+      });
+    }
+
+    // T-1h — same guard, same template, different props.
+    if (Date.now() < startsAt.getTime() - 1 * HOUR) {
+      await ctx.sleepUntil(new Date(startsAt.getTime() - 1 * HOUR), {
+        label: "t-1h",
+      });
+      if (!(await ctx.guard.isSubscribed())) return;
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.WEBINAR_REMINDER,
+        subject: "Starting in an hour",
+        journeyName: user.journeyName,
+        props: { title, hoursToGo: 1 },
+      });
+    }
+
+    // Did they show up? The wait resolves the instant webinar.joined lands;
+    // lookback covers a join that arrived between the send and this wait.
+    const joined = await ctx.waitForEvent({
+      event: Events.WEBINAR_JOINED,
+      timeout: hours(3),
+      lookback: minutes(30),
+      label: "await-join",
+    });
+
+    // Hold the follow-up until the session is over either way.
+    await ctx.sleepUntil(new Date(startsAt.getTime() + 2 * HOUR), {
+      label: "post-event",
+    });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    if (joined.timedOut) {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.WEBINAR_REPLAY, // "webinar/replay"
+        subject: "Sorry we missed you — here's the replay",
+        journeyName: user.journeyName,
+        props: { title },
+      });
+    } else {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.WEBINAR_THANKS, // "webinar/thanks"
+        subject: "Thanks for joining",
+        journeyName: user.journeyName,
+        props: { title },
+      });
+    }
+  },
+});
+```
+
+Every wait is durable — a deploy between T-24h and T-1h changes nothing, because Hatchet owns the timers, not the process.
+
+## Reminder instants are plain date math
+
+This is the inverse of [`ctx.when`](/docs/guides/journeys#ctxwhen) scheduling. `ctx.when` answers local-time questions — "next morning *in the user's timezone*" — but a webinar starts at one absolute instant for everyone, so the right tool is raw `Date` arithmetic on the `start_time` property handed to `ctx.sleepUntil()`. The two compose: the [timezone-aware scheduling](/docs/recipes/timezone-aware-scheduling) recipe covers the `ctx.when` side.
+
+Two behaviors of `ctx.sleepUntil()` shape the code:
+
+- **A past instant resolves immediately, it does not skip.** Someone registering 30 minutes before start would otherwise receive "starts tomorrow" and "starting in an hour" back to back — hence the `Date.now() <` guard in front of each reminder, which makes a late registration take only the touches still ahead of it.
+- **The post-event sleep is unconditional.** If they joined at minute five, the `waitForEvent` resolves mid-session; sleeping until `startsAt + 2 * HOUR` holds the thanks email until the session has actually ended. For a run that reaches this line after that instant, the sleep is a no-op.
+
+## Feed it from your registration flow
+
+Three events drive the sequence. `start_time` is an `eventProperty` because the journey schedules off it; `webinar.joined` typically arrives from your webinar platform's webhook through a [webhook source](/docs/guides/webhook-sources).
+
+```ts
+// your app server
+import { hs } from "./lib/hogsend.js";
+
+// registration — starts the sequence
+await hs.events.send({
+  name: "webinar.registered",
+  email: attendee.email,
+  userId: attendee.id,
+  eventProperties: {
+    webinar_id: webinar.id,
+    title: webinar.title,
+    start_time: webinar.startsAt.toISOString(),
+  },
+  idempotencyKey: `webinar-reg-${webinar.id}-${attendee.id}`,
+});
+
+// they joined the live session — resolves the attendance wait
+await hs.events.send({
+  name: "webinar.joined",
+  userId: attendee.id,
+  eventProperties: { webinar_id: webinar.id },
+});
+
+// the webinar is called off — exits every registrant's run, even mid-sleep
+await hs.events.send({
+  name: "webinar.cancelled",
+  userId: attendee.id,
+  eventProperties: { webinar_id: webinar.id },
+});
+```
+
+The idempotency key makes the registration safe to retry — a replay returns `{ stored: false }` instead of re-triggering. See [Events & contacts](/docs/recipes/events-and-contacts) for the property-split and idempotency model.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  WEBINAR_REGISTERED: "webinar.registered",
+  WEBINAR_CANCELLED: "webinar.cancelled",
+  WEBINAR_JOINED: "webinar.joined",
+} as const;
+
+export const Templates = {
+  WEBINAR_CONFIRMATION: "webinar/confirmation",
+  WEBINAR_REMINDER: "webinar/reminder",
+  WEBINAR_THANKS: "webinar/thanks",
+  WEBINAR_REPLAY: "webinar/replay",
+} as const;
+```
+
+Each `webinar/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation (the [Email guide](/docs/guides/email) covers authoring); the `props: { title, hoursToGo }` bags are then type-checked. Register the journey by adding `eventReminderSequence` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **One active run per user per journey.** The enrollment guards skip a second `webinar.registered` while a sequence is in flight (`reason: "already_active"`) — overlapping registrations for two webinars don't get two concurrent sequences. If that matters for your schedule density, keep the sequence short or split per-series journeys.
+  - **`exitOn` matches any `webinar.cancelled` for this user.** Exit conditions evaluate the incoming event's properties against static conditions — they can't reference the run's own `webinar_id`. With one live registration per user (which the one-active-run guard enforces anyway), the bare exit is correct.
+  - **Unsubscribe does not exit a journey.** `ctx.guard.isSubscribed()` runs after every sleep; an unsubscribed registrant coasts through the timers and receives nothing.
+</Callout>
+
+Related: [Timezone-aware scheduling](/docs/recipes/timezone-aware-scheduling) is the `ctx.when` counterpart of this recipe's date math, [Anniversary emails](/docs/recipes/anniversary-emails) lands a yearly send at a local morning, and the [Journeys guide](/docs/guides/journeys) documents `ctx.sleepUntil` and `ctx.waitForEvent` in full.

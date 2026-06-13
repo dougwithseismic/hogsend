@@ -1,0 +1,224 @@
+---
+title: Support follow-up
+description: Ask "did this fix it?" the morning after a ticket resolves — a semantic-link yes/no with hosted-answer free text, a ctx.waitForEvent branch, and a "no" that fires support.reopen_requested plus an operator alert.
+---
+
+A resolution follow-up closes the loop a helpdesk leaves open: the agent marks the ticket resolved, but nobody asks the customer. This journey triggers on `ticket.resolved`, lands a one-tap "did this fix it?" the next morning in the customer's timezone (`ctx.when`), and reads the answer from a semantic link — the click *is* the form submission. A "no" becomes a real `support.reopen_requested` event via `ctx.trigger()`, which pages the support queue through an operator alert task; a "yes" or silence ends quietly. If the ticket reopens through normal channels first, `meta.exitOn` kills the run before the question ever sends.
+
+| Stage | How you express it |
+|---|---|
+| Trigger on resolution | `meta.trigger: { event: "ticket.resolved" }` |
+| One survey per support-heavy week | `entryLimit: "once_per_period"` + `entryPeriod: days(7)` |
+| Land it next morning, customer's timezone | `ctx.sleepUntil(ctx.when.tomorrow().at("09:00"))` |
+| The question | two `EmailAction` buttons firing `support.followup_answered` |
+| Read the answer | `ctx.waitForEvent({ event, timeout: days(4), lookback })` |
+| "No" pages support | `ctx.trigger({ event: "support.reopen_requested" })` → alert task |
+| Reopened out-of-band | `meta.exitOn: [{ event: "ticket.reopened" }]` |
+
+## The journey
+
+```ts
+// src/journeys/support-followup.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const supportFollowup = defineJourney({
+  meta: {
+    id: "support-followup",
+    name: "Support — resolution follow-up",
+    enabled: true,
+    trigger: { event: Events.TICKET_RESOLVED },
+    // a heavy support week is one follow-up, not three
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(12),
+    // reopened through normal support channels — the question is moot.
+    // The awaited support.followup_answered event must NEVER appear here.
+    exitOn: [{ event: Events.TICKET_REOPENED }],
+  },
+
+  run: async (user, ctx) => {
+    const ticketId = String(user.properties.ticket_id ?? "");
+
+    // Land the question the next morning in the customer's timezone —
+    // not thirty seconds after the agent hits "resolve".
+    await ctx.sleepUntil(ctx.when.tomorrow().at("09:00"), {
+      label: "next-morning",
+    });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.SUPPORT_FOLLOWUP, // "support/followup"
+      subject: "Did that fix it?",
+      journeyName: user.journeyName,
+      props: { ticketId },
+    });
+
+    // The yes/no buttons are semantic links: the click is the answer,
+    // confirmed ~30s after the click (scanner bursts suppressed). lookback
+    // covers an answer landing between the send and this wait.
+    const answer = await ctx.waitForEvent({
+      event: Events.SUPPORT_FOLLOWUP_ANSWERED,
+      timeout: days(4),
+      label: "await-answer",
+      lookback: minutes(30),
+    });
+
+    if (answer.timedOut) return; // silence — leave them be
+
+    if (answer.properties?.answer === "no") {
+      // The reopen request is a real event: the support-alert task
+      // (onEvents) pages the queue, destinations receive it, and another
+      // journey could trigger on it.
+      await ctx.trigger({
+        event: Events.SUPPORT_REOPEN_REQUESTED,
+        userId: user.id,
+        properties: {
+          ticket_id: ticketId,
+          source: "followup-email",
+          answeredAt: new Date().toISOString(),
+        },
+      });
+    }
+    // "yes" ends the run — the answer is already in user_events and at
+    // every destination for CSAT reporting.
+  },
+});
+```
+
+`ctx.when.tomorrow().at("09:00")` resolves the customer's timezone automatically (PostHog person property → contact property → client default → UTC) and returns an absolute `Date` for the durable sleep. A ticket resolved at 16:40 asks at 09:00 the next day, the customer's wall clock.
+
+## The email asks the question
+
+In the template, each answer is an [`EmailAction`](/docs/guides/semantic-links) — an anchor carrying an event name and a scalar payload. Pointing `href` at `HOSTED_ANSWER_HREF` lands the click on the engine-hosted answer page, which confirms the recorded answer and offers an optional free-text box:
+
+```tsx
+// src/emails/support/followup.tsx — the answer buttons
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
+import { Events } from "../../journeys/constants/index.js";
+
+<Section className="my-6 text-center">
+  <EmailAction
+    event={Events.SUPPORT_FOLLOWUP_ANSWERED}
+    properties={{ answer: "yes" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    Yes, all sorted
+  </EmailAction>
+  <EmailAction
+    event={Events.SUPPORT_FOLLOWUP_ANSWERED}
+    properties={{ answer: "no" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    No, still broken
+  </EmailAction>
+</Section>
+```
+
+At send time the engine lifts `event` + `properties` into the tracked-link rows and strips the attributes — the metadata never reaches the inbox. First answer per (send, event) wins, and a free-text comment from the hosted page ingests as `support.followup_answered.comment` — a real event with the original answer's properties attached.
+
+## A "no" pages support
+
+`support.reopen_requested` is handled by a custom Hatchet task — not `sendEmail()`, because operator mail needs the registry's `transactional` category and `skipPreferenceCheck: true` (the *customer's* subscription state must never gate mail to your own queue):
+
+```ts
+// src/workflows/support-alert.ts
+import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
+import { hatchet } from "@hogsend/engine";
+import { getContainer } from "../container.js";
+import { Events, Templates } from "../journeys/constants/index.js";
+
+/** The support queue inbox — operational mail, never a contact. */
+const SUPPORT_INBOX = process.env.SUPPORT_ALERT_EMAIL ?? "support@example.com";
+
+/** The ingest pipeline's Hatchet push payload. */
+interface ReopenRequestedInput {
+  userId: JsonValue;
+  userEmail: JsonValue;
+  properties: JsonValue;
+  [key: string]: JsonValue;
+}
+
+export const supportAlertTask = hatchet.durableTask({
+  name: "support-alert",
+  onEvents: [Events.SUPPORT_REOPEN_REQUESTED],
+  retries: 2,
+  executionTimeout: "15m",
+  fn: async (input: ReopenRequestedInput) => {
+    const { emailService } = getContainer();
+
+    const userId = typeof input.userId === "string" ? input.userId : "";
+    if (!userId) return { status: "skipped", reason: "missing_user_id" };
+    const customerEmail =
+      typeof input.userEmail === "string" ? input.userEmail : userId;
+
+    const props = (input.properties ?? {}) as Record<
+      string,
+      string | number | boolean | null
+    >;
+    const ticketId = String(props.ticket_id ?? "unknown");
+    const answeredAt = String(props.answeredAt ?? new Date().toISOString());
+
+    const result = await emailService.send({
+      template: Templates.TRANSACTIONAL_SUPPORT_ALERT, // "transactional/support-alert"
+      to: SUPPORT_INBOX,
+      subject: `[Reopen requested] #${ticketId} — ${customerEmail}`,
+      props: { ticketId, customerEmail, answeredAt },
+      // Registry "transactional" wins (no category override), and the
+      // customer's unsubscribe state never gates operator mail.
+      skipPreferenceCheck: true,
+      // A task retry after a successful send short-circuits — no double page.
+      idempotencyKey: `support-alert:${userId}:${ticketId}:${answeredAt}`,
+    });
+    return { status: result.status };
+  },
+});
+```
+
+Pass it to the worker via `extraWorkflows` (`createWorker({ container, journeys, extraWorkflows: [supportAlertTask] })`). The "no" customer often types *what's* still broken into the hosted answer page — [Lead alerts](/docs/recipes/lead-alerts) shows the fuller task pattern that sleeps a short grace window and folds that `*.comment` event into the alert body.
+
+## Tagging the contact
+
+The answer lives in `user_events` (and at every [destination](/docs/guides/destinations)) for CSAT reporting, but it is an *event*, not a contact property — a bucket can't segment on it directly. To persist the outcome on the contact, write it from your support tooling or wherever you consume the answer stream:
+
+```ts
+// from your support tooling, when closing the loop
+await hs.contacts.upsert({
+  userId: customer.id,
+  properties: { last_csat: "positive" },
+});
+```
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  TICKET_RESOLVED: "ticket.resolved",
+  TICKET_REOPENED: "ticket.reopened",
+  SUPPORT_FOLLOWUP_ANSWERED: "support.followup_answered",
+  SUPPORT_REOPEN_REQUESTED: "support.reopen_requested",
+} as const;
+
+export const Templates = {
+  SUPPORT_FOLLOWUP: "support/followup",
+  TRANSACTIONAL_SUPPORT_ALERT: "transactional/support-alert",
+} as const;
+```
+
+Each key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `supportFollowup` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Never put `support.followup_answered` in `exitOn`.** An exit match mid-wait aborts the run before the "no" branch executes — the reopen request would never fire. `ticket.reopened` carries the exit role instead.
+  - **Answers are confirmed ~30 seconds after the click**, with the whole scanner burst visible — so a corporate mail gateway clicking both buttons doesn't record an answer, and first confirmed answer per (send, event) wins. Keep answer timeouts at days-scale, never minutes.
+  - **`lookback: minutes(30)`** covers an answer landing between the send and the wait being established — without it, a fast click could be missed for good.
+  - **`entryLimit: "once_per_period"`** with `entryPeriod: days(7)` means a customer with three tickets this week gets one survey, not three.
+</Callout>
+
+Related: [Lead alerts](/docs/recipes/lead-alerts) extends the operator-alert task with comment collection, [Review request](/docs/recipes/review-request) is the same ask-and-branch shape after a delivery, and [NPS survey](/docs/recipes/nps-survey) scales the answer space from two buttons to eleven.

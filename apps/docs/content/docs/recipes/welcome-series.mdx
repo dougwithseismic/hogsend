@@ -1,0 +1,177 @@
+---
+title: Welcome series
+description: A welcome series with defineJourney() that resumes the instant the user activates — ctx.waitForEvent() on the first key action, a nudge branch for the stalled, and a final send clamped into business hours with ctx.when.
+---
+
+A welcome series has one branch that matters: did they reach the first key action or not. This journey sends the welcome on `user.signed_up`, then parks on `ctx.waitForEvent()` until the user's first `project.created` — the activated path resumes the instant they activate, not at the next timer tick. Activated users get a tips email while the context is fresh; stalled users get a nudge, one more wait, and a final resources send that `ctx.when` lands inside business hours.
+
+| Stage | How you express it |
+|---|---|
+| Greet on signup | `sendEmail(…)` as the first step |
+| Detect activation | `ctx.waitForEvent({ event, timeout: days(3) })` |
+| Branch on the answer | a plain `if` on `timedOut` |
+| Nudge the stalled, once | `sendEmail(…)` + a second `waitForEvent` |
+| Land the final send 09:00–17:00 local | `ctx.sleepUntil(ctx.when.window("09:00", "17:00").in(days(1)).at("10:00"))` |
+| One welcome per user, ever | `entryLimit: "once"` |
+
+## The journey
+
+```ts
+// src/journeys/welcome-series.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const welcomeSeries = defineJourney({
+  meta: {
+    id: "welcome-series",
+    name: "Onboarding — welcome series",
+    enabled: true,
+    trigger: { event: Events.USER_SIGNED_UP },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    // Day 0 — welcome
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_WELCOME, // "onboarding/welcome"
+      subject: "Welcome — here's how to get set up",
+      journeyName: user.journeyName,
+    });
+
+    // Park on the first key action. The lookback catches a user who
+    // activated while the welcome was still being sent.
+    const activated = await ctx.waitForEvent({
+      event: Events.PROJECT_CREATED,
+      timeout: days(3),
+      label: "await-first-project",
+      lookback: minutes(30),
+    });
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    if (!activated.timedOut) {
+      // They activated — deepen instead of nudging.
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.ONBOARDING_TIPS, // "onboarding/tips"
+        subject: "Your first project is live — three things to try next",
+        journeyName: user.journeyName,
+      });
+      return;
+    }
+
+    // Three days, no project.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_NUDGE, // "onboarding/nudge"
+      subject: "Your workspace is still empty",
+      journeyName: user.journeyName,
+    });
+
+    // Give the nudge two days to work before the last touch.
+    const second = await ctx.waitForEvent({
+      event: Events.PROJECT_CREATED,
+      timeout: days(2),
+      label: "await-first-project-2",
+    });
+    if (!second.timedOut) return; // the nudge worked — end quietly
+
+    // Final send: a day later, clamped into business hours, their timezone.
+    await ctx.sleepUntil(
+      ctx.when.window("09:00", "17:00").in(days(1)).at("10:00"),
+      { label: "final-send" },
+    );
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_RESOURCES, // "onboarding/resources"
+      subject: "Docs, examples, and a ten-minute setup guide",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+Both waits and the final sleep are durable Hatchet primitives — a deploy or worker restart in the middle of someone's first week doesn't reset their place in the series.
+
+## Resume on the action, not the timer
+
+The fixed-delay shape — `ctx.sleep({ duration: days(3) })` followed by `ctx.history.hasEvent()` — branches correctly but delivers the tips email up to three days after the user activated. `ctx.waitForEvent()` resumes the run the moment `project.created` is ingested, so the tips email lands minutes after the first project, while the user is still in the product.
+
+Two mechanics make the wait reliable:
+
+- **It's forward-looking.** Only events after the wait is established count, so the `lookback: minutes(30)` checks recent `user_events` first — a user who created a project while the welcome email was in flight resolves the wait immediately instead of being missed.
+- **The awaited event stays out of `exitOn`.** `project.created` is the branch, not an exit: listing it in `exitOn` would abort the run mid-wait, before the tips email fires. One event name, one role.
+
+## The business-hours final send
+
+`ctx.when.window("09:00", "17:00").in(days(1)).at("10:00")` is pure date math: it resolves a `Date` one day out at 10:00 in the user's timezone, then the window clamps anything outside 09:00–17:00 forward to the next open slot. The timezone resolves automatically — PostHog person property, then the contact's stored timezone, then the client default, then UTC — so you never pass `.tz()` for the common case. Clamping applies only to instants scheduled through `ctx.when`; the immediate sends earlier in the journey are never delayed.
+
+## Feed it from your app
+
+Two events drive the whole series, sent with the [`@hogsend/client`](/docs/data-api/client-sdk) SDK:
+
+```ts
+// your app server
+import { hs } from "./lib/hogsend.js";
+
+// signup — starts the series
+await hs.events.send({
+  name: "user.signed_up",
+  email: user.email,
+  userId: user.id,
+  eventProperties: { plan: user.plan, source: signup.source },
+  idempotencyKey: `signed-up-${user.id}`,
+});
+
+// first key action — resolves the wait and flips the branch
+await hs.events.send({
+  name: "project.created",
+  userId: user.id,
+  eventProperties: { project_id: project.id },
+  idempotencyKey: `project-created-${project.id}`,
+});
+```
+
+The idempotency keys make both calls safe to retry, and `entryLimit: "once"` backstops the trigger at the journey level: a replayed signup event can never start a second welcome series.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  USER_SIGNED_UP: "user.signed_up",
+  USER_DELETED: "user.deleted",
+  PROJECT_CREATED: "project.created",
+} as const;
+
+export const Templates = {
+  ONBOARDING_WELCOME: "onboarding/welcome",
+  ONBOARDING_TIPS: "onboarding/tips",
+  ONBOARDING_NUDGE: "onboarding/nudge",
+  ONBOARDING_RESOURCES: "onboarding/resources",
+} as const;
+```
+
+Each `onboarding/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `welcomeSeries` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **`entryLimit: "once"` means one welcome per user, ever.** A duplicate or replayed `user.signed_up` is skipped by the enrollment guard with `"already_entered_once"` — no state is created.
+  - **Unsubscribe does not exit a journey.** An unsubscribed user coasts through the waits; `ctx.guard.isSubscribed()` before each send is what keeps them from receiving anything.
+  - **Keep the awaited event out of `exitOn`.** An exit match on `project.created` mid-wait would abort the run before the tips branch executes — the activated path would silently never send.
+</Callout>
+
+Related: [Activation milestones](/docs/recipes/activation-milestones) extends this into a step-by-step setup tracker, [Verification chase](/docs/recipes/verification-chase) covers the email that has to land before any of this, and the [Journeys guide](/docs/guides/journeys) documents every context primitive used here.

@@ -1,0 +1,152 @@
+---
+title: Usage limit upgrade
+description: An upgrade nudge gated by a trigger condition at 80% usage, a second touch only when usage.limit_hit fires, entryLimit once_per_period per billing cycle, and exit on subscription.upgraded.
+---
+
+An upgrade nudge is only credible at the moment of pressure. This journey enters when your metering emits `usage.threshold_reached` with `usage_pct` at 80 or above — the `trigger.where` condition keeps every lower reading out. The second touch fires only if the user actually hits the wall: `ctx.waitForEvent("usage.limit_hit")` resolves with the wall event's payload, so the email names the metric that's blocked. `entryLimit: "once_per_period"` caps the whole thing at one sequence per 30 days however often the metering job fires, and `subscription.upgraded` in `exitOn` ends the run the instant they pay.
+
+| Stage | How you express it |
+|---|---|
+| Only fire at real pressure | `where: (b) => b.prop("usage_pct").gte(80)` |
+| One sequence per billing cycle | `entryLimit: "once_per_period"` + `entryPeriod: days(30)` |
+| Second touch only at the wall | `ctx.waitForEvent({ event: "usage.limit_hit", timeout: days(14) })` |
+| Name what's blocked | the wall event's payload via `waitForEvent → properties` |
+| Stop the moment they upgrade | `meta.exitOn: [{ event: "subscription.upgraded" }]` |
+
+## The journey
+
+```ts
+// src/journeys/usage-limit-upgrade.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const usageLimitUpgrade = defineJourney({
+  meta: {
+    id: "usage-limit-upgrade",
+    name: "Conversion — usage limit upgrade",
+    enabled: true,
+    trigger: {
+      event: Events.USAGE_THRESHOLD_REACHED,
+      // below 80% is not pressure — those events never enter the journey
+      where: (b) => b.prop("usage_pct").gte(80),
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30), // one nudge sequence per billing cycle
+    suppress: hours(24),
+    // usage.limit_hit is deliberately NOT here — the journey reacts to it.
+    exitOn: [{ event: Events.SUBSCRIPTION_UPGRADED }],
+  },
+
+  run: async (user, ctx) => {
+    // The trigger event's scalar properties ride in on user.properties.
+    const usagePct = Number(user.properties.usage_pct ?? 80);
+    const metric = String(user.properties.metric ?? "usage");
+
+    // First touch — headroom is still optional, sell it as such.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.USAGE_APPROACHING_LIMIT, // "usage/approaching-limit"
+      subject: `You've used ${usagePct}% of your plan`,
+      journeyName: user.journeyName,
+      props: { usagePct, metric },
+    });
+
+    // Second touch only if they actually hit the wall.
+    const wall = await ctx.waitForEvent({
+      event: Events.USAGE_LIMIT_HIT,
+      timeout: days(14),
+      label: "await-limit-hit",
+    });
+    if (wall.timedOut) return; // never hit 100% — one nudge was enough
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.USAGE_LIMIT_HIT, // "usage/limit-hit"
+      subject: "You've hit your plan limit",
+      journeyName: user.journeyName,
+      props: {
+        metric: String(wall.properties?.metric ?? metric),
+        blockedCount: Number(wall.properties?.blocked_count ?? 0),
+      },
+    });
+  },
+});
+```
+
+The wait is the branch: `timedOut: true` means they never hit 100% and one nudge was enough; `timedOut: false` carries the wall event's scalar payload, so the second email says *what* is blocked rather than restating a percentage. An upgrade at any point — including during the 14-day wait — matches `exitOn` and cancels the run before another send.
+
+## The entry conditions do the throttling
+
+Metering jobs over-emit by nature — a reading every hour at 81%, 85%, 92%. Three pieces of `meta` absorb that without any deduplication on your side:
+
+- **`trigger.where`** — `b.prop("usage_pct").gte(80)` evaluates against the event's properties before any state is created. Sub-80 readings return `{ status: "skipped", reason: "trigger_conditions_not_met" }` and never appear as journey runs.
+- **`entryLimit: "once_per_period"` + `entryPeriod: days(30)`** — the first matching event in a cycle enrolls; every re-fire inside the window is skipped with `"period_not_elapsed"`. One sequence per billing cycle, however noisy the metering.
+- **`suppress: hours(24)`** — a floor between sends within the journey, in case the wall is hit minutes after the first touch.
+
+The [Conditions guide](/docs/guides/conditions) documents the operator set; the enrollment-guard order is in the [Journeys guide](/docs/guides/journeys#enrollment-guards).
+
+## Emitting the usage events
+
+Both events come from your metering job or rate limiter via the [`@hogsend/client`](/docs/data-api/client-sdk) SDK. `usage_pct` and `metric` are `eventProperties` because the trigger's `where` and the journey's branch read them:
+
+```ts
+// your metering job
+import { hs } from "./lib/hogsend.js";
+
+// crossing a threshold — enrolls the journey when usage_pct >= 80
+await hs.events.send({
+  name: "usage.threshold_reached",
+  userId: account.id,
+  email: account.ownerEmail,
+  eventProperties: {
+    usage_pct: 82,
+    metric: "events", // flat scalars — the journey branches on these
+    period: "2026-06",
+  },
+  idempotencyKey: `usage-80-${account.id}-2026-06`,
+});
+
+// the wall — emitted by the limiter the first time a request is blocked
+await hs.events.send({
+  name: "usage.limit_hit",
+  userId: account.id,
+  eventProperties: { metric: "events", blocked_count: 1, period: "2026-06" },
+  idempotencyKey: `usage-100-${account.id}-2026-06`,
+});
+```
+
+Per-period idempotency keys make the job safe to re-run: a replayed crossing in the same period returns `{ stored: false }` instead of re-firing, and `entryLimit` backstops it at the journey level. See [Events & contacts](/docs/recipes/events-and-contacts) for the idempotency model.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  USAGE_THRESHOLD_REACHED: "usage.threshold_reached",
+  USAGE_LIMIT_HIT: "usage.limit_hit",
+  SUBSCRIPTION_UPGRADED: "subscription.upgraded",
+} as const;
+
+export const Templates = {
+  USAGE_APPROACHING_LIMIT: "usage/approaching-limit",
+  USAGE_LIMIT_HIT: "usage/limit-hit",
+} as const;
+```
+
+Both `usage/*` keys need a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)); once registered, the `props` bags above are type-checked. Add `usageLimitUpgrade` to your `journeys` array as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **`usage.limit_hit` is awaited, never an exit.** Putting it in `exitOn` would abort the run mid-wait, before the limit-hit email fires. React via `waitForEvent` *or* exit via `exitOn` — one event name, one role.
+  - **`where` and `entryLimit` run before state is created**, so it's fine for metering to over-emit — skipped events cost nothing and never show up as runs.
+  - **Re-check the guard after the wait.** Two weeks is long enough to unsubscribe, and unsubscribe does not exit a journey.
+  - **A dip back below 80% doesn't exit.** The run simply waits out the 14 days and completes; the next cycle's crossing can re-enroll once `entryPeriod` elapses.
+</Callout>
+
+Related: [Trial conversion sequence](/docs/recipes/trial-conversion-sequence) covers the conversion moment before there's a paid plan to outgrow, [Failed payment dunning](/docs/recipes/failed-payment-dunning) handles the billing failure case, and the [Journeys guide](/docs/guides/journeys) documents every context primitive used here.

@@ -1,0 +1,186 @@
+---
+title: Waitlist to launch
+description: Run a waitlist end to end — defineList() for membership, hs.contacts.upsert with a lists bag plus a confirmation send, an idempotent hs.campaigns.send on launch day, and a launch.access_granted journey that chases non-activators.
+---
+
+A waitlist crosses three send surfaces: membership is a code-defined list, the launch announcement is a campaign broadcast to that list, and the follow-through is a journey that chases everyone who got access but never signed up. All three share one contact record and one event stream, so the opt-outs the broadcast respects are the same opt-outs the chase journey respects.
+
+| Stage | How you express it |
+|---|---|
+| Membership | `defineList({ id: "waitlist", defaultOptIn: false })` |
+| Join + confirm | `hs.contacts.upsert({ lists: { waitlist: true } })` + `hs.emails.send(…)` |
+| Launch broadcast | `hs.campaigns.send({ list: "waitlist", idempotencyKey })` |
+| Grant access | `hs.events.send({ name: "launch.access_granted" })` per member |
+| Chase non-activators | a journey on `launch.access_granted`, exiting on `user.signed_up` |
+
+## 1. Define the waitlist
+
+Lists are code-defined with `defineList()` in `src/lists/`. A list is a named key inside the existing `email_preferences.categories` store — no new table, no migration:
+
+```ts
+// src/lists/index.ts
+import { defineList } from "@hogsend/engine";
+
+export const waitlist = defineList({
+  id: "waitlist",
+  name: "Waitlist",
+  description: "People waiting for access.",
+  defaultOptIn: false, // opt-in: only an explicit join counts as membership
+});
+
+export const lists = [waitlist];
+```
+
+`defaultOptIn: false` is the polarity decision: a contact is a member only if `categories["waitlist"] === true`, which is exactly what a waitlist is. Thread `lists` into `createHogsendClient({ journeys, lists, … })` in **both** `src/index.ts` and `src/worker.ts` — never into `createWorker`, which takes no `lists` option. The [Lists guide](/docs/guides/lists) covers polarity and wiring in full.
+
+## 2. Capture signups
+
+The form handler is two SDK calls: one write that creates the contact and flips membership, one confirmation send.
+
+```ts
+// your waitlist form handler
+import { hs } from "./lib/hogsend.js";
+
+await hs.contacts.upsert({
+  email: form.email,
+  properties: { company: form.company, source: form.source },
+  lists: { waitlist: true }, // contact + membership in one write
+});
+
+await hs.emails.send({
+  to: form.email,
+  template: "waitlist/confirmation",
+  props: { position: queuePosition },
+});
+```
+
+The `lists` bag on `contacts.upsert` subscribes inline — no separate `hs.lists.subscribe` call needed. The confirmation flows through the same tracked mailer as every other send, so opens and clicks on it are already events.
+
+## 3. Launch day
+
+One call broadcasts the launch template to every subscribed member; the `idempotencyKey` makes the script safe to re-run:
+
+```ts
+// scripts/launch.ts
+const { campaignId } = await hs.campaigns.send({
+  list: "waitlist",
+  template: "waitlist/launch",
+  props: { inviteUrl: "https://app.example.com/claim" },
+  subject: "You're in — claim your account",
+  idempotencyKey: "waitlist-launch-v1", // a retried run resolves to THIS campaign
+});
+
+// poll for progress — the sends run in the worker
+const campaign = await hs.campaigns.get(campaignId);
+// { status, totalRecipients, sentCount, skippedCount, failedCount }
+```
+
+The `202` is an enqueue ack: the campaign row is committed first and the worker broadcasts asynchronously, so a crash after the call can't lose the launch. Anyone who unsubscribed between joining and launch is counted in `skippedCount`, not emailed — recipient resolution and the preference center read the same membership rule. [Marketing campaigns](/docs/recipes/marketing-campaigns) documents the durable/idempotent/preference-checked guarantees in full.
+
+As you grant access — all at once or in batches — fire one event per member. This is what enrolls them in the chase journey:
+
+```ts
+for (const member of batch) {
+  await hs.events.send({
+    name: "launch.access_granted",
+    email: member.email,
+    userId: member.userId,
+    eventProperties: { invite_url: member.inviteUrl },
+    idempotencyKey: `access-granted-${member.userId}`,
+  });
+}
+```
+
+Mint `member.userId` when you grant access and carry it through the claim URL — the chase journey's wait is scoped per user, so the eventual `user.signed_up` must arrive with the same `userId`.
+
+## 4. Chase the non-activators
+
+```ts
+// src/journeys/launch-chase.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const launchChase = defineJourney({
+  meta: {
+    id: "launch-chase",
+    name: "Waitlist — launch chase",
+    enabled: true,
+    trigger: { event: Events.LAUNCH_ACCESS_GRANTED },
+    entryLimit: "once",
+    suppress: hours(24),
+    exitOn: [{ event: Events.USER_SIGNED_UP }],
+  },
+
+  run: async (user, ctx) => {
+    const inviteUrl = String(user.properties.invite_url ?? "");
+
+    // Two days to redeem the invite on their own.
+    const first = await ctx.waitForEvent({
+      event: Events.USER_SIGNED_UP,
+      timeout: days(2),
+      label: "await-signup",
+    });
+    if (!first.timedOut) return; // they're in — nothing to chase
+
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.WAITLIST_INVITE_REMINDER, // "waitlist/invite-reminder"
+      subject: "Your invite is waiting",
+      journeyName: user.journeyName,
+      props: { inviteUrl },
+    });
+
+    // Four more days, then one last call.
+    const second = await ctx.waitForEvent({
+      event: Events.USER_SIGNED_UP,
+      timeout: days(4),
+      label: "await-signup-2",
+    });
+    if (!second.timedOut) return;
+
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.WAITLIST_LAST_CALL, // "waitlist/last-call"
+      subject: "Last call — your invite expires this week",
+      journeyName: user.journeyName,
+      props: { inviteUrl },
+    });
+  },
+});
+```
+
+`waitForEvent` is the branch (did they sign up yet?) and `exitOn` is the guarantee: a signup at any point — including mid-wait — exits the run before the next reminder can fire. The success branch is a bare `return`, so the dual role is safe here. `entryLimit: "once"` means a member granted access twice (a retried batch without the idempotency key) still gets one chase.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  LAUNCH_ACCESS_GRANTED: "launch.access_granted",
+  USER_SIGNED_UP: "user.signed_up",
+} as const;
+
+export const Templates = {
+  WAITLIST_CONFIRMATION: "waitlist/confirmation",
+  WAITLIST_LAUNCH: "waitlist/launch",
+  WAITLIST_INVITE_REMINDER: "waitlist/invite-reminder",
+  WAITLIST_LAST_CALL: "waitlist/last-call",
+} as const;
+```
+
+Each `waitlist/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)); the campaign's `template`/`props` are type-checked against the same registry as the journey sends. Register the journey by adding `launchChase` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **The `idempotencyKey` is the launch-day seatbelt.** A retried `campaigns.send` with the same key resolves to the existing campaign — a flaky network on the most important send of the quarter cannot double-email the whole list.
+  - **Polarity decides who gets the broadcast.** With `defaultOptIn: false`, only contacts with an exact `categories["waitlist"] === true` are recipients; the preference center renders membership from the same rule, so the two can't disagree.
+  - **Identity must line up across the surfaces.** `launch.access_granted` and `user.signed_up` need the same `userId` for the chase journey's wait and exit to resolve — mint the id at grant time and carry it through the claim flow.
+</Callout>
+
+Related: [Marketing campaigns](/docs/recipes/marketing-campaigns) covers the broadcast machinery this leans on, [Welcome series](/docs/recipes/welcome-series) takes over once they sign up, and [Verification chase](/docs/recipes/verification-chase) handles the first email after that.

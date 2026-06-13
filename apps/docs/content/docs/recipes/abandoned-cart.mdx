@@ -1,0 +1,162 @@
+---
+title: Abandoned cart recovery
+description: Recover abandoned carts with a defineJourney() that waits for checkout.completed, sends two reminders, and exits the instant the order lands — entry conditions, idempotent triggers, and timezone-aware last calls.
+---
+
+An abandoned-cart flow is a race against the purchase: start when checkout begins, do nothing if the order completes, and send at most two reminders if it doesn't. The whole race is one `defineJourney()` — `ctx.waitForEvent()` is the "did they buy yet?" check, and `meta.exitOn` guarantees the journey dies the instant a `checkout.completed` event arrives, even mid-sleep.
+
+| Stage | How you express it |
+|---|---|
+| Only chase carts worth chasing | `trigger.where: (b) => b.prop("cart_value").gte(25)` |
+| Give the purchase time to finish | `ctx.waitForEvent({ event, timeout: hours(4) })` |
+| Reminder, then one more day | `sendEmail(…)` + a second `waitForEvent` |
+| Land the last call next morning | `ctx.sleepUntil(ctx.when.nextLocal("09:30"))` |
+| Stop the moment they buy | `meta.exitOn: [{ event: "checkout.completed" }]` |
+| Don't chase the same person twice a week | `entryLimit: "once_per_period"` + `entryPeriod: days(7)` |
+
+## The journey
+
+```ts
+// src/journeys/abandoned-cart.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const abandonedCart = defineJourney({
+  meta: {
+    id: "abandoned-cart",
+    name: "E-commerce — abandoned cart",
+    enabled: true,
+    trigger: {
+      event: Events.CHECKOUT_STARTED,
+      // carts under $25 never enter the journey at all
+      where: (b) => b.prop("cart_value").gte(25),
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(12),
+    exitOn: [{ event: Events.CHECKOUT_COMPLETED }],
+  },
+
+  run: async (user, ctx) => {
+    // The trigger event's scalar properties ride in on user.properties.
+    const cartId = String(user.properties.cart_id ?? "");
+    const cartValue = Number(user.properties.cart_value ?? 0);
+
+    // Give the purchase four hours to complete on its own.
+    const first = await ctx.waitForEvent({
+      event: Events.CHECKOUT_COMPLETED,
+      timeout: hours(4),
+      label: "await-checkout",
+    });
+    if (!first.timedOut) return; // they bought — nothing to recover
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ECOMMERCE_CART_REMINDER, // "ecommerce/cart-reminder"
+      subject: "You left items in your cart",
+      journeyName: user.journeyName,
+      props: { cartId, cartValue },
+    });
+
+    // One more day. exitOn still covers a purchase mid-wait.
+    const second = await ctx.waitForEvent({
+      event: Events.CHECKOUT_COMPLETED,
+      timeout: days(1),
+      label: "await-checkout-2",
+    });
+    if (!second.timedOut) return;
+
+    // Land the last call at 09:30 in the shopper's own timezone.
+    await ctx.sleepUntil(ctx.when.nextLocal("09:30"), {
+      label: "morning-send",
+    });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ECOMMERCE_CART_LAST_CALL, // "ecommerce/cart-last-call"
+      subject: "Your cart is about to expire",
+      journeyName: user.journeyName,
+      props: { cartId, cartValue },
+    });
+  },
+});
+```
+
+Both waits and the sleep are durable — the function survives deploys and restarts mid-race, which matters for a flow whose whole job is waiting. `ctx.when.nextLocal("09:30")` resolves the shopper's timezone (PostHog person property → contact property → client default → UTC) and returns an absolute `Date` for `ctx.sleepUntil`.
+
+## Feed it from your store
+
+The journey runs off two events from your storefront or backend, sent with the [`@hogsend/client`](/docs/data-api/client-sdk) SDK. `cart_value` is an `eventProperty` because the trigger's `where` filters on it; nothing here touches the contact record.
+
+```ts
+// your store server
+import { hs } from "./lib/hogsend.js";
+
+// checkout reached — starts the race
+await hs.events.send({
+  name: "checkout.started",
+  email: customer.email,
+  userId: customer.id,
+  eventProperties: {
+    cart_id: cart.id,
+    cart_value: cart.subtotal,
+    item_count: cart.items.length,
+  },
+  idempotencyKey: `checkout-started-${cart.id}`,
+});
+
+// order placed — exits the journey and resolves both waits
+await hs.events.send({
+  name: "checkout.completed",
+  userId: customer.id,
+  eventProperties: { cart_id: cart.id, order_id: order.id, revenue: order.total },
+  idempotencyKey: `checkout-completed-${order.id}`,
+});
+```
+
+The idempotency keys make both calls safe to retry: a replayed `checkout.started` within the window returns `{ stored: false }` instead of re-triggering, and `entryLimit: "once_per_period"` backstops it at the journey level. See [Events & contacts](/docs/recipes/events-and-contacts) for the property-split and idempotency model.
+
+## Entry conditions do the audience math
+
+Three pieces of `meta` replace what would otherwise be segment queries:
+
+- **`trigger.where`** — `b.prop("cart_value").gte(25)` evaluates against the event's properties before any state is created. An ineligible event returns `{ status: "skipped" }`; cheap carts never show up as journey runs.
+- **`entryLimit: "once_per_period"` + `entryPeriod: days(7)`** — a serial abandoner gets at most one recovery sequence per week, however many carts they leave.
+- **`suppress: hours(12)`** — duplicate trigger events inside the window (a flaky client retrying without an idempotency key) can't start a second concurrent run.
+
+## Measuring recovery
+
+Every link in both reminder emails is rewritten through first-party [click tracking](/docs/api/tracking), so a click re-enters the engine as an `email.link_clicked` event. A recovered cart is the sequence `email.link_clicked` → `checkout.completed` with the same `cart_id` — and because `checkout.completed` carries `order_id` and `revenue` as event properties, the attribution query is over your own `user_events` table (or in PostHog, where the engine [fans out](/docs/guides/destinations) the same events).
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  CHECKOUT_STARTED: "checkout.started",
+  CHECKOUT_COMPLETED: "checkout.completed",
+} as const;
+
+export const Templates = {
+  ECOMMERCE_CART_REMINDER: "ecommerce/cart-reminder",
+  ECOMMERCE_CART_LAST_CALL: "ecommerce/cart-last-call",
+} as const;
+```
+
+Each `ecommerce/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — the [Email guide](/docs/guides/email) covers authoring; once registered, the `props: { cartId, cartValue }` bags above are type-checked against the templates. Register the journey by adding `abandonedCart` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **`exitOn` is the safety net, `waitForEvent` is the branch.** The wait gives the code an answer to act on; `exitOn` guarantees that a purchase at *any* point — including during the morning sleep — ends the run with no further sends.
+  - **Unsubscribe does not exit a journey.** That's why `ctx.guard.isSubscribed()` runs before each send; an unsubscribed shopper coasts through the waits and receives nothing.
+  - **`user.properties` carries the trigger event's scalars** (`cart_id`, `cart_value` here), not the contact record — read contact state through `ctx.history` or conditions instead.
+</Callout>
+
+Related: [Post-purchase series](/docs/recipes/post-purchase-series) picks up where this ends, [Review request](/docs/recipes/review-request) closes the loop after delivery, and the [Journeys guide](/docs/guides/journeys) documents every context primitive used here.

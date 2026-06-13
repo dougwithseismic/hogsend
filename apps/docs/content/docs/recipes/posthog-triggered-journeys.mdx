@@ -1,0 +1,176 @@
+---
+title: PostHog-triggered journeys
+description: Forward PostHog events into journeys with a defineWebhookSource() — the echo guard, the reserved-namespace guard, the identified-only guard, and the event/person property split that make the feed production-safe.
+---
+
+A PostHog → Hogsend feed is one HTTP webhook destination in PostHog and one `defineWebhookSource()` in your repo. PostHog POSTs the events you select to `POST /v1/webhooks/posthog`; the source's `transform` turns each payload into an `IngestEvent` that feeds the same [ingestion pipeline](/docs/guides/webhook-sources) as the SDK — the event is stored, routed to matching journeys, checked against `exitOn`, and the contact is upserted, all in one request. The source below is the production receiver behind the Hogsend docs site, and what makes it production-safe is four guards in the transform.
+
+| Failure mode | The guard |
+|---|---|
+| Hogsend's own fan-out echoes back in | drop events carrying `$lib === "hogsend"` |
+| Engine-emitted names re-enter ingest | drop the reserved namespaces `email.` `journey.` `bucket.` `contact.` |
+| Anonymous sessions mint junk contacts | require an email or `$is_identified === true` |
+| Profile data leaks onto event rows | `event.properties` → `eventProperties`, `person.properties` → `contactProperties` |
+
+## The source
+
+```ts
+// src/webhook-sources/posthog.ts
+import { defineWebhookSource } from "@hogsend/engine";
+import { z } from "zod";
+
+const posthogEventSchema = z.object({
+  uuid: z.string().optional(),
+  event: z.string(),
+  distinct_id: z.string(),
+  timestamp: z.string().optional(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+});
+
+const posthogPersonSchema = z.object({
+  id: z.string().optional(),
+  properties: z
+    .object({ email: z.string().optional() })
+    .catchall(z.unknown())
+    .optional(),
+});
+
+const posthogWebhookSchema = z.object({
+  event: posthogEventSchema,
+  person: posthogPersonSchema.optional(),
+});
+
+// Hogsend's own outbound catalog. If the PostHog-side destination forwards
+// broadly, events Hogsend fanned out to PostHog would echo straight back
+// into ingest — re-entering journeys and inflating user_events.
+const RESERVED_EVENT_PREFIXES = ["email.", "journey.", "bucket.", "contact."];
+
+export const posthogSource = defineWebhookSource({
+  meta: {
+    id: "posthog",
+    name: "PostHog",
+    description: "Receives events from PostHog webhook destinations.",
+  },
+  auth: {
+    type: "match",
+    header: "x-posthog-webhook-secret",
+    envKey: "POSTHOG_WEBHOOK_SECRET",
+  },
+  schema: posthogWebhookSchema,
+  async transform(payload) {
+    const eventName = payload.event.event;
+    const userId = payload.event.distinct_id;
+    const rawEmail = payload.person?.properties?.email;
+    const userEmail = typeof rawEmail === "string" ? rawEmail : "";
+
+    // Echo guard: never re-ingest events Hogsend itself fanned out.
+    if (payload.event.properties?.$lib === "hogsend") return null;
+    if (RESERVED_EVENT_PREFIXES.some((p) => eventName.startsWith(p))) {
+      return null;
+    }
+
+    // Identity guard: only ingest events that resolve to a KNOWN identity —
+    // a person with an email, or a session identified via posthog.identify.
+    // Anonymous distinct_ids are throwaway; ingesting them would mint a
+    // junk contact per browsing session.
+    if (!userEmail && payload.event.properties?.$is_identified !== true) {
+      return null;
+    }
+
+    // Property split: event properties (behavioral) feed eventProperties;
+    // person properties (identity/profile) feed contactProperties. The two
+    // bags are NEVER merged.
+    const eventProperties: Record<string, unknown> = {
+      ...payload.event.properties,
+    };
+    if (payload.event.uuid) {
+      eventProperties._posthogEventId = payload.event.uuid;
+    }
+
+    return {
+      event: eventName,
+      userId,
+      userEmail,
+      eventProperties,
+      contactProperties: { ...payload.person?.properties },
+    };
+  },
+});
+```
+
+Returning `null` accepts the delivery — `200 { ok: true, skipped: true }` — without ingesting anything, so PostHog records a successful delivery and never retries a dropped event. The guards cost nothing on the PostHog side.
+
+## The echo guard
+
+When you fan engagement out to PostHog (the `posthog` [destination](/docs/data-api/destinations) puts `email.opened`, `email.clicked`, and `journey.completed` on the same persons), a broadly-configured PostHog destination would forward those events straight back to this source. The guard is two independent checks because it has to hold however the PostHog-side filter is configured: the `$lib === "hogsend"` marker catches everything Hogsend captured into PostHog, and the reserved-namespace check catches engine-emitted names arriving by any other route. Without it, every open you fan out re-enters ingest as a fresh event — and anything triggering on it loops.
+
+## The identified-only guard
+
+PostHog assigns every browser session a `distinct_id` long before anyone knows who it is. Ingesting those would create one throwaway contact per browsing session, and entry limits keyed to those ids protect nobody. The guard admits an event only when the person carries an `email` property or the session was identified (`$is_identified === true`) — the docs site identifies sessions under the Hogsend contact key, which the engine round-trips back to the same contact (the [identity loop](/docs/guides/analytics-access)). Everything else returns `null`.
+
+## The property split
+
+The two bags map exactly onto the [IngestEvent contract](/docs/guides/webhook-sources#the-transform--ingestevent-contract): `event.properties` becomes `eventProperties` (the `user_events` row, evaluated by `trigger.where` and `exitOn`), `person.properties` becomes `contactProperties` (merged onto the contact record, read by buckets and contact-state conditions). The PostHog event `uuid` is kept as `eventProperties._posthogEventId` so every ingested row traces back to its PostHog original. One caveat from the pipeline: only JSON-scalar properties (`string | number | boolean | null`) survive the push to Hatchet — nested objects stay on the `user_events` row but never reach a journey task, so flatten anything a journey needs to branch on.
+
+## A journey on the other end
+
+The source forwards PostHog event names verbatim, so `trigger.event` must match the PostHog name exactly — `user_signed_up` if that is what your project emits, not `user.signed_up`.
+
+```ts
+// src/journeys/posthog-signup.ts
+import { defineJourney, hours, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const posthogSignup = defineJourney({
+  meta: {
+    id: "posthog-signup",
+    name: "PostHog — signup welcome",
+    enabled: true,
+    trigger: {
+      event: Events.USER_SIGNED_UP, // "user_signed_up" — PostHog's name, as-is
+      // evaluates the forwarded event.properties, not the person profile
+      where: (b) => b.prop("plan").eq("pro"),
+    },
+    entryLimit: "once",
+    suppress: hours(12),
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ACTIVATION_WELCOME, // "activation/welcome"
+      subject: "Welcome — let's get you set up",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+`user.email` here is the address the source read from `person.properties.email` — if PostHog isn't setting `email` as a person property (typically at signup), the event still lands but the contact has no address to send to.
+
+## Point PostHog at it
+
+In PostHog: Data → Destinations → **HTTP Webhook**, URL `https://your-api.com/v1/webhooks/posthog`, the default JSON body (it expands `{event}` and `{person}` — keep `{person}`, the email rides in it), and an `x-posthog-webhook-secret` header matching your `POSTHOG_WEBHOOK_SECRET` env var. Add one **event matcher** per event you forward — without matchers the destination fires on everything, including `$pageview` and `$autocapture`. The [manual setup walkthrough](/docs/integrations/posthog/manual-setup) covers each screen; [`hogsend connect posthog`](/docs/integrations/posthog/connect) provisions the same destination in one command, idempotently, with an identified-events filter pre-applied.
+
+## Register it
+
+```ts
+// src/webhook-sources/index.ts
+import type { DefinedWebhookSource } from "@hogsend/engine";
+import { posthogSource } from "./posthog.js";
+
+export const webhookSources: DefinedWebhookSource[] = [posthogSource];
+```
+
+The scaffold already threads this array into `createApp(client, { webhookSources })`, so the source is live at `POST /v1/webhooks/posthog`. Add the PostHog event names you forward to your `Events` constants (`USER_SIGNED_UP: "user_signed_up"`); the `activation/welcome` template ships in the scaffold.
+
+<Callout type="info">
+  - **`type: "match"` auth is open when the secret is unset.** An unset `POSTHOG_WEBHOOK_SECRET` means the source accepts unauthenticated requests — set it in any internet-reachable deployment.
+  - **`null` means accepted-and-skipped, not rejected.** PostHog sees a `200` and never retries, which is what you want for events the guards drop on purpose.
+  - **Event names forward as-is.** A journey triggers on the exact PostHog string; a mismatch (`user.signed_up` vs `user_signed_up`) fails silently — the event lands, the journey never fires.
+  - **Only scalars reach journey tasks.** Nested `event.properties` survive on the `user_events` row but are dropped from the Hatchet payload — flatten what `trigger.where` or the journey branches on.
+</Callout>
+
+The [webhook sources guide](/docs/guides/webhook-sources) documents the full `defineWebhookSource()` contract, and the [PostHog integration](/docs/integrations/posthog) covers both directions of the loop. Related: [Cross-journey funnels](/docs/recipes/cross-journey-funnels) composes the journeys these events trigger, [Lifecycle alerts in Slack](/docs/recipes/lifecycle-alerts-in-slack) is the outbound mirror of this inbound pipe, and [Agent-triggered journeys](/docs/recipes/agent-triggered-journeys) feeds the same pipeline from the data-plane SDK instead.

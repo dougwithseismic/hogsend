@@ -1,0 +1,162 @@
+---
+title: Post-purchase series
+description: A defineJourney() that picks up at order.completed — receipt, a durable wait for delivery.confirmed with an assumed-delivery fallback, a product-onboarding send, and a hand-off to the review ask over one shared event.
+---
+
+The post-purchase arc starts where [abandoned cart](/docs/recipes/abandoned-cart) ends: `order.completed` triggers a receipt, the journey waits for the carrier's `delivery.confirmed` (with a ten-day timeout as the no-carrier-feed fallback), sends a product-onboarding email once the product is in the shopper's hands, and hands off to the [review request](/docs/recipes/review-request) journey — which triggers on the same `delivery.confirmed` event, so the hand-off is an event, not a function call.
+
+| Stage | How you express it |
+|---|---|
+| Start on every fulfilled order | `trigger: { event: "order.completed" }` |
+| One arc per shopper, never two overlapping | `entryLimit: "once_per_period"` + `entryPeriod: days(14)` |
+| Wait for the carrier, not a guess | `ctx.waitForEvent({ event: "delivery.confirmed", timeout: days(10) })` |
+| No delivery feed? Assume it | `ctx.trigger(…)` with `source: "assumed"` |
+| Hand off to the review ask | the same `delivery.confirmed` event triggers the next journey |
+| A refund kills the arc | `meta.exitOn: [{ event: "order.refunded" }]` |
+
+## The journey
+
+```ts
+// src/journeys/post-purchase-series.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const postPurchaseSeries = defineJourney({
+  meta: {
+    id: "post-purchase-series",
+    name: "E-commerce — post-purchase series",
+    enabled: true,
+    trigger: { event: Events.ORDER_COMPLETED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(14),
+    suppress: hours(12),
+    // a return cancels the arc — no "getting the most from your product"
+    // email to someone boxing it back up
+    exitOn: [{ event: Events.ORDER_REFUNDED }],
+  },
+
+  run: async (user, ctx) => {
+    const orderId = String(user.properties.order_id ?? "");
+    const productName = String(user.properties.product_name ?? "your order");
+
+    // Day 0 — the receipt is the arc's first touch.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ECOMMERCE_RECEIPT, // "ecommerce/receipt"
+      subject: `Order confirmed — ${productName}`,
+      journeyName: user.journeyName,
+      props: { orderId, productName },
+    });
+
+    // Wait for the carrier to report delivery. Ten days is the proxy
+    // window when no signal ever arrives.
+    const delivery = await ctx.waitForEvent({
+      event: Events.DELIVERY_CONFIRMED,
+      timeout: days(10),
+      label: "await-delivery",
+    });
+
+    if (delivery.timedOut) {
+      // No carrier feed, or a lost webhook. Assume delivered so the rest
+      // of the purchase stream — the review ask included — keys off one
+      // event name; `source` records the provenance.
+      await ctx.trigger({
+        event: Events.DELIVERY_CONFIRMED,
+        userId: user.id,
+        properties: {
+          order_id: orderId,
+          product_name: productName,
+          source: "assumed",
+        },
+      });
+    }
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // The product is in their hands — help them get value from it.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ECOMMERCE_PRODUCT_ONBOARDING, // "ecommerce/product-onboarding"
+      subject: `Getting the most from ${productName}`,
+      journeyName: user.journeyName,
+      props: { orderId, productName },
+    });
+  },
+});
+```
+
+The wait and the trigger are both durable — the run survives deploys and restarts across the whole delivery window. If your store already emits `checkout.completed` (the exit event in [abandoned cart](/docs/recipes/abandoned-cart)) as its only purchase event, trigger on that instead; this page uses `order.completed` for the fulfilled-order record so the two recipes compose without renaming anything.
+
+## The delivery wait
+
+`ctx.waitForEvent()` gives the journey an answer — did the carrier confirm inside ten days or not — and the timeout branch converts "no answer" into the same `delivery.confirmed` event, tagged `source: "assumed"`. That keeps one event name for "the product arrived" across the whole purchase stream: downstream journeys, [destinations](/docs/guides/destinations), and your attribution queries never need to know whether the signal was real or inferred (the property records it).
+
+Note what is *not* in `exitOn`: `delivery.confirmed`. The journey reacts to it via the wait — an event the run awaits must never also be an exit rule, because an exit match mid-wait aborts the run before the post-wait sends execute. One event name, one role per journey. `order.refunded` *is* in `exitOn`, so a return at any point — including mid-wait — cancels the Hatchet run with no further sends.
+
+## Feed it from your fulfillment stack
+
+Two events from your backend drive the arc, sent with the [`@hogsend/client`](/docs/data-api/client-sdk) SDK. Both carry `product_name` as an event property because the journey (and the review ask after it) read it from `user.properties`.
+
+```ts
+// your order pipeline
+await hs.events.send({
+  name: "order.completed",
+  email: customer.email,
+  userId: customer.id,
+  eventProperties: {
+    order_id: order.id,
+    product_name: order.items[0].name,
+    revenue: order.total,
+  },
+  idempotencyKey: `order-completed-${order.id}`,
+});
+
+// your carrier/3PL webhook handler
+await hs.events.send({
+  name: "delivery.confirmed",
+  userId: order.customerId,
+  eventProperties: {
+    order_id: order.id,
+    product_name: order.items[0].name,
+    source: "carrier",
+  },
+  idempotencyKey: `delivery-${order.id}`,
+});
+```
+
+The idempotency keys make redeliveries no-ops (`{ stored: false }`). If the carrier posts directly to Hogsend instead of to your app, a [webhook source](/docs/guides/webhook-sources) turns the raw payload into this same `delivery.confirmed` event — the journey can't tell the difference.
+
+## The hand-off to the review ask
+
+[Review request](/docs/recipes/review-request) triggers on `delivery.confirmed` — the same event this journey waits on — so the hand-off needs no coupling. One event, whether from the carrier or the assumed-delivery trigger, routes to both journeys: this one resumes its wait, the review journey enrolls fresh. The receiving journey brings its own enrollment guards — preferences re-checked at entry, its own `entryLimit` (one ask per 30 days), its own `exitOn` — so disabling or changing either journey never touches the other. Composing flows through events instead of growing one monolithic run is the pattern in [Cross-journey funnels](/docs/recipes/cross-journey-funnels).
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  ORDER_COMPLETED: "order.completed",
+  ORDER_REFUNDED: "order.refunded",
+  DELIVERY_CONFIRMED: "delivery.confirmed",
+} as const;
+
+export const Templates = {
+  ECOMMERCE_RECEIPT: "ecommerce/receipt",
+  ECOMMERCE_PRODUCT_ONBOARDING: "ecommerce/product-onboarding",
+} as const;
+```
+
+Each `ecommerce/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `postPurchaseSeries` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Receipts that must reach everyone belong on the transactional path.** Journey enrollment skips globally-unsubscribed contacts, and `entryPeriod: days(14)` skips a second order placed a week later — in both cases this journey sends no receipt. If receipts are mandatory (they usually are), send them with `hs.emails.send` from your order pipeline as in [Transactional emails](/docs/recipes/transactional-emails) and let this journey own the lifecycle arc.
+  - **One event name, one role.** `delivery.confirmed` is awaited here and is the *trigger* of Review request — but it must never appear in this journey's `exitOn`, or the run aborts before the onboarding send.
+  - **Unsubscribe does not exit a journey.** The `ctx.guard.isSubscribed()` check after the delivery wait is what keeps an unsubscribed shopper from receiving the onboarding email.
+</Callout>
+
+Related: [Abandoned cart](/docs/recipes/abandoned-cart) is the arc before the order, [Review request](/docs/recipes/review-request) continues this one after delivery, and the [Journeys guide](/docs/guides/journeys) documents every context primitive used here.

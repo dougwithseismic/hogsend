@@ -281,7 +281,7 @@ await ctx.sleepUntil(ctx.when.next("monday").at("09:00"), { label: "monday-9am" 
 await ctx.sleepUntil(ctx.when.tz("America/New_York").tomorrow().at("08:00"));
 
 // Five days out, clamped into business hours
-const at = ctx.when.in(days(5)).window("09:00", "17:00").at("14:00");
+const at = ctx.when.window("09:00", "17:00").in(days(5)).at("14:00");
 await ctx.sleepUntil(at, { label: "day-5-followup" });
 ```
 

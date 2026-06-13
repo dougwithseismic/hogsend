@@ -59,7 +59,9 @@ await hs.emails.send({ to: email, template: "transactional/verify-email", props:
   - **The property split.** `contactProperties` (who they are) and `eventProperties` (what happened) are separate bags — see [Events & contacts](/docs/recipes/events-and-contacts).
 </Callout>
 
-## The recipes
+## The four modes
+
+Start here — one recipe per messaging mode, plus the data primitives that feed them:
 
 <Cards>
   <Card title="Transactional emails" href="/docs/recipes/transactional-emails" />
@@ -69,3 +71,75 @@ await hs.emails.send({ to: email, template: "transactional/verify-email", props:
 </Cards>
 
 All four use the typed [`@hogsend/client`](/docs/data-api/client-sdk) SDK. The underlying HTTP endpoints are documented in the [Data API](/docs/data-api) reference; journeys are documented in the [Journeys guide](/docs/guides/journeys).
+
+## The catalog
+
+Every recipe below is a complete flow — trigger events, the full journey (or task), the wiring, and the invariants that make it hold in production.
+
+### Onboarding & activation
+
+<Cards>
+  <Card title="Welcome series" href="/docs/recipes/welcome-series" description="Greet on signup, resume the instant they activate, nudge only if they don't." />
+  <Card title="Activation milestones" href="/docs/recipes/activation-milestones" description="Track setup as milestones and nudge exactly the step where someone stalls." />
+  <Card title="Waitlist launch" href="/docs/recipes/waitlist-launch" description="Collect a waitlist, broadcast on launch day, chase non-activators." />
+  <Card title="Verification chase" href="/docs/recipes/verification-chase" description="Re-send the verify email up to twice, stopping the moment they verify." />
+</Cards>
+
+### Trial, billing & upgrades
+
+<Cards>
+  <Card title="Trial conversion sequence" href="/docs/recipes/trial-conversion-sequence" description="The full trial arc — value email, usage branch, expiry reminders, exit on payment." />
+  <Card title="Failed payment dunning" href="/docs/recipes/failed-payment-dunning" description="Stripe webhook in, escalating retries, human escalation on final failure." />
+  <Card title="Usage-limit upgrade" href="/docs/recipes/usage-limit-upgrade" description="Nudge at 80% of plan limits, again at 100%, once per period." />
+  <Card title="Cancellation save" href="/docs/recipes/cancellation-save" description="A reason survey via semantic links, with a save offer per answer." />
+</Cards>
+
+### E-commerce
+
+<Cards>
+  <Card title="Abandoned cart recovery" href="/docs/recipes/abandoned-cart" description="Race the purchase: two reminders at most, zero sends after checkout completes." />
+  <Card title="Post-purchase series" href="/docs/recipes/post-purchase-series" description="Receipt, product onboarding, and a hand-off to the review request." />
+  <Card title="Review request" href="/docs/recipes/review-request" description="A rating via semantic links — public-review ask or support alert, by score." />
+  <Card title="Back in stock" href="/docs/recipes/back-in-stock" description="Per-product waitlists and an idempotent restock broadcast." />
+</Cards>
+
+### Retention & engagement
+
+<Cards>
+  <Card title="Win-back and sunset" href="/docs/recipes/winback-and-sunset" description="Win back dormant users, then ask permission to keep sending — and honour the answer." />
+  <Card title="NPS survey" href="/docs/recipes/nps-survey" description="Quarterly score via semantic links; detractors page a human, promoters get the referral ask." />
+  <Card title="Weekly digest" href="/docs/recipes/weekly-digest" description="A cron Hatchet task that computes per-user digests — and why it isn't a journey." />
+  <Card title="Anniversary emails" href="/docs/recipes/anniversary-emails" description="Yearly re-entry, landed at a local morning with ctx.when." />
+</Cards>
+
+### Timing & scheduling
+
+<Cards>
+  <Card title="Timezone-aware scheduling" href="/docs/recipes/timezone-aware-scheduling" description="The ctx.when cookbook — local times, send windows, and the timezone resolution chain." />
+  <Card title="Event reminder sequence" href="/docs/recipes/event-reminder-sequence" description="T-24h and T-1h reminders computed from the registration event, plus an attended branch." />
+</Cards>
+
+### Human-in-the-loop
+
+<Cards>
+  <Card title="Lead alerts" href="/docs/recipes/lead-alerts" description="A hand-raise flags a lead; a task resolves identity server-side and pages the operator." />
+  <Card title="Human approval gate" href="/docs/recipes/human-approval-gate" description="The journey parks on waitForEvent until an operator fires the approval event." />
+  <Card title="Concierge onboarding" href="/docs/recipes/concierge-onboarding" description="High-value signups alert a CSM and the journey tracks the human follow-through." />
+  <Card title="Support follow-up" href="/docs/recipes/support-followup" description="Did this fix it? One tap answers route to reopen-plus-alert or a quiet close." />
+</Cards>
+
+### Agents & AI
+
+<Cards>
+  <Card title="Agent-triggered journeys" href="/docs/recipes/agent-triggered-journeys" description="Agents enroll users through the same idempotent events API your app uses." />
+  <Card title="AI-drafted sends" href="/docs/recipes/ai-drafted-sends" description="An LLM fills typed template props; the template stays code-owned and reviewed." />
+  <Card title="Agent feedback loop" href="/docs/recipes/agent-feedback-loop" description="Answers fan out to your agent via a destination; its verdict resumes the journey." />
+</Cards>
+
+### Pipelines & orchestration
+
+<Cards>
+  <Card title="PostHog-triggered journeys" href="/docs/recipes/posthog-triggered-journeys" description="The production PostHog webhook source — echo guard, identity guard, property split." />
+  <Card title="Cross-journey funnels" href="/docs/recipes/cross-journey-funnels" description="Journeys route into journeys with eligibility events instead of growing into monoliths." />
+  <Card title="Lifecycle alerts in Slack" href="/docs/recipes/lifecycle-alerts-in-slack" description="One filtered destination decides which lifecycle moments page a human." />
+</Cards>

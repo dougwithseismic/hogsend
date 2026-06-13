@@ -1,0 +1,143 @@
+---
+title: Timezone-aware scheduling
+description: The ctx.when cookbook — nextLocal, weekday chains, tomorrow/in offsets, send windows, ifPast, and the timezone resolution chain (PostHog person property → contact property → client default → UTC) behind every Date it returns.
+---
+
+`ctx.when` turns a human scheduling rule — "next Tuesday at 9am", "tomorrow morning", "three days out, inside business hours" — into an absolute `Date` in the *user's* timezone, and `ctx.sleepUntil()` does the durable waiting until that instant. The split is the whole design: the chain is pure date math (no `await`, nothing durable), the sleep is a Hatchet durable primitive that survives restarts and deploys. You never store a UTC offset, compute a DST transition, or keep a `setTimeout` alive.
+
+| Rule | Chain |
+|---|---|
+| The next 09:30, user's local time | `ctx.when.nextLocal("09:30")` |
+| Next Tuesday at 09:00 | `ctx.when.next("tue").at("09:00")` |
+| Tomorrow at 08:00, fixed timezone | `ctx.when.tz("America/New_York").tomorrow().at("08:00")` |
+| Five days out, inside business hours | `ctx.when.window("09:00", "17:00").in(days(5)).at("14:00")` |
+| If the instant already passed | `.ifPast("next")` rolls forward (default); `.ifPast("now")` clamps to now |
+
+## A journey that schedules everything locally
+
+Two sends, both landing at a deliberate local moment — the rest of the journey is ordinary.
+
+```ts
+// src/journeys/first-week-schedule.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const firstWeekSchedule = defineJourney({
+  meta: {
+    id: "first-week-schedule",
+    name: "Scheduling — first-week touchpoints",
+    enabled: true,
+    trigger: { event: Events.TRIAL_STARTED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.SUBSCRIPTION_CREATED }],
+  },
+
+  run: async (user, ctx) => {
+    // Tomorrow at 08:30 wall-clock in the user's own timezone. The chain
+    // returns a plain Date; sleepUntil does the durable waiting.
+    await ctx.sleepUntil(ctx.when.tomorrow().at("08:30"), {
+      label: "day-1-morning",
+    });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_DAY_ONE, // "onboarding/day-one"
+      subject: "Day one: the three things worth doing first",
+      journeyName: user.journeyName,
+    });
+
+    // Next Tuesday at 09:00, clamped into business hours for this chain:
+    // an instant resolving outside 09:00–17:00 snaps forward to the next
+    // open slot.
+    const tuesday = ctx.when.window("09:00", "17:00").next("tue").at("09:00");
+    await ctx.sleepUntil(tuesday, { label: "tuesday-tips" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_WEEKLY_TIPS, // "onboarding/weekly-tips"
+      subject: "Three workflows other teams ship in week one",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+A trial that converts mid-sleep exits via `exitOn` — `ctx.sleepUntil` is a wait like any other, and the run is cancelled before the next send. That is why a goal-met exit needs no polling around the sleeps.
+
+## The cookbook
+
+Every chain ends in a terminal that returns a `Date` (`.at("HH:mm")`, or `nextLocal` which is its own terminal); refinements (`.tz()`, `.window()`, `.ifPast()`) return a new builder and compose in any order before the terminal.
+
+```ts
+// The next 09:30 wall-clock — today if 09:30 is still ahead, else tomorrow.
+ctx.when.nextLocal("09:30");
+
+// The upcoming named weekday — short ("tue") or full ("tuesday") names.
+ctx.when.next("tue").at("09:00");
+
+// Tomorrow at 08:00 in a FIXED timezone instead of the user's.
+ctx.when.tz("America/New_York").tomorrow().at("08:00");
+
+// N days out, at a time that day, clamped into a window for this chain.
+ctx.when.window("09:00", "17:00").in(days(5)).at("14:00");
+
+// Past-instant policy: "next" (default) rolls forward to the next valid
+// occurrence; "now" clamps to now so the step runs immediately instead.
+ctx.when.ifPast("now").nextLocal("09:00");
+
+// Every chain returns a plain Date — hand it to the durable sleep.
+await ctx.sleepUntil(ctx.when.nextLocal("09:30"), { label: "morning-send" });
+```
+
+`ctx.sleepUntil` also accepts a raw `Date` or ISO string, so deadlines you compute from event properties (a webinar `start_time`, a renewal date) use the same primitive — see [Event reminder sequence](/docs/recipes/event-reminder-sequence). An instant already in the past resolves immediately; `.ifPast()` exists so *the chain* decides whether "already passed" means "next occurrence" or "right now".
+
+## How the timezone resolves
+
+`ctx.when` binds to the user's timezone automatically — `.tz()` is the override, not the norm. It takes the first **valid** IANA candidate in this order (invalid strings are skipped, not thrown):
+
+1. an explicit `.tz()` on the chain
+2. PostHog person properties — `$timezone`, then `$geoip_time_zone`
+3. the contact's stored timezone (cached from PostHog)
+4. the contact's `properties.timezone`
+5. the client's `defaults.timezone` (set on `createHogsendClient`)
+6. `"UTC"` — the final fallback
+
+The PostHog leg is a person **read**, which needs `POSTHOG_PERSONAL_API_KEY` — the `phc_` project key is write-only by PostHog's design (it ships in browser bundles; if it could read, anyone could dump your persons database). Without the personal key the chain soft-fails to the contact-property legs, surfaced once at boot and by `hogsend doctor` — sends still go out, just resolved from what the contact record knows. The [Analytics access guide](/docs/guides/analytics-access) covers creating and scoping the key (Person: Write + Project: Read is everything Hogsend needs).
+
+## Send windows (quiet hours)
+
+A window — set per chain with `.window(start, end)`, or as a client-wide default — clamps every resolved instant into the open hours: a time landing outside snaps *forward* to the next open slot. Windows are interpreted in the bound timezone and are DST-correct (`"09:00"` is always 9am wall-clock), and an overnight window like `.window("22:00", "06:00")` wraps midnight. Two boundaries worth knowing: clamping applies only to instants scheduled through `ctx.when` — an immediate `sendEmail()` is never delayed — and the window moves the *sleep target*, so the journey simply wakes later; no send is dropped.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  TRIAL_STARTED: "trial.started",
+  SUBSCRIPTION_CREATED: "subscription.created",
+} as const;
+
+export const Templates = {
+  ONBOARDING_DAY_ONE: "onboarding/day-one",
+  ONBOARDING_WEEKLY_TIPS: "onboarding/weekly-tips",
+} as const;
+```
+
+Each `onboarding/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)). Register the journey by adding `firstWeekSchedule` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **The chain resolves when it runs.** `ctx.when` is pure date math evaluated at that line — the timezone is resolved then, and the returned `Date` is fixed. A user who changes timezone mid-sleep wakes at the originally computed instant.
+  - **`sleepUntil` is durable, the chain is not.** Deploys and restarts during the wait are invisible; the date math costs nothing to recompute on a code path that retries.
+  - **Re-check `ctx.guard.isSubscribed()` after every sleep.** Unsubscribe does not exit a journey — the guard before each send is what keeps a morning-scheduled email away from someone who opted out overnight.
+  - **`exitOn` fires mid-sleep.** A `subscription.created` during the Tuesday wait cancels the run before the tips email — scheduled sends need no "did the goal happen?" polling.
+</Callout>
+
+Related: [Event reminder sequence](/docs/recipes/event-reminder-sequence) schedules off event-carried timestamps with the same `sleepUntil`, [Anniversary emails](/docs/recipes/anniversary-emails) lands a yearly send on a local morning, and [Abandoned cart](/docs/recipes/abandoned-cart) uses `nextLocal` for its last call. The full primitive reference is in the [Journeys guide](/docs/guides/journeys#ctxwhen).
