@@ -572,13 +572,16 @@ export async function runConnectPosthog(
     credential: { stored: true, expiresAt },
   };
 
-  // Advise on any expected scopes the granted credential is missing — purely
-  // informational; the loop still works without the optional/read scopes.
-  if (info.scopeGap && info.scopeGap.length > 0) {
+  // Advise only when PostHog granted FEWER scopes than we requested THIS run
+  // (a downscope) — derived from the grant we just received, not the stale
+  // pre-run `info.scopeGap`, so a successful full re-auth prints nothing.
+  const requestedScopes = POSTHOG_SCOPES.split(" ");
+  const missingScopes = requestedScopes.filter((s) => !scopes.includes(s));
+  if (missingScopes.length > 0) {
     deps.out.log(
-      `note: the stored credential is missing ${info.scopeGap.length} ` +
-        `expected scope(s): ${info.scopeGap.join(", ")}. Re-run ` +
-        "`hogsend connect posthog` to re-authorize with the full set.",
+      `note: PostHog granted ${scopes.length}/${requestedScopes.length} ` +
+        `requested scope(s); missing: ${missingScopes.join(", ")}. Re-run ` +
+        "`hogsend connect posthog` to grant the full set.",
     );
   }
 

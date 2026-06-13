@@ -15,7 +15,7 @@ npx create-hogsend@latest my-app
 hogsend connect posthog --url https://api.your-app.com
 ```
 
-The scaffold asks **"Are you using PostHog?"** — hand it your project API key and region and it writes `POSTHOG_API_KEY` + `POSTHOG_HOST`, mints a `POSTHOG_WEBHOOK_SECRET`, and switches on the outbound destination. [`hogsend connect posthog`](/docs/integrations/posthog/connect) then finishes the loop: a PKCE OAuth flow stores an encrypted credential on your instance (wiring person reads) and provisions the PostHog → Hogsend webhook destination for you — idempotently, so re-running it adopts an existing destination rather than creating a duplicate.
+The scaffold asks **"Are you using PostHog?"** — you can hand it your project API key and region (it writes `POSTHOG_API_KEY` + `POSTHOG_HOST` and switches on the outbound destination), or **skip the key entirely** and let `hogsend connect posthog` fetch it after deploy. Either way, [`hogsend connect posthog`](/docs/integrations/posthog/connect) finishes the loop: a PKCE OAuth flow stores an encrypted credential on your instance (wiring person reads), reads the project's public key for the outbound capture path, mints and persists the webhook signing secret if you haven't set one, and provisions the PostHog → Hogsend webhook destination for you — idempotently, so re-running it adopts an existing destination rather than creating a duplicate.
 
 ## What the integration does
 

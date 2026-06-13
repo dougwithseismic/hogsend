@@ -87,10 +87,10 @@ The form already has a `Content-Type: application/json` header. Click **+ Add en
 |---|---|
 | `x-posthog-webhook-secret` | The value you set as `POSTHOG_WEBHOOK_SECRET` in your Hogsend environment |
 
-Both sides must match. PostHog sends the `x-posthog-webhook-secret` header; the source compares it against the `POSTHOG_WEBHOOK_SECRET` env var on your app. If they don't match, the request is rejected with **`401 Invalid webhook secret`** and the event never enters the pipeline.
+Both sides must match. PostHog sends the `x-posthog-webhook-secret` header; the source compares it against the `POSTHOG_WEBHOOK_SECRET` env var on your app (or, when that's unset, the signing secret `hogsend connect posthog` minted and persisted). If they don't match, the request is rejected with **`401 Invalid webhook secret`** and the event never enters the pipeline.
 
 <Callout type="info">
-  The `posthog` source uses `auth.type: "match"` — plain shared-secret equality. If `POSTHOG_WEBHOOK_SECRET` is **unset**, the source stays **open** and accepts unauthenticated requests. Always set it in any internet-reachable deployment. (This is also why [`hogsend connect posthog`](/docs/integrations/posthog/connect) refuses to provision without it.)
+  The `posthog` source uses `auth.type: "match"` — plain shared-secret equality. If `POSTHOG_WEBHOOK_SECRET` is **unset** and no secret was minted by the connect flow, the source stays **open** and accepts unauthenticated requests. Set it in any internet-reachable deployment you wire by hand. (When you run [`hogsend connect posthog`](/docs/integrations/posthog/connect) instead, the server mints and persists a secret automatically if you haven't set one — so the loop is authenticated without you touching env.)
 </Callout>
 
 ### Step 4: Add event matchers (critical)

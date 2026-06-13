@@ -534,23 +534,26 @@ describe("runConnectPosthog — keyless / region resolution", () => {
   });
 });
 
-describe("runConnectPosthog — scope gap advisory", () => {
-  it("prints a note when connect-info reports a non-empty scopeGap", async () => {
-    const h = makeHarness({
-      info: connectInfo({ scopeGap: ["cohort:read", "query:read"] }),
-    });
+describe("runConnectPosthog — scope downscope advisory", () => {
+  it("prints a note when PostHog grants fewer scopes than requested", async () => {
+    // Simulate a downscope: PostHog grants everything except two read scopes.
+    const granted = POSTHOG_SCOPES.split(" ")
+      .filter((s) => s !== "cohort:read" && s !== "query:read")
+      .join(" ");
+    const h = makeHarness({ tokens: { ...TOKENS, scope: granted } });
     const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
 
     expect(result.verdict).toBe("connected");
-    const note = h.sink.find((s) => s.includes("expected scope"));
+    const note = h.sink.find((s) => s.includes("PostHog granted"));
     expect(note).toBeDefined();
     expect(note).toContain("cohort:read");
     expect(note).toContain("query:read");
   });
 
-  it("prints no scope-gap note when scopeGap is empty/absent", async () => {
-    const h = makeHarness({ info: connectInfo({ scopeGap: [] }) });
+  it("prints no note when PostHog grants the full requested set", async () => {
+    // Default TOKENS.scope === POSTHOG_SCOPES — a full grant.
+    const h = makeHarness({});
     await runConnectPosthog(h.deps, FLOW_DEFAULTS);
-    expect(h.sink.find((s) => s.includes("expected scope"))).toBeUndefined();
+    expect(h.sink.find((s) => s.includes("PostHog granted"))).toBeUndefined();
   });
 });
