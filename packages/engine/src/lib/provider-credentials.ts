@@ -16,8 +16,11 @@ import { env } from "../env.js";
  * don't, so the two stay independent).
  */
 
-/** Only "oauth" today; widen the union when an "api_key" kind lands. */
-export type CredentialKind = "oauth";
+/**
+ * "oauth" holds the token grant; "derived" holds server-derived config grabbed
+ * during connect. Widen the union further when an "api_key" kind lands.
+ */
+export type CredentialKind = "oauth" | "derived";
 
 /**
  * The decrypted shape stored for kind="oauth". Provider-neutral: nothing in
@@ -37,6 +40,20 @@ export interface OAuthCredentialPayload {
   scopes: string[];
   scopedTeams: number[];
   scopedOrganizations: string[];
+}
+
+/**
+ * The decrypted shape stored for kind="derived": server-derived PostHog config
+ * grabbed during connect. `webhookSecret` is minted when env lacks one
+ * (load-bearing for the inbound loop — the posthog webhook source resolves it
+ * from the store at request time); `projectApiKey` (phc_) is grabbed
+ * opportunistically for the OPTIONAL outbound capture path. All fields optional.
+ */
+export interface DerivedCredentialPayload {
+  webhookSecret?: string;
+  projectApiKey?: string;
+  projectId?: string;
+  privateHost?: string;
 }
 
 /** Row metadata — everything EXCEPT token material. Safe to surface. */
@@ -85,14 +102,16 @@ function deriveKey(secret: string): Buffer {
   return createHash("sha256").update(secret).digest();
 }
 
-function encryptPayload(
-  payload: OAuthCredentialPayload,
-  secret: string,
-): string {
+/**
+ * Payload-agnostic encrypt: JSON-stringify any value, AES-256-GCM encrypt,
+ * return base64url(iv || ciphertext || tag). No shape validation — the kind's
+ * own encrypt helper owns that.
+ */
+function encryptJson(value: unknown, secret: string): string {
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv("aes-256-gcm", deriveKey(secret), iv);
   const ciphertext = Buffer.concat([
-    cipher.update(JSON.stringify(payload), "utf-8"),
+    cipher.update(JSON.stringify(value), "utf-8"),
     cipher.final(),
   ]);
   return Buffer.concat([iv, ciphertext, cipher.getAuthTag()]).toString(
@@ -100,11 +119,16 @@ function encryptPayload(
   );
 }
 
-function decryptPayload(
+/**
+ * Payload-agnostic decrypt: decode base64url, AES-256-GCM decrypt, JSON.parse.
+ * Throws `ProviderCredentialDecryptError` on ANY failure or if the parsed
+ * result is not a non-null object. Per-kind validation lives in the caller.
+ */
+function decryptJson(
   blob: string,
   secret: string,
   providerId: string,
-): OAuthCredentialPayload {
+): unknown {
   let raw: Buffer;
   try {
     raw = Buffer.from(blob, "base64url");
@@ -119,7 +143,7 @@ function decryptPayload(
   const ciphertext = raw.subarray(IV_LENGTH, raw.length - TAG_LENGTH);
   const tag = raw.subarray(raw.length - TAG_LENGTH);
 
-  let payload: OAuthCredentialPayload;
+  let value: unknown;
   try {
     const decipher = createDecipheriv("aes-256-gcm", deriveKey(secret), iv);
     decipher.setAuthTag(tag);
@@ -127,10 +151,34 @@ function decryptPayload(
       decipher.update(ciphertext),
       decipher.final(),
     ]).toString("utf-8");
-    payload = JSON.parse(plaintext);
+    value = JSON.parse(plaintext);
   } catch {
     throw new ProviderCredentialDecryptError(providerId);
   }
+
+  if (typeof value !== "object" || value === null) {
+    throw new ProviderCredentialDecryptError(providerId);
+  }
+  return value;
+}
+
+function encryptPayload(
+  payload: OAuthCredentialPayload,
+  secret: string,
+): string {
+  return encryptJson(payload, secret);
+}
+
+function decryptPayload(
+  blob: string,
+  secret: string,
+  providerId: string,
+): OAuthCredentialPayload {
+  const payload = decryptJson(
+    blob,
+    secret,
+    providerId,
+  ) as OAuthCredentialPayload;
 
   if (
     typeof payload.accessToken !== "string" ||
@@ -247,4 +295,55 @@ export async function deleteProviderCredential(
     .returning({ id: providerCredentials.id });
 
   return deleted.length > 0;
+}
+
+/**
+ * Read + decrypt the kind="derived" config for a provider. `null` when none
+ * stored; throws `ProviderCredentialDecryptError` when a row exists but cannot
+ * be decrypted. Unlike the oauth path there's no required-field validation —
+ * every field on `DerivedCredentialPayload` is optional.
+ */
+export async function getDerivedCredential(
+  db: Database,
+  providerId: string,
+): Promise<DerivedCredentialPayload | null> {
+  const [row] = await db
+    .select()
+    .from(providerCredentials)
+    .where(
+      and(
+        eq(providerCredentials.providerId, providerId),
+        eq(providerCredentials.kind, "derived"),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+
+  return decryptJson(
+    row.payload,
+    env.BETTER_AUTH_SECRET,
+    providerId,
+  ) as DerivedCredentialPayload;
+}
+
+/**
+ * Encrypt + UPSERT the kind="derived" config (full-payload overwrite, same dumb
+ * store as `saveProviderCredential`: merging old + new fields is the CALLER's
+ * job).
+ */
+export async function saveDerivedCredential(
+  db: Database,
+  providerId: string,
+  payload: DerivedCredentialPayload,
+): Promise<void> {
+  const encrypted = encryptJson(payload, env.BETTER_AUTH_SECRET);
+
+  await db
+    .insert(providerCredentials)
+    .values({ providerId, kind: "derived", payload: encrypted })
+    .onConflictDoUpdate({
+      target: [providerCredentials.providerId, providerCredentials.kind],
+      set: { payload: encrypted, updatedAt: new Date() },
+    });
 }

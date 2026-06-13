@@ -350,8 +350,9 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     if (usingPosthog) {
       const apiKey = bail(
         await text({
-          message: "PostHog project API key? (blank to skip)",
-          placeholder: "phc_...",
+          message:
+            "PostHog project API key? (optional — leave blank and run 'hogsend connect posthog' after deploy to fetch the key, mint the webhook secret, and create the webhook automatically)",
+          placeholder: "phc_... (or blank)",
           validate: (value) =>
             value === undefined || value === ""
               ? undefined
@@ -360,7 +361,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       );
       if (!apiKey) {
         log.info(
-          "Skipping PostHog — uncomment POSTHOG_API_KEY in .env.example later.",
+          "No key pasted — run 'hogsend connect posthog' after deploy to fetch the key, mint the webhook secret, and create the webhook automatically.",
         );
       } else {
         const region = bail(

@@ -11,5 +11,5 @@
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
-  "scope": "person:read person:write project:read hog_function:write"
+  "scope": "person:read person:write project:read organization:read hog_function:read hog_function:write feature_flag:read cohort:read cohort:write query:read insight:read event_definition:read property_definition:read"
 }

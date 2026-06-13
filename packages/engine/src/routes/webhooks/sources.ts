@@ -1,9 +1,56 @@
+import type { Database } from "@hogsend/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import { headersToRecord } from "../../lib/headers.js";
 import { ingestEvent } from "../../lib/ingestion.js";
+import type { Logger } from "../../lib/logger.js";
+import { getDerivedCredential } from "../../lib/provider-credentials.js";
 import type { DefinedWebhookSource } from "../../webhook-sources/define-webhook-source.js";
 import { verifySignature } from "../../webhook-sources/verify.js";
+
+/** Negative-cache window for the stored PostHog secret (mirrors the token
+ * manager's ABSENT_RECHECK_MS) — caches present AND absent results so an
+ * inbound PostHog webhook POST does not hit the DB on every request. */
+const STORED_SECRET_RECHECK_MS = 30_000;
+
+let storedPosthogSecret: { value: string | undefined; at: number } | undefined;
+
+/**
+ * The minted PostHog webhook secret falls back to the `kind="derived"` store
+ * when `POSTHOG_WEBHOOK_SECRET` is unset — so an inbound event verifies WITHOUT
+ * a redeploy after `hogsend connect posthog`. Cached (present and absent) for
+ * `STORED_SECRET_RECHECK_MS` to keep the hot webhook path off the DB.
+ *
+ * A store read failure (e.g. DB blip, or a derived row that no longer decrypts)
+ * resolves to `undefined` rather than throwing — the inbound webhook path must
+ * not 500 on a degraded store. `undefined` keeps match-auth in its pre-feature
+ * posture (OPEN when no secret is configured anywhere), and the failure is
+ * logged so the misconfiguration is still visible.
+ */
+async function resolveStoredPosthogSecret(
+  db: Database,
+  logger: Logger,
+): Promise<string | undefined> {
+  const now = Date.now();
+  if (
+    storedPosthogSecret &&
+    now - storedPosthogSecret.at <= STORED_SECRET_RECHECK_MS
+  ) {
+    return storedPosthogSecret.value;
+  }
+
+  let value: string | undefined;
+  try {
+    value = (await getDerivedCredential(db, "posthog"))?.webhookSecret;
+  } catch (err) {
+    logger.warn("Failed to resolve stored PostHog webhook secret", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    value = undefined;
+  }
+  storedPosthogSecret = { value, at: now };
+  return value;
+}
 
 export function registerWebhookSourceRoutes(
   app: OpenAPIHono<AppEnv>,
@@ -72,9 +119,21 @@ export function registerWebhookSourceRoutes(
     const rawBody = await c.req.text();
     const headers = headersToRecord(c.req.raw.headers);
 
-    const secret = env[source.auth.envKey as keyof typeof env] as
+    let secret = env[source.auth.envKey as keyof typeof env] as
       | string
       | undefined;
+
+    // For the inbound PostHog source, fall back to the secret minted by
+    // `hogsend connect` (kind="derived" store) when env has none — so an
+    // inbound event verifies WITHOUT a redeploy. Leaves match-auth OPEN when
+    // neither env nor the store has a secret (current behavior preserved).
+    if (
+      !secret &&
+      source.auth.type === "match" &&
+      source.auth.envKey === "POSTHOG_WEBHOOK_SECRET"
+    ) {
+      secret = await resolveStoredPosthogSecret(db, logger);
+    }
 
     if (source.auth.type === "signature") {
       // Signature sources FAIL CLOSED: an unset secret is a 401, never an open

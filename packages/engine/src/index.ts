@@ -247,15 +247,20 @@ export {
   type OutboundPayloads,
 } from "./lib/outbound.js";
 export { getPostHog } from "./lib/posthog.js";
+// --- PostHog OAuth scopes (front-loaded set; gap-detector source of truth) ---
+export { EXPECTED_POSTHOG_SCOPES } from "./lib/posthog-scopes.js";
 // --- Provider credentials (encrypted-at-rest OAuth token store) ---
 export {
   type CredentialKind,
   type DecryptedProviderCredential,
+  type DerivedCredentialPayload,
   deleteProviderCredential,
+  getDerivedCredential,
   getProviderCredential,
   type OAuthCredentialPayload,
   ProviderCredentialDecryptError,
   type ProviderCredentialMeta,
+  saveDerivedCredential,
   saveProviderCredential,
   toCredentialMeta,
 } from "./lib/provider-credentials.js";

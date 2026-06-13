@@ -103,6 +103,8 @@ function makeHarness(opts: {
   postResult?: unknown | Error;
   interactive?: boolean;
   confirmAnswer?: boolean;
+  /** Injected region resolver for the keyless (privateHost null) path. */
+  selectRegion?: () => Promise<string>;
 }): Harness {
   const sink: string[] = [];
   const calls: Harness["calls"] = {
@@ -209,6 +211,7 @@ function makeHarness(opts: {
       return true;
     },
     confirm: async () => opts.confirmAnswer ?? true,
+    ...(opts.selectRegion ? { selectRegion: opts.selectRegion } : {}),
     now: () => NOW,
   };
 
@@ -253,12 +256,9 @@ describe("runConnectPosthog — happy path", () => {
         expiresAt: "2026-06-13T04:00:00.000Z",
         tokenEndpoint: "https://eu.posthog.com/oauth/token/",
         clientId: POSTHOG_CLIENT_ID,
-        scopes: [
-          "person:read",
-          "person:write",
-          "project:read",
-          "hog_function:write",
-        ],
+        // The granted scopes are the front-loaded set the token response
+        // carries (TOKENS.scope === POSTHOG_SCOPES), split on whitespace.
+        scopes: POSTHOG_SCOPES.split(" "),
         scopedTeams: [123],
         scopedOrganizations: [],
       },
@@ -359,23 +359,21 @@ describe("runConnectPosthog — failure verdicts", () => {
 });
 
 describe("runConnectPosthog — provisioning outcomes", () => {
-  it("soft-skips when the webhook secret is unconfigured (note with recovery)", async () => {
+  it("proceeds to provision even when the webhook secret is unconfigured (server mints it)", async () => {
+    // webhookSecretConfigured:false no longer short-circuits — the server mints
+    // + persists the secret during provisioning, so the flow stores the
+    // credential AND POSTs provision-loop, landing on `connected`.
     const h = makeHarness({
       info: connectInfo({ webhookSecretConfigured: false }),
     });
     const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
 
-    expect(result.verdict).toBe("connected_no_provision");
+    expect(result.verdict).toBe("connected");
     expect(h.calls.put).toHaveLength(1);
-    expect(h.calls.post).toHaveLength(0);
-    expect(result.provision).toEqual({
-      attempted: false,
-      skipped: "webhook_secret_missing",
-    });
-
-    const note = h.sink.find((s) => s.includes("POSTHOG_WEBHOOK_SECRET"));
-    expect(note).toBeDefined();
-    expect(note).toContain("--provision-only");
+    expect(h.calls.post).toEqual([
+      { path: "/v1/admin/analytics/provision-loop", body: {} },
+    ]);
+    expect(result.provision).toMatchObject({ attempted: true, ok: true });
   });
 
   it("soft-skips when API_PUBLIC_URL is loopback (PostHog can't reach it)", async () => {
@@ -466,15 +464,15 @@ describe("runConnectPosthog — --provision-only", () => {
     expect(h.calls.post).toHaveLength(0);
   });
 
-  it("hard-fails webhook_secret_missing BEFORE calling the route", async () => {
+  it("provisions even when the webhook secret is unconfigured (server mints it)", async () => {
+    // --provision-only no longer gates on webhookSecretConfigured — the server
+    // mints + persists the secret during provisioning, so the POST proceeds.
     const h = makeHarness({
       info: connectInfo({ webhookSecretConfigured: false }),
     });
-    await expectConnectError(
-      runConnectPosthog(h.deps, PROVISION_ONLY),
-      "webhook_secret_missing",
-    );
-    expect(h.calls.post).toHaveLength(0);
+    const result = await runConnectPosthog(h.deps, PROVISION_ONLY);
+    expect(result.verdict).toBe("connected");
+    expect(h.calls.post).toHaveLength(1);
   });
 
   it("any other non-2xx is provision_failed", async () => {
@@ -488,5 +486,74 @@ describe("runConnectPosthog — --provision-only", () => {
       runConnectPosthog(h.deps, PROVISION_ONLY),
       "provision_failed",
     );
+  });
+});
+
+describe("runConnectPosthog — keyless / region resolution", () => {
+  it("resolves the region from --posthog-host on a keyless instance and proceeds", async () => {
+    // Server reports no PostHog config (privateHost null) — the CLI no longer
+    // hard-fails not_configured; it derives the region from the flag and runs
+    // the full OAuth handshake against it.
+    const h = makeHarness({ info: connectInfo({ privateHost: null }) });
+    const result = await runConnectPosthog(h.deps, {
+      ...FLOW_DEFAULTS,
+      posthogHost: "https://eu.posthog.com/",
+    });
+
+    expect(result.verdict).toBe("connected");
+    // Trailing slash stripped; discovery + the OAuth flow ran against it.
+    expect(h.calls.discover).toEqual(["https://eu.posthog.com"]);
+    expect(result.posthog?.privateHost).toBe("https://eu.posthog.com");
+    expect(h.calls.put).toHaveLength(1);
+  });
+
+  it("non-interactive keyless without a flag still fails not_configured", async () => {
+    const h = makeHarness({
+      info: connectInfo({ privateHost: null }),
+      interactive: false,
+    });
+    await expectConnectError(
+      runConnectPosthog(h.deps, FLOW_DEFAULTS),
+      "not_configured",
+    );
+    expect(h.calls.discover).toHaveLength(0);
+  });
+
+  it("interactive keyless uses the injected selectRegion prompt", async () => {
+    const selectRegion = async () => "https://us.posthog.com";
+    const h = makeHarness({
+      info: connectInfo({ privateHost: null }),
+      interactive: true,
+      selectRegion,
+    });
+    const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
+
+    expect(result.verdict).toBe("connected");
+    expect(h.calls.discover).toEqual(["https://us.posthog.com"]);
+    expect(result.posthog?.privateHost).toBe("https://us.posthog.com");
+  });
+});
+
+describe("runConnectPosthog — scope downscope advisory", () => {
+  it("prints a note when PostHog grants fewer scopes than requested", async () => {
+    // Simulate a downscope: PostHog grants everything except two read scopes.
+    const granted = POSTHOG_SCOPES.split(" ")
+      .filter((s) => s !== "cohort:read" && s !== "query:read")
+      .join(" ");
+    const h = makeHarness({ tokens: { ...TOKENS, scope: granted } });
+    const result = await runConnectPosthog(h.deps, FLOW_DEFAULTS);
+
+    expect(result.verdict).toBe("connected");
+    const note = h.sink.find((s) => s.includes("PostHog granted"));
+    expect(note).toBeDefined();
+    expect(note).toContain("cohort:read");
+    expect(note).toContain("query:read");
+  });
+
+  it("prints no note when PostHog grants the full requested set", async () => {
+    // Default TOKENS.scope === POSTHOG_SCOPES — a full grant.
+    const h = makeHarness({});
+    await runConnectPosthog(h.deps, FLOW_DEFAULTS);
+    expect(h.sink.find((s) => s.includes("PostHog granted"))).toBeUndefined();
   });
 });

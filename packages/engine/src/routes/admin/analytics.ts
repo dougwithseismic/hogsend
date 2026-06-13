@@ -1,7 +1,14 @@
+import { randomBytes } from "node:crypto";
 import { DEFAULT_HOST, derivePrivateHost } from "@hogsend/plugin-posthog";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import { createTokenManager } from "../../lib/oauth-token-manager.js";
+import { EXPECTED_POSTHOG_SCOPES } from "../../lib/posthog-scopes.js";
+import {
+  getDerivedCredential,
+  getProviderCredential,
+  saveDerivedCredential,
+} from "../../lib/provider-credentials.js";
 import {
   ProvisionPostHogLoopError,
   provisionPostHogLoop,
@@ -30,8 +37,16 @@ export const connectInfoSchema = z.object({
   personalKeyConfigured: z.boolean(),
   webhookSecretConfigured: z.boolean(),
   apiPublicUrl: z.string(),
+  /**
+   * Expected PostHog OAuth scopes the stored credential is MISSING (the
+   * CLI surfaces these so the user can reconnect for the broader grant).
+   * `[]` when nothing is stored or the stored grant already covers them.
+   * Computed in the handler — NOT part of the pure `resolveConnectInfo`
+   * env projection (which `ConnectInfo` mirrors), so it omits this key.
+   */
+  scopeGap: z.array(z.string()),
 });
-export type ConnectInfo = z.infer<typeof connectInfoSchema>;
+export type ConnectInfo = Omit<z.infer<typeof connectInfoSchema>, "scopeGap">;
 
 /**
  * True when a public URL points at a loopback/unspecified address — PostHog
@@ -169,8 +184,35 @@ const provisionLoopRoute = createRoute({
 });
 
 export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
-  .openapi(connectInfoRoute, (c) => {
-    return c.json(resolveConnectInfo(c.get("container").env), 200);
+  .openapi(connectInfoRoute, async (c) => {
+    const { db, env } = c.get("container");
+
+    // The env projection is the pure base. The store can ALSO hold a minted
+    // webhook secret (provision-loop mints + persists one when env lacks it),
+    // so the configured-ness flag OR-s the two sources of truth.
+    const storedDerived = await getDerivedCredential(db, "posthog");
+    const webhookSecretConfigured =
+      Boolean(env.POSTHOG_WEBHOOK_SECRET) ||
+      Boolean(storedDerived?.webhookSecret);
+
+    // scopeGap = expected scopes the STORED oauth credential is missing. No
+    // credential ⇒ no gap to report (the connect flow will request the full
+    // set). A decrypt failure is non-fatal here — fall back to no gap.
+    let scopeGap: string[] = [];
+    try {
+      const oauth = await getProviderCredential(db, "posthog");
+      if (oauth) {
+        const granted = oauth.payload.scopes;
+        scopeGap = EXPECTED_POSTHOG_SCOPES.filter((s) => !granted.includes(s));
+      }
+    } catch {
+      scopeGap = [];
+    }
+
+    return c.json(
+      { ...resolveConnectInfo(env), webhookSecretConfigured, scopeGap },
+      200,
+    );
   })
   .openapi(provisionLoopRoute, async (c) => {
     const { db, env, logger } = c.get("container");
@@ -215,6 +257,24 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
       );
     }
 
+    // Resolve the webhook secret instead of requiring it: env wins, else a
+    // previously-minted stored secret, else mint a fresh one. When env has no
+    // secret, persist the resolved value so it survives AND the inbound
+    // posthog webhook source can resolve it from the store at request time
+    // (the source falls OPEN otherwise). The stored payload is merged so an
+    // existing phc_/projectId is preserved.
+    const storedDerived = await getDerivedCredential(db, "posthog");
+    const webhookSecret =
+      env.POSTHOG_WEBHOOK_SECRET ??
+      storedDerived?.webhookSecret ??
+      randomBytes(32).toString("hex");
+    if (env.POSTHOG_WEBHOOK_SECRET === undefined) {
+      await saveDerivedCredential(db, "posthog", {
+        ...(storedDerived ?? {}),
+        webhookSecret,
+      });
+    }
+
     try {
       const result = await provisionPostHogLoop({
         privateHost: info.privateHost,
@@ -225,9 +285,23 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
           ? { projectId: env.POSTHOG_PROJECT_ID }
           : {}),
         apiPublicUrl: info.apiPublicUrl,
-        webhookSecret: env.POSTHOG_WEBHOOK_SECRET,
+        webhookSecret,
         logger,
       });
+
+      // Opportunistically persist the phc_ (project api_token) the provisioner
+      // read on its way through — it powers the OPTIONAL outbound capture path
+      // and activates on the next deploy (no lazy boot-time seam). Re-read the
+      // stored payload to merge over the just-persisted webhook secret.
+      if (result.projectApiKey) {
+        const cur = (await getDerivedCredential(db, "posthog")) ?? {};
+        await saveDerivedCredential(db, "posthog", {
+          ...cur,
+          projectApiKey: result.projectApiKey,
+          projectId: result.projectId,
+          privateHost: info.privateHost,
+        });
+      }
 
       // M4 translation: the CLI's documented shape, with `action` riding
       // along for --json consumers.

@@ -14,6 +14,7 @@ type ProvisionPostHogLoopResult = {
   functionId: string;
   projectId: string;
   webhookUrl: string;
+  projectApiKey?: string;
   dashboardUrl: string;
 };
 
@@ -292,10 +293,44 @@ describe("provisionPostHogLoop", () => {
     );
   });
 
-  it("short-circuits @current discovery when projectId is given", async () => {
+  it("reads the project api_token (phc_) from @current into projectApiKey", async () => {
     const { logger } = stubLogger();
-    const base77 = `${HOST}/api/environments/77/hog_functions/`;
     const calls = stubRoutes({
+      [`GET ${CURRENT_URL}`]: () =>
+        json({ id: 4242, api_token: "phc_from_current" }),
+      [`GET ${LIST_URL}`]: () => json(listPage([])),
+      [`POST ${BASE}`]: () => json({ ...adoptedDetail(), id: "fn_new" }, 201),
+    });
+
+    const result = await provisionPostHogLoop(baseOpts(logger));
+
+    expect(callList(calls)[0]).toBe(`GET ${CURRENT_URL}`);
+    expect(result.projectApiKey).toBe("phc_from_current");
+    expect(result.projectId).toBe("4242");
+  });
+
+  it("leaves projectApiKey undefined when the project has no api_token", async () => {
+    const { logger } = stubLogger();
+    stubRoutes({
+      // No api_token on the project object — the phc_ grab is best-effort.
+      [`GET ${CURRENT_URL}`]: () => json({ id: 4242 }),
+      [`GET ${LIST_URL}`]: () => json(listPage([])),
+      [`POST ${BASE}`]: () => json({ ...adoptedDetail(), id: "fn_new" }, 201),
+    });
+
+    const result = await provisionPostHogLoop(baseOpts(logger));
+    expect(result.projectApiKey).toBeUndefined();
+  });
+
+  it("fetches the env-given project directly (no @current) and reads api_token", async () => {
+    const { logger } = stubLogger();
+    const project77 = `${HOST}/api/projects/77/`;
+    const base77 = `${HOST}/api/environments/77/hog_functions/`;
+    // With projectId set the provisioner GETs /api/projects/77/ directly (never
+    // @current) — it ALWAYS fetches the project now so it can read api_token
+    // (the phc_) on the way through.
+    const calls = stubRoutes({
+      [`GET ${project77}`]: () => json({ id: 77, api_token: "phc_proj77" }),
       [`GET ${base77}?type=destination&limit=100`]: () => json(listPage([])),
       [`POST ${base77}`]: () => json({ id: "fn_new" }, 201),
     });
@@ -306,10 +341,13 @@ describe("provisionPostHogLoop", () => {
     });
 
     expect(callList(calls)).toEqual([
+      `GET ${project77}`,
       `GET ${base77}?type=destination&limit=100`,
       `POST ${base77}`,
     ]);
+    expect(callList(calls).some((c) => c.includes("@current"))).toBe(false);
     expect(result.projectId).toBe("77");
+    expect(result.projectApiKey).toBe("phc_proj77");
   });
 
   it("adopts a compliant function without writing (unchanged)", async () => {

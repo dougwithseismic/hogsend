@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { confirm } from "@clack/prompts";
+import { confirm, select, text } from "@clack/prompts";
 import { openBrowser } from "../lib/browser.js";
 import {
   ConnectError,
@@ -12,7 +12,7 @@ import { color } from "../lib/output.js";
 import { bail } from "../lib/prompt.js";
 import type { Command, CommandContext } from "./types.js";
 
-const usage = `hogsend connect <provider> [--provision-only] [--no-provision] [--no-browser] [--json]
+const usage = `hogsend connect <provider> [--posthog-host <url>] [--provision-only] [--no-provision] [--no-browser] [--json]
 
 Connect this Hogsend instance to an analytics provider via OAuth. Providers:
 
@@ -26,6 +26,10 @@ The browser consent must happen on THIS machine (the OAuth callback lands on
 this command from your laptop, not from an SSH session on the server.
 
 Options:
+  --posthog-host     PostHog app/private host to authorize against, e.g.
+                     https://eu.posthog.com or https://us.posthog.com (NOT the
+                     i. ingestion host). Required when the instance has no
+                     PostHog config and you're running non-interactively.
   --provision-only   Skip OAuth; (re-)provision the event loop using the
                      already-stored credential.
   --no-provision     Stop after storing the credential.
@@ -41,6 +45,7 @@ async function run(ctx: CommandContext): Promise<void> {
     allowPositionals: true,
     strict: false,
     options: {
+      "posthog-host": { type: "string" },
       "provision-only": { type: "boolean", default: false },
       "no-provision": { type: "boolean", default: false },
       "no-browser": { type: "boolean", default: false },
@@ -96,6 +101,26 @@ async function run(ctx: CommandContext): Promise<void> {
     exchangeCode,
     openBrowser,
     confirm: async (message) => bail(await confirm({ message })),
+    selectRegion: async () => {
+      const choice = bail(
+        await select({
+          message: "Which PostHog region should Hogsend authorize against?",
+          options: [
+            { value: "https://eu.posthog.com", label: "PostHog EU Cloud" },
+            { value: "https://us.posthog.com", label: "PostHog US Cloud" },
+            { value: "custom", label: "Custom / self-hosted" },
+          ],
+        }),
+      ) as string;
+      if (choice !== "custom") return choice;
+      return bail(
+        await text({
+          message:
+            "PostHog app/private host URL (e.g. https://posthog.example.com)",
+          placeholder: "https://posthog.example.com",
+        }),
+      );
+    },
     now: () => new Date(),
   };
 
@@ -104,6 +129,10 @@ async function run(ctx: CommandContext): Promise<void> {
       provisionOnly: Boolean(values["provision-only"]),
       noProvision: Boolean(values["no-provision"]),
       noBrowser: Boolean(values["no-browser"]),
+      posthogHost:
+        typeof values["posthog-host"] === "string"
+          ? values["posthog-host"]
+          : undefined,
     });
 
     if (ctx.json) {

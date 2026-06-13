@@ -40,7 +40,7 @@ Hogsend is a **public** OAuth client — PKCE (S256), no client secret anywhere.
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "token_endpoint_auth_method": "none",
-  "scope": "person:read person:write project:read hog_function:write"
+  "scope": "person:read person:write project:read organization:read hog_function:read hog_function:write feature_flag:read cohort:read cohort:write query:read insight:read event_definition:read property_definition:read"
 }
 ```
 
@@ -48,14 +48,18 @@ The redirect URIs are the three fixed loopback ports the CLI's callback server b
 
 ### Scopes
 
-The connect flow requests four scopes, and team-level access (the narrowest consent PostHog offers — the grant is scoped to one project's team):
+The connect flow requests a **front-loaded set of thirteen scopes**, and team-level access (the narrowest consent PostHog offers — the grant is scoped to one project's team). Only the first four are exercised today; the rest are requested up front so future audience/segment/query features land without forcing a reconnect:
 
 | Scope | Used for |
 |---|---|
 | `person:read` | Person property reads — `ctx.when` timezone resolution, person-property conditions |
 | `person:write` | Person mutations on the private API (routine writes ride the capture pipeline with the project key instead) |
-| `project:read` | One-shot `GET /api/projects/@current/` project discovery |
+| `project:read` | Project discovery + reading the project's public key (`api_token`) on the way through |
 | `hog_function:write` | Creating/updating the PostHog → Hogsend webhook destination |
+| `organization:read`, `hog_function:read` | Reading org + destination state |
+| `feature_flag:read`, `cohort:read`, `cohort:write`, `query:read`, `insight:read`, `event_definition:read`, `property_definition:read` | Front-loaded for upcoming audience/segment/query features |
+
+The full set is the lockstep `scope` field of the CIMD document above.
 
 ## Credential resolution & refresh
 
@@ -67,7 +71,7 @@ For person **reads** and **provisioning**, the engine resolves a credential in t
 
 Token lifecycle, all engine-side:
 
-- Access tokens (`pha_…`) live ~10 hours; the engine refreshes about **60 seconds before expiry**, using the token endpoint discovered at connect time.
+- Access tokens (`pha_…`) live ~7 days; the engine refreshes about **60 seconds before expiry**, using the token endpoint discovered at connect time.
 - A refresh response without a new refresh token **keeps the old one** — rotation-safe either way.
 - Failed refreshes back off (one attempt per minute); the read path never throws — it degrades and warns.
 - A credential stored at runtime is picked up within ~30 seconds — no restart needed after `hogsend connect posthog`.
@@ -105,9 +109,9 @@ Each capability stands alone — losing one credential never takes down the othe
 | Event capture, feature flags | `POSTHOG_API_KEY` | Silent no-op (`getPostHog()` returns `undefined`) |
 | Person writes (`setPersonProperties`, destination `syncPersons`, bucket mirror) | `POSTHOG_API_KEY` | Silent no-op |
 | Person reads (`ctx.when` timezone, `getPersonProperties`, property conditions) | OAuth credential **or** `POSTHOG_PERSONAL_API_KEY` | Falls back to contact properties → client default timezone; surfaced at boot and by `hogsend doctor` |
-| Events in (PostHog triggers journeys) | The webhook destination + `POSTHOG_WEBHOOK_SECRET` | No PostHog-triggered journeys; the [data plane](/docs/data-api/events) still ingests everything else |
+| Events in (PostHog triggers journeys) | The webhook destination + a signing secret (`POSTHOG_WEBHOOK_SECRET`, or one minted by connect when env has none) | No PostHog-triggered journeys; the [data plane](/docs/data-api/events) still ingests everything else |
 | Engagement out (email lifecycle into PostHog) | `ENABLE_POSTHOG_DESTINATION=true` + `POSTHOG_API_KEY` | Opens/clicks recorded in Hogsend only |
-| Loop provisioning | A credential with `hog_function:write` + `POSTHOG_WEBHOOK_SECRET` + a reachable `API_PUBLIC_URL` | Refused with one of the `409` codes above |
+| Loop provisioning | A credential with `hog_function:write` + a reachable `API_PUBLIC_URL` (the signing secret is minted if `POSTHOG_WEBHOOK_SECRET` is unset) | Refused with one of the `409` codes above |
 
 ## Self-hosted / the personal-key fallback
 

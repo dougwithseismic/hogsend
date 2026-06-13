@@ -24,10 +24,19 @@ export const POSTHOG_CLIENT_ID =
 
 /**
  * LOCKSTEP (M5): must match the `scope` field of the hosted CIMD document
- * (`apps/docs/public/.well-known/hogsend-posthog-client.json`).
+ * (`apps/docs/public/.well-known/hogsend-posthog-client.json`) AND the
+ * engine's `EXPECTED_POSTHOG_SCOPES`
+ * (`packages/engine/src/lib/posthog-scopes.ts`). Front-loaded beyond the
+ * webhook loop's needs (which is only `hog_function:write` + the minted
+ * secret) so future read/write features land without forcing a reconnect.
+ * Every name here is validated against PostHog's published
+ * `scopes_supported`. Grep all three places before changing.
  */
 export const POSTHOG_SCOPES =
-  "person:read person:write project:read hog_function:write";
+  "person:read person:write project:read organization:read " +
+  "hog_function:read hog_function:write feature_flag:read cohort:read " +
+  "cohort:write query:read insight:read event_definition:read " +
+  "property_definition:read";
 
 /**
  * LOCKSTEP (M5): the CIMD document's `redirect_uris` list EXACTLY

@@ -34,6 +34,8 @@ export interface ConnectInfoResponse {
   personalKeyConfigured: boolean;
   webhookSecretConfigured: boolean;
   apiPublicUrl: string;
+  /** Expected OAuth scopes missing from the stored credential (advisory). */
+  scopeGap?: string[];
 }
 
 /** Loose mirror of POST /v1/admin/analytics/provision-loop's 200 (M10: any 2xx is success, no strict parse). */
@@ -51,7 +53,7 @@ export type ConnectVerdict =
   | "connected_no_provision"; // credential stored; provision skipped or failed
 
 export type ConnectFailure =
-  | "not_configured" // privateHost null (or US-cloud assumption declined)
+  | "not_configured" // privateHost null and no --posthog-host (non-interactive)
   | "oauth_unsupported" // discovery 404
   | "discovery_failed"
   | "port_unavailable"
@@ -61,8 +63,7 @@ export type ConnectFailure =
   | "exchange_failed"
   | "store_failed"
   | "no_credential" // --provision-only with nothing stored
-  | "webhook_secret_missing"
-  | "api_public_url_unreachable" // --provision-only without POSTHOG_WEBHOOK_SECRET
+  | "api_public_url_unreachable" // instance API_PUBLIC_URL is a loopback address
   | "provision_failed"; // --provision-only and the POST itself failed
 
 export class ConnectError extends Error {
@@ -101,10 +102,7 @@ export interface ConnectResult {
     | { attempted: true; ok: false; error: string }
     | {
         attempted: false;
-        skipped:
-          | "webhook_secret_missing"
-          | "no_provision_flag"
-          | "api_public_url_unreachable";
+        skipped: "no_provision_flag" | "api_public_url_unreachable";
       };
 }
 
@@ -128,6 +126,13 @@ export interface ConnectFlowDeps {
   openBrowser: (url: string) => boolean;
   /** bail-wrapped clack confirm; injected so tests never prompt. */
   confirm: (message: string) => Promise<boolean>;
+  /**
+   * Resolve the PostHog private/app host (e.g. https://eu.posthog.com) when the
+   * instance reports no region. Optional — when absent in interactive mode the
+   * flow falls back to {@link ConnectFlowDeps.confirm}. Injected (a bail-wrapped
+   * clack select + text) so tests never prompt.
+   */
+  selectRegion?: () => Promise<string>;
   now: () => Date;
 }
 
@@ -136,14 +141,22 @@ export interface ConnectFlowOptions {
   noProvision: boolean;
   noBrowser: boolean;
   timeoutMs?: number;
+  /** --posthog-host: the PostHog private/app host to authorize against. */
+  posthogHost?: string;
 }
 
 // --- §7 UX text — exact strings for failure modes / notes ------------------
 
 const HINT_NOT_CONFIGURED =
-  "Set POSTHOG_API_KEY (and POSTHOG_HOST for EU/self-hosted) on the " +
-  "instance, redeploy, then re-run. The server's PostHog config tells the " +
-  "CLI which region to authorize against.";
+  "Pass --posthog-host https://eu.posthog.com (or https://us.posthog.com, " +
+  "or your self-hosted app URL) to pick the region to authorize against. " +
+  "Alternatively set POSTHOG_HOST on the instance, redeploy, then re-run.";
+
+const POSTHOG_EU_HOST = "https://eu.posthog.com";
+const POSTHOG_US_HOST = "https://us.posthog.com";
+
+/** Strip a single trailing slash so origin checks stay exact. */
+const normalizeHost = (host: string): string => host.replace(/\/+$/, "");
 
 const hintOauthUnsupported = (privateHost: string): string =>
   `${privateHost} doesn't advertise an OAuth server (discovery returned 404).
@@ -192,13 +205,6 @@ skipped (a destination pointing at localhost would be unreachable).
 Once deployed, wire the loop against the real instance:
 
   hogsend connect posthog --provision-only --url https://your-instance`;
-
-const WEBHOOK_SECRET_NOTE = `Credential stored — but the PostHog -> Hogsend event loop needs a shared
-webhook secret, and this instance doesn't have one yet. Finish the loop:
-
-  1. Generate a secret:        openssl rand -hex 32
-  2. Set it on the instance:   POSTHOG_WEBHOOK_SECRET=<secret>  (api AND worker)
-  3. Redeploy, then run:       hogsend connect posthog --provision-only`;
 
 // ---------------------------------------------------------------------------
 
@@ -253,15 +259,8 @@ async function runProvisionOnly(
   info: ConnectInfoResponse,
   base: string,
 ): Promise<ConnectResult> {
-  if (info.webhookSecretConfigured === false) {
-    deps.out.note(WEBHOOK_SECRET_NOTE, "Webhook secret missing");
-    throw new ConnectError(
-      "webhook_secret_missing",
-      "POSTHOG_WEBHOOK_SECRET is not set on the instance — nothing to " +
-        "provision against",
-    );
-  }
-
+  // The server mints the webhook secret during provisioning, so we no longer
+  // gate on webhookSecretConfigured — just proceed to the provision route.
   if (isLoopbackUrl(info.apiPublicUrl)) {
     deps.out.note(LOOPBACK_URL_NOTE, "Instance not publicly reachable");
     throw new ConnectError(
@@ -326,6 +325,47 @@ function printProvisioned(out: Output, result: ProvisionLoopResponse): void {
 }
 
 /**
+ * Resolve the PostHog private/app host to authorize against. The server's
+ * `connect-info` reports `privateHost` when it has a PostHog config; when it's
+ * null (keyless start) the CLI resolves the region client-side:
+ *
+ *  1. `--posthog-host` flag wins (trailing slash stripped).
+ *  2. interactive + a `selectRegion` dep → prompt (EU / US / custom).
+ *  3. interactive without `selectRegion` → US confirm, declined → EU.
+ *  4. non-interactive without the flag → throw not_configured.
+ */
+async function resolvePrivateHost(
+  deps: ConnectFlowDeps,
+  info: ConnectInfoResponse,
+  opts: ConnectFlowOptions,
+): Promise<string> {
+  if (info.privateHost !== null) {
+    return info.privateHost;
+  }
+
+  if (opts.posthogHost) {
+    return normalizeHost(opts.posthogHost);
+  }
+
+  if (deps.interactive) {
+    if (deps.selectRegion) {
+      return normalizeHost(await deps.selectRegion());
+    }
+    const useUs = await deps.confirm(
+      `Use PostHog US Cloud (${POSTHOG_US_HOST})? (No selects PostHog EU ` +
+        `Cloud, ${POSTHOG_EU_HOST})`,
+    );
+    return useUs ? POSTHOG_US_HOST : POSTHOG_EU_HOST;
+  }
+
+  throw new ConnectError(
+    "not_configured",
+    "this instance has no PostHog configuration",
+    HINT_NOT_CONFIGURED,
+  );
+}
+
+/**
  * Run the full connect flow (or the `--provision-only` shortcut). Resolves
  * with a {@link ConnectResult} whenever a credential is stored (even if
  * provisioning was skipped or failed); throws {@link ConnectError} otherwise.
@@ -343,20 +383,19 @@ export async function runConnectPosthog(
       deps.http.get<ConnectInfoResponse>("/v1/admin/analytics/connect-info"),
   );
 
-  const privateHost = info.privateHost;
-  if (privateHost === null) {
-    throw new ConnectError(
-      "not_configured",
-      "this instance has no PostHog configuration",
-      HINT_NOT_CONFIGURED,
-    );
-  }
-
   if (opts.provisionOnly) {
     return runProvisionOnly(deps, info, base);
   }
 
-  if (info.hostExplicit === false) {
+  // a'. Resolve the region. The server tells us when it has no PostHog config
+  //     (privateHost null); the CLI then resolves it client-side from the flag
+  //     or an interactive prompt, so a fresh instance needs no PostHog env vars.
+  const privateHost = await resolvePrivateHost(deps, info, opts);
+
+  // When the server DID report a host but it wasn't explicit (US default),
+  // confirm the region. When privateHost was null we resolved it ourselves
+  // above, so this US-default reconciliation doesn't apply.
+  if (info.privateHost !== null && info.hostExplicit === false) {
     if (deps.interactive) {
       const proceed = await deps.confirm(
         "No POSTHOG_HOST set on the instance — assume PostHog US Cloud " +
@@ -533,6 +572,19 @@ export async function runConnectPosthog(
     credential: { stored: true, expiresAt },
   };
 
+  // Advise only when PostHog granted FEWER scopes than we requested THIS run
+  // (a downscope) — derived from the grant we just received, not the stale
+  // pre-run `info.scopeGap`, so a successful full re-auth prints nothing.
+  const requestedScopes = POSTHOG_SCOPES.split(" ");
+  const missingScopes = requestedScopes.filter((s) => !scopes.includes(s));
+  if (missingScopes.length > 0) {
+    deps.out.log(
+      `note: PostHog granted ${scopes.length}/${requestedScopes.length} ` +
+        `requested scope(s); missing: ${missingScopes.join(", ")}. Re-run ` +
+        "`hogsend connect posthog` to grant the full set.",
+    );
+  }
+
   // g. Provision the PostHog → Hogsend loop (soft: the credential is stored,
   //    so a provisioning failure never fails the command).
   if (opts.noProvision) {
@@ -543,15 +595,7 @@ export async function runConnectPosthog(
     };
   }
 
-  if (info.webhookSecretConfigured === false) {
-    deps.out.note(WEBHOOK_SECRET_NOTE, "Webhook secret missing");
-    return {
-      verdict: "connected_no_provision",
-      ...stored,
-      provision: { attempted: false, skipped: "webhook_secret_missing" },
-    };
-  }
-
+  // The server mints the webhook secret during provisioning — no skip here.
   if (isLoopbackUrl(info.apiPublicUrl)) {
     deps.out.note(LOOPBACK_URL_NOTE, "Instance not publicly reachable");
     return {
