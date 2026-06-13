@@ -1,0 +1,162 @@
+---
+title: Review request
+description: Ask for a rating inside the email with five semantic-link stars, read the answer with ctx.waitForEvent, and branch — a public-review ask for 4–5, a support flag via ctx.trigger for 1–3, silence for no answer.
+---
+
+A review ask has three outcomes and only one of them deserves a public-review link: happy shoppers get the ask, unhappy ones get a human, silent ones get nothing. The rating question lives *inside* the email as five [semantic links](/docs/guides/semantic-links) — a click on a star fires a real `review.rated { rating }` event through the ingest pipeline — and the journey reads the answer straight out of `ctx.waitForEvent()` and branches on it. No survey tool, no landing-page form, no polling.
+
+| Stage | How you express it |
+|---|---|
+| The trigger | `delivery.confirmed` — from the carrier, or [post-purchase series](/docs/recipes/post-purchase-series) |
+| Time to actually use the product | `ctx.sleep({ duration: days(3) })` |
+| The rating question | five `EmailAction`s with `properties: { rating: 1…5 }` |
+| Read the answer | `ctx.waitForEvent({ event: "review.rated", lookback: minutes(30) })` |
+| Unhappy → human follow-up | `ctx.trigger({ event: "review.needs_followup" })` |
+| Don't over-ask | `entryLimit: "once_per_period"` + `entryPeriod: days(30)` |
+
+## The journey
+
+```ts
+// src/journeys/review-request.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const reviewRequest = defineJourney({
+  meta: {
+    id: "review-request",
+    name: "E-commerce — review request",
+    enabled: true,
+    trigger: { event: Events.DELIVERY_CONFIRMED },
+    // one ask per shopper per month, however many orders deliver
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: hours(24),
+    // a refund cancels the ask. REVIEW_RATED must never appear here —
+    // the journey awaits it below.
+    exitOn: [{ event: Events.ORDER_REFUNDED }],
+  },
+
+  run: async (user, ctx) => {
+    const orderId = String(user.properties.order_id ?? "");
+    const productName = String(user.properties.product_name ?? "your order");
+
+    // Three days of actually using the product before asking.
+    await ctx.sleep({ duration: days(3), label: "post-delivery" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ECOMMERCE_REVIEW_REQUEST, // "ecommerce/review-request"
+      subject: `How is ${productName} working out?`,
+      journeyName: user.journeyName,
+      props: { orderId, productName },
+    });
+
+    // The stars in the email are semantic links — a click fires
+    // review.rated { rating }. lookback covers the gap between the send
+    // and this wait being established.
+    const answer = await ctx.waitForEvent({
+      event: Events.REVIEW_RATED,
+      timeout: days(7),
+      label: "await-rating",
+      lookback: minutes(30),
+    });
+
+    if (answer.timedOut) return; // no answer — leave them be
+
+    const rating = Number(answer.properties?.rating ?? 0);
+
+    if (rating <= 3) {
+      // Unhappy — flag support instead of asking for a public review.
+      await ctx.trigger({
+        event: Events.REVIEW_NEEDS_FOLLOWUP,
+        userId: user.id,
+        properties: { order_id: orderId, rating, source: "review-request" },
+      });
+      return;
+    }
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // Happy — now ask for the public review.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ECOMMERCE_REVIEW_PUBLIC_ASK, // "ecommerce/review-public-ask"
+      subject: "Would you share that in a review?",
+      journeyName: user.journeyName,
+      props: { orderId, productName, rating },
+    });
+  },
+});
+```
+
+The wait is durable: the shopper can answer six days after the send, after three worker deploys, and the run resumes with the rating in hand. A non-answer is also an answer — `timedOut: true` ends the run with no second touch.
+
+## The rating buttons
+
+Each star in the template is an `EmailAction` — an anchor carrying an event name and a scalar payload. The engine lifts the metadata into its `tracked_links` row at send time and strips the attributes; nothing semantic reaches the inbox HTML.
+
+```tsx
+// src/emails/ecommerce/review-request.tsx — the rating row
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
+import { Events } from "../../journeys/constants/index.js";
+
+{[1, 2, 3, 4, 5].map((rating) => (
+  <EmailAction
+    key={rating}
+    event={Events.REVIEW_RATED}
+    properties={{ rating }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-4 py-2"
+  >
+    {"★".repeat(rating)}
+  </EmailAction>
+))}
+```
+
+`href={HOSTED_ANSWER_HREF}` resolves at send time to the engine-hosted answer page, which confirms the recorded rating and offers an optional free-text box — a submitted comment ingests as `review.rated.comment` with the rating's properties attached, so the verbatim lands in `user_events` and your [destinations](/docs/guides/destinations) without any landing page of yours. Point `href` at your own thanks page instead if you have one; the rating still records the same way.
+
+## Answer semantics
+
+Three guarantees from the [semantic-links pipeline](/docs/guides/semantic-links) make the branch trustworthy:
+
+- **First answer wins, per (send, event).** All five stars share one answer slot, so a shopper who clicks 3 and then 5 records a 3 — the journey branches on what they answered first, and later clicks are stored as raw clicks only.
+- **Scanner bursts are suppressed.** Corporate mail gateways click every link within seconds of delivery. Confirmation is deferred ~30 seconds so the whole burst is visible and suppressed — a SafeLinks scan never records a 1-star rating. The latency is invisible against a `days(7)` timeout.
+- **The answer is the event payload.** `answer.properties.rating` arrives as a best-effort scalar — hence the defensive `Number(… ?? 0)` before branching.
+
+## The low-rating branch
+
+A 1–3 rating sends nothing to the shopper. `ctx.trigger` fires `review.needs_followup` through the full ingest pipeline, so it lands in `user_events`, fans out to destinations, and any journey or [custom Hatchet task](/docs/guides/webhook-sources#custom-workflows) can react — an operator alert email, a Slack ping, a support ticket. The [lead alerts](/docs/recipes/lead-alerts) recipe is the generalization of exactly this: a task with `onEvents: ["review.needs_followup"]` that resolves the shopper's identity server-side and mails your support inbox.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts — additions
+export const Events = {
+  DELIVERY_CONFIRMED: "delivery.confirmed",
+  ORDER_REFUNDED: "order.refunded",
+  REVIEW_RATED: "review.rated",
+  REVIEW_NEEDS_FOLLOWUP: "review.needs_followup",
+} as const;
+
+export const Templates = {
+  ECOMMERCE_REVIEW_REQUEST: "ecommerce/review-request",
+  ECOMMERCE_REVIEW_PUBLIC_ASK: "ecommerce/review-public-ask",
+} as const;
+```
+
+Each template key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `reviewRequest` to your `journeys` array, as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Never put the awaited answer event in `exitOn`.** An exit match on `review.rated` mid-wait would abort the run before the branch executes — the rating would be recorded and then ignored. React via `waitForEvent` *or* exit via `exitOn`; one event name, one role.
+  - **`lookback: minutes(30)` is load-bearing.** The wait is forward-looking, and first-answer-wins means an answer landing between the send and the wait being established would otherwise be missed for good.
+  - **`event` namespaces are enforced at send time.** `review.rated` is yours; `email.`/`journey.`/`bucket.`/`contact.` are reserved and a violating `EmailAction` fails the send loudly in development.
+  - **Unsubscribe does not exit the journey.** Both `ctx.guard.isSubscribed()` checks — after the three-day sleep and before the public ask — are what keep an unsubscribed shopper from receiving mail.
+</Callout>
+
+Related: [Post-purchase series](/docs/recipes/post-purchase-series) fires the `delivery.confirmed` this journey triggers on, [NPS survey](/docs/recipes/nps-survey) applies the same answer mechanics to score bands, and the [Semantic links guide](/docs/guides/semantic-links) documents the full click-to-event pipeline.

@@ -1,0 +1,207 @@
+---
+title: Cross-journey funnels
+description: Compose journeys into a funnel with ctx.trigger() eligibility events — each downstream journey keeps its own entry limits, preference checks, and kill switch, and ctx.history.journey() stops double-routing.
+---
+
+A funnel grown inside one journey becomes a monolith: a single `run()` owns weeks of branches, one `exitOn` list applies to all of them, and shipping a new path redeploys the whole flow. The alternative is composition — the upstream journey ends by firing an **eligibility event** through `ctx.trigger()`, and each downstream flow is its own `defineJourney()` triggered on that event. Because `ctx.trigger()` pushes through the full ingest pipeline, every handoff passes the same enrollment guard chain as any other journey. This is the funnel the Hogsend docs site runs in production: a check-in router feeding a setup-offer journey and a referral journey.
+
+| Concern | How you express it |
+|---|---|
+| Route into a follow-on flow | `ctx.trigger({ event: Events.SETUP_ELIGIBLE, … })` |
+| Cap each branch independently | the downstream journey's own `entryLimit` |
+| Respect unsubscribes at the handoff | enrollment guards re-check preferences on entry |
+| Never re-pitch a completed funnel | `ctx.history.journey({ userId, journeyId })` |
+| Turn one branch off | the downstream `meta.enabled` / `ENABLED_JOURNEYS` |
+
+## The router
+
+The upstream journey asks one question and turns the answer into routing events. The yes/no buttons in the check-in email are [semantic links](/docs/guides/semantic-links) — a click fires `checkin.answered { answer }` through the pipeline, and the wait below resumes with that payload.
+
+```ts
+// src/journeys/onboarding-checkin.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const onboardingCheckin = defineJourney({
+  meta: {
+    id: "onboarding-checkin",
+    name: "Onboarding — check-in router",
+    enabled: true,
+    trigger: { event: Events.USER_SIGNED_UP },
+    entryLimit: "once",
+    suppress: hours(12),
+  },
+
+  run: async (user, ctx) => {
+    // A week with the product before asking.
+    await ctx.sleep({ duration: days(5), label: "pre-checkin" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_CHECKIN, // "onboarding/checkin"
+      subject: "One tap: how is setup going?",
+      journeyName: user.journeyName,
+    });
+
+    const checkin = await ctx.waitForEvent({
+      event: Events.CHECKIN_ANSWERED,
+      timeout: days(5),
+      label: "await-checkin",
+      lookback: minutes(30), // covers the send → wait-established gap
+    });
+
+    await ctx.checkpoint("checkin-resolved");
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    const answer = checkin.timedOut ? undefined : checkin.properties?.answer;
+
+    if (answer === "yes") {
+      // Activated — route to the referral ask.
+      await ctx.trigger({
+        event: Events.REFERRAL_ELIGIBLE,
+        userId: user.id,
+        properties: { reason: "activated", source: "onboarding-checkin" },
+      });
+      return;
+    }
+
+    // Silence can still mean activated — they got moving without answering.
+    if (answer === undefined) {
+      const { found: activated } = await ctx.history.hasEvent({
+        userId: user.id,
+        event: Events.KEY_FEATURE_USED,
+        within: days(6), // the 5-day wait plus slop
+      });
+      if (activated) {
+        await ctx.trigger({
+          event: Events.REFERRAL_ELIGIBLE,
+          userId: user.id,
+          properties: { reason: "activated-silent", source: "onboarding-checkin" },
+        });
+        return;
+      }
+    }
+
+    // "no", or silent and stalled — the help-offer path. Never re-pitch
+    // someone who already completed that flow (eligibility events can
+    // arrive from more than one router).
+    const { completed: alreadyPitched } = await ctx.history.journey({
+      userId: user.id,
+      journeyId: "setup-offer",
+    });
+    if (alreadyPitched) return;
+
+    await ctx.trigger({
+      event: Events.SETUP_ELIGIBLE,
+      userId: user.id,
+      properties: {
+        reason: answer === "no" ? "needs-help" : "silent",
+        source: "onboarding-checkin",
+      },
+    });
+  },
+});
+```
+
+The routing tail fires events, not emails — every send the user actually receives lives in the downstream journey that owns it.
+
+## A downstream journey
+
+Each branch is an ordinary journey with its own trigger, limits, and exits. The eligibility event's scalar properties (`reason`, `source`) ride in on `user.properties`, so the downstream knows why it was entered.
+
+```ts
+// src/journeys/setup-offer.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const setupOffer = defineJourney({
+  meta: {
+    id: "setup-offer",
+    name: "Onboarding — setup offer",
+    enabled: true, // this branch has its own kill switch
+    trigger: { event: Events.SETUP_ELIGIBLE },
+    entryLimit: "once", // a duplicate eligibility fire is harmless
+    suppress: hours(12),
+    // Booking at any point withdraws the pitch, even mid-sleep.
+    exitOn: [{ event: Events.SETUP_BOOKED }],
+  },
+
+  run: async (user, ctx) => {
+    // Day-1 breather: an offer landing seconds after the "no" click reads
+    // automated, not responsive.
+    await ctx.sleep({ duration: days(1), label: "pre-offer" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.SETUP_OFFER, // "onboarding/setup-offer"
+      subject: "If setup is the blocker, we'll do it with you",
+      journeyName: user.journeyName,
+      props: { reason: String(user.properties.reason ?? "") },
+    });
+  },
+});
+```
+
+The referral branch is the same shape: triggered on `Events.REFERRAL_ELIGIBLE`, a `days(2)` breather, one ask on `Templates.REFERRAL_ASK`, `entryLimit: "once"`, no `exitOn`.
+
+## Why events, not function calls
+
+Inlining the downstream logic into the router would skip every protection the journey system gives you. Routing through the pipeline buys four things:
+
+- **The handoff passes the full guard chain.** Each downstream enrollment re-checks `meta.enabled`, `trigger.where`, `entryLimit`, and the user's email preferences. An unsubscribe between the check-in and the route is respected at the boundary with zero router code.
+- **Duplicate fires are harmless.** Under `entryLimit: "once"` a second `setup.eligible` for the same user returns `{ status: "skipped", reason: "already_entered_once" }` — eligibility events can arrive from several routers without coordination.
+- **Branches deploy and disable independently.** Flip the downstream's `enabled` flag or drop it from `ENABLED_JOURNEYS` and the router keeps firing events into a void, safely. Each branch also gets its own `exitOn` — `setup.booked` exits the offer without touching the check-in flow.
+- **Every routing decision is auditable.** Eligibility events land in `user_events` with their `reason`/`source` properties, so "why did this person get the offer" is a row, not a log dive.
+
+## Constants and registration
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  USER_SIGNED_UP: "user.signed_up",
+  KEY_FEATURE_USED: "feature.used",
+  CHECKIN_ANSWERED: "checkin.answered",
+  SETUP_ELIGIBLE: "setup.eligible",
+  REFERRAL_ELIGIBLE: "referral.eligible",
+  SETUP_BOOKED: "setup.booked",
+} as const;
+
+export const Templates = {
+  ONBOARDING_CHECKIN: "onboarding/checkin",
+  SETUP_OFFER: "onboarding/setup-offer",
+  REFERRAL_ASK: "onboarding/referral-ask",
+} as const;
+```
+
+```ts
+// src/journeys/index.ts
+import type { DefinedJourney } from "@hogsend/engine";
+import { onboardingCheckin } from "./onboarding-checkin.js";
+import { referralAsk } from "./referral-ask.js";
+import { setupOffer } from "./setup-offer.js";
+
+export const journeys: DefinedJourney[] = [
+  onboardingCheckin,
+  setupOffer,
+  referralAsk,
+];
+```
+
+Each `onboarding/*` template key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#add-the-template-keys-to-your-constants).
+
+<Callout type="info">
+  - **Never put the awaited answer event in `exitOn`.** `checkin.answered` is the router's branch signal — listing it as an exit would abort the run before the routing tail executes. One event name, one role.
+  - **Eligibility events carry scalars only, never PII.** `reason` and `source` are routing context; identity is resolved from the contact record by whatever consumes the event.
+  - **Re-check `ctx.guard.isSubscribed()` after every wait, in every journey.** The downstream's enrollment check covers only the moment of entry; an unsubscribe during its own sleeps does not exit it.
+  - **Custom events don't fan out to destinations.** Eligibility events live on the internal pipeline (`user_events`, journey routing, exits) — the outbound webhook spine carries only the fixed catalog. To page a human on a funnel moment, see [Lifecycle alerts in Slack](/docs/recipes/lifecycle-alerts-in-slack).
+</Callout>
+
+The [Journeys guide](/docs/guides/journeys) documents `ctx.trigger`, `ctx.history.journey`, and the enrollment guard chain; [Semantic links](/docs/guides/semantic-links) covers the in-email answer buttons. Related: [PostHog-triggered journeys](/docs/recipes/posthog-triggered-journeys) feeds this funnel from analytics events, [Lead alerts](/docs/recipes/lead-alerts) turns a hand-raise inside a branch into an operator notification, and [NPS survey](/docs/recipes/nps-survey) is a single-journey use of the same answer-then-route pattern.

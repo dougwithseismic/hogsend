@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { RECIPE_LANDERS } from "@/app/(home)/recipes/_data";
 import { SITE_URL } from "@/lib/site";
 import { source } from "@/lib/source";
 
@@ -20,6 +21,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/integrations",
     "/recipes",
     "/event-naming",
+    ...RECIPE_LANDERS.map((recipe) => `/recipes/${recipe.slug}`),
   ].map((path) => ({
     url: `${SITE_URL}${path}`,
     lastModified: now,

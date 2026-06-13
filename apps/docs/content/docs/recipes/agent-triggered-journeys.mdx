@@ -1,0 +1,150 @@
+---
+title: Agent-triggered journeys
+description: Agents as data-plane producers — hs.events.send with idempotency keys so retried runs never double-enroll, one shared event vocabulary, and trigger.where guards on model output.
+---
+
+An agent that should start a lifecycle flow — a Claude Code skill, a nightly enrichment loop, any script holding an API key — doesn't get an agent-specific surface, because it doesn't need one. It is another producer on the [data plane](/docs/data-api/client-sdk): the same `hs.events.send` your app server calls, hitting the same ingest pipeline, routing to the same journeys. What changes with an agent as producer is the failure profile — agents retry, agents improvise names, and model output is untrusted — and each of those already has a primitive pointed at it.
+
+| Failure profile of an agent producer | What absorbs it |
+|---|---|
+| Retried runs re-fire the same event | `idempotencyKey` — a replay returns `{ stored: false }` |
+| Legitimate re-runs re-enroll the user | `entryLimit: "once_per_period"` at the journey |
+| Improvised event names | `Events` constants + `context.object_action` naming |
+| Garbage values in model output | `trigger.where` — out-of-range events are skipped |
+| The agent doesn't know the surface | vendored skills, `--json` CLI, `/llms.txt` |
+
+## The agent side
+
+A lead-enrichment agent researches each signup and scores fit. What the research established about *who they are* goes on the contact; the run's outcome is one event:
+
+```ts
+// the agent's tool — any process holding an ingest-scoped key
+import { Hogsend } from "@hogsend/client";
+
+const hs = new Hogsend({
+  baseUrl: process.env.HOGSEND_BASE_URL!,
+  apiKey: process.env.HOGSEND_DATA_KEY!, // hsk_… key with the ingest scope
+});
+
+// identity facts → the contact record (what buckets segment on)
+await hs.contacts.upsert({
+  userId: lead.userId,
+  email: lead.email,
+  properties: { company_size: lead.companySize, industry: lead.industry },
+});
+
+// what happened → one event, scalar properties only. The idempotency key is
+// derived from the run, so however many times the agent loop retries, the
+// event ingests once.
+await hs.events.send({
+  name: "lead.research_completed", // Events.LEAD_RESEARCH_COMPLETED
+  userId: lead.userId,
+  eventProperties: { score: lead.score, tier: lead.tier },
+  idempotencyKey: `research-${lead.userId}-${runId}`,
+});
+```
+
+The split matters: `eventProperties` are what a journey's `trigger.where` filters on; the contact properties are what [buckets](/docs/guides/buckets) and contact-state conditions read. [Events & contacts](/docs/recipes/events-and-contacts) covers the model.
+
+## The journey side
+
+The journey — not the agent — decides what qualifies. `trigger.where` evaluates against the event's properties before any state is created, so a hallucinated score of 9000 never enrolls anyone:
+
+```ts
+// src/journeys/high-fit-followup.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const highFitFollowup = defineJourney({
+  meta: {
+    id: "high-fit-followup",
+    name: "Agent-triggered — high-fit follow-up",
+    enabled: true,
+    trigger: {
+      event: Events.LEAD_RESEARCH_COMPLETED,
+      // the contract on agent output: in-range scores only
+      where: (b) => b.all(b.prop("score").gte(80), b.prop("score").lte(100)),
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: hours(12),
+    exitOn: [{ event: Events.MEETING_CREATED }],
+  },
+
+  run: async (user, ctx) => {
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.SALES_HIGH_FIT, // "sales/high-fit"
+      subject: "A setup plan sized for your team",
+      journeyName: user.journeyName,
+      props: { tier: String(user.properties.tier ?? "") },
+    });
+
+    const meeting = await ctx.waitForEvent({
+      event: Events.MEETING_CREATED,
+      timeout: days(7),
+      label: "await-meeting",
+    });
+    if (!meeting.timedOut) return; // booked — exitOn already covered it
+
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.SALES_HIGH_FIT_NUDGE, // "sales/high-fit-nudge"
+      subject: "Still happy to walk you through it",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+Nothing here knows the producer was an agent. The same event fired by a human-run backfill script enrolls identically — which is the point: one pipeline, one set of guards, any producer.
+
+## Retried runs never double-enroll
+
+Agent loops retry on failure, and a retry typically replays the whole tool call. Two layers absorb it:
+
+- **The ingest layer.** A replayed `events.send` carrying the same `idempotencyKey` within the window returns `{ stored: false }` — nothing re-ingests, no journey re-triggers. Derive the key from stable run identity (`research-${lead.userId}-${runId}`), not from a timestamp the retry would regenerate.
+- **The journey layer.** `entryLimit: "once_per_period"` with `entryPeriod: days(30)` backstops the case where the agent legitimately re-scores the same lead next week under a new key — one follow-up sequence per month, however often research runs.
+
+## One vocabulary for agents and humans
+
+Agents are the producers most likely to invent an event name at the call site. The [event-naming](/docs/guides/event-naming) discipline keeps the stream queryable:
+
+- Names are `context.object_action` — lowercase, one dot, past-tense verb from a closed list: `lead.research_completed`, not `agentScoredLead`.
+- Variance goes in properties, never the name: `lead.research_completed { tier: "enterprise" }`, not `lead.enterprise_research_completed`. An agent that interpolates values into names produces hundreds of event definitions nothing can filter or graph together.
+- Pin names in the `Events` constants map and hand the agent that file (or a skill that embeds it). A typo in a generated string is an event that silently never matches a trigger; a constant is a compile error in code and a closed list in a prompt.
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  LEAD_RESEARCH_COMPLETED: "lead.research_completed",
+  MEETING_CREATED: "meeting.created",
+} as const;
+
+export const Templates = {
+  SALES_HIGH_FIT: "sales/high-fit",
+  SALES_HIGH_FIT_NUDGE: "sales/high-fit-nudge",
+} as const;
+```
+
+Each `sales/*` key needs a React Email component, a `registry.ts` entry, and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)); register the journey by adding `highFitFollowup` to your `journeys` array as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+## What the agent can read
+
+The [agent surface](/docs/agents) exists so the producer can learn all of this without a human in the loop: every scaffolded app vendors 14 Claude Code skills under `.claude/skills/` — `hogsend-client-sdk` covers exactly the calls above — every `hogsend` CLI data command takes `--json` for verification (`hogsend events <userId> --json` confirms the event landed), and [`https://hogsend.com/llms.txt`](https://hogsend.com/llms.txt) is the stable machine entrypoint for an agent starting from a URL. The full skill catalog lives at [`hogsend skills`](/docs/cli/skills).
+
+<Callout type="info">
+  - **Model output is untrusted input.** Validate at the boundary you control: `trigger.where` for ranges and enums, `entryLimit` for frequency. An ineligible event returns `{ status: "skipped" }` and creates no journey state.
+  - **Key idempotency to the run, not the clock.** A retry that regenerates `Date.now()` defeats the key. Use the agent framework's run or attempt id.
+  - **Scalars only in event properties** — and never PII the contact record already holds. The journey reads identity from the contact, not the event.
+</Callout>
+
+Related: [AI-drafted sends](/docs/recipes/ai-drafted-sends) puts a model on the consumer side of the same stream, [Agent feedback loop](/docs/recipes/agent-feedback-loop) closes the circuit with answers flowing back out to the agent, and [Events & contacts](/docs/recipes/events-and-contacts) documents the idempotency and property-split model in full.

@@ -1,0 +1,187 @@
+---
+title: Back-in-stock notifications
+description: A "notify me" press subscribes the shopper to a per-product list via the lists bag on hs.events.send; a restock webhook source ingests product.restocked, and a Hatchet task broadcasts hs.campaigns.send with an idempotency key.
+---
+
+Back-in-stock is a list problem, not a journey problem: shoppers opt into a per-product list when they press "notify me", and a restock broadcasts one campaign to exactly that list. The wiring is a [`defineList()`](/docs/guides/lists) per restock-eligible product, the `lists` bag on `hs.events.send` for the button press, a [webhook source](/docs/guides/webhook-sources) for the warehouse's restock signal, and a small Hatchet task that fires `hs.campaigns.send` with an idempotency key — so a flaky warehouse webhook can never double-blast the list.
+
+| Stage | How you express it |
+|---|---|
+| One list per restock-eligible SKU | `defineList({ id: "restock-<sku>", defaultOptIn: false })` |
+| The "notify me" press | `hs.events.send` with `lists: { "restock-<sku>": true }` |
+| The restock signal | `defineWebhookSource()` → `product.restocked` |
+| Duplicate webhook deliveries | `idempotencyKey` on the `IngestEvent` |
+| The broadcast | `hs.campaigns.send({ list, idempotencyKey: "restock-<sku>-<date>" })` |
+| Buyers stop being waiters | `lists: { "restock-<sku>": false }` on `order.completed` |
+
+## The notify-me lists
+
+Lists are code-defined, so each restock-eligible product gets a declared, reviewed list. `defaultOptIn: false` is the consent guarantee: only a contact with an explicit `true` membership receives the campaign — pressing the button is the opt-in, and each list renders as its own row in the preference center.
+
+```ts
+// src/lists/restock.ts
+import { defineList } from "@hogsend/engine";
+
+const restockList = (sku: string, productName: string) =>
+  defineList({
+    id: `restock-${sku}`,
+    name: `Back in stock — ${productName}`,
+    description: `One email when ${productName} is available again.`,
+    defaultOptIn: false, // opt-in: only people who pressed "notify me"
+  });
+
+export const restockLists = [
+  restockList("chair-01", "Studio chair"),
+  restockList("desk-02", "Standing desk"),
+];
+```
+
+This fits a curated set of products. For an unbounded 50,000-SKU long tail, keep the waitlist rows in your own store database and send [transactional emails](/docs/recipes/transactional-emails) per waiter instead — code-defined lists are for audiences you can enumerate and review.
+
+The storefront maintains membership through the `lists` bag — no separate subscribe call, and the same write covers both directions:
+
+```ts
+// storefront server — the "notify me" button
+await hs.events.send({
+  name: "product.waitlisted",
+  email: shopper.email,
+  userId: shopper.id,
+  eventProperties: { sku, product_name: product.name },
+  lists: { [`restock-${sku}`]: true }, // the event and the opt-in, one call
+  idempotencyKey: `waitlist-${shopper.id}-${sku}`,
+});
+
+// order placed — buyers stop being waiters
+await hs.events.send({
+  name: "order.completed",
+  userId: shopper.id,
+  eventProperties: { order_id: order.id },
+  lists: Object.fromEntries(
+    order.items.map((item) => [`restock-${item.sku}`, false]),
+  ),
+});
+```
+
+## The restock webhook source
+
+The warehouse system posts to `POST /v1/webhooks/inventory`. The source verifies the signature, validates the payload with Zod, and transforms it into a `product.restocked` event — a system event with no user attached. The `idempotencyKey` makes a redelivered webhook a no-op before it ever reaches the broadcast.
+
+```ts
+// src/webhook-sources/inventory.ts
+import { defineWebhookSource } from "@hogsend/engine";
+import { z } from "zod";
+import { Events } from "../journeys/constants/index.js";
+
+const restockSchema = z.object({
+  delivery_id: z.string(),
+  type: z.string(),
+  sku: z.string(),
+  product_name: z.string(),
+  quantity: z.number(),
+});
+
+export const inventorySource = defineWebhookSource({
+  meta: {
+    id: "inventory",
+    name: "Inventory",
+    description: "Restock signals from the warehouse system.",
+  },
+  auth: {
+    type: "signature", // fails closed when the secret is unset
+    scheme: "hmac-hex",
+    envKey: "INVENTORY_WEBHOOK_SECRET",
+    header: "x-signature",
+  },
+  schema: restockSchema,
+  async transform(payload) {
+    if (payload.type !== "restock" || payload.quantity === 0) return null;
+
+    return {
+      event: Events.PRODUCT_RESTOCKED, // "product.restocked" — the routing key
+      userEmail: "", // a system event — no user attached
+      eventProperties: {
+        sku: payload.sku,
+        product_name: payload.product_name,
+        quantity: payload.quantity,
+        source: "inventory",
+      },
+      idempotencyKey: payload.delivery_id, // a redelivery is a no-op
+    };
+  },
+});
+```
+
+Returning `null` accepts-and-skips event types you don't model, and `quantity === 0` filters phantom restocks at the door.
+
+## The broadcast task
+
+A `transform` can only return an `IngestEvent` — it can't send a campaign. The broadcast lives in the adjacent piece: a durable [Hatchet task](/docs/guides/webhook-sources#custom-workflows) with `onEvents: ["product.restocked"]`, which Hatchet routes the ingested event to. It calls the same public campaigns API your scripts would — the campaign row, recipient resolution, and the durable broadcast all live behind [`POST /v1/campaigns`](/docs/recipes/marketing-campaigns).
+
+```ts
+// src/workflows/restock-broadcast.ts
+import { hatchet } from "@hogsend/engine";
+import { Events, Templates } from "../journeys/constants/index.js";
+import { hs } from "../lib/hogsend.js";
+
+export const restockBroadcastTask = hatchet.durableTask({
+  name: "restock-broadcast",
+  onEvents: [Events.PRODUCT_RESTOCKED],
+  retries: 2,
+  executionTimeout: "10m",
+  fn: async (input: {
+    properties: Record<string, string | number | boolean | null>;
+  }) => {
+    const sku = String(input.properties.sku ?? "");
+    const productName = String(input.properties.product_name ?? "");
+    if (!sku) return { status: "skipped", reason: "missing_sku" };
+
+    // One campaign per SKU per day, however many times the task retries
+    // or the warehouse re-fires.
+    const date = new Date().toISOString().slice(0, 10);
+    const { campaignId } = await hs.campaigns.send({
+      list: `restock-${sku}`,
+      template: Templates.ECOMMERCE_BACK_IN_STOCK, // "ecommerce/back-in-stock"
+      props: { sku, productName },
+      subject: `${productName} is back in stock`,
+      idempotencyKey: `restock-${sku}-${date}`,
+    });
+
+    return { status: "queued", campaignId, sku };
+  },
+});
+```
+
+The 202-style return is an enqueue ack — the actual sends run in the worker, and `hs.campaigns.get(campaignId)` reports `totalRecipients` / `sentCount` / `skippedCount` as it progresses.
+
+## Idempotency, twice
+
+Two layers, two scopes:
+
+- **The `IngestEvent` key** (`delivery_id`) dedupes the *signal*: a warehouse that redelivers the same webhook produces one `product.restocked` event, so the task fires once.
+- **The campaign key** (`restock-<sku>-<date>`) dedupes the *broadcast*: a task retry after a successful enqueue resolves to the existing campaign instead of spawning a second one. The date in the key is the re-notify policy — same-day inventory flapping collapses into one campaign, while a restock weeks later sends a fresh one to whoever has since joined the list.
+
+## Wire it up
+
+```ts
+// src/lists/index.ts — spread the restock lists into your lists array
+export const lists = [productUpdates, ...restockLists];
+
+// src/webhook-sources/index.ts
+export const webhookSources: DefinedWebhookSource[] = [
+  posthogSource,
+  inventorySource,
+];
+
+// src/workflows/index.ts
+export const extraWorkflows = [restockBroadcastTask];
+```
+
+`lists` threads into `createHogsendClient` in **both** `src/index.ts` and `src/worker.ts` (never into `createWorker` — see [Lists](/docs/guides/lists#registering-a-list)); `webhookSources` goes to `createApp`, `extraWorkflows` to `createWorker`. The `ecommerce/back-in-stock` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email).
+
+<Callout type="info">
+  - **`defaultOptIn: false` is the consent model.** A campaign to an opt-in list reaches only contacts with an exact `true` membership — the same `ListRegistry.isSubscribed` rule the preference center renders, so the broadcast and the preference UI can never disagree.
+  - **Membership is one-shot by your own write, not by magic.** The campaign does not unsubscribe its recipients; the `lists: { …: false }` bag on `order.completed` is what removes buyers, and anyone else stays subscribed for the next restock by design.
+  - **Signature auth fails closed.** With `INVENTORY_WEBHOOK_SECRET` unset the source returns `401` and `transform` never runs — a misconfigured deploy can't accept unauthenticated restock signals.
+</Callout>
+
+Related: [Marketing campaigns](/docs/recipes/marketing-campaigns) documents the broadcast's durability and polarity rules in full, [Waitlist launch](/docs/recipes/waitlist-launch) applies the same list-plus-campaign shape to a product launch, and [Abandoned cart](/docs/recipes/abandoned-cart) covers the journey side of the purchase stream.

@@ -1,0 +1,160 @@
+---
+title: Lifecycle alerts in Slack
+description: Page a human on key lifecycle moments — hand-raises, NPS detractors, dunning final notices — with a filtered defineDestination() on the durable outbound spine, instead of per-journey Slack code.
+---
+
+Journeys should not know about Slack. The engine already fans every catalog event (`contact.*`, `email.*`, `journey.completed`, `bucket.*`) through the durable [outbound webhook spine](/docs/data-api/webhooks) — delivery rows, retries with backoff, a dead-letter queue. An alerting destination subscribes to the few envelopes that mean "a human should look at this" and posts them to a Slack incoming webhook, so the which-events-page-a-human decision lives in exactly one file and no journey grows an HTTP call that can fail mid-run.
+
+The moments worth paging on all arrive as catalog envelopes:
+
+| Moment | The envelope that carries it |
+|---|---|
+| A hand-raise from a sales/offer email | `email.action` — a confirmed [semantic answer](/docs/guides/semantic-links), with your event name in `data.event` and the answer scalars in `data.properties` |
+| An NPS detractor | `email.action` where `data.event === "nps.submitted"` and `data.properties.score <= 6` |
+| A dunning final notice went out | `email.sent` filtered on `data.templateKey` |
+| A spam complaint | `email.complained` — always worth eyes |
+
+## The no-code path
+
+For coarse alerts — "post every bounce and complaint to a channel" — the shipped `slack` [destination preset](/docs/guides/destinations#the-shipped-presets) needs no code. Enable it with `ENABLED_DESTINATION_PRESETS=slack`, then create an endpoint whose `eventTypes` are the events you want:
+
+```ts
+// one-off admin script — full-admin key
+await hs.webhooks.create({
+  kind: "slack",
+  eventTypes: ["email.bounced", "email.complained"],
+  config: {
+    url: "https://hooks.slack.com/services/T000/B000/XXXX",
+    iconEmoji: ":warning:",
+  },
+});
+```
+
+The preset posts one formatted line per event. Its only filter is the endpoint's `eventTypes` subscription — enough for bounce/complaint firehoses, not enough for "only detractors" or "only this template". Content-level rules need a transform of your own.
+
+## The filtered destination
+
+A [`defineDestination()`](/docs/guides/destinations) is a delivery-time transform with three outcomes: return a request (the spine POSTs it), return `null` (skip — the row is marked delivered, no POST, no retry), or throw (a non-retryable config error, straight to the DLQ). Returning `null` is the filter, so the alert rules become one function:
+
+```ts
+// src/destinations/slack-alerts.ts
+import { defineDestination } from "@hogsend/engine";
+
+// The one list of lifecycle moments that page a human.
+function alertText(
+  type: string,
+  data: Record<string, unknown>,
+): string | null {
+  // Semantic answers: data.event is YOUR event name, data.properties the
+  // confirmed answer scalars.
+  if (type === "email.action") {
+    const event = String(data.event ?? "");
+    const props = (data.properties ?? {}) as Record<string, unknown>;
+
+    if (event === "setup.answered" && props.answer === "interested") {
+      return `:raising_hand: ${data.to} answered *interested* to the setup offer`;
+    }
+    if (
+      event === "nps.submitted" &&
+      typeof props.score === "number" &&
+      props.score <= 6
+    ) {
+      return `:rotating_light: NPS detractor — ${data.to} scored ${props.score}`;
+    }
+    return null; // every other answer is not an alert
+  }
+
+  // The dunning final notice going out is itself the alert.
+  if (type === "email.sent" && data.templateKey === "billing/final-notice") {
+    return `:hourglass: Final dunning notice sent to ${data.to}`;
+  }
+
+  if (type === "email.complained") {
+    return `:no_entry: Spam complaint from ${data.to} (template ${data.templateKey})`;
+  }
+
+  return null;
+}
+
+export const slackAlerts = defineDestination({
+  meta: {
+    id: "slack-alerts", // == the webhook_endpoints.kind this serves
+    name: "Slack alerts",
+    description: "Page a human on hand-raises, detractors, and final notices.",
+  },
+  // The catalog events this destination accepts.
+  events: ["email.action", "email.sent", "email.complained"],
+  transform(envelope, ctx) {
+    const cfg = (ctx.endpoint.config ?? {}) as { url?: string };
+    const url = cfg.url ?? ctx.endpoint.url;
+    if (!url) {
+      // A throw is a non-retryable config error — straight to the DLQ.
+      throw new Error("slack-alerts endpoint is missing config.url");
+    }
+
+    const text = alertText(envelope.type, envelope.data);
+    if (!text) return null; // skip: marked delivered, no POST, no retry
+
+    return {
+      url,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, username: "Hogsend" }),
+    };
+  },
+});
+```
+
+`transform` runs once per delivery **attempt**, including retries, so it must stay a pure projection of the envelope plus the endpoint — never mutate external state inside it. Slack returns a non-2xx on a bad payload, so the default 2xx success rule is correct and no `isSuccess` override is needed.
+
+## Register it
+
+A destination is wired through `createHogsendClient` in **both** entry points — the worker's delivery task resolves transforms from the registry that call installs:
+
+```ts
+// src/destinations/index.ts
+import type { DefinedDestination } from "@hogsend/engine";
+import { slackAlerts } from "./slack-alerts.js";
+
+export const destinations: DefinedDestination[] = [slackAlerts];
+```
+
+```ts
+// src/index.ts AND src/worker.ts — the same option in both
+const client = createHogsendClient({
+  journeys,
+  destinations, // consumer destinations are always registered (no env gate)
+  email: { templates },
+});
+```
+
+Then create the endpoint that routes deliveries through it. The endpoint's `eventTypes` is the coarse filter (irrelevant envelopes never even create a delivery row); the transform is the fine one:
+
+```ts
+await hs.webhooks.create({
+  kind: "slack-alerts", // matches meta.id — deliveries run your transform
+  eventTypes: ["email.action", "email.sent", "email.complained"],
+  config: { url: "https://hooks.slack.com/services/T000/B000/XXXX" },
+});
+```
+
+The Slack URL lives in the per-endpoint `config`, never in an env var — two channels (say, `#leads` and `#deliverability`) are two endpoints with different URLs and `eventTypes`, sharing one transform.
+
+## Custom journey moments
+
+The outbound catalog is fixed — an event you fire with `ctx.trigger()` (a `lead.flagged`, a `setup.eligible`) lands in `user_events` and routes to journeys, but it does **not** ride the destination spine. To page a human on a journey moment, route it through a catalog envelope instead:
+
+- a **semantic answer** — the hand-raise arrives as `email.action` under your event name, answer scalars included;
+- a **dedicated template key** — the send itself is the signal, filtered from `email.sent` (the dunning final notice above);
+- a **journey completion** (`journey.completed`) or a **bucket transition** (`bucket.entered` / `bucket.left`).
+
+When the alert needs more than a Slack line — server-side identity resolution, a grace window for free text — use a custom Hatchet task on the event instead: that pattern is [Lead alerts](/docs/recipes/lead-alerts).
+
+<Callout type="info">
+  - **`null` is a successful no-op.** A filtered-out envelope is marked delivered with no POST — it never retries and never clutters the DLQ.
+  - **Throw only for config errors.** A missing URL should fail loudly to the DLQ; network errors and 5xx responses are the delivery task's job (retry with backoff), never the transform's.
+  - **Opens and clicks fan out per-hit.** Subscribe an alert endpoint to `email.opened` and you page on every open of every email — filter hard or stay off the high-volume events.
+  - **Keep the transform pure.** It runs on every retry of the same delivery; side effects in it execute more than once.
+</Callout>
+
+The [Destinations guide](/docs/guides/destinations) documents the full authoring contract, and the [runtime reference](/docs/data-api/destinations) covers preset configs and endpoint management. Related: [Lead alerts](/docs/recipes/lead-alerts) handles the human follow-up after the page, [Failed payment dunning](/docs/recipes/failed-payment-dunning) produces the final-notice send filtered above, and [NPS survey](/docs/recipes/nps-survey) produces the detractor answers.

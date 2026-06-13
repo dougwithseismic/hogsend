@@ -1,0 +1,167 @@
+---
+title: NPS survey
+description: A recurring in-email NPS survey as one defineJourney() — entryLimit once_per_period for the 90-day cadence, three semantic-link score bands, a detractor flag for human follow-up, and a referral ask for promoters.
+---
+
+An NPS flow has three jobs: ask on a cadence, collect the score without a form, and route each band differently. All three are journey metadata plus [semantic links](/docs/guides/semantic-links): `entryLimit: "once_per_period"` *is* the cadence (no "last surveyed" property to maintain), the score buttons are `EmailAction`s whose clicks fire a real `nps.submitted` event, and the branch is an `if` on the answer's `band` property.
+
+| Stage | How you express it |
+|---|---|
+| Survey at most once per 90 days | `entryLimit: "once_per_period"` + `entryPeriod: days(90)` |
+| Collect the score inside the email | three `EmailAction`s sharing `nps.submitted` |
+| Read the band in the journey | `ctx.waitForEvent(…)` → `properties.band` |
+| Detractor → a human, not an autoresponder | `ctx.trigger(…)` internal flag, alert task outside the journey |
+| Promoter → referral ask | `sendEmail(…)` |
+| Free-text "why" | `href={HOSTED_ANSWER_HREF}` → `nps.submitted.comment` |
+
+## The journey
+
+```ts
+// src/journeys/nps-survey.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const npsSurvey = defineJourney({
+  meta: {
+    id: "nps-survey",
+    name: "Feedback — NPS survey",
+    enabled: true,
+    // Any product activity makes them eligible; the entry limit does the
+    // cadence — at most one survey per user per 90 days.
+    trigger: { event: Events.APP_ACTIVE },
+    entryLimit: "once_per_period",
+    entryPeriod: days(90),
+    suppress: hours(24),
+    // No exitOn — and the awaited answer (nps.submitted) must NEVER be one.
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.FEEDBACK_NPS_SURVEY, // "feedback/nps-survey"
+      subject: "How likely are you to recommend us?",
+      journeyName: user.journeyName,
+    });
+
+    // Answers are provisional clicks confirmed ~30s after the scanner-burst
+    // window — timeouts are days, never minutes. lookback covers the
+    // send→wait gap.
+    const answer = await ctx.waitForEvent({
+      event: Events.NPS_SUBMITTED,
+      timeout: days(7),
+      label: "await-score",
+      lookback: minutes(30),
+    });
+    if (answer.timedOut) return; // silence — no chase; next window is in 90 days
+
+    const band = answer.properties?.band;
+
+    if (band === "detractor") {
+      // Internal flag, fired immediately after the wait resolves. Scalars
+      // only — the alert task resolves email/name server-side from contacts.
+      await ctx.trigger({
+        event: Events.NPS_DETRACTOR_FLAGGED,
+        userId: user.id,
+        properties: {
+          band: "detractor",
+          sourceEvent: Events.NPS_SUBMITTED,
+          sourceTemplate: Templates.FEEDBACK_NPS_SURVEY,
+          answeredAt: new Date().toISOString(),
+        },
+      });
+      await ctx.checkpoint("detractor-flagged");
+      return; // a human follows up — no automated reply to a low score
+    }
+
+    if (band === "promoter") {
+      if (!(await ctx.guard.isSubscribed())) return;
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.FEEDBACK_REFERRAL_ASK, // "feedback/referral-ask"
+        subject: "Glad it's working — know a team who'd want this?",
+        journeyName: user.journeyName,
+      });
+    }
+    // band === "passive" (7–8): the run ends with no follow-up.
+  },
+});
+```
+
+The trigger choice is deliberate: enrolling off an everyday event (`app.active`) and letting `entryLimit` gate the cadence means active users get surveyed roughly quarterly and dormant users never do — you don't want NPS from people who can't score you. The enrollment guard checks the period *before* any state is created, so the 89-day-too-early event is a `{ status: "skipped", reason: "period_not_elapsed" }`, not a journey run.
+
+## The survey template
+
+Each band is an `EmailAction` — an anchor carrying the event name and a scalar payload. The link rewriter lifts both into the `tracked_links` row at send time and strips the attributes; nothing semantic reaches the inbox.
+
+```tsx
+// src/emails/feedback-nps-survey.tsx (the answer row)
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
+import { Events } from "../journeys/constants/index.js";
+
+<Section className="my-6 text-center">
+  <EmailAction
+    event={Events.NPS_SUBMITTED}
+    properties={{ band: "detractor" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    0–6
+  </EmailAction>
+  <EmailAction
+    event={Events.NPS_SUBMITTED}
+    properties={{ band: "passive" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    7–8
+  </EmailAction>
+  <EmailAction
+    event={Events.NPS_SUBMITTED}
+    properties={{ band: "promoter" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    9–10
+  </EmailAction>
+</Section>
+```
+
+All three buttons share one event name, so they share one answer slot: first confirmed answer per (send, event) wins, and repeat or contradictory clicks are recorded as raw clicks but never re-emitted. A full 0–10 row works the same way — eleven `EmailAction`s with `properties: {{ score: n }}` sharing `nps.submitted` — and the journey branches on `typeof answer.properties?.score === "number"` instead; bands just collapse eleven buttons into three. `HOSTED_ANSWER_HREF` lands every click on the engine-hosted answer page with an optional free-text box; a typed comment ingests as `nps.submitted.comment` with the answer's properties attached — which for detractors is usually the email's entire value.
+
+## The detractor flag
+
+The detractor branch sends nothing to the user — an automated "sorry to hear that" under a bad score reads as exactly that. Instead it fires a scalars-only internal event through `ctx.trigger`, mirroring the [dogfood lead-flagging pattern](/docs/recipes/lead-alerts): the flag carries `band`, `sourceEvent`, `sourceTemplate`, and `answeredAt`, never the user's email or name — the alert task resolves identity server-side from the contacts table. The operator-alert task itself (a custom Hatchet task on `onEvents: [Events.NPS_DETRACTOR_FLAGGED]`, sending with `skipPreferenceCheck` and a transactional category) is the [Lead alerts](/docs/recipes/lead-alerts) recipe verbatim — living outside the journey means no exit condition can cancel the alert after the flag fires.
+
+Because the answer is a real ingested event, a *separate* journey can also trigger on it with a property condition — `trigger: { event: Events.NPS_SUBMITTED, where: (b) => b.prop("band").eq("detractor") }` — with its own entry limit and no coupling to the survey journey. The [Semantic links guide](/docs/guides/semantic-links#cross-journey-fan-out) shows that shape.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  APP_ACTIVE: "app.active",
+  NPS_SUBMITTED: "nps.submitted",
+  NPS_DETRACTOR_FLAGGED: "nps.detractor_flagged",
+} as const;
+
+export const Templates = {
+  FEEDBACK_NPS_SURVEY: "feedback/nps-survey",
+  FEEDBACK_REFERRAL_ASK: "feedback/referral-ask",
+} as const;
+```
+
+Each `feedback/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — the [Email guide](/docs/guides/email) covers authoring. Register the journey by adding `npsSurvey` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Never put `nps.submitted` in `exitOn`.** An exit match mid-wait aborts the run before the branch executes — the score would be recorded but never acted on. One event name, one role.
+  - **The cadence lives in `meta`, not in your data model.** `entryLimit: "once_per_period"` + `entryPeriod: days(90)` replaces the `last_surveyed_at` property and the query that checks it.
+  - **Branch on validated scalars.** `waitForEvent` returns the matched event's payload as best-effort scalars — compare `band` against the literal strings you control rather than trusting shape.
+  - **Confirmation is deferred ~30 seconds** so corporate link scanners (Outlook SafeLinks, Proofpoint) don't submit your survey. Invisible at a 7-day timeout; the reason timeouts here are days, never minutes.
+</Callout>
+
+Related: [Lead alerts](/docs/recipes/lead-alerts) is the operator-side half of the detractor flag, [Win-back and sunset](/docs/recipes/winback-and-sunset) uses the same answer pattern for re-permission, and [Review request](/docs/recipes/review-request) applies score-banded branching to post-delivery ratings. The [Semantic links guide](/docs/guides/semantic-links) documents answer semantics end to end.

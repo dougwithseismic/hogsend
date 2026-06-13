@@ -1,0 +1,131 @@
+---
+title: Anniversary emails
+description: A signup-anniversary journey with entryLimit once_per_period + entryPeriod days(365), a dormancy gate via ctx.history.hasEvent, and ctx.when.nextLocal + ctx.sleepUntil to land the send at 09:00 in the user's own timezone.
+---
+
+An anniversary email is a yearly trigger plus a timing problem: the signal arrives whenever your nightly job runs, but the send should land at a civilized local morning. The journey solves both with metadata and one primitive — `entryLimit: "once_per_period"` with `entryPeriod: days(365)` caps it at one celebration a year however often the trigger fires, and `ctx.sleepUntil(ctx.when.nextLocal("09:00"))` converts "whenever the cron ran" into "09:00 in the user's own timezone".
+
+| Stage | How you express it |
+|---|---|
+| The yearly signal | a nightly producer fires `anniversary.reached` |
+| Producer retries are harmless | `idempotencyKey: "anniversary-<userId>-<year>"` |
+| Exactly one celebration per year | `entryLimit: "once_per_period"` + `entryPeriod: days(365)` |
+| Skip the ghosts | `ctx.history.hasEvent({ …, within: days(90) })` |
+| Land at a local morning | `ctx.sleepUntil(ctx.when.nextLocal("09:00"))` |
+
+## The journey
+
+```ts
+// src/journeys/signup-anniversary.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const signupAnniversary = defineJourney({
+  meta: {
+    id: "signup-anniversary",
+    name: "Retention — signup anniversary",
+    enabled: true,
+    trigger: { event: Events.ANNIVERSARY_REACHED },
+    // the yearly cap — a duplicate trigger inside the period is skipped
+    entryLimit: "once_per_period",
+    entryPeriod: days(365),
+    suppress: hours(24),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    const years = Number(user.properties.years ?? 1);
+
+    // A celebration email to someone who left a year ago reads as
+    // automated noise. Gate on recent activity; dormant contacts belong
+    // in a win-back flow, not here.
+    const { found: active } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.APP_ACTIVE,
+      within: days(90),
+    });
+    if (!active) return;
+
+    // The producer fires at whatever hour the nightly job runs. Land the
+    // send at 09:00 in the user's own timezone instead.
+    await ctx.sleepUntil(ctx.when.nextLocal("09:00"), {
+      label: "anniversary-morning",
+    });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.RETENTION_ANNIVERSARY, // "retention/anniversary"
+      subject:
+        years === 1
+          ? "One year with us today"
+          : `${years} years with us today`,
+      journeyName: user.journeyName,
+      props: { years },
+    });
+  },
+});
+```
+
+The sleep is durable — a trigger at 02:00 UTC for a user in Tokyo parks the run until 09:00 JST, surviving deploys in between, and the `ctx.guard.isSubscribed()` re-check after it is mandatory because unsubscribe does not exit a journey.
+
+## Fire the trigger once a year
+
+A journey cannot sleep from signup to anniversary: a journey run lives at most 30 days (the durable task's 720-hour execution cap), and pinning a year of state per signup would be the wrong shape anyway. The signal comes from a producer that knows the date — a nightly cron in your app, a scheduled function, anything that can call the [data plane](/docs/data-api/client-sdk):
+
+```ts
+// a nightly job in your app — cron, scheduled function, anything
+for (const u of usersWithSignupAnniversaryToday) {
+  await hs.events.send({
+    name: "anniversary.reached",
+    email: u.email,
+    userId: u.id,
+    eventProperties: { years: u.yearsSinceSignup },
+    idempotencyKey: `anniversary-${u.id}-${u.yearsSinceSignup}`,
+  });
+}
+```
+
+Dedupe runs at two layers with different scopes. The `idempotencyKey` (`anniversary-<userId>-<year>`) makes a re-run of the nightly job a `{ stored: false }` no-op — the event is never ingested twice. `entryLimit: "once_per_period"` is the journey-level backstop: even if a *differently-keyed* duplicate slips through (a manual backfill, a second producer), enrollment is skipped until 365 days have elapsed since the last entry.
+
+## Landing on a local morning
+
+`ctx.when` is bound to the user's timezone automatically, resolving the first valid candidate in this chain: an explicit `.tz()` override → PostHog person properties (`$timezone`, then `$geoip_time_zone`) → the contact's stored timezone → the contact's `properties.timezone` → the client's `defaults.timezone` → UTC. The PostHog leg needs `POSTHOG_PERSONAL_API_KEY` set — the `phc_` project key is write-only by PostHog's design, so without the personal key person-property reads soft-fail down the chain to the contact-level fallbacks.
+
+`nextLocal("09:00")` can never produce a past instant — it picks today's 09:00 if that is still ahead in the user's timezone, otherwise tomorrow's. Chains that name a specific day can land in the past, which is where `ifPast` matters:
+
+```ts
+// 09:00 "zero days out" — already past if the trigger fired at 14:00 local
+ctx.when.in(days(0)).at("09:00");                 // default ifPast: "next" — rolls to tomorrow 09:00
+ctx.when.ifPast("now").in(days(0)).at("09:00");   // clamps to now — send immediately, not a day late
+```
+
+If the client has a default send window configured (or you set one with `.window(start, end)`), instants resolved through `ctx.when` are clamped into it — a brand that mails only 09:00–17:00 keeps that guarantee here without extra code. The full scheduler reference is in the [Journeys guide](/docs/guides/journeys#ctxwhen).
+
+## Add the events and template key
+
+```ts
+// src/journeys/constants/index.ts — additions
+export const Events = {
+  ANNIVERSARY_REACHED: "anniversary.reached",
+  APP_ACTIVE: "app.active",
+  USER_DELETED: "user.deleted",
+} as const;
+
+export const Templates = {
+  RETENTION_ANNIVERSARY: "retention/anniversary",
+} as const;
+```
+
+The `retention/anniversary` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email); `props: { years }` is then type-checked against the template. Register the journey by adding `signupAnniversary` to your `journeys` array, as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **The 720-hour cap is why the producer exists.** A journey run cannot span a year, so the anniversary signal must be computed where the signup date lives and fired as an event. The journey owns everything after the signal: the cap, the gate, the timing, the send.
+  - **`idempotencyKey` and `entryLimit` dedupe different things.** The key dedupes the *same* producer fire; the entry limit caps *enrollment* regardless of what fires. Keep both.
+  - **The dormancy gate runs before the sleep.** Checking `app.active` first means a dormant contact's run ends immediately instead of parking until morning to send nothing.
+</Callout>
+
+Related: [Win-back and sunset](/docs/recipes/winback-and-sunset) is where the contacts this journey skips belong, [NPS survey](/docs/recipes/nps-survey) uses the same once-per-period cadence for a recurring ask, and [Timezone-aware scheduling](/docs/recipes/timezone-aware-scheduling) is the full `ctx.when` cookbook.

@@ -1,0 +1,169 @@
+---
+title: Activation milestones
+description: Track setup as sequential milestones with defineJourney() — ctx.history.hasEvent() to skip what's done, ctx.waitForEvent() per step, a nudge for only the stalled step, ctx.checkpoint() for observability, and exitOn full activation.
+---
+
+Onboarding for a product with real setup work isn't one activation event — it's a sequence of milestones (`project.created`, `data.connected`, `team.invited`), and the only email worth sending is the one for the step the user is actually stuck on. This journey walks the milestones in order: `ctx.history.hasEvent()` skips anything already done, `ctx.waitForEvent()` parks on the current step, a timeout produces exactly one nudge for that step, and `ctx.checkpoint()` records which milestone the user is on. Full activation is an exit, not a send: the app's `onboarding.completed` event ends the run instantly, even mid-wait.
+
+| Stage | How you express it |
+|---|---|
+| Only enroll the workspace owner | `trigger.where: (b) => b.prop("role").eq("owner")` |
+| Skip milestones already done | `ctx.history.hasEvent({ userId, event })` |
+| Park on the current step | `ctx.waitForEvent({ event, timeout: days(2) })` |
+| Nudge only the stalled step | one `sendEmail(…)` per timeout, then one more wait |
+| Show where they are in Studio | `ctx.checkpoint("milestone:data")` |
+| End on full activation | `meta.exitOn: [{ event: "onboarding.completed" }]` |
+
+## The journey
+
+```ts
+// src/journeys/activation-milestones.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+const STEPS = [
+  {
+    id: "project",
+    event: Events.PROJECT_CREATED,
+    template: Templates.ONBOARDING_STEP_PROJECT, // "onboarding/step-project"
+    subject: "First step: create a project",
+  },
+  {
+    id: "data",
+    event: Events.DATA_CONNECTED,
+    template: Templates.ONBOARDING_STEP_DATA, // "onboarding/step-data"
+    subject: "Your project is empty — connect a data source",
+  },
+  {
+    id: "team",
+    event: Events.TEAM_INVITED,
+    template: Templates.ONBOARDING_STEP_TEAM, // "onboarding/step-team"
+    subject: "Working alone? Invite your team",
+  },
+] as const;
+
+export const activationMilestones = defineJourney({
+  meta: {
+    id: "activation-milestones",
+    name: "Onboarding — activation milestones",
+    enabled: true,
+    trigger: {
+      event: Events.USER_SIGNED_UP,
+      // invited teammates aren't responsible for workspace setup
+      where: (b) => b.prop("role").eq("owner"),
+    },
+    entryLimit: "once",
+    suppress: hours(24),
+    exitOn: [
+      { event: Events.ONBOARDING_COMPLETED },
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    for (const step of STEPS) {
+      // Done out of order, or before the run got here? Skip ahead —
+      // waitForEvent is forward-looking and would miss a past event.
+      const done = await ctx.history.hasEvent({
+        userId: user.id,
+        event: step.event,
+      });
+      if (done.found) continue;
+
+      // Visible as currentNodeId in journey state: exactly which step.
+      await ctx.checkpoint(`milestone:${step.id}`);
+
+      const reached = await ctx.waitForEvent({
+        event: step.event,
+        timeout: days(2),
+        label: `await-${step.id}`,
+      });
+      if (!reached.timedOut) continue; // on to the next milestone
+
+      // Stalled on THIS step — nudge it specifically, nothing else.
+      if (!(await ctx.guard.isSubscribed())) return;
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: step.template,
+        subject: step.subject,
+        journeyName: user.journeyName,
+      });
+
+      // The lookback covers a click that lands while this wait spins up.
+      const nudged = await ctx.waitForEvent({
+        event: step.event,
+        timeout: days(3),
+        label: `await-${step.id}-nudged`,
+        lookback: minutes(30),
+      });
+      if (nudged.timedOut) return; // still stalled — stop, don't pile on
+    }
+    // All milestones reached — the run completes. exitOn already covers
+    // the case where onboarding.completed landed mid-wait.
+  },
+});
+```
+
+The milestones are data, the orchestration is a `for` loop — adding a fourth milestone is one array entry plus its template. `trigger.where` is a property condition on the signup event (see the [Conditions guide](/docs/guides/conditions) for the full operator set), so non-owner signups never create journey state at all.
+
+## Skip what's already done
+
+`ctx.waitForEvent()` is forward-looking: only events emitted after the wait is established count. A user who connects data before the run reaches the data step — or who blasted through setup during the previous step's wait — would hang a naive sequential wait forever. The `ctx.history.hasEvent()` check before each wait closes this: a milestone that already exists in `user_events` is skipped without waiting, so out-of-order completion costs nothing.
+
+The post-nudge wait adds `lookback: minutes(30)` for the same reason at a smaller scale: it covers a user who clicks through the nudge and completes the step in the gap between the send and the wait being established.
+
+## Nudge only the stalled step
+
+Each milestone gets at most one email, and only after its own two-day wait times out. If the post-nudge wait also times out, the run returns instead of moving on — a user stuck on step one hasn't earned a step-two nudge, and the later steps usually depend on the earlier ones anyway. `suppress: hours(24)` floors the send rate as a backstop, but the wait/nudge/wait shape is what makes the schedule legible in code review.
+
+## Checkpoints in Studio
+
+`ctx.checkpoint("milestone:data")` writes `currentNodeId` on the journey state row without sleeping, and the `label` on every wait does the same. The result is that an operator looking at a run sees `milestone:data` or `await-data-nudged` — which step the user is on, and whether they've been nudged — without reading the code. See [operating journeys](/docs/operating/journeys) for where this surfaces.
+
+## Exit on full activation
+
+The app fires `onboarding.completed` when the workspace has all three milestones — the server already knows, so the journey doesn't have to detect it:
+
+```ts
+// your app server — when the last milestone lands
+await hs.events.send({
+  name: "onboarding.completed",
+  userId: user.id,
+  idempotencyKey: `onboarding-completed-${user.id}`,
+});
+```
+
+Because it's in `exitOn`, a user who finishes setup while the journey is parked in a nudged wait exits instantly: the engine marks the run `exited` and cancels the durable Hatchet run, so no post-wait nudge can fire. The individual milestone events stay out of `exitOn` — they're awaited, and an exit match mid-wait would abort the loop before it advances.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  USER_SIGNED_UP: "user.signed_up",
+  USER_DELETED: "user.deleted",
+  PROJECT_CREATED: "project.created",
+  DATA_CONNECTED: "data.connected",
+  TEAM_INVITED: "team.invited",
+  ONBOARDING_COMPLETED: "onboarding.completed",
+} as const;
+
+export const Templates = {
+  ONBOARDING_STEP_PROJECT: "onboarding/step-project",
+  ONBOARDING_STEP_DATA: "onboarding/step-data",
+  ONBOARDING_STEP_TEAM: "onboarding/step-team",
+} as const;
+```
+
+Each `onboarding/step-*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)). Register the journey by adding `activationMilestones` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **`hasEvent` before every forward-looking wait.** Without the pre-check, a milestone completed out of order hangs the sequence for the full timeout — the wait only sees events after it's established.
+  - **Awaited milestone events stay out of `exitOn`.** `onboarding.completed` is a distinct event precisely so full activation can exit the run without colliding with the waits.
+  - **Unsubscribe does not exit the journey.** The `ctx.guard.isSubscribed()` check before each nudge is load-bearing; an unsubscribed owner coasts through the waits and receives nothing.
+</Callout>
+
+Related: [Welcome series](/docs/recipes/welcome-series) handles the single-activation case this generalizes, [Cross-journey funnels](/docs/recipes/cross-journey-funnels) shows where `onboarding.completed` can route next, and the [Journeys guide](/docs/guides/journeys) documents every context primitive used here.

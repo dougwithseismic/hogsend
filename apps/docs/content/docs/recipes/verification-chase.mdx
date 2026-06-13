@@ -1,0 +1,162 @@
+---
+title: Verification chase
+description: Send verify-email transactionally with hs.emails.send, then chase it with a defineJourney() — ctx.waitForEvent on user.email_verified with a 24-hour timeout, up to two re-sends, and exitOn the verification.
+---
+
+Email verification is two different sends with two different rules. The first verify-email is transactional — `hs.emails.send` from your signup handler, fired because the user just asked to create an account. The chase is lifecycle: a journey that waits 24 hours for `user.email_verified`, re-sends at most twice, and exits the instant the token is redeemed. Keeping the chase in a journey means there is no cron scanning for unverified users and no way to mail someone who already verified.
+
+| Stage | How you express it |
+|---|---|
+| First send, at signup | `hs.emails.send({ template: "transactional/verify-email" })` |
+| Detect verification | `ctx.waitForEvent({ event: "user.email_verified", timeout: hours(24) })` |
+| Re-send, at most twice | two `sendEmail(…)` calls with escalating subjects |
+| Stop the moment they verify | `meta.exitOn: [{ event: "user.email_verified" }]` |
+| Respect preferences on the chase | `ctx.guard.isSubscribed()` — no `skipPreferenceCheck` |
+
+## The first send is transactional
+
+The signup handler sends the verify-email and fires the event that starts the chase, with the [`@hogsend/client`](/docs/data-api/client-sdk) SDK:
+
+```ts
+// your signup handler
+import { hs } from "./lib/hogsend.js";
+
+await hs.emails.send({
+  to: user.email,
+  template: "transactional/verify-email",
+  props: {
+    firstName: user.firstName,
+    verifyUrl: `https://app.example.com/verify?token=${token}`,
+  },
+});
+
+await hs.events.send({
+  name: "user.signed_up",
+  email: user.email,
+  userId: user.id,
+  eventProperties: {
+    first_name: user.firstName,
+    // a re-link endpoint, not the raw token — it mints a fresh token on
+    // click, so the second re-send still works after the original expires
+    verify_url: `https://app.example.com/verify/resend?u=${user.id}`,
+  },
+  idempotencyKey: `signed-up-${user.id}`,
+});
+```
+
+When the token is redeemed, the verify endpoint fires the event that resolves the wait and exits the journey:
+
+```ts
+// your verify endpoint, after the token checks out
+await hs.events.send({
+  name: "user.email_verified",
+  userId: user.id,
+  idempotencyKey: `email-verified-${user.id}`,
+});
+```
+
+The event is named `user.email_verified`, not `email.verified` — the `email.` namespace is reserved for engine-emitted events (`email.opened`, `email.link_clicked`, `email.action`), and app events must stay out of it.
+
+## The chase journey
+
+```ts
+// src/journeys/verification-chase.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const verificationChase = defineJourney({
+  meta: {
+    id: "verification-chase",
+    name: "Onboarding — verification chase",
+    enabled: true,
+    trigger: { event: Events.USER_SIGNED_UP },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [
+      { event: Events.EMAIL_VERIFIED },
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    const verifyUrl = String(user.properties.verify_url ?? "");
+    const firstName = String(user.properties.first_name ?? "");
+
+    // The signup handler already sent the first verify-email. The lookback
+    // catches a user who verified while this run was enrolling.
+    const first = await ctx.waitForEvent({
+      event: Events.EMAIL_VERIFIED,
+      timeout: hours(24),
+      label: "await-verification",
+      lookback: minutes(30),
+    });
+    if (!first.timedOut) return; // verified — done
+
+    // Re-send 1, after a day.
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.TRANSACTIONAL_VERIFY_EMAIL, // "transactional/verify-email"
+      subject: "Reminder: verify your email address",
+      journeyName: user.journeyName,
+      props: { firstName, verifyUrl },
+    });
+
+    const second = await ctx.waitForEvent({
+      event: Events.EMAIL_VERIFIED,
+      timeout: days(2),
+      label: "await-verification-2",
+    });
+    if (!second.timedOut) return;
+
+    // Re-send 2 — the last one. An unverified account past this point is
+    // your signup flow's problem, not email's.
+    if (!(await ctx.guard.isSubscribed())) return;
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.TRANSACTIONAL_VERIFY_EMAIL,
+      subject: "Last reminder — your account isn't active yet",
+      journeyName: user.journeyName,
+      props: { firstName, verifyUrl },
+    });
+  },
+});
+```
+
+Both re-sends reuse the canonical `transactional/verify-email` template with subject overrides — one template, three sends. The schedule is the code: 24 hours, then two days, then stop.
+
+`waitForEvent` is the branch and `exitOn` is the guarantee. The success branch is a bare `return`, so listing `user.email_verified` in both places is safe here: a verification mid-wait either resolves the wait (and the code returns) or exits the run (and no further step fires) — the outcome is identical. The `lookback: minutes(30)` on the first wait covers the user who clicks the link seconds after signup, before the durable wait is established.
+
+## Why the chase never uses `skipPreferenceCheck`
+
+`skipPreferenceCheck: true` exists for mail the user just asked for — a password reset, a security notification — and requires a full-admin key ([Transactional emails](/docs/recipes/transactional-emails#preference-checks)). The distinction is who initiated the send: a password reset answers a request the user made seconds ago; a verification re-send is mail *you* want them to act on. So the chase runs under normal preference rules — the enrollment guard skips users who have unsubscribed, and `ctx.guard.isSubscribed()` re-checks before each re-send. The first verify-email needs no bypass either: a seconds-old signup has no preference state to bypass.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  USER_SIGNED_UP: "user.signed_up",
+  EMAIL_VERIFIED: "user.email_verified",
+  USER_DELETED: "user.deleted",
+} as const;
+
+export const Templates = {
+  TRANSACTIONAL_VERIFY_EMAIL: "transactional/verify-email",
+} as const;
+```
+
+`transactional/verify-email` is the canonical key used across the docs; authoring it is a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)). Register the journey by adding `verificationChase` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Name the event `user.email_verified`.** The `email.` namespace belongs to engine-emitted events; an app event inside it would collide with the tracking vocabulary.
+  - **Re-send links must outlive the original token.** Point `verify_url` at an endpoint that mints a fresh token on click — by the second re-send, three days in, the signup-time token has usually expired.
+  - **At most two re-sends is structural, not configured.** The journey is linear code with two `sendEmail` calls; there is no retry loop to misconfigure, and `entryLimit: "once"` means a replayed signup event can't restart the chase.
+</Callout>
+
+Related: [Transactional emails](/docs/recipes/transactional-emails) covers the first send and the `skipPreferenceCheck` rules, [Welcome series](/docs/recipes/welcome-series) takes over once they're verified, and the [Journeys guide](/docs/guides/journeys) documents `waitForEvent`, `lookback`, and `exitOn` semantics in full.

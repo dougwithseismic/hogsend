@@ -1,0 +1,239 @@
+---
+title: Failed payment dunning
+description: A dunning journey triggered by Stripe's invoice.payment_failed — immediate notice, retry-window waits on invoice.paid, an escalating reminder, and an operator alert task when recovery fails.
+---
+
+A dunning flow is a race between the card and the churn: notify immediately, wait through the provider's retry schedule, escalate twice, and stop the instant a payment lands. The trigger is `invoice.payment_failed` from the built-in [Stripe webhook source](/docs/integrations/stripe) — one environment variable, no Stripe SDK. Each wait is `ctx.waitForEvent("invoice.paid")` so a successful retry resolves it instantly, `meta.exitOn` guarantees a recovered payment (or a cancellation) ends the run mid-anything, and a final failure fires an internal event that a custom Hatchet task turns into an operator alert.
+
+| Stage | How you express it |
+|---|---|
+| Stripe events in, signature-verified | the built-in preset at `POST /v1/webhooks/stripe` |
+| Wait through the retry schedule | `ctx.waitForEvent({ event: "invoice.paid", timeout: days(3) })` |
+| Stop the moment payment recovers | `meta.exitOn: [{ event: "invoice.paid" }]` |
+| Don't dun a cancelled customer | `exitOn: [{ event: "subscription.deleted" }]` |
+| A human sees the final failure | `ctx.trigger(…)` → a `hatchet.durableTask` on `onEvents` |
+| A flapping card can't spam | `entryLimit: "once_per_period"` + `entryPeriod: days(7)` |
+
+## The journey
+
+```ts
+// src/journeys/dunning.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const dunning = defineJourney({
+  meta: {
+    id: "dunning",
+    name: "Billing — failed payment dunning",
+    enabled: true,
+    trigger: { event: Events.INVOICE_PAYMENT_FAILED },
+    // a card that keeps failing re-enters at most once a week
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: hours(4),
+    exitOn: [
+      { event: Events.INVOICE_PAID },         // recovered — stop immediately
+      { event: Events.SUBSCRIPTION_DELETED }, // cancelled — stop dunning
+    ],
+  },
+
+  run: async (user, ctx) => {
+    // Immediately: most failures are a stale card, not a churn decision.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.BILLING_PAYMENT_FAILED, // "billing/payment-failed"
+      subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
+    });
+
+    // Stripe retries on its own schedule — give the first retry three days.
+    const firstRetry = await ctx.waitForEvent({
+      event: Events.INVOICE_PAID,
+      timeout: days(3),
+      label: "await-first-retry",
+    });
+    if (!firstRetry.timedOut) return; // recovered — exitOn already handled it
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.BILLING_UPDATE_CARD, // "billing/update-card"
+      subject: "Action needed: update your payment method",
+      journeyName: user.journeyName,
+    });
+
+    const secondRetry = await ctx.waitForEvent({
+      event: Events.INVOICE_PAID,
+      timeout: days(4),
+      label: "await-second-retry",
+    });
+    if (!secondRetry.timedOut) return;
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // Day 7: final notice to the customer…
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.BILLING_FINAL_NOTICE, // "billing/final-notice"
+      subject: "Final notice: your subscription will be paused",
+      journeyName: user.journeyName,
+    });
+
+    // …and the failure leaves the email channel: flag it for a human.
+    await ctx.trigger({
+      event: Events.DUNNING_EXHAUSTED,
+      userId: user.id,
+      userEmail: user.email,
+      properties: { stage: "final-notice", source: "dunning" },
+    });
+  },
+});
+```
+
+`invoice.paid` plays one role here: ending the run. The waits exist to *pace* the reminders, and on the success side their only action is `return` — which `exitOn` already performs mid-wait, cancelling the durable run before the next send. The early returns mirror that in code. Both waits survive deploys and worker restarts.
+
+## Stripe in: one environment variable
+
+The Stripe source ships inside the engine — you don't write a `defineWebhookSource()` for it. Point a Stripe webhook endpoint at `/v1/webhooks/stripe`, copy its signing secret, and the preset verifies `stripe-signature` itself with `node:crypto` (5-minute timestamp tolerance, rotation-safe):
+
+```bash
+# .env
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+`invoice.payment_failed` and `invoice.paid` arrive under those exact names, keyed to the Stripe customer id, with the Stripe event id as the `idempotencyKey` — so Stripe's at-least-once redelivery dedupes instead of re-enrolling the journey. Two details from the [integration reference](/docs/integrations/stripe) matter for dunning:
+
+- **Subscribe to `customer.created` on the same endpoint.** Invoice objects usually carry no email; the contact must exist (with its email) before billing events reference it by customer id.
+- The scheme **fails closed**: with the secret unset, requests get `401` and never reach the transform.
+
+## Other billing providers: a hand-rolled source
+
+If billing isn't Stripe, author the source yourself with [`defineWebhookSource()`](/docs/guides/webhook-sources) and keep the same event names — the journey doesn't change:
+
+```ts
+// src/webhook-sources/billing.ts
+import { defineWebhookSource } from "@hogsend/engine";
+import { z } from "zod";
+
+const schema = z.object({
+  id: z.string(),
+  type: z.string(),
+  customer: z.object({ id: z.string(), email: z.string().optional() }),
+  invoice: z.object({ id: z.string(), amount_due: z.number() }).optional(),
+});
+
+export const billingSource = defineWebhookSource({
+  meta: { id: "billing", name: "Billing provider" },
+  auth: {
+    type: "signature",
+    scheme: "hmac-hex", // HMAC_SHA256(secret, rawBody), lowercase hex
+    envKey: "BILLING_WEBHOOK_SECRET",
+    header: "x-signature",
+  },
+  schema,
+  async transform(payload) {
+    if (
+      payload.type !== "invoice.payment_failed" &&
+      payload.type !== "invoice.paid"
+    ) {
+      return null; // accept-and-skip everything else
+    }
+    return {
+      event: payload.type, // the same names the journey triggers on
+      userId: payload.customer.id,
+      userEmail: payload.customer.email ?? "", // "" when unknown, never undefined
+      eventProperties: {
+        source: "billing",
+        invoiceId: payload.invoice?.id ?? null,
+        amountDue: payload.invoice?.amount_due ?? null,
+      },
+      idempotencyKey: payload.id, // dedupe at-least-once redeliveries
+    };
+  },
+});
+```
+
+Add it to your `webhookSources` array and it's live at `POST /v1/webhooks/billing`. Signature auth fails closed exactly like the preset.
+
+## The operator alert is a task, not a send in the journey
+
+The journey's last act fires `dunning.exhausted` through `ctx.trigger()` — a real ingested event. A custom Hatchet task picks it up via `onEvents` and emails the operator. Keeping it outside the journey matters twice over: an `invoice.paid` landing seconds after the trigger cancels the journey's run, but the task already holds its own copy of the event; and operator mail must never be gated by the *customer's* unsubscribe state, so it sends through `emailService.send` with `skipPreferenceCheck: true` — which the journey-side `sendEmail` deliberately cannot do.
+
+```ts
+// src/workflows/dunning-alert.ts
+import { hatchet } from "@hogsend/engine";
+import { getContainer } from "../container.js"; // your app's process-wide client
+import { Events, Templates } from "../journeys/constants/index.js";
+
+const ALERT_TO = process.env.BILLING_ALERT_EMAIL ?? "ops@example.com";
+
+export const dunningAlertTask = hatchet.durableTask({
+  name: "dunning-alert",
+  onEvents: [Events.DUNNING_EXHAUSTED],
+  retries: 2,
+  executionTimeout: "10m",
+  fn: async (input: {
+    userId: string;
+    userEmail: string;
+    properties: Record<string, string | number | boolean | null>;
+  }) => {
+    const { emailService } = getContainer();
+
+    const result = await emailService.send({
+      template: Templates.INTERNAL_DUNNING_ALERT, // "internal/dunning-alert"
+      to: ALERT_TO,
+      subject: `[Dunning] Recovery failed — ${input.userEmail}`,
+      props: {
+        customerEmail: input.userEmail,
+        stage: String(input.properties.stage ?? ""),
+      },
+      // Operator mail: the customer's unsubscribe must never gate it, and the
+      // registry's "transactional" category wins.
+      skipPreferenceCheck: true,
+      // A task retry after a successful send reuses the prior email_sends row.
+      idempotencyKey: `dunning-alert:${input.userId}:${input.properties.stage}`,
+    });
+
+    return { status: result.status, emailSendId: result.emailSendId };
+  },
+});
+```
+
+Export it from `src/workflows/index.ts` and pass it via `createWorker({ …, extraWorkflows })` — the option is `extraWorkflows`, not `workflows`. The [Lead alerts](/docs/recipes/lead-alerts) recipe documents this human-routing pattern end to end.
+
+The *customer-facing* sends above are different: billing notices are transactional in nature, but journey sends still respect the global unsubscribe — that's what the guard checks enforce. If your policy treats a final notice as must-deliver, send it from your billing system with [`hs.emails.send({ …, skipPreferenceCheck: true })`](/docs/recipes/transactional-emails#preference-checks), which requires a full-admin key.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  INVOICE_PAYMENT_FAILED: "invoice.payment_failed",
+  INVOICE_PAID: "invoice.paid",
+  SUBSCRIPTION_DELETED: "subscription.deleted",
+  DUNNING_EXHAUSTED: "dunning.exhausted",
+} as const;
+
+export const Templates = {
+  BILLING_PAYMENT_FAILED: "billing/payment-failed",
+  BILLING_UPDATE_CARD: "billing/update-card",
+  BILLING_FINAL_NOTICE: "billing/final-notice",
+  INTERNAL_DUNNING_ALERT: "internal/dunning-alert",
+} as const;
+```
+
+Each key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)). Register `dunning` in your `journeys` array as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys), and `dunningAlertTask` in `extraWorkflows`.
+
+<Callout type="info">
+  - **`invoice.paid` is the exit, not a branch.** Its only job on success is "stop", which `exitOn` performs mid-wait. If you ever need to *act* on the recovery (a thank-you send), move it out of `exitOn` and branch on the wait instead — one event name, one role.
+  - **Identity comes from `customer.created`.** Stripe invoice events carry the customer id, not an email. Forward `customer.created` to the same endpoint so the contact exists before the first failure references it.
+  - **Unsubscribe does not exit the journey.** The guard runs before each customer send; the operator alert is exempt by design (`emailService.send` + `skipPreferenceCheck` in the task, never in a journey).
+</Callout>
+
+Related: [Cancellation save](/docs/recipes/cancellation-save) handles the customer who cancels instead of fixing the card, [Trial conversion sequence](/docs/recipes/trial-conversion-sequence) covers the start of the billing relationship, and the [Webhook sources guide](/docs/guides/webhook-sources) documents the source contract used here.

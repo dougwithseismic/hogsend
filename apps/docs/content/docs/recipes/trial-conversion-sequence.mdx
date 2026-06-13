@@ -1,0 +1,229 @@
+---
+title: Trial conversion sequence
+description: The full trial arc as two defineJourney()s and one bucket — a day-1 value email, a mid-trial branch on real usage via ctx.history.hasEvent, a bucket-triggered T-3 push, and a hard exit on subscription.created.
+---
+
+A trial arc answers to two different clocks, so it splits into two journeys. `trial-onboarding` counts forward from `trial.started` — the day-1 value email and the mid-trial usage branch. The end-of-trial push counts *backward* from expiry, which a sleep can't do when trial lengths vary — so it triggers off a `trial-expiring-soon` [bucket](/docs/guides/buckets) that fires the moment `trial_days_left` drops to 3, whether the trial is 7, 14, or 30 days. Both journeys exit the instant `subscription.created` arrives.
+
+| Stage | How you express it |
+|---|---|
+| Day-1 value email | `ctx.sleep({ duration: days(1) })` after `trial.started` |
+| Mid-trial branch on usage | `ctx.history.hasEvent(…)` count → a plain `if` |
+| T-3 push at any trial length | `trigger: { event: trialExpiringSoon.entered }` |
+| Last-day reminder unless they upgrade | `ctx.waitForEvent({ event: "subscription.created", timeout: days(2) })` |
+| Stop the moment money arrives | `exitOn: [{ event: "subscription.created" }]` on both journeys |
+| One arc per user | `entryLimit: "once"` on both journeys |
+
+## The onboarding journey
+
+```ts
+// src/journeys/trial-onboarding.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const trialOnboarding = defineJourney({
+  meta: {
+    id: "trial-onboarding",
+    name: "Conversion — trial onboarding",
+    enabled: true,
+    trigger: { event: Events.TRIAL_STARTED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [
+      { event: Events.SUBSCRIPTION_CREATED },
+      { event: Events.USER_DELETED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    // Day 1 — one concrete outcome, not a feature tour.
+    await ctx.sleep({ duration: days(1), label: "day-1" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.TRIAL_FIRST_VALUE, // "trial/first-value"
+      subject: "Get your first result today",
+      journeyName: user.journeyName,
+    });
+
+    // Mid-trial — branch on what they actually did.
+    await ctx.sleep({ duration: days(3), label: "mid-trial" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    const usage = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+      within: days(4),
+    });
+
+    if (usage.count >= 3) {
+      // Engaged — sell the paid tier on what they already use.
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.TRIAL_UPGRADE_VALUE, // "trial/upgrade-value"
+        subject: "You're getting value — here's what Pro adds",
+        journeyName: user.journeyName,
+        props: { usageCount: usage.count },
+      });
+    } else {
+      // Cold — conversion needs activation first, not a pitch.
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.TRIAL_ACTIVATION_NUDGE, // "trial/activation-nudge"
+        subject: "Three days in — the fastest path to a result",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+Both sleeps are durable, and `exitOn` covers them: an upgrade on day 2 ends the run mid-sleep and the mid-trial email never fires. The branch is evaluated at decision time against the user's own event history — `ctx.history.hasEvent` returns `{ found, count }`, so "engaged" is a count of the `feature.used` events your product already emits, not a segment exported from somewhere else. The [Conditions guide](/docs/guides/conditions) documents the matching rules.
+
+## The T-3 leg is a bucket, not a sleep
+
+A sleep can only count forward from `trial.started`. "Three days before expiry" is a property of the contact, so it's expressed as bucket criteria — the scaffold ships this bucket:
+
+```ts
+// src/buckets/trial-expiring-soon.ts (ships in the scaffold)
+import { days, defineBucket } from "@hogsend/engine";
+
+export const trialExpiringSoon = defineBucket({
+  meta: {
+    id: "trial-expiring-soon",
+    name: "Trial expiring soon",
+    enabled: true,
+    entryLimit: "once",
+    // Unconditional time-box: out 14 days after joining, no matter what.
+    maxDwell: days(14),
+    criteria: (b) =>
+      b.all(
+        b.prop("plan").eq("trial"),
+        b.prop("trial_days_left").lte(3),
+        b.prop("converted").neq(true),
+      ),
+  },
+});
+```
+
+The moment a contact's `trial_days_left` reaches 3, they join the bucket and `bucket:entered:trial-expiring-soon` fires through the same ingest pipeline as any event. The journey binds to the bucket's typed ref:
+
+```ts
+// src/journeys/trial-expiring.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+// Leaf module, not ../buckets/index.js — reading a typed ref through the
+// barrel inside meta would close an ESM cycle.
+import { trialExpiringSoon } from "../buckets/trial-expiring-soon.js";
+import { Events, Templates } from "./constants/index.js";
+
+export const trialExpiring = defineJourney({
+  meta: {
+    id: "trial-expiring",
+    name: "Conversion — trial expiring",
+    enabled: true,
+    // typed ref — a misspelled bucket id is a compile error
+    trigger: { event: trialExpiringSoon.entered },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [
+      { event: trialExpiringSoon.left },      // converted or trial extended
+      { event: Events.SUBSCRIPTION_CREATED },
+    ],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.TRIAL_EXPIRING_SOON, // "trial/expiring-soon"
+      subject: "Your trial ends in 3 days",
+      journeyName: user.journeyName,
+      props: { daysLeft: Number(user.properties.trial_days_left ?? 3) },
+    });
+
+    // Two days for them to upgrade on their own → last call lands at T-1.
+    const { timedOut } = await ctx.waitForEvent({
+      event: Events.SUBSCRIPTION_CREATED,
+      timeout: days(2),
+      label: "await-upgrade",
+    });
+    if (!timedOut) return; // they upgraded — exitOn already handled it
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.TRIAL_LAST_DAY, // "trial/last-day"
+      subject: "Last day — keep what you've built",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+The bucket joins at T-3, the wait gives them two days, so the last call lands at T-1. `exitOn` carries both signals: `subscription.created` for the direct upgrade, and `trialExpiringSoon.left` for anything that stops the criteria matching — a conversion flips `converted`, an extension lifts `trial_days_left` above 3, and either way `bucket:left:trial-expiring-soon` ends the run mid-wait. Note `entryLimit: "once"` on the bucket means the join event fires once per user *ever* — an extended trial that approaches expiry a second time won't re-trigger the push. Relax it to `once_per_period` on the bucket if you want re-entry.
+
+## Keep the contact properties current
+
+The bucket evaluates **contact properties**, so your app keeps `plan`, `trial_days_left`, and `converted` current. Any event can carry the update — the natural place is whatever path already knows the trial state (a daily job, the session start):
+
+```ts
+// your app server
+import { hs } from "./lib/hogsend.js";
+
+await hs.events.send({
+  name: "app.active",
+  userId: account.ownerId,
+  email: account.ownerEmail,
+  eventProperties: { source: "session" },
+  // Profile state → the contact record; bucket membership re-evaluates on ingest.
+  contactProperties: {
+    plan: account.plan,                    // "trial" | "pro" | …
+    trial_days_left: account.trialDaysLeft,
+    converted: account.hasSubscription,
+  },
+});
+```
+
+`contactProperties` merge onto the durable contact record and never touch the event row — the split is documented in [Events & contacts](/docs/recipes/events-and-contacts).
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  TRIAL_STARTED: "trial.started",
+  SUBSCRIPTION_CREATED: "subscription.created",
+  FEATURE_USED: "feature.used",
+  USER_DELETED: "user.deleted",
+} as const;
+
+export const Templates = {
+  TRIAL_FIRST_VALUE: "trial/first-value",
+  TRIAL_ACTIVATION_NUDGE: "trial/activation-nudge",
+  TRIAL_UPGRADE_VALUE: "trial/upgrade-value",
+  TRIAL_EXPIRING_SOON: "trial/expiring-soon",
+  TRIAL_LAST_DAY: "trial/last-day",
+} as const;
+```
+
+Each `trial/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Add `trialOnboarding` and `trialExpiring` to your `journeys` array and `trialExpiringSoon` to your (un-annotated) `buckets` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys) and the [Buckets guide](/docs/guides/buckets#adding-a-bucket).
+
+<Callout type="info">
+  - **`exitOn` on both journeys is what makes the arc safe.** An upgrade at any point — mid-sleep on day 2, mid-wait at T-2 — cancels the run before the next send. The "thanks for upgrading" / "your trial is ending" collision can't happen.
+  - **Two-layer gating applies.** The bucket's `entryLimit` gates the emitted join event; the journey's `entryLimit` gates enrollment. Both here are `"once"` — pick the layer that expresses your intent before relaxing either.
+  - **Unsubscribe does not exit a journey.** That's why `ctx.guard.isSubscribed()` runs after every sleep and wait; an unsubscribed user coasts through the arc and receives nothing.
+</Callout>
+
+Related: [Usage limit upgrade](/docs/recipes/usage-limit-upgrade) catches the conversion moment after the trial, [Cancellation save](/docs/recipes/cancellation-save) handles the other end of the lifecycle, and the bucket-triggered pattern is introduced in [Lifecycle journeys](/docs/recipes/lifecycle-journeys).

@@ -1,0 +1,258 @@
+---
+title: Lead alerts
+description: Turn an in-email hand-raise into an operator alert — EmailAction answers, a scalars-only lead.flagged event via ctx.trigger, and a notify-lead Hatchet task that resolves identity server-side and sends past the lead's own preferences.
+---
+
+A hand-raise — "I'm interested, talk to me" — is the one answer in your email stream that must reach a human, and it is structurally the easiest to lose: the journey that asked the question can be exited by the same rules that make it polite, and an alert sent down the normal lifecycle path can be swallowed by the *lead's* unsubscribe state. The fix is two pieces with a deliberate seam between them: a journey that asks via [semantic links](/docs/guides/semantic-links) and flags an "interested" answer with a scalars-only `lead.flagged` event, and a `notify-lead` Hatchet task — outside every journey — that catches the flag, resolves the lead's identity server-side, waits a short grace window for their free-text comment, and emails the operator through the preference-exempt transactional path.
+
+| Stage | How you express it |
+|---|---|
+| The question | `EmailAction` buttons firing `offer.answered` |
+| Catch the answer | `ctx.waitForEvent({ …, lookback: minutes(30) })` |
+| Flag the lead | `ctx.trigger({ event: "lead.flagged" })` — scalars only |
+| Alert outside the journey | `hatchet.durableTask({ onEvents: ["lead.flagged"] })` |
+| Let the free text land | `ctx.sleepFor({ minutes: 3 })` grace window |
+| Never gate operator mail | `emailService.send({ skipPreferenceCheck: true })` |
+
+## The journey
+
+```ts
+// src/journeys/setup-offer.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const setupOffer = defineJourney({
+  meta: {
+    id: "setup-offer",
+    name: "Human-in-the-loop — setup offer",
+    enabled: true,
+    trigger: { event: Events.TRIAL_STARTED },
+    entryLimit: "once",
+    suppress: hours(12),
+    // Converting withdraws the pitch, even mid-wait. The awaited answer
+    // event (offer.answered) must NEVER appear here.
+    exitOn: [{ event: Events.SUBSCRIPTION_CREATED }],
+  },
+
+  run: async (user, ctx) => {
+    // Day-1 breather — an offer landing minutes after signup reads automated.
+    await ctx.sleep({ duration: days(1), label: "pre-offer" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.OFFER_SETUP_CALL, // "offer/setup-call"
+      subject: "Want a hand getting set up?",
+      journeyName: user.journeyName,
+    });
+
+    // Answers are provisional clicks confirmed ~30s later; lookback covers
+    // the gap between the send and this wait being established.
+    const answer = await ctx.waitForEvent({
+      event: Events.OFFER_ANSWERED,
+      timeout: days(4),
+      label: "await-answer",
+      lookback: minutes(30),
+    });
+
+    // Re-check after every wait. This gates sends to the USER — the internal
+    // flag records the value instead of being gated by it.
+    const subscribed = await ctx.guard.isSubscribed();
+
+    if (answer.timedOut || answer.properties?.answer !== "interested") {
+      return; // silence or "not now" — the no is respected
+    }
+
+    // Scalars only: the lead's email and name are resolved server-side by
+    // the notify-lead task. Never put PII in event properties.
+    await ctx.trigger({
+      event: Events.LEAD_FLAGGED,
+      userId: user.id,
+      properties: {
+        reason: "setup-offer",
+        answer: "interested",
+        sourceEvent: Events.OFFER_ANSWERED,
+        sourceTemplate: Templates.OFFER_SETUP_CALL,
+        answeredAt: new Date().toISOString(),
+        subscribed,
+      },
+    });
+    await ctx.checkpoint("lead-flagged");
+  },
+});
+```
+
+`ctx.trigger` pushes `lead.flagged` through the full ingest pipeline — stored in `user_events`, routed by Hatchet to anything declaring it in `onEvents`. The flag fires even when `subscribed` is false: an explicit hand-raise goes to the operator, who follows up personally with that context — which is why the subscription state rides in the properties instead of gating the trigger.
+
+## The alert task
+
+A custom Hatchet task in your `src/workflows/`, registered via `extraWorkflows`. It resolves services from the process-wide container because it needs what journey-side `sendEmail()` deliberately doesn't offer: category control and `skipPreferenceCheck`.
+
+```ts
+// src/workflows/notify-lead.ts
+import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
+import { contacts, userEvents } from "@hogsend/db";
+import { hatchet } from "@hogsend/engine";
+import { and, desc, eq, gte } from "drizzle-orm";
+import { getContainer } from "../container.js";
+import { Events, Templates } from "../journeys/constants/index.js";
+
+/** Operator inbox — operational mail to a human, never a contact. */
+const ALERT_TO = process.env.LEAD_ALERT_EMAIL ?? "founders@example.com";
+
+/** The ingest pipeline's Hatchet push payload. */
+interface LeadFlaggedInput {
+  userId: JsonValue;
+  userEmail: JsonValue;
+  properties: JsonValue;
+  [key: string]: JsonValue;
+}
+
+export const notifyLeadTask = hatchet.durableTask({
+  name: "notify-lead",
+  onEvents: [Events.LEAD_FLAGGED],
+  retries: 2,
+  executionTimeout: "15m",
+  fn: async (input: LeadFlaggedInput, ctx) => {
+    const { db, emailService } = getContainer();
+
+    const userId = typeof input.userId === "string" ? input.userId : "";
+    if (!userId) return { status: "skipped", reason: "missing_user_id" };
+
+    const props = (input.properties ?? {}) as Record<
+      string,
+      string | number | boolean | null
+    >;
+    const reason = typeof props.reason === "string" ? props.reason : "unknown";
+    const sourceEvent =
+      typeof props.sourceEvent === "string" ? props.sourceEvent : undefined;
+    const answeredAt =
+      typeof props.answeredAt === "string"
+        ? props.answeredAt
+        : new Date().toISOString();
+
+    // Durable grace window: the hosted answer page's free text ingests as
+    // `<sourceEvent>.comment` seconds after the click — let it land so the
+    // alert carries it inline.
+    await ctx.sleepFor({ minutes: 3 });
+
+    // Identity, server-side: the contacts row is authoritative.
+    const contact = await db.query.contacts.findFirst({
+      where: eq(contacts.externalId, userId),
+    });
+    const leadEmail = contact?.email ?? userId;
+
+    // The comment, if it landed. A small backward allowance: the comment can
+    // precede the flag (click → type → ~30s confirm → journey resumes).
+    let comment: string | undefined;
+    if (sourceEvent) {
+      const cutoff = new Date(Date.parse(answeredAt) - 10 * 60 * 1000);
+      const row = await db.query.userEvents.findFirst({
+        where: and(
+          eq(userEvents.userId, userId),
+          eq(userEvents.event, `${sourceEvent}.comment`),
+          gte(userEvents.occurredAt, cutoff),
+        ),
+        orderBy: [desc(userEvents.occurredAt)],
+      });
+      comment =
+        typeof row?.properties?.comment === "string"
+          ? row.properties.comment
+          : undefined;
+    }
+
+    const result = await emailService.send({
+      template: Templates.TRANSACTIONAL_LEAD_ALERT, // "transactional/lead-alert"
+      to: ALERT_TO,
+      subject: `[Lead] ${reason} — ${leadEmail}`,
+      props: { leadEmail, reason, answeredAt, comment, subscribed: props.subscribed },
+      // NO category override — the registry's "transactional" must win.
+      // skipPreferenceCheck: the LEAD's unsubscribe must never gate
+      // OPERATOR mail; their state travels in the email body instead.
+      skipPreferenceCheck: true,
+      // A retry after a successful send short-circuits to the prior
+      // email_sends row instead of re-alerting.
+      idempotencyKey: `lead-alert:${userId}:${answeredAt}`,
+    });
+
+    return { status: result.status, emailSendId: result.emailSendId };
+  },
+});
+```
+
+## Why the alert lives outside the journey
+
+Three failure modes disappear at the seam:
+
+- **The exit race.** `meta.exitOn` can cancel the journey's run the moment after `ctx.trigger` resolves — a `subscription.created` arriving seconds after the hand-raise aborts any code after the trigger. The task already holds the event by then; the alert sends regardless.
+- **The preference gate.** Journey-side `sendEmail()` sends under the preference-checked `journey` category — right for customer mail, wrong for operator mail. The task sends through `getContainer().emailService` with no category override (the registry's `transactional` wins) and `skipPreferenceCheck: true`, so the lead's unsubscribe or a suppression never drops the alert.
+- **The retry double-page.** `retries: 2` on the task plus the `idempotencyKey` on the send means a retry after a successful send short-circuits to the existing `email_sends` row instead of paging the operator twice.
+
+## The hand-raise buttons
+
+Each answer is an `EmailAction` — an anchor carrying an event name and a scalar payload, lifted into `tracked_links` and stripped from the HTML at send time. `HOSTED_ANSWER_HREF` lands the clicker on the engine-hosted answer page, whose optional free-text box ingests as `offer.answered.comment` — exactly what the task's grace window waits for.
+
+```tsx
+// src/emails/offer-setup-call.tsx (the answer row)
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
+import { Events } from "../journeys/constants/index.js";
+
+<Section className="my-6 text-center">
+  <EmailAction
+    event={Events.OFFER_ANSWERED}
+    properties={{ answer: "interested" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    I'm interested
+  </EmailAction>
+  <EmailAction
+    event={Events.OFFER_ANSWERED}
+    properties={{ answer: "not_now" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    Not right now
+  </EmailAction>
+</Section>
+```
+
+An answer is confirmed only after the ~30-second burst window around the click has fully elapsed, with the first answer per (send, event) winning — a corporate mail scanner following every link in the email cannot page your operator.
+
+## Register it
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  TRIAL_STARTED: "trial.started",
+  SUBSCRIPTION_CREATED: "subscription.created",
+  OFFER_ANSWERED: "offer.answered",
+  LEAD_FLAGGED: "lead.flagged",
+} as const;
+
+export const Templates = {
+  OFFER_SETUP_CALL: "offer/setup-call",
+  TRANSACTIONAL_LEAD_ALERT: "transactional/lead-alert",
+} as const;
+```
+
+```ts
+// src/workflows/index.ts — the engine's built-in workflows register
+// automatically; list only your own tasks here.
+import { notifyLeadTask } from "./notify-lead.js";
+
+export const extraWorkflows = [notifyLeadTask];
+```
+
+Pass `extraWorkflows` to `createWorker({ container, journeys, extraWorkflows })` in `src/worker.ts`, and add `setupOffer` to your `journeys` array exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys). The `transactional/lead-alert` registry entry must carry `category: "transactional"` — that category is what the task's send inherits, keeping operator mail exempt from lifecycle suppression. The [Email guide](/docs/guides/email) covers registering both templates.
+
+<Callout type="info">
+  - **Scalars only in the flag.** Event properties travel through the ingest pipeline and fan out to [destinations](/docs/guides/destinations) — never put the lead's email or name in them. The task resolves identity from the `contacts` row, which is authoritative.
+  - **Never put `offer.answered` in `exitOn`.** An exit match mid-wait aborts the run before the post-wait branch executes — the answer would be recorded but silently never flagged.
+  - **A late comment isn't lost.** Free text that misses the 3-minute grace window still ingests as `offer.answered.comment` in `user_events`; only its inline delivery in the alert is best-effort.
+</Callout>
+
+Related: [Human approval gate](/docs/recipes/human-approval-gate) inverts this flow — the journey waits for the operator's reply instead of alerting and moving on; [Support follow-up](/docs/recipes/support-followup) and [NPS survey](/docs/recipes/nps-survey) reuse the same answer-to-internal-alert seam. The [Semantic links guide](/docs/guides/semantic-links) documents the answer semantics end to end.

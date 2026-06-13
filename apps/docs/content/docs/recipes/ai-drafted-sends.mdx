@@ -1,0 +1,186 @@
+---
+title: AI-drafted sends
+description: A custom Hatchet task asks claude-haiku-4-5 for typed template props, validates the completion with zod before sendEmail, and renders through the code-owned registry template — a malformed completion is a failed task, not a malformed email.
+---
+
+The model drafts the content; it never touches the email. A custom Hatchet task asks Claude for exactly the props your registry template accepts — a subject line and three tips, as JSON — validates the completion with zod, and only then hands it to `sendEmail`. The template itself (markup, layout, the unsubscribe footer, tracking rewrites) stays code-owned and code-reviewed; the model fills typed slots. That ordering buys the failure mode you want: a malformed completion throws at the validation gate, the task fails, Hatchet retries it — and nothing has reached an inbox.
+
+| Boundary | Enforced by |
+|---|---|
+| What the model may produce | a zod schema — the template's prop contract |
+| What the inbox receives | the registry component — code-owned markup |
+| Constrained completion | `output_config.format` via `zodOutputFormat` |
+| A malformed completion | `TipsDraft.parse` throws → task fails → Hatchet retries |
+| The send itself | `sendEmail` → tracked, preference-checked pipeline |
+
+```bash
+pnpm add @anthropic-ai/sdk zod
+```
+
+## The task
+
+```ts
+// src/workflows/draft-weekly-tips.ts
+import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
+import { userEvents } from "@hogsend/db";
+import { hatchet, sendEmail } from "@hogsend/engine";
+import { and, desc, eq, gte } from "drizzle-orm";
+import { z } from "zod";
+import { getContainer } from "../container.js";
+import { Events, Templates } from "../journeys/constants/index.js";
+
+// The template's prop contract. This schema is the ENTIRE surface the model
+// can fill — everything else in the email is the registry component.
+const TipsDraft = z.object({
+  subjectLine: z.string().max(80),
+  tips: z
+    .array(z.object({ title: z.string().max(60), body: z.string().max(280) }))
+    .length(3),
+});
+
+const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY
+
+/** The ingest pipeline's Hatchet push payload. */
+interface WeekCompletedInput {
+  userId: JsonValue;
+  userEmail: JsonValue;
+  properties: JsonValue;
+  [key: string]: JsonValue;
+}
+
+export const draftWeeklyTipsTask = hatchet.durableTask({
+  name: "draft-weekly-tips",
+  onEvents: [Events.ONBOARDING_WEEK_COMPLETED],
+  retries: 2,
+  executionTimeout: "10m",
+  fn: async (input: WeekCompletedInput) => {
+    const { db } = getContainer();
+
+    const userId = typeof input.userId === "string" ? input.userId : "";
+    const email = typeof input.userEmail === "string" ? input.userEmail : "";
+    if (!userId || !email) {
+      return { status: "skipped", reason: "missing_identity" };
+    }
+
+    // The personalization source is your own event log, not the payload.
+    const recent = await db.query.userEvents.findMany({
+      where: and(
+        eq(userEvents.userId, userId),
+        gte(userEvents.occurredAt, new Date(Date.now() - 7 * 86_400_000)),
+      ),
+      orderBy: [desc(userEvents.occurredAt)],
+      limit: 50,
+    });
+    const activity = recent.map((e) => e.event).join("\n");
+
+    const response = await anthropic.messages.parse({
+      model: "claude-haiku-4-5",
+      max_tokens: 1024,
+      system:
+        "You write short, concrete product tips for a developer audience. " +
+        "Plain prose. No exclamation marks, no emoji.",
+      messages: [
+        {
+          role: "user",
+          content: `Events this user fired in their first week, newest first:\n${activity}\n\nDraft a subject line and three tips for what to do next.`,
+        },
+      ],
+      output_config: { format: zodOutputFormat(TipsDraft) },
+    });
+
+    // The gate. parsed_output is null when the completion failed validation;
+    // TipsDraft.parse throws on null or any shape drift — the task fails and
+    // Hatchet retries it. Nothing has been sent yet.
+    const draft = TipsDraft.parse(response.parsed_output);
+
+    await sendEmail({
+      to: email,
+      userId,
+      template: Templates.LIFECYCLE_WEEKLY_TIPS, // "lifecycle/weekly-tips"
+      subject: draft.subjectLine,
+      props: { tips: draft.tips },
+    });
+
+    return { status: "sent" };
+  },
+});
+```
+
+The ordering is the guarantee: model call, then validation, then send. A failure at either of the first two fails the task before any email exists, and `retries: 2` re-runs the whole function — the activity query and the model call are safe to repeat precisely because nothing has been sent yet.
+
+## One schema, two consumers
+
+`TipsDraft` is the single definition of what the model may produce, and it must agree with the template's registered props:
+
+```ts
+// src/emails/registry.ts (augmentation excerpt)
+declare module "@hogsend/email" {
+  interface TemplateRegistryMap {
+    "lifecycle/weekly-tips": {
+      tips: { title: string; body: string }[];
+    };
+  }
+}
+```
+
+The agreement is checked twice, at different times:
+
+- **Compile time** — `sendEmail`'s `props` are typed against the augmentation ([type safety via module augmentation](/docs/guides/email#type-safety-via-module-augmentation)), so if the zod schema drifts from the registry contract, the `props: { tips: draft.tips }` line stops compiling.
+- **Run time** — `zodOutputFormat(TipsDraft)` constrains the completion, the SDK validates it, and `response.parsed_output` is `null` when validation failed. `TipsDraft.parse(null)` throws, which is the explicit gate that keeps "validated" and "sent" in that order.
+
+The subject line is part of the draft because subjects are per-send overrides — the registry's default subject remains the fallback if you'd rather pin it and shrink the model's surface to the tips alone.
+
+## Trigger it
+
+The task declares `onEvents: ["onboarding.week_completed"]`, so anything that can fire an event can request a draft — your app server, a journey via `ctx.trigger`, or another agent:
+
+```ts
+// your app server, when the first week closes out
+await hs.events.send({
+  name: "onboarding.week_completed",
+  userId: user.id,
+  email: user.email,
+  eventProperties: { events_sent: stats.eventCount },
+  idempotencyKey: `week-completed-${user.id}`,
+});
+```
+
+The `idempotencyKey` matters here too: a replayed trigger event would otherwise run the whole draft-and-send again.
+
+## Register it
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  ONBOARDING_WEEK_COMPLETED: "onboarding.week_completed",
+} as const;
+
+export const Templates = {
+  LIFECYCLE_WEEKLY_TIPS: "lifecycle/weekly-tips",
+} as const;
+```
+
+```ts
+// src/workflows/index.ts — engine workflows register automatically
+import { draftWeeklyTipsTask } from "./draft-weekly-tips.js";
+
+export const extraWorkflows = [draftWeeklyTipsTask];
+```
+
+```ts
+// src/worker.ts
+const worker = createWorker({ container: client, journeys, extraWorkflows });
+```
+
+The `lifecycle/weekly-tips` key needs a React Email component and a `registry.ts` entry alongside the augmentation above — the [Email guide](/docs/guides/email) covers authoring. The component decides how a tip renders; the model never sees it.
+
+<Callout type="info">
+  - **Never let the model produce HTML.** Deliverability and compliance — the unsubscribe footer, `List-Unsubscribe` headers, link tracking — ride on the registry component the engine renders. A completion that could emit markup could also omit them.
+  - **The send is still preference-checked.** `sendEmail` runs the full tracked pipeline, so an unsubscribed or suppressed user receives nothing regardless of what the model drafted.
+  - **`claude-haiku-4-5` fits the job.** Filling a small typed schema from a short activity log is a constrained completion, and Haiku is the fast, lowest-cost tier. The gate doesn't change if you swap the model string for a more capable one.
+  - **Length limits live in the schema.** The `.max()` constraints on subject and tip bodies are part of the contract — over-long copy fails validation instead of breaking the template's layout.
+</Callout>
+
+Related: [Agent-triggered journeys](/docs/recipes/agent-triggered-journeys) covers the producing side of the same event stream, [Weekly digest](/docs/recipes/weekly-digest) is the cron-shaped sibling of this task, and the [Journeys guide](/docs/guides/journeys) explains when logic belongs in a journey versus a standalone task.

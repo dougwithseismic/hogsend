@@ -1,0 +1,183 @@
+---
+title: Cancellation save
+description: A save flow on subscription.cancel_requested — a semantic-link reason survey (price, missing feature, not using), a branch per answer via ctx.waitForEvent, an operator escalation via ctx.trigger, and exit on reactivation.
+---
+
+When someone asks to cancel, the one thing worth knowing is *why* — and the answer decides the counter-offer. This journey sends a three-button reason survey as [semantic links](/docs/guides/semantic-links): each button is an `EmailAction` whose click fires `cancel.reason_given` with a `reason` property, `ctx.waitForEvent()` resumes the journey with that payload, and a plain `if` picks the response — a discount for "price", a roadmap email plus a human escalation for "missing feature", a pause offer for "not using". `subscription.reactivated` in `exitOn` ends the run the moment they come back.
+
+| Stage | How you express it |
+|---|---|
+| The survey | three `EmailAction`s sharing one event, different `reason` properties |
+| Read the answer | `ctx.waitForEvent({ event: "cancel.reason_given", timeout: days(3), lookback: minutes(30) })` |
+| Their words, not just the button | `href={HOSTED_ANSWER_HREF}` → free text arrives as `cancel.reason_given.comment` |
+| A human on the feature-gap case | `ctx.trigger("cancel.save_escalated")` → an alert task |
+| Stop if they come back | `meta.exitOn: [{ event: "subscription.reactivated" }]` |
+| One save attempt per quarter | `entryLimit: "once_per_period"` + `entryPeriod: days(90)` |
+
+## The journey
+
+```ts
+// src/journeys/cancellation-save.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const cancellationSave = defineJourney({
+  meta: {
+    id: "cancellation-save",
+    name: "Conversion — cancellation save",
+    enabled: true,
+    trigger: { event: Events.SUBSCRIPTION_CANCEL_REQUESTED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(90), // one save attempt per quarter
+    suppress: hours(12),
+    // The awaited answer event is deliberately NOT here — one event, one role.
+    exitOn: [{ event: Events.SUBSCRIPTION_REACTIVATED }],
+  },
+
+  run: async (user, ctx) => {
+    // Ask why. Three semantic links share one answer slot — first answer wins.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.CANCEL_REASON_SURVEY, // "cancel/reason-survey"
+      subject: "Before you go — one question",
+      journeyName: user.journeyName,
+    });
+
+    const answer = await ctx.waitForEvent({
+      event: Events.CANCEL_REASON_GIVEN,
+      timeout: days(3),
+      lookback: minutes(30), // covers an answer landing in the send→wait gap
+      label: "await-reason",
+    });
+    if (answer.timedOut) return; // no answer — let the cancellation stand
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    const reason = answer.properties?.reason;
+
+    if (reason === "price") {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.CANCEL_DISCOUNT_OFFER, // "cancel/discount-offer"
+        subject: "Stay for 30% less",
+        journeyName: user.journeyName,
+      });
+      return;
+    }
+
+    if (reason === "missing_feature") {
+      // Route a human in — scalars only; the alert task resolves identity
+      // server-side from the contacts row, never from event properties.
+      await ctx.trigger({
+        event: Events.CANCEL_SAVE_ESCALATED,
+        userId: user.id,
+        userEmail: user.email,
+        properties: { reason: "missing_feature", source: "cancel-survey" },
+      });
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.CANCEL_ROADMAP, // "cancel/roadmap"
+        subject: "What's coming — and a person to talk to",
+        journeyName: user.journeyName,
+      });
+      return;
+    }
+
+    // "not_using" — a pause keeps the account where a refund doesn't.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.CANCEL_PAUSE_OFFER, // "cancel/pause-offer"
+      subject: "Pause instead — keep your data and your rate",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+The `lookback` matters here: answer confirmation is deferred about 30 seconds past the click (the scanner-burst window), so an answer can land before the durable wait is established. `lookback: minutes(30)` checks recent `user_events` first and resolves immediately, payload included. `subscription.cancel_requested` should be emitted at the moment of *intent* — the cancel button in your UI — not at period end; the save window is the gap between intent and expiry.
+
+## The survey is three links
+
+In the template, each answer is an `EmailAction` — an anchor carrying the event name and a scalar payload:
+
+```tsx
+// src/emails/cancel/reason-survey.tsx (the answer row)
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
+import { Events } from "../../journeys/constants/index.js";
+
+<Section className="my-6 text-center">
+  <EmailAction
+    event={Events.CANCEL_REASON_GIVEN}
+    properties={{ reason: "price" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    It costs too much
+  </EmailAction>
+  <EmailAction
+    event={Events.CANCEL_REASON_GIVEN}
+    properties={{ reason: "missing_feature" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    It's missing something I need
+  </EmailAction>
+  <EmailAction
+    event={Events.CANCEL_REASON_GIVEN}
+    properties={{ reason: "not_using" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    I'm not using it enough
+  </EmailAction>
+</Section>
+```
+
+At send time the link rewriter lifts `event` + `properties` into `tracked_links` rows and strips the attributes — the metadata never reaches the inbox. A click is recorded as a provisional answer and confirmed ~30 seconds later, after the whole scanner burst is visible, so Outlook SafeLinks or Proofpoint following every link can't fake a reason. **First answer wins per (send, event)**: the three buttons share one slot, so a "price" click followed by a "not_using" click counts once, as "price".
+
+`href={HOSTED_ANSWER_HREF}` resolves to the engine-hosted answer page, which confirms the recorded answer and offers an optional free-text box. A submitted comment ingests as `cancel.reason_given.comment` with the answer's properties attached — the actual sentence about why they're leaving, as a real event journeys and destinations can consume.
+
+## The escalation is an event, not an email
+
+The "missing feature" branch fires `cancel.save_escalated` through `ctx.trigger()` — a real ingested event carrying scalars only. A durable Hatchet task with `onEvents: [Events.CANCEL_SAVE_ESCALATED]` picks it up, resolves the customer's identity server-side from the contacts row, and emails your CSM with `skipPreferenceCheck` so the customer's own unsubscribe state never gates operator mail. The [Lead alerts](/docs/recipes/lead-alerts) recipe documents that receiving task end to end — this journey only needs to fire the event.
+
+Because the answer is itself a real event with properties, a *separate* journey can also trigger on it directly — `trigger: { event: Events.CANCEL_REASON_GIVEN, where: (b) => b.prop("reason").eq("missing_feature") }` — with no coupling to the journey that asked the question.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  SUBSCRIPTION_CANCEL_REQUESTED: "subscription.cancel_requested",
+  SUBSCRIPTION_REACTIVATED: "subscription.reactivated",
+  CANCEL_REASON_GIVEN: "cancel.reason_given",
+  CANCEL_SAVE_ESCALATED: "cancel.save_escalated",
+} as const;
+
+export const Templates = {
+  CANCEL_REASON_SURVEY: "cancel/reason-survey",
+  CANCEL_DISCOUNT_OFFER: "cancel/discount-offer",
+  CANCEL_ROADMAP: "cancel/roadmap",
+  CANCEL_PAUSE_OFFER: "cancel/pause-offer",
+} as const;
+```
+
+Each `cancel/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation ([Email guide](/docs/guides/email)). Add `cancellationSave` to your `journeys` array as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Never put `cancel.reason_given` in `exitOn`.** An exit match mid-wait aborts the run before the branch executes — the survey would collect answers and never act on them. One event name, one role.
+  - **First answer wins per (send, event name).** Three buttons, one slot; repeat and conflicting clicks are recorded as raw clicks but not re-emitted.
+  - **Re-check the guard after the wait.** An unsubscribed user can still click a semantic link — the answer ingests, but no further mail should follow.
+  - **Semantic links are for answers, not actions.** "Confirm my cancellation" must never be one click from an email — a scanner clicking past the burst window could in principle slip one through.
+</Callout>
+
+Related: [Winback and sunset](/docs/recipes/winback-and-sunset) handles the user who cancels anyway, [Lead alerts](/docs/recipes/lead-alerts) is the operator-side half of the escalation, and the [Semantic links guide](/docs/guides/semantic-links) documents the answer semantics in full.

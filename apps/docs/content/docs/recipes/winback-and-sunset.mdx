@@ -1,0 +1,195 @@
+---
+title: Win-back and sunset
+description: Re-engage dormant users and retire the silent ones — a lapsed-active bucket triggers the win-back journey, a semantic yes/no re-permission email collects the verdict, and silence becomes a clean unsubscribe via the Admin API preference write.
+---
+
+A sunset policy is two decisions wired together: try to win the user back, and if nothing comes back, stop mailing them — by writing the preference, not by leaving the address on the list. The deliverability case is mechanical: mailbox providers score sender domains on engagement, so every send to addresses that never open drags inbox placement down for the subscribers who do, and long-dead addresses decay into spam traps. Sunsetting converts sustained silence into a preference write before it converts into a reputation problem.
+
+Here the dormancy detection is a [bucket](/docs/guides/buckets), the flow is one `defineJourney()`, the question is two [semantic links](/docs/guides/semantic-links) sharing one event, and the unsubscribe is the Admin API preference write.
+
+| Stage | How you express it |
+|---|---|
+| Detect dormancy | `defineBucket()` with the lapsed-active composite |
+| Start on the membership change | `trigger: { event: dormant30d.entered }` |
+| Stop the instant they return | `exitOn: [{ event: dormant30d.left }]` |
+| Ask permission to keep mailing | two `EmailAction`s sharing `repermission.answered` |
+| Read the verdict | `ctx.waitForEvent(…)` → `properties.answer` |
+| Turn silence into an unsubscribe | `PUT /v1/admin/contacts/:id/preferences` |
+
+## The dormancy bucket
+
+```ts
+// src/buckets/dormant-30d.ts
+import { days, defineBucket } from "@hogsend/engine";
+import { Events } from "../journeys/constants/index.js";
+
+export const dormant30d = defineBucket({
+  meta: {
+    id: "dormant-30d",
+    name: "Dormant 30 days",
+    enabled: true,
+    timeBased: true,
+    criteria: (b) =>
+      b.all(
+        // The floor: active once, ever — keeps never-active signups out.
+        b.event(Events.APP_ACTIVE).exists(),
+        // The decay: nothing in the last 30 days.
+        b.event(Events.APP_ACTIVE).within(days(30)).notExists(),
+      ),
+  },
+});
+```
+
+The composite shape matters. A bare `notExists()` within 30 days is trivially true for a brand-new signup who never fired `app.active` — exactly who a win-back must not target — so the unbounded `exists()` leg is the floor that keeps them out, and only the windowed leg decays as the clock advances. No inbound event announces dormancy, so the engine's reconcile cron materializes the join (`timeBased: true` marks the bucket for the sweep). If your app already maintains a `last_seen_days` contact property, `b.prop("last_seen_days").gte(30)` expresses the same predicate — the event form just needs no property upkeep and can't go stale. The [dormancy recipe](/docs/guides/buckets#dormancy--lapsed-active-recipe) in the Buckets guide covers both shapes.
+
+## The journey
+
+```ts
+// src/journeys/winback-and-sunset.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+// Leaf-module import — reading a typed ref through the barrel closes an ESM cycle.
+import { dormant30d } from "../buckets/dormant-30d.js";
+import { Events, Templates } from "./constants/index.js";
+
+// The documented programmatic preference write: the Admin API upsert.
+// {id} accepts the contact's externalId — which is what user.id carries.
+async function sunsetContact(userId: string): Promise<void> {
+  const res = await fetch(
+    `${process.env.API_PUBLIC_URL}/v1/admin/contacts/${userId}/preferences`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${process.env.ADMIN_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ unsubscribedAll: true }),
+    },
+  );
+  if (!res.ok) {
+    // Throwing marks the run "failed" in Studio; a swallowed error here
+    // leaves a dead address mailable.
+    throw new Error(`Sunset preference write failed: ${res.status}`);
+  }
+}
+
+export const winbackAndSunset = defineJourney({
+  meta: {
+    id: "winback-and-sunset",
+    name: "Retention — win-back and sunset",
+    enabled: true,
+    trigger: { event: dormant30d.entered },
+    entryLimit: "once_per_period",
+    entryPeriod: days(180),
+    suppress: hours(24),
+    // Returning leaves the bucket, which exits the run — even mid-sleep.
+    // The awaited answer event (repermission.answered) is deliberately NOT here.
+    exitOn: [{ event: dormant30d.left }],
+  },
+
+  run: async (user, ctx) => {
+    // Touch 1 — the win-back attempt.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.RETENTION_WINBACK, // "retention/winback"
+      subject: "What's changed since you've been away",
+      journeyName: user.journeyName,
+    });
+
+    // A return during this week fires dormant30d.left and ends the run here.
+    await ctx.sleep({ duration: days(7), label: "post-winback" });
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // Touch 2 — still silent: ask the question directly.
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.RETENTION_REPERMISSION, // "retention/re-permission"
+      subject: "Should we keep emailing you?",
+      journeyName: user.journeyName,
+    });
+
+    // Answers are provisional clicks confirmed ~30s later; lookback covers
+    // the send→wait gap.
+    const answer = await ctx.waitForEvent({
+      event: Events.REPERMISSION_ANSWERED,
+      timeout: days(10),
+      label: "await-repermission",
+      lookback: minutes(30),
+    });
+
+    if (!answer.timedOut && answer.properties?.answer === "stay") {
+      return; // explicit opt-in renewed — keep them, send nothing more
+    }
+
+    // "leave", any other answer, or ten days of silence: for a sunset
+    // policy, no answer IS the answer.
+    await sunsetContact(user.id);
+    await ctx.checkpoint("sunset-applied");
+  },
+});
+```
+
+The sequencing does the safety work: a user who comes back at *any* point fires `app.active`, leaves the bucket, and `exitOn` cancels the run — including between the wait resolving and the `sunsetContact` call. The sunset line is only reachable by someone who stayed dormant through both touches and answered "leave" or nothing.
+
+## The re-permission email
+
+```tsx
+// src/emails/retention-re-permission.tsx (the answer row)
+import { EmailAction, HOSTED_ANSWER_HREF } from "@hogsend/email";
+import { Events } from "../journeys/constants/index.js";
+
+<Section className="my-6 text-center">
+  <EmailAction
+    event={Events.REPERMISSION_ANSWERED}
+    properties={{ answer: "stay" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    Keep me on the list
+  </EmailAction>
+  <EmailAction
+    event={Events.REPERMISSION_ANSWERED}
+    properties={{ answer: "leave" }}
+    href={HOSTED_ANSWER_HREF}
+    className="mx-1 inline-block rounded-lg border px-5 py-2"
+  >
+    Remove me
+  </EmailAction>
+</Section>
+```
+
+Both answers share one event name, so they share one answer slot — first confirmed click wins per (send, event). `HOSTED_ANSWER_HREF` resolves to the engine-hosted answer page, which confirms the choice and offers a free-text box; a typed comment ingests as `repermission.answered.comment`, so a "leave" with a reason is data, not a mystery. Note that an `EmailAction` href is *not allowed* to be an unsubscribe or preferences URL — the "remove" answer flows through the journey's preference write instead, which is the point: the same write also covers the silent majority via the timeout.
+
+## Why route the unsubscribe through the journey
+
+The Admin API write (`PUT /v1/admin/contacts/{contactId}/preferences` with `{ "unsubscribedAll": true }`, authenticated with `ADMIN_API_KEY`) sets the global unsubscribe flag, after which every tracked send to that contact returns `status: "unsubscribed"` instead of delivering — journeys, campaigns, everything except transactional sends that explicitly pass `skipPreferenceCheck`. Doing it from the journey rather than a batch script means the decision inherits the journey's guarantees: `exitOn` vetoes it for anyone who returned, the 180-day `entryPeriod` stops re-litigating the same contact, and a failed write surfaces as a failed run in Studio.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  APP_ACTIVE: "app.active",
+  REPERMISSION_ANSWERED: "repermission.answered",
+} as const;
+
+export const Templates = {
+  RETENTION_WINBACK: "retention/winback",
+  RETENTION_REPERMISSION: "retention/re-permission",
+} as const;
+```
+
+Each `retention/*` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register `winbackAndSunset` in your `journeys` array and `dormant30d` in your `buckets` array (un-annotated, so the typed `entered`/`left` refs survive — see [Adding a bucket](/docs/guides/buckets#adding-a-bucket)).
+
+<Callout type="info">
+  - **The awaited answer never goes in `exitOn`.** An exit match mid-wait aborts the run before the post-wait branch executes — and here the post-wait branch is the entire sunset. One event name, one role.
+  - **A timeout is an answer.** The sunset path runs on "leave" *and* on ten days of silence — silence is precisely the signal a sunset policy exists to act on.
+  - **Unsubscribe does not exit a journey.** The `ctx.guard.isSubscribed()` check after the sleep keeps the re-permission email away from anyone who unsubscribed mid-flow; the journey still runs to completion without sending.
+  - **The write is global.** `unsubscribedAll: true` gates every tracked send, not just this journey's — password resets and other transactional mail stay deliverable only via `skipPreferenceCheck`.
+</Callout>
+
+Related: [NPS survey](/docs/recipes/nps-survey) uses the same answer-band pattern for feedback, [Weekly digest](/docs/recipes/weekly-digest) is the engagement content that keeps lists from going dormant in the first place, and [Cancellation save](/docs/recipes/cancellation-save) applies the semantic-answer branch to churn. The [Buckets guide](/docs/guides/buckets) documents the reconcile cron behind the dormancy join.

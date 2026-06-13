@@ -1,0 +1,228 @@
+---
+title: Agent feedback loop
+description: Confirmed semantic answers fan out to your agent through a filtered, signed webhook endpoint; the agent's verdict returns as a plain event via hs.events.send; the journey is parked on ctx.waitForEvent.
+---
+
+A [semantic link](/docs/guides/semantic-links) tells you what a click meant; this recipe puts something on the other end that decides what happens next. Confirmed answers emit `email.action` on the outbound spine, and a webhook endpoint subscribed to exactly that event delivers them — signed, retried, durable — to your agent service. The agent decides (an LLM call, a rules table, a human queue; the engine doesn't care) and fires its verdict back with one `hs.events.send`. The journey that asked the question has been parked on `ctx.waitForEvent` the whole time and branches on the verdict like any other event.
+
+| Step | Primitive |
+|---|---|
+| The question | `EmailAction` → `churn.reason_provided` |
+| Fan-out to the agent | endpoint with `eventTypes: ["email.action"]` |
+| Authenticity | `verifyHogsendWebhook` over the raw body |
+| The verdict returns | `hs.events.send("churn.followup_selected")` |
+| Exactly-once decisions | `idempotencyKey` keyed to the delivery id |
+| The journey reacts | `ctx.waitForEvent({ …, lookback })` |
+
+## The journey
+
+```ts
+// src/journeys/exit-interview.ts
+import { days, hours, minutes } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const exitInterview = defineJourney({
+  meta: {
+    id: "exit-interview",
+    name: "Agentic — exit interview",
+    enabled: true,
+    trigger: {
+      event: Events.TRIAL_COMPLETED,
+      where: (b) => b.prop("converted").neq(true),
+    },
+    entryLimit: "once",
+    suppress: hours(12),
+    // Buying ends the conversation. Neither awaited event may appear here.
+    exitOn: [{ event: Events.SUBSCRIPTION_CREATED }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.FEEDBACK_EXIT_INTERVIEW, // "feedback/exit-interview"
+      subject: "What stopped you?",
+      journeyName: user.journeyName,
+    });
+
+    // The user's answer — EmailAction buttons fire churn.reason_provided.
+    const answer = await ctx.waitForEvent({
+      event: Events.CHURN_REASON_PROVIDED,
+      timeout: days(5),
+      label: "await-reason",
+      lookback: minutes(30),
+    });
+    if (answer.timedOut) return; // never answered — leave them be
+
+    // The agent's verdict. The confirmed answer is already on its way to the
+    // agent as an email.action delivery; the agent fires
+    // churn.followup_selected back. The lookback covers a verdict that landed
+    // before this wait was established — the agent can decide in seconds.
+    const verdict = await ctx.waitForEvent({
+      event: Events.CHURN_FOLLOWUP_SELECTED,
+      timeout: hours(6),
+      label: "await-verdict",
+      lookback: minutes(30),
+    });
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    const action = verdict.timedOut
+      ? "none"
+      : String(verdict.properties?.action ?? "none");
+
+    if (action === "offer") {
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.FEEDBACK_SAVE_OFFER, // "feedback/save-offer"
+        subject: "One more month on us",
+        journeyName: user.journeyName,
+      });
+      return;
+    }
+
+    if (action === "handoff") {
+      // scalars only — the alert task resolves identity server-side
+      await ctx.trigger({
+        event: Events.LEAD_FLAGGED,
+        userId: user.id,
+        properties: {
+          reason: "exit-interview",
+          answer: String(answer.properties?.reason ?? "unknown"),
+          sourceEvent: Events.CHURN_REASON_PROVIDED,
+          answeredAt: new Date().toISOString(),
+        },
+      });
+    }
+    // "none" or timeout — the answer is recorded; nothing else sends.
+  },
+});
+```
+
+The two waits do different jobs. The first is the user's answer, with a days-scale timeout because people read email slowly. The second is the agent's verdict, with an hours-scale timeout because the agent should answer in seconds — and a `lookback`, because the verdict can land in the gap between the first wait resolving and the second being established. A timeout on the verdict is the safe default: nothing sends.
+
+The `handoff` branch hands the conversation to a human via the same `lead.flagged` event the [Lead alerts](/docs/recipes/lead-alerts) recipe consumes — the agent's third option is "this one needs a person."
+
+## The filtered destination
+
+One endpoint, subscribed to exactly one catalog event. Registration is the admin plane — a full-admin key, not the ingest key your producers hold:
+
+```ts
+// one-time setup, with a FULL-ADMIN key
+import { Hogsend } from "@hogsend/client";
+
+const admin = new Hogsend({
+  baseUrl: process.env.HOGSEND_BASE_URL!,
+  apiKey: process.env.HOGSEND_ADMIN_KEY!,
+});
+
+const endpoint = await admin.webhooks.create({
+  url: "https://agent.example.com/hogsend/actions",
+  eventTypes: ["email.action"], // confirmed semantic answers — nothing else
+  description: "exit-interview agent",
+});
+// endpoint.secret ("whsec_…") is returned ONCE — store it as
+// HOGSEND_WEBHOOK_SECRET on the agent service.
+```
+
+The `eventTypes` subscription is the filter: the agent receives confirmed semantic answers and nothing else — no opens, no clicks, no contact churn. Each delivery rides the engine's durable outbound spine (retry, exponential backoff, dead-letter queue), and the `email.action` payload carries `{ event, properties, emailSendId, templateKey, userId, to, at, linkId, linkUrl }` — the consumer event name and its scalar answer, plus the send context ([Tracking API](/docs/api/tracking#semantic-links-emailaction)).
+
+## The agent endpoint
+
+```ts
+// the agent service — any HTTPS endpoint you run
+import express from "express";
+import { Hogsend, verifyHogsendWebhook } from "@hogsend/client";
+import { decideFollowup } from "./decide.js"; // your agent: LLM, rules, queue
+
+const hs = new Hogsend({
+  baseUrl: process.env.HOGSEND_BASE_URL!,
+  apiKey: process.env.HOGSEND_DATA_KEY!, // ingest scope — verdicts are events
+});
+
+const app = express();
+
+app.post(
+  "/hogsend/actions",
+  express.raw({ type: "application/json" }), // keep the raw bytes
+  async (req, res) => {
+    let event: { id: string; type: string; timestamp: string; data: unknown };
+    try {
+      event = verifyHogsendWebhook({
+        payload: req.body.toString("utf8"),
+        headers: req.headers as Record<string, string>,
+        secret: process.env.HOGSEND_WEBHOOK_SECRET!,
+      }) as typeof event;
+    } catch {
+      return res.sendStatus(401);
+    }
+
+    const data = event.data as {
+      event: string;
+      properties: Record<string, unknown> | null;
+      userId: string | null;
+    };
+    if (
+      event.type !== "email.action" ||
+      data.event !== "churn.reason_provided" ||
+      !data.userId
+    ) {
+      return res.sendStatus(200); // not ours — acknowledge and drop
+    }
+
+    const action = await decideFollowup(data.userId, data.properties);
+
+    // The verdict is a plain event. Keying it on the delivery id makes the
+    // at-least-once webhook stream exactly-once at the decision layer.
+    await hs.events.send({
+      name: "churn.followup_selected",
+      userId: data.userId,
+      eventProperties: { action },
+      idempotencyKey: `verdict-${event.id}`,
+    });
+
+    return res.sendStatus(200);
+  },
+);
+```
+
+Pass the raw request body to `verifyHogsendWebhook` — a re-stringified JSON object breaks the signature ([Client SDK](/docs/data-api/client-sdk#verifying-inbound-webhooks)). And answer with a 2xx promptly: the spine retries non-2xx responses with backoff, so a slow decision step is better acknowledged first and decided asynchronously — the verdict is just an event and can arrive whenever it's ready.
+
+## Exactly-once verdicts
+
+Outbound delivery is at-least-once: a retried delivery of one logical answer reuses the same `Webhook-Id`, which is also `event.id` in the parsed envelope. Deriving the verdict's `idempotencyKey` from it (`verdict-${event.id}`) means a redelivered answer produces a replayed `events.send` that returns `{ stored: false }` — the journey's wait can only ever be woken once per answer, however many times the webhook fires.
+
+The inbound half has its own exactly-once story: a semantic answer is confirmed at most once per (send, event name) — first answer wins, scanner bursts suppressed — so the agent never sees a duplicate or a security scanner's click.
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  TRIAL_COMPLETED: "trial.completed",
+  SUBSCRIPTION_CREATED: "subscription.created",
+  CHURN_REASON_PROVIDED: "churn.reason_provided",
+  CHURN_FOLLOWUP_SELECTED: "churn.followup_selected",
+  LEAD_FLAGGED: "lead.flagged",
+} as const;
+
+export const Templates = {
+  FEEDBACK_EXIT_INTERVIEW: "feedback/exit-interview",
+  FEEDBACK_SAVE_OFFER: "feedback/save-offer",
+} as const;
+```
+
+The exit-interview template's answer buttons are `EmailAction`s firing `churn.reason_provided` with `properties: { reason: "price" }`, `{ reason: "missing_feature" }`, and so on — the same pattern as the hand-raise buttons in [Lead alerts](/docs/recipes/lead-alerts#the-hand-raise-buttons). Register the journey in your `journeys` array as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Neither awaited event goes in `exitOn`.** An exit match mid-wait aborts the run before the post-wait branch executes — `churn.reason_provided` and `churn.followup_selected` are read via `waitForEvent` only.
+  - **The agent only sees confirmed answers.** `email.action` is emitted after the ~30-second burst window, first answer per (send, event) — a scanner's click burst never reaches your decision step.
+  - **`lookback` on the verdict wait is load-bearing.** A fast agent can fire the verdict before the journey establishes the second wait; without `lookback` that verdict would be missed and the run would take the timeout branch.
+  - **Timeout is the safe default.** If the agent is down for six hours, the journey ends without a send — the answer is still in `user_events` for a later sweep.
+</Callout>
+
+Related: [Lead alerts](/docs/recipes/lead-alerts) is the `handoff` branch's consumer, [Agent-triggered journeys](/docs/recipes/agent-triggered-journeys) covers the agent-as-producer half of this loop, and the [Destinations guide](/docs/guides/destinations) documents the outbound spine these deliveries ride on.

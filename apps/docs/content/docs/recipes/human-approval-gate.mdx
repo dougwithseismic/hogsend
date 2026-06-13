@@ -1,0 +1,255 @@
+---
+title: Human approval gate
+description: Park a journey before a sensitive send until a person approves — ctx.trigger fires approval.requested, a Hatchet task alerts the operator, ctx.waitForEvent holds for approval.granted, and a timeout fails safe to a pre-approved fallback.
+---
+
+An approval gate pauses a journey before a send that needs a human's sign-off — a custom discount, a legal-sensitive notice, anything an operator should see before a customer does. There is no approval machinery in the engine, because none is needed: the request is an event the journey fires with `ctx.trigger()`, the operator alert is a Hatchet task listening on it, the gate itself is `ctx.waitForEvent({ event: "approval.granted", timeout: days(2) })`, and the approval is one `hs.events.send()` from any script, internal tool, or Studio action. Silence fails safe: the timeout path sends the pre-approved fallback instead.
+
+| Stage | How you express it |
+|---|---|
+| Ask for approval | `ctx.trigger({ event: "approval.requested", properties })` |
+| Alert the approver | a custom Hatchet task with `onEvents: ["approval.requested"]` |
+| Park the journey | `ctx.waitForEvent({ event: "approval.granted", timeout: days(2) })` |
+| Approve | one `hs.events.send()` keyed to the *customer's* `userId` |
+| Fail safe on silence | `timedOut: true` → the pre-approved template |
+| Stop if they come back on their own | `meta.exitOn: [{ event: "subscription.reactivated" }]` |
+
+## The journey
+
+The example gates a 30% win-back discount for high-MRR accounts — the kind of offer someone should eyeball before it lands in an inbox.
+
+```ts
+// src/journeys/human-approval-gate.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const humanApprovalGate = defineJourney({
+  meta: {
+    id: "human-approval-gate",
+    name: "Win-back — approval-gated discount",
+    enabled: true,
+    trigger: {
+      event: Events.ACCOUNT_AT_RISK,
+      // only high-value accounts justify a custom offer (and a human's time)
+      where: (b) => b.prop("mrr").gte(500),
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(90),
+    suppress: hours(24),
+    // goal met — they reactivated on their own. NEVER list the awaited
+    // approval.granted event here: exitOn would abort the run mid-wait,
+    // before the post-wait branch runs.
+    exitOn: [{ event: Events.SUBSCRIPTION_REACTIVATED }],
+  },
+
+  run: async (user, ctx) => {
+    const mrr = Number(user.properties.mrr ?? 0);
+    const requestedAt = new Date().toISOString();
+
+    // Ask a human. This is a real ingested event — the request-approval
+    // task (below) picks it up via onEvents and emails the approver.
+    await ctx.trigger({
+      event: Events.APPROVAL_REQUESTED,
+      userId: user.id,
+      properties: {
+        action: "winback-discount",
+        discountPct: 30,
+        mrr,
+        requestedAt,
+      },
+    });
+    await ctx.checkpoint("approval-requested");
+
+    // Park here until the approver fires approval.granted for THIS user —
+    // or two days pass, whichever comes first.
+    const approval = await ctx.waitForEvent({
+      event: Events.APPROVAL_GRANTED,
+      timeout: days(2),
+      label: "await-approval",
+    });
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    if (approval.timedOut) {
+      // Fail safe: silence means the standard, pre-approved offer — the
+      // custom discount can never go out without a recorded approval.
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.WINBACK_STANDARD, // "winback/standard"
+        subject: "Before you go — a quick look at what's new",
+        journeyName: user.journeyName,
+      });
+      return;
+    }
+
+    // The approver's event payload can adjust the terms. Validate it —
+    // waitForEvent properties are best-effort scalars, not trusted input.
+    const discountPct = Math.min(
+      Number(approval.properties?.discountPct ?? 30),
+      50,
+    );
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.WINBACK_DISCOUNT_OFFER, // "winback/discount-offer"
+      subject: `A ${discountPct}% offer to stay`,
+      journeyName: user.journeyName,
+      props: { discountPct },
+    });
+  },
+});
+```
+
+The wait is durable — the run sits parked for up to two days surviving deploys and restarts, and only an `approval.granted` ingested for *this* user resumes it (the wait is scoped to the enrolled user).
+
+## The approver alert task
+
+The alert lives in a custom Hatchet task, not in the journey, and not in `sendEmail()`: journey sends hardcode the `journey` category and are gated by the recipient's preferences, while operator mail must be neither. The task resolves the engine's `emailService` from the process-wide container and sends with no category override (the registry's `transactional` wins) plus `skipPreferenceCheck: true` — the *customer's* unsubscribe state must never gate mail to your own team.
+
+```ts
+// src/workflows/request-approval.ts
+import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
+import { hatchet } from "@hogsend/engine";
+import { getContainer } from "../container.js";
+import { Events, Templates } from "../journeys/constants/index.js";
+
+/** Where approval requests go — an operator inbox, never a contact. */
+const APPROVER_EMAIL = process.env.APPROVER_EMAIL ?? "ops@example.com";
+
+/** The ingest pipeline's Hatchet push payload. */
+interface ApprovalRequestedInput {
+  userId: JsonValue;
+  userEmail: JsonValue;
+  properties: JsonValue;
+  [key: string]: JsonValue;
+}
+
+export const requestApprovalTask = hatchet.durableTask({
+  name: "request-approval",
+  onEvents: [Events.APPROVAL_REQUESTED],
+  retries: 2,
+  executionTimeout: "15m",
+  fn: async (input: ApprovalRequestedInput) => {
+    const { emailService, logger } = getContainer();
+
+    const userId = typeof input.userId === "string" ? input.userId : "";
+    if (!userId) return { status: "skipped", reason: "missing_user_id" };
+    const userEmail =
+      typeof input.userEmail === "string" ? input.userEmail : userId;
+
+    const props = (input.properties ?? {}) as Record<
+      string,
+      string | number | boolean | null
+    >;
+    const action = String(props.action ?? "unknown");
+    const requestedAt = String(props.requestedAt ?? new Date().toISOString());
+
+    const result = await emailService.send({
+      template: Templates.TRANSACTIONAL_APPROVAL_REQUEST, // "transactional/approval-request"
+      to: APPROVER_EMAIL,
+      subject: `[Approval needed] ${action} — ${userEmail}`,
+      props: {
+        action,
+        customerEmail: userEmail,
+        customerId: userId,
+        discountPct: Number(props.discountPct ?? 0),
+        mrr: Number(props.mrr ?? 0),
+        requestedAt,
+      },
+      // No category override — the registry's "transactional" wins, so the
+      // alert is exempt from lifecycle suppression and frequency caps.
+      // skipPreferenceCheck: the CUSTOMER's unsubscribe must never gate
+      // operator mail.
+      skipPreferenceCheck: true,
+      // Retry-safe: a task retry after a successful send short-circuits to
+      // the prior email_sends row instead of re-alerting.
+      idempotencyKey: `approval-request:${userId}:${requestedAt}`,
+    });
+
+    if (result.status !== "sent") {
+      logger.warn("request-approval: alert not sent", {
+        status: result.status,
+      });
+    }
+    return { status: result.status };
+  },
+});
+```
+
+Register it alongside your journeys — custom tasks go to the worker via `extraWorkflows`:
+
+```ts
+// src/workflows/index.ts
+import { requestApprovalTask } from "./request-approval.js";
+
+// Only list YOUR tasks — the engine registers its built-ins automatically.
+export const extraWorkflows = [requestApprovalTask];
+
+// src/worker.ts
+const worker = createWorker({ container, journeys, extraWorkflows });
+```
+
+Living outside the journey also makes the alert exit-proof: if the customer reactivates the instant after the journey fires the request, `exitOn` cancels the journey's run — but the task already holds the event and the operator still hears about it.
+
+## Approving is one event
+
+The operator approves by sending a single event on the data plane — from an internal admin tool, a one-line script, a CRM automation, or an agent. The one rule: the event carries the **customer's** `userId`, because `ctx.waitForEvent()` is scoped to the enrolled user — operator metadata goes in `eventProperties`.
+
+```ts
+// any internal tool or script
+import { hs } from "./lib/hogsend.js";
+
+await hs.events.send({
+  name: "approval.granted",
+  userId: "user_123", // the CUSTOMER's id — the wait is scoped to them
+  eventProperties: { approvedBy: "doug@example.com", discountPct: 30 },
+  idempotencyKey: `approval-user_123-${requestedAt}`,
+});
+```
+
+Or as raw HTTP, the same call any tool that can POST can make:
+
+```bash
+curl -X POST https://api.example.com/v1/events \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "approval.granted",
+    "userId": "user_123",
+    "eventProperties": { "approvedBy": "doug@example.com", "discountPct": 30 }
+  }'
+```
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  ACCOUNT_AT_RISK: "account.at_risk",
+  APPROVAL_REQUESTED: "approval.requested",
+  APPROVAL_GRANTED: "approval.granted",
+  SUBSCRIPTION_REACTIVATED: "subscription.reactivated",
+} as const;
+
+export const Templates = {
+  WINBACK_DISCOUNT_OFFER: "winback/discount-offer",
+  WINBACK_STANDARD: "winback/standard",
+  TRANSACTIONAL_APPROVAL_REQUEST: "transactional/approval-request",
+} as const;
+```
+
+Each key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `humanApprovalGate` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Never put `approval.granted` in `exitOn`.** An exit match mid-wait aborts the run before the post-wait branch executes — the journey would never send the approved offer. One event name, one role.
+  - **The timeout is the safety property.** Silence resolves to the pre-approved fallback, so a missed alert or a busy approver degrades to the standard offer — the custom discount structurally cannot go out unapproved.
+  - **A late approval resumes nothing.** Once the wait times out, the run has already taken the fallback path; the late `approval.granted` is stored in `user_events` but acts on nothing. If late approvals must still act, trigger a *separate* journey on `approval.granted` (see [cross-journey fan-out](/docs/guides/semantic-links#cross-journey-fan-out)).
+  - **Validate the operator's payload.** `waitForEvent` properties are best-effort scalars — clamp the `discountPct` before putting it in a customer email.
+</Callout>
+
+Related: [Lead alerts](/docs/recipes/lead-alerts) is the same operator-task pattern fired by a customer's hand-raise, [Concierge onboarding](/docs/recipes/concierge-onboarding) parks a journey on a human's first contact, and the [Journeys guide](/docs/guides/journeys) documents `ctx.waitForEvent` and `ctx.trigger` in full.

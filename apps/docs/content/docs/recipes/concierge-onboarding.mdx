@@ -1,0 +1,244 @@
+---
+title: Concierge onboarding
+description: Route enterprise signups to a human — a CSM alert task on entry, ctx.waitForEvent on csm.contacted with a re-page after a day of silence, an automated fallback after two, and an exit the moment the first meeting is booked.
+---
+
+Concierge onboarding puts a person, not a sequence, in front of high-value signups — but the handoff still needs orchestration: page the CSM, notice when nobody acts, fall back so the customer never waits on an absent human. The whole escalation is one `defineJourney()`: a `trigger.where` on `plan` admits only enterprise signups, `ctx.trigger()` pages the CSM through an alert task, `ctx.waitForEvent("csm.contacted")` parks until the CSM confirms contact with a single event, and `meta.exitOn` stops everything the moment a meeting is booked.
+
+| Stage | How you express it |
+|---|---|
+| Only enterprise signups enter | `trigger.where: (b) => b.prop("plan").eq("enterprise")` |
+| Page the CSM | `ctx.trigger({ event: "csm.assignment_requested" })` → a Hatchet alert task |
+| Park until the human acts | `ctx.waitForEvent({ event: "csm.contacted", timeout: days(1) })` |
+| Re-page after a day of silence | a second `ctx.trigger` with a fresh `requestedAt` |
+| Never stall the customer | second timeout → the automated welcome |
+| Stop when the meeting lands | `meta.exitOn: [{ event: "meeting.booked" }]` |
+
+## The journey
+
+```ts
+// src/journeys/concierge-onboarding.ts
+import { days, hours } from "@hogsend/engine";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const conciergeOnboarding = defineJourney({
+  meta: {
+    id: "concierge-onboarding",
+    name: "Onboarding — enterprise concierge",
+    enabled: true,
+    trigger: {
+      event: Events.USER_SIGNED_UP,
+      // self-serve plans take the automated welcome journey instead
+      where: (b) => b.prop("plan").eq("enterprise"),
+    },
+    entryLimit: "once",
+    suppress: hours(12),
+    // a booked meeting means onboarding is in human hands — stop all of this.
+    // The awaited csm.contacted event must NEVER appear here.
+    exitOn: [{ event: Events.MEETING_BOOKED }],
+  },
+
+  run: async (user, ctx) => {
+    const seats = Number(user.properties.seats ?? 0);
+
+    // Page a human. A real ingested event — the csm-alert task (onEvents)
+    // emails the CSM inbox with the account context.
+    await ctx.trigger({
+      event: Events.CSM_ASSIGNMENT_REQUESTED,
+      userId: user.id,
+      properties: {
+        plan: "enterprise",
+        seats,
+        requestedAt: new Date().toISOString(),
+      },
+    });
+    await ctx.checkpoint("csm-paged");
+
+    // Park until the CSM marks contact — one event from their tool or CRM.
+    let contact = await ctx.waitForEvent({
+      event: Events.CSM_CONTACTED,
+      timeout: days(1),
+      label: "await-csm",
+    });
+
+    if (contact.timedOut) {
+      // A day of silence: re-page. The fresh requestedAt gives the alert
+      // task a new idempotency key, so the reminder isn't deduped against
+      // the first page.
+      await ctx.trigger({
+        event: Events.CSM_ASSIGNMENT_REQUESTED,
+        userId: user.id,
+        properties: {
+          plan: "enterprise",
+          seats,
+          requestedAt: new Date().toISOString(),
+          reminder: true,
+        },
+      });
+
+      contact = await ctx.waitForEvent({
+        event: Events.CSM_CONTACTED,
+        timeout: days(1),
+        label: "await-csm-2",
+        // covers a csm.contacted that landed between the two waits
+        lookback: hours(1),
+      });
+    }
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    if (contact.timedOut) {
+      // Two days, no human: the customer never waits on an absent CSM.
+      await sendEmail({
+        to: user.email,
+        userId: user.id,
+        journeyStateId: user.stateId,
+        template: Templates.ONBOARDING_ENTERPRISE_WELCOME, // "onboarding/enterprise-welcome"
+        subject: "Getting your team set up",
+        journeyName: user.journeyName,
+      });
+      return;
+    }
+
+    // The CSM's event carries who reached out — it flows straight into the
+    // customer-facing email as a typed template prop.
+    const csmName = String(contact.properties?.csm_name ?? "your account team");
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_CONCIERGE_INTRO, // "onboarding/concierge-intro"
+      subject: "Next steps for your rollout",
+      journeyName: user.journeyName,
+      props: { csmName },
+    });
+  },
+});
+```
+
+Both waits are durable — the run sits parked for up to two days across deploys and restarts. A `meeting.booked` at *any* point (including mid-wait) exits the run cleanly: the engine cancels the Hatchet run and no post-wait email fires.
+
+## The CSM alert task
+
+The page goes out through a custom Hatchet task, not `sendEmail()`: journey sends carry the `journey` category and respect the recipient's preferences, while operator mail needs the registry's `transactional` category and `skipPreferenceCheck: true` (the *customer's* subscription state must never gate mail to your own team). The task resolves `emailService` from the process-wide container:
+
+```ts
+// src/workflows/csm-alert.ts
+import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
+import { hatchet } from "@hogsend/engine";
+import { getContainer } from "../container.js";
+import { Events, Templates } from "../journeys/constants/index.js";
+
+/** The CSM team inbox — operational mail to operators, never a contact. */
+const CSM_INBOX = process.env.CSM_ALERT_EMAIL ?? "csm@example.com";
+
+/** The ingest pipeline's Hatchet push payload. */
+interface AssignmentRequestedInput {
+  userId: JsonValue;
+  userEmail: JsonValue;
+  properties: JsonValue;
+  [key: string]: JsonValue;
+}
+
+export const csmAlertTask = hatchet.durableTask({
+  name: "csm-alert",
+  onEvents: [Events.CSM_ASSIGNMENT_REQUESTED],
+  retries: 2,
+  executionTimeout: "15m",
+  fn: async (input: AssignmentRequestedInput) => {
+    const { emailService } = getContainer();
+
+    const userId = typeof input.userId === "string" ? input.userId : "";
+    if (!userId) return { status: "skipped", reason: "missing_user_id" };
+    const customerEmail =
+      typeof input.userEmail === "string" ? input.userEmail : userId;
+
+    const props = (input.properties ?? {}) as Record<
+      string,
+      string | number | boolean | null
+    >;
+    const reminder = props.reminder === true;
+    const requestedAt = String(props.requestedAt ?? new Date().toISOString());
+
+    const result = await emailService.send({
+      template: Templates.TRANSACTIONAL_CSM_ALERT, // "transactional/csm-alert"
+      to: CSM_INBOX,
+      subject: reminder
+        ? `[CSM — reminder] enterprise signup waiting: ${customerEmail}`
+        : `[CSM] new enterprise signup: ${customerEmail}`,
+      props: {
+        customerEmail,
+        customerId: userId,
+        seats: Number(props.seats ?? 0),
+        reminder,
+        requestedAt,
+      },
+      // Registry "transactional" wins (no category override), and the
+      // customer's unsubscribe state never gates operator mail.
+      skipPreferenceCheck: true,
+      // requestedAt is part of the key, so the journey's re-page (a fresh
+      // timestamp) sends — but a task retry of the SAME page doesn't.
+      idempotencyKey: `csm-alert:${userId}:${requestedAt}`,
+    });
+    return { status: result.status };
+  },
+});
+```
+
+Pass it to the worker via `extraWorkflows` (`createWorker({ container, journeys, extraWorkflows: [csmAlertTask] })`). For the fuller version of this task — server-side identity resolution from the contacts table and a grace window that folds in free-text context — see [Lead alerts](/docs/recipes/lead-alerts).
+
+## The CSM side is one event
+
+The CSM confirms contact with a single data-plane call — from a CRM automation on the logged activity, an internal tool button, or a one-liner. The event carries the **customer's** `userId` (the wait is scoped to the enrolled user); who reached out rides along as an event property and ends up in the customer's intro email:
+
+```ts
+// CRM automation or internal tool
+import { hs } from "./lib/hogsend.js";
+
+await hs.events.send({
+  name: "csm.contacted",
+  userId: "user_123", // the customer's id — the wait is scoped to them
+  eventProperties: { csm_name: "Sarah", channel: "email" },
+});
+```
+
+The exit event usually comes from your calendar tool's webhook:
+
+```ts
+await hs.events.send({
+  name: "meeting.booked",
+  userId: "user_123",
+  eventProperties: { meeting_at: "2026-06-18T15:00:00Z" },
+});
+```
+
+## Add the events and template keys
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  USER_SIGNED_UP: "user.signed_up",
+  CSM_ASSIGNMENT_REQUESTED: "csm.assignment_requested",
+  CSM_CONTACTED: "csm.contacted",
+  MEETING_BOOKED: "meeting.booked",
+} as const;
+
+export const Templates = {
+  ONBOARDING_CONCIERGE_INTRO: "onboarding/concierge-intro",
+  ONBOARDING_ENTERPRISE_WELCOME: "onboarding/enterprise-welcome",
+  TRANSACTIONAL_CSM_ALERT: "transactional/csm-alert",
+} as const;
+```
+
+Each key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `conciergeOnboarding` to your `journeys` array, exactly as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **`csm.contacted` is awaited, so it must not be in `exitOn`.** An exit match mid-wait aborts the run before the intro email branch executes. `meeting.booked` carries the exit role instead.
+  - **The escalation ladder is ordinary control flow.** Timeout → re-page → timeout → automated fallback is two `if` blocks, and each rung is visible in Studio via the wait labels and checkpoints.
+  - **The re-page works because of the idempotency key.** The alert task keys on `userId + requestedAt`; the journey's reminder carries a fresh timestamp, so it sends — while a Hatchet retry of the same page short-circuits.
+  - **Unsubscribe does not exit a journey.** The guard runs after the waits and before any customer-facing send; pages to the CSM are deliberately not gated by it.
+</Callout>
+
+Related: [Human approval gate](/docs/recipes/human-approval-gate) parks a journey on an operator's sign-off the same way, [Lead alerts](/docs/recipes/lead-alerts) is the full operator-alert task pattern, and [Welcome series](/docs/recipes/welcome-series) is the automated path self-serve signups take instead.
