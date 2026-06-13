@@ -298,6 +298,25 @@ export async function deleteProviderCredential(
 }
 
 /**
+ * Purge EVERY stored credential for a provider — the oauth grant AND the
+ * server-derived config (minted webhook secret + grabbed phc_). Disconnect
+ * must leave no orphaned rows; the single-kind `deleteProviderCredential`
+ * stays unchanged so token-lifecycle callers can still target one kind.
+ * Returns which kinds were removed. Never decrypts.
+ */
+export async function deleteAllProviderCredentials(
+  db: Database,
+  providerId: string,
+): Promise<{ oauth: boolean; derived: boolean }> {
+  const [oauth, derived] = await Promise.all([
+    deleteProviderCredential(db, providerId, "oauth"),
+    deleteProviderCredential(db, providerId, "derived"),
+  ]);
+
+  return { oauth, derived };
+}
+
+/**
  * Read + decrypt the kind="derived" config for a provider. `null` when none
  * stored; throws `ProviderCredentialDecryptError` when a row exists but cannot
  * be decrypted. Unlike the oauth path there's no required-field validation —

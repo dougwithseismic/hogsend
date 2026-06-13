@@ -52,6 +52,16 @@ async function resolveStoredPosthogSecret(
   return value;
 }
 
+/**
+ * Drop the module-level stored-secret cache so the next inbound PostHog webhook
+ * re-reads from the `kind="derived"` store. Called right after `hogsend connect`
+ * mints + persists a secret, so the freshly-minted value is enforced
+ * immediately instead of waiting out the `STORED_SECRET_RECHECK_MS` window.
+ */
+export function invalidateStoredPosthogSecret(): void {
+  storedPosthogSecret = undefined;
+}
+
 export function registerWebhookSourceRoutes(
   app: OpenAPIHono<AppEnv>,
   sources: DefinedWebhookSource[],

@@ -193,6 +193,61 @@ describe("/v1/admin/provider-credentials", () => {
     expect(again.status).toBe(404);
   });
 
+  it('DELETE purges the kind="derived" row too (no orphaned config)', async () => {
+    // Disconnect must leave NO orphaned rows: a connect that minted a webhook
+    // secret + grabbed phc_ writes BOTH an oauth grant and a derived config.
+    const id = pid("disconnect");
+    await saveProviderCredential(db, { providerId: id, payload: PAYLOAD });
+    await saveDerivedCredential(db, id, {
+      webhookSecret: "minted_64hex",
+      projectApiKey: "phc_grabbed",
+    });
+
+    // Sanity: both rows exist before the disconnect.
+    expect(await getProviderCredential(db, id)).not.toBeNull();
+    expect(await getDerivedCredential(db, id)).not.toBeNull();
+
+    const res = await app.request(`/v1/admin/provider-credentials/${id}`, {
+      method: "DELETE",
+      headers: ADMIN_HEADER,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: true });
+
+    // Both kinds are gone — the derived row is no longer orphaned.
+    expect(await getProviderCredential(db, id)).toBeNull();
+    expect(await getDerivedCredential(db, id)).toBeNull();
+    const rows = await db
+      .select()
+      .from(providerCredentials)
+      .where(eq(providerCredentials.providerId, id));
+    expect(rows).toHaveLength(0);
+
+    // A second disconnect 404s — neither kind exists anymore.
+    const again = await app.request(`/v1/admin/provider-credentials/${id}`, {
+      method: "DELETE",
+      headers: ADMIN_HEADER,
+    });
+    expect(again.status).toBe(404);
+  });
+
+  it("DELETE purges a derived-only row (no oauth grant)", async () => {
+    // A disconnect after a provision-only connect: only the derived config
+    // exists. DELETE must still 200 (the oauth-only delete would have 404'd).
+    const id = pid("derived-only");
+    await saveDerivedCredential(db, id, { webhookSecret: "minted_only" });
+    expect(await getProviderCredential(db, id)).toBeNull();
+    expect(await getDerivedCredential(db, id)).not.toBeNull();
+
+    const res = await app.request(`/v1/admin/provider-credentials/${id}`, {
+      method: "DELETE",
+      headers: ADMIN_HEADER,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ deleted: true });
+    expect(await getDerivedCredential(db, id)).toBeNull();
+  });
+
   it("returns 401 without admin credentials", async () => {
     const res = await app.request(
       `/v1/admin/provider-credentials/${pid("create")}`,

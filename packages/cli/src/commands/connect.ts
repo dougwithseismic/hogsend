@@ -118,6 +118,16 @@ async function run(ctx: CommandContext): Promise<void> {
           message:
             "PostHog app/private host URL (e.g. https://posthog.example.com)",
           placeholder: "https://posthog.example.com",
+          validate: (value) => {
+            try {
+              const url = new URL(value ?? "");
+              if (url.protocol !== "http:" && url.protocol !== "https:") {
+                return "Enter a full URL, e.g. https://posthog.example.com";
+              }
+            } catch {
+              return "Enter a full URL, e.g. https://posthog.example.com";
+            }
+          },
         }),
       );
     },
