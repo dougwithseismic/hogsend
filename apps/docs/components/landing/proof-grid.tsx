@@ -4,6 +4,7 @@ import { TrackDeployClick } from "@/components/analytics/track";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
+import { ENGINE_VERSION } from "@/lib/site";
 
 /**
  * ProofGrid — the crimzon testimonial-grid styling, filled with what exists:
@@ -24,7 +25,7 @@ type ProofCard = {
 const PROOF_CARDS: ProofCard[] = [
   {
     title: "11 packages on npm",
-    body: "The engine, CLI, Studio, providers, and client SDK — all published at v0.11.0, semver-versioned. Upgrading is one pnpm up.",
+    body: `The engine, CLI, Studio, providers, and client SDK — all published at v${ENGINE_VERSION}, semver-versioned. Upgrading is one pnpm up.`,
     linkLabel: "@hogsend/engine on npm",
     href: "https://www.npmjs.com/package/@hogsend/engine",
     external: true,

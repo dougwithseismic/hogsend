@@ -55,6 +55,134 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.20.0",
+    anchor: "0-20-0",
+    date: "June 12, 2026",
+    title: "One command to connect PostHog",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>hogsend connect posthog</Code> runs a public-client OAuth flow
+          (PKCE S256, loopback callback, no client secret) and discovers the
+          OAuth server from your own PostHog host — so the region is always
+          right and self-hosted instances degrade to the personal-key path. It
+          stores the credential encrypted at rest and provisions the PostHog →
+          Hogsend webhook destination idempotently, adopting an existing one
+          instead of duplicating.
+        </Bullet>
+        <Bullet>
+          A credential stored at runtime is picked up by the running API and
+          worker within ~30 seconds — no restart. Person reads prefer the OAuth
+          token and fall back to <Code>POSTHOG_PERSONAL_API_KEY</Code>.
+        </Bullet>
+        <Bullet>
+          It refuses to wire an unauthenticated endpoint: provisioning fails
+          when <Code>POSTHOG_WEBHOOK_SECRET</Code> is unset rather than exposing
+          one.
+        </Bullet>
+        <Bullet>
+          Contact → person propagation: the <Code>posthog</Code> destination's{" "}
+          <Code>syncPersons</Code> turns <Code>contact.created</Code> /{" "}
+          <Code>contact.updated</Code> into <Code>$set</Code> captures under the
+          contact's canonical key. Only <Code>properties</Code> travel — never
+          email or identifiers.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code> and run{" "}
+        <Code>db:migrate</Code> (the OAuth connect flow adds a{" "}
+        <Code>provider_credentials</Code> table). Everything is additive;
+        existing PostHog setups keep working on{" "}
+        <Code>POSTHOG_PERSONAL_API_KEY</Code>.
+      </>
+    ),
+  },
+  {
+    version: "0.19.0",
+    anchor: "0-19-0",
+    date: "June 12, 2026",
+    title: "Provider-neutral analytics, and PostHog reads that work",
+    bullets: (
+      <>
+        <Bullet>
+          The <Code>AnalyticsProvider</Code> contract — the analytics sibling of{" "}
+          <Code>EmailProvider</Code>, authored via{" "}
+          <Code>defineAnalyticsProvider</Code> — lands in{" "}
+          <Code>@hogsend/core</Code> with person reads, person writes (
+          <Code>set</Code> / <Code>setOnce</Code> / <Code>unset</Code>), and
+          capture. The <Code>analytics</Code> client option now mirrors{" "}
+          <Code>email</Code>; legacy <Code>PostHogService</Code> inputs are
+          adapter-wrapped and keep working.
+        </Bullet>
+        <Bullet>
+          PostHog person reads are fixed — they were silently dead (the
+          write-only <Code>phc_</Code> project key sent to the ingestion host on
+          a legacy path). Reads now use <Code>POSTHOG_PERSONAL_API_KEY</Code>{" "}
+          against the private API host with one-shot project-id discovery.
+        </Bullet>
+        <Bullet>
+          Without the personal key, reads soft-fail to contact-property
+          fallbacks — now surfaced once at boot and by{" "}
+          <Code>hogsend doctor</Code> instead of silently. Person writes need no
+          extra credential; they ride the capture pipeline.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. To turn on person reads,
+        set <Code>POSTHOG_PERSONAL_API_KEY</Code> (scoped{" "}
+        <Code>person:read</Code>); the scaffold's <Code>env.example</Code>{" "}
+        documents the two-credential model.
+      </>
+    ),
+  },
+  {
+    version: "0.18.0",
+    anchor: "0-18-0",
+    date: "June 12, 2026",
+    title: "Closing the analytics identity loop",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>POST /v1/events</Code> now returns <Code>contactKey</Code> — the
+          contact's canonical key (
+          <Code>external_id ?? anonymous_id ?? id</Code>), the same key
+          destinations emit as <Code>userId</Code> and <Code>hs_t</Code> tokens
+          resolve to — so a consumer site can <Code>identify()</Code> its
+          analytics session against the contact with no PII round-trip.
+        </Bullet>
+        <Bullet>
+          Identity resolution round-trips that key: a key that left the system
+          (Hatchet payloads, destination <Code>userId</Code>s, <Code>hs_t</Code>{" "}
+          stitches, forwarded PostHog webhooks) always resolves back to the same
+          live contact instead of minting a duplicate.
+        </Bullet>
+      </>
+    ),
+  },
+  {
+    version: "0.17.0",
+    anchor: "0-17-0",
+    date: "June 11, 2026",
+    title: "Studio, restyled",
+    bullets: (
+      <>
+        <Bullet>
+          Hogsend Studio moves onto the Hogsend design system — the same dark
+          surface as the site and docs.
+        </Bullet>
+        <Bullet>
+          0.17.1 fix: the password-reset link now lands on the reset form, not
+          the login card. The bare <Code>/studio</Code> redirect was dropping
+          better-auth's <Code>?token=…</Code> query string.
+        </Bullet>
+      </>
+    ),
+  },
+  {
     version: "0.16.0",
     anchor: "0-16-0",
     date: "June 11, 2026",
