@@ -14,6 +14,7 @@ import {
   provisionPostHogLoop,
 } from "../../lib/provision-posthog-loop.js";
 import { errorSchema } from "../../lib/schemas.js";
+import { invalidateStoredPosthogSecret } from "../webhooks/sources.js";
 
 /**
  * Admin analytics-connection routes — the server half of
@@ -170,9 +171,8 @@ const provisionLoopRoute = createRoute({
       description:
         "Refused: `no_posthog_credential` (no OAuth credential and no " +
         "personal API key), `posthog_not_configured` (no PostHog env signal " +
-        "at all), `webhook_secret_missing` (POSTHOG_WEBHOOK_SECRET unset), " +
-        "or `api_public_url_unreachable` (API_PUBLIC_URL is loopback — " +
-        "PostHog cannot deliver to it)",
+        "at all), or `api_public_url_unreachable` (API_PUBLIC_URL is loopback " +
+        "— PostHog cannot deliver to it)",
     },
     502: {
       content: { "application/json": { schema: provisionFailureSchema } },
@@ -273,6 +273,9 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
         ...(storedDerived ?? {}),
         webhookSecret,
       });
+      // Bust the inbound posthog webhook source's cached secret so it enforces
+      // the freshly-minted value immediately instead of after the ~30s TTL.
+      invalidateStoredPosthogSecret();
     }
 
     try {
@@ -318,9 +321,6 @@ export const analyticsAdminRouter = new OpenAPIHono<AppEnv>()
       );
     } catch (error) {
       if (error instanceof ProvisionPostHogLoopError) {
-        if (error.code === "missing-webhook-secret") {
-          return c.json({ error: "webhook_secret_missing" }, 409);
-        }
         return c.json(
           {
             error: error.code,

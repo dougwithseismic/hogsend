@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import {
-  deleteProviderCredential,
+  deleteAllProviderCredentials,
   getProviderCredential,
   ProviderCredentialDecryptError,
   type ProviderCredentialMeta,
@@ -108,7 +108,11 @@ const deleteRoute = createRoute({
   method: "delete",
   path: "/{providerId}",
   tags: ["Admin — Provider Credentials"],
-  summary: "Delete a provider credential",
+  summary: "Purge a provider's stored credentials (oauth + derived)",
+  description:
+    "Disconnect: hard-deletes EVERY stored credential for the provider — " +
+    "the oauth grant AND the server-derived config (minted webhook secret + " +
+    "grabbed phc_) — so no orphaned rows remain.",
   request: {
     params: providerIdParam,
   },
@@ -117,11 +121,11 @@ const deleteRoute = createRoute({
       content: {
         "application/json": { schema: z.object({ deleted: z.boolean() }) },
       },
-      description: "Credential hard-deleted",
+      description: "Credentials hard-deleted (at least one row removed)",
     },
     404: {
       content: { "application/json": { schema: errorSchema } },
-      description: "No credential stored for this provider",
+      description: "No credentials stored for this provider",
     },
   },
 });
@@ -180,8 +184,13 @@ export const providerCredentialsRouter = new OpenAPIHono<AppEnv>()
 
     // Never decrypts — DELETE must succeed even when the payload is
     // undecryptable (the operator's escape hatch after a secret rotation).
-    const deleted = await deleteProviderCredential(db, providerId);
-    if (!deleted) {
+    // Disconnect purges BOTH kinds (oauth grant + derived config) so the
+    // minted webhook secret + grabbed phc_ never linger orphaned.
+    const { oauth, derived } = await deleteAllProviderCredentials(
+      db,
+      providerId,
+    );
+    if (!oauth && !derived) {
       return c.json({ error: "Provider credential not found" }, 404);
     }
     return c.json({ deleted: true }, 200);
