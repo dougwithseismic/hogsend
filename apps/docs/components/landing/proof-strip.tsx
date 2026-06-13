@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
+import { ENGINE_VERSION } from "@/lib/site";
 
 /**
  * ProofStrip — the crimzon stats band: a two-line 16px label on the left,
@@ -8,7 +9,8 @@ import { cn } from "@/lib/cn";
  * 12px uppercase caption), and a founder micro-line beneath.
  *
  * HARD RULE: every number here comes from the research brief's verified proof
- * inventory (11 npm packages, v0.11.0, 13 templates, 10 journeys). This strip
+ * inventory (11 npm packages, 13 templates, 10 journeys); the release version
+ * comes from ENGINE_VERSION. This strip
  * is "what exists", not "who uses it" — never add usage claims, customer
  * counts, or invented logos.
  */
@@ -21,7 +23,7 @@ type StatItem = {
 };
 
 const STATS: StatItem[] = [
-  { value: "v0.11.0", label: "Current release", href: "/changelog" },
+  { value: `v${ENGINE_VERSION}`, label: "Current release", href: "/changelog" },
   {
     value: "11",
     label: "Packages on npm",
