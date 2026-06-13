@@ -52,42 +52,42 @@ const RECIPE_LINKS: MenuItem[] = [
   {
     label: "Onboarding",
     description: "Welcome series, activation milestones, waitlists.",
-    href: "/recipes#recipes-onboarding",
+    href: "/recipes/category/onboarding",
   },
   {
     label: "Trial & billing",
     description: "Trial arcs, dunning, and upgrade nudges.",
-    href: "/recipes#recipes-conversion",
+    href: "/recipes/category/conversion",
   },
   {
     label: "E-commerce",
     description: "Carts, orders, deliveries, and restocks.",
-    href: "/recipes#recipes-ecommerce",
+    href: "/recipes/category/ecommerce",
   },
   {
     label: "Retention",
     description: "Win-backs, NPS, digests, anniversaries.",
-    href: "/recipes#recipes-retention",
+    href: "/recipes/category/retention",
   },
   {
     label: "Scheduling",
     description: "Land sends at the right local time.",
-    href: "/recipes#recipes-scheduling",
+    href: "/recipes/category/scheduling",
   },
   {
     label: "Human-in-the-loop",
     description: "Approvals, lead alerts, concierge touches.",
-    href: "/recipes#recipes-human-in-the-loop",
+    href: "/recipes/category/human-in-the-loop",
   },
   {
     label: "Agents & AI",
     description: "Agents on the same event stream your app uses.",
-    href: "/recipes#recipes-agentic",
+    href: "/recipes/category/agentic",
   },
   {
     label: "Pipelines",
     description: "Webhook sources in, destinations out.",
-    href: "/recipes#recipes-pipelines",
+    href: "/recipes/category/pipelines",
   },
 ];
 

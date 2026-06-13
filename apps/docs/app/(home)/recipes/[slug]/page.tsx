@@ -8,8 +8,16 @@ import {
   ProblemStatement,
   UseCaseFaq,
 } from "../../use-cases/_components/use-case-sections";
-import { RecipeHero, RelatedRecipes } from "../_components/recipe-sections";
-import { getRecipeLander, RECIPE_LANDERS } from "../_data";
+import {
+  RecipeHero,
+  RecipePager,
+  RelatedRecipes,
+} from "../_components/recipe-sections";
+import {
+  getCategoryNeighbours,
+  getRecipeLander,
+  RECIPE_LANDERS,
+} from "../_data";
 import { RECIPE_CATEGORIES } from "../_data/types";
 
 export function generateStaticParams(): Array<{ slug: string }> {
@@ -40,6 +48,8 @@ export default async function RecipeLanderPage(props: {
   const related = recipe.related
     .map((relatedSlug) => getRecipeLander(relatedSlug))
     .filter((sibling) => sibling !== undefined);
+  const neighbours = getCategoryNeighbours(slug);
+  const category = RECIPE_CATEGORIES[recipe.category];
 
   const faqJsonLd = {
     "@context": "https://schema.org",
@@ -80,12 +90,29 @@ export default async function RecipeLanderPage(props: {
       />
 
       <PointsGrid
-        eyebrow={RECIPE_CATEGORIES[recipe.category].title}
+        eyebrow={category.title}
         title="Why it holds up"
         points={recipe.points}
       />
 
       <UseCaseFaq items={recipe.faq} links={recipe.links} />
+
+      {neighbours && (neighbours.prev || neighbours.next) ? (
+        <RecipePager
+          categoryTitle={category.title}
+          categoryHref={`/recipes/category/${recipe.category}`}
+          prev={
+            neighbours.prev
+              ? { slug: neighbours.prev.slug, title: neighbours.prev.title }
+              : undefined
+          }
+          next={
+            neighbours.next
+              ? { slug: neighbours.next.slug, title: neighbours.next.title }
+              : undefined
+          }
+        />
+      ) : null}
 
       {related.length > 0 ? <RelatedRecipes recipes={related} /> : null}
 
