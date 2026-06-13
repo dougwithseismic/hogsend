@@ -3,4 +3,5 @@ export {
   createDiscordGatewayWorker,
   type DiscordGatewayWorker,
   type DiscordGatewayWorkerConfig,
+  forwardDispatch,
 } from "./worker.js";

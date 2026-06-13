@@ -52,7 +52,17 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
     max: 60,
     keyFn: clientIpKey,
   });
-  app.use("/v1/connectors/*", connectorRateLimit);
+  // The `/ingress` hop is authenticated by the shared ingress secret and is hit
+  // once per platform event by the trusted gateway worker — a SINGLE source IP
+  // (behind a tunnel/proxy). The IP-keyed limit is sized to throttle public
+  // abuse of the self-verifying oauth/interactions surfaces; applying it to
+  // ingress would collapse the whole worker onto one 60/min bucket and silently
+  // DROP events. Skip it for ingress — the constant-time secret compare guards
+  // that route instead.
+  app.use("/v1/connectors/*", async (c, next) => {
+    if (c.req.path.endsWith("/ingress")) return next();
+    return connectorRateLimit(c, next);
+  });
 
   // --- OAuth callback: GET|POST /v1/connectors/:id/oauth/callback -----------
   // GET handles the browser redirect-URI return (most OAuth flows); a POST

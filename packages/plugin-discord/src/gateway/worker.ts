@@ -1,6 +1,6 @@
 import { DISCORD_INTENTS } from "../constants.js";
 import { DiscordEvents } from "../events.js";
-import { postToIngress } from "./ingress.js";
+import { type PostToIngressResult, postToIngress } from "./ingress.js";
 
 /**
  * The long-lived Discord Gateway worker. It is its OWN entrypoint / Railway
@@ -27,18 +27,34 @@ export interface DiscordGatewayWorker {
 }
 
 /**
+ * The single dispatch→ingress hop, injected so the mapping can be unit-tested
+ * without a live socket (production passes {@link postToIngress}).
+ */
+type IngressPoster = (args: {
+  apiPublicUrl: string;
+  ingressSecret: string;
+  dispatchType: string;
+  data: unknown;
+}) => Promise<PostToIngressResult>;
+
+/**
  * Forward one raw Gateway dispatch to the connector ingress. REAL + correct —
  * the live socket loop in `start()` calls exactly this on every `raw` packet.
  * Skips dispatch types the connector does not map (cheap pre-filter) and never
  * throws (a forward failure is logged, not fatal, so the socket stays up).
+ *
+ * Exported for unit tests: the dispatch→ingress mapping (pre-filter + `{ __t, d }`
+ * wrapping + shared-secret forwarding) is exercised by injecting a fake poster,
+ * so no live `discord.js` socket is needed.
  */
-async function forwardDispatch(
+export async function forwardDispatch(
   config: DiscordGatewayWorkerConfig,
   packet: { t?: string | null; d?: unknown },
+  poster: IngressPoster = postToIngress,
 ): Promise<void> {
   if (!packet.t || !(packet.t in DiscordEvents)) return;
   try {
-    const result = await postToIngress({
+    const result = await poster({
       apiPublicUrl: config.apiPublicUrl,
       ingressSecret: config.ingressSecret,
       dispatchType: packet.t,
@@ -50,7 +66,12 @@ async function forwardDispatch(
       );
     }
   } catch (err) {
-    console.error("discord ingress forward failed", err);
+    // Log the message only (not the raw error object) — the worker's sole
+    // secret is the bot token; matches the status-only hygiene in connect/oauth.
+    console.error(
+      "discord ingress forward failed:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
@@ -65,38 +86,52 @@ export function createDiscordGatewayWorker(
       DISCORD_INTENTS.GUILD_MESSAGE_REACTIONS |
       DISCORD_INTENTS.GUILD_PRESENCES |
       DISCORD_INTENTS.MESSAGE_CONTENT;
-  let client: unknown;
+
+  // Structural holder — keeps zero `discord.js` type coupling at module load
+  // (the runtime module is only pulled by the dynamic import inside start()).
+  let client: { destroy(): Promise<void> } | undefined;
 
   async function start(): Promise<void> {
-    // TODO(discord-gateway): wire the real discord.js socket loop. The ONLY
-    // genuinely-stubbed part — needs a deployed long-lived process and
-    // discord.js's WebSocket/heartbeat/RESUME machinery. The event→ingress
-    // forwarding (forwardDispatch → postToIngress) is REAL and correct; only
-    // the socket connect/handshake is stubbed. Real implementation:
-    //
-    //   const { Client } = await import("discord.js");
-    //   client = new Client({ intents });
-    //   (client as Client).on("raw", (packet: { t: string; d: unknown }) =>
-    //     void forwardDispatch(config, packet),
-    //   );
-    //   await (client as Client).login(config.botToken);
-    //
-    // Until deployed, start() throws loudly so a misconfigured worker is never
-    // silently dead. `intents`/`client`/`forwardDispatch` are referenced below
-    // so the real wiring drops in without touching the surrounding code.
-    void intents;
-    void client;
-    void config.botToken;
-    void forwardDispatch;
-    throw new Error(
-      "createDiscordGatewayWorker: live socket loop not yet implemented — " +
-        "see TODO(discord-gateway).",
-    );
+    // `discord.js` is an OPTIONAL peer, dynamically imported here so the engine
+    // API process (connector/destination only) never loads a WebSocket client.
+    const { Client } = await import("discord.js");
+    const c = new Client({ intents });
+    client = c;
+
+    // Forward EVERY raw Gateway dispatch — the connector transform owns event
+    // selection, so the worker subscribes to nothing typed and stays dumb.
+    // `raw` isn't in discord.js's typed `ClientEvents`, but `Client#on` has a
+    // string overload that types args as `unknown[]`, so an explicit packet
+    // annotation compiles with no cast. discord.js emits the full raw Gateway
+    // frame ({ t, s, op, d }) on every Dispatch.
+    c.on("raw", (packet: { t?: string | null; d?: unknown }) => {
+      // Fire-and-forget: forwardDispatch never throws (it try/catches and logs),
+      // so a slow/failed ingress POST never blocks the socket or crashes us.
+      void forwardDispatch(config, packet);
+    });
+    // Without an `error` listener a transient socket error becomes an unhandled
+    // EventEmitter 'error' and takes the process down; @discordjs/ws auto-
+    // reconnects underneath, so just log it.
+    c.on("error", (err: unknown) => {
+      console.error(
+        "discord gateway client error:",
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+    c.once("ready", () => {
+      console.log("discord gateway worker connected");
+    });
+
+    // Rejects on a bad token or disallowed (un-toggled) privileged intents —
+    // that rejection propagates out of start(), so a misconfigured worker still
+    // fails loudly. discord.js owns heartbeat / RESUME / reconnect / sharding.
+    await c.login(config.botToken);
   }
 
   async function stop(): Promise<void> {
-    // TODO(discord-gateway): await (client as Client | undefined)?.destroy();
-    void client;
+    // Closes the shard(s) and clears timers; await so SIGTERM/SIGINT drains.
+    await client?.destroy();
+    client = undefined;
   }
 
   return { start, stop };

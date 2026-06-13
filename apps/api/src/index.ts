@@ -11,17 +11,35 @@ import {
 } from "@hogsend/engine";
 import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
+import {
+  buildDiscordConnector,
+  discordDestination,
+  setDiscordDb,
+} from "./discord.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
 import { webhookSources } from "./webhook-sources/index.js";
+
+const discordConnector = buildDiscordConnector();
 
 const client = createHogsendClient({
   journeys,
   buckets,
   lists,
   email: { templates },
+  // Discord INBOUND connector (gateway transport) — only when configured. The
+  // engine's `/v1/connectors/discord/{oauth,interactions,ingress}` + admin
+  // connect-info/member-link routes dispatch into it from the registry.
+  connectors: discordConnector ? [discordConnector] : [],
+  // Discord OUTBOUND destination — always registered (config-driven per
+  // webhook_endpoint), so lifecycle events can fan out to a Discord channel.
+  destinations: [discordDestination],
 });
+
+// The Discord connector callbacks (saveDerived/resolveContact) capture the
+// container db lazily — wire it now that the client (and its db) exist.
+setDiscordDb(client.db);
 
 // Refuse to serve when the database schema is behind what this build requires.
 // `preDeployCommand` runs migrations before boot, so reaching here out of sync

@@ -191,6 +191,18 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
 }
 
 /**
+ * Top-level property keys whose object value is DEEP-merged (one level) rather
+ * than wholly replaced. The §2.1 shallow `||` contract clobbers a top-level key
+ * outright, so a nested metadata object (e.g. the Discord connector's
+ * `properties.discord`) would lose every field the current event doesn't carry
+ * (a reaction knows `last_seen` but not `username`, so it would erase a
+ * previously-captured `username`). Listing the key here makes ONLY that key
+ * additive — siblings stay strictly shallow, preserving the documented contract
+ * for everything else. NON-KEY metadata only; never an identity-resolution key.
+ */
+const DEEP_MERGE_KEYS = ["discord"] as const;
+
+/**
  * Merge `patch` onto the existing jsonb properties (§2.1 contract): additive
  * `COALESCE(existing,'{}') || patch` where the patch wins on key conflict AND an
  * explicit `null` value in the patch CLEARS that key (it is not stored as JSON
@@ -200,9 +212,53 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
  * Caveat: `jsonb_strip_nulls` also strips any PRE-EXISTING null-valued keys on
  * the contact, which is the intended "null === unset" model (the condition
  * engine already treats JSON null and absent identically).
+ *
+ * EXCEPTION — keys in {@link DEEP_MERGE_KEYS} that carry an object value are
+ * merged ONE level deep: `existing.discord || patch.discord` instead of the
+ * top-level `||` replacing `discord` wholesale. Postgres has no recursive `||`,
+ * so we build the deep-merged sub-object explicitly and overlay it last. A
+ * non-object value for such a key (or an absent one) falls through to the normal
+ * shallow merge untouched.
  */
 function mergePropertiesSql(patch: Record<string, unknown>) {
-  return sql`jsonb_strip_nulls(COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`;
+  let merged = sql`COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`;
+  for (const key of DEEP_MERGE_KEYS) {
+    const sub = patch[key];
+    if (sub && typeof sub === "object" && !Array.isArray(sub)) {
+      // existing[key] (already an object or absent) || patch[key] — the prior
+      // sub-object's fields survive any field the current patch omits.
+      merged = sql`${merged} || jsonb_build_object(${key}, COALESCE(${contacts.properties} -> ${key}, '{}'::jsonb) || ${JSON.stringify(sub)}::jsonb)`;
+    }
+  }
+  return sql`jsonb_strip_nulls(${merged})`;
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * Spread-merge one `layer` onto the accumulated `acc` (incoming wins per key),
+ * the in-memory analogue of {@link mergePropertiesSql}'s deep-merge exception
+ * for the collide-MERGE fold (which folds properties via JS spread, not SQL).
+ * For each {@link DEEP_MERGE_KEYS} key that is an object on BOTH `acc` and the
+ * incoming `layer`, the sub-objects are themselves shallow-merged (incoming
+ * wins per sub-key) so the layer can't clobber fields the accumulator already
+ * holds — must read the PRE-spread `acc` value, hence a fresh result object.
+ */
+function foldLayer(
+  acc: Record<string, unknown>,
+  layer: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...acc, ...layer };
+  for (const key of DEEP_MERGE_KEYS) {
+    const a = acc[key];
+    const b = layer[key];
+    if (isPlainObject(a) && isPlainObject(b)) {
+      out[key] = { ...a, ...b };
+    }
+  }
+  return out;
 }
 
 /**
@@ -537,14 +593,23 @@ async function mergeContacts(
   }
 
   // (vii) FOLD properties: survivor wins over losers; then the call's patch wins
-  // last. timezone = survivor ?? loser; firstSeenAt = least.
+  // last. timezone = survivor ?? loser; firstSeenAt = least. DEEP_MERGE_KEYS
+  // (e.g. `discord`) are sub-object-merged at each fold layer (foldLayer) so a
+  // loser/survivor/patch that carries only a subset of the nested object's
+  // fields doesn't clobber the rest — matching mergePropertiesSql's exception.
   let foldedProps: Record<string, unknown> = {};
   for (const loser of losers) {
-    foldedProps = { ...foldedProps, ...((loser.properties ?? {}) as object) };
+    foldedProps = foldLayer(
+      foldedProps,
+      (loser.properties ?? {}) as Record<string, unknown>,
+    );
   }
-  foldedProps = { ...foldedProps, ...((survivor.properties ?? {}) as object) };
+  foldedProps = foldLayer(
+    foldedProps,
+    (survivor.properties ?? {}) as Record<string, unknown>,
+  );
   if (ctx.hasPatch) {
-    foldedProps = { ...foldedProps, ...ctx.patch };
+    foldedProps = foldLayer(foldedProps, ctx.patch);
   }
   // §2.1: an explicit null in the call's patch clears a key — drop null-valued
   // keys from the folded result (matching mergePropertiesSql's strip-nulls).

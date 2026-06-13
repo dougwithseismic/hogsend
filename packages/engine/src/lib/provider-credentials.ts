@@ -54,6 +54,17 @@ export interface DerivedCredentialPayload {
   projectApiKey?: string;
   projectId?: string;
   privateHost?: string;
+  // --- Discord (kind="derived", providerId="discord") ---
+  // Server-derived during `hogsend connect discord`: the app id + public key
+  // are read by the admin connect-info / interactions routes; the guild id is
+  // captured from the bot-install OAuth grant; the bot token + client secret
+  // (when stored here rather than env) feed the gateway worker / code exchange.
+  // All optional — the store is provider-neutral and additive.
+  discordAppId?: string;
+  discordPublicKey?: string;
+  discordClientSecret?: string;
+  discordBotToken?: string;
+  discordGuildId?: string;
 }
 
 /** Row metadata — everything EXCEPT token material. Safe to surface. */

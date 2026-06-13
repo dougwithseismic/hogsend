@@ -13,6 +13,10 @@
 export interface DiscordUser {
   id: string;
   username?: string;
+  /** Discord's display name (the post-2023 unique-name system). */
+  global_name?: string | null;
+  /** Avatar hash (NOT a URL) — the CDN URL is built consumer-side if needed. */
+  avatar?: string | null;
   /** Discord's BOT flag — bot/system authors are dropped by the transform. */
   bot?: boolean;
   /** Verified-email flag (member-link only; never trusted from a bare event). */
@@ -44,6 +48,8 @@ export interface DiscordReactionAdd {
 export interface DiscordGuildMemberAdd {
   guild_id: string;
   joined_at?: string | null;
+  /** Role ids granted at join (the GUILD_MEMBER_ADD `d` carries them). */
+  roles?: string[];
   user?: DiscordUser;
 }
 

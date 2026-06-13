@@ -134,6 +134,10 @@ export async function exchangeDiscordCode(
 export interface DiscordCurrentUser {
   id: string;
   username?: string;
+  /** Discord's display name (the post-2023 unique-name system). */
+  global_name?: string | null;
+  /** Avatar hash (NOT a URL). */
+  avatar?: string | null;
   email?: string | null;
   /** TRUE iff Discord has verified the email — gate the link on this. */
   verified?: boolean;

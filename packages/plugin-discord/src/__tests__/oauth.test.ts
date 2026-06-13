@@ -130,7 +130,10 @@ describe("memberLinkToContactPatch", () => {
     expect("userId" in patch).toBe(false);
     expect("email" in patch).toBe(false);
     expect(patch.contactProperties.isDiscordLinked).toBe(true);
-    expect(patch.contactProperties.discordUsername).toBe("alice");
+    // Username now rides in the NON-KEY nested `discord` metadata object.
+    const discord = patch.contactProperties.discord as Record<string, unknown>;
+    expect(discord.id).toBe("u1");
+    expect(discord.username).toBe("alice");
   });
 
   it("stores a present+verified email as a NON-KEY contactProperty (discordEmail)", () => {

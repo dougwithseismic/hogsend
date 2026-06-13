@@ -363,3 +363,53 @@ describe("collide-merge with a TERMINAL journey-state collision", () => {
     expect(loserRow?.deletedAt).not.toBeNull();
   });
 });
+
+describe("deep-merge of DEEP_MERGE_KEYS (contacts.properties.discord)", () => {
+  it("merges the nested `discord` object one level instead of clobbering it (fill-in-link path)", async () => {
+    const DM_EMAIL = `${RUN}-deepmerge@example.com`;
+
+    // First write: a `discord` sub-object carrying username (e.g. a member-link
+    // or a MESSAGE_CREATE). Plain sibling keys come along too.
+    const first = await putContact({
+      email: DM_EMAIL,
+      properties: {
+        plan: "free",
+        discord: { id: "snow1", username: "alice", global_name: "Alice" },
+      },
+    });
+    expect(first.status).toBe(200);
+    const firstBody = await first.json();
+    createdContactIds.push(firstBody.id);
+
+    // Second write: a `discord` sub-object carrying ONLY id + last_seen (e.g. a
+    // MESSAGE_REACTION_ADD, which can't know the username). With the §2.1
+    // shallow `||` this would REPLACE the whole `discord` object and erase
+    // `username`/`global_name`; the DEEP_MERGE_KEYS exception must preserve them.
+    const second = await putContact({
+      email: DM_EMAIL,
+      properties: {
+        discord: { id: "snow1", last_seen: "2026-06-13T00:00:00Z" },
+      },
+    });
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody.id).toBe(firstBody.id);
+
+    const [row] = await db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, firstBody.id));
+    const props = (row?.properties ?? {}) as Record<string, unknown>;
+    const discord = props.discord as Record<string, unknown>;
+
+    // The nested object is the UNION: prior fields survive, new ones added.
+    expect(discord).toEqual({
+      id: "snow1",
+      username: "alice",
+      global_name: "Alice",
+      last_seen: "2026-06-13T00:00:00Z",
+    });
+    // Sibling top-level keys are untouched by the discord deep-merge.
+    expect(props.plan).toBe("free");
+  });
+});

@@ -47,6 +47,40 @@ function snowflakeToDate(id: string): Date {
 }
 
 /**
+ * The NON-KEY Discord metadata object merged under `contacts.properties.discord`
+ * (the engine deep-merges this single sub-object — see `DEEP_MERGE_KEYS` in
+ * `lib/contacts.ts` — so each event need only carry the fields IT knows; absent
+ * fields are preserved from prior events). `discord_id` stays the sole identity
+ * key (the `discordId` on the IngestEvent); this object is decorative only.
+ *
+ * `last_seen` is DERIVED Hogsend-side (stamped from `occurredAt`, NEVER read
+ * from Discord), so it is always present; everything else is omitted when the
+ * source dispatch doesn't carry it. `null` is never emitted (it would CLEAR the
+ * sub-key under the engine's null-strip), so a `global_name`/`avatar` Discord
+ * reports as `null` is simply left off.
+ */
+function discordMetadata(opts: {
+  id: string;
+  lastSeen: Date;
+  username?: string | null;
+  globalName?: string | null;
+  avatar?: string | null;
+  joinedAt?: string | null;
+  roles?: string[];
+}): Record<string, unknown> {
+  const meta: Record<string, unknown> = {
+    id: opts.id,
+    last_seen: opts.lastSeen.toISOString(),
+  };
+  if (typeof opts.username === "string") meta.username = opts.username;
+  if (typeof opts.globalName === "string") meta.global_name = opts.globalName;
+  if (typeof opts.avatar === "string") meta.avatar = opts.avatar;
+  if (typeof opts.joinedAt === "string") meta.joined_at = opts.joinedAt;
+  if (opts.roles && opts.roles.length > 0) meta.roles = opts.roles;
+  return meta;
+}
+
+/**
  * The Discord INBOUND connector (gateway transport). Its transform is the
  * transport-invariant heart: a raw Gateway dispatch (wrapped `{ __t, d }` by
  * the gateway worker's ingress client) → an {@link IngestEvent} | null.
@@ -98,9 +132,13 @@ export const discordConnector: DefinedConnector = defineConnector({
             hasContent: typeof d.content === "string" && d.content.length > 0,
           },
           contactProperties: {
-            discordUserId: d.author.id,
-            discordUsername: d.author.username,
-            lastSeenDiscordAt: occurredAt.toISOString(),
+            discord: discordMetadata({
+              id: d.author.id,
+              username: d.author.username,
+              globalName: d.author.global_name,
+              avatar: d.author.avatar,
+              lastSeen: occurredAt,
+            }),
           },
           occurredAt,
           idempotencyKey: `discord:msg:${d.id}`,
@@ -122,8 +160,7 @@ export const discordConnector: DefinedConnector = defineConnector({
             emoji: d.emoji?.name ?? null,
           },
           contactProperties: {
-            discordUserId: d.user_id,
-            lastSeenDiscordAt: occurredAt.toISOString(),
+            discord: discordMetadata({ id: d.user_id, lastSeen: occurredAt }),
           },
           occurredAt,
           idempotencyKey:
@@ -146,9 +183,15 @@ export const discordConnector: DefinedConnector = defineConnector({
             joinedAt: d.joined_at ?? occurredAt.toISOString(),
           },
           contactProperties: {
-            discordUserId: d.user.id,
-            discordUsername: d.user.username,
-            discordJoinedGuildAt: d.joined_at ?? occurredAt.toISOString(),
+            discord: discordMetadata({
+              id: d.user.id,
+              username: d.user.username,
+              globalName: d.user.global_name,
+              avatar: d.user.avatar,
+              joinedAt: d.joined_at ?? occurredAt.toISOString(),
+              roles: d.roles,
+              lastSeen: occurredAt,
+            }),
           },
           occurredAt,
           idempotencyKey: `discord:join:${d.guild_id}:${d.user.id}`,
@@ -171,8 +214,7 @@ export const discordConnector: DefinedConnector = defineConnector({
             status: d.status,
           },
           contactProperties: {
-            discordUserId: d.user.id,
-            lastSeenDiscordAt: occurredAt.toISOString(),
+            discord: discordMetadata({ id: d.user.id, lastSeen: occurredAt }),
           },
           occurredAt,
           idempotencyKey:

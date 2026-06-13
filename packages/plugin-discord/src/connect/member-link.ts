@@ -37,6 +37,13 @@ export interface MemberLinkContactPatch {
  *
  * `isDiscordLinked` is stamped `true` here — a successful per-member link is the
  * ONLY thing that sets it (an unlinked Discord-only contact never gets it).
+ *
+ * The NON-KEY `properties.discord` metadata object (id/username/global_name/
+ * avatar) is populated from the `/users/@me` pull and deep-merges into whatever
+ * inbound events already accumulated (see `DEEP_MERGE_KEYS` in the engine's
+ * `lib/contacts.ts`); `last_seen` is NOT stamped here (a link is an identity
+ * attach, not activity). `isDiscordLinked` + `discordEmail` stay TOP-LEVEL flags
+ * (they are not part of the Discord-platform metadata object).
  */
 export function memberLinkToContactPatch(
   link: DiscordMemberLink,
@@ -49,13 +56,17 @@ export function memberLinkToContactPatch(
       ? user.email
       : undefined;
 
+  const discord: Record<string, unknown> = { id: user.id };
+  if (typeof user.username === "string") discord.username = user.username;
+  if (typeof user.global_name === "string") {
+    discord.global_name = user.global_name;
+  }
+  if (typeof user.avatar === "string") discord.avatar = user.avatar;
+
   const contactProperties: Record<string, unknown> = {
-    discordUserId: user.id,
+    discord,
     isDiscordLinked: true,
   };
-  if (typeof user.username === "string") {
-    contactProperties.discordUsername = user.username;
-  }
   // Non-key property only — NEVER a resolution key (anti-graft, see above).
   if (verifiedEmail) {
     contactProperties.discordEmail = verifiedEmail;

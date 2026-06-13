@@ -42,7 +42,12 @@ describe("discordConnector.transform", () => {
     expect((event as { discordId?: string })?.discordId).toBe("u1");
     expect(event?.eventProperties.hasContent).toBe(true);
     expect(event?.eventProperties.guildId).toBe("g1");
-    expect(event?.contactProperties?.lastSeenDiscordAt).toBeTypeOf("string");
+    // Nested NON-KEY metadata under contactProperties.discord (deep-merged
+    // engine-side); discord_id stays the sole identity key.
+    const meta = event?.contactProperties?.discord as Record<string, unknown>;
+    expect(meta.id).toBe("u1");
+    expect(meta.username).toBe("alice");
+    expect(meta.last_seen).toBeTypeOf("string");
     expect(event?.idempotencyKey).toBe("discord:msg:175928847299117063");
     // occurredAt derived from the snowflake (not "now")
     expect(event?.occurredAt).toBeInstanceOf(Date);
@@ -105,15 +110,25 @@ describe("discordConnector.transform", () => {
       wrap("GUILD_MEMBER_ADD", {
         guild_id: "g3",
         joined_at: "2026-06-13T00:00:00.000Z",
-        user: { id: "u10", username: "bob" },
+        roles: ["r1", "r2"],
+        user: {
+          id: "u10",
+          username: "bob",
+          global_name: "Bob",
+          avatar: "abc123",
+        },
       }),
       ctx,
     );
     expect(event?.event).toBe(DiscordEvents.GUILD_MEMBER_ADD);
     expect(event?.userId).toBe("discord:u10");
-    expect(event?.contactProperties?.discordJoinedGuildAt).toBe(
-      "2026-06-13T00:00:00.000Z",
-    );
+    const meta = event?.contactProperties?.discord as Record<string, unknown>;
+    expect(meta.id).toBe("u10");
+    expect(meta.username).toBe("bob");
+    expect(meta.global_name).toBe("Bob");
+    expect(meta.avatar).toBe("abc123");
+    expect(meta.joined_at).toBe("2026-06-13T00:00:00.000Z");
+    expect(meta.roles).toEqual(["r1", "r2"]);
     expect(event?.idempotencyKey).toBe("discord:join:g3:u10");
   });
 
