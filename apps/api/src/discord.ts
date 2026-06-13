@@ -65,7 +65,10 @@ export function buildDiscordConnector():
     clientSecret,
     publicKeyHex,
     redirectUri: `${base}/v1/connectors/discord/oauth/callback`,
-    studioIntegrationsUrl: `${base}/integrations`,
+    // Studio's SPA is mounted at /studio (its router basepath is /studio too),
+    // so the integrations page lives at /studio/integrations — NOT /integrations
+    // (which 404s at the API root).
+    studioIntegrationsUrl: `${base}/studio/integrations`,
     // The derived store is a full-payload OVERWRITE, so read-merge-write to keep
     // any previously-stored fields (e.g. a guild id captured on install must not
     // wipe a bot token persisted earlier).

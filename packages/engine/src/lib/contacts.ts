@@ -227,7 +227,10 @@ function mergePropertiesSql(patch: Record<string, unknown>) {
     if (sub && typeof sub === "object" && !Array.isArray(sub)) {
       // existing[key] (already an object or absent) || patch[key] — the prior
       // sub-object's fields survive any field the current patch omits.
-      merged = sql`${merged} || jsonb_build_object(${key}, COALESCE(${contacts.properties} -> ${key}, '{}'::jsonb) || ${JSON.stringify(sub)}::jsonb)`;
+      // `${key}` is cast to ::text: jsonb_build_object is VARIADIC "any" and `->`
+      // is overloaded (text key vs int index), so an untyped bound parameter
+      // can't have its type inferred ("could not determine data type of $n").
+      merged = sql`${merged} || jsonb_build_object(${key}::text, COALESCE(${contacts.properties} -> ${key}::text, '{}'::jsonb) || ${JSON.stringify(sub)}::jsonb)`;
     }
   }
   return sql`jsonb_strip_nulls(${merged})`;
