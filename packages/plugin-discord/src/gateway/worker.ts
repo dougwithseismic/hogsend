@@ -29,6 +29,12 @@ export interface DiscordGatewayWorkerConfig {
 export interface DiscordGatewayWorker {
   start(): Promise<void>;
   stop(): Promise<void>;
+  /**
+   * The resolved intents bitfield this worker requests at login (the configured
+   * value, else the default privileged trio + base). Lets the consumer fold the
+   * live intents into the gateway heartbeat for Studio's intents chip.
+   */
+  getIntents(): number;
 }
 
 /**
@@ -146,5 +152,5 @@ export function createDiscordGatewayWorker(
     client = undefined;
   }
 
-  return { start, stop };
+  return { start, stop, getIntents: () => intents };
 }

@@ -297,8 +297,11 @@ export interface CreateDiscordConnectorConfig {
   }) => Promise<LinkRedeemResult>;
   /**
    * OPTIONAL anti-guessing throttle for `/verify`, checked BEFORE redeem (caps
-   * brute-force `/verify` traffic per Discord user). Omit to apply no per-attempt
-   * cap (redeem is still single-use + identity-bound).
+   * brute-force `/verify` traffic per Discord user). BEST-EFFORT, fail-OPEN: a
+   * throttle-store outage MUST NOT block a legitimate redeem — the per-mint caps
+   * + the redeem identity-binding are the real backstops, so a missed throttle
+   * never enables cross-account guessing. Omit to apply no per-attempt cap
+   * (redeem is still single-use + identity-bound).
    */
   recordVerifyAttempt?: (args: {
     discordUserId: string;

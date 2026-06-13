@@ -31,21 +31,30 @@ export interface DiscordGatewayHeartbeat {
   lastSeenAt?: string;
   /** The guild id the live worker observed (confirms the bot is in a server). */
   guildId?: string;
+  /** The intents bitfield the live worker requested at login. */
+  intents?: number;
 }
 
 /** The JSON shape persisted under {@link HEARTBEAT_KEY}. */
 interface HeartbeatPayload {
   lastSeenAt: string;
   guildId?: string;
+  intents?: number;
 }
 
-/** The mutable state a running heartbeat exposes for late-bound guild folding. */
+/** The mutable state a running heartbeat exposes for late-bound folding. */
 export interface DiscordGatewayHeartbeatState {
   /**
    * Fold the worker-observed guild id into the heartbeat and write immediately,
    * so Studio can confirm "Bot installed" as soon as the socket sees a guild.
    */
   setGuildId(guildId: string): void;
+  /**
+   * Fold the worker's resolved intents bitfield into the heartbeat and write
+   * immediately, so Studio's intents chip reflects what the LIVE worker requested
+   * (preferred over the derived credential, which is never written by install).
+   */
+  setIntents(intents: number): void;
 }
 
 export interface DiscordGatewayHeartbeatHandle {
@@ -67,11 +76,13 @@ export function startDiscordGatewayHeartbeat(
 ): DiscordGatewayHeartbeatHandle {
   let warned = false;
   let guildId: string | undefined;
+  let intents: number | undefined;
 
   const write = async () => {
     const payload: HeartbeatPayload = {
       lastSeenAt: new Date().toISOString(),
       ...(guildId ? { guildId } : {}),
+      ...(typeof intents === "number" ? { intents } : {}),
     };
     try {
       await getRedis().set(
@@ -105,6 +116,12 @@ export function startDiscordGatewayHeartbeat(
         // for the next refresh tick.
         void write();
       },
+      setIntents(value: number) {
+        intents = value;
+        // Write immediately so the intents chip reflects the live worker without
+        // waiting for the next refresh tick.
+        void write();
+      },
     },
     async stop() {
       clearInterval(timer);
@@ -133,6 +150,9 @@ export async function getDiscordGatewayHeartbeat(): Promise<DiscordGatewayHeartb
         alive: true,
         lastSeenAt: parsed.lastSeenAt,
         ...(parsed.guildId ? { guildId: parsed.guildId } : {}),
+        ...(typeof parsed.intents === "number"
+          ? { intents: parsed.intents }
+          : {}),
       };
     } catch {
       // Legacy plain-string value (a bare ISO timestamp) — alive, no guild.

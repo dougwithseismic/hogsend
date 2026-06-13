@@ -289,10 +289,14 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
               : null;
           // Prefer the live worker-observed guild; fall back to the stored one.
           const guildId = heartbeat.guildId ?? derivedGuildId;
-          const intents =
+          // Prefer the LIVE worker-reported intents (the derived credential never
+          // carries discordIntents — install writes only the guild id); fall back
+          // to the derived value for forward-compat if it ever IS written.
+          const derivedIntents =
             typeof derived?.discordIntents === "number"
               ? derived.discordIntents
               : null;
+          const intents = heartbeat.intents ?? derivedIntents;
           // Tri-state: a guild id (either source) confirms the bot is in a
           // server; otherwise unknown (null), NOT a false "not installed".
           const botInstalled: boolean | null = guildId ? true : null;

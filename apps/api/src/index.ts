@@ -14,6 +14,7 @@ import { buckets } from "./buckets/index.js";
 import {
   buildDiscordConnector,
   discordDestination,
+  seedDiscordDerived,
   setDiscordDb,
 } from "./discord.js";
 import { templates } from "./emails/index.js";
@@ -40,6 +41,16 @@ const client = createHogsendClient({
 // The Discord connector callbacks (saveDerived/resolveContact) capture the
 // container db lazily — wire it now that the client (and its db) exist.
 setDiscordDb(client.db);
+
+// Env-only deploys never run `hogsend connect discord`, so the derived
+// credential lacks `discordAppId` and Studio's install button / member-link
+// route stay disabled even though DISCORD_APPLICATION_ID is set. Seed it from
+// env (read-merge-write, idempotent) ONLY when Discord is actually configured,
+// so a Discord-less deploy never creates an empty derived row. `index.ts` is
+// top-level `await`, and the seed only runs at boot, so this is safe here.
+if (discordConnector) {
+  await seedDiscordDerived(client.db);
+}
 
 // Refuse to serve when the database schema is behind what this build requires.
 // `preDeployCommand` runs migrations before boot, so reaching here out of sync

@@ -27,18 +27,11 @@ const commands = [
   {
     name: "link",
     description: "Link your email to your Discord account",
-    options: [
-      {
-        name: "email",
-        description: "Your email address",
-        type: STRING_OPTION,
-        required: true,
-      },
-    ],
+    // NO options — `/link` opens a private modal that collects the email.
   },
   {
     name: "verify",
-    description: "Verify the code we emailed you",
+    description: "Verify a code we emailed you (fallback)",
     options: [
       {
         name: "code",

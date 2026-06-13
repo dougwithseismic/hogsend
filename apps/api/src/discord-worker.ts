@@ -49,6 +49,11 @@ async function main() {
     onGuildObserved: (gid) => heartbeat.state.setGuildId(gid),
   });
 
+  // Fold the worker's resolved intents into the heartbeat so Studio's intents
+  // chip reflects what the LIVE worker requests (the derived credential never
+  // carries discordIntents — install only writes the guild id).
+  heartbeat.state.setIntents(worker.getIntents());
+
   async function shutdown(signal: string) {
     console.log(`${signal} received, stopping Discord gateway worker`);
     // Delete the heartbeat key FIRST → the card flips to "Offline" immediately

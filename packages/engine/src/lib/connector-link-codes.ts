@@ -17,9 +17,15 @@ import { safeEqual } from "../webhook-sources/verify.js";
  *    one account can never be redeemed by another.
  *  - HASHED-AT-REST — only `sha256(code)` is stored; the plaintext code lives
  *    only in the member's inbox, so a DB read never yields a redeemable code.
- *  - THROTTLED — the anti-email-bomb throttle (per invoking user AND per target
- *    email, counted on mint within a rolling window) refuses to mint+send once
- *    either cap is hit.
+ *  - THROTTLED — the anti-email-bomb throttle counts mints in a rolling window.
+ *    The per-USER cap ({@link LINK_CODE_MAX_PER_USER}) is the PRIMARY backstop:
+ *    it caps how many codes ONE Discord account can trigger regardless of
+ *    address. The per-EMAIL cap ({@link LINK_CODE_MAX_PER_EMAIL}) is a
+ *    SECONDARY, BEST-EFFORT speed bump — `+tag`/dot aliasing sidesteps it
+ *    (`a@x.com`, `a+1@x.com`, `a.@x.com` normalize to DISTINCT `targetEmail`
+ *    buckets under `trim().toLowerCase()`, which does NOT canonicalize
+ *    Gmail-style aliases; canonicalizing is out of scope). Either cap, when hit,
+ *    refuses to mint+send.
  */
 
 /** How long a minted code is valid before `/verify` (15 minutes). */

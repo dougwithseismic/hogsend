@@ -168,4 +168,40 @@ export function buildDiscordConnector():
   });
 }
 
+/**
+ * Seed the env `DISCORD_APPLICATION_ID` into the derived credential at boot, so
+ * an ENV-ONLY deploy (app id in env, NO manual `hogsend connect discord`
+ * secret-paste) still gets a non-null `derived.discordAppId`.
+ *
+ * Why this is needed: the install `oauthCallback` (connector.ts) saves ONLY
+ * `discordGuildId` — `discordAppId` is written nowhere else. The engine admin
+ * routes read `derived.discordAppId` to build `connect-info.installUrl` and to
+ * gate `member-link-url` (409 `discord_not_connected` when absent). Without this
+ * seed, an env-only deploy shows "Connect via CLI" and 409s on member-link even
+ * though the app id is right there in env.
+ *
+ * Why the consumer (not the engine): the engine env is Discord-agnostic and does
+ * NOT carry `DISCORD_APPLICATION_ID` (it lives in the consumer env + the plugin
+ * env). Seeding here keeps the engine routes UNCHANGED (they keep reading
+ * `derived.discordAppId`) and the engine generic.
+ *
+ * Read-merge-write via `getDerivedCredential` + `saveDerivedCredential` (the
+ * derived store is a full-payload OVERWRITE) so this NEVER clobbers a guild id
+ * captured on install or a bot token persisted earlier — it ONLY adds
+ * `discordAppId`. Idempotent: a no-op once `discordAppId` already matches, so it
+ * never writes on every boot. Call ONLY when a Discord connector was built.
+ */
+export async function seedDiscordDerived(db: Database): Promise<void> {
+  const appId = discordEnv.DISCORD_APPLICATION_ID;
+  if (!appId) return;
+  const current =
+    (await getDerivedCredential(db, "discord")) ??
+    ({} as DerivedCredentialPayload);
+  if (current.discordAppId === appId) return; // idempotent — avoid a needless write
+  await saveDerivedCredential(db, "discord", {
+    ...current,
+    discordAppId: appId,
+  });
+}
+
 export { discordDestination };
