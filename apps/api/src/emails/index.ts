@@ -21,6 +21,7 @@ export type {
   ReactivationFinalNudgeEmailProps,
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
+  TransactionalDiscordLinkCodeProps,
   TransactionalMagicLinkProps,
   TransactionalReceiptProps,
   TransactionalVerifyEmailProps,

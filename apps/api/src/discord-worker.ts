@@ -1,3 +1,4 @@
+import { startDiscordGatewayHeartbeat } from "@hogsend/engine";
 import { createDiscordGatewayWorker } from "@hogsend/plugin-discord/gateway";
 import { discordEnv } from "./env.js";
 
@@ -31,15 +32,28 @@ async function main() {
     );
   }
 
+  // Publish gateway-worker liveness on a TTL'd Redis key so Studio's
+  // `/integrations` card can show "Worker Online" + a confirmed "Bot installed"
+  // (from the observed guild) for env-only deploys. Best-effort — a Redis-less
+  // deploy simply reads back as "Offline" and never crashes the worker.
+  const logger = {
+    debug: (msg: string, meta?: unknown) => console.debug(msg, meta),
+  };
+  const heartbeat = startDiscordGatewayHeartbeat(logger as never);
+
   const worker = createDiscordGatewayWorker({
     botToken,
     apiPublicUrl: discordEnv.API_PUBLIC_URL,
     ingressSecret,
     // intents default to the privileged trio + base inside the worker.
+    onGuildObserved: (gid) => heartbeat.state.setGuildId(gid),
   });
 
   async function shutdown(signal: string) {
     console.log(`${signal} received, stopping Discord gateway worker`);
+    // Delete the heartbeat key FIRST → the card flips to "Offline" immediately
+    // rather than waiting out the TTL.
+    await heartbeat.stop();
     await worker.stop();
     console.log("Discord gateway worker stopped");
     process.exit(0);

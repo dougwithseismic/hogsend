@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 describe("buildBotInstallUrl", () => {
-  it("carries scope, permissions, state, and the flow=install redirect", () => {
+  it("carries scope, permissions, state, and the BARE redirect (no flow)", () => {
     const url = new URL(
       buildBotInstallUrl({
         applicationId: "app1",
@@ -42,13 +42,17 @@ describe("buildBotInstallUrl", () => {
     expect(url.searchParams.get("permissions")).toBe("8");
     expect(url.searchParams.get("state")).toBe("csrf-123");
     expect(url.searchParams.get("guild_id")).toBe("g1");
-    const redirect = new URL(url.searchParams.get("redirect_uri") ?? "");
-    expect(redirect.searchParams.get("flow")).toBe("install");
+    // The redirect is the bare callback — the signed-state `purpose` (not a
+    // `flow` query) disambiguates install vs. member, and the exchange
+    // `redirect_uri` must byte-match this value.
+    expect(url.searchParams.get("redirect_uri")).toBe(
+      "https://api.example.com/v1/connectors/discord/oauth/callback",
+    );
   });
 });
 
 describe("buildMemberLinkUrl", () => {
-  it("requests identify+email+membership scopes with flow=member", () => {
+  it("requests identify+email+membership scopes with the BARE redirect", () => {
     const url = new URL(
       buildMemberLinkUrl({
         applicationId: "app1",
@@ -61,8 +65,10 @@ describe("buildMemberLinkUrl", () => {
       "identify email guilds.members.read",
     );
     expect(url.searchParams.get("state")).toBe("csrf-bound-to-contact");
-    const redirect = new URL(url.searchParams.get("redirect_uri") ?? "");
-    expect(redirect.searchParams.get("flow")).toBe("member");
+    // Bare redirect — no `flow` query (signed-state `purpose` disambiguates).
+    expect(url.searchParams.get("redirect_uri")).toBe(
+      "https://api.example.com/v1/connectors/discord/oauth/callback",
+    );
   });
 });
 
@@ -85,7 +91,8 @@ describe("exchangeDiscordCode", () => {
       applicationId: "app1",
       clientSecret: "secret",
       code: "code123",
-      redirectUri: "https://api.example.com/cb?flow=install",
+      redirectUri:
+        "https://api.example.com/v1/connectors/discord/oauth/callback",
     });
 
     expect(token.access_token).toBe("at");

@@ -1,7 +1,11 @@
 import type { Database } from "@hogsend/db";
 import {
+  createLinkCode,
   type DerivedCredentialPayload,
   getDerivedCredential,
+  getEmailService,
+  getRedisIfConnected,
+  redeemLinkCode,
   resolveOrCreateContact,
   saveDerivedCredential,
 } from "@hogsend/engine";
@@ -40,6 +44,30 @@ function requireDb(): Database {
     );
   }
   return dbHandle;
+}
+
+/** Redis key prefix for the `/verify` anti-guessing attempt counter. */
+const VERIFY_ATTEMPT_PREFIX = "hogsend:discord:verifyattempts:u:";
+/** Rolling window (seconds) and cap for the `/verify` attempt throttle. */
+const VERIFY_ATTEMPT_WINDOW_SECONDS = 900;
+const VERIFY_ATTEMPT_MAX = 10;
+
+/**
+ * Anti-guessing `/verify` throttle: INCR a per-Discord-user counter with a
+ * rolling 15-min TTL, throttle once it exceeds the cap. Best-effort — when Redis
+ * is not connected this skips (returns not-throttled); redeem is still
+ * single-use + identity-bound, so this only blunts CPU/store abuse from
+ * brute-force `/verify` traffic, never gates correctness.
+ */
+async function recordVerifyAttempt(args: {
+  discordUserId: string;
+}): Promise<{ throttled: boolean }> {
+  const redis = getRedisIfConnected();
+  if (!redis) return { throttled: false };
+  const key = `${VERIFY_ATTEMPT_PREFIX}${args.discordUserId}`;
+  const n = await redis.incr(key);
+  if (n === 1) await redis.expire(key, VERIFY_ATTEMPT_WINDOW_SECONDS);
+  return { throttled: n > VERIFY_ATTEMPT_MAX };
 }
 
 /**
@@ -94,6 +122,49 @@ export function buildDiscordConnector():
         contactProperties: patch.contactProperties,
       });
     },
+    // Mint a single-use code via the engine's table-backed store — the
+    // anti-email-bomb throttle (per invoking user AND per target email) runs
+    // FIRST inside createLinkCode; over-cap returns { ok:false } with no mint.
+    // A DB error throws and propagates so the loop fails CLOSED (no send).
+    mintCode: async ({ discordUserId, email }) => {
+      const result = await createLinkCode({
+        db: requireDb(),
+        connectorId: "discord",
+        platformUserId: discordUserId,
+        email,
+      });
+      return result.ok
+        ? { ok: true, code: result.code }
+        : { ok: false, reason: "throttled" };
+    },
+    // TRANSACTIONAL send — bypasses unsubscribe/frequency suppression so a
+    // verification code is NEVER silently dropped. Routing through `sendEmail`
+    // would force category:"journey" and drop the code for unsubscribed users.
+    // No contact exists yet at /link time, so userId is the email (a valid
+    // external key; /verify later folds email→contact).
+    sendLinkCode: async ({ email, code }) => {
+      await getEmailService().send({
+        template: "transactional/discord-link-code",
+        props: { code },
+        to: email,
+        userId: email,
+        userEmail: email,
+        subject: "Your Discord verification code",
+        category: "transactional",
+        skipPreferenceCheck: true,
+      });
+    },
+    // Redeem a typed code — single-use (atomic claim), TTL-enforced, and
+    // identity-bound (the engine re-checks platformUserId, constant-time).
+    redeemCode: async ({ discordUserId, code }) => {
+      return redeemLinkCode({
+        db: requireDb(),
+        connectorId: "discord",
+        platformUserId: discordUserId,
+        code,
+      });
+    },
+    recordVerifyAttempt,
   });
 }
 

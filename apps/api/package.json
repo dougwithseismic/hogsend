@@ -14,7 +14,8 @@
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "tsx --env-file=.env scripts/smoke.ts"
+    "smoke": "tsx --env-file=.env scripts/smoke.ts",
+    "discord:register-commands": "tsx --env-file=.env scripts/register-discord-commands.ts"
   },
   "dependencies": {
     "@hatchet-dev/typescript-sdk": "^1.22.3",

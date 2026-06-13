@@ -180,16 +180,20 @@ function DiscordCardBody({
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs text-white/50">Bot:</span>
-        {gateway?.botInstalled ? (
+        {gateway?.botInstalled === true ? (
           <Badge
             variant="outline"
             className="border-white/15 bg-white/[0.06] text-white/80"
           >
             Installed
           </Badge>
-        ) : (
+        ) : gateway?.botInstalled === false ? (
           <Badge variant="outline" className="text-white/50">
             Not installed
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-white/40">
+            Unknown
           </Badge>
         )}
         <span className="text-xs text-white/50">Worker:</span>
@@ -198,7 +202,7 @@ function DiscordCardBody({
             variant="outline"
             className="border-white/15 bg-white/[0.06] text-white/80"
           >
-            Healthy
+            Online
           </Badge>
         ) : (
           <Badge variant="outline" className="text-white/50">

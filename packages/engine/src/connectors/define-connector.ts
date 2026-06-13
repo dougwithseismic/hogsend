@@ -119,7 +119,10 @@ export interface ConnectorRouteCtx {
 
 export type ConnectorOAuthResult =
   | { kind: "redirect"; location: string }
-  | { kind: "json"; status: number; body: unknown };
+  | { kind: "json"; status: number; body: unknown }
+  // A self-contained HTML page (e.g. the branded OAuth-fallback success page)
+  // the route serves with text/html — NOT JSON-encoded.
+  | { kind: "html"; status: number; body: string };
 
 export type ConnectorInteractionResult =
   // A non-event handshake the connector already answered (route 200s `body`).

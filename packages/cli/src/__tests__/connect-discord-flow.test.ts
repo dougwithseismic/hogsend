@@ -30,7 +30,7 @@ const SERVER_INSTALL_URL =
   "https://discord.com/oauth2/authorize?client_id=1234567890&response_type=" +
   "code&scope=bot+applications.commands&redirect_uri=" +
   encodeURIComponent(`${BASE_URL}/v1/connectors/discord/oauth/callback`) +
-  "%3Fflow%3Dinstall&state=server-signed-state";
+  "&state=server-signed-state";
 
 function connectInfo(
   over: Partial<DiscordConnectInfoResponse> = {},

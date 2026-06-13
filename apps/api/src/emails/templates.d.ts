@@ -21,6 +21,7 @@ import type {
   ReactivationFinalNudgeEmailProps,
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
+  TransactionalDiscordLinkCodeProps,
   TransactionalMagicLinkProps,
   TransactionalReceiptProps,
   TransactionalVerifyEmailProps,
@@ -46,6 +47,7 @@ declare module "@hogsend/email" {
     "feedback-nps-survey": FeedbackNpsSurveyEmailProps;
     "churn-payment-failed": ChurnPaymentFailedEmailProps;
     "transactional/verify-email": TransactionalVerifyEmailProps;
+    "transactional/discord-link-code": TransactionalDiscordLinkCodeProps;
     "transactional/magic-link": TransactionalMagicLinkProps;
     "transactional/receipt": TransactionalReceiptProps;
     "marketing/product-update": MarketingProductUpdateProps;

@@ -32,19 +32,18 @@ export interface BuildBotInstallUrlArgs {
 }
 
 /**
- * The one-click bot-install authorize URL. `flow=install` is appended to the
- * redirect URI so the single `oauthCallback` can branch install vs. member.
+ * The one-click bot-install authorize URL. The single `redirectUri` is used
+ * verbatim (NO `flow` query) — the signed-state `purpose` (`install` |
+ * `member_link`) is what the `oauthCallback` branches on, and the exchange
+ * `redirect_uri` must byte-match this authorize value.
  */
 export function buildBotInstallUrl(args: BuildBotInstallUrlArgs): string {
-  const redirect = new URL(args.redirectUri);
-  redirect.searchParams.set("flow", "install");
-
   const url = new URL(DISCORD_OAUTH_AUTHORIZE_URL);
   url.searchParams.set("client_id", args.applicationId);
   url.searchParams.set("scope", DISCORD_BOT_INSTALL_SCOPES.join(" "));
   url.searchParams.set("permissions", args.permissions);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("redirect_uri", redirect.toString());
+  url.searchParams.set("redirect_uri", args.redirectUri);
   url.searchParams.set("state", args.state);
   if (args.guildId) {
     url.searchParams.set("guild_id", args.guildId);
@@ -61,18 +60,17 @@ export interface BuildMemberLinkUrlArgs {
 }
 
 /**
- * The per-member link authorize URL. `flow=member` is appended to the redirect
- * URI so the single `oauthCallback` can branch install vs. member.
+ * The per-member link authorize URL. The single `redirectUri` is used verbatim
+ * (NO `flow` query) — the signed-state `purpose` disambiguates install vs.
+ * member at the callback, and the exchange `redirect_uri` must byte-match this
+ * authorize value.
  */
 export function buildMemberLinkUrl(args: BuildMemberLinkUrlArgs): string {
-  const redirect = new URL(args.redirectUri);
-  redirect.searchParams.set("flow", "member");
-
   const url = new URL(DISCORD_OAUTH_AUTHORIZE_URL);
   url.searchParams.set("client_id", args.applicationId);
   url.searchParams.set("scope", DISCORD_MEMBER_LINK_SCOPES.join(" "));
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("redirect_uri", redirect.toString());
+  url.searchParams.set("redirect_uri", args.redirectUri);
   url.searchParams.set("state", args.state);
   url.searchParams.set("prompt", "consent");
   return url.toString();
@@ -93,7 +91,7 @@ export interface ExchangeDiscordCodeArgs {
   applicationId: string;
   clientSecret: string;
   code: string;
-  /** MUST byte-match the `redirect_uri` sent on the authorize URL (incl. flow). */
+  /** MUST byte-match the `redirect_uri` sent on the authorize URL (no flow). */
   redirectUri: string;
 }
 

@@ -681,10 +681,12 @@ export type Integration = {
     secretConfigured: boolean;
   };
   gateway?: {
-    botInstalled: boolean;
+    /** Tri-state: true = installed, false = not installed, null = unknown. */
+    botInstalled: boolean | null;
     guildId: string | null;
     intents: number | null;
     workerHealthy: boolean;
+    workerLastSeenAt: string | null;
     linkedMembers: number;
     unlinkedMembers: number;
   };
@@ -703,7 +705,11 @@ export type DiscordConnectInfo = {
   ingressSecretConfigured: boolean;
   credentialStored: boolean;
   guildId: string | null;
-  botInstalled: boolean;
+  /** Tri-state: true = installed, false = not installed, null = unknown. */
+  botInstalled: boolean | null;
+  /** True when a fresh gateway-worker heartbeat is present (Worker Online). */
+  workerOnline: boolean;
+  workerLastSeenAt: string | null;
   apiPublicUrlReachable: boolean;
   /** Server-built one-click invite URL; `null` until secrets are pasted via CLI. */
   installUrl: string | null;

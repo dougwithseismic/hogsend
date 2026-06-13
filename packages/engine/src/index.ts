@@ -196,6 +196,20 @@ export {
   type BucketTransitionSource,
   emitBucketTransition,
 } from "./lib/bucket-emit.js";
+// --- Single-use link codes (native connector /link → /verify identify loop) ---
+export {
+  type CreateLinkCodeResult,
+  createLinkCode,
+  generateLinkCode,
+  hashLinkCode,
+  LINK_CODE_MAX_PER_EMAIL,
+  LINK_CODE_MAX_PER_USER,
+  LINK_CODE_THROTTLE_WINDOW_SECONDS,
+  LINK_CODE_TTL_SECONDS,
+  type LinkCodeThrottleScope,
+  type RedeemLinkCodeResult,
+  redeemLinkCode,
+} from "./lib/connector-link-codes.js";
 // --- Generic signed connector state (CSRF + member-link binding) ---
 export {
   type ConnectorStateIntent,
@@ -211,6 +225,12 @@ export {
 } from "./lib/create-admin.js";
 // --- Infrastructure singletons ---
 export { getDb } from "./lib/db.js";
+// --- Discord gateway-worker liveness heartbeat (Studio status) ---
+export {
+  type DiscordGatewayHeartbeat,
+  getDiscordGatewayHeartbeat,
+  startDiscordGatewayHeartbeat,
+} from "./lib/discord-gateway-heartbeat.js";
 // --- Sending-domain status service (cached; container-held) ---
 export {
   createDomainStatusService,
@@ -220,6 +240,7 @@ export {
 } from "./lib/domain-status.js";
 // --- Email ---
 export {
+  getEmailService,
   type SendEmailOptions,
   type SendEmailResult,
   sendEmail,
@@ -300,6 +321,7 @@ export {
 export {
   type AuthSecondaryStorage,
   createRedisSecondaryStorage,
+  getRedis,
   getRedisIfConnected,
 } from "./lib/redis.js";
 // --- Self-service password reset (engine-owned, self-contained email) ---

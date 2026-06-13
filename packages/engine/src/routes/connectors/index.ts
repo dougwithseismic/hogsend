@@ -52,15 +52,18 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
     max: 60,
     keyFn: clientIpKey,
   });
-  // The `/ingress` hop is authenticated by the shared ingress secret and is hit
-  // once per platform event by the trusted gateway worker — a SINGLE source IP
-  // (behind a tunnel/proxy). The IP-keyed limit is sized to throttle public
-  // abuse of the self-verifying oauth/interactions surfaces; applying it to
-  // ingress would collapse the whole worker onto one 60/min bucket and silently
-  // DROP events. Skip it for ingress — the constant-time secret compare guards
-  // that route instead.
+  // `/ingress` is authed by the shared ingress secret (hit once per event by the
+  // trusted gateway worker); `/interactions` is authed by Discord's ed25519
+  // signature + a timestamp replay window. BOTH arrive from a SMALL set of source
+  // IPs (the worker behind a tunnel; Discord's interaction egress), so per-IP
+  // keying would collapse a whole community onto ONE 60/min bucket and 429 the
+  // very /link & /verify loop we ship (Discord renders a 429 as "the application
+  // did not respond"). The IP limit is sized for the public, self-verifying OAuth
+  // callback — keep it there only; the ed25519 verify + replay window already
+  // gate /interactions, and the constant-time secret compare gates /ingress.
   app.use("/v1/connectors/*", async (c, next) => {
-    if (c.req.path.endsWith("/ingress")) return next();
+    const p = c.req.path;
+    if (p.endsWith("/ingress") || p.endsWith("/interactions")) return next();
     return connectorRateLimit(c, next);
   });
 
@@ -136,6 +139,11 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
         });
         if (result.kind === "redirect") {
           return c.redirect(result.location, 302);
+        }
+        if (result.kind === "html") {
+          // Serve a self-contained branded page as text/html (a raw HTML
+          // string through the `json` kind would be JSON-quoted in the browser).
+          return c.html(result.body, result.status === 400 ? 400 : 200);
         }
         // `c.json`'s typed status union only accepts the route's declared
         // literals — branch on the concrete status instead of casting a runtime

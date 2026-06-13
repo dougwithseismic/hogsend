@@ -19,6 +19,11 @@ export interface DiscordGatewayWorkerConfig {
   ingressSecret: string;
   /** Which intents to request. Defaults to the privileged trio + base. */
   intents?: number;
+  /**
+   * Called with the guild id observed at `GUILD_CREATE` — lets the consumer fold
+   * it into the gateway heartbeat so Studio can confirm "Bot installed".
+   */
+  onGuildObserved?: (guildId: string) => void;
 }
 
 export interface DiscordGatewayWorker {
@@ -105,6 +110,13 @@ export function createDiscordGatewayWorker(
     // annotation compiles with no cast. discord.js emits the full raw Gateway
     // frame ({ t, s, op, d }) on every Dispatch.
     c.on("raw", (packet: { t?: string | null; d?: unknown }) => {
+      // Surface the guild id at GUILD_CREATE so the consumer can fold it into
+      // the gateway heartbeat — the strongest "Bot installed" proof for an
+      // env-only deploy (no derived credential carrying a guild id).
+      if (config.onGuildObserved && packet.t === "GUILD_CREATE") {
+        const gid = (packet.d as { id?: string } | undefined)?.id;
+        if (gid) config.onGuildObserved(gid);
+      }
       // Fire-and-forget: forwardDispatch never throws (it try/catches and logs),
       // so a slow/failed ingress POST never blocks the socket or crashes us.
       void forwardDispatch(config, packet);

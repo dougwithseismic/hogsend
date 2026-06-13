@@ -7,12 +7,23 @@
  */
 
 export {
+  ephemeralReply,
   handleInteraction,
+  InteractionCallbackFlags,
+  type InteractionDeps,
   type InteractionResponse,
   InteractionResponseType,
   InteractionType,
+  isLikelyEmail,
+  LINK_CODE_TTL_SECONDS,
+  type LinkMintResult,
+  type LinkRedeemResult,
+  type ParsedCommand,
+  parseCommand,
+  type VerifyAttemptResult,
   verifyInteractionSignature,
 } from "./connect/interactions.js";
+export { editInteractionResponse } from "./connect/interactions-followup.js";
 export {
   type DiscordMemberLink,
   type MemberLinkContactPatch,

@@ -5,6 +5,7 @@ import { and, count, isNotNull, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { getDestinationRegistry } from "../../destinations/registry-singleton.js";
 import { signConnectorState } from "../../lib/connector-state.js";
+import { getDiscordGatewayHeartbeat } from "../../lib/discord-gateway-heartbeat.js";
 import {
   getDerivedCredential,
   getProviderCredential,
@@ -54,10 +55,14 @@ const integrationSchema = z.object({
     .optional(),
   gateway: z
     .object({
-      botInstalled: z.boolean(),
+      // Tri-state: true = a guild id is known (bot is in a server); null =
+      // unknown (worker reports no guild AND no derived guild). Never a false
+      // "not installed" for a working env-only deploy.
+      botInstalled: z.boolean().nullable(),
       guildId: z.string().nullable(),
       intents: z.number().nullable(),
       workerHealthy: z.boolean(),
+      workerLastSeenAt: z.string().nullable(),
       linkedMembers: z.number(),
       unlinkedMembers: z.number(),
     })
@@ -95,7 +100,11 @@ const connectInfoSchema = z.object({
   ingressSecretConfigured: z.boolean(),
   credentialStored: z.boolean(),
   guildId: z.string().nullable(),
-  botInstalled: z.boolean(),
+  // Tri-state — null = unknown (no guild from worker or derived credential).
+  botInstalled: z.boolean().nullable(),
+  /** True when a fresh gateway-worker heartbeat is present (Worker Online). */
+  workerOnline: z.boolean(),
+  workerLastSeenAt: z.string().nullable(),
   apiPublicUrlReachable: z.boolean(),
   /**
    * The one-click bot-install URL, built SERVER-SIDE from the stored Discord
@@ -262,8 +271,9 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
         }
 
         // Gateway-transport connectors (Discord) expose bot-install + member
-        // link counts. guildId/intents live in the derived credential; the
-        // worker-health signal is not yet wired (TODO below).
+        // link counts + a REAL worker-liveness signal (the gateway worker
+        // publishes a TTL'd Redis heartbeat — §4). guildId/intents live in the
+        // derived credential OR the live heartbeat.
         if (connector && transport === "gateway") {
           // The Discord derived fields are an ADDITIVE widening of
           // DerivedCredentialPayload (spec §4.1) — read through a loose record
@@ -271,15 +281,21 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
           const derived = (await getDerivedCredential(db, id).catch(
             () => null,
           )) as Record<string, unknown> | null;
-          const guildId =
+          const heartbeat = await getDiscordGatewayHeartbeat();
+
+          const derivedGuildId =
             typeof derived?.discordGuildId === "string"
               ? derived.discordGuildId
               : null;
+          // Prefer the live worker-observed guild; fall back to the stored one.
+          const guildId = heartbeat.guildId ?? derivedGuildId;
           const intents =
             typeof derived?.discordIntents === "number"
               ? derived.discordIntents
               : null;
-          const botInstalled = Boolean(guildId);
+          // Tri-state: a guild id (either source) confirms the bot is in a
+          // server; otherwise unknown (null), NOT a false "not installed".
+          const botInstalled: boolean | null = guildId ? true : null;
 
           // linkedMembers = contacts that have BOTH a discord_id and an email
           // (a member completed the per-member link); unlinkedMembers =
@@ -311,9 +327,9 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
               botInstalled,
               guildId,
               intents,
-              // TODO(discord-gateway): wire workerHealthy to the real worker
-              // heartbeat once the gateway service reports liveness.
-              workerHealthy: false,
+              // REAL worker liveness — a fresh gateway-worker heartbeat in Redis.
+              workerHealthy: heartbeat.alive,
+              workerLastSeenAt: heartbeat.lastSeenAt ?? null,
               linkedMembers,
               unlinkedMembers: Math.max(0, totalMembers - linkedMembers),
             },
@@ -334,10 +350,13 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
     const derived = (await getDerivedCredential(db, "discord").catch(
       () => null,
     )) as Record<string, unknown> | null;
+    const heartbeat = await getDiscordGatewayHeartbeat();
+    // Prefer the live worker-observed guild; fall back to the stored one.
     const guildId =
-      typeof derived?.discordGuildId === "string"
+      heartbeat.guildId ??
+      (typeof derived?.discordGuildId === "string"
         ? derived.discordGuildId
-        : null;
+        : null);
     const appId =
       typeof derived?.discordAppId === "string" ? derived.discordAppId : null;
 
@@ -345,8 +364,9 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
 
     // The one-click install link is built server-side from the stored Discord
     // application id (`client_id`, NOT a secret). Scopes install the bot +
-    // register slash commands; the redirect carries `flow=install` so the
-    // oauth callback merges the granted guild id into the derived credential.
+    // register slash commands. The `redirect_uri` is the bare callback (NO
+    // `flow` query — the signed-state `purpose` disambiguates install vs.
+    // member, and the exchange `redirect_uri` byte-matches this value).
     //
     // The install URL is SERVER-MINTED with a signed CSRF `state` — this is the
     // SINGLE canonical install URL (Studio button + CLI both consume it). The
@@ -368,7 +388,7 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
         client_id: appId,
         response_type: "code",
         scope: "bot applications.commands",
-        redirect_uri: `${redirectUri}?flow=install`,
+        redirect_uri: redirectUri,
       });
       installUrl =
         `https://discord.com/oauth2/authorize?${params.toString()}` +
@@ -384,7 +404,10 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
         ingressSecretConfigured: Boolean(env.CONNECTOR_INGRESS_SECRET),
         credentialStored: derived !== null,
         guildId,
-        botInstalled: Boolean(guildId),
+        // Tri-state — a guild id (live or derived) confirms install; else null.
+        botInstalled: guildId ? true : null,
+        workerOnline: heartbeat.alive,
+        workerLastSeenAt: heartbeat.lastSeenAt ?? null,
         apiPublicUrlReachable: !isLoopbackPublicUrl(apiPublicUrl),
         installUrl,
       },
@@ -422,18 +445,16 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
 
     // Mirror the plugin's `buildMemberLinkUrl` contract inline — the engine
     // ships no Discord code, so it cannot import the plugin, but the authorize
-    // URL shape is stable: member-link scopes + `flow=member` + the signed
-    // state. The callback byte-matches `redirect_uri` (incl. the flow param).
-    const redirect = new URL(
-      `${apiPublicUrl}/v1/connectors/discord/oauth/callback`,
-    );
-    redirect.searchParams.set("flow", "member");
+    // URL shape is stable: member-link scopes + the signed state. The
+    // `redirect_uri` is the bare callback (NO `flow` query — the signed-state
+    // `purpose` disambiguates, and the exchange `redirect_uri` byte-matches).
+    const redirectUri = `${apiPublicUrl}/v1/connectors/discord/oauth/callback`;
 
     const url = new URL("https://discord.com/api/oauth2/authorize");
     url.searchParams.set("client_id", appId);
     url.searchParams.set("scope", "identify email guilds.members.read");
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("redirect_uri", redirect.toString());
+    url.searchParams.set("redirect_uri", redirectUri);
     url.searchParams.set("state", state);
     url.searchParams.set("prompt", "consent");
 

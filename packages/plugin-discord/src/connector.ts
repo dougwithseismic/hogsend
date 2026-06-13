@@ -7,6 +7,9 @@ import {
 } from "@hogsend/engine";
 import {
   handleInteraction,
+  type LinkMintResult,
+  type LinkRedeemResult,
+  type VerifyAttemptResult,
   verifyInteractionSignature,
 } from "./connect/interactions.js";
 import { memberLinkToContactPatch } from "./connect/member-link.js";
@@ -262,6 +265,44 @@ export interface CreateDiscordConnectorConfig {
     contactId?: string;
     contactProperties: Record<string, unknown>;
   }) => Promise<void>;
+  /**
+   * Mint a single-use `/link` code for `(discordUserId, email)`. The CONSUMER
+   * wires this to the engine's `createLinkCode({ db, connectorId: "discord", … })`
+   * so the anti-email-bomb throttle (per invoking user AND per target email,
+   * counted on mint) runs BEFORE the mint and an over-cap request returns
+   * `{ ok:false, reason:"throttled" }` without minting. A thrown error (DB down)
+   * MUST propagate so the loop fails CLOSED (no unthrottled send).
+   */
+  mintCode: (args: {
+    discordUserId: string;
+    email: string;
+  }) => Promise<LinkMintResult>;
+  /**
+   * Email a `/link`-minted code via Hogsend. The CONSUMER wires this to a
+   * TRANSACTIONAL send (`category: "transactional"`, `skipPreferenceCheck: true`)
+   * so a verification code is NEVER dropped by unsubscribe/frequency suppression
+   * (routing it through the journey-category `sendEmail` would silently drop it
+   * for unsubscribed users — see the spec's transactional-bypass correction).
+   */
+  sendLinkCode: (args: { email: string; code: string }) => Promise<void>;
+  /**
+   * Redeem a `/verify` code for the bound email. The CONSUMER wires this to the
+   * engine's `redeemLinkCode({ db, connectorId: "discord", platformUserId, code })`
+   * — single-use (atomic claim), TTL-enforced, and identity-bound (the engine
+   * re-checks `platformUserId` with a constant-time compare).
+   */
+  redeemCode: (args: {
+    discordUserId: string;
+    code: string;
+  }) => Promise<LinkRedeemResult>;
+  /**
+   * OPTIONAL anti-guessing throttle for `/verify`, checked BEFORE redeem (caps
+   * brute-force `/verify` traffic per Discord user). Omit to apply no per-attempt
+   * cap (redeem is still single-use + identity-bound).
+   */
+  recordVerifyAttempt?: (args: {
+    discordUserId: string;
+  }) => Promise<VerifyAttemptResult>;
   /** Where to send the browser after a successful install/link. */
   studioIntegrationsUrl: string;
 }
@@ -297,17 +338,38 @@ export function createDiscordConnector(
       });
       if (!ok) return { kind: "unauthorized" };
 
-      let payload: { type?: number };
+      let payload: Parameters<typeof handleInteraction>[0];
       try {
-        payload = JSON.parse(args.rawBody) as { type?: number };
+        payload = JSON.parse(args.rawBody) as Parameters<
+          typeof handleInteraction
+        >[0];
       } catch {
         return { kind: "unauthorized" };
       }
 
-      const response = handleInteraction(payload);
-      // PING → PONG, and every other (deferred) ack is a non-event handshake.
-      // TODO(discord-gateway): route non-PING interactions (slash commands /
-      // components) to a registered handler instead of a bare deferred ack.
+      // The ed25519 verify above gates EVERYTHING. handleInteraction runs the
+      // /link→/verify identify loop (PING→PONG + unknown commands fall through
+      // to a deferred ack). The route 200s the returned body verbatim — which IS
+      // Discord's interaction response (an immediate ephemeral reply for
+      // /verify; a type-5 ephemeral ack for /link, whose real work + @original
+      // PATCH happen out of band inside handleInteraction).
+      const response = await handleInteraction(payload, {
+        applicationId: config.applicationId,
+        mintCode: config.mintCode,
+        sendLinkCode: config.sendLinkCode,
+        redeemCode: config.redeemCode,
+        recordVerifyAttempt: config.recordVerifyAttempt,
+        resolveContact: (patch) =>
+          config.resolveContact({
+            discordId: patch.discordId,
+            email: patch.email,
+            // The /verify attach is identity-only; richer Discord metadata
+            // arrives via the gateway events. resolveOrCreateContact needs only
+            // discordId + email to bind the identity.
+            contactProperties: {},
+          }),
+        logger: args.ctx.logger,
+      });
       return { kind: "ack", body: response };
     },
 
@@ -326,27 +388,31 @@ export function createDiscordConnector(
       }
 
       if (intent.purpose === "install") {
-        // CSRF-only — no contact binding. Capture the granted guild id.
+        // CSRF-only — no contact binding. Capture the granted guild id. The
+        // exchange `redirect_uri` byte-matches the bare authorize redirect (no
+        // `flow` query — the signed-state `purpose` already disambiguated).
         const token = await exchangeDiscordCode({
           applicationId: config.applicationId,
           clientSecret: config.clientSecret,
           code,
-          redirectUri: appendFlow(config.redirectUri, "install"),
+          redirectUri: config.redirectUri,
         });
         await config.saveDerived({
           ...(token.guild?.id ? { discordGuildId: token.guild.id } : {}),
         });
+        // Install is the OPERATOR flow — keep redirecting to Studio.
         return { kind: "redirect", location: config.studioIntegrationsUrl };
       } else if (intent.purpose === "member_link") {
         // Attach the Discord identity to the BOUND contact. The authoritative
         // email is `intent.email` (the address the link was ISSUED for), NOT
         // the OAuth-reported `user.email` — using the latter as a resolution
-        // key is the grafting vector.
+        // key is the grafting vector. Exchange `redirect_uri` byte-matches the
+        // bare authorize redirect (no `flow` query).
         const token = await exchangeDiscordCode({
           applicationId: config.applicationId,
           clientSecret: config.clientSecret,
           code,
-          redirectUri: appendFlow(config.redirectUri, "member"),
+          redirectUri: config.redirectUri,
         });
         const user: DiscordCurrentUser = await getCurrentUser(
           token.access_token,
@@ -358,7 +424,13 @@ export function createDiscordConnector(
           contactId: intent.contactId,
           contactProperties: patch.contactProperties,
         });
-        return { kind: "redirect", location: config.studioIntegrationsUrl };
+        // Member-link is the END-USER flow — never land them in Studio. Serve a
+        // self-contained branded success page instead.
+        return {
+          kind: "html",
+          status: 200,
+          body: linkSuccessPage(intent.email ?? ""),
+        };
       }
 
       // Exhaustive: any other purpose is unsupported by this connector — never
@@ -380,9 +452,87 @@ export function createDiscordConnector(
   }) as DiscordConnectorWithHandlers;
 }
 
-/** Append the `flow` query param to the redirect URI (byte-match the authorize). */
-function appendFlow(redirectUri: string, flow: "install" | "member"): string {
-  const url = new URL(redirectUri);
-  url.searchParams.set("flow", flow);
-  return url.toString();
+/**
+ * Minimal HTML escape for the ONE interpolated value (the linked email). The
+ * email rides in a server-minted + server-verified signed state, so it is not
+ * attacker-controlled today — but escaping it keeps the served page XSS-safe if
+ * state-minting ever loosens. Covers the five HTML-significant characters.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * The branded OAuth-fallback success page served to END-USERS after a
+ * member-link callback (NEVER a Studio redirect — Studio is operator-only). A
+ * self-contained dark page (no external assets), `noindex`. When `email` is
+ * empty (the signed state carried none) it renders a generic success line.
+ */
+function linkSuccessPage(email: string): string {
+  const safeEmail = escapeHtml(email);
+  const linkedLine = safeEmail
+    ? `We linked <strong>${safeEmail}</strong> to your Discord account.`
+    : "We linked your email to your Discord account.";
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Discord linked</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #09090b;
+        color: #fafafa;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+          Roboto, Helvetica, Arial, sans-serif;
+        padding: 24px;
+      }
+      .card {
+        max-width: 440px;
+        width: 100%;
+        text-align: center;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 16px;
+        padding: 40px 32px;
+      }
+      .badge {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 20px;
+        border-radius: 9999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(88, 101, 242, 0.15);
+        color: #818cf8;
+        font-size: 28px;
+      }
+      h1 { font-size: 20px; margin: 0 0 8px; font-weight: 600; }
+      p { margin: 0; color: rgba(250, 250, 250, 0.7); line-height: 1.6; }
+      .hint { margin-top: 16px; font-size: 13px; color: rgba(250, 250, 250, 0.5); }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="badge" aria-hidden="true">&#10003;</div>
+      <h1>You're all set</h1>
+      <p>${linkedLine}</p>
+      <p class="hint">You can close this tab and head back to Discord.</p>
+    </main>
+  </body>
+</html>`;
 }

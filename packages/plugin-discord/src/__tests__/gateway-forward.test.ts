@@ -85,9 +85,10 @@ describe("forwardDispatch", () => {
     await expect(
       forwardDispatch(config, { t: "GUILD_MEMBER_ADD", d: {} }, poster),
     ).resolves.toBeUndefined();
+    // message-only log (secret hygiene): the raw Error object is never logged.
     expect(errorSpy).toHaveBeenCalledWith(
-      "discord ingress forward failed",
-      expect.any(Error),
+      "discord ingress forward failed:",
+      "network down",
     );
   });
 });
