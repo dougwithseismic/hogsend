@@ -20,6 +20,12 @@ import {
   buildBucketRegistry,
   collectBucketReactionJourneys,
 } from "./buckets/registry.js";
+import type { DefinedConnector } from "./connectors/define-connector.js";
+import { connectorsFromEnv } from "./connectors/presets/index.js";
+import {
+  ConnectorRegistry,
+  setConnectorRegistry,
+} from "./connectors/registry-singleton.js";
 import type { DefinedDestination } from "./destinations/define-destination.js";
 import { destinationsFromEnv } from "./destinations/presets/index.js";
 import {
@@ -58,6 +64,10 @@ import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
 import type { DefinedList } from "./lists/define-list.js";
 import { buildListRegistry, type ListRegistry } from "./lists/registry.js";
+import {
+  type DefinedWebhookSource,
+  webhookSourceToConnector,
+} from "./webhook-sources/define-webhook-source.js";
 
 export interface HogsendDefaults {
   /** Global fallback IANA timezone for scheduling. Defaults to "UTC". */
@@ -130,6 +140,14 @@ export interface HogsendClient {
    * elsewhere via `getListRegistry()`). Empty when no lists are wired.
    */
   listRegistry: ListRegistry;
+  /**
+   * The unified inbound CONNECTOR registry, keyed by `meta.id`. Holds every
+   * transport: webhook (the `:sourceId` dispatch + legacy webhookSources),
+   * gateway, and poll. Installed as the process singleton in BOTH the API and
+   * worker. The webhook route reads `getByTransport("webhook")`; the generic
+   * `/v1/connectors/:id/*` routes read `get(id).handlers`.
+   */
+  connectorRegistry: ConnectorRegistry;
   hatchet: HatchetClient;
   /**
    * The client repo's migration journal (`migrations/meta/_journal.json`),
@@ -242,6 +260,29 @@ export interface HogsendClientOptions {
    * worker, so it is wired in both. Defaults to none (presets only).
    */
   destinations?: DefinedDestination[];
+  /**
+   * Code-defined inbound CONNECTORS (the unified umbrella). Each is a
+   * `defineConnector()` of any transport. MERGED with `connectorsFromEnv` env
+   * presets (consumer LAST ⇒ wins on id collision, mirroring destinations). The
+   * legacy `webhookSources` array is folded in here as `transport:"webhook"`
+   * connectors. Defaults to none.
+   */
+  connectors?: DefinedConnector[];
+  /**
+   * @deprecated pass `connectors` instead. Back-compat array of
+   * `defineWebhookSource()` sources; converted to webhook-transport connectors.
+   * Still also accepted by `createApp({ webhookSources })`.
+   */
+  webhookSources?: DefinedWebhookSource[];
+  /**
+   * Auto-register the shipped webhook-source PRESETS (Clerk, Supabase, Stripe,
+   * Segment) for every preset whose env secret is configured (gated further by
+   * `ENABLED_WEBHOOK_PRESETS`). Set `false` to suppress env presets entirely.
+   * Default `true`. (Mirrors — and is also honored from — the deprecated
+   * `createApp({ enablePresets })` flag, which strips preset ids back out of the
+   * registry when set there.)
+   */
+  enablePresets?: boolean;
   /**
    * Comma-separated ids (or `*`) controlling which journeys load. Defaults to
    * `env.ENABLED_JOURNEYS`.
@@ -587,6 +628,37 @@ export function createHogsendClient(
   const destinationRegistry = new DestinationRegistry(destinations);
   setDestinationRegistry(destinationRegistry);
 
+  // Build + install the unified inbound CONNECTOR registry — the structural
+  // twin of the destination registry above. Order is load-bearing (consumer
+  // last/wins, mirroring destinations): env presets FIRST (gated by
+  // `enablePresets`), then legacy `webhookSources` lifted onto the umbrella,
+  // then the first-class `connectors` LAST. Runs in BOTH the API and worker.
+  // The webhook route reads `getByTransport("webhook")`; the generic
+  // `/v1/connectors/:id/*` routes read `get(id).handlers`. The `email`
+  // reserved-id guard is the authoritative one (the route reads the registry).
+  const enablePresets = opts.enablePresets ?? true;
+  const connectorList = [
+    ...(enablePresets ? connectorsFromEnv(env) : []),
+    ...(opts.webhookSources ?? []).map(webhookSourceToConnector),
+    ...(opts.connectors ?? []),
+  ];
+  for (const connector of connectorList) {
+    if (
+      (connector.meta.transport ?? "webhook") === "webhook" &&
+      connector.meta.id === "email"
+    ) {
+      throw new Error(
+        'Connector id "email" is reserved for the email-provider route ' +
+          "(POST /v1/webhooks/email/:providerId). Rename the connector.",
+      );
+    }
+  }
+  const connectorRegistry = new ConnectorRegistry(connectorList);
+  setConnectorRegistry(connectorRegistry);
+  logger.debug(
+    `Connector registry loaded: ${connectorRegistry.count()} connectors`,
+  );
+
   // Optional: auto-seed a PostHog DESTINATION on the outbound spine so the email
   // lifecycle fans out to PostHog durably. Default OFF (ENABLE_POSTHOG_DESTINATION)
   // to avoid double-emit alongside the fire-and-forget capture path. Idempotent +
@@ -631,6 +703,7 @@ export function createHogsendClient(
     registry,
     bucketRegistry,
     listRegistry,
+    connectorRegistry,
     hatchet: opts.overrides?.hatchet ?? hatchet,
     clientJournal: opts.clientJournal ?? { entries: [] },
     defaults,

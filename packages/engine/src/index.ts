@@ -91,6 +91,30 @@ export {
   resetBucketRegistry,
   setBucketRegistry,
 } from "./buckets/registry-singleton.js";
+// --- Inbound connectors: unified authoring layer ---
+export {
+  type ConnectorCtx,
+  type ConnectorHandlers,
+  type ConnectorInteractionResult,
+  type ConnectorMeta,
+  type ConnectorOAuthResult,
+  type ConnectorRouteCtx,
+  type ConnectorTransport,
+  type DefinedConnector,
+  defineConnector,
+  type InboundVerifyAuth,
+  type StoredCredentialRef,
+} from "./connectors/define-connector.js";
+export {
+  connectorsFromEnv,
+  PRESET_CONNECTORS,
+} from "./connectors/presets/index.js";
+export {
+  ConnectorRegistry,
+  getConnectorRegistry,
+  resetConnectorRegistry,
+  setConnectorRegistry,
+} from "./connectors/registry-singleton.js";
 export {
   createHogsendClient,
   type HogsendClient,
@@ -172,6 +196,14 @@ export {
   type BucketTransitionSource,
   emitBucketTransition,
 } from "./lib/bucket-emit.js";
+// --- Generic signed connector state (CSRF + member-link binding) ---
+export {
+  type ConnectorStateIntent,
+  signConnectorState,
+  verifyConnectorState,
+} from "./lib/connector-state.js";
+// --- Contacts identity (resolve/create — used by connector member-link) ---
+export { resolveOrCreateContact } from "./lib/contacts.js";
 export {
   AdminAlreadyExistsError,
   type CreatedAdmin,
@@ -254,6 +286,7 @@ export {
   type CredentialKind,
   type DecryptedProviderCredential,
   type DerivedCredentialPayload,
+  deleteAllProviderCredentials,
   deleteProviderCredential,
   getDerivedCredential,
   getProviderCredential,
@@ -338,6 +371,7 @@ export {
   type WebhookSourceAuth,
   type WebhookSourceCtx,
   type WebhookSourceMeta,
+  webhookSourceToConnector,
 } from "./webhook-sources/define-webhook-source.js";
 // --- Integration presets (Section 2.3/2.4) ---
 export {

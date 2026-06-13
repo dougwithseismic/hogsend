@@ -1,12 +1,12 @@
 import type { OpenAPIHono } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
-import type { DefinedWebhookSource } from "../../webhook-sources/define-webhook-source.js";
+import type { DefinedConnector } from "../../connectors/define-connector.js";
 import { registerEmailProviderRoutes } from "./email-provider.js";
 import { resendWebhookRouter } from "./resend.js";
 import { registerWebhookSourceRoutes } from "./sources.js";
 
 export interface RegisterWebhookRoutesOptions {
-  webhookSources: DefinedWebhookSource[];
+  webhookConnectors: DefinedConnector[]; // pre-filtered to transport "webhook"
 }
 
 export function registerWebhookRoutes(
@@ -20,5 +20,5 @@ export function registerWebhookRoutes(
   //  3. the `/v1/webhooks/:sourceId` consumer-source catch-all (LAST).
   app.route("/v1/webhooks", resendWebhookRouter);
   registerEmailProviderRoutes(app);
-  registerWebhookSourceRoutes(app, opts.webhookSources);
+  registerWebhookSourceRoutes(app, opts.webhookConnectors);
 }

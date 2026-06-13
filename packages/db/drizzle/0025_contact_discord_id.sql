@@ -1,0 +1,2 @@
+ALTER TABLE "contacts" ADD COLUMN "discord_id" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "contacts_discord_id_unique_idx" ON "contacts" USING btree ("discord_id") WHERE discord_id IS NOT NULL AND deleted_at IS NULL;

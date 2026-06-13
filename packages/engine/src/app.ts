@@ -6,6 +6,7 @@ import { cors } from "hono/cors";
 import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
 import type { ErrorHandler, MiddlewareHandler } from "hono/types";
+import { connectorsFromEnv } from "./connectors/presets/index.js";
 import type { HogsendClient } from "./container.js";
 import { API_VERSION } from "./env.js";
 import type { Auth } from "./lib/auth.js";
@@ -15,8 +16,10 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { clientIpKey, createRateLimit } from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
-import type { DefinedWebhookSource } from "./webhook-sources/define-webhook-source.js";
-import { presetsFromEnv } from "./webhook-sources/presets/index.js";
+import {
+  type DefinedWebhookSource,
+  webhookSourceToConnector,
+} from "./webhook-sources/define-webhook-source.js";
 
 type AuthSession = Awaited<ReturnType<Auth["api"]["getSession"]>>;
 
@@ -42,25 +45,16 @@ export interface CreateAppOptions {
    * Segment) for every preset whose env secret is configured (gated further by
    * `ENABLED_WEBHOOK_PRESETS`). Consumer-supplied `webhookSources` always win on
    * an id collision. Set `false` to opt out entirely. Default `true`.
+   *
+   * @deprecated prefer `createHogsendClient({ enablePresets })` — preset
+   * resolution now lives in the container's connector registry. This flag is
+   * STILL HONORED end-to-end: when `false`, `createApp` strips the env-preset
+   * ids back out of the already-built registry, so the opt-out is NOT a silent
+   * no-op.
    */
   enablePresets?: boolean;
   /** Override the default error handler. */
   onError?: ErrorHandler<AppEnv>;
-}
-
-/**
- * Merge env-enabled presets with the consumer's explicit sources. The
- * consumer-supplied source WINS on an id collision (so a hand-tuned override of
- * a preset replaces the shipped one rather than registering a duplicate route).
- */
-function dedupeById(sources: DefinedWebhookSource[]): DefinedWebhookSource[] {
-  const byId = new Map<string, DefinedWebhookSource>();
-  for (const source of sources) {
-    // Last write wins; callers order presets BEFORE consumer sources so the
-    // consumer override lands last.
-    byId.set(source.meta.id, source);
-  }
-  return [...byId.values()];
 }
 
 export function createApp(
@@ -130,19 +124,32 @@ export function createApp(
     return c.json({ needsSetup });
   });
 
-  // Merge env-enabled presets ahead of the consumer's explicit sources so a
-  // consumer override of a preset id wins (decision #13). `enablePresets`
-  // defaults true; setting only `STRIPE_WEBHOOK_SECRET` auto-mounts Stripe at
-  // `POST /v1/webhooks/stripe` and nothing else.
-  const enablePresets = opts.enablePresets ?? true;
-  const webhookSources = enablePresets
-    ? dedupeById([
-        ...presetsFromEnv(container.env),
-        ...(opts.webhookSources ?? []),
-      ])
-    : (opts.webhookSources ?? []);
+  // The container is the single merge point for inbound connectors (env presets
+  // + `connectors` + the deprecated `webhookSources` passed to the client).
+  // Any `webhookSources` passed HERE (the createApp path) are appended into the
+  // installed registry as transport:"webhook" connectors — last-writer-wins,
+  // idempotent.
+  for (const source of opts.webhookSources ?? []) {
+    container.connectorRegistry.register(webhookSourceToConnector(source));
+  }
 
-  registerRoutes(app, { webhookSources });
+  // Back-compat: the deprecated `enablePresets: false` STILL suppresses env
+  // presets end-to-end. The container builds presets unconditionally when the
+  // client wasn't told otherwise, so when this flag is explicitly false we strip
+  // the env-preset ids back out of the registry here — but never one a consumer
+  // `webhookSources` override re-registered above (those are kept).
+  if (opts.enablePresets === false) {
+    const overriddenIds = new Set(
+      (opts.webhookSources ?? []).map((s) => s.meta.id),
+    );
+    for (const preset of connectorsFromEnv(container.env)) {
+      if (!overriddenIds.has(preset.meta.id)) {
+        container.connectorRegistry.unregister(preset.meta.id);
+      }
+    }
+  }
+
+  registerRoutes(app, { container });
 
   // Serve the Studio SPA at /studio/* (static layer, no auth — the SPA gates
   // itself via /v1/auth/status + login; data endpoints stay behind requireAdmin).

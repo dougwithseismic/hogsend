@@ -100,6 +100,7 @@ export function contactSearchFilter(search: string) {
     ilike(contacts.email, `%${search}%`),
     ilike(contacts.externalId, `%${search}%`),
     ilike(contacts.anonymousId, `%${search}%`),
+    ilike(contacts.discordId, `%${search}%`),
   );
 }
 
@@ -115,7 +116,7 @@ export function normalizeEmail(raw: string): string {
 // Identity resolution
 // ---------------------------------------------------------------------------
 
-type Kind = "external" | "email" | "anonymous";
+type Kind = "external" | "email" | "anonymous" | "discord";
 
 interface ResolveKey {
   kind: Kind;
@@ -137,7 +138,9 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
       ? contacts.externalId
       : key.kind === "email"
         ? contacts.email
-        : contacts.anonymousId;
+        : key.kind === "anonymous"
+          ? contacts.anonymousId
+          : contacts.discordId;
 
   const direct = await tx
     .select()
@@ -277,6 +280,7 @@ export async function resolveOrCreateContact(opts: {
   userId?: string;
   email?: string;
   anonymousId?: string;
+  discordId?: string;
   contactProperties?: Record<string, unknown>;
 }): Promise<{
   id: string;
@@ -295,15 +299,18 @@ export async function resolveOrCreateContact(opts: {
   const userId = opts.userId?.trim() || undefined;
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
   const anonymousId = opts.anonymousId?.trim() || undefined;
+  const discordId = opts.discordId?.trim() || undefined;
 
   const keys: ResolveKey[] = [];
   if (userId) keys.push({ kind: "external", value: userId });
   if (email) keys.push({ kind: "email", value: email });
   if (anonymousId) keys.push({ kind: "anonymous", value: anonymousId });
+  if (discordId) keys.push({ kind: "discord", value: discordId });
 
   if (keys.length === 0) {
     throw new Error(
-      "resolveOrCreateContact requires at least one of userId, email, anonymousId",
+      "resolveOrCreateContact requires at least one of userId, email, " +
+        "anonymousId, discordId",
     );
   }
 
@@ -338,6 +345,7 @@ export async function resolveOrCreateContact(opts: {
           externalId: userId ?? null,
           email: email ?? null,
           anonymousId: anonymousId ?? null,
+          discordId: discordId ?? null,
           // §2.1: explicit null clears a key — never persist a null-valued prop.
           properties: stripNulls(patch),
         })
@@ -360,6 +368,7 @@ export async function resolveOrCreateContact(opts: {
         userId,
         email,
         anonymousId,
+        discordId,
         patch,
         hasPatch,
       });
@@ -371,6 +380,7 @@ export async function resolveOrCreateContact(opts: {
       userId,
       email,
       anonymousId,
+      discordId,
       patch,
       hasPatch,
     });
@@ -382,6 +392,7 @@ interface ResolveCtx {
   userId?: string;
   email?: string;
   anonymousId?: string;
+  discordId?: string;
   patch: Record<string, unknown>;
   hasPatch: boolean;
 }
@@ -419,6 +430,14 @@ async function fillInLink(
   if (ctx.email && !row.email) {
     set.email = ctx.email;
     promoted.push({ kind: "email", value: ctx.email });
+  }
+  // discord_id is an attachable resolvable key but NEVER the canonical key
+  // (external_id ?? anonymous_id ?? id), so it does NOT touch
+  // nextExternalId/nextAnonymousId — gaining it never flips the canonical key,
+  // so no own-history re-point follows.
+  if (ctx.discordId && !row.discordId) {
+    set.discordId = ctx.discordId;
+    promoted.push({ kind: "discord", value: ctx.discordId });
   }
   if (ctx.anonymousId && !row.anonymousId) {
     set.anonymousId = ctx.anonymousId;
@@ -561,6 +580,16 @@ async function mergeContacts(
     const fromLoser = losers.find((l) => l.anonymousId)?.anonymousId;
     const next = ctx.anonymousId ?? fromLoser;
     if (next) survivorSet.anonymousId = next;
+  }
+  // discord_id lands on the survivor (from the call or a loser), but it is
+  // NEVER the canonical key — so it is intentionally NOT folded into
+  // newSurvivorKey below and a discord-only merge does no history re-point. The
+  // losers are soft-deleted FIRST (below) so the partial-unique discord_id index
+  // is freed before this copy.
+  if (!survivor.discordId) {
+    const fromLoser = losers.find((l) => l.discordId)?.discordId;
+    const next = ctx.discordId ?? fromLoser;
+    if (next) survivorSet.discordId = next;
   }
 
   // (viii) Soft-delete the losers FIRST — frees their external_id/email/
@@ -953,6 +982,20 @@ async function recordMergeAliases(
       reason: "merge",
     });
   }
+  // discord_id is a resolvable key, so a stale loser snowflake must still
+  // resolve to the survivor after the soft-delete takes the loser out of
+  // findByKey's direct lookup. Additive — it never conflicts with the
+  // external/anonymous id-fallback alias below (a discord-only loser produces
+  // BOTH this discord alias AND the id→external alias).
+  if (loser.discordId) {
+    aliasRows.push({
+      contactId: survivorId,
+      aliasKind: "discord",
+      aliasValue: loser.discordId,
+      fromContactId: loser.id,
+      reason: "merge",
+    });
+  }
   // When the loser had neither external_id nor anonymous_id, its CANONICAL key
   // (`external_id ?? anonymous_id ?? id`) was its row id — and that key has
   // circulated (Hatchet payloads, outbound `userId`s, `hs_t` tokens). Alias it
@@ -1002,6 +1045,7 @@ export async function upsertContact(opts: {
   externalId?: string;
   email?: string;
   anonymousId?: string;
+  discordId?: string;
   properties?: Record<string, unknown>;
 }): Promise<{
   id: string;
@@ -1015,6 +1059,7 @@ export async function upsertContact(opts: {
     userId: opts.externalId,
     email: opts.email,
     anonymousId: opts.anonymousId,
+    discordId: opts.discordId,
     contactProperties: opts.properties,
   });
 }

@@ -31,6 +31,11 @@ export default defineConfig({
       BETTER_AUTH_URL: "http://localhost:3002",
       RESEND_API_KEY: "re_test_000000000000000000000000",
       RESEND_WEBHOOK_SECRET: "whsec_test_secret_for_vitest",
+      // A webhook-preset secret so the env preset (stripe) auto-mounts in the
+      // container's connector registry — lets the connectors semver-hygiene
+      // test assert that `enablePresets: false` strips it while the default
+      // (presets enabled) mounts it.
+      STRIPE_WEBHOOK_SECRET: "whsec_stripe_test_secret_for_vitest",
       API_PUBLIC_URL: "http://localhost:3002",
       ADMIN_API_KEY: "test-admin-api-key",
       HATCHET_CLIENT_TOKEN:

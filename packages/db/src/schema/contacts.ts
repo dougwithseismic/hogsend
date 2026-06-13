@@ -32,6 +32,16 @@ export const contacts = pgTable(
      */
     anonymousId: text("anonymous_id"),
     /**
+     * Nullable Discord user id (snowflake) attached to an email-keyed contact
+     * when a member completes the per-member OAuth link. Like external_id it is
+     * a RESOLVABLE identity key (a fourth `Kind`), NOT a property — but it is
+     * NEVER the canonical text key (`external_id ?? anonymous_id ?? id`), so it
+     * does not participate in the history re-point. Uniqueness is the
+     * partial-unique live-row index below, identical to
+     * contacts_external_id_unique_idx.
+     */
+    discordId: text("discord_id"),
+    /**
      * Opportunistic IANA-timezone cache (e.g. "America/New_York"). Populated
      * best-effort when a tz is resolved from PostHog person props. PostHog and
      * `properties` jsonb remain authoritative sources — this column sits below
@@ -69,5 +79,8 @@ export const contacts = pgTable(
     uniqueIndex("contacts_anonymous_id_unique_idx")
       .on(table.anonymousId)
       .where(sql`anonymous_id IS NOT NULL AND deleted_at IS NULL`),
+    uniqueIndex("contacts_discord_id_unique_idx")
+      .on(table.discordId)
+      .where(sql`discord_id IS NOT NULL AND deleted_at IS NULL`),
   ],
 );

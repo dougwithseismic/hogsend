@@ -1,52 +1,36 @@
 import type { Database } from "@hogsend/db";
 import type { z } from "zod";
+import {
+  type ConnectorCtx,
+  type DefinedConnector,
+  defineConnector,
+  type InboundVerifyAuth,
+} from "../connectors/define-connector.js";
 import type { IngestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
-import type { SignatureScheme, VerifySignatureArgs } from "./verify.js";
 
 /**
- * How a webhook source authenticates inbound requests.
+ * @deprecated naming only — `defineWebhookSource` is now the
+ * `transport: "webhook"` specialization of {@link defineConnector}, kept as a
+ * behavior- and signature-identical alias. NO migration is required.
  *
- * A discriminated union on `type`:
+ * `WebhookSourceAuth` is an alias of the connector's inbound-verify union —
+ * IDENTICAL shape today, so every existing source's `auth` keeps type-checking.
  *
- *  - `"match"` — plain shared-secret equality. The route compares a configured
- *    secret against the request header (or `Authorization: Bearer`). When the
- *    secret is UNSET the source stays OPEN (parity with the pre-engine route);
- *    this variant is unchanged so PostHog + all consumer sources keep compiling.
- *
- *  - `"signature"` — provider HMAC signature verification (Svix / Stripe /
- *    generic hex HMAC). The route resolves the secret from `env[envKey]`, reads
- *    the EXACT raw request body, and calls `verifySignature` (or the optional
- *    per-source `verify` override) over those bytes. Signature sources FAIL
- *    CLOSED (401) when their secret is unset — they are security-sensitive.
+ * SURFACE PIN: this alias must stay byte-for-byte equal to the frozen
+ * `{ match | signature }` webhook auth shape. `__tests__/connectors.test.ts`
+ * has a type-level assertion (`expectTypeOf<WebhookSourceAuth>()...`) that fails
+ * the build if `InboundVerifyAuth` ever gains a third variant — so a future
+ * additive change to the connector union can never silently widen this frozen
+ * public webhook-source surface.
  */
-export type WebhookSourceAuth =
-  | {
-      type: "match";
-      header: string;
-      envKey: string;
-    }
-  | {
-      type: "signature";
-      scheme: SignatureScheme;
-      envKey: string;
-      header: string;
-      /**
-       * For schemes (notably `"svix"`) whose providers may also send a plain
-       * shared-secret header: when the scheme's signature headers are absent but
-       * this header matches the secret verbatim, accept the request. Lets
-       * Supabase's `x-supabase-webhook-secret` plain-secret mode coexist with
-       * its Svix mode.
-       */
-      fallbackMatchHeader?: string;
-      /**
-       * Optional per-source override of the built-in scheme verification. When
-       * provided, the route calls this INSTEAD of `verifySignature(scheme, …)`.
-       * Receives the EXACT received bytes; must return (or resolve to) a boolean.
-       */
-      verify?(args: VerifySignatureArgs): boolean | Promise<boolean>;
-    };
+export type WebhookSourceAuth = InboundVerifyAuth;
 
+/**
+ * Unchanged public shape. `ctx` stays the narrow webhook-only context —
+ * `ConnectorCtx` minus `transport` — so consumer transforms typed against this
+ * are byte-for-byte source-compatible.
+ */
 export interface WebhookSourceCtx {
   db: Database;
   logger: Logger;
@@ -73,9 +57,30 @@ export interface DefinedWebhookSource<T = unknown> {
   transform(payload: T, ctx: WebhookSourceCtx): Promise<IngestEvent | null>;
 }
 
+/**
+ * Lift a `DefinedWebhookSource` onto the connector umbrella as a
+ * `transport: "webhook"` connector: `auth` → `inboundVerify`, transform `ctx`
+ * widened to {@link ConnectorCtx} (the webhook route always sets
+ * `transport: "webhook"` + `rawBody`/`headers`). Used by the container to
+ * register webhook sources into the unified {@link ConnectorRegistry}.
+ */
+export function webhookSourceToConnector<T>(
+  source: DefinedWebhookSource<T>,
+): DefinedConnector<T> {
+  return defineConnector<T>({
+    meta: { ...source.meta, transport: "webhook" },
+    inboundVerify: source.auth,
+    schema: source.schema,
+    transform: (payload: T, ctx: ConnectorCtx) =>
+      source.transform(payload, ctx),
+  });
+}
+
 export function defineWebhookSource<T>(
   def: DefinedWebhookSource<T>,
 ): DefinedWebhookSource<T> {
+  // Unchanged contract: returns its argument. The container converts it via
+  // webhookSourceToConnector when building the registry.
   return def;
 }
 

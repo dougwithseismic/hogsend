@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   Mail,
+  Plug,
   Send,
   Settings,
   Users,
@@ -27,6 +28,7 @@ export const navItems: NavItem[] = [
   { label: "Contacts", path: "/contacts", icon: Users },
   { label: "Suppressions", path: "/suppressions", icon: Ban },
   { label: "Debug", path: "/debug", icon: FlaskConical },
+  { label: "Integrations", path: "/integrations", icon: Plug },
   { label: "Setup", path: "/setup", icon: Globe },
   { label: "Settings", path: "/settings", icon: Settings },
 ];

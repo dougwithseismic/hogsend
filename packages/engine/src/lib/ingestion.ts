@@ -14,6 +14,11 @@ export interface IngestEvent {
   userEmail?: string;
   /** D1: future anonymous→identified path. Threaded into the resolver. */
   anonymousId?: string;
+  /**
+   * Discord user id (snowflake). Resolves a `discord`-keyed contact (a later
+   * per-member link merges it into the email contact).
+   */
+  discordId?: string;
   /** D2: → `user_events` + Hatchet `trigger.where`/`exitOn` ONLY. */
   eventProperties: Record<string, unknown>;
   /** D2: → `contacts.properties` merge ONLY. */
@@ -68,6 +73,7 @@ export async function ingestEvent(opts: {
     userId: event.userId,
     email: event.userEmail || undefined,
     anonymousId: event.anonymousId,
+    discordId: event.discordId,
     contactProperties: event.contactProperties,
   });
 
