@@ -1,5 +1,4 @@
 import type { MetadataRoute } from "next";
-import { RECIPE_LANDERS } from "@/app/(home)/recipes/_data";
 import { RECIPE_CATEGORIES } from "@/app/(home)/recipes/_data/types";
 import { SITE_URL } from "@/lib/site";
 import { source } from "@/lib/source";
@@ -25,7 +24,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     ...Object.keys(RECIPE_CATEGORIES).map(
       (category) => `/recipes/category/${category}`,
     ),
-    ...RECIPE_LANDERS.map((recipe) => `/recipes/${recipe.slug}`),
   ].map((path) => ({
     url: `${SITE_URL}${path}`,
     lastModified: now,

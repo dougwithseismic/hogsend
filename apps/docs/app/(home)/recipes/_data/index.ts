@@ -80,23 +80,3 @@ export function getRecipesByCategory(
 ): RecipeLander[] {
   return RECIPE_LANDERS.filter((recipe) => recipe.category === category);
 }
-
-/**
- * The recipe's neighbours within its own category, for in-category prev/next
- * paging. `prev`/`next` are undefined at the ends of the category list.
- */
-export function getCategoryNeighbours(slug: string): {
-  category: RecipeCategoryId;
-  prev?: RecipeLander;
-  next?: RecipeLander;
-} | null {
-  const recipe = BY_SLUG.get(slug);
-  if (!recipe) return null;
-  const siblings = getRecipesByCategory(recipe.category);
-  const index = siblings.findIndex((r) => r.slug === slug);
-  return {
-    category: recipe.category,
-    prev: index > 0 ? siblings[index - 1] : undefined,
-    next: index < siblings.length - 1 ? siblings[index + 1] : undefined,
-  };
-}

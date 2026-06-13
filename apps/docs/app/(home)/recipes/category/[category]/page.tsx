@@ -6,11 +6,11 @@ import type { JSX } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
+import { CodeWindow } from "@/components/ds/code-window";
 import { AuroraBeam } from "@/components/ds/fx";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { ClosingCta } from "../../../use-cases/_components/use-case-sections";
-import { RecipeCard } from "../../_components/recipe-sections";
 import { getRecipesByCategory } from "../../_data";
 import { RECIPE_CATEGORIES, type RecipeCategoryId } from "../../_data/types";
 
@@ -34,7 +34,7 @@ export async function generateMetadata(props: {
 
   return {
     title: `${meta.title} recipes`,
-    description: `${count} ${meta.title.toLowerCase()} recipes for Hogsend — ${meta.description}`,
+    description: `${count} ${meta.title.toLowerCase()} recipes for Hogsend, each with the code to copy. ${meta.description}`,
   };
 }
 
@@ -60,7 +60,8 @@ export default async function RecipeCategoryPage(props: {
               {meta.title}
             </h1>
             <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
-              {meta.description}
+              {meta.description} Each one below is the working code — copy it
+              into your app.
             </p>
           </Reveal>
           <Reveal delay={0.1} className="mt-8">
@@ -74,16 +75,48 @@ export default async function RecipeCategoryPage(props: {
         </div>
       </Section>
 
-      {/* The category's recipes */}
+      {/* The cookbook — every recipe in the category, with its code inline */}
       <Section>
-        <SectionHeading
-          eyebrow={`${recipes.length} ${recipes.length === 1 ? "recipe" : "recipes"}`}
-          title={`Every ${meta.title.toLowerCase()} recipe`}
-        />
-        <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {recipes.map((recipe, index) => (
-            <RecipeCard key={recipe.slug} recipe={recipe} index={index} />
-          ))}
+        <div className="flex flex-col gap-20">
+          {recipes.map((recipe) => {
+            const primary = recipe.code[0];
+            return (
+              <Reveal key={recipe.slug}>
+                <article id={recipe.slug} className="scroll-mt-24">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="max-w-2xl">
+                      <h2 className="font-medium font-sans text-2xl text-white leading-[1.2] tracking-[-0.02em]">
+                        {recipe.title}
+                      </h2>
+                      <p className="mt-3 text-base text-white/60 leading-6">
+                        {recipe.cardDescription}
+                      </p>
+                    </div>
+                    <Link
+                      href={`/docs/recipes/${recipe.slug}`}
+                      className="group inline-flex shrink-0 items-center gap-1.5 rounded text-sm text-white/60 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent sm:mt-1"
+                    >
+                      Full write-up
+                      <ArrowUpRight
+                        aria-hidden="true"
+                        className="size-4 transition-transform duration-200 group-hover:translate-x-0.5"
+                        strokeWidth={1.5}
+                      />
+                    </Link>
+                  </div>
+                  <div className="mt-6">
+                    <CodeWindow
+                      filename={primary.filename}
+                      code={primary.code}
+                    />
+                    <p className="mt-4 max-w-2xl text-sm text-white/50 leading-6">
+                      {primary.caption}
+                    </p>
+                  </div>
+                </article>
+              </Reveal>
+            );
+          })}
         </div>
       </Section>
 
@@ -139,8 +172,8 @@ export default async function RecipeCategoryPage(props: {
       </Section>
 
       <ClosingCta
-        title="Ship it from a scaffold"
-        subtitle="Every recipe drops into a create-hogsend app as one TypeScript file — read the recipe, then scaffold and start from working code."
+        title="Copy a recipe into your app"
+        subtitle="Paste any recipe straight into your codebase, or scaffold a fresh app with create-hogsend and build from there."
       />
     </main>
   );

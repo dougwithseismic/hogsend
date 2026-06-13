@@ -38,7 +38,7 @@ const USE_CASE_LINKS: MenuItem[] = [
   {
     label: "Failed payments",
     description: "Reminders that sound human and stop when payment clears.",
-    href: "/recipes/failed-payment-dunning",
+    href: "/recipes/category/conversion#failed-payment-dunning",
   },
   {
     label: "Fire and forget",

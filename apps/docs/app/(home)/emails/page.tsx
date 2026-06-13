@@ -43,7 +43,10 @@ type StageGroup = {
 const GROUPS: StageGroup[] = [
   {
     stage: "Activation",
-    link: { label: "Recipe", href: "/recipes/welcome-series" },
+    link: {
+      label: "Recipe",
+      href: "/recipes/category/onboarding#welcome-series",
+    },
     headerLink: {
       label: "Onboarding use case",
       href: "/use-cases/onboarding",
@@ -71,7 +74,10 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Conversion",
-    link: { label: "Recipe", href: "/recipes/trial-conversion-sequence" },
+    link: {
+      label: "Recipe",
+      href: "/recipes/category/conversion#trial-conversion-sequence",
+    },
     headerLink: {
       label: "Trial conversion use case",
       href: "/use-cases/trial-conversion",
@@ -94,7 +100,10 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Retention",
-    link: { label: "Recipe", href: "/recipes/weekly-digest" },
+    link: {
+      label: "Recipe",
+      href: "/recipes/category/retention#weekly-digest",
+    },
     entries: [
       {
         name: "retention-weekly-digest",
@@ -109,7 +118,10 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Reactivation",
-    link: { label: "Recipe", href: "/recipes/winback-and-sunset" },
+    link: {
+      label: "Recipe",
+      href: "/recipes/category/retention#winback-and-sunset",
+    },
     headerLink: { label: "Win-back use case", href: "/use-cases/winback" },
     entries: [
       {
@@ -124,7 +136,10 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Churn prevention",
-    link: { label: "Recipe", href: "/recipes/failed-payment-dunning" },
+    link: {
+      label: "Recipe",
+      href: "/recipes/category/conversion#failed-payment-dunning",
+    },
     entries: [
       {
         name: "churn-payment-failed",
@@ -134,7 +149,7 @@ const GROUPS: StageGroup[] = [
   },
   {
     stage: "Feedback",
-    link: { label: "Recipe", href: "/recipes/nps-survey" },
+    link: { label: "Recipe", href: "/recipes/category/retention#nps-survey" },
     entries: [
       {
         name: "feedback-nps-survey",

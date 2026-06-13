@@ -35,7 +35,7 @@ export const RECIPE_CATEGORIES: Record<
   scheduling: {
     title: "Timing & scheduling",
     description:
-      "Land sends at the right local moment with durable sleeps and ctx.when.",
+      "Send at the right moment in each person's own timezone — reminders, anniversaries, and time-of-day windows.",
   },
   "human-in-the-loop": {
     title: "Human-in-the-loop",
