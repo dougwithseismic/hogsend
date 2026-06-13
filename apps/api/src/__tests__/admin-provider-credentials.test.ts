@@ -27,8 +27,10 @@ const { eq, like } = await import("drizzle-orm");
 const {
   createApp,
   createHogsendClient,
+  getDerivedCredential,
   getProviderCredential,
   ProviderCredentialDecryptError,
+  saveDerivedCredential,
   saveProviderCredential,
 } = await import("@hogsend/engine");
 
@@ -252,5 +254,57 @@ describe("/v1/admin/provider-credentials", () => {
       payload: withoutAccessToken,
     });
     expect(missingToken.res.status).toBe(400);
+  });
+});
+
+// --- kind="derived" store (the minted secret + grabbed phc_) -----------------
+
+describe("derived credential store", () => {
+  it("round-trips the full derived payload and lives beside the oauth row", async () => {
+    const id = pid("derived");
+    const payload = {
+      webhookSecret: "minted_64hex",
+      projectApiKey: "phc_grabbed",
+      projectId: "4242",
+      privateHost: "https://eu.posthog.com",
+    };
+    await saveDerivedCredential(db, id, payload);
+
+    const got = await getDerivedCredential(db, id);
+    expect(got).toEqual(payload);
+
+    // The two kinds coexist on (provider_id, kind) — saving an oauth row for
+    // the same provider id does not clobber the derived row.
+    await saveProviderCredential(db, { providerId: id, payload: PAYLOAD });
+    const stillThere = await getDerivedCredential(db, id);
+    expect(stillThere?.webhookSecret).toBe("minted_64hex");
+    const oauth = await getProviderCredential(db, id);
+    expect(oauth?.payload.accessToken).toBe(PAYLOAD.accessToken);
+  });
+
+  it("upserts (full-payload overwrite) and encrypts at rest", async () => {
+    const id = pid("derived-upsert");
+    await saveDerivedCredential(db, id, { webhookSecret: "first" });
+    await saveDerivedCredential(db, id, {
+      webhookSecret: "second",
+      projectApiKey: "phc_x",
+    });
+
+    const got = await getDerivedCredential(db, id);
+    // Dumb store: the second save replaces the whole payload.
+    expect(got).toEqual({ webhookSecret: "second", projectApiKey: "phc_x" });
+
+    const rows = await db
+      .select()
+      .from(providerCredentials)
+      .where(eq(providerCredentials.providerId, id));
+    const derivedRow = rows.find((r) => r.kind === "derived");
+    expect(rows.filter((r) => r.kind === "derived")).toHaveLength(1);
+    expect(derivedRow?.payload).not.toContain("phc_x");
+    expect(derivedRow?.payload).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+
+  it("returns null when no derived row exists", async () => {
+    expect(await getDerivedCredential(db, pid("derived-missing"))).toBeNull();
   });
 });

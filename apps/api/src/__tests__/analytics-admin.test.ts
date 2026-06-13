@@ -43,9 +43,13 @@ vi.mock("../lib/hatchet.js", () => ({
 
 const { providerCredentials } = await import("@hogsend/db");
 const { eq } = await import("drizzle-orm");
-const { createApp, createHogsendClient, saveProviderCredential } = await import(
-  "@hogsend/engine"
-);
+const {
+  createApp,
+  createHogsendClient,
+  getDerivedCredential,
+  saveDerivedCredential,
+  saveProviderCredential,
+} = await import("@hogsend/engine");
 
 // `resolveConnectInfo` lives on the engine's analytics admin router and is
 // not part of the engine's public index. A literal static import of another
@@ -204,6 +208,9 @@ describe("GET /v1/admin/analytics/connect-info", () => {
       headers: ADMIN_HEADER,
     });
     expect(res.status).toBe(200);
+    // The handler augments the pure env projection with `scopeGap` (empty when
+    // no oauth credential is stored) and OR-s `webhookSecretConfigured` against
+    // the kind="derived" store (none here, so still env-only = false).
     expect(await res.json()).toEqual({
       providerId: "posthog",
       analyticsConfigured: true,
@@ -213,7 +220,52 @@ describe("GET /v1/admin/analytics/connect-info", () => {
       personalKeyConfigured: false,
       webhookSecretConfigured: false,
       apiPublicUrl: "https://t.example.com",
+      scopeGap: [],
     });
+  });
+
+  it("reports scopeGap = the EXPECTED scopes the stored grant is missing", async () => {
+    // Store an oauth credential on the legacy 4-scope set; the front-loaded
+    // EXPECTED set is wider, so the gap is the difference.
+    await saveProviderCredential(db, {
+      providerId: "posthog",
+      payload: STORED_PAYLOAD,
+    });
+    try {
+      const res = await app.request("/v1/admin/analytics/connect-info", {
+        headers: ADMIN_HEADER,
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { scopeGap: string[] };
+      // The stored grant covers person:read/write, project:read,
+      // hog_function:write — everything else in the EXPECTED set is missing.
+      expect(json.scopeGap).toContain("organization:read");
+      expect(json.scopeGap).toContain("cohort:read");
+      expect(json.scopeGap).not.toContain("person:read");
+      expect(json.scopeGap).not.toContain("hog_function:write");
+    } finally {
+      await db
+        .delete(providerCredentials)
+        .where(eq(providerCredentials.providerId, "posthog"));
+    }
+  });
+
+  it("reports webhookSecretConfigured=true from a stored derived secret (env unset)", async () => {
+    await saveDerivedCredential(db, "posthog", { webhookSecret: "minted-abc" });
+    try {
+      const res = await app.request("/v1/admin/analytics/connect-info", {
+        headers: ADMIN_HEADER,
+      });
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { webhookSecretConfigured: boolean };
+      // env.POSTHOG_WEBHOOK_SECRET is unset in this file, yet the stored
+      // derived secret flips the configured-ness flag to true (env OR store).
+      expect(json.webhookSecretConfigured).toBe(true);
+    } finally {
+      await db
+        .delete(providerCredentials)
+        .where(eq(providerCredentials.providerId, "posthog"));
+    }
   });
 });
 
@@ -260,19 +312,68 @@ describe("POST /v1/admin/analytics/provision-loop", () => {
     expect(json).toEqual({ error: "no_posthog_credential" });
   });
 
-  it("409 webhook_secret_missing with a stored credential but no secret", async () => {
+  it("mints + persists a webhook secret when env has none (no more 409)", async () => {
     await saveProviderCredential(db, {
       providerId: "posthog",
       payload: STORED_PAYLOAD,
     });
+    try {
+      // env.POSTHOG_WEBHOOK_SECRET is unset in this file. Instead of refusing,
+      // the handler mints a secret, persists it to the kind="derived" store
+      // (so the inbound posthog source can resolve it), and provisions.
+      const recordedSecrets: string[] = [];
+      vi.spyOn(globalThis, "fetch").mockImplementation((async (
+        input: unknown,
+        init?: RequestInit,
+      ) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (init?.body) {
+          const body = String(init.body);
+          const match = body.match(/x-posthog-webhook-secret"\s*:\s*"([^"]+)"/);
+          if (match?.[1]) recordedSecrets.push(match[1]);
+        }
+        if (method === "GET" && url.includes("/api/projects/")) {
+          return jsonResponse({ id: 4242, api_token: "phc_grabbed_key" });
+        }
+        if (method === "GET" && url.includes("/hog_functions/")) {
+          return jsonResponse({ results: [], next: null });
+        }
+        if (method === "POST" && url.endsWith("/hog_functions/")) {
+          return jsonResponse({ id: "hf-minted-1" });
+        }
+        throw new Error(`unexpected fetch: ${method} ${url}`);
+      }) as typeof fetch);
 
-    const { res, json } = await provision();
-    expect(res.status).toBe(409);
-    expect(json).toEqual({ error: "webhook_secret_missing" });
+      const { res, json } = await provision();
+      expect(res.status).toBe(200);
+      expect(json).toMatchObject({
+        provisioned: true,
+        action: "created",
+        hogFunctionId: "hf-minted-1",
+      });
+
+      // The minted secret was passed to PostHog AND persisted to the store.
+      expect(recordedSecrets.length).toBeGreaterThan(0);
+      const stored = await getDerivedCredential(db, "posthog");
+      expect(stored?.webhookSecret).toBe(recordedSecrets[0]);
+      expect(stored?.webhookSecret).toMatch(/^[0-9a-f]{64}$/);
+      // The phc_ (api_token) was grabbed opportunistically and persisted.
+      expect(stored?.projectApiKey).toBe("phc_grabbed_key");
+      expect(stored?.projectId).toBe("4242");
+    } finally {
+      await db
+        .delete(providerCredentials)
+        .where(eq(providerCredentials.providerId, "posthog"));
+    }
   });
 
   it("200 translates the provisioner result per M4 (and passes the env project id)", async () => {
     envOverrides.set("POSTHOG_WEBHOOK_SECRET", "whsec_route_test");
+    await saveProviderCredential(db, {
+      providerId: "posthog",
+      payload: STORED_PAYLOAD,
+    });
 
     const recorded: Array<{ url: string; method: string; auth: unknown }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation((async (
@@ -287,6 +388,12 @@ describe("POST /v1/admin/analytics/provision-loop", () => {
         auth: (init?.headers as Record<string, string> | undefined)
           ?.Authorization,
       });
+      // The provisioner now ALWAYS fetches the project (even with an env
+      // project id) to read its `api_token` (the phc_). With POSTHOG_PROJECT_ID
+      // set it GETs /api/projects/4242/ directly (never @current).
+      if (method === "GET" && url.includes("/api/projects/")) {
+        return jsonResponse({ id: 4242, api_token: "phc_grabbed_key" });
+      }
       if (method === "GET" && url.includes("/hog_functions/")) {
         return jsonResponse({ results: [], next: null });
       }
@@ -309,11 +416,14 @@ describe("POST /v1/admin/analytics/provision-loop", () => {
         "hog-hf-test-1/configuration",
     });
 
-    // M8: env.POSTHOG_PROJECT_ID was passed — no @current discovery call,
-    // every call hits the environment-scoped path with the stored token.
+    // M8: env.POSTHOG_PROJECT_ID was passed — the project GET hits
+    // /api/projects/4242/ directly (NOT @current) and the hog-function calls
+    // hit the environment-scoped path, all with the stored token.
     expect(recorded.length).toBeGreaterThan(0);
+    expect(recorded.some((c) => c.url.includes("/api/projects/4242/"))).toBe(
+      true,
+    );
     for (const call of recorded) {
-      expect(call.url).toContain("/api/environments/4242/");
       expect(call.url).not.toContain("@current");
       expect(call.auth).toBe("Bearer pha_route_test_access");
     }
@@ -324,6 +434,10 @@ describe("POST /v1/admin/analytics/provision-loop", () => {
 
   it("502 maps other provisioner errors to { error: code, detail, remediation }", async () => {
     envOverrides.set("POSTHOG_WEBHOOK_SECRET", "whsec_route_test");
+    await saveProviderCredential(db, {
+      providerId: "posthog",
+      payload: STORED_PAYLOAD,
+    });
 
     vi.spyOn(globalThis, "fetch").mockImplementation((async () =>
       jsonResponse({ detail: "denied" }, 403)) as unknown as typeof fetch);

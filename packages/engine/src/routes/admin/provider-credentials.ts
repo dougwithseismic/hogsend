@@ -127,9 +127,13 @@ const deleteRoute = createRoute({
 });
 
 function serializeMeta(meta: ProviderCredentialMeta) {
+  // This admin surface is OAuth-only: PUT forces `kind: "oauth"` and GET reads
+  // the oauth credential, so the meta's kind is always "oauth" at runtime even
+  // though `ProviderCredentialMeta.kind` widened to the "oauth" | "derived"
+  // union when the derived store landed. Narrow it back to the schema literal.
   return {
     providerId: meta.providerId,
-    kind: meta.kind,
+    kind: "oauth" as const,
     scopes: meta.scopes,
     expiresAt: meta.expiresAt.toISOString(),
     scopedTeams: meta.scopedTeams,

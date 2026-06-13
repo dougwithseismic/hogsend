@@ -56,6 +56,12 @@ export interface ProvisionPostHogLoopResult {
   projectId: string;
   /** The URL the destination POSTs to: `${apiPublicUrl}/v1/webhooks/posthog`. */
   webhookUrl: string;
+  /**
+   * The phc_ public capture key, read from the project object's `api_token`
+   * field. Grabbed opportunistically for the OPTIONAL outbound capture path;
+   * NOT needed for the inbound webhook loop. `undefined` if absent.
+   */
+  projectApiKey?: string;
   /** Best-effort deep link (pattern unverified — cosmetic, confirm in e2e). */
   dashboardUrl: string;
 }
@@ -269,10 +275,11 @@ export async function provisionPostHogLoop(
     );
   }
 
-  const projectId =
-    opts.projectId !== undefined
-      ? String(opts.projectId)
-      : await discoverProjectId({ privateHost, accessToken });
+  const { id: projectId, apiToken: projectApiKey } = await fetchProject({
+    privateHost,
+    accessToken,
+    projectId: opts.projectId,
+  });
 
   const basePath = `/api/environments/${projectId}/hog_functions/`;
   const desired: DesiredLoop = { webhookUrl, webhookSecret };
@@ -328,6 +335,7 @@ export async function provisionPostHogLoop(
     functionId,
     projectId,
     webhookUrl,
+    projectApiKey,
     dashboardUrl:
       `${privateHost.replace(/\/+$/, "")}/project/${projectId}` +
       `/pipeline/destinations/hog-${functionId}/configuration`,
@@ -335,21 +343,31 @@ export async function provisionPostHogLoop(
 }
 
 /**
- * One-shot `@current` discovery, used only when `opts.projectId` is not
- * given. Deliberately uncached and NOT shared with plugin-posthog's
+ * One-shot project fetch — ALWAYS runs (even when `opts.projectId` is
+ * env-set) so the project's `api_token` (the phc_ public capture key) is
+ * read on the way through. GETs `/api/projects/${projectId}/` when the id
+ * is known, else `/api/projects/@current/` for discovery. Returns both the
+ * resolved numeric id (stringified) and the optional `api_token`.
+ *
+ * Deliberately uncached and NOT shared with plugin-posthog's
  * `resolveProjectId` — different process/cadence; provisioning is a
  * one-shot admin action that tolerates a stray re-discovery.
  */
-async function discoverProjectId(opts: {
+async function fetchProject(opts: {
   privateHost: string;
   accessToken: string;
-}): Promise<string> {
+  projectId?: string | number;
+}): Promise<{ id: string; apiToken?: string }> {
+  const path =
+    opts.projectId !== undefined
+      ? `/api/projects/${opts.projectId}/`
+      : "/api/projects/@current/";
   let body: unknown;
   try {
     body = await phFetch({
       privateHost: opts.privateHost,
       accessToken: opts.accessToken,
-      path: "/api/projects/@current/",
+      path,
     });
   } catch (err) {
     if (
@@ -370,11 +388,15 @@ async function discoverProjectId(opts: {
   if (typeof id !== "number" && typeof id !== "string") {
     throw new ProvisionPostHogLoopError({
       code: "project-discovery-failed",
-      message: "PostHog /api/projects/@current/ returned no project id.",
+      message: `PostHog ${path} returned no project id.`,
       remediation: PROJECT_DISCOVERY_REMEDIATION,
     });
   }
-  return String(id);
+  const apiToken =
+    isRecord(body) && typeof body.api_token === "string"
+      ? body.api_token
+      : undefined;
+  return { id: String(id), apiToken };
 }
 
 /** Bearer + JSON fetch with the documented error mapping. */
