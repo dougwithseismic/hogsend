@@ -6,8 +6,8 @@
 // moment its `<id>-169.mp4` + `<id>-poster.jpg` land here.
 //
 // Usage (creds are read from apps/docs/.env.local, or the ambient env):
-//   node marketing/video/scripts/upload-clips.mjs <file> [<file> ...]
-//   node marketing/video/scripts/upload-clips.mjs --all-discord
+//   node apps/docs/scripts/upload-clips.mjs <file> [<file> ...]
+//   node apps/docs/scripts/upload-clips.mjs --all-discord
 //
 // The object key is the basename of each file (e.g. discord-welcome-169.mp4),
 // which is exactly what <ClipVideo clip="discord-welcome" /> requests.
