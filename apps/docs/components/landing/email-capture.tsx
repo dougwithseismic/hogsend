@@ -2,7 +2,7 @@
 
 import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
-import { type FormEvent, type JSX, useState } from "react";
+import { type FormEvent, type JSX, useEffect, useRef, useState } from "react";
 import {
   AnalyticsEvent,
   capture,
@@ -12,7 +12,7 @@ import {
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
 
-type Step = "form" | "role" | "website" | "done";
+type Step = "intent" | "role" | "provider" | "website" | "form" | "done";
 
 type Status = "idle" | "submitting" | "error";
 
@@ -26,10 +26,19 @@ type EmailCaptureProps = {
   hideHeading?: boolean;
   /** Where the form is mounted — sent as a non-PII analytics property. */
   placement?: "hero" | "footer" | "referral";
+  /**
+   * Live-demo order: ask the qualification questions (intent → seat →
+   * provider) FIRST, captured anonymously under the PostHog distinct_id, then
+   * the email step last. The post-subscribe identify() stitches those earlier
+   * anonymous events to the now-known contact, and the answers are flushed to
+   * /api/profile as contact properties. Off (default) keeps the email-first
+   * order with the seat/website follow-ups after signup.
+   */
+  qualifyFirst?: boolean;
 };
 
 /**
- * The qualification answers. Values are the closed set /api/profile accepts;
+ * The qualification answers. Values are the closed sets /api/profile accepts;
  * labels are what the visitor sees.
  */
 const ROLE_OPTIONS = [
@@ -40,6 +49,27 @@ const ROLE_OPTIONS = [
   { value: "just_curious", label: "Just curious" },
 ] as const;
 
+const INTENT_OPTIONS = [
+  { value: "replacing_tool", label: "Replacing Loops / Customer.io" },
+  { value: "posthog_lifecycle", label: "Adding lifecycle to PostHog + Resend" },
+  { value: "client_work", label: "Building for clients" },
+  { value: "exploring", label: "Just exploring" },
+] as const;
+
+const PROVIDER_OPTIONS = [
+  { value: "resend", label: "Resend" },
+  { value: "postmark", label: "Postmark" },
+  { value: "sendgrid", label: "SendGrid" },
+  { value: "other", label: "Something else" },
+  { value: "none", label: "Nothing yet" },
+] as const;
+
+/** Keyboard focus ring shared by every interactive control. */
+const FOCUS_RING = cn(
+  "focus-visible:outline focus-visible:outline-2",
+  "focus-visible:outline-offset-2 focus-visible:outline-white/50",
+);
+
 const INPUT_CLASS = cn(
   "h-12 w-full min-w-0 rounded-[10px] border border-white/[0.08]",
   "bg-white/[0.04] px-4 text-base text-white placeholder:text-white/40",
@@ -48,27 +78,34 @@ const INPUT_CLASS = cn(
 );
 
 const PANEL_CLASS = cn(
-  "flex flex-col items-center gap-3 rounded-[10px] border",
-  "border-white/[0.08] bg-white/[0.04] px-6 py-8 text-center",
+  "flex min-w-0 flex-col items-center gap-3 rounded-[10px] border",
+  "border-white/[0.08] bg-white/[0.04] px-6 py-8 text-center outline-none",
 );
 
 const CHIP_CLASS = cn(
-  "h-10 select-none rounded-[10px] border border-white/[0.08] bg-white/[0.02]",
-  "px-4 text-sm text-white/80 transition-colors duration-200",
-  "hover:border-white/20 hover:text-white",
+  "min-h-10 select-none rounded-[10px] border border-white/[0.08]",
+  "bg-white/[0.02] px-4 py-2 text-center text-sm text-white/80",
+  "transition-colors duration-200 hover:border-white/20 hover:text-white",
+  FOCUS_RING,
 );
 
-const SKIP_CLASS =
-  "text-white/40 text-xs transition-colors hover:text-white/70";
+const SKIP_CLASS = cn(
+  "rounded-[4px] px-2 py-1 text-white/60 text-xs transition-colors",
+  "hover:text-white/80",
+  FOCUS_RING,
+);
+
+const STEP_COUNT_CLASS = "text-white/50 text-xs tracking-[0.08em]";
 
 /**
- * EmailCapture — multistep capture. Step one is the stacked first-name +
- * email form posting to /api/subscribe (which forwards to the Hogsend ingest
- * API server-side), so the subscription lands no matter what happens after.
- * Two optional follow-ups — what's your seat, and got a website — each post
- * independently to /api/profile as contact properties; dropping off keeps
- * everything answered so far. Input styling matches the ds dark fields; the
- * button mirrors the ds primary Button exactly.
+ * EmailCapture — multistep capture with two orders. Default (footer/referral):
+ * the first-name + email form first (posting to /api/subscribe, which forwards
+ * to the Hogsend ingest API server-side, so the subscription lands no matter
+ * what happens after), then the seat + website follow-ups posting to
+ * /api/profile. With `qualifyFirst` (the live demo): intent → seat → provider
+ * are asked first and captured anonymously, the email form is last, and the
+ * answers are flushed to /api/profile once the email is known. Input styling
+ * matches the ds dark fields; the button mirrors the ds primary Button.
  */
 export function EmailCapture({
   className,
@@ -76,17 +113,45 @@ export function EmailCapture({
   sub = "One email when something ships, and nothing in between.",
   hideHeading = false,
   placement = "footer",
+  qualifyFirst = false,
 }: EmailCaptureProps): JSX.Element {
-  const [step, setStep] = useState<Step>("form");
+  const [step, setStep] = useState<Step>(qualifyFirst ? "intent" : "form");
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
   const [website, setWebsite] = useState("");
+  const [intentValue, setIntentValue] = useState("");
+  const [roleValue, setRoleValue] = useState("");
+  const [providerValue, setProviderValue] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [productNotes, setProductNotes] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
 
+  // Move focus into the freshly rendered step on each change so keyboard and
+  // screen-reader users aren't stranded on the control that just unmounted —
+  // the step's fieldset announces its aria-label on focus. Skip the first
+  // render so we never auto-focus (and scroll to) the demo on page load.
+  const groupRef = useRef<HTMLFieldSetElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (step === "form") {
+      nameRef.current?.focus();
+    } else {
+      groupRef.current?.focus();
+    }
+  }, [step]);
+
   /** Best-effort enrichment — never blocks the step flow. */
-  function postProfile(fields: { role?: string; website?: string }) {
+  function postProfile(fields: {
+    role?: string;
+    website?: string;
+    intent?: string;
+    provider?: string;
+  }) {
     fetch("/api/profile", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -122,7 +187,9 @@ export function EmailCapture({
         sessionIdentity.email = email.trim().toLowerCase();
         // Identify the session under the contact's canonical Hogsend key (an
         // opaque id, no PII) — the same PostHog person the contact's email
-        // events land on, and the one hs_t email clicks resolve to.
+        // events land on, and the one hs_t email clicks resolve to. In the
+        // qualifyFirst order this is the stitch: the intent/seat/provider
+        // events fired anonymously above now join this identified person.
         const { contactKey } = (await res.json().catch(() => ({}))) as {
           contactKey?: string;
         };
@@ -132,7 +199,21 @@ export function EmailCapture({
           product_notes: productNotes,
         });
         setStatus("idle");
-        setStep("role");
+        if (qualifyFirst) {
+          // Flush the answers gathered before the email as contact
+          // properties, mirroring the post-signup steps' /api/profile writes.
+          const profileFields = {
+            ...(roleValue ? { role: roleValue } : {}),
+            ...(intentValue ? { intent: intentValue } : {}),
+            ...(providerValue ? { provider: providerValue } : {}),
+          };
+          if (Object.keys(profileFields).length > 0) {
+            postProfile(profileFields);
+          }
+          setStep("done");
+        } else {
+          setStep("role");
+        }
       } else {
         setStatus("error");
       }
@@ -141,10 +222,28 @@ export function EmailCapture({
     }
   }
 
+  function handleIntent(intent: string) {
+    capture(AnalyticsEvent.INTENT_SELECTED, { intent, placement });
+    setIntentValue(intent);
+    setStep("role");
+  }
+
   function handleRole(role: string) {
     capture(AnalyticsEvent.ROLE_SELECTED, { role, placement });
-    postProfile({ role });
-    setStep("website");
+    if (qualifyFirst) {
+      // No email yet — hold the answer and post it after subscribe.
+      setRoleValue(role);
+      setStep("provider");
+    } else {
+      postProfile({ role });
+      setStep("website");
+    }
+  }
+
+  function handleProvider(provider: string) {
+    capture(AnalyticsEvent.PROVIDER_SELECTED, { provider, placement });
+    setProviderValue(provider);
+    setStep("form");
   }
 
   function handleWebsite(event: FormEvent<HTMLFormElement>) {
@@ -161,7 +260,7 @@ export function EmailCapture({
 
   return (
     <div className={className}>
-      {hideHeading || step !== "form" ? null : (
+      {hideHeading || step !== "form" || qualifyFirst ? null : (
         <>
           <p className="font-medium text-base text-white tracking-[-0.02em]">
             {heading}
@@ -170,13 +269,165 @@ export function EmailCapture({
         </>
       )}
 
+      {step === "intent" ? (
+        <fieldset
+          ref={groupRef}
+          tabIndex={-1}
+          aria-label="Step 1 of 3: What brings you here?"
+          className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
+        >
+          <p aria-hidden="true" className={STEP_COUNT_CLASS}>
+            1 / 3
+          </p>
+          <p className="font-medium text-base text-white tracking-[-0.02em]">
+            What brings you here?
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {INTENT_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleIntent(option.value)}
+                className={CHIP_CLASS}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setStep("role")}
+            className={SKIP_CLASS}
+          >
+            Skip
+          </button>
+        </fieldset>
+      ) : null}
+
+      {step === "role" ? (
+        <fieldset
+          ref={groupRef}
+          tabIndex={-1}
+          aria-label={
+            qualifyFirst
+              ? "Step 2 of 3: What's your seat?"
+              : "What's your seat?"
+          }
+          className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
+        >
+          {qualifyFirst ? (
+            <p aria-hidden="true" className={STEP_COUNT_CLASS}>
+              2 / 3
+            </p>
+          ) : (
+            <span className="flex size-10 items-center justify-center rounded-full bg-accent-tint text-accent">
+              <Check aria-hidden="true" className="size-5" strokeWidth={2} />
+            </span>
+          )}
+          {qualifyFirst ? null : (
+            <p className="font-medium text-base text-white tracking-[-0.02em]">
+              You&apos;re in.
+            </p>
+          )}
+          <p
+            className={
+              qualifyFirst
+                ? "font-medium text-base text-white tracking-[-0.02em]"
+                : "max-w-sm text-sm text-white/60 leading-5"
+            }
+          >
+            {qualifyFirst
+              ? "What's your seat?"
+              : "While you're here — what's your seat? It shapes what we send."}
+          </p>
+          {qualifyFirst ? (
+            <p className="text-sm text-white/60 leading-5">
+              It shapes what we send.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap justify-center gap-2">
+            {ROLE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleRole(option.value)}
+                className={CHIP_CLASS}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setStep(qualifyFirst ? "provider" : "website")}
+            className={SKIP_CLASS}
+          >
+            Skip
+          </button>
+        </fieldset>
+      ) : null}
+
+      {step === "provider" ? (
+        <fieldset
+          ref={groupRef}
+          tabIndex={-1}
+          aria-label="Step 3 of 3: What are you sending email with?"
+          className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
+        >
+          <p aria-hidden="true" className={STEP_COUNT_CLASS}>
+            3 / 3
+          </p>
+          <p className="font-medium text-base text-white tracking-[-0.02em]">
+            What are you sending email with?
+          </p>
+          <p className="max-w-sm text-sm text-white/60 leading-5">
+            Resend and Postmark have first-class adapters — the wire is
+            swappable.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            {PROVIDER_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => handleProvider(option.value)}
+                className={CHIP_CLASS}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setStep("form")}
+            className={SKIP_CLASS}
+          >
+            Skip
+          </button>
+        </fieldset>
+      ) : null}
+
       {step === "form" ? (
         <>
+          {qualifyFirst ? (
+            <div className="mb-4 text-center">
+              <p className="font-medium text-base text-white tracking-[-0.02em]">
+                Want to watch it run?
+              </p>
+              <p className="mt-1.5 text-sm text-white/60 leading-5">
+                Your email fires the welcome journey — it arrives from
+                hello@hogsend.com in seconds.
+              </p>
+            </div>
+          ) : null}
           <form
             onSubmit={handleSubmit}
-            className={cn("flex flex-col gap-3", !hideHeading && "mt-4")}
+            className={cn(
+              "flex flex-col gap-3",
+              !hideHeading && !qualifyFirst && "mt-4",
+            )}
           >
             <input
+              ref={nameRef}
               type="text"
               value={firstName}
               onChange={(event) => setFirstName(event.target.value)}
@@ -207,9 +458,16 @@ export function EmailCapture({
                 "text-[#0a0a0a] text-base tracking-[-0.02em] transition-colors",
                 "duration-200 hover:bg-white/90 disabled:cursor-not-allowed",
                 "disabled:opacity-70",
+                FOCUS_RING,
               )}
             >
-              <span>{status === "submitting" ? "Sending…" : "Subscribe"}</span>
+              <span>
+                {status === "submitting"
+                  ? "Sending…"
+                  : qualifyFirst
+                    ? "Get the demo"
+                    : "Subscribe"}
+              </span>
               {status === "submitting" ? null : (
                 <ArrowRight
                   aria-hidden="true"
@@ -272,42 +530,13 @@ export function EmailCapture({
         </>
       ) : null}
 
-      {step === "role" ? (
-        <div className={cn(PANEL_CLASS, !hideHeading && "mt-4")}>
-          <span className="flex size-10 items-center justify-center rounded-full bg-accent-tint text-accent">
-            <Check aria-hidden="true" className="size-5" strokeWidth={2} />
-          </span>
-          <p className="font-medium text-base text-white tracking-[-0.02em]">
-            You&apos;re in.
-          </p>
-          <p className="max-w-sm text-sm text-white/60 leading-5">
-            While you&apos;re here — what&apos;s your seat? It shapes what we
-            send.
-          </p>
-          <div className="flex flex-wrap justify-center gap-2">
-            {ROLE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleRole(option.value)}
-                className={CHIP_CLASS}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setStep("website")}
-            className={SKIP_CLASS}
-          >
-            Skip
-          </button>
-        </div>
-      ) : null}
-
       {step === "website" ? (
-        <div className={cn(PANEL_CLASS, !hideHeading && "mt-4")}>
+        <fieldset
+          ref={groupRef}
+          tabIndex={-1}
+          aria-label="Add your website"
+          className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
+        >
           <p className="font-medium text-base text-white tracking-[-0.02em]">
             One more — got a website?
           </p>
@@ -335,6 +564,7 @@ export function EmailCapture({
                 "rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a]",
                 "text-base tracking-[-0.02em] transition-colors duration-200",
                 "hover:bg-white/90 sm:shrink-0",
+                FOCUS_RING,
               )}
             >
               Done
@@ -347,11 +577,16 @@ export function EmailCapture({
           >
             Skip
           </button>
-        </div>
+        </fieldset>
       ) : null}
 
       {step === "done" ? (
-        <div className={cn(PANEL_CLASS, !hideHeading && "mt-4")}>
+        <fieldset
+          ref={groupRef}
+          tabIndex={-1}
+          aria-label="All set"
+          className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
+        >
           <span className="flex size-10 items-center justify-center rounded-full bg-accent-tint text-accent">
             <Check aria-hidden="true" className="size-5" strokeWidth={2} />
           </span>
@@ -362,7 +597,7 @@ export function EmailCapture({
             Look out for your first getting-started email — it&apos;s on its way
             from hello@hogsend.com.
           </p>
-        </div>
+        </fieldset>
       ) : null}
     </div>
   );

@@ -27,8 +27,13 @@ export const AnalyticsEvent = {
   /** Email capture form submitted (UI funnel step — the domain fact is the
    * server-side `docs.subscribed`), with `{ placement, product_notes }`. */
   CAPTURE_SUBMITTED: "docs.capture_submitted",
-  /** "Who are you" answer — post-signup steps AND the anonymous built-for
-   * chips, distinguished by `{ placement }`; with `{ role }`. */
+  /** Live-demo opener — "what brings you here", captured anonymously before
+   * the email step so the later identify() stitches it to the contact; with
+   * `{ intent, placement }`. */
+  INTENT_SELECTED: "docs.intent_selected",
+  /** "Who are you" answer — post-signup steps, the anonymous built-for chips,
+   * AND the live-demo seat step, distinguished by `{ placement }`; with
+   * `{ role }`. */
   ROLE_SELECTED: "docs.role_selected",
   /** Post-signup website provided (the URL itself goes to Hogsend only). */
   WEBSITE_PROVIDED: "docs.website_provided",
@@ -42,7 +47,8 @@ export const AnalyticsEvent = {
   USE_CASE_SELECTED: "docs.use_case_selected",
   /** Integrations stack picker, with `{ source }`. */
   STACK_SELECTED: "docs.stack_selected",
-  /** Resend/Postmark toggle in code samples, with `{ provider }`. */
+  /** Resend/Postmark toggle in code samples AND the live-demo provider step,
+   * with `{ provider, placement }`. */
   PROVIDER_SELECTED: "docs.provider_selected",
   /** "Email me this template" request, with `{ template }` (no email here —
    * the address goes to the Hogsend ingest API only). */
