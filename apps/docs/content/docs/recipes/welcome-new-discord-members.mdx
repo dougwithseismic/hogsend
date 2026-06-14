@@ -1,0 +1,145 @@
+---
+title: Welcome new Discord members
+description: A welcome journey triggered by discord.member_joined — wait for the member to link an email with ctx.waitForEvent(), send the welcome the instant they link, and nudge the still-unlinked in-channel via the Discord destination.
+---
+
+A new Discord member arrives as a snowflake, not an email. The [`@hogsend/plugin-discord`](/docs/integrations/discord) connector turns the `GUILD_MEMBER_ADD` dispatch into a `discord.member_joined` event, which runs the full [ingestion pipeline](/docs/data-api/events): stored in `user_events`, routed to this journey, and upserted onto a contact carrying a `discord_id` and a `contacts.properties.discord` metadata object — but no email. A welcome email cannot fire on the join itself, because there is no address to send to. So the journey parks on the link event, sends the welcome the moment the contact resolves, and routes an in-channel nudge for anyone who never links.
+
+| Stage | How you express it |
+|---|---|
+| Start on a Discord join | `trigger: { event: Events.DISCORD_MEMBER_JOINED }` |
+| Wait for the member to link an email | `ctx.waitForEvent({ event: Events.CONTACT_LINKED, timeout: days(2) })` |
+| Welcome the linked | `sendEmail(…)` on the resolved branch |
+| Nudge the unlinked in-channel | `ctx.trigger(…)` → the Discord destination posts to the channel |
+| One welcome per member | `entryLimit: "once"` |
+
+## The journey
+
+```ts
+// src/journeys/welcome-new-discord-members.ts
+import { days, defineJourney, hours, minutes, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const welcomeNewDiscordMembers = defineJourney({
+  meta: {
+    id: "welcome-new-discord-members",
+    name: "Onboarding — welcome new Discord members",
+    enabled: true,
+    // The join event the Discord connector emits on GUILD_MEMBER_ADD.
+    trigger: { event: Events.DISCORD_MEMBER_JOINED }, // "discord.member_joined"
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.DISCORD_MEMBER_LEFT }],
+  },
+
+  run: async (user, ctx) => {
+    // A fresh join has a discord_id but usually no linked email yet. Park on
+    // the link event the /link → /verify loop fires when it resolves the
+    // contact; lookback covers a member who linked seconds before this wait.
+    const linked = await ctx.waitForEvent({
+      event: Events.CONTACT_LINKED, // "contact.linked"
+      timeout: days(2),
+      lookback: minutes(30),
+    });
+
+    if (linked.timedOut) {
+      // Two days, still no email: nudge IN Discord via the destination, since
+      // there is no address to email. The destination posts to the channel.
+      await ctx.trigger({
+        event: Events.DISCORD_NUDGE_LINK,
+        userId: user.id,
+        properties: { reason: "unlinked-2d" },
+      });
+      return;
+    }
+
+    // They linked — user.email is now an address we can send to.
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.DISCORD_WELCOME, // "discord/welcome"
+      subject: "Welcome to the community — here's where to start",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+The join, the wait, the welcome, and the nudge live in one durable function. A worker restart mid-wait doesn't reset anyone's place — the run resumes the instant `contact.linked` is ingested.
+
+## The welcome waits for an address
+
+A raw join carries no email — `user.email` is empty until the [`/link` loop](/docs/integrations/discord#the-link-identity-loop) resolves the contact. Two mechanics make the wait reliable:
+
+- **It resumes on the link.** Fire `contact.linked` once the member is emailable, and the wait resolves the instant it lands — the welcome arrives in minutes, not at the next timer tick. Emit it with `ctx.trigger` from inside a journey: `ctx.trigger` injects the registry/Hatchet/logger the ingest pipeline needs, which a bare `redeemCode` callback in `src/discord.ts` cannot reach (a raw `ingestEvent()` call requires all four — `{ db, registry, hatchet, logger, event }`).
+- **`lookback` covers the gap.** A member who linked seconds before this wait was established is caught by the `lookback: minutes(30)` check against recent `user_events`, instead of being missed.
+
+A tiny companion journey watches the member's first Discord activity *after* the `/link` loop resolved their contact and re-emits `contact.linked` through `ctx.trigger`, so the welcome's wait resumes:
+
+```ts
+// src/journeys/emit-contact-linked.ts
+import { defineJourney, hours } from "@hogsend/engine";
+import { Events } from "./constants/index.js";
+
+export const emitContactLinked = defineJourney({
+  meta: {
+    id: "emit-contact-linked",
+    name: "Discord — emit contact.linked once linked",
+    enabled: true,
+    // Any post-link Discord activity now resolves to a contact WITH an email
+    // (the /link → /verify loop folded the address onto the discord_id).
+    trigger: { event: Events.DISCORD_MESSAGE_SENT }, // "discord.message_sent"
+    entryLimit: "once",
+    suppress: hours(12),
+  },
+
+  run: async (user, ctx) => {
+    // Only emit once the contact is emailable — i.e. the link loop has run.
+    if (!user.email) return;
+
+    // ctx.trigger injects registry/hatchet/logger and runs the full ingest
+    // pipeline, so the welcome journey's waitForEvent resumes the instant this
+    // lands. A raw ingestEvent() call would need those dependencies, which a
+    // consumer callback can't reach.
+    await ctx.trigger({
+      event: Events.CONTACT_LINKED, // "contact.linked"
+      userId: user.id,
+      properties: { source: "discord", method: "verify" },
+    });
+  },
+});
+```
+
+## The unlinked get an in-channel nudge
+
+When the link never lands, there is no address to email — so the journey reaches the only surface the member is on. `ctx.trigger` fires a catalog event the [Discord destination](/docs/integrations/discord#outbound-the-destination) is subscribed to, and the destination's transform posts a Discord-markdown line to the configured channel via an incoming webhook. The one cohort that cannot be emailed still gets a touch.
+
+## Add the events and template key
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  DISCORD_MEMBER_JOINED: "discord.member_joined",
+  DISCORD_MEMBER_LEFT: "discord.member_left",
+  DISCORD_MESSAGE_SENT: "discord.message_sent",
+  CONTACT_LINKED: "contact.linked",
+  DISCORD_NUDGE_LINK: "discord.nudge_link",
+} as const;
+
+export const Templates = {
+  DISCORD_WELCOME: "discord/welcome",
+} as const;
+```
+
+`discord.member_joined` is emitted by the connector; `contact.linked` and `discord.nudge_link` are your own events. The `discord/welcome` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `welcomeNewDiscordMembers` to your `journeys` array, as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **The welcome can't fire on the join.** A join has a `discord_id` but no email; `user.email` is empty until the `/link` loop resolves the contact. The wait on `contact.linked` is what guarantees a real address.
+  - **`discord.member_left` is your event.** The connector does not emit it. If you want leaving the server to cancel the run, emit it (e.g. from a `GUILD_MEMBER_REMOVE` handler) and keep it in `exitOn`. Presence going offline does not exit the journey.
+  - **Keep `contact.linked` out of `exitOn`.** It's the branch, not an exit — an exit match mid-wait would abort the run before the welcome sends.
+</Callout>
+
+Related: [Link a Discord account to an email](/docs/recipes/link-discord-to-email) is the loop that fires `contact.linked`, [Re-engage quiet Discord members](/docs/recipes/re-engage-quiet-discord-members) keeps linked members warm, and the [Discord integration](/docs/integrations/discord) documents the events and identity model.

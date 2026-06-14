@@ -228,7 +228,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             label="Recipes"
             triggerHref="/recipes"
             items={RECIPE_LINKS}
-            footer={{ label: "Browse all 28 recipes →", href: "/recipes" }}
+            footer={{ label: "Browse all 33 recipes →", href: "/recipes" }}
           />
 
           {NAV_LINKS.map((link) => (
@@ -337,7 +337,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             onClick={() => setMenuOpen(false)}
             className="rounded-[6px] px-1 py-2.5 text-base text-white/60 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
           >
-            Browse all 28 recipes →
+            Browse all 33 recipes →
           </Link>
           <div className="mt-3">
             <Button

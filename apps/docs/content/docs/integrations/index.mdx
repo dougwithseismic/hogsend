@@ -41,6 +41,8 @@ Provider webhook  →  POST /v1/webhooks/{id}
 
 PostHog is deliberately absent from this table: its receiver is scaffold content with match auth (PostHog's webhook destinations send a configurable header, not a signature), and it's set up by [`hogsend connect posthog`](/docs/integrations/posthog/connect) or [by hand](/docs/integrations/posthog/manual-setup).
 
+**[Discord](/docs/integrations/discord)** is also absent from the preset table: it's a **consumer-mounted** connector (you `pnpm add @hogsend/plugin-discord` and wire it with `createDiscordConnector`), not a signed-webhook preset. Discord activity flows in over a long-lived Gateway worker that POSTs to `/v1/connectors/discord/ingress` (auth = `CONNECTOR_INGRESS_SECRET`), and a matching outbound destination posts lifecycle events to a channel.
+
 Each provider's exact event mapping — which provider events become which Hogsend events, and how each field is split — lives on its own page. Start with the one you use.
 
 ## Enabling presets
@@ -107,4 +109,5 @@ Building a webhook source from scratch — auth, schema, and `transform()` — i
   <Card title="Supabase" href="/docs/integrations/supabase" />
   <Card title="Stripe" href="/docs/integrations/stripe" />
   <Card title="Segment" href="/docs/integrations/segment" />
+  <Card title="Discord" href="/docs/integrations/discord" />
 </Cards>

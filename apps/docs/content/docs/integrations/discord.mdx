@@ -1,0 +1,363 @@
+---
+title: Discord
+description: Turn a Discord server into a Hogsend event source — messages, reactions, joins, and presence flow in as discord.* events over a Gateway worker, contacts link their email in-Discord via a /link modal, and an outbound destination posts lifecycle events to a channel.
+---
+
+`@hogsend/plugin-discord` is a **consumer-mounted** connector — the engine ships no Discord code; you `pnpm add` the package and wire it into your app. It exposes both faces of one integration under `meta.id = "discord"`: an **inbound** Gateway connector that turns Discord activity into `discord.*` events, and an **outbound** destination that posts lifecycle events to a channel. The live socket runs in a **separate long-lived worker process** that dials Discord outbound and POSTs each dispatch to the connector ingress — the API process never opens a WebSocket.
+
+<Callout type="info">
+  This is consumer-mounted content. You `pnpm add @hogsend/plugin-discord`, build a connector with `createDiscordConnector(...)`, and pass it to `createHogsendClient`. Discord is **not** a signed-webhook preset — it does not appear in `ENABLED_WEBHOOK_PRESETS` and does not auto-mount from a secret env var.
+</Callout>
+
+## What it does
+
+**In** — four Discord Gateway dispatches become `discord.*` events. Each runs through the same [ingestion pipeline](/docs/data-api/events) as PostHog and the REST API: stored in `user_events`, routed to matching journeys, exit-checked, and upserted onto a contact.
+
+- `discord.message_sent`, `discord.reaction_added`, `discord.member_joined`, `discord.presence_active` — see [Events](#events) for the full mapping.
+- A contact gains a `discord_id` identity and a `contacts.properties.discord` metadata object.
+
+**Out** — `discordDestination` posts one Discord-markdown line per lifecycle event to a channel (incoming webhook preferred, bot-REST as the alt) on the durable outbound spine. See [Outbound](#outbound-the-destination) and the [Destinations guide](/docs/guides/destinations).
+
+## Architecture
+
+Three processes, one integration:
+
+```
+Discord Gateway  ──socket──▶  discord-worker (its own process)
+                                   │  POST { __t, d }
+                                   ▼
+                         POST /v1/connectors/discord/ingress   (x-hogsend-ingress-secret)
+                                   │  transform → IngestEvent
+                                   ▼
+                         ingestEvent() → user_events + contact upsert + journeys
+
+Discord (slash/modal/button)  ──HTTP──▶  POST /v1/connectors/discord/interactions  (ed25519 + ±300s)
+```
+
+The worker is dumb: it forwards `{ __t: dispatchType, d: payload }` and holds no transform logic. The connector's `transform()` runs server-side at the ingress route, so changing how a dispatch maps to an event never redeploys the worker.
+
+The three routes under `/v1/connectors/discord` and their auth:
+
+| Route | Purpose | Auth |
+|---|---|---|
+| `POST /v1/connectors/discord/ingress` | Gateway worker posts raw dispatches | `x-hogsend-ingress-secret` header equals `CONNECTOR_INGRESS_SECRET` (≥32 chars, fail-closed) |
+| `POST /v1/connectors/discord/interactions` | Discord HTTP Interactions (slash / modal / button) | ed25519 signature + ±300s timestamp replay window |
+| `GET\|POST /v1/connectors/discord/oauth/callback` | OAuth install + member-link (see [Caveats](#caveats)) | signed CSRF `state`, engine-verified before dispatch |
+
+`/v1/connectors/*` is per-IP rate-limited (60/min) **except** `/ingress` and `/interactions` — both arrive from a small set of source IPs (the worker behind a tunnel, Discord's interaction egress), so per-IP keying would collapse a whole community onto one bucket. They are gated by the ingress secret and ed25519+replay respectively instead.
+
+## Setup
+
+### 1. Create the Discord app
+
+In the [Discord Developer Portal](https://discord.com/developers/applications), create an application and collect four values:
+
+- **Application ID** — General Information → Application ID (same as the OAuth2 Client ID).
+- **Public Key** — General Information → Public Key (ed25519, hex). Verifies every interaction signature.
+- **Bot Token** — Bot → Reset Token. The Gateway worker logs in with this.
+- **Client Secret** — OAuth2 → Reset Secret. Server-side OAuth code exchange only (member-link fallback).
+
+### 2. Set environment variables
+
+Every `DISCORD_*` var is optional — a deploy with no Discord configured still boots (the connector registers nothing). The connector is only built when `DISCORD_APPLICATION_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_PUBLIC_KEY` are all set.
+
+```bash title=".env"
+DISCORD_APPLICATION_ID=...
+DISCORD_PUBLIC_KEY=...
+DISCORD_BOT_TOKEN=...          # secret — the Gateway worker logs in with this
+DISCORD_CLIENT_SECRET=...      # secret — OAuth member-link fallback only
+DISCORD_GUILD_ID=...           # optional — the guild the bot joined
+
+API_PUBLIC_URL=https://api.example.com
+CONNECTOR_INGRESS_SECRET=...   # >= 32 chars; shared by the worker + the ingress route
+```
+
+`API_PUBLIC_URL` and `CONNECTOR_INGRESS_SECRET` are engine env (mirrored in the consumer so the standalone worker can read them without the container).
+
+### 3. Wire the connector
+
+The plugin never reads `process.env` — you inject the values. Build the connector with `createDiscordConnector(...)`, register it and the destination on `createHogsendClient`, then hand the container `db` into the connector's deferred callbacks. **Both** entry points (the HTTP API and the worker) need this — the ingest pipeline runs in the Hatchet worker too, so the connector/destination registry must be identical in both processes.
+
+The connector is passed **into** `createHogsendClient`, which is what builds the container `db` — so the callbacks can't close over `db` at construction time. Construct the connector with a deferred `requireDb()` getter and wire it once the client exists with `setDiscordDb(client.db)`. The callbacks only run at request time (the `/link` loop), long after `client.db` is set, so the getter is always resolved by then.
+
+```ts title="src/discord.ts"
+import type { Database } from "@hogsend/db";
+import {
+  createLinkCode,
+  getDerivedCredential,
+  getEmailService,
+  redeemLinkCode,
+  resolveOrCreateContact,
+  saveDerivedCredential,
+} from "@hogsend/engine";
+import {
+  createDiscordConnector,
+  discordDestination,
+} from "@hogsend/plugin-discord";
+import { discordEnv } from "./env.js";
+
+// The container db, wired in once after createHogsendClient(...) returns.
+let dbHandle: Database | undefined;
+
+/** Call once, post-build: `setDiscordDb(client.db)`. */
+export function setDiscordDb(db: Database): void {
+  dbHandle = db;
+}
+
+function requireDb(): Database {
+  if (!dbHandle) {
+    throw new Error("Discord connector used before setDiscordDb(client.db)");
+  }
+  return dbHandle;
+}
+
+export function buildDiscordConnector() {
+  const applicationId = discordEnv.DISCORD_APPLICATION_ID;
+  const clientSecret = discordEnv.DISCORD_CLIENT_SECRET;
+  const publicKeyHex = discordEnv.DISCORD_PUBLIC_KEY;
+  // No connector when the app isn't configured — the destination is still
+  // registered separately (it's config-driven per webhook endpoint).
+  if (!applicationId || !clientSecret || !publicKeyHex) return undefined;
+
+  const base = discordEnv.API_PUBLIC_URL.replace(/\/$/, "");
+
+  return createDiscordConnector({
+    applicationId,
+    clientSecret,
+    publicKeyHex,
+    redirectUri: `${base}/v1/connectors/discord/oauth/callback`,
+    studioIntegrationsUrl: `${base}/studio/integrations`,
+    // Persist server-derived config (kind="derived"). Read-merge-write so a
+    // guild id captured on install never clobbers a stored bot token.
+    saveDerived: async (patch) => {
+      const db = requireDb();
+      const current = (await getDerivedCredential(db, "discord")) ?? {};
+      await saveDerivedCredential(db, "discord", { ...current, ...patch });
+    },
+    // Route the snowflake through the engine's `discord` identity Kind so
+    // `discord_id` is the sole resolution key. The config types this as
+    // `=> Promise<void>`, so swallow resolveOrCreateContact's return value.
+    resolveContact: async (patch) => {
+      await resolveOrCreateContact({
+        db: requireDb(),
+        discordId: patch.discordId,
+        email: patch.email,
+        contactProperties: patch.contactProperties,
+      });
+    },
+    // Mint a single-use /link code — the anti-email-bomb throttle runs first.
+    mintCode: async ({ discordUserId, email }) => {
+      const result = await createLinkCode({
+        db: requireDb(),
+        connectorId: "discord",
+        platformUserId: discordUserId,
+        email,
+      });
+      return result.ok
+        ? { ok: true, code: result.code }
+        : { ok: false, reason: "throttled" };
+    },
+    // TRANSACTIONAL send — bypasses unsubscribe/frequency suppression so a
+    // verification code is never silently dropped.
+    sendLinkCode: async ({ email, code }) => {
+      await getEmailService().send({
+        template: "transactional/discord-link-code",
+        props: { code },
+        to: email,
+        userId: email,
+        userEmail: email,
+        subject: "Your Discord verification code",
+        category: "transactional",
+        skipPreferenceCheck: true,
+      });
+    },
+    // Redeem a typed code — single-use, TTL-enforced, identity-bound.
+    redeemCode: ({ discordUserId, code }) =>
+      redeemLinkCode({
+        db: requireDb(),
+        connectorId: "discord",
+        platformUserId: discordUserId,
+        code,
+      }),
+  });
+}
+
+export { discordDestination };
+```
+
+```ts title="src/index.ts and src/worker.ts"
+import {
+  buildDiscordConnector,
+  discordDestination,
+  setDiscordDb,
+} from "./discord.js";
+
+const discordConnector = buildDiscordConnector();
+
+const client = createHogsendClient({
+  // ...journeys, email, etc.
+  connectors: discordConnector ? [discordConnector] : [],
+  destinations: [discordDestination],
+});
+
+// Wire the container db into the deferred Discord callbacks (once, post-build).
+setDiscordDb(client.db);
+```
+
+### 4. Invite the bot to your server
+
+The bot must be a **member of the guild** to receive that guild's channel events. Invite it via the OAuth2 URL Generator (scopes `bot` + `applications.commands`), then toggle the three privileged intents (see [Security](#privileged-intents--tos)). `MESSAGE CONTENT`, `SERVER MEMBERS`, and `PRESENCE` are all required for the four events.
+
+### 5. Set the Interactions Endpoint URL
+
+In the portal (General Information → Interactions Endpoint URL), point it at:
+
+```
+https://<API_PUBLIC_URL>/v1/connectors/discord/interactions
+```
+
+Discord sends a synchronous validation PING when you save it; the route answers PONG. This works env-only (no `hogsend connect discord` needed).
+
+### 6. Register slash commands
+
+Register `/link` and `/verify`:
+
+```bash
+pnpm --filter @hogsend/api discord:register-commands
+```
+
+### 7. Run the Gateway worker
+
+The worker is a separate process (its own Railway service in production). Use `discord:dev` (tsx watch) for development and `discord:worker` (node) for production:
+
+```bash
+cd apps/api && pnpm discord:dev      # development — tsx watch, --env-file=.env
+cd apps/api && pnpm discord:worker   # production — node dist/discord-worker.js
+```
+
+<Callout type="info">
+  The worker refuses to boot if a requested privileged intent is not toggled in the portal — `login()` rejects with a disallowed-intents error rather than silently connecting with no events. Toggle the three intents in step 4 first.
+</Callout>
+
+## The /link identity loop
+
+A contact links their email **inside Discord** via `/link` (the primary UX). `/verify <code>` is a typed fallback. Every interaction is ed25519-verified with a ±300s replay window before any work runs.
+
+```
+/link  ──▶  email modal  ──submit──▶  valid? ──no──▶  inline ephemeral error (no defer)
+                                          │ yes
+                                          ▼
+                          defer → email a 6-digit code → PATCH an "Enter code" button
+                                          │
+                          "Enter code" button ──▶ code modal ──submit──▶ redeem + resolve contact
+                                          │
+                                          ▼
+                          ephemeral Components-V2 success card
+```
+
+- `/link` (no options) opens an **email modal**.
+- Email modal submit validates the address **synchronously first**: a bad address gets an instant inline ephemeral error (no deferral). Only a valid address defers, mints a code, emails it, and PATCHes the original message with an "Enter code" button.
+- The "Enter code" button opens the **code modal** — this button is the mandatory bridge, because Discord forbids returning a modal directly from a modal submit.
+- Code modal submit redeems the code, resolves the contact, and replies with an ephemeral Components-V2 success card.
+- Every step is ephemeral; no PATCH body ever echoes the email or the code.
+
+Code properties: 6-digit, single-use (atomic claim), 15-minute TTL, bound to the invoking Discord user (constant-time compare), and hashed at rest — the plaintext only ever exists in the inbox.
+
+Throttles: 5 code mints per Discord user and 3 mints per target email, each in a rolling 15-minute window (enforced engine-side, on mint). An optional consumer-side Redis throttle caps `/verify` attempts at 10 per user per 15 minutes (fail-open — a throttle-store outage never blocks a legitimate redeem, since the code is still single-use and identity-bound).
+
+<Callout type="info">
+  `/verify <code>` is the typed fallback to the modal. The verification email itself instructs the user to run `/verify {code}` in Discord — the modal is the primary path, but the email steers to the typed command.
+</Callout>
+
+## Events
+
+The four Discord Gateway dispatches and their Hogsend event names:
+
+| Discord dispatch | Hogsend event |
+|---|---|
+| `MESSAGE_CREATE` | `discord.message_sent` |
+| `MESSAGE_REACTION_ADD` | `discord.reaction_added` |
+| `GUILD_MEMBER_ADD` | `discord.member_joined` |
+| `PRESENCE_UPDATE` | `discord.presence_active` |
+
+Noise is dropped (the transform returns `null`): bot, webhook, and system messages; bot members; and `offline` / absent presence. Each event carries a deterministic `idempotencyKey` (`discord:msg:…`, `discord:react:…`, `discord:join:…`, `discord:presence:…`), so the at-least-once Gateway (RESUME replays) dedupes on `user_events.idempotencyKey` rather than re-firing your journeys.
+
+### Identity
+
+`discord_id` is a fourth contact identity Kind (`external | email | anonymous | discord`), and the raw Discord snowflake is the indexed merge key (a partial unique index on `contacts.discord_id`). On the inbound path the connector also sets `userId = discord:<snowflake>` on the `IngestEvent`, but it's the separate `discordId` field — the raw snowflake — that becomes the load-bearing `discord_id` column.
+
+### Contact metadata
+
+Discord metadata lands under `contacts.properties.discord`, deep-merged one level (non-clobbering — each event carries only the fields it knows; absent fields are preserved from prior events). `null` is never written: a `global_name`/`avatar` Discord reports as `null` is left off, not stored as null.
+
+| Field | When |
+|---|---|
+| `id` | always (the snowflake) |
+| `last_seen` | always (derived first-party — see below) |
+| `username` | message / join |
+| `global_name` | message / join (when present) |
+| `avatar` | message / join (when present) |
+| `joined_at` | join |
+| `roles` | join (when non-empty) |
+
+<Callout type="warn">
+  `last_seen` is **derived first-party** — Discord has no last-seen field. Hogsend stamps it from each event's timestamp (the max of observed events). Because presence is collapsed to "active" (offline / absent dropped), presence is **not** a last-seen feed. Only `MESSAGE_CREATE` derives its timestamp from the message snowflake; reaction / join / presence use receipt time.
+</Callout>
+
+## Outbound (the destination)
+
+`discordDestination` (also `meta.id = "discord"`) posts one Discord-markdown line per lifecycle event to a channel. It reads `{ webhookUrl?, channelId?, username? }` off the webhook endpoint's `config` and resolves the wire in this order:
+
+1. `config.webhookUrl` (or `endpoint.url` when it starts with `https://discord.com/api/webhooks/`) → POST an incoming webhook. **No bot token.** Accepts `204` as success.
+2. `config.channelId` + `endpoint.secret` (the bot token) → bot-REST `POST /channels/:id/messages` with `Authorization: Bot <token>`.
+3. Neither → throws (a non-retryable config error → DLQ).
+
+It subscribes to the full lifecycle catalog: `contact.created` / `updated` / `deleted` / `unsubscribed`, `email.sent` / `delivered` / `opened` / `clicked` / `action` / `bounced` / `complained`, `journey.completed`, and `bucket.entered` / `left`.
+
+Create the endpoint with the public API, supplying a Discord incoming-webhook URL:
+
+```ts
+await hs.webhooks.create({
+  url: "https://discord.com/api/webhooks/123/abc",
+  kind: "discord",
+  eventTypes: ["email.action", "email.complained", "journey.completed"],
+  config: {
+    webhookUrl: "https://discord.com/api/webhooks/123/abc",
+  },
+});
+```
+
+See the [Destinations guide](/docs/guides/destinations) for authoring `defineDestination()` transforms and [Outbound destinations](/docs/data-api/destinations) for the delivery spine.
+
+## Security
+
+### Interaction verification
+
+Every interaction is verified with an ed25519 signature over `timestamp + body` (native `node:crypto`, no tweetnacl), fail-closed, plus a ±300s timestamp replay window. The route reads the exact raw body bytes the signature covers before parsing anything.
+
+### Ingress auth
+
+The Gateway worker's `x-hogsend-ingress-secret` header must equal `CONNECTOR_INGRESS_SECRET` (≥32 chars), compared constant-time and fail-closed — an unset secret cannot be relayed into. `/ingress` and `/interactions` are exempt from the per-IP rate limit (they're gated by the ingress secret and ed25519+replay respectively), so a busy community is never bucketed onto one limiter.
+
+### Privileged intents & ToS
+
+The four events require three privileged Gateway intents: `MESSAGE_CONTENT`, `GUILD_MEMBERS`, and `GUILD_PRESENCES`. These are a self-serve portal toggle under 10,000 users / 100 guilds — no Discord review or verification at that scale. This is **Discord policy, not code behavior**. Each self-hosted deploy runs its **own** Discord app (single-tenant).
+
+Discord's terms still bind regardless of the toggle: no ML-training on message content, a public privacy policy, user opt-out and deletion, and data minimization. Hogsend stores **derived signals** — `last_seen`, counts, metadata — not raw message bodies.
+
+## Caveats
+
+- The bot must be a **guild member** to receive that guild's channel events.
+- Presence is not last-seen: `offline` / absent presence is dropped, and `last_seen` is derived from observed events.
+- <Callout type="warn">
+    The one-click install + OAuth member-link (`hogsend connect discord`) is **not wired in `apps/api` yet** — the `secrets` / `wire` admin routes are consumer-mounted and currently unmounted, so that CLI 404s today. Use the env-only inbound path (the env-only Gateway → ingress path described above) and the modal `/link` for identity. The interactions PING handshake works env-only.
+  </Callout>
+- The first npm publish of `@hogsend/plugin-discord` is **manual** — CI cannot create a new `@hogsend/*` package.
+
+## Related
+
+<Cards>
+  <Card title="Destinations guide" href="/docs/guides/destinations" />
+  <Card title="Outbound destinations" href="/docs/data-api/destinations" />
+  <Card title="Events" href="/docs/data-api/events" />
+</Cards>

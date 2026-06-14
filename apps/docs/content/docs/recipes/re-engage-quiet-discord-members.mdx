@@ -1,0 +1,118 @@
+---
+title: Re-engage quiet Discord members
+description: Win back inactive Discord members by reading the derived first-party last_seen on contacts.properties.discord — compute inactivity in a presence-gated journey and email a win-back, treating last_seen as a derived signal rather than Discord presence.
+---
+
+Discord exposes presence (online / idle / dnd) but no last-seen timestamp, and presence is noisy — a member can show online for days while never posting. The [`@hogsend/plugin-discord`](/docs/integrations/discord) connector solves this by deriving `last_seen` first-party: every inbound Discord event stamps `contacts.properties.discord.last_seen` with that event's timestamp, so the field is the max of observed activity. This journey reads that field, computes real inactivity, and emails a win-back only to members who are linked, subscribed, and genuinely quiet.
+
+| Stage | How you express it |
+|---|---|
+| Re-evaluate on activity | `trigger: { event: Events.DISCORD_PRESENCE_ACTIVE }` |
+| Cap re-entry | `entryLimit: "once_per_period"`, `entryPeriod: days(30)` |
+| Read the derived signal | `contacts.properties.discord.last_seen` off the contact row |
+| Compute inactivity | `(Date.now() - lastSeen) / 86_400_000` days |
+| Win-back the quiet, subscribed | `sendEmail(…)` after `ctx.guard.isSubscribed()` |
+
+## last_seen is derived, not reported
+
+Discord has no last-seen field. The connector stamps `contacts.properties.discord.last_seen` from the timestamp of every inbound event:
+
+- a `MESSAGE_CREATE` uses the **message snowflake time** (when the message was sent);
+- a reaction, join, or presence update uses **receipt time**.
+
+Presence is collapsed to `"active"` by dropping `offline` and absent statuses, so `discord.presence_active` is a coarse heartbeat that someone is connected — **not** a measure of participation. Lean on `last_seen` (which an actual message advances), not on the presence event, for the inactivity decision.
+
+```ts
+// contacts.properties.discord.last_seen is a plain ISO string. Subtract it
+// from now for inactivity; it is derived from observed events, never read
+// from Discord.
+const meta = (contact.properties?.discord ?? {}) as { last_seen?: string };
+const lastSeen = meta.last_seen ? new Date(meta.last_seen) : null;
+const quietDays = lastSeen
+  ? (Date.now() - lastSeen.getTime()) / 86_400_000
+  : Infinity;
+```
+
+## The journey
+
+```ts
+// src/journeys/re-engage-quiet-discord-members.ts
+import { contacts } from "@hogsend/db";
+import { days, defineJourney, getDb, hours, sendEmail } from "@hogsend/engine";
+import { eq } from "drizzle-orm";
+import { Events, Templates } from "./constants/index.js";
+
+export const reEngageQuietDiscordMembers = defineJourney({
+  meta: {
+    id: "re-engage-quiet-discord-members",
+    name: "Retention — re-engage quiet Discord members",
+    enabled: true,
+    // Re-evaluate on each presence ping; the entry guard rate-limits re-entry.
+    trigger: { event: Events.DISCORD_PRESENCE_ACTIVE }, // "discord.presence_active"
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    suppress: hours(12),
+  },
+
+  run: async (user, ctx) => {
+    const db = getDb();
+    const contact = await db.query.contacts.findFirst({
+      where: eq(contacts.id, user.id),
+    });
+
+    // No linked email → nothing to send. last_seen is the DERIVED first-party
+    // signal (max of observed Discord events), not Discord presence.
+    if (!contact?.email) return;
+
+    const meta = (contact.properties?.discord ?? {}) as {
+      last_seen?: string;
+      username?: string;
+    };
+    const lastSeen = meta.last_seen ? new Date(meta.last_seen) : null;
+    if (!lastSeen) return;
+
+    const quietDays = (Date.now() - lastSeen.getTime()) / 86_400_000;
+    if (quietDays < 30) return; // still active enough — no win-back
+
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    await sendEmail({
+      to: contact.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.DISCORD_WINBACK, // "discord/winback"
+      subject: `We've missed you in the server, ${meta.username ?? "friend"}`,
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+The win-back is gated three ways: a linked email, a `last_seen` older than 30 days, and a still-subscribed contact — so it never fires for the unlinked, the active, or the unsubscribed.
+
+## Re-entry is rate-limited, not unbounded
+
+Presence pings arrive constantly, but `entryLimit: "once_per_period"` with `entryPeriod: days(30)` means a member is re-evaluated for win-back at most once a month. The enrollment guard absorbs the firehose before any state is created — you do not need to debounce the trigger yourself. You can also add a `trigger.where` to only enter on presence after a specific condition, but the period guard alone keeps the cost bounded.
+
+## Add the events and template key
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  DISCORD_PRESENCE_ACTIVE: "discord.presence_active",
+} as const;
+
+export const Templates = {
+  DISCORD_WINBACK: "discord/winback",
+} as const;
+```
+
+The `discord/winback` key needs a React Email component plus a `registry.ts` entry and a `templates.d.ts` augmentation — see the [Email guide](/docs/guides/email). Register the journey by adding `reEngageQuietDiscordMembers` to your `journeys` array, as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **Presence is not activity.** `discord.presence_active` fires the journey only as a re-evaluation tick; the real decision is the `last_seen` math. A presence ping means connected, not participating.
+  - **An unlinked member can't be emailed.** With no linked email the journey returns early — reach a Discord-only member through the channel via the [Discord destination](/docs/integrations/discord#outbound-the-destination) instead.
+  - **For a full sunset policy, compose with the bucket recipe.** This shows the Discord-native signal; [Win-back and sunset](/docs/recipes/winback-and-sunset) adds the re-permission step and the clean unsubscribe.
+</Callout>
+
+Related: [Win-back and sunset](/docs/recipes/winback-and-sunset) is the full lapsed-user policy, [Link a Discord account to an email](/docs/recipes/link-discord-to-email) is how a member becomes emailable, and the [Discord integration](/docs/integrations/discord#contact-metadata) documents the derived metadata fields.
