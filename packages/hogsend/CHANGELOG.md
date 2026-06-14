@@ -1,5 +1,79 @@
 # hogsend
 
+## 0.22.0
+
+### Minor Changes
+
+- 4a742dd: feat(discord): inbound Gateway connector + outbound destination + in-Discord email linking
+
+  Adds `@hogsend/plugin-discord` — both faces of one integration under
+  `meta.id = "discord"`, plus the engine connector subsystem it rides on.
+
+  - **Inbound** — a `transport: "gateway"` connector. A separate long-lived
+    Gateway worker (`@hogsend/plugin-discord/gateway`, its own process) dials
+    Discord and POSTs raw dispatches to `POST /v1/connectors/discord/ingress`
+    (header `x-hogsend-ingress-secret`, env `CONNECTOR_INGRESS_SECRET`, ≥32 chars,
+    fail-closed). The server-side transform emits `discord.message_sent`,
+    `discord.reaction_added`, `discord.member_joined`, and
+    `discord.presence_active` into `ingestEvent` — stored in `user_events` and
+    upserted onto a contact. Bot/webhook/system messages and offline/absent
+    presence are dropped; each event carries a deterministic `idempotencyKey`.
+  - **Identity** — `contacts.discord_id` is a new indexed merge key (a 4th
+    identity Kind, with a partial unique index; migration ships in `@hogsend/db`).
+    `contacts.properties.discord` carries `id` and derived first-party `last_seen`
+    always, plus observed `username`/`global_name`/`avatar`/`joined_at`/`roles`
+    (deep-merged one level, non-clobbering; `null` is never written).
+  - **In-Discord linking** — `/link` opens an email modal; a valid address mails a
+    6-digit single-use code via a transactional template (15-min TTL, bound to the
+    invoking Discord user, hashed at rest, rate limited 5/user + 3/email per
+    15 min). An "Enter code" button opens a code modal that redeems it and resolves
+    the contact via an ephemeral Components-V2 card. `/verify <code>` is the typed
+    fallback. Every interaction is ed25519-verified (native `node:crypto`) with a
+    ±300s timestamp replay window. A new `connector_link_codes` table backs the
+    codes.
+  - **Outbound** — `discordDestination` posts one Discord-markdown line per
+    lifecycle event to a channel on the durable outbound spine. Wire resolution
+    prefers the no-bot-token incoming webhook (`config.webhookUrl`, accepts 204),
+    falling back to bot-REST (`config.channelId` + `endpoint.secret`).
+  - **Routes** — the engine adds `/v1/connectors/discord/{ingress,interactions,
+oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
+    `/interactions`, which are gated by the ingress secret and ed25519+replay
+    respectively). `@hogsend/cli` gains a `connect discord` flow; `@hogsend/studio`
+    gains a Discord integration view.
+
+  The package is consumer-mounted (the engine ships no Discord code; wire it with
+  `createDiscordConnector` + `createHogsendClient`, and run the Gateway worker as a
+  separate process). The one-click `hogsend connect discord` install / OAuth
+  member-link is not wired in the dogfood consumer yet (the consumer-mounted
+  `secrets`/`wire` admin routes are unmounted), so that CLI path 404s today — the
+  env-only inbound path and the modal `/link` are the live identity paths.
+
+  First npm publish of `@hogsend/plugin-discord` is MANUAL — CI cannot create a
+  brand-new `@hogsend/*` package.
+
+  `contacts.discord_id` (and `connector_link_codes`) are schema changes — run
+  `db:migrate` before deploying.
+
+### Patch Changes
+
+- 4a742dd: fix(connect): purge derived credentials on disconnect, enforce minted secret immediately, validate region URL
+
+  Fast-follows on the one-click PostHog connect:
+
+  - Disconnect (`DELETE /v1/admin/provider-credentials/:providerId`) now purges
+    the `derived` credential row (minted webhook secret + grabbed `phc_`) too,
+    not just the oauth grant — no orphaned rows linger.
+  - The inbound webhook source's secret cache is busted the moment connect mints
+    a secret, so it is enforced immediately instead of after the ~30s recheck TTL.
+  - Removed the now-unreachable `webhook_secret_missing` 409 branch (the loop
+    always resolves or mints a secret before provisioning).
+  - The CLI region prompt validates a custom host URL up front instead of
+    surfacing a cryptic "Failed to parse URL" during discovery.
+
+- Updated dependencies [4a742dd]
+- Updated dependencies [4a742dd]
+  - @hogsend/cli@0.22.0
+
 ## 0.21.1
 
 ### Patch Changes
