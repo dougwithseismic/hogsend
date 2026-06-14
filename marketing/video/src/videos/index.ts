@@ -4,6 +4,7 @@
 // ============================================================================
 import type { VideoConfig } from "../lib/define-video";
 import { video as byoProvider } from "./byo-provider";
+import { DISCORD_CLIPS } from "./discord-clips";
 import { video as firstPartyTracking } from "./first-party-tracking";
 import { video as howItWorks } from "./how-it-works";
 import { JOURNEY_CLIPS } from "./journey-clips";
@@ -19,4 +20,5 @@ export const VIDEOS: VideoConfig[] = [
   waitForEvent,
   scaffoldDemo,
   ...JOURNEY_CLIPS,
+  ...DISCORD_CLIPS,
 ];
