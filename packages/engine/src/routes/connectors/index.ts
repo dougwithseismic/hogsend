@@ -6,6 +6,7 @@ import { verifyConnectorState } from "../../lib/connector-state.js";
 import { headersToRecord } from "../../lib/headers.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import type { Logger } from "../../lib/logger.js";
+import { getRedisIfConnected } from "../../lib/redis.js";
 import { clientIpKey, createRateLimit } from "../../middleware/rate-limit.js";
 import { safeEqual } from "../../webhook-sources/verify.js";
 
@@ -123,6 +124,25 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
             stateConnectorId: stateCheck.intent.connectorId,
           });
           return c.json({ error: "Invalid state" }, 400);
+        }
+
+        // SINGLE-USE: the signed state is otherwise TTL-replayable — a captured
+        // callback URL works until `exp`. Burn the per-mint nonce on first use:
+        // a `SET … NX EX` succeeds exactly once, so a second callback carrying the
+        // same nonce (NX fails → `null`) is rejected as a replay. The TTL matches
+        // the max state window (900s) so the used-marker outlives any valid state.
+        // Redis-less deploys (self-host without redis, tests) fall back to
+        // TTL-only single-validity — we never block a callback on a cache miss.
+        const redis = getRedisIfConnected();
+        if (redis) {
+          const usedKey = `connector:state:used:${stateCheck.intent.nonce}`;
+          const claimed = await redis.set(usedKey, "1", "EX", 900, "NX");
+          if (claimed !== "OK") {
+            logger.warn("connector oauth callback: state replay rejected", {
+              connectorId: id,
+            });
+            return c.json({ error: "Invalid state" }, 400);
+          }
         }
 
         let body: unknown;

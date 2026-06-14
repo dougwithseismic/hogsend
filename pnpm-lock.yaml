@@ -479,14 +479,10 @@ importers:
         version: link:../cli
 
   packages/plugin-discord:
-    dependencies:
-      '@hogsend/core':
-        specifier: workspace:^
-        version: link:../core
+    devDependencies:
       '@hogsend/engine':
         specifier: workspace:^
         version: link:../engine
-    devDependencies:
       '@repo/typescript-config':
         specifier: workspace:^
         version: link:../typescript-config

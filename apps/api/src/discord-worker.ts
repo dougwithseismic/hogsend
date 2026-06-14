@@ -70,6 +70,25 @@ async function main() {
   await worker.start();
 }
 
+// Fail LOUDLY on a post-boot async fault. `main().catch` only covers the boot
+// path; once the socket is live, an unhandled rejection / uncaught exception
+// from a fire-and-forget forward, the heartbeat, or discord.js internals would
+// otherwise either crash with a bare trace or (worse) leave the process limping.
+// Log a short context string (NEVER the bot token / ingress secret — the error
+// object is not serialized) and exit non-zero so the orchestrator restarts a
+// fresh worker.
+process.on("unhandledRejection", (reason) => {
+  console.error(
+    "Discord gateway worker unhandledRejection:",
+    reason instanceof Error ? reason.message : String(reason),
+  );
+  process.exit(1);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Discord gateway worker uncaughtException:", err.message);
+  process.exit(1);
+});
+
 main().catch((err) => {
   console.error("Discord gateway worker failed to start:", err);
   process.exit(1);

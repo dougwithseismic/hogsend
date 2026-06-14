@@ -127,14 +127,38 @@ export function createDiscordGatewayWorker(
       // so a slow/failed ingress POST never blocks the socket or crashes us.
       void forwardDispatch(config, packet);
     });
-    // Without an `error` listener a transient socket error becomes an unhandled
-    // EventEmitter 'error' and takes the process down; @discordjs/ws auto-
-    // reconnects underneath, so just log it.
-    c.on("error", (err: unknown) => {
+    // discord.js v14 routes SOCKET errors to `shardError` (and signals lifecycle
+    // via `shardDisconnect`/`invalidated`), NOT the generic `error` event. The
+    // generic `error` listener stays purely as the EventEmitter safety net — an
+    // unhandled 'error' emit takes the process down, so we keep one registered
+    // even though it catches almost nothing in normal operation.
+    c.on("error", (err: Error) => {
+      console.error("discord gateway client error:", err.message);
+    });
+    // Per-shard transport error — @discordjs/ws auto-reconnects underneath, so
+    // log (message only) and let it recover. Without this listener the shard
+    // error can escalate to an unhandled EventEmitter 'error' and crash us.
+    c.on("shardError", (err: Error, shardId: number) => {
+      console.error(`discord gateway shard ${shardId} error:`, err.message);
+    });
+    // A shard dropped its socket. discord.js attempts RESUME/reconnect, so this
+    // is usually recoverable — log the close code (no secrets) and ride it out.
+    // closeCode 1000 is a clean close; 4004/4013/4014 (bad token / invalid or
+    // disallowed intents) are unrecoverable and surface via `invalidated`.
+    c.on("shardDisconnect", (closeEvent: { code: number }, shardId: number) => {
       console.error(
-        "discord gateway client error:",
-        err instanceof Error ? err.message : String(err),
+        `discord gateway shard ${shardId} disconnected (close ${closeEvent.code})`,
       );
+    });
+    // discord.js gave up reconnecting (session invalidated / unrecoverable) —
+    // the socket is dead and zero events will flow, yet the process would
+    // otherwise sit idle looking healthy. Fail loudly so the orchestrator
+    // (Railway) restarts a fresh worker instead of a silent black hole.
+    c.on("invalidated", () => {
+      console.error(
+        "discord gateway session invalidated — exiting so a fresh worker starts",
+      );
+      process.exit(1);
     });
     c.once("ready", () => {
       console.log("discord gateway worker connected");

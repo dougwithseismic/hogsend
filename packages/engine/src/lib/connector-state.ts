@@ -17,6 +17,12 @@ import { safeEqual } from "../webhook-sources/verify.js";
  * The token is `base64url(JSON(payload)).base64url(HMAC-SHA256(payloadB64))`,
  * signed with the engine's `BETTER_AUTH_SECRET`. The same hardened constant-time
  * compare the connector ingress uses ({@link safeEqual}) guards verification.
+ *
+ * REPLAY: the token is single-use WHEN a nonce store is available — the OAuth
+ * callback burns the per-mint `nonce` on first use (a `SET … NX` in Redis), so a
+ * captured callback URL cannot be replayed. Without Redis (self-host without it,
+ * tests) it degrades to TTL-bounded validity: the signature + `exp` still gate
+ * it, but the same token works until expiry. The mint TTL is the replay window.
  */
 export interface ConnectorStateIntent {
   purpose: "install" | "member_link";
@@ -25,7 +31,10 @@ export interface ConnectorStateIntent {
   contactId?: string;
   /** Member-link only — the bound contact email (authoritative resolution key). */
   email?: string;
-  /** High-entropy per-mint value so two states are never byte-identical. */
+  /**
+   * High-entropy per-mint value so two states are never byte-identical AND so
+   * the callback can burn it for single-use replay protection (see header).
+   */
   nonce: string;
 }
 
