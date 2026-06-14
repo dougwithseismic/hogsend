@@ -12,6 +12,8 @@
     "activation-milestones",
     "waitlist-launch",
     "verification-chase",
+    "welcome-new-discord-members",
+    "link-discord-to-email",
     "---Trial, billing & upgrades---",
     "trial-conversion-sequence",
     "failed-payment-dunning",
@@ -27,6 +29,7 @@
     "nps-survey",
     "weekly-digest",
     "anniversary-emails",
+    "re-engage-quiet-discord-members",
     "---Timing & scheduling---",
     "timezone-aware-scheduling",
     "event-reminder-sequence",
@@ -35,6 +38,7 @@
     "human-approval-gate",
     "concierge-onboarding",
     "support-followup",
+    "route-a-reaction-as-a-signal",
     "---Agents & AI---",
     "agent-triggered-journeys",
     "ai-drafted-sends",
@@ -42,6 +46,7 @@
     "---Pipelines & orchestration---",
     "posthog-triggered-journeys",
     "cross-journey-funnels",
-    "lifecycle-alerts-in-slack"
+    "lifecycle-alerts-in-slack",
+    "discord-engagement-alerts"
   ]
 }

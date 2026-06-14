@@ -9,10 +9,13 @@
     "start": "node dist/index.js",
     "worker": "node dist/worker.js",
     "worker:dev": "tsx watch --env-file=.env src/worker.ts",
+    "discord:worker": "node dist/discord-worker.js",
+    "discord:dev": "tsx watch --env-file=.env src/discord-worker.ts",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "smoke": "tsx --env-file=.env scripts/smoke.ts"
+    "smoke": "tsx --env-file=.env scripts/smoke.ts",
+    "discord:register-commands": "tsx --env-file=.env scripts/register-discord-commands.ts"
   },
   "dependencies": {
     "@hatchet-dev/typescript-sdk": "^1.22.3",
@@ -20,6 +23,7 @@
     "@hogsend/db": "workspace:^",
     "@hogsend/email": "workspace:^",
     "@hogsend/engine": "workspace:^",
+    "@hogsend/plugin-discord": "workspace:^",
     "@hogsend/plugin-posthog": "workspace:^",
     "@hogsend/plugin-resend": "workspace:^",
     "@hono/node-server": "^2.0.4",
@@ -27,6 +31,7 @@
     "@scalar/hono-api-reference": "^0.10.19",
     "@t3-oss/env-core": "^0.13.11",
     "better-auth": "^1.6.11",
+    "discord.js": "^14.26.4",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.22",
     "ioredis": "^5.10.1",

@@ -19,6 +19,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/use-cases/trial-conversion",
     "/use-cases/winback",
     "/integrations",
+    "/discord",
     "/recipes",
     "/event-naming",
     ...Object.keys(RECIPE_CATEGORIES).map(

@@ -1,10 +1,11 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { AppEnv } from "../app.js";
+import type { HogsendClient } from "../container.js";
 import { requireApiKey, requireScope } from "../middleware/api-key.js";
 import { createRateLimit } from "../middleware/rate-limit.js";
-import type { DefinedWebhookSource } from "../webhook-sources/define-webhook-source.js";
 import { adminRouter } from "./admin/index.js";
 import { campaignsRouter } from "./campaigns/index.js";
+import { registerConnectorRoutes } from "./connectors/index.js";
 import { contactsRouter } from "./contacts/index.js";
 import { emailRouter } from "./email/index.js";
 import { emailsRouter } from "./emails/index.js";
@@ -15,7 +16,7 @@ import { trackingRouter } from "./tracking/index.js";
 import { registerWebhookRoutes } from "./webhooks/index.js";
 
 export interface RegisterRoutesOptions {
-  webhookSources: DefinedWebhookSource[];
+  container: HogsendClient;
 }
 
 // Conservative per-key email budget. `/v1/emails` MUST use a distinct prefix so
@@ -76,7 +77,19 @@ export function registerRoutes(
 
   app.route("/v1", v1);
 
+  // Generic connector dispatch (oauth/interactions/ingress) — the static
+  // `connectors/` prefix is registered BEFORE the `:sourceId` webhook catch-all
+  // so it wins path matching. These routes self-authenticate (oauth state +
+  // code, ed25519 signatures, the shared ingress secret) and are intentionally
+  // OUTSIDE the api-key data plane — see registerConnectorRoutes.
+  registerConnectorRoutes(app);
+
   // Webhooks (built-in Resend + injected content sources) are registered on the
-  // app at absolute paths.
-  registerWebhookRoutes(app, { webhookSources: opts.webhookSources });
+  // app at absolute paths. The webhook route sources its connectors from the
+  // container's unified registry (transport === "webhook"), NOT from a passed
+  // array.
+  registerWebhookRoutes(app, {
+    webhookConnectors:
+      opts.container.connectorRegistry.getByTransport("webhook"),
+  });
 }

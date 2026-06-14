@@ -8,15 +8,19 @@ import { backInStock } from "./back-in-stock";
 import { cancellationSave } from "./cancellation-save";
 import { conciergeOnboarding } from "./concierge-onboarding";
 import { crossJourneyFunnels } from "./cross-journey-funnels";
+import { discordEngagementAlerts } from "./discord-engagement-alerts";
 import { eventReminderSequence } from "./event-reminder-sequence";
 import { failedPaymentDunning } from "./failed-payment-dunning";
 import { humanApprovalGate } from "./human-approval-gate";
 import { leadAlerts } from "./lead-alerts";
 import { lifecycleAlertsInSlack } from "./lifecycle-alerts-in-slack";
+import { linkDiscordToEmail } from "./link-discord-to-email";
 import { npsSurvey } from "./nps-survey";
 import { postPurchaseSeries } from "./post-purchase-series";
 import { posthogTriggeredJourneys } from "./posthog-triggered-journeys";
+import { reEngageQuietDiscordMembers } from "./re-engage-quiet-discord-members";
 import { reviewRequest } from "./review-request";
+import { routeAReactionAsASignal } from "./route-a-reaction-as-a-signal";
 import { supportFollowup } from "./support-followup";
 import { timezoneAwareScheduling } from "./timezone-aware-scheduling";
 import { trialConversionSequence } from "./trial-conversion-sequence";
@@ -25,6 +29,7 @@ import { usageLimitUpgrade } from "./usage-limit-upgrade";
 import { verificationChase } from "./verification-chase";
 import { waitlistLaunch } from "./waitlist-launch";
 import { weeklyDigest } from "./weekly-digest";
+import { welcomeNewDiscordMembers } from "./welcome-new-discord-members";
 import { welcomeSeries } from "./welcome-series";
 import { winbackAndSunset } from "./winback-and-sunset";
 
@@ -35,6 +40,8 @@ export const RECIPE_LANDERS: RecipeLander[] = [
   activationMilestones,
   waitlistLaunch,
   verificationChase,
+  welcomeNewDiscordMembers,
+  linkDiscordToEmail,
   // Trial, billing & upgrades
   trialConversionSequence,
   failedPaymentDunning,
@@ -50,6 +57,7 @@ export const RECIPE_LANDERS: RecipeLander[] = [
   npsSurvey,
   weeklyDigest,
   anniversaryEmails,
+  reEngageQuietDiscordMembers,
   // Timing & scheduling
   timezoneAwareScheduling,
   eventReminderSequence,
@@ -58,6 +66,7 @@ export const RECIPE_LANDERS: RecipeLander[] = [
   humanApprovalGate,
   conciergeOnboarding,
   supportFollowup,
+  routeAReactionAsASignal,
   // Agents & AI
   agentTriggeredJourneys,
   aiDraftedSends,
@@ -66,6 +75,7 @@ export const RECIPE_LANDERS: RecipeLander[] = [
   posthogTriggeredJourneys,
   crossJourneyFunnels,
   lifecycleAlertsInSlack,
+  discordEngagementAlerts,
 ];
 
 const BY_SLUG = new Map(RECIPE_LANDERS.map((recipe) => [recipe.slug, recipe]));

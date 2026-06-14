@@ -100,6 +100,7 @@ export function contactSearchFilter(search: string) {
     ilike(contacts.email, `%${search}%`),
     ilike(contacts.externalId, `%${search}%`),
     ilike(contacts.anonymousId, `%${search}%`),
+    ilike(contacts.discordId, `%${search}%`),
   );
 }
 
@@ -115,7 +116,7 @@ export function normalizeEmail(raw: string): string {
 // Identity resolution
 // ---------------------------------------------------------------------------
 
-type Kind = "external" | "email" | "anonymous";
+type Kind = "external" | "email" | "anonymous" | "discord";
 
 interface ResolveKey {
   kind: Kind;
@@ -137,7 +138,9 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
       ? contacts.externalId
       : key.kind === "email"
         ? contacts.email
-        : contacts.anonymousId;
+        : key.kind === "anonymous"
+          ? contacts.anonymousId
+          : contacts.discordId;
 
   const direct = await tx
     .select()
@@ -188,6 +191,18 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
 }
 
 /**
+ * Top-level property keys whose object value is DEEP-merged (one level) rather
+ * than wholly replaced. The §2.1 shallow `||` contract clobbers a top-level key
+ * outright, so a nested metadata object (e.g. the Discord connector's
+ * `properties.discord`) would lose every field the current event doesn't carry
+ * (a reaction knows `last_seen` but not `username`, so it would erase a
+ * previously-captured `username`). Listing the key here makes ONLY that key
+ * additive — siblings stay strictly shallow, preserving the documented contract
+ * for everything else. NON-KEY metadata only; never an identity-resolution key.
+ */
+const DEEP_MERGE_KEYS = ["discord"] as const;
+
+/**
  * Merge `patch` onto the existing jsonb properties (§2.1 contract): additive
  * `COALESCE(existing,'{}') || patch` where the patch wins on key conflict AND an
  * explicit `null` value in the patch CLEARS that key (it is not stored as JSON
@@ -197,9 +212,56 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
  * Caveat: `jsonb_strip_nulls` also strips any PRE-EXISTING null-valued keys on
  * the contact, which is the intended "null === unset" model (the condition
  * engine already treats JSON null and absent identically).
+ *
+ * EXCEPTION — keys in {@link DEEP_MERGE_KEYS} that carry an object value are
+ * merged ONE level deep: `existing.discord || patch.discord` instead of the
+ * top-level `||` replacing `discord` wholesale. Postgres has no recursive `||`,
+ * so we build the deep-merged sub-object explicitly and overlay it last. A
+ * non-object value for such a key (or an absent one) falls through to the normal
+ * shallow merge untouched.
  */
 function mergePropertiesSql(patch: Record<string, unknown>) {
-  return sql`jsonb_strip_nulls(COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)`;
+  let merged = sql`COALESCE(${contacts.properties}, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb`;
+  for (const key of DEEP_MERGE_KEYS) {
+    const sub = patch[key];
+    if (sub && typeof sub === "object" && !Array.isArray(sub)) {
+      // existing[key] (already an object or absent) || patch[key] — the prior
+      // sub-object's fields survive any field the current patch omits.
+      // `${key}` is cast to ::text: jsonb_build_object is VARIADIC "any" and `->`
+      // is overloaded (text key vs int index), so an untyped bound parameter
+      // can't have its type inferred ("could not determine data type of $n").
+      merged = sql`${merged} || jsonb_build_object(${key}::text, COALESCE(${contacts.properties} -> ${key}::text, '{}'::jsonb) || ${JSON.stringify(sub)}::jsonb)`;
+    }
+  }
+  return sql`jsonb_strip_nulls(${merged})`;
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+}
+
+/**
+ * Spread-merge one `layer` onto the accumulated `acc` (incoming wins per key),
+ * the in-memory analogue of {@link mergePropertiesSql}'s deep-merge exception
+ * for the collide-MERGE fold (which folds properties via JS spread, not SQL).
+ * For each {@link DEEP_MERGE_KEYS} key that is an object on BOTH `acc` and the
+ * incoming `layer`, the sub-objects are themselves shallow-merged (incoming
+ * wins per sub-key) so the layer can't clobber fields the accumulator already
+ * holds — must read the PRE-spread `acc` value, hence a fresh result object.
+ */
+function foldLayer(
+  acc: Record<string, unknown>,
+  layer: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...acc, ...layer };
+  for (const key of DEEP_MERGE_KEYS) {
+    const a = acc[key];
+    const b = layer[key];
+    if (isPlainObject(a) && isPlainObject(b)) {
+      out[key] = { ...a, ...b };
+    }
+  }
+  return out;
 }
 
 /**
@@ -277,6 +339,7 @@ export async function resolveOrCreateContact(opts: {
   userId?: string;
   email?: string;
   anonymousId?: string;
+  discordId?: string;
   contactProperties?: Record<string, unknown>;
 }): Promise<{
   id: string;
@@ -295,15 +358,18 @@ export async function resolveOrCreateContact(opts: {
   const userId = opts.userId?.trim() || undefined;
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
   const anonymousId = opts.anonymousId?.trim() || undefined;
+  const discordId = opts.discordId?.trim() || undefined;
 
   const keys: ResolveKey[] = [];
   if (userId) keys.push({ kind: "external", value: userId });
   if (email) keys.push({ kind: "email", value: email });
   if (anonymousId) keys.push({ kind: "anonymous", value: anonymousId });
+  if (discordId) keys.push({ kind: "discord", value: discordId });
 
   if (keys.length === 0) {
     throw new Error(
-      "resolveOrCreateContact requires at least one of userId, email, anonymousId",
+      "resolveOrCreateContact requires at least one of userId, email, " +
+        "anonymousId, discordId",
     );
   }
 
@@ -338,6 +404,7 @@ export async function resolveOrCreateContact(opts: {
           externalId: userId ?? null,
           email: email ?? null,
           anonymousId: anonymousId ?? null,
+          discordId: discordId ?? null,
           // §2.1: explicit null clears a key — never persist a null-valued prop.
           properties: stripNulls(patch),
         })
@@ -360,6 +427,7 @@ export async function resolveOrCreateContact(opts: {
         userId,
         email,
         anonymousId,
+        discordId,
         patch,
         hasPatch,
       });
@@ -371,6 +439,7 @@ export async function resolveOrCreateContact(opts: {
       userId,
       email,
       anonymousId,
+      discordId,
       patch,
       hasPatch,
     });
@@ -382,6 +451,7 @@ interface ResolveCtx {
   userId?: string;
   email?: string;
   anonymousId?: string;
+  discordId?: string;
   patch: Record<string, unknown>;
   hasPatch: boolean;
 }
@@ -419,6 +489,14 @@ async function fillInLink(
   if (ctx.email && !row.email) {
     set.email = ctx.email;
     promoted.push({ kind: "email", value: ctx.email });
+  }
+  // discord_id is an attachable resolvable key but NEVER the canonical key
+  // (external_id ?? anonymous_id ?? id), so it does NOT touch
+  // nextExternalId/nextAnonymousId — gaining it never flips the canonical key,
+  // so no own-history re-point follows.
+  if (ctx.discordId && !row.discordId) {
+    set.discordId = ctx.discordId;
+    promoted.push({ kind: "discord", value: ctx.discordId });
   }
   if (ctx.anonymousId && !row.anonymousId) {
     set.anonymousId = ctx.anonymousId;
@@ -518,14 +596,23 @@ async function mergeContacts(
   }
 
   // (vii) FOLD properties: survivor wins over losers; then the call's patch wins
-  // last. timezone = survivor ?? loser; firstSeenAt = least.
+  // last. timezone = survivor ?? loser; firstSeenAt = least. DEEP_MERGE_KEYS
+  // (e.g. `discord`) are sub-object-merged at each fold layer (foldLayer) so a
+  // loser/survivor/patch that carries only a subset of the nested object's
+  // fields doesn't clobber the rest — matching mergePropertiesSql's exception.
   let foldedProps: Record<string, unknown> = {};
   for (const loser of losers) {
-    foldedProps = { ...foldedProps, ...((loser.properties ?? {}) as object) };
+    foldedProps = foldLayer(
+      foldedProps,
+      (loser.properties ?? {}) as Record<string, unknown>,
+    );
   }
-  foldedProps = { ...foldedProps, ...((survivor.properties ?? {}) as object) };
+  foldedProps = foldLayer(
+    foldedProps,
+    (survivor.properties ?? {}) as Record<string, unknown>,
+  );
   if (ctx.hasPatch) {
-    foldedProps = { ...foldedProps, ...ctx.patch };
+    foldedProps = foldLayer(foldedProps, ctx.patch);
   }
   // §2.1: an explicit null in the call's patch clears a key — drop null-valued
   // keys from the folded result (matching mergePropertiesSql's strip-nulls).
@@ -561,6 +648,16 @@ async function mergeContacts(
     const fromLoser = losers.find((l) => l.anonymousId)?.anonymousId;
     const next = ctx.anonymousId ?? fromLoser;
     if (next) survivorSet.anonymousId = next;
+  }
+  // discord_id lands on the survivor (from the call or a loser), but it is
+  // NEVER the canonical key — so it is intentionally NOT folded into
+  // newSurvivorKey below and a discord-only merge does no history re-point. The
+  // losers are soft-deleted FIRST (below) so the partial-unique discord_id index
+  // is freed before this copy.
+  if (!survivor.discordId) {
+    const fromLoser = losers.find((l) => l.discordId)?.discordId;
+    const next = ctx.discordId ?? fromLoser;
+    if (next) survivorSet.discordId = next;
   }
 
   // (viii) Soft-delete the losers FIRST — frees their external_id/email/
@@ -953,6 +1050,20 @@ async function recordMergeAliases(
       reason: "merge",
     });
   }
+  // discord_id is a resolvable key, so a stale loser snowflake must still
+  // resolve to the survivor after the soft-delete takes the loser out of
+  // findByKey's direct lookup. Additive — it never conflicts with the
+  // external/anonymous id-fallback alias below (a discord-only loser produces
+  // BOTH this discord alias AND the id→external alias).
+  if (loser.discordId) {
+    aliasRows.push({
+      contactId: survivorId,
+      aliasKind: "discord",
+      aliasValue: loser.discordId,
+      fromContactId: loser.id,
+      reason: "merge",
+    });
+  }
   // When the loser had neither external_id nor anonymous_id, its CANONICAL key
   // (`external_id ?? anonymous_id ?? id`) was its row id — and that key has
   // circulated (Hatchet payloads, outbound `userId`s, `hs_t` tokens). Alias it
@@ -1002,6 +1113,7 @@ export async function upsertContact(opts: {
   externalId?: string;
   email?: string;
   anonymousId?: string;
+  discordId?: string;
   properties?: Record<string, unknown>;
 }): Promise<{
   id: string;
@@ -1015,6 +1127,7 @@ export async function upsertContact(opts: {
     userId: opts.externalId,
     email: opts.email,
     anonymousId: opts.anonymousId,
+    discordId: opts.discordId,
     contactProperties: opts.properties,
   });
 }

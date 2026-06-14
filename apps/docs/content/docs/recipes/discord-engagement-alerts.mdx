@@ -1,0 +1,142 @@
+---
+title: Discord engagement alerts in a channel
+description: Page a Discord channel on hand-raises, spam complaints, and journey completions with a filtered defineDestination() on the durable outbound spine — Discord-markdown content, an incoming-webhook body, and 204-as-success, with no per-journey Discord code.
+---
+
+Journeys should not know about Discord. The engine fans every catalog event (`contact.*`, `email.*`, `journey.completed`, `bucket.*`) through the durable [outbound webhook spine](/docs/data-api/webhooks) — delivery rows, retries with backoff, a dead-letter queue. An alerting destination subscribes to the few envelopes that mean "a human should look at this" and posts them to a Discord channel, so the which-events-page-a-channel decision lives in exactly one file and no journey grows an HTTP call that can fail mid-run.
+
+This mirrors [Lifecycle alerts in Slack](/docs/recipes/lifecycle-alerts-in-slack), swapping the Slack `{ text }` payload for Discord's `{ content }` incoming-webhook body and accounting for the `204 No Content` Discord returns.
+
+| Moment | The envelope that carries it |
+|---|---|
+| A hand-raise from a sales/offer email | `email.action` — a confirmed [semantic answer](/docs/guides/semantic-links), with your event name in `data.event` and the answer scalars in `data.properties` |
+| A spam complaint | `email.complained` — always worth eyes |
+| A journey finished | `journey.completed` filtered on `data.journeyId` |
+
+## The no-code path
+
+For coarse alerts — "post every bounce and complaint to a channel" — the shipped `discord` [destination](/docs/integrations/discord#outbound-the-destination) needs no code. It posts one Discord-markdown line per subscribed event, with no content filtering. Create an endpoint whose `eventTypes` are the events you want, pointing at a Discord incoming-webhook URL:
+
+```ts
+// one-off admin script — full-admin key
+await hs.webhooks.create({
+  url: "https://discord.com/api/webhooks/123/abc",
+  kind: "discord",
+  eventTypes: ["email.bounced", "email.complained"],
+  config: { webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+});
+```
+
+The shipped destination's only filter is the endpoint's `eventTypes` subscription — enough for bounce/complaint firehoses, not enough for "only interested hand-raises" or "only this journey". Content-level rules need a transform of your own.
+
+## The filtered destination
+
+A [`defineDestination()`](/docs/guides/destinations) is a delivery-time transform with three outcomes: return a request (the spine POSTs it), return `null` (skip — the row is marked delivered, no POST, no retry), or throw (a non-retryable config error, straight to the DLQ). Returning `null` is the filter, so the alert rules become one function:
+
+```ts
+// src/destinations/discord-alerts.ts
+import { defineDestination } from "@hogsend/engine";
+
+// The one list of lifecycle moments that page a channel — Discord markdown.
+function alertContent(
+  type: string,
+  data: Record<string, unknown>,
+): string | null {
+  // Semantic answers: data.event is YOUR event name, data.properties the
+  // confirmed answer scalars.
+  if (type === "email.action") {
+    const event = String(data.event ?? "");
+    const props = (data.properties ?? {}) as Record<string, unknown>;
+
+    if (event === "demo.answered" && props.answer === "interested") {
+      return `:raising_hand: **${data.to}** raised their hand for a demo`;
+    }
+    return null; // every other answer is not an alert
+  }
+
+  if (type === "email.complained") {
+    return `:no_entry: Spam complaint from **${data.to}** (template \`${data.templateKey}\`)`;
+  }
+
+  if (type === "journey.completed") {
+    return `:checkered_flag: **${data.userEmail}** completed \`${data.journeyId}\``;
+  }
+
+  return null;
+}
+
+export const discordAlerts = defineDestination({
+  meta: {
+    id: "discord-alerts", // == the webhook_endpoints.kind this serves
+    name: "Discord alerts",
+    description: "Page a channel on hand-raises, complaints, and completions.",
+  },
+  // The catalog events this destination accepts.
+  events: ["email.action", "email.complained", "journey.completed"],
+  transform(envelope, ctx) {
+    const cfg = (ctx.endpoint.config ?? {}) as { webhookUrl?: string };
+    const url = cfg.webhookUrl ?? ctx.endpoint.url;
+    if (!url) {
+      // A throw is a non-retryable config error — straight to the DLQ.
+      throw new Error("discord-alerts endpoint is missing config.webhookUrl");
+    }
+
+    const content = alertContent(envelope.type, envelope.data);
+    if (!content) return null; // skip: marked delivered, no POST, no retry
+
+    return {
+      url,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Discord incoming-webhook body; 204 No Content is success.
+      body: JSON.stringify({ content, username: "Hogsend" }),
+      isSuccess: (status) => status === 204 || (status >= 200 && status < 300),
+    };
+  },
+});
+```
+
+Discord incoming webhooks return `204 No Content` on success, so the transform's `isSuccess` accepts `204` alongside the 2xx range. Without it the default 2xx rule would mark every successful post a failure and retry it. `transform` runs once per delivery **attempt**, including retries, so it must stay a pure projection of the envelope plus the endpoint.
+
+## Register it
+
+A destination is wired through `createHogsendClient` in **both** entry points — the worker's delivery task resolves transforms from the registry that call installs:
+
+```ts
+// src/destinations/index.ts
+import type { DefinedDestination } from "@hogsend/engine";
+import { discordAlerts } from "./discord-alerts.js";
+
+export const destinations: DefinedDestination[] = [discordAlerts];
+```
+
+```ts
+// src/index.ts AND src/worker.ts — the same option in both
+const client = createHogsendClient({
+  journeys,
+  destinations, // consumer destinations are always registered (no env gate)
+  email: { templates },
+});
+```
+
+Then create the endpoint that routes deliveries through it. The endpoint's `eventTypes` is the coarse filter (irrelevant envelopes never even create a delivery row); the transform is the fine one:
+
+```ts
+await hs.webhooks.create({
+  url: "https://discord.com/api/webhooks/123/abc",
+  kind: "discord-alerts", // matches meta.id — deliveries run your transform
+  eventTypes: ["email.action", "email.complained", "journey.completed"],
+  config: { webhookUrl: "https://discord.com/api/webhooks/123/abc" },
+});
+```
+
+The Discord webhook URL lives in the per-endpoint `config`, never in an env var — a `#leads` channel and a `#deliverability` channel are two endpoints with different URLs and `eventTypes`, sharing one transform.
+
+<Callout type="info">
+  - **`null` is a successful no-op.** A filtered-out envelope is marked delivered with no POST — it never retries and never clutters the DLQ.
+  - **Set `isSuccess` for Discord.** Incoming webhooks return `204`, which the default 2xx success rule would treat as a failure and retry.
+  - **Throw only for config errors.** A missing URL should fail loudly to the DLQ; network errors and 5xx responses are the delivery task's job (retry with backoff), never the transform's.
+  - **Opens and clicks fan out per-hit.** Subscribe an alert endpoint to `email.opened` and you page on every open of every email — filter hard or stay off the high-volume events.
+</Callout>
+
+The [Destinations guide](/docs/guides/destinations) documents the full authoring contract, the [runtime reference](/docs/data-api/destinations) covers preset configs and endpoint management, and the [Discord integration](/docs/integrations/discord#outbound-the-destination) covers the shipped `discord` destination. Related: [Lifecycle alerts in Slack](/docs/recipes/lifecycle-alerts-in-slack) is the same pattern for Slack, [Lead alerts](/docs/recipes/lead-alerts) handles a follow-up that needs identity resolution, and [Route a Discord reaction as a signal](/docs/recipes/route-a-reaction-as-a-signal) produces a hand-raise this destination can page on.

@@ -82,10 +82,21 @@ describe("hogsend connect — argv mapping", () => {
     await expect(connectCommand.run(ctx)).rejects.toThrow(/missing provider/i);
   });
 
-  it("fails on an unknown provider", async () => {
+  it("fails on an unknown provider and lists both supported", async () => {
     const { ctx } = makeCtx(["stripe"]);
     await expect(connectCommand.run(ctx)).rejects.toThrow(
-      /unknown provider "stripe"/,
+      /unknown provider "stripe" — supported: posthog, discord/,
+    );
+  });
+
+  it("refuses to PUT discord secrets over plain http to a remote instance", async () => {
+    const { ctx } = makeCtx(["discord"]);
+    // Default makeCtx baseUrl is http://localhost:3002 (loopback) — point it
+    // at a plain-http REMOTE host to trip the secret-PUT refusal.
+    (ctx.cfg as { baseUrl: string }).baseUrl = "http://remote.example.com";
+    (ctx.http.cfg as { baseUrl: string }).baseUrl = "http://remote.example.com";
+    await expect(connectCommand.run(ctx)).rejects.toThrow(
+      /refusing to send the Discord bot token/i,
     );
   });
 

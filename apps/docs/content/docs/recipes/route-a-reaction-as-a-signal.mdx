@@ -1,0 +1,117 @@
+---
+title: Route a Discord reaction as a signal
+description: Turn a specific Discord reaction into a hand-raise — a defineJourney() triggered by discord.reaction_added with a trigger.where on the emoji name resolves the contact and fires a scalars-only lead.flagged event for an operator to follow up.
+---
+
+A reaction is the lowest-friction hand-raise a community produces and the easiest to miss. The [`@hogsend/plugin-discord`](/docs/integrations/discord) connector turns a `MESSAGE_REACTION_ADD` dispatch into a `discord.reaction_added` event, carrying the emoji name in its properties. A `trigger.where` filters enrollment to a single emoji at the enrollment guard, so only the reaction you care about ever creates journey state — and the run flags a scalars-only `lead.flagged` event the notify task or [Discord channel destination](/docs/recipes/discord-engagement-alerts) turns into an operator touch.
+
+| Stage | How you express it |
+|---|---|
+| Enter only on a specific emoji | `trigger.where: (b) => b.prop("emoji").eq("👍")` |
+| Cap re-flagging | `entryLimit: "once_per_period"`, `entryPeriod: days(1)` |
+| Resolve identity server-side | read the `contacts` row by `user.id` |
+| Page a human | `ctx.trigger({ event: Events.LEAD_FLAGGED, properties: { … } })` |
+
+## The reaction's event properties
+
+`discord.reaction_added` carries the emoji name, channel, message, and guild ids in `eventProperties`, set by the connector's transform:
+
+```ts
+eventProperties: {
+  source: "discord",
+  channelId,
+  guildId,
+  messageId,
+  emoji: d.emoji?.name ?? null, // "👍", a custom emoji name, or null
+}
+```
+
+`trigger.where` reads those properties at enrollment, so only the reactions you choose ever create journey state:
+
+```ts
+trigger: {
+  event: Events.DISCORD_REACTION_ADDED, // "discord.reaction_added"
+  where: (b) => b.prop("emoji").eq("👍"),
+}
+```
+
+A 👍 enters; a 😂 never does — no wasted journey state and no in-run emoji branching.
+
+## The journey
+
+```ts
+// src/journeys/route-a-reaction-as-a-signal.ts
+import { contacts } from "@hogsend/db";
+import { days, defineJourney, getDb, hours } from "@hogsend/engine";
+import { eq } from "drizzle-orm";
+import { Events } from "./constants/index.js";
+
+export const routeReactionSignal = defineJourney({
+  meta: {
+    id: "route-a-reaction-as-a-signal",
+    name: "Human-in-the-loop — reaction signal",
+    enabled: true,
+    // Only a 👍 reaction enters. The connector puts the emoji name in
+    // eventProperties.emoji; trigger.where filters on it at enrollment.
+    trigger: {
+      event: Events.DISCORD_REACTION_ADDED,
+      where: (b) => b.prop("emoji").eq("👍"),
+    },
+    entryLimit: "once_per_period",
+    entryPeriod: days(1),
+    suppress: hours(12),
+  },
+
+  run: async (user, ctx) => {
+    const db = getDb();
+    const contact = await db.query.contacts.findFirst({
+      where: eq(contacts.id, user.id),
+    });
+
+    // The reaction is the hand-raise. Flag it with a scalars-only event the
+    // notify task (or the Discord alerts destination) turns into an operator
+    // touch — identity is resolved server-side, never carried in properties.
+    await ctx.trigger({
+      event: Events.LEAD_FLAGGED, // "lead.flagged"
+      userId: user.id,
+      properties: {
+        reason: "discord-reaction",
+        emoji: "👍",
+        linked: Boolean(contact?.email),
+        flaggedAt: new Date().toISOString(),
+      },
+    });
+  },
+});
+```
+
+The filter runs **before** any state exists: a non-matching emoji is skipped with no `journeyStates` row created. Matching the emoji inside the run instead would burn an enrollment on every reaction in the server.
+
+## Why a scalars-only flag
+
+Event properties travel the ingest pipeline and fan out to destinations, so `lead.flagged` carries `reason`, the `emoji`, and a `linked` flag — never the member's email or name. Whoever picks up the flag resolves identity from the authoritative `contacts` row:
+
+- a **notify-lead Hatchet task** can email an operator past the lead's own preferences — see [Lead alerts](/docs/recipes/lead-alerts);
+- the **Discord alerts destination** can post the hand-raise to a channel — see [Discord engagement alerts](/docs/recipes/discord-engagement-alerts).
+
+The reaction always carries a `discord_id` (via `userId` `discord:<snowflake>`), so the flag fires whether or not the member has linked an email. The run records the linked state, so the follow-up can branch: email a linked member, or post to the channel for a Discord-only one.
+
+## Add the events
+
+```ts
+// src/journeys/constants/index.ts
+export const Events = {
+  DISCORD_REACTION_ADDED: "discord.reaction_added",
+  LEAD_FLAGGED: "lead.flagged",
+} as const;
+```
+
+`discord.reaction_added` is emitted by the connector; `lead.flagged` is your own cross-journey event. Register the journey by adding `routeReactionSignal` to your `journeys` array, as in [Lifecycle journeys](/docs/recipes/lifecycle-journeys#register-the-journeys).
+
+<Callout type="info">
+  - **The filter runs at enrollment.** `trigger.where` is evaluated by the enrollment guard against the event properties, so a non-matching emoji creates no state. In-run emoji branching would burn an enrollment per reaction.
+  - **Custom emoji match by name.** Custom server emoji arrive by name in `eventProperties.emoji`, so `b.prop("emoji").eq("my_custom_name")` works the same way. A reaction whose name does not resolve arrives as `null` and is filtered out.
+  - **`lead.flagged` is scalars-only.** It fans out to destinations, so it carries `reason` and `emoji`, never identity. The follow-up reads the `contacts` row.
+</Callout>
+
+Related: [Lead alerts](/docs/recipes/lead-alerts) is the operator follow-up, [Discord engagement alerts](/docs/recipes/discord-engagement-alerts) pages a channel on the same flag, and the [Journeys guide](/docs/guides/journeys) documents `trigger.where` and `ctx.trigger`.

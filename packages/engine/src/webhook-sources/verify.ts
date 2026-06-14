@@ -45,8 +45,11 @@ function lowerHeaders(headers: Record<string, string>): Record<string, string> {
 /**
  * Constant-time string comparison that never short-circuits on length. Returns
  * `false` (rather than throwing) on a length mismatch so callers fail closed.
+ * Exported so the connector ingress route reuses ONE hardened compare rather
+ * than re-implementing `Buffer.from` + `timingSafeEqual` inline (where a later
+ * refactor could drop the length guard and reintroduce the throw-on-mismatch).
  */
-function safeEqual(a: string, b: string): boolean {
+export function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a, "utf8");
   const bufB = Buffer.from(b, "utf8");
   if (bufA.length !== bufB.length) {

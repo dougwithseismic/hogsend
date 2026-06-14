@@ -18,7 +18,7 @@ export const contactAliases = pgTable(
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "cascade" }),
-    // 'email' | 'external' | 'anonymous'
+    // 'email' | 'external' | 'anonymous' | 'discord'
     aliasKind: text("alias_kind").notNull(),
     // The stale key value (the loser's old external_id / normalized email /
     // anonymous_id).

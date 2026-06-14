@@ -168,5 +168,5 @@ export const lifecycleAlertsInSlack: RecipeLander = {
       href: "/docs/data-api/webhooks",
     },
   ],
-  related: ["lead-alerts", "failed-payment-dunning", "nps-survey"],
+  related: ["discord-engagement-alerts", "lead-alerts", "nps-survey"],
 };

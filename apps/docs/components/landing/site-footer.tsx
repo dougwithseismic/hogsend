@@ -21,6 +21,7 @@ const COLUMNS: FooterColumn[] = [
       { label: "Pricing", href: "/pricing" },
       { label: "Templates", href: "/emails" },
       { label: "Integrations", href: "/integrations" },
+      { label: "Discord", href: "/discord" },
       { label: "Recipes", href: "/recipes" },
       { label: "Studio", href: "/docs/operating/studio" },
       { label: "Changelog", href: "/changelog" },

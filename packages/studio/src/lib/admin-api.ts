@@ -652,6 +652,86 @@ export function verifyDomain() {
   return api.post<EngineDomainStatus>("/v1/admin/domain/verify");
 }
 
+// --- Integrations (connectors + destinations) ----------------------------
+
+/**
+ * One integration row from `GET /v1/admin/connectors` — a code-registered
+ * inbound connector and/or outbound destination, joined to its stored-
+ * credential meta. Mirrors the engine's `integrationSchema`. Token material is
+ * never present (observe-and-connect only).
+ */
+export type IntegrationTransport = "webhook" | "gateway" | "poll";
+
+export type IntegrationCredential = {
+  connected: boolean;
+  kind?: "oauth" | "derived";
+  updatedAt?: string;
+} | null;
+
+export type Integration = {
+  id: string;
+  name: string;
+  transport: IntegrationTransport;
+  hasConnector: boolean;
+  hasDestination: boolean;
+  description?: string;
+  credential: IntegrationCredential;
+  webhook?: {
+    url: string;
+    secretConfigured: boolean;
+  };
+  gateway?: {
+    /** Tri-state: true = installed, false = not installed, null = unknown. */
+    botInstalled: boolean | null;
+    guildId: string | null;
+    intents: number | null;
+    workerHealthy: boolean;
+    workerLastSeenAt: string | null;
+    linkedMembers: number;
+    unlinkedMembers: number;
+  };
+};
+
+export function listIntegrations() {
+  return api.get<{ integrations: Integration[] }>("/v1/admin/connectors");
+}
+
+/** Discord connect signal — drives the invite-bot button + readiness chips. */
+export type DiscordConnectInfo = {
+  providerId: "discord";
+  apiPublicUrl: string;
+  redirectUri: string;
+  interactionsUrl: string;
+  ingressSecretConfigured: boolean;
+  credentialStored: boolean;
+  guildId: string | null;
+  /** Tri-state: true = installed, false = not installed, null = unknown. */
+  botInstalled: boolean | null;
+  /** True when a fresh gateway-worker heartbeat is present (Worker Online). */
+  workerOnline: boolean;
+  workerLastSeenAt: string | null;
+  apiPublicUrlReachable: boolean;
+  /** Server-built one-click invite URL; `null` until secrets are pasted via CLI. */
+  installUrl: string | null;
+};
+
+export function getDiscordConnectInfo() {
+  return api.get<DiscordConnectInfo>(
+    "/v1/admin/connectors/discord/connect-info",
+  );
+}
+
+/**
+ * Disconnect an integration — purges BOTH stored credential kinds (oauth grant
+ * + derived config) via the existing provider-credentials DELETE route. Studio
+ * never stores secrets, so this is the only mutation the page performs.
+ */
+export function disconnectIntegration(providerId: string) {
+  return api.delete<{ deleted: boolean }>(
+    `/v1/admin/provider-credentials/${encodeURIComponent(providerId)}`,
+  );
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
@@ -675,4 +755,6 @@ export const qk = {
   suppressions: (type: string) => ["suppressions", type] as const,
   apiKeys: ["api-keys"] as const,
   domain: ["domain"] as const,
+  integrations: ["integrations"] as const,
+  discordConnectInfo: ["discord-connect-info"] as const,
 };

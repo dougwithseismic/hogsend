@@ -1,11 +1,11 @@
 import type { Database } from "@hogsend/db";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
+import type { DefinedConnector } from "../../connectors/define-connector.js";
 import { headersToRecord } from "../../lib/headers.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import type { Logger } from "../../lib/logger.js";
 import { getDerivedCredential } from "../../lib/provider-credentials.js";
-import type { DefinedWebhookSource } from "../../webhook-sources/define-webhook-source.js";
 import { verifySignature } from "../../webhook-sources/verify.js";
 
 /** Negative-cache window for the stored PostHog secret (mirrors the token
@@ -64,7 +64,7 @@ export function invalidateStoredPosthogSecret(): void {
 
 export function registerWebhookSourceRoutes(
   app: OpenAPIHono<AppEnv>,
-  sources: DefinedWebhookSource[],
+  sources: DefinedConnector[], // already filtered to transport === "webhook"
 ) {
   // Reserve `email` for the email-provider route
   // (`POST /v1/webhooks/email/:providerId`). A source with `meta.id === "email"`
@@ -122,6 +122,12 @@ export function registerWebhookSourceRoutes(
       return c.json({ error: "Unknown webhook source" }, 404);
     }
 
+    // Webhook-transport connectors always carry inboundVerify (defineConnector
+    // enforces it at authoring time). Narrow once so the rest of the auth ladder
+    // is byte-identical to the pre-connector source dispatch.
+    const auth = source.inboundVerify;
+    if (!auth) return c.json({ error: "Unknown webhook source" }, 404);
+
     const { db, logger, env, registry, hatchet } = c.get("container");
 
     // Read the body ONCE as the EXACT received bytes — signature schemes verify
@@ -129,9 +135,7 @@ export function registerWebhookSourceRoutes(
     const rawBody = await c.req.text();
     const headers = headersToRecord(c.req.raw.headers);
 
-    let secret = env[source.auth.envKey as keyof typeof env] as
-      | string
-      | undefined;
+    let secret = env[auth.envKey as keyof typeof env] as string | undefined;
 
     // For the inbound PostHog source, fall back to the secret minted by
     // `hogsend connect` (kind="derived" store) when env has none — so an
@@ -139,13 +143,13 @@ export function registerWebhookSourceRoutes(
     // neither env nor the store has a secret (current behavior preserved).
     if (
       !secret &&
-      source.auth.type === "match" &&
-      source.auth.envKey === "POSTHOG_WEBHOOK_SECRET"
+      auth.type === "match" &&
+      auth.envKey === "POSTHOG_WEBHOOK_SECRET"
     ) {
       secret = await resolveStoredPosthogSecret(db, logger);
     }
 
-    if (source.auth.type === "signature") {
+    if (auth.type === "signature") {
       // Signature sources FAIL CLOSED: an unset secret is a 401, never an open
       // pass-through (deliberate divergence from the "match" variant).
       if (!secret) {
@@ -155,7 +159,6 @@ export function registerWebhookSourceRoutes(
         return c.json({ error: "Webhook signature not configured" }, 401);
       }
 
-      const auth = source.auth;
       let verified = false;
 
       if (auth.verify) {
@@ -183,7 +186,7 @@ export function registerWebhookSourceRoutes(
       // (parity with the pre-engine route).
       if (secret) {
         const provided =
-          headers[source.auth.header.toLowerCase()] ??
+          headers[auth.header.toLowerCase()] ??
           headers.authorization?.replace("Bearer ", "");
 
         if (provided !== secret) {
@@ -216,6 +219,7 @@ export function registerWebhookSourceRoutes(
     const event = await source.transform(payload, {
       db,
       logger,
+      transport: "webhook",
       rawBody,
       headers,
     });
@@ -230,6 +234,12 @@ export function registerWebhookSourceRoutes(
       ok: true,
       event: event.event,
       userId: event.userId,
+      // INTENTIONALLY the ExitResult[] ARRAY (not `.length`) — preserved
+      // byte-for-byte for back-compat. The OpenAPI schema declares
+      // `exits: z.number().optional()`, but this route has always returned the
+      // array; the NEW `/v1/connectors/:id/ingress` route returns
+      // `result.exits.length` as a deliberate divergence. Do NOT "tidy" either
+      // to match the other.
       exits: result.exits,
     });
   });

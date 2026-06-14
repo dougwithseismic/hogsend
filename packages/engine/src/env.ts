@@ -202,6 +202,11 @@ export const env = createEnv({
     // Preset enablement override: csv of preset ids, `"*"` (all with a secret),
     // or `"none"`. Absent → auto-enable any preset whose secret is set.
     ENABLED_WEBHOOK_PRESETS: z.string().optional(),
+    // Shared internal secret authenticating the gateway-worker → connector
+    // ingress hop (`POST /v1/connectors/:id/ingress`). Fail-CLOSED when unset
+    // (the route 401s), so a gateway worker cannot relay without it. MUST be
+    // high-entropy — generate with `openssl rand -base64 32`.
+    CONNECTOR_INGRESS_SECRET: z.string().min(32).optional(),
     // --- Outbound destination presets (Phase 3) ---
     // Which `defineDestination()` PRESETS are registered into the process
     // destination registry the delivery task resolves by `endpoint.kind`. csv of

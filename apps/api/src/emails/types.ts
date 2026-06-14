@@ -177,6 +177,12 @@ export interface TransactionalVerifyEmailProps {
   expiresIn?: string;
 }
 
+export interface TransactionalDiscordLinkCodeProps {
+  name?: string;
+  /** The single-use code the user pastes into `/verify`. */
+  code: string;
+}
+
 export interface TransactionalMagicLinkProps {
   name?: string;
   magicLinkUrl: string;

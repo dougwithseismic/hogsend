@@ -1,0 +1,95 @@
+import { startDiscordGatewayHeartbeat } from "@hogsend/engine";
+import { createDiscordGatewayWorker } from "@hogsend/plugin-discord/gateway";
+import { discordEnv } from "./env.js";
+
+/**
+ * The standalone Discord Gateway worker — its OWN long-lived process (NOT the
+ * Hatchet worker, NOT the API). It holds a `discord.js` socket and forwards
+ * every relevant raw dispatch to `${API_PUBLIC_URL}/v1/connectors/discord/ingress`
+ * behind `x-hogsend-ingress-secret`, where the connector's transform turns it
+ * into an IngestEvent. `discord.js` is a runtime dependency of apps/api precisely
+ * because THIS process resolves the gateway worker's dynamic import.
+ *
+ * Boot requirements (fail loudly if missing): `DISCORD_BOT_TOKEN` (Gateway
+ * login — the three privileged intents must be toggled ON in the Developer
+ * Portal or `login()` rejects), and `CONNECTOR_INGRESS_SECRET` (≥32 chars; the
+ * ingress route fail-closes without it, so a worker that forwards into an
+ * unconfigured route would 401 every event).
+ */
+async function main() {
+  const botToken = discordEnv.DISCORD_BOT_TOKEN;
+  const ingressSecret = discordEnv.CONNECTOR_INGRESS_SECRET;
+
+  if (!botToken) {
+    throw new Error(
+      "DISCORD_BOT_TOKEN is required to start the Discord gateway worker",
+    );
+  }
+  if (!ingressSecret) {
+    throw new Error(
+      "CONNECTOR_INGRESS_SECRET (>=32 chars) is required — the connector " +
+        "ingress route fail-closes without it, so the worker cannot forward",
+    );
+  }
+
+  // Publish gateway-worker liveness on a TTL'd Redis key so Studio's
+  // `/integrations` card can show "Worker Online" + a confirmed "Bot installed"
+  // (from the observed guild) for env-only deploys. Best-effort — a Redis-less
+  // deploy simply reads back as "Offline" and never crashes the worker.
+  const logger = {
+    debug: (msg: string, meta?: unknown) => console.debug(msg, meta),
+  };
+  const heartbeat = startDiscordGatewayHeartbeat(logger as never);
+
+  const worker = createDiscordGatewayWorker({
+    botToken,
+    apiPublicUrl: discordEnv.API_PUBLIC_URL,
+    ingressSecret,
+    // intents default to the privileged trio + base inside the worker.
+    onGuildObserved: (gid) => heartbeat.state.setGuildId(gid),
+  });
+
+  // Fold the worker's resolved intents into the heartbeat so Studio's intents
+  // chip reflects what the LIVE worker requests (the derived credential never
+  // carries discordIntents — install only writes the guild id).
+  heartbeat.state.setIntents(worker.getIntents());
+
+  async function shutdown(signal: string) {
+    console.log(`${signal} received, stopping Discord gateway worker`);
+    // Delete the heartbeat key FIRST → the card flips to "Offline" immediately
+    // rather than waiting out the TTL.
+    await heartbeat.stop();
+    await worker.stop();
+    console.log("Discord gateway worker stopped");
+    process.exit(0);
+  }
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+
+  await worker.start();
+}
+
+// Fail LOUDLY on a post-boot async fault. `main().catch` only covers the boot
+// path; once the socket is live, an unhandled rejection / uncaught exception
+// from a fire-and-forget forward, the heartbeat, or discord.js internals would
+// otherwise either crash with a bare trace or (worse) leave the process limping.
+// Log a short context string (NEVER the bot token / ingress secret — the error
+// object is not serialized) and exit non-zero so the orchestrator restarts a
+// fresh worker.
+process.on("unhandledRejection", (reason) => {
+  console.error(
+    "Discord gateway worker unhandledRejection:",
+    reason instanceof Error ? reason.message : String(reason),
+  );
+  process.exit(1);
+});
+process.on("uncaughtException", (err) => {
+  console.error("Discord gateway worker uncaughtException:", err.message);
+  process.exit(1);
+});
+
+main().catch((err) => {
+  console.error("Discord gateway worker failed to start:", err);
+  process.exit(1);
+});

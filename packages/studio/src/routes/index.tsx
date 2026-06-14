@@ -7,6 +7,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { BucketsView } from "@/views/buckets-view";
 import { ContactsView } from "@/views/contacts-view";
 import { DebugView } from "@/views/debug-view";
+import { IntegrationsView } from "@/views/integrations-view";
 import { JourneysView } from "@/views/journeys-view";
 import { OverviewView } from "@/views/overview-view";
 import { SendsView } from "@/views/sends-view";
@@ -61,6 +62,12 @@ const suppressionsRoute = createRoute({
   component: SuppressionsView,
 });
 
+const integrationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/integrations",
+  component: IntegrationsView,
+});
+
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
@@ -88,6 +95,7 @@ const routeTree = rootRoute.addChildren([
   contactsRoute,
   suppressionsRoute,
   debugRoute,
+  integrationsRoute,
   setupRoute,
   settingsRoute,
 ]);
