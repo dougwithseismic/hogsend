@@ -4,6 +4,13 @@
 "@hogsend/db": minor
 "@hogsend/cli": minor
 "@hogsend/studio": minor
+"@hogsend/core": minor
+"@hogsend/client": minor
+"@hogsend/email": minor
+"@hogsend/plugin-posthog": minor
+"@hogsend/plugin-resend": minor
+"@hogsend/plugin-postmark": minor
+"hogsend": minor
 ---
 
 feat(discord): inbound Gateway connector + outbound destination + in-Discord email linking
