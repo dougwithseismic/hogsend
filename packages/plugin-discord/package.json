@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/plugin-discord",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -28,8 +28,10 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest watch"
   },
+  "dependencies": {
+    "@hogsend/engine": "workspace:^"
+  },
   "peerDependencies": {
-    "@hogsend/engine": ">=0.21.0",
     "discord.js": ">=14.0.0"
   },
   "peerDependenciesMeta": {
@@ -38,7 +40,6 @@
     }
   },
   "devDependencies": {
-    "@hogsend/engine": "workspace:^",
     "@repo/typescript-config": "workspace:^",
     "@types/node": "^22.0.0",
     "discord.js": "^14.26.4",
