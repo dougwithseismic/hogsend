@@ -58,26 +58,28 @@ This is the leg the rest of this runbook drives end-to-end.
 
 ### Leg B — OAuth: interactions PING, one-click install, member-link
 
-The interactions PING/PONG handshake works env-only too (the connector verifies
-the signature with `DISCORD_PUBLIC_KEY`), so you CAN paste the Interactions
-Endpoint URL in the portal and it will validate.
+All three work env-only. The interactions PING/PONG handshake verifies the
+signature with `DISCORD_PUBLIC_KEY`, so pasting the Interactions Endpoint URL in
+the portal validates. The **one-click install URL** and the **member-link URL**
+are server-minted from `discordAppId` stored in the **derived credential**
+(`provider_credentials`, `kind="derived"`), and `apps/api` seeds that row from
+env at boot:
 
-But the **one-click install URL** and the **member-link URL** are server-minted
-from `discordAppId` stored in the **derived credential** (`provider_credentials`,
-`kind="derived"`) — `GET /v1/admin/connectors/discord/connect-info` returns
-`installUrl: null` until that row exists. Populating it is normally the job of
-`hogsend connect discord`, which calls `PUT /v1/admin/connectors/discord/secrets`
-and `POST /v1/admin/connectors/discord/wire`.
+- `apps/api/src/discord.ts` `seedDiscordDerived(db)` read-merge-writes
+  `derived.discordAppId` from `DISCORD_APPLICATION_ID`, and
+  `apps/api/src/index.ts` calls it whenever a Discord connector was built.
+- So `GET /v1/admin/connectors/discord/connect-info` returns a non-null
+  `installUrl`, and `POST /v1/admin/connectors/discord/member-link-url` returns
+  `200` — both are engine-shipped routes that mount automatically.
+- The OAuth callback (`GET|POST /v1/connectors/discord/oauth/callback`) handles
+  both install and member-link.
 
-> **PREREQUISITE — not wired yet.** Those `secrets` / `wire` admin routes are
-> CONSUMER-mounted (the engine ships no Discord code — see
-> `packages/engine/src/routes/admin/connectors.ts` header, "The Discord-SPECIFIC
-> mutating routes (`secrets`/`wire`) are CONSUMER-mounted"). **apps/api does not
-> mount them yet.** So `hogsend connect discord` will 404 at the `secrets` PUT
-> today, and Leg B's install / member-link cannot be driven via the CLI until
-> those routes are added (via `createApp(client, { routes })`). Until then,
-> drive Leg A (env-only) for the inbound E2E; treat Leg B install/member-link as
-> blocked. See "Open prerequisites" at the bottom.
+> **One residual CLI-only capability.** The CLI `wire` route's server-side
+> `PATCH /applications/@me` — which auto-sets the Interactions Endpoint URL for
+> you — is the only piece `apps/api` does not mount. On an env-only deploy you
+> set the Interactions Endpoint URL yourself in the portal (Step 3). Everything
+> else in Leg B — install URL, member-link URL, OAuth callback — is reachable
+> env-only.
 
 ---
 
@@ -236,9 +238,11 @@ curl -s "${TUNNEL}/v1/admin/connectors/discord/connect-info" \
 ```
 
 `connect-info` should report `ingressSecretConfigured: true` and
-`apiPublicUrlReachable: true`. `installUrl` is `null` until the derived
-credential holds `discordAppId` (Leg B — blocked, see prerequisites);
-`credentialStored: false` is expected and fine for Leg A.
+`apiPublicUrlReachable: true`. `installUrl` is **non-null** — `apps/api` seeds
+`derived.discordAppId` from `DISCORD_APPLICATION_ID` at boot
+(`seedDiscordDerived`), so the install URL and the member-link URL both work
+env-only (Leg B). `credentialStored: false` is still expected for Leg A: it
+tracks the full secrets bundle, not the seeded app id.
 
 Now save the Interactions Endpoint URL in the portal (Step 3) — with the API up
 behind the tunnel, the validation PING returns a signed PONG and Discord accepts
@@ -266,9 +270,11 @@ discord gateway worker connected
 If you instead see a disallowed-intents rejection, go back to the Bot tab and
 toggle on SERVER MEMBERS / MESSAGE CONTENT / PRESENCE.
 
-**Invite the bot to your server** so it can see events. With Leg B blocked you
-cannot use the server-minted one-click install URL, so build a minimal invite by
-hand and open it in a browser (replace `<APP_ID>`):
+**Invite the bot to your server** so it can see events. Two options: open the
+server-minted one-click install URL from
+`GET /v1/admin/connectors/discord/connect-info` (`installUrl`, non-null env-only
+— see Leg B), or build a minimal invite by hand and open it in a browser
+(replace `<APP_ID>`):
 
 ```
 https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot&permissions=0
@@ -343,30 +349,49 @@ Watch the chain light up:
 
 ---
 
-## Open prerequisites (Leg B install / member-link)
+## Leg B env-only: install URL + member-link + the one CLI-only piece
 
-These are build items, not part of this tooling. Until they land, drive Leg A.
+On an env-only deploy, `apps/api` seeds `derived.discordAppId` from
+`DISCORD_APPLICATION_ID` at boot (`seedDiscordDerived` in
+`apps/api/src/discord.ts`, called from `apps/api/src/index.ts` whenever a Discord
+connector was built). That is the value that gates the install and member-link
+URLs, so both are reachable without the CLI:
 
-1. **Consumer `secrets` / `wire` admin routes** — `hogsend connect discord` calls
-   `PUT /v1/admin/connectors/discord/secrets` + `POST .../wire`, which the engine
-   intentionally does NOT ship. apps/api must mount them via
-   `createApp(client, { routes })`, writing `{ discordAppId, discordPublicKey,
-   discordClientSecret, discordBotToken, discordGuildId? }` into the derived
-   credential. `DerivedCredentialPayload` already carries those optional Discord
-   fields (`packages/engine/src/lib/provider-credentials.ts`).
-2. **Then** the connect flow works end-to-end:
+1. **Open the one-click install URL.** `connect-info.installUrl` is non-null:
 
    ```bash
-   cd packages/cli && env ADMIN_API_KEY=<admin-key> \
-     pnpm exec tsx src/bin.ts connect discord --url ${TUNNEL}
+   curl -s "${TUNNEL}/v1/admin/connectors/discord/connect-info" \
+     -H "Authorization: Bearer ${ADMIN_API_KEY}" | jq -r .installUrl
    ```
 
-   It prompts for the four portal values, stores them, wires the interactions
-   endpoint server-side (PATCH `/applications/@me`), and opens the server-minted
-   one-click install URL (which then captures the guild id). `--status` reads the
-   current state without prompting or storing.
+   Open it in a browser to invite the bot; the install callback then captures the
+   guild id.
 
-Once #1 ships, `connect-info.installUrl` becomes non-null and the member-link
-URL (`POST /v1/admin/connectors/discord/member-link-url`) can attach a
-`discord_id` to a specific contact (anti-graft: the email comes from the signed
-state, never from the OAuth-reported Discord email).
+2. **Mint a member-link URL** to attach a `discord_id` to a specific contact:
+
+   ```bash
+   curl -s -X POST "${TUNNEL}/v1/admin/connectors/discord/member-link-url" \
+     -H "Authorization: Bearer ${ADMIN_API_KEY}" \
+     -H "Content-Type: application/json" \
+     -d '{"contactId":"<contact-id>","email":"<contact-email>"}' | jq -r .url
+   ```
+
+   The user authorizes (`scope=identify email guilds.members.read`) and the
+   `GET|POST /v1/connectors/discord/oauth/callback` route attaches `discord_id`
+   to the bound contact. Anti-graft: the email comes from the signed state, never
+   from the OAuth-reported Discord email.
+
+**The one residual CLI-only capability** is the `wire` route's server-side
+`PATCH /applications/@me` that auto-sets the Interactions Endpoint URL for you.
+`apps/api` does not mount it (the `secrets` / `wire` admin routes are
+consumer-mounted and not added here), so on an env-only deploy you set the
+Interactions Endpoint URL **in the portal** (Step 3). To drive that auto-wiring,
+a consumer would mount the `secrets` / `wire` routes via
+`createApp(client, { routes })` (`DerivedCredentialPayload` already carries the
+optional Discord fields — `packages/engine/src/lib/provider-credentials.ts`),
+then run:
+
+```bash
+cd packages/cli && env ADMIN_API_KEY=<admin-key> \
+  pnpm exec tsx src/bin.ts connect discord --url ${TUNNEL}
+```

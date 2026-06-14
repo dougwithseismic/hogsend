@@ -3,7 +3,7 @@ title: Discord
 description: Turn a Discord server into a Hogsend event source — messages, reactions, joins, and presence flow in as discord.* events over a Gateway worker, contacts link their email in-Discord via a /link modal, and an outbound destination posts lifecycle events to a channel.
 ---
 
-`@hogsend/plugin-discord` is a **consumer-mounted** connector — the engine ships no Discord code; you `pnpm add` the package and wire it into your app. It exposes both faces of one integration under `meta.id = "discord"`: an **inbound** Gateway connector that turns Discord activity into `discord.*` events, and an **outbound** destination that posts lifecycle events to a channel. The live socket runs in a **separate long-lived worker process** that dials Discord outbound and POSTs each dispatch to the connector ingress — the API process never opens a WebSocket.
+`@hogsend/plugin-discord` is a **consumer-mounted** connector — the engine ships no Discord code; you `pnpm add` the package and wire it into your app. It ships two parts under `meta.id = "discord"`: an **inbound** Gateway connector that turns Discord activity into `discord.*` events, and an **outbound** destination that posts lifecycle events to a channel. The live socket runs in a **separate long-lived worker process** that dials Discord outbound and POSTs each dispatch to the connector ingress — the API process never opens a WebSocket.
 
 <Callout type="info">
   This is consumer-mounted content. You `pnpm add @hogsend/plugin-discord`, build a connector with `createDiscordConnector(...)`, and pass it to `createHogsendClient`. Discord is **not** a signed-webhook preset — it does not appear in `ENABLED_WEBHOOK_PRESETS` and does not auto-mount from a secret env var.
@@ -48,33 +48,55 @@ The three routes under `/v1/connectors/discord` and their auth:
 
 ## Setup
 
-### 1. Create the Discord app
+The eight steps below are the canonical order. Every value, route, env name, and command is copyable and correct against the code. Steps 1–5 stand up the Discord app and your env; the **Wire the connector** subsection (after step 5) is the prerequisite for steps 6–8.
 
-In the [Discord Developer Portal](https://discord.com/developers/applications), create an application and collect four values:
+### 1. Create a Discord app
 
-- **Application ID** — General Information → Application ID (same as the OAuth2 Client ID).
-- **Public Key** — General Information → Public Key (ed25519, hex). Verifies every interaction signature.
-- **Bot Token** — Bot → Reset Token. The Gateway worker logs in with this.
-- **Client Secret** — OAuth2 → Reset Secret. Server-side OAuth code exchange only (member-link fallback).
+In the [Discord Developer Portal](https://discord.com/developers/applications), click **New Application**. Each self-hosted deploy runs its own single-tenant Discord app.
 
-### 2. Set environment variables
+### 2. Add a bot and toggle the three privileged intents
 
-Every `DISCORD_*` var is optional — a deploy with no Discord configured still boots (the connector registers nothing). The connector is only built when `DISCORD_APPLICATION_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_PUBLIC_KEY` are all set.
+On the **Bot** tab, click **Reset Token** (this value is `DISCORD_BOT_TOKEN`). On the same tab, enable the three **Privileged Gateway Intents**: **Message Content**, **Server Members**, **Presence**. If any of the three is off, the Gateway worker's login rejects with a disallowed-intents error and the process exits.
+
+### 3. Collect four values from the portal
+
+| Value | Portal location | Env var | Secret |
+|---|---|---|---|
+| Application ID | General Information → Application ID (= OAuth2 Client ID) | `DISCORD_APPLICATION_ID` | no |
+| Public Key | General Information → Public Key (ed25519, hex) | `DISCORD_PUBLIC_KEY` | no |
+| Bot Token | Bot → Reset Token | `DISCORD_BOT_TOKEN` | yes |
+| Client Secret | OAuth2 → Reset Secret | `DISCORD_CLIENT_SECRET` | yes |
+
+The Public Key verifies every interaction signature. The Client Secret is used only for the server-side OAuth code exchange (the OAuth member-link path).
+
+### 4. Invite the bot to your server
+
+The bot must be a **member of the guild** to receive that guild's channel events. Use the OAuth2 URL Generator (scopes `bot` + `applications.commands`) with the permissions you need — **View Channel**, **Read Message History**, **Send Messages**, **Use Application Commands** — so the slash commands appear and the bot-REST outbound post can send.
+
+A minimal inbound-only test can invite with `permissions=0`; the bot only needs to be present in a channel to receive messages and reactions:
+
+```
+https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=0
+```
+
+### 5. Set environment variables
+
+Every `DISCORD_*` var is optional — a deploy with no Discord configured still boots (the connector registers nothing). The connector is built only when `DISCORD_APPLICATION_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_PUBLIC_KEY` are all set. `API_PUBLIC_URL` must be a public host (not loopback). `CONNECTOR_INGRESS_SECRET` is ≥32 chars and must be the **same** value in the worker and the API.
 
 ```bash title=".env"
 DISCORD_APPLICATION_ID=...
 DISCORD_PUBLIC_KEY=...
 DISCORD_BOT_TOKEN=...          # secret — the Gateway worker logs in with this
-DISCORD_CLIENT_SECRET=...      # secret — OAuth member-link fallback only
-DISCORD_GUILD_ID=...           # optional — the guild the bot joined
+DISCORD_CLIENT_SECRET=...      # secret — OAuth member-link only
+DISCORD_GUILD_ID=...           # optional — enables instant guild-scoped command registration
 
-API_PUBLIC_URL=https://api.example.com
-CONNECTOR_INGRESS_SECRET=...   # >= 32 chars; shared by the worker + the ingress route
+API_PUBLIC_URL=https://api.example.com   # public host, not loopback
+CONNECTOR_INGRESS_SECRET=...             # >= 32 chars; shared by the worker + the ingress route
 ```
 
 `API_PUBLIC_URL` and `CONNECTOR_INGRESS_SECRET` are engine env (mirrored in the consumer so the standalone worker can read them without the container).
 
-### 3. Wire the connector
+### Wire the connector
 
 The plugin never reads `process.env` — you inject the values. Build the connector with `createDiscordConnector(...)`, register it and the destination on `createHogsendClient`, then hand the container `db` into the connector's deferred callbacks. **Both** entry points (the HTTP API and the worker) need this — the ingest pipeline runs in the Hatchet worker too, so the connector/destination registry must be identical in both processes.
 
@@ -84,6 +106,7 @@ The connector is passed **into** `createHogsendClient`, which is what builds the
 import type { Database } from "@hogsend/db";
 import {
   createLinkCode,
+  type DerivedCredentialPayload,
   getDerivedCredential,
   getEmailService,
   redeemLinkCode,
@@ -131,8 +154,13 @@ export function buildDiscordConnector() {
     // guild id captured on install never clobbers a stored bot token.
     saveDerived: async (patch) => {
       const db = requireDb();
-      const current = (await getDerivedCredential(db, "discord")) ?? {};
-      await saveDerivedCredential(db, "discord", { ...current, ...patch });
+      const current =
+        (await getDerivedCredential(db, "discord")) ??
+        ({} as DerivedCredentialPayload);
+      await saveDerivedCredential(db, "discord", {
+        ...current,
+        ...(patch as DerivedCredentialPayload),
+      });
     },
     // Route the snowflake through the engine's `discord` identity Kind so
     // `discord_id` is the sole resolution key. The config types this as
@@ -204,21 +232,17 @@ const client = createHogsendClient({
 setDiscordDb(client.db);
 ```
 
-### 4. Invite the bot to your server
+### 6. Set the Interactions Endpoint URL
 
-The bot must be a **member of the guild** to receive that guild's channel events. Invite it via the OAuth2 URL Generator (scopes `bot` + `applications.commands`), then toggle the three privileged intents (see [Security](#privileged-intents--tos)). `MESSAGE CONTENT`, `SERVER MEMBERS`, and `PRESENCE` are all required for the four events.
-
-### 5. Set the Interactions Endpoint URL
-
-In the portal (General Information → Interactions Endpoint URL), point it at:
+In the portal (General Information → Interactions Endpoint URL), point it at `<API_PUBLIC_URL>/v1/connectors/discord/interactions` — `API_PUBLIC_URL` already includes the scheme, so do not prepend another `https://`. The engine emits `${apiPublicUrl}/v1/connectors/discord/interactions` with no extra scheme; match that. With `API_PUBLIC_URL=https://api.example.com` the URL is:
 
 ```
-https://<API_PUBLIC_URL>/v1/connectors/discord/interactions
+https://api.example.com/v1/connectors/discord/interactions
 ```
 
-Discord sends a synchronous validation PING when you save it; the route answers PONG. This works env-only (no `hogsend connect discord` needed).
+Discord sends a synchronous validation PING when you save; the route answers PONG, verified env-only with `DISCORD_PUBLIC_KEY` — no `hogsend connect discord` needed. The API must already be running behind the public URL when you click Save. On an env-only deploy you set this URL in the portal yourself (there is no server-side auto-wiring of it).
 
-### 6. Register slash commands
+### 7. Register slash commands
 
 Register `/link` and `/verify`:
 
@@ -226,18 +250,35 @@ Register `/link` and `/verify`:
 pnpm --filter @hogsend/api discord:register-commands
 ```
 
-### 7. Run the Gateway worker
+This calls the Discord REST API directly — it needs `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN` (and optional `DISCORD_GUILD_ID`) only, with no dependency on `API_PUBLIC_URL` or a tunnel. With `DISCORD_GUILD_ID` set it registers guild-scoped commands (instant); without it, global commands (~1h propagation). The call replaces the full command set, so it is idempotent.
 
-The worker is a separate process (its own Railway service in production). Use `discord:dev` (tsx watch) for development and `discord:worker` (node) for production:
+### 8. Run the Gateway worker
+
+The worker opens the Discord WebSocket via `discord.js`, declared as an **optional** peer of `@hogsend/plugin-discord` so a destination-only deploy isn't forced to install a socket client. Install it in the worker's app:
+
+```bash
+pnpm add discord.js
+```
+
+The peer range is `>=14.0.0`; `apps/api` pins `discord.js@^14.26.4`.
+
+The worker is a separate long-lived process (its own Railway service in production). Use `discord:dev` (tsx watch) for development and `discord:worker` (node) for production:
 
 ```bash
 cd apps/api && pnpm discord:dev      # development — tsx watch, --env-file=.env
 cd apps/api && pnpm discord:worker   # production — node dist/discord-worker.js
 ```
 
+The worker logs in with `DISCORD_BOT_TOKEN`, dials Discord outbound over the socket, and POSTs each mapped dispatch to `${API_PUBLIC_URL}/v1/connectors/discord/ingress` with header `x-hogsend-ingress-secret: <CONNECTOR_INGRESS_SECRET>`. On success it logs `discord gateway worker connected`. Slash commands run the opposite direction — HTTP interactions Discord POSTs to the Interactions Endpoint from step 6.
+
 <Callout type="info">
-  The worker refuses to boot if a requested privileged intent is not toggled in the portal — `login()` rejects with a disallowed-intents error rather than silently connecting with no events. Toggle the three intents in step 4 first.
+  The worker refuses to boot if a requested privileged intent is not toggled in the portal — `login()` rejects with a disallowed-intents error rather than silently connecting with no events. Toggle the three intents in step 2 first.
 </Callout>
+
+### Direction recap
+
+- The bot dials Discord **outbound** for the Gateway socket and forwards dispatches to the ingress route.
+- Slash commands are **inbound** HTTP interactions Discord POSTs to the public Interactions Endpoint.
 
 ## The /link identity loop
 
@@ -268,6 +309,22 @@ Throttles: 5 code mints per Discord user and 3 mints per target email, each in a
 <Callout type="info">
   `/verify <code>` is the typed fallback to the modal. The verification email itself instructs the user to run `/verify {code}` in Discord — the modal is the primary path, but the email steers to the typed command.
 </Callout>
+
+## Linking a contact: /link vs OAuth member-link
+
+Two paths attach a Discord account to a contact, chosen by where the linking starts. Lead with the in-Discord `/link` modal; the OAuth member-link is the web-initiated alternative.
+
+| | `/link` — in Discord (recommended) | OAuth member-link — from your app |
+|---|---|---|
+| **Entry point** | Inside Discord, the user runs `/link` | A "Connect Discord" button in your web app |
+| **Flow** | Private ephemeral modal loop (email modal → emailed 6-digit code → "Enter code" button → code modal → success card) | Engine mints the URL, the user authorizes on Discord, the callback attaches `discord_id` |
+| **Identity** | The email the user types in the modal | The email the link was issued for (never the OAuth-reported Discord email) |
+| **OAuth scopes** | none | `identify email guilds.members.read` |
+| **Setup cost** | env-only — no extra credential, no CLI | env-only — the route mounts automatically |
+
+**Use `/link`** for any user already in your Discord server: it runs entirely on HTTP interactions, no redirect leaves Discord, and the code is single-use, 15-minute TTL, identity-bound, and hashed at rest.
+
+**Use the OAuth member-link** when linking is initiated from your web app rather than inside Discord. The engine mints the URL at `POST /v1/admin/connectors/discord/member-link-url` (it signs a `member_link` state binding `{ contactId, email }`); the user authorizes; the `GET|POST /v1/connectors/discord/oauth/callback` route attaches `discord_id` to the bound contact. The contact is identified by the email the link was issued for — the OAuth-reported Discord email is stored only as a non-key field, and only when verified.
 
 ## Events
 
@@ -349,8 +406,8 @@ Discord's terms still bind regardless of the toggle: no ML-training on message c
 
 - The bot must be a **guild member** to receive that guild's channel events.
 - Presence is not last-seen: `offline` / absent presence is dropped, and `last_seen` is derived from observed events.
-- <Callout type="warn">
-    The one-click install + OAuth member-link (`hogsend connect discord`) is **not wired in `apps/api` yet** — the `secrets` / `wire` admin routes are consumer-mounted and currently unmounted, so that CLI 404s today. Use the env-only inbound path (the env-only Gateway → ingress path described above) and the modal `/link` for identity. The interactions PING handshake works env-only.
+- <Callout type="info">
+    On an env-only deploy the OAuth install URL and the member-link URL (`POST /v1/admin/connectors/discord/member-link-url`) both work — they are engine-shipped routes, and `apps/api` seeds `derived.discordAppId` from `DISCORD_APPLICATION_ID` at boot. The one capability that remains CLI-only is the server-side `PATCH /applications/@me` that auto-sets the Interactions Endpoint URL; on an env-only deploy you set that URL in the portal (Setup step 6).
   </Callout>
 - The first npm publish of `@hogsend/plugin-discord` is **manual** — CI cannot create a new `@hogsend/*` package.
 
