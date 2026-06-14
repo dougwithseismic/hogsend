@@ -1,37 +1,36 @@
 import {
+  ArrowUpRight,
+  Clock,
   KeyRound,
-  Link2,
+  LayoutGrid,
   MessageSquare,
   Send,
-  Server,
   Users,
 } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import type { JSX, ReactNode } from "react";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
-import { CodeWindow } from "@/components/ds/code-window";
+import { ClipVideo } from "@/components/ds/clip-video";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 
 export const metadata: Metadata = {
   title: "Discord",
   description:
-    "@hogsend/plugin-discord has an inbound Gateway worker and an outbound " +
-    "destination. The Gateway worker turns Discord messages, reactions, " +
-    "joins, and presence into discord.* events on a contact; the " +
-    "destination posts lifecycle events to a channel. Discord activity " +
-    "lands on the same contact as your app events, email engagement, and " +
-    "PostHog.",
+    "Add a bot to your Discord server and Hogsend sees who joins, what " +
+    "they post, and when they go quiet — on the same contact as their " +
+    "email and product activity. Welcome new members, win back quiet " +
+    "ones, and message them by email or back in Discord.",
 };
 
 const ICON_SIZE = 20;
 
 /**
  * Card mark: a lucide icon in the standard 40px square. There is no `discord`
- * BrandKey / SVG, so the page uses the icon escape hatch throughout (no new
- * assets).
+ * BrandKey / SVG, so the page uses the icon escape hatch throughout.
  */
 function CardMark({ icon }: { icon: ReactNode }): JSX.Element {
   return (
@@ -44,15 +43,14 @@ function CardMark({ icon }: { icon: ReactNode }): JSX.Element {
 type Feature = {
   icon: ReactNode;
   title: string;
-  /** Body lines — each is its own paragraph. */
-  lines: string[];
-  /** Small chip describing the wire. */
+  body: string;
+  /** Small chip naming the capability in user terms. */
   tag: string;
 };
 
 /**
- * Feature card: a 40px icon mark, a 20px/500 title, one paragraph per body
- * line, and a small 3px-radius wire chip pinned to the bottom.
+ * Capability card: a 40px icon mark, a 20px/500 title, one line of body, and
+ * a small chip pinned to the bottom.
  */
 function FeatureCard({ feature }: { feature: Feature }): JSX.Element {
   return (
@@ -63,11 +61,7 @@ function FeatureCard({ feature }: { feature: Feature }): JSX.Element {
         <h3 className="font-medium text-white text-xl leading-[1.2] tracking-[-0.02em]">
           {feature.title}
         </h3>
-        {feature.lines.map((line) => (
-          <p key={line} className="text-base text-white/60 leading-6">
-            {line}
-          </p>
-        ))}
+        <p className="text-base text-white/60 leading-6">{feature.body}</p>
       </div>
 
       <span className="mt-auto pt-1">
@@ -79,9 +73,9 @@ function FeatureCard({ feature }: { feature: Feature }): JSX.Element {
 
 function FeatureGrid({ items }: { items: Feature[] }): JSX.Element {
   return (
-    <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 md:mt-16">
+    <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 md:mt-16 md:grid-cols-3">
       {items.map((feature, index) => (
-        <Reveal key={feature.title} delay={(index % 2) * 0.08}>
+        <Reveal key={feature.title} delay={(index % 3) * 0.08}>
           <FeatureCard feature={feature} />
         </Reveal>
       ))}
@@ -89,236 +83,212 @@ function FeatureGrid({ items }: { items: Feature[] }): JSX.Element {
   );
 }
 
-const FACES: Feature[] = [
+const CAPABILITIES: Feature[] = [
+  {
+    icon: <Users size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Welcome people who join",
+    body: "A member joining your server starts a journey, so the first touch is automatic.",
+    tag: "on join",
+  },
   {
     icon: <MessageSquare size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "Gateway worker — events in",
-    lines: [
-      "A separate Gateway worker process logs in with the bot token, dials " +
-        "Discord over a WebSocket, and POSTs each dispatch to the API.",
-      "Four dispatches become events: discord.message_sent, " +
-        "discord.reaction_added, discord.member_joined, " +
-        "discord.presence_active.",
-      "Each event runs the same ingestion pipeline as PostHog and the REST " +
-        "API — stored in user_events, routed to journeys, exit-checked, " +
-        "upserted onto a contact.",
-    ],
-    tag: "Gateway worker",
+    title: "Act on what they say",
+    body: "Messages and reactions become events you can trigger journeys on.",
+    tag: "messages + reactions",
+  },
+  {
+    icon: <Clock size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Win back quiet members",
+    body: "Hogsend tracks when each member was last active, so you can re-engage the ones who went quiet.",
+    tag: "last active",
+  },
+  {
+    icon: <KeyRound size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Link a Discord account to an email",
+    body: "A member runs /link and types a code from their inbox — now they're emailable too.",
+    tag: "/link",
   },
   {
     icon: <Send size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "Destination — events out",
-    lines: [
-      "discordDestination posts one Discord-markdown line per lifecycle " +
-        "event to a channel.",
-      "Incoming webhook URL (no bot token) or bot-REST with the bot token.",
-      "It subscribes to the full lifecycle catalog: contact.*, email.* " +
-        "(sent, delivered, opened, clicked, action, bounced, complained), " +
-        "journey.completed, and bucket.entered / left.",
-    ],
-    tag: "defineDestination()",
+    title: "Message them in Discord",
+    body: "Post lifecycle messages straight to a Discord channel, alongside the emails you already send.",
+    tag: "in-channel",
+  },
+  {
+    icon: <LayoutGrid size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "One profile across everything",
+    body: "Discord sits next to email, product activity, and PostHog on a single contact.",
+    tag: "one contact",
   },
 ];
 
-const IDENTITY: Feature[] = [
+type Recipe = {
+  title: string;
+  body: string;
+  href: string;
+};
+
+const DISCORD_RECIPES: Recipe[] = [
   {
-    icon: <Users size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "Four identity keys",
-    lines: [
-      "external_id is your app's user. email is the universal key. " +
-        "anonymous_id bridges pre-signup. discord_id is the Discord " +
-        "snowflake, held on a partial unique index on contacts.discord_id.",
-    ],
-    tag: "discord_id",
+    title: "Welcome new members",
+    body: "Trigger a welcome the moment a member joins and links an email.",
+    href: "/docs/recipes/welcome-new-discord-members",
   },
   {
-    icon: <MessageSquare size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "Discord metadata on the contact",
-    lines: [
-      "Discord metadata lands under contacts.properties.discord: id, " +
-        "username, global_name, avatar, last_seen.",
-      "last_seen is derived first-party — Discord has no last-seen field, " +
-        "so Hogsend stamps it from the max observed event timestamp.",
-    ],
-    tag: "contacts.properties.discord",
+    title: "Win back quiet members",
+    body: "Email the members who've gone quiet, using when they were last active.",
+    href: "/docs/recipes/re-engage-quiet-discord-members",
+  },
+  {
+    title: "Link Discord to email",
+    body: "Let a member tie their Discord account to an email with a code.",
+    href: "/docs/recipes/link-discord-to-email",
+  },
+  {
+    title: "Engagement alerts",
+    body: "Post hand-raises, complaints, and finished journeys to a Discord channel.",
+    href: "/docs/recipes/discord-engagement-alerts",
+  },
+  {
+    title: "Reaction as a signal",
+    body: "Turn a specific reaction into a lead an operator follows up on.",
+    href: "/docs/recipes/route-a-reaction-as-a-signal",
   },
 ];
 
-const LINKING: Feature[] = [
-  {
-    icon: <KeyRound size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "/link — in Discord (recommended)",
-    lines: [
-      "A contact links their email inside Discord with the /link slash " +
-        "command.",
-      "The flow is a private modal loop: /link opens an email modal; a " +
-        'valid address emails a 6-digit code and shows an "Enter code" ' +
-        "button; the button opens a code modal; submitting it links the " +
-        "account and shows a success card. Every step is ephemeral.",
-      "The code is single-use, has a 15-minute TTL, is bound to the " +
-        "invoking Discord user, and is hashed at rest. /verify <code> is " +
-        "the typed fallback.",
-      "Runs env-only — no extra credential, no CLI.",
-    ],
-    tag: "/link slash command",
-  },
-  {
-    icon: <Link2 size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "OAuth member-link — from your app (optional)",
-    lines: [
-      'A "Connect Discord" button from your web app. The engine mints the ' +
-        "link at POST /v1/admin/connectors/discord/member-link-url; the " +
-        "user authorizes (scope identify email guilds.members.read); the " +
-        "callback attaches discord_id to the bound contact.",
-      "The contact is identified by the email the link was issued for, " +
-        "never the OAuth-reported Discord email.",
-      "Use this when linking starts on the web rather than inside Discord.",
-    ],
-    tag: "OAuth member-link",
-  },
-];
-
-/** The .env block from the docs Setup section — verbatim, copyable. */
-const ENV_SNIPPET = `DISCORD_APPLICATION_ID=...
-DISCORD_PUBLIC_KEY=...
-DISCORD_BOT_TOKEN=...          # secret — the Gateway worker logs in with this
-DISCORD_CLIENT_SECRET=...      # secret — OAuth member-link only
-DISCORD_GUILD_ID=...           # optional — instant guild-scoped command registration
-
-API_PUBLIC_URL=https://api.example.com   # public host, not loopback
-CONNECTOR_INGRESS_SECRET=...             # >= 32 chars; shared by the worker + ingress route`;
+function RecipeCard({
+  recipe,
+  index,
+}: {
+  recipe: Recipe;
+  index: number;
+}): JSX.Element {
+  return (
+    <Reveal delay={(index % 3) * 0.08}>
+      <Link href={recipe.href} className="group block h-full">
+        <Card className="flex h-full flex-col gap-3">
+          <h3 className="font-medium font-sans text-white text-xl leading-[1.2] tracking-[-0.02em]">
+            {recipe.title}
+          </h3>
+          <p className="text-base text-white/60 leading-6">{recipe.body}</p>
+          <span className="mt-auto inline-flex items-center gap-1.5 pt-2 text-sm text-white/60 transition-colors group-hover:text-white">
+            Read the recipe
+            <ArrowUpRight
+              aria-hidden="true"
+              className="size-4 transition-transform duration-200 group-hover:translate-x-0.5"
+              strokeWidth={1.5}
+            />
+          </span>
+        </Card>
+      </Link>
+    </Reveal>
+  );
+}
 
 export default function DiscordPage(): JSX.Element {
   return (
     <main className="flex flex-1 flex-col">
-      {/* Heading — plain section so pt-32 clears the fixed 80px nav (the
-          shared Section rhythm would override it). Sits flush under the nav
-          hairline, no divider. */}
+      {/* Hero — plain section so pt-32 clears the fixed 80px nav (the shared
+          Section rhythm would override it). Sits flush under the nav hairline,
+          no divider. */}
       <section className="relative text-white">
         <div className="container-page pt-32 pb-20">
           <Reveal>
             <SectionHeading
               eyebrow="Discord"
-              title="Discord activity on the same contact as everything else"
-              subtitle="@hogsend/plugin-discord has an inbound Gateway worker that turns Discord messages, reactions, joins, and presence into discord.* events, and an outbound destination that posts lifecycle events to a Discord channel. Both resolve to the same contact as your app events, email engagement, and PostHog."
+              title="Integrate Discord into your lifecycle marketing"
+              subtitle="Add a bot to your Discord server and Hogsend sees who joins, what they post, and when they go quiet — on the same contact as their email and product activity. Then message them, by email or back in Discord."
             />
           </Reveal>
         </div>
       </section>
 
-      {/* What it does — the In / Out grid. */}
-      <Section id="what-it-does">
+      {/* Lead clip — a member joins, links an email, the welcome lands. */}
+      <Section id="in-motion">
         <Reveal>
           <SectionHeading
-            eyebrow="In and out"
-            title="A Gateway worker in, a destination out"
-            subtitle='The package mounts under meta.id = "discord" and is consumer-mounted — pnpm add it and wire it into your app. The engine ships no Discord code.'
+            eyebrow="In motion"
+            title="Someone joins. Hogsend takes it from there."
+            subtitle="A member joins your server, links their email with a code, and the welcome lands the moment they do — one continuous run."
           />
         </Reveal>
 
-        <FeatureGrid items={FACES} />
+        <Reveal className="mt-12">
+          <ClipVideo
+            clip="discord-welcome"
+            title="A new Discord member, welcomed the moment they link an email"
+          />
+        </Reveal>
       </Section>
 
-      {/* Unified contact — the identity value. */}
-      <Section id="unified-contact">
+      {/* What you can do — the six capability cards. */}
+      <Section id="what-you-can-do">
         <Reveal>
           <SectionHeading
-            eyebrow="Identity"
-            title="discord_id is a fourth contact identity key"
-            subtitle="discord_id is a fourth contact identity Kind (external | email | anonymous | discord). Identity resolves on shared keys, so Discord activity merges onto the contact your app already knows."
+            eyebrow="What you can do"
+            title="Six things it does the day you turn it on"
           />
         </Reveal>
 
-        <FeatureGrid items={IDENTITY} />
-
-        <Reveal delay={0.16} className="mt-6">
-          <Card>
-            <p className="text-base text-white/60 leading-6">
-              A journey can trigger on discord.reaction_added and send a Resend
-              email, or trigger on a billing event and post to a Discord channel
-              with discordDestination.
-            </p>
-          </Card>
-        </Reveal>
+        <FeatureGrid items={CAPABILITIES} />
       </Section>
 
-      {/* Linking — the two paths, /link first. */}
+      {/* Second clip — the /link email-code flow. */}
       <Section id="linking">
         <Reveal>
           <SectionHeading
-            eyebrow="Linking a contact"
-            title="Two ways to attach a Discord account to a contact"
-            subtitle="Two paths: the in-Discord /link slash command, and a web-initiated OAuth member-link. /link needs no extra credential beyond the bot; the OAuth path needs DISCORD_CLIENT_SECRET."
+            eyebrow="Linking"
+            title="Tie a Discord account to an email — without leaving Discord"
+            subtitle="The member runs /link, gets a code in their inbox, types it back, and the two become one contact."
           />
         </Reveal>
 
-        <FeatureGrid items={LINKING} />
-      </Section>
-
-      {/* Self-hosted truth — single-tenant + privileged intents. */}
-      <Section id="self-hosted">
-        <Reveal>
-          <SectionHeading
-            eyebrow="Self-hosted"
-            title="Each deploy runs its own Discord app"
-            subtitle="Each self-hosted deploy runs its own single-tenant Discord app."
+        <Reveal className="mt-12">
+          <ClipVideo
+            clip="discord-link"
+            title="Link a Discord account to an email with a code"
           />
         </Reveal>
-
-        <Reveal delay={0.1} className="mt-12 md:mt-16">
-          <Card className="flex flex-col gap-5">
-            <CardMark icon={<Server size={ICON_SIZE} strokeWidth={1.5} />} />
-            <ul className="flex flex-col gap-4">
-              <li className="text-base text-white/60 leading-6">
-                The four events need three privileged Gateway intents: Message
-                Content, Server Members, Presence.
-              </li>
-              <li className="text-base text-white/60 leading-6">
-                Under 10,000 users / 100 guilds these three are a self-serve
-                toggle in the Developer Portal — no Discord review or
-                verification at that scale. This is Discord policy, not a
-                Hogsend limit.
-              </li>
-              <li className="text-base text-white/60 leading-6">
-                Discord's terms still bind: a public privacy policy, user
-                opt-out and deletion, data minimization, no ML-training on
-                message content. Hogsend stores derived signals — last_seen,
-                counts, metadata — not raw message bodies.
-              </li>
-            </ul>
-          </Card>
-        </Reveal>
       </Section>
 
-      {/* Get started — env snippet + setup-guide pointer (single closing
-          section, one "Get started" eyebrow per page). */}
+      {/* Setup — one line + a docs link (the real steps live in the docs). */}
       <Section id="setup">
         <Reveal>
           <SectionHeading
             eyebrow="Get started"
             title="Set it up"
-            subtitle="pnpm add @hogsend/plugin-discord, register it in your app, run the Gateway worker, and post lifecycle events with discordDestination."
+            subtitle="Create a Discord bot, invite it to your server, paste the keys, and run it. The full walkthrough is in the docs."
           />
         </Reveal>
 
-        <Reveal delay={0.1} className="mt-12 md:mt-16">
-          <CodeWindow filename=".env" lang="bash" code={ENV_SNIPPET} />
-        </Reveal>
-
         <Reveal
-          delay={0.16}
+          delay={0.1}
           className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-4"
         >
           <Button href="/docs/integrations/discord" variant="accent" icon>
             Setup guide
           </Button>
-          <Button href="/docs/guides/destinations" variant="outline">
-            Destinations
-          </Button>
           <Button href="/docs/recipes" variant="outline">
-            Recipes
+            Browse recipes
           </Button>
         </Reveal>
+      </Section>
+
+      {/* Recipes — the five Discord recipes, each linking to its walkthrough. */}
+      <Section id="recipes">
+        <Reveal>
+          <SectionHeading
+            eyebrow="Recipes"
+            title="Five things to build with it"
+            subtitle="Copy-paste journeys and wiring — each one is a full walkthrough in the docs."
+          />
+        </Reveal>
+
+        <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {DISCORD_RECIPES.map((recipe, index) => (
+            <RecipeCard key={recipe.href} recipe={recipe} index={index} />
+          ))}
+        </div>
       </Section>
     </main>
   );
