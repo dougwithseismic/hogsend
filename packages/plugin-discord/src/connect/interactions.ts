@@ -286,7 +286,8 @@ function checkInboxBody(): Record<string, unknown> {
   return {
     content:
       "Check your inbox for a 6-digit code, then tap the button below to " +
-      `enter it. The code expires in ${TTL_MINUTES} minutes.`,
+      `enter it. The code expires in ${TTL_MINUTES} minutes. Didn't get it? ` +
+      "Re-run /link and double-check the address.",
     components: [
       {
         type: ComponentType.ACTION_ROW,
@@ -831,8 +832,19 @@ export async function handleInteraction(
   const submit = parseModalSubmit(payload);
   if (submit) {
     if (submit.modalId === CustomIds.EMAIL_MODAL) {
-      // Step B — DEFER first (inside 3s), then mint+send+PATCH out of band.
-      void runEmailFollowUp(submit, submit.values[EMAIL_INPUT_ID] ?? "", deps);
+      // Validate SYNCHRONOUSLY so a bad address gets an INSTANT inline ephemeral
+      // error (type 4 — legal for a modal submit; only type-9 modals aren't).
+      // This avoids deferring (and thus the racy follow-up edit) for the most
+      // common mistake — a typo'd / non-email value. Only a valid address defers
+      // into the out-of-band mint+send+PATCH (step B).
+      const email = normalizeEmail(submit.values[EMAIL_INPUT_ID] ?? "");
+      if (!email) {
+        return ephemeralReply(
+          "That doesn't look like a valid email address — check it and run " +
+            "/link to try again.",
+        );
+      }
+      void runEmailFollowUp(submit, email, deps);
       return ephemeralDeferredAck();
     }
     if (submit.modalId === CustomIds.CODE_MODAL) {

@@ -36,12 +36,24 @@ export async function editInteractionResponse(args: {
   const url =
     `${DISCORD_API_BASE}/webhooks/${args.applicationId}/${args.token}` +
     "/messages/@original";
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(args.body),
-  });
-  if (!res.ok) {
+  // RACE: the deferred (type-5) ack is delivered by the engine route AFTER this
+  // handler returns, so a fast follow-up (work resolved in <1s) can reach Discord
+  // BEFORE it has registered the deferral — the @original message then 404s ("not
+  // ready yet"). Retry ONLY the 404 with short backoff; it lands as soon as the
+  // deferral registers (well within the 15-min token window). Any other status
+  // fails fast (a real error, not a timing artifact).
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(args.body),
+    });
+    if (res.ok) return;
+    if (res.status === 404 && attempt < MAX_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+      continue;
+    }
     throw new Error(`discord interaction follow-up failed (${res.status})`);
   }
 }

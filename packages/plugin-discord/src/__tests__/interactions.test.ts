@@ -339,30 +339,37 @@ describe("handleInteraction — email modal submit (defer → mint → send)", (
     expect(editArg?.body?.content).toContain("Check your inbox");
   });
 
-  it("rejects an over-length email (>254): no mint, apology PATCH", async () => {
+  it("rejects an over-length email (>254) INLINE: no defer, no mint", async () => {
     const { deps, mintCode, sendLinkCode, editResponse } = makeDeps();
     // 250-char local part → > 254 total once the domain is appended.
     const overLong = `${"a".repeat(250)}@example.com`;
-    await handleInteraction(emailSubmitPayload(overLong), deps);
+    const res = await handleInteraction(emailSubmitPayload(overLong), deps);
     await flush();
 
+    // Synchronous inline ephemeral error (type 4) — NOT a deferral, so no racy
+    // follow-up PATCH is needed for the most common mistake.
+    expect(res.type).toBe(InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE);
+    expect(res.data?.flags).toBe(InteractionCallbackFlags.EPHEMERAL);
+    expect(res.data?.content).toContain("valid email");
     expect(mintCode).not.toHaveBeenCalled();
     expect(sendLinkCode).not.toHaveBeenCalled();
-    expect(editResponse.mock.calls[0]?.[0]?.body?.content).toContain(
-      "email address",
-    );
+    expect(editResponse).not.toHaveBeenCalled();
   });
 
-  it("rejects a malformed email: no mint, apology PATCH", async () => {
+  it("rejects a malformed email INLINE: no defer, no mint", async () => {
     const { deps, mintCode, sendLinkCode, editResponse } = makeDeps();
-    await handleInteraction(emailSubmitPayload("not-an-email"), deps);
+    const res = await handleInteraction(
+      emailSubmitPayload("not-an-email"),
+      deps,
+    );
     await flush();
 
+    expect(res.type).toBe(InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE);
+    expect(res.data?.flags).toBe(InteractionCallbackFlags.EPHEMERAL);
+    expect(res.data?.content).toContain("valid email");
     expect(mintCode).not.toHaveBeenCalled();
     expect(sendLinkCode).not.toHaveBeenCalled();
-    expect(editResponse.mock.calls[0]?.[0]?.body?.content).toContain(
-      "email address",
-    );
+    expect(editResponse).not.toHaveBeenCalled();
   });
 
   it("over-throttle: no send, PATCHes a 'too many codes' reply", async () => {
