@@ -13,6 +13,36 @@ const config = {
   // points at the monorepo root so Next traces workspace deps correctly.
   output: "standalone",
   outputFileTracingRoot: fileURLToPath(new URL("../../", import.meta.url)),
+  // PostHog ingests on `eu.i.posthog.com`, a host on every common ad-blocker
+  // list (EasyPrivacy, uBlock defaults) — our developer audience blocks it at a
+  // high rate, so client-side capture/identify silently never lands. The
+  // `/relay/*` rewrites below proxy ingestion (and the static-assets host)
+  // through our OWN first-party origin, so the requests look same-origin and
+  // sail past blockers. posthog-boot.tsx points `api_host` at `/relay` to match.
+  // skipTrailingSlashRedirect keeps PostHog's API paths (/relay/e/, /relay/flags)
+  // from being 308-redirected by Next's trailing-slash handling mid-capture.
+  skipTrailingSlashRedirect: true,
+  async rewrites() {
+    return [
+      {
+        source: "/relay/static/:path*",
+        destination: "https://eu-assets.i.posthog.com/static/:path*",
+      },
+      // Remote SDK config (`/array/<token>/config.js`) is served from the
+      // ASSETS host — it must proxy there too, or it falls through to the
+      // catch-all (ingestion host) and loses the assets-host cache-control
+      // headers, risking stale feature-flag / session-recording / survey config.
+      // This is PostHog's documented three-rule proxy pattern (static, array, catch-all).
+      {
+        source: "/relay/array/:path*",
+        destination: "https://eu-assets.i.posthog.com/array/:path*",
+      },
+      {
+        source: "/relay/:path*",
+        destination: "https://eu.i.posthog.com/:path*",
+      },
+    ];
+  },
   async redirects() {
     return [
       // Host-based 301s: the site is served at hogsend.com (root). The old

@@ -185,15 +185,23 @@ export function EmailCapture({
         // clicks in this browsing session reach the docs-subscriber journey
         // via /api/deploy-clicked.
         sessionIdentity.email = email.trim().toLowerCase();
-        // Identify the session under the contact's canonical Hogsend key (an
-        // opaque id, no PII) — the same PostHog person the contact's email
+        // Identify the session under the contact's canonical Hogsend key (a
+        // stable opaque id) — the same PostHog person the contact's email
         // events land on, and the one hs_t email clicks resolve to. In the
         // qualifyFirst order this is the stitch: the intent/seat/provider
         // events fired anonymously above now join this identified person.
+        // The required terms checkbox gates submission, so consent is present:
+        // attach email + name as person properties so the contact is
+        // identifiable in PostHog, not just an opaque key.
         const { contactKey } = (await res.json().catch(() => ({}))) as {
           contactKey?: string;
         };
-        if (contactKey) identify(contactKey);
+        if (contactKey) {
+          identify(contactKey, {
+            email: email.trim().toLowerCase(),
+            ...(trimmedName ? { name: trimmedName } : {}),
+          });
+        }
         capture(AnalyticsEvent.CAPTURE_SUBMITTED, {
           placement,
           product_notes: productNotes,
