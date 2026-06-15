@@ -1,9 +1,13 @@
 import posthog from "posthog-js";
 
 /**
- * Anonymous product analytics — never pass PII to PostHog (no emails, no
- * names). Identity lives in Hogsend (the ingest API); PostHog gets semantic
- * events keyed on its own anonymous distinct_id.
+ * Product analytics. Events are anonymous by default — `capture()` never
+ * carries PII (no emails, no names) and is keyed on PostHog's own anonymous
+ * distinct_id. The ONE exception is `identify()`: with the visitor's explicit
+ * consent (the required terms checkbox in EmailCapture) it sets email/name as
+ * person properties on the contact's PostHog profile. Identity itself still
+ * lives in Hogsend (the ingest API); PostHog gets semantic events keyed on its
+ * anonymous distinct_id until that consented identify.
  *
  * One event, many properties: prefer a single event name with a
  * discriminating property (e.g. `page_viewed { area, section }`) over a
@@ -93,19 +97,27 @@ export function getDistinctId(): string | undefined {
 }
 
 /**
- * identify — identifies the PostHog session under the Hogsend contact key
- * (an opaque id, never an email or name — PostHog still gets zero PII). The
- * same key is what the engine's outbound destinations emit as `userId` and
- * what `hs_t` email-click tokens resolve to, so the subscribing session, the
- * contact's email-lifecycle events, and post-click visits all converge on ONE
- * PostHog person. Memory persistence keeps the merge session-scoped,
- * matching the site's cookieless posture (same as the `hs_t` stitch in
- * posthog-boot.tsx).
+ * identify — identifies the PostHog session under the Hogsend contact key (a
+ * stable opaque id, NOT the email: emails change and would fragment identity,
+ * so the key stays the anchor). The same key is what the engine's outbound
+ * destinations emit as `userId` and what `hs_t` email-click tokens resolve to,
+ * so the subscribing session, the contact's email-lifecycle events, and
+ * post-click visits all converge on ONE PostHog person.
+ *
+ * `personProperties` (email, name) are written to that person's profile via
+ * PostHog `$set`. This is the single place we hand PII to PostHog, and only
+ * because the caller holds the visitor's explicit consent at the point of
+ * capture (the required terms checkbox + privacy-policy link in EmailCapture).
+ * Memory persistence keeps the merge session-scoped, matching the site's
+ * cookieless posture (same as the `hs_t` stitch in posthog-boot.tsx).
  */
-export function identify(distinctId: string): void {
+export function identify(
+  distinctId: string,
+  personProperties?: Record<string, unknown>,
+): void {
   if (typeof window === "undefined") return;
   if (!posthog.__loaded) return;
-  posthog.identify(distinctId);
+  posthog.identify(distinctId, personProperties);
 }
 
 /**

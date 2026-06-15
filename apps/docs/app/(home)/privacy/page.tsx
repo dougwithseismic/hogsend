@@ -22,7 +22,7 @@ const SECTIONS: PolicySection[] = [
     heading: "What we collect",
     paragraphs: [
       "If you submit a form on this site, we collect your email address and, if you give one, your first name. That's the lot.",
-      "We also run anonymous product analytics on the site — page views and the like. No cookies, no cross-site tracking, no profiles. We can't tell who you are from it and we don't try.",
+      "We also run product analytics on the site — page views and the like — through PostHog (EU). It's cookieless and stays anonymous unless you submit a form. When you do, and only because you ticked the box to agree, we attach your email and first name to that record so the visit and the contact are one person. No cookies and no cross-site tracking either way.",
     ],
   },
   {
@@ -35,7 +35,7 @@ const SECTIONS: PolicySection[] = [
   {
     heading: "Where it lives",
     paragraphs: [
-      "A few processors handle data on our behalf: Resend delivers email (EU region). Railway hosts the application. Cloudflare handles DNS and inbound email. PostHog EU stores the anonymous analytics, and only when analytics is enabled.",
+      "A few processors handle data on our behalf: Resend delivers email (EU region). Railway hosts the application. Cloudflare handles DNS and inbound email. PostHog EU stores the analytics — anonymous by default, plus your email and first name once you submit a form and agree.",
       "That's the full list. If it changes, this page changes.",
     ],
   },
@@ -59,13 +59,13 @@ const SECTIONS: PolicySection[] = [
   {
     heading: "What we don't do",
     paragraphs: [
-      "We don't sell your data. We don't use third-party ad tech. The analytics is cookieless, so there's no consent banner because there's nothing to consent to.",
+      "We don't sell your data. We don't use third-party ad tech. The site analytics is cookieless, so there's no banner for it. The one consent we do ask for is the tickbox on the form: it covers sending your email and first name to PostHog so your visit and your contact are the same person.",
     ],
   },
   {
     heading: "Changes",
     paragraphs: [
-      "This policy is dated 10 June 2026. If it changes, the changes appear on this page.",
+      "This policy is dated 15 June 2026. If it changes, the changes appear on this page.",
     ],
   },
 ];
@@ -86,7 +86,7 @@ export default function PrivacyPage(): JSX.Element {
             Privacy policy
           </h1>
           <p className="mt-6 max-w-xl text-base text-white/80 leading-6">
-            Short, because there isn't much to disclose. Last updated 10 June
+            Short, because there isn't much to disclose. Last updated 15 June
             2026.
           </p>
         </Reveal>

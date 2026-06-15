@@ -25,7 +25,13 @@ const scrubHeyUrls = (value: unknown): unknown => {
 
 function boot(posthogKey: string): void {
   posthog.init(posthogKey, {
-    api_host: "https://eu.i.posthog.com",
+    // First-party reverse proxy (Next rewrite in next.config.mjs) so ad blockers
+    // can't sever ingestion — `/relay/*` is same-origin and proxies to PostHog
+    // EU. `ui_host` still points at the real PostHog UI so the toolbar and
+    // session links resolve. `api_host` is a relative path: the browser resolves
+    // it against the current origin, which is exactly the first-party host we want.
+    api_host: "/relay",
+    ui_host: "https://eu.posthog.com",
     persistence: "memory",
     capture_pageview: true,
     capture_pageleave: true,
