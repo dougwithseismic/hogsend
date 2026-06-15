@@ -91,6 +91,23 @@ export interface OutboundPayloads {
   "email.opened": EmailEventPayload;
   "email.clicked": EmailEventPayload & { linkUrl?: string; linkId?: string };
   /**
+   * A NON-email tracked link was clicked (Discord/referral/ad-hoc
+   * `createTrackedLink`). The deliberate counterpart to `email.clicked` — a
+   * non-email click has no `email_sends` row, so it carries `emailSendId: null`
+   * and `messageId: null` and never masquerades as an email click
+   * (MF-missing #3). `userId` is the link's stitch subject (`distinct_id`) when
+   * the link is identity-bearing, else null for a broadcast link.
+   */
+  "link.clicked": {
+    linkId: string;
+    source: string | null;
+    userId: string | null;
+    emailSendId: null;
+    messageId: null;
+    linkUrl: string;
+    at: string;
+  };
+  /**
    * A SEMANTIC link answered — the in-email action event (consumer-named, e.g.
    * "nps.submitted"). Emitted at most once per (send, event name): first
    * answer wins, scanner bursts are suppressed. `event`/`properties` carry the

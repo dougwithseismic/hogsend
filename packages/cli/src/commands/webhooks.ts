@@ -21,6 +21,7 @@ const WEBHOOK_EVENT_TYPES = [
   "email.action",
   "email.bounced",
   "email.complained",
+  "link.clicked",
   "journey.completed",
   "bucket.entered",
   "bucket.left",

@@ -165,6 +165,11 @@ export {
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
 // --- Analytics provider registry (the analytics sibling) ---
+export {
+  type IdentityMergeReason,
+  logResidualTwins,
+  mergeAnalyticsIdentities,
+} from "./lib/analytics-identity.js";
 export { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
 export { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
 // --- Auth ---
@@ -265,9 +270,16 @@ export { checkEmailPreferences } from "./lib/enrollment-guards.js";
 export { isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { hatchet } from "./lib/hatchet.js";
+// --- Identity service (resolve/merge + analytics merge propagation, §7) ---
+export {
+  createIdentityService,
+  type IdentityService,
+  type LinkContactArgs,
+} from "./lib/identity-service.js";
 export {
   generateIdentityToken,
   type IdentityTokenPayload,
+  type IdentityTokenScope,
   InvalidIdentityTokenError,
   validateIdentityToken,
 } from "./lib/identity-token.js";
@@ -350,6 +362,7 @@ export {
 } from "./lib/tracked.js";
 // --- Tracking ---
 export {
+  createTrackedLink,
   injectOpenPixel,
   prepareTrackedHtml,
   rewriteLinks,

@@ -240,3 +240,40 @@ export async function prepareTrackedHtml(opts: {
   });
   return result;
 }
+
+/**
+ * The mint surface for a NON-email tracked link (Discord, referral, ad-hoc).
+ * Inserts a `tracked_links` row with a NULL `emailSendId` and returns the
+ * `/v1/t/c/:id` redirect URL to use in place of the raw destination.
+ *
+ * This is the SINGLE chokepoint enforcing "broadcast links carry no subject":
+ * a link only becomes identity-bearing when the caller EXPLICITLY passes
+ * `distinctId` (the canonical contact key the click should stitch into). Per
+ * MF-4, the referral path does NOT pass `distinctId` by default (referral
+ * pages are shareable → broadcast), and the Discord destination passes
+ * `distinctId: undefined`. The `hs_t` mint at click time is still gated by
+ * `TRACKING_IDENTITY_TOKEN` (default false); a row with a NULL `distinctId`
+ * never mints a token regardless.
+ */
+export async function createTrackedLink(opts: {
+  db: Database;
+  url: string;
+  /**
+   * The canonical contact key a click should fold the visitor's anon session
+   * into. OMIT for a broadcast link (the safe default) — only an explicit,
+   * single-subject, non-shareable link should pass this.
+   */
+  distinctId?: string;
+  source: "discord" | "referral" | "link";
+  baseUrl: string;
+}): Promise<string> {
+  const id = randomUUID();
+  await opts.db.insert(trackedLinks).values({
+    id,
+    emailSendId: null,
+    distinctId: opts.distinctId ?? null,
+    source: opts.source,
+    originalUrl: opts.url,
+  });
+  return `${opts.baseUrl}/v1/t/c/${id}`;
+}

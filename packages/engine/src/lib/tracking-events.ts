@@ -15,8 +15,12 @@ interface EmailSendContext {
 
 export async function resolveEmailSendContext(
   db: Database,
-  emailSendId: string,
+  emailSendId: string | null,
 ): Promise<EmailSendContext | null> {
+  // A non-email tracked link (Discord/referral/ad-hoc `createTrackedLink`) has
+  // a NULL `email_send_id` — there is no send row to resolve, so short-circuit
+  // to null rather than issue a `WHERE id = NULL` query that matches nothing.
+  if (!emailSendId) return null;
   const rows = await db
     .select({
       toEmail: emailSends.toEmail,

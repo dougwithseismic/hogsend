@@ -2,6 +2,7 @@
 
 import posthog from "posthog-js";
 import { type JSX, useEffect } from "react";
+import { DURABLE_PERSISTENCE, hasConsented } from "@/lib/analytics";
 
 /**
  * Replace the name segment of any /hey/<name> URL with /hey/_ in strings,
@@ -24,6 +25,12 @@ const scrubHeyUrls = (value: unknown): unknown => {
 };
 
 function boot(posthogKey: string): void {
+  // A returning visitor who already consented boots straight into durable
+  // persistence — no fork at the consent boundary on later visits. A fresh
+  // visitor boots strictly cookieless ("memory") until they consent (MF-8);
+  // the upgrade then happens via set_config without a re-init.
+  const persistence = hasConsented() ? DURABLE_PERSISTENCE : "memory";
+
   posthog.init(posthogKey, {
     // First-party reverse proxy (Next rewrite in next.config.mjs) so ad blockers
     // can't sever ingestion — `/relay/*` is same-origin and proxies to PostHog
@@ -32,7 +39,11 @@ function boot(posthogKey: string): void {
     // it against the current origin, which is exactly the first-party host we want.
     api_host: "/relay",
     ui_host: "https://eu.posthog.com",
-    persistence: "memory",
+    // Strictly cookieless ("memory") until explicit consent, then upgraded to
+    // localStorage+cookie so the visitor is durably ONE person across page
+    // loads. Pre-consent the anon id regenerates each full load (session-scoped
+    // by design); post-consent it is stable (zero further merges).
+    persistence,
     capture_pageview: true,
     capture_pageleave: true,
     // /hey/<name> referral pages carry a first name in the URL. PostHog gets
@@ -45,11 +56,12 @@ function boot(posthogKey: string): void {
 
   // Cross-device stitch: a visitor arriving from a tracked email link carries
   // a short-lived signed `hs_t` token. Exchange it (server-side proxy, no
-  // Hogsend URL in the client) for the distinct id and identify the session —
-  // the email click and this web session become one PostHog person. Memory
-  // persistence keeps the merge session-scoped: nothing is written to the
-  // device, matching the site's cookieless posture. The token is stripped
-  // from the address bar so it never lingers in history or shares.
+  // Hogsend URL in the client) along with this session's own anon distinct id
+  // (`currentDistinctId`) — the engine performs a server-side `alias`, folding
+  // this session into the token's canonical person. That alias is the DURABLE
+  // stitch (immune to browser persistence resets); the client `identify` below
+  // is now only a same-session convenience. The token is stripped from the
+  // address bar so it never lingers in history or shares.
   const params = new URLSearchParams(window.location.search);
   const identityToken = params.get("hs_t");
   if (identityToken) {
@@ -60,10 +72,14 @@ function boot(posthogKey: string): void {
       window.location.hash;
     window.history.replaceState(window.history.state, "", cleaned);
 
+    const currentDistinctId = posthog.get_distinct_id();
     void fetch("/api/identity", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: identityToken }),
+      body: JSON.stringify({
+        token: identityToken,
+        ...(currentDistinctId ? { currentDistinctId } : {}),
+      }),
     })
       .then(async (res) => {
         if (!res.ok) return;
@@ -85,8 +101,10 @@ function boot(posthogKey: string): void {
  * (A layout-prop read is no better: static pages freeze the layout's RSC
  * output at build.) Runtime fetch means: change the variable, restart, done.
  *
- * Memory persistence keeps it strictly cookieless (nothing written to
- * cookies or localStorage), so no consent banner is needed.
+ * Boots strictly cookieless ("memory") until the visitor explicitly consents
+ * (the required terms checkbox in EmailCapture), then upgrades to durable
+ * localStorage+cookie persistence via `set_config` — so no pre-consent
+ * cookie/localStorage write, and one stable person from consent forward.
  */
 export function PosthogBoot(): JSX.Element | null {
   useEffect(() => {

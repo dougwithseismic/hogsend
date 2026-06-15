@@ -39,6 +39,10 @@ const upsertRoute = createRoute({
           schema: z.object({
             email: z.string().email().optional(),
             userId: z.string().min(1).optional(),
+            // §4: caller's analytics anon id — the resolver's 2nd-precedence
+            // key. An EXTRA, never a third identity arm: `requireIdentity`
+            // still requires email or userId below.
+            anonymousId: z.string().min(1).max(200).optional(),
             properties: z.record(z.string(), z.unknown()).optional(),
             lists: z.record(z.string(), z.boolean()).optional(),
           }),
@@ -142,6 +146,9 @@ export const contactsRouter = new OpenAPIHono<AppEnv>()
       db,
       userId: body.userId,
       email: body.email,
+      // §4: 2nd-precedence resolver key (zero-merge stitch). Identity is still
+      // enforced via `requireIdentity` (email/userId) above.
+      anonymousId: body.anonymousId,
       contactProperties: body.properties,
     });
 

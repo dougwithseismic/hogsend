@@ -14,9 +14,23 @@ export const trackedLinks = pgTable(
   "tracked_links",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    emailSendId: uuid("email_send_id")
-      .notNull()
-      .references(() => emailSends.id, { onDelete: "cascade" }),
+    // NULLABLE since the identity-stitching minor: a tracked link no longer has
+    // to belong to an email send. Broadcast/non-email links (Discord, referral,
+    // ad-hoc `createTrackedLink`) carry NULL here. Email-link inserts keep
+    // populating it; the FK + index are unchanged.
+    emailSendId: uuid("email_send_id").references(() => emailSends.id, {
+      onDelete: "cascade",
+    }),
+    // Subject of a stitch-bearing NON-email link: the canonical contact key the
+    // click should fold the visitor's anon session into. NULL for broadcast
+    // links (Discord/referral default) — broadcast links are tracked for click
+    // counts but carry no identity. Email links resolve their subject from the
+    // `email_sends` row instead, so this stays NULL for them too.
+    distinctId: text("distinct_id"),
+    // Where the link originated: "email" | "discord" | "link". Drives the click
+    // route's per-hit outbound emit (email links emit `email.clicked`; non-email
+    // links emit `link.clicked`). NULL on legacy/email rows.
+    source: text("source"),
     originalUrl: text("original_url").notNull(),
     clickCount: integer("click_count").notNull().default(0),
     // Semantic link metadata, lifted from the template's data-hs-* attributes

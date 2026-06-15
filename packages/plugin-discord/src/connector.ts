@@ -251,13 +251,20 @@ export interface CreateDiscordConnectorConfig {
   /** Persist server-derived Discord config (kind="derived"). */
   saveDerived: (patch: Record<string, unknown>) => Promise<void>;
   /**
-   * Resolve / merge the member-linked contact (the consumer wires this to the
-   * engine's `resolveOrCreateContact`). The ONLY correct wiring is
-   * `resolveOrCreateContact({ discordId: patch.discordId, email: patch.email,
-   * contactProperties: patch.contactProperties })` — routing the raw snowflake
-   * through the `discord` identity Kind so the `discord_id` column is
-   * load-bearing. `email` is the AUTHORITATIVE address the link was issued for
-   * (from the engine-verified state), NOT the OAuth-reported Discord email.
+   * Resolve / merge the member-linked contact. The consumer wires this to the
+   * engine's identity-attach helper `client.identity.linkContact({ discordId:
+   * patch.discordId, email: patch.email, contactProperties:
+   * patch.contactProperties })` — routing the raw snowflake through the `discord`
+   * identity Kind so the `discord_id` column is load-bearing. `email` is the
+   * AUTHORITATIVE address the link was issued for (from the engine-verified
+   * state), NOT the OAuth-reported Discord email.
+   *
+   * Use `client.identity.linkContact` (NOT bare `resolveOrCreateContact`): on a
+   * successful `/link` contact-merge it propagates the analytics merge through
+   * the SAME engine emission ingest uses (§7), folding the discord-keyed loser
+   * into the canonical (email/external) survivor so Discord-platform events stop
+   * landing on a separate PostHog person. `resolveOrCreateContact` alone merges
+   * the rows but emits no PostHog merge.
    */
   resolveContact: (patch: {
     discordId: string;

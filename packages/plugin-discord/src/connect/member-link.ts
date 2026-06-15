@@ -2,10 +2,11 @@ import type { DiscordCurrentUser } from "./oauth.js";
 
 /**
  * The shape a per-member link reduces to: the args for a single
- * `resolveOrCreateContact({ email?, discordId })` call (the consumer's
+ * `client.identity.linkContact({ email?, discordId })` call (the consumer's
  * `resolveContact` callback forwards it). No bespoke merge path — the engine's
  * existing identity machinery folds the Discord-only contact onto the
- * email/identified one (or fills `discord_id` in when only the email resolves).
+ * email/identified one (or fills `discord_id` in when only the email resolves),
+ * and `linkContact` propagates the resulting analytics merge (§7).
  */
 export interface DiscordMemberLink {
   /** The Discord user the member linked. */

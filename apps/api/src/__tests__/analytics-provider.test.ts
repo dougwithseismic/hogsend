@@ -11,6 +11,12 @@ const { PostHog } = await import("posthog-node");
 const captureSpy = vi
   .spyOn(PostHog.prototype, "capture")
   .mockImplementation(() => {});
+// `mergeIdentities` maps to the native `client.alias` wire (anon-absorb merge);
+// like `capture`, it is defined on PostHog.prototype, so a prototype spy
+// catches the call the externalized plugin makes on its own instance.
+const aliasSpy = vi
+  .spyOn(PostHog.prototype, "alias")
+  .mockImplementation(() => {});
 
 const { derivePrivateHost, createPostHogProvider, getPersonProperties } =
   await import("@hogsend/plugin-posthog");
@@ -91,6 +97,100 @@ describe("createPostHogProvider", () => {
     // no provider rebuild.
     avail = true;
     expect(provider.capabilities.personReads).toBe(true);
+  });
+});
+
+// ===========================================================================
+// MF-1 — the alias-direction footgun, asserted as a code-review LAW.
+//
+// `mergeIdentities({ distinctId, alias })` MUST map to
+// `client.alias({ distinctId, alias })` UNCHANGED, where:
+//   • distinctId = the SURVIVING / canonical (identified) contact key, and
+//   • alias      = the ABSORBED (anonymous) id (never identified).
+//
+// The posthog-node `.d.ts` JSDoc shows the example BACKWARDS
+// (`distinctId: 'anonymous_123', alias: 'user_456'` — anon as distinctId,
+// identified as alias). An implementer who copies the `.d.ts` writes the merge
+// inverted, makes the canonical key the absorbed side, and BURNS it (PostHog
+// refuses the merge). These assertions guard against the DOCS rule, never the
+// `.d.ts` example.
+// ===========================================================================
+describe("mergeIdentities — alias direction (MF-1, docs rule not .d.ts)", () => {
+  beforeEach(() => aliasSpy.mockClear());
+
+  it("declares identityMerge=true and exposes the mergeIdentities wire", () => {
+    const provider = createPostHogProvider({ apiKey: "phc_x" });
+    expect(provider.capabilities.identityMerge).toBe(true);
+    expect(typeof provider.mergeIdentities).toBe("function");
+  });
+
+  it("maps {distinctId, alias} STRAIGHT THROUGH to client.alias — survivor=distinctId, absorbed=alias", () => {
+    const provider = createPostHogProvider({ apiKey: "phc_x" });
+    // distinctId = the canonical, ever-identified contact key (the survivor).
+    // alias      = the absorbed anonymous browser-session id.
+    provider.mergeIdentities?.({
+      distinctId: "canonical-contact-key",
+      alias: "anon-session-id",
+    });
+
+    expect(aliasSpy).toHaveBeenCalledTimes(1);
+    const arg = aliasSpy.mock.calls[0]?.[0];
+    // The SURVIVOR is the FIRST arg (distinctId); the ABSORBED anon id is the
+    // SECOND (alias). This is the whole law: if these two were swapped the
+    // canonical key would be burned.
+    expect(arg?.distinctId).toBe("canonical-contact-key");
+    expect(arg?.alias).toBe("anon-session-id");
+  });
+
+  it("does NOT invert the direction (guards against the .d.ts example)", () => {
+    const provider = createPostHogProvider({ apiKey: "phc_x" });
+    provider.mergeIdentities?.({
+      distinctId: "survivor-canon",
+      alias: "absorbed-anon",
+    });
+
+    const arg = aliasSpy.mock.calls[0]?.[0];
+    // Explicitly reject the .d.ts shape: the anon id must NEVER land as
+    // distinctId, and the canonical key must NEVER land as alias (which would
+    // try to absorb an identified key and PostHog would refuse).
+    expect(arg?.distinctId).not.toBe("absorbed-anon");
+    expect(arg?.alias).not.toBe("survivor-canon");
+    // And the survivor is never passed as the absorbed `alias` arg.
+    expect(arg?.alias).not.toBe(arg?.distinctId);
+  });
+
+  it("no-ops on a self-alias (distinctId === alias) — keeps the Part-1 zero-merge case free", () => {
+    const provider = createPostHogProvider({ apiKey: "phc_x" });
+    provider.mergeIdentities?.({ distinctId: "same-key", alias: "same-key" });
+    expect(aliasSpy).not.toHaveBeenCalled();
+  });
+
+  it("no-ops on an empty distinctId or alias (never sends a malformed merge)", () => {
+    const provider = createPostHogProvider({ apiKey: "phc_x" });
+    provider.mergeIdentities?.({ distinctId: "", alias: "anon" });
+    provider.mergeIdentities?.({ distinctId: "canon", alias: "" });
+    expect(aliasSpy).not.toHaveBeenCalled();
+  });
+
+  it("legacy PostHogService adapter exposes NO merge wire (helper no-ops, never mis-stitches)", async () => {
+    const { createHogsendClient } = await import("@hogsend/engine");
+    const legacy = {
+      getPersonProperties: vi.fn(async () => ({})),
+      captureEvent: vi.fn(),
+      identify: vi.fn(),
+      isFeatureEnabled: vi.fn(async () => false),
+      shutdown: vi.fn(async () => {}),
+    };
+    const client = createHogsendClient({ analytics: legacy });
+
+    // A hand-built legacy service has no alias wire: identityMerge stays
+    // absent/falsy and mergeIdentities is undefined → the engine helper no-ops
+    // rather than firing a backwards or no-op alias.
+    expect(client.analytics?.capabilities.identityMerge).toBeFalsy();
+    expect(client.analytics?.mergeIdentities).toBeUndefined();
+    expect(aliasSpy).not.toHaveBeenCalled();
+
+    await client.dbClient.end({ timeout: 5 }).catch(() => {});
   });
 });
 
