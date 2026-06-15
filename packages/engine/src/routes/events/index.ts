@@ -9,6 +9,14 @@ const eventRequestSchema = z.object({
   name: z.string().min(1),
   email: z.string().email().optional(),
   userId: z.string().min(1).optional(),
+  // §4: the caller's analytics anon id (e.g. posthog-js `get_distinct_id()`).
+  // 2nd in the resolver's key precedence (`external → email → anonymous →
+  // discord`), so when no `external_id` is attached the contact's canonical key
+  // BECOMES this value — the browser's own anon events and the server's captures
+  // then land on ONE analytics person with zero merge calls. An EXTRA, never a
+  // third identity arm: `requireIdentity` still requires email or userId
+  // (anon-only public ingest is an abuse vector).
+  anonymousId: z.string().min(1).max(200).optional(),
   eventProperties: z.record(z.string(), z.unknown()).optional(),
   contactProperties: z.record(z.string(), z.unknown()).optional(),
   lists: z.record(z.string(), z.boolean()).optional(),
@@ -68,7 +76,7 @@ const eventRoute = createRoute({
 export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
   eventRoute,
   async (c) => {
-    const { db, registry, hatchet, logger } = c.get("container");
+    const { db, registry, hatchet, logger, analytics } = c.get("container");
     const body = c.req.valid("json");
 
     const guard = requireIdentity(c, body);
@@ -83,10 +91,17 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
       registry,
       hatchet,
       logger,
+      // §5.3: thread the active analytics provider so a collide-MERGE / key-flip
+      // fires the provider-neutral `mergeIdentities` stitch. Absent ⇒ no-op.
+      analytics,
       event: {
         event: body.name,
         userId: body.userId,
         userEmail: body.email,
+        // §4: 2nd-precedence resolver key — lets the contact's canonical key
+        // equal the browser anon id (zero-merge stitch). Identity is still
+        // enforced via `requireIdentity` (email/userId) above.
+        anonymousId: body.anonymousId,
         eventProperties: body.eventProperties ?? {},
         contactProperties: body.contactProperties,
         idempotencyKey,

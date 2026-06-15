@@ -23,6 +23,7 @@ export class EventsResource {
         name: input.name,
         email: input.email,
         userId: input.userId,
+        anonymousId: input.anonymousId,
         eventProperties: input.eventProperties,
         contactProperties: input.contactProperties,
         lists: input.lists,

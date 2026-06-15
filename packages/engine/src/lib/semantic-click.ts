@@ -90,6 +90,15 @@ export async function confirmSemanticClick(
   if (!link?.event) {
     return { status: "skipped", reason: "not_semantic" };
   }
+  // The confirm path is EMAIL-semantic end to end (it claims a send's answer
+  // slot keyed on `emailSendId` and emits `email.action`). The click route only
+  // enqueues this task for links with a non-null `emailSendId`, but `emailSendId`
+  // is nullable since the identity-stitching minor — guard defensively and
+  // narrow the type for the rest of the function.
+  if (!link.emailSendId) {
+    return { status: "skipped", reason: "non_email_link" };
+  }
+  const emailSendId = link.emailSendId;
   const semanticEvent = link.event;
 
   // (1) Let the burst window close before judging the click.
@@ -109,7 +118,7 @@ export async function confirmSemanticClick(
     .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
     .where(
       and(
-        eq(trackedLinks.emailSendId, link.emailSendId),
+        eq(trackedLinks.emailSendId, emailSendId),
         gte(linkClicks.clickedAt, windowStart),
         lte(linkClicks.clickedAt, windowEnd),
       ),
@@ -117,7 +126,7 @@ export async function confirmSemanticClick(
   const distinctLinks = burst[0]?.n ?? 0;
   if (distinctLinks >= SEMANTIC_BURST_DISTINCT_LINKS) {
     logger.warn("Semantic answer suppressed: scanner-like click burst", {
-      emailSendId: link.emailSendId,
+      emailSendId,
       linkId: link.id,
       event: semanticEvent,
       distinctLinks,
@@ -125,21 +134,21 @@ export async function confirmSemanticClick(
     return { status: "suppressed", distinctLinks };
   }
 
-  const ctx = await resolveEmailSendContext(db, link.emailSendId);
+  const ctx = await resolveEmailSendContext(db, emailSendId);
   if (!ctx) {
     return { status: "skipped", reason: "no_send_context" };
   }
 
   // (3) Claim the answer slot. Duplicate key → stored=false BEFORE the Hatchet
   // push, so journeys/destinations see at most one answer per (send, event).
-  const semKey = `sem:${link.emailSendId}:${semanticEvent}`;
+  const semKey = `sem:${emailSendId}:${semanticEvent}`;
   const result = await pushTrackingEvent({
     db,
     hatchet,
     registry,
     logger,
     event: semanticEvent,
-    emailSendId: link.emailSendId,
+    emailSendId,
     properties: {
       ...(link.eventProperties ?? {}),
       linkId: link.id,
@@ -180,7 +189,7 @@ export async function confirmSemanticClick(
     payload: {
       event: semanticEvent,
       properties: link.eventProperties ?? null,
-      emailSendId: link.emailSendId,
+      emailSendId,
       templateKey: ctx.templateKey ?? null,
       userId: ctx.userId ?? null,
       to: ctx.to ?? ctx.userEmail ?? "",

@@ -1,4 +1,8 @@
-import { type AnalyticsProvider, defineAnalyticsProvider } from "@hogsend/core";
+import {
+  type AnalyticsProvider,
+  defineAnalyticsProvider,
+  type IdentityMergeOptions,
+} from "@hogsend/core";
 import { captureEvent } from "./capture.js";
 import { createPostHogClient, DEFAULT_HOST } from "./client.js";
 import { getPersonProperties } from "./properties.js";
@@ -61,6 +65,8 @@ export function createPostHogProvider(
       },
       personWrites: true,
       oauth: true,
+      // posthog-node exposes a native `alias` wire (anon-absorb merge).
+      identityMerge: true,
     },
 
     async getPersonProperties(distinctId: string) {
@@ -82,6 +88,17 @@ export function createPostHogProvider(
           ...(unset?.length ? { $unset: unset } : {}),
         },
       });
+    },
+
+    mergeIdentities({ distinctId, alias }: IdentityMergeOptions) {
+      // Direction is load-bearing (MF-1): `distinctId` is the SURVIVING /
+      // canonical (identified) id, `alias` the ABSORBED (anonymous) one — per
+      // the PostHog DOCS, NOT the posthog-node `.d.ts` example, which shows it
+      // backwards. The guard makes the Part-1 self-alias free and skips empties.
+      if (!distinctId || !alias || distinctId === alias) return;
+      // Fire-and-forget: rides the same async posthog-node queue as `capture`
+      // (we deliberately do NOT await `aliasImmediate` on any hot path).
+      client.alias({ distinctId, alias });
     },
 
     capture(opts) {

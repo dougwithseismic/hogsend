@@ -61,6 +61,12 @@ export interface AnalyticsCapabilities {
   personWrites: boolean;
   /** True when the provider supports the `hogsend connect` OAuth flow. */
   oauth?: boolean;
+  /**
+   * True when the provider can durably fold two distinct ids into ONE person
+   * (PostHog `alias`, Segment/Rudderstack `alias`, Amplitude merge). When false
+   * or absent, the engine's identity helper no-ops — stitching is best-effort.
+   */
+  identityMerge?: boolean;
 }
 
 export interface AnalyticsProviderMeta {
@@ -84,6 +90,18 @@ export interface AnalyticsProvider extends IdentityProvider {
   setPersonProperties(
     opts: { distinctId: string } & PersonPropertiesWrite,
   ): Promise<void>;
+
+  /**
+   * Declare `alias` and `distinctId` are the SAME person, folding `alias`'s
+   * history into the canonical id. Direction is load-bearing: `distinctId` is
+   * the SURVIVING/canonical id, `alias` the absorbed (anonymous) one — mapping
+   * straight from the engine's SURVIVOR RULE. Best-effort, idempotent,
+   * fire-and-forget. MUST be called only at the moment two keys first become
+   * one (a merge event), never per-event: PostHog `alias` is one-directional
+   * and once-only per pair. A provider that cannot merge omits this (and sets
+   * `identityMerge=false`); the engine no-ops.
+   */
+  mergeIdentities?(opts: IdentityMergeOptions): void;
 
   /** Event capture under a distinct id. Fire-and-forget semantics. */
   capture(opts: CaptureOptions): void;
@@ -127,4 +145,18 @@ export interface CaptureOptions {
   distinctId: string;
   event: string;
   properties?: Record<string, unknown>;
+}
+
+/**
+ * Options for {@link AnalyticsProvider.mergeIdentities}. Direction is
+ * load-bearing (MF-1): `distinctId` is the SURVIVING/canonical (identified) id
+ * and `alias` is the ABSORBED (anonymous) one, which MUST never have been an
+ * identify/alias `distinct_id`. Maps straight to PostHog `client.alias` per the
+ * PostHog DOCS — NOT the posthog-node `.d.ts` example, which is backwards.
+ */
+export interface IdentityMergeOptions {
+  /** The SURVIVING/canonical (identified) id — the only value that may survive. */
+  distinctId: string;
+  /** The ABSORBED (anonymous) id — must never have been identified. */
+  alias: string;
 }

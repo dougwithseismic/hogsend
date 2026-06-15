@@ -1,9 +1,14 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import type { AnalyticsProvider } from "@hogsend/core";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { checkBucketMembership } from "../buckets/check-membership.js";
+import {
+  logResidualTwins,
+  mergeAnalyticsIdentities,
+} from "./analytics-identity.js";
 import { resolveOrCreateContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
 
@@ -58,8 +63,17 @@ export async function ingestEvent(opts: {
   hatchet: HatchetClient;
   logger: Logger;
   event: IngestEvent;
+  /**
+   * The active analytics provider (`c.get("container").analytics`). When the
+   * identity resolve folds two keys into one (collide-MERGE or canonical-key
+   * flip), the engine fires the provider-neutral `mergeIdentities` primitive so
+   * the analytics person store stitches the same way the contact store did
+   * (§5.3). Optional: absent ⇒ DB-only resolve (no stitch), exactly as before; a
+   * provider without `identityMerge` no-ops cleanly.
+   */
+  analytics?: AnalyticsProvider;
 }): Promise<IngestResult> {
-  const { db, registry, hatchet, logger, event } = opts;
+  const { db, registry, hatchet, logger, event, analytics } = opts;
 
   // (1) Resolve identity FIRST (awaited — no longer fire-and-forget). The
   // contact-referencing tables join on a NOT NULL text key, so an email-only /
@@ -68,7 +82,13 @@ export async function ingestEvent(opts: {
   // `contacts.properties` (D2 split) and returns BOTH the canonical contact id
   // AND its resolved string key (external_id ?? anonymous_id ?? contact.id —
   // risk 1/6), so no second read-back of the contact row is needed.
-  const { resolvedKey } = await resolveOrCreateContact({
+  const {
+    id: contactId,
+    resolvedKey,
+    mergedKeys,
+    mergedIdentifiedKeys,
+    merged,
+  } = await resolveOrCreateContact({
     db,
     userId: event.userId,
     email: event.userEmail || undefined,
@@ -110,6 +130,36 @@ export async function ingestEvent(opts: {
       properties: event.eventProperties,
       ...(occurredAt ? { occurredAt } : {}),
     });
+  }
+
+  // (2b) §5.3 — fire the provider-neutral identity merge at the two resolver
+  // outcomes where two keys fold into one (collide-MERGE or canonical-key flip).
+  // Placed INSIDE the idempotency-guarded block (after a FRESH insert; the
+  // duplicate path returned early above) so a Hatchet/client retry with the same
+  // idempotencyKey does NOT re-fire `alias` — honoring the "only at the moment
+  // two keys first become one" contract (PostHog `alias` is harmless on replay
+  // but firing per-retry adds queue noise). MF-2: `mergedKeys` already excludes
+  // identified `external_id`s (the resolver split them out); fire only the safe
+  // anon/uuid keys, and surface the excluded identified twins for observability.
+  if (mergedKeys?.length || mergedIdentifiedKeys?.length) {
+    if (mergedKeys?.length) {
+      mergeAnalyticsIdentities({
+        analytics,
+        survivorKey: resolvedKey,
+        loserKeys: mergedKeys,
+        reason: merged ? "collide_merge" : "key_flip",
+        contactId,
+        logger,
+      });
+    }
+    if (mergedIdentifiedKeys?.length) {
+      logResidualTwins({
+        survivorKey: resolvedKey,
+        identifiedLoserKeys: mergedIdentifiedKeys,
+        contactId,
+        logger,
+      });
+    }
   }
 
   // (3) Build the JSON-serializable subset of eventProperties for the Hatchet

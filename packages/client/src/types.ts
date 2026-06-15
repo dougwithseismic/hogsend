@@ -151,6 +151,15 @@ export interface Campaign {
 export type UpsertContactInput = Identity & {
   properties?: Record<string, unknown>;
   lists?: Record<string, boolean>;
+  /**
+   * Your analytics anon id (provider-neutral — e.g. posthog-js
+   * `get_distinct_id()`). An EXTRA on top of the `Identity` union, never a third
+   * identity arm: `assertIdentity` still requires `email` or `userId`. It is the
+   * resolver's 2nd-precedence key, so a contact with no `external_id` gets its
+   * canonical key set to this value — the browser's own anon events then join the
+   * same analytics person as the server's captures with zero merge calls.
+   */
+  anonymousId?: string;
 };
 
 export type FindContactsInput = { email: string } | { userId: string };
@@ -163,6 +172,15 @@ export type SendEventInput = Identity & {
   contactProperties?: Record<string, unknown>;
   lists?: Record<string, boolean>;
   idempotencyKey?: string;
+  /**
+   * Your analytics anon id (provider-neutral — e.g. posthog-js
+   * `get_distinct_id()`). An EXTRA on top of the `Identity` union, never a third
+   * identity arm: `assertIdentity` still requires `email` or `userId`. It is the
+   * resolver's 2nd-precedence key, so a contact with no `external_id` gets its
+   * canonical key set to this value — the browser's own anon events then join the
+   * same analytics person as the server's captures with zero merge calls.
+   */
+  anonymousId?: string;
 };
 
 export type SubscribeInput = Identity & { list: string };

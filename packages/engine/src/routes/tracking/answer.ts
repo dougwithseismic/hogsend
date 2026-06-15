@@ -150,8 +150,15 @@ export const answerRouter = new OpenAPIHono<AppEnv>()
       );
     }
 
-    const ctx = await resolveEmailSendContext(db, link.emailSendId);
-    if (ctx) {
+    // The answer/comment flow is EMAIL-semantic (it re-ingests a
+    // `<event>.comment` keyed on the send). A non-email semantic link has no
+    // send to attribute the comment to — `emailSendId` is nullable since the
+    // identity-stitching minor, so narrow it here.
+    const emailSendId = link.emailSendId;
+    const ctx = emailSendId
+      ? await resolveEmailSendContext(db, emailSendId)
+      : null;
+    if (ctx && emailSendId) {
       // `<event>.comment` is a consumer-namespace event — journeys can wait
       // on it and destinations receive it like any other. First comment per
       // (send, event) wins; repeats are no-ops.
@@ -161,7 +168,7 @@ export const answerRouter = new OpenAPIHono<AppEnv>()
         registry,
         logger,
         event: `${link.event}.comment`,
-        emailSendId: link.emailSendId,
+        emailSendId,
         properties: {
           comment,
           parentEvent: link.event,
@@ -169,7 +176,7 @@ export const answerRouter = new OpenAPIHono<AppEnv>()
           linkId: link.id,
         },
         resolvedContext: ctx,
-        idempotencyKey: `semc:${link.emailSendId}:${link.event}`,
+        idempotencyKey: `semc:${emailSendId}:${link.event}`,
       }).catch((err) => {
         logger.warn("Failed to ingest answer comment", {
           linkId: link.id,

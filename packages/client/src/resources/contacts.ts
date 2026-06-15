@@ -22,6 +22,7 @@ export class ContactsResource {
     return this.http.put<UpsertContactResult>("/v1/contacts", {
       email: input.email,
       userId: input.userId,
+      anonymousId: input.anonymousId,
       properties: input.properties,
       lists: input.lists,
     });

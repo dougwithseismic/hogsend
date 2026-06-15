@@ -5,8 +5,8 @@ import {
   getDerivedCredential,
   getEmailService,
   getRedisIfConnected,
+  type IdentityService,
   redeemLinkCode,
-  resolveOrCreateContact,
   saveDerivedCredential,
 } from "@hogsend/engine";
 import {
@@ -31,19 +31,35 @@ import { discordEnv } from "./env.js";
  */
 
 let dbHandle: Database | undefined;
+let identityHandle: IdentityService | undefined;
 
-/** Wire the container db handle into the Discord callbacks (call once, post-build). */
-export function setDiscordDb(db: Database): void {
+/**
+ * Wire the container db handle AND the engine identity service into the Discord
+ * callbacks (call once, post-build). `client.identity` is the engine path the
+ * `/link` contact-merge propagates a PostHog merge through (§7) — wiring it here
+ * keeps the merge propagation in the engine, not bespoke connector code.
+ */
+export function setDiscordDb(db: Database, identity: IdentityService): void {
   dbHandle = db;
+  identityHandle = identity;
 }
 
 function requireDb(): Database {
   if (!dbHandle) {
     throw new Error(
-      "Discord connector used before setDiscordDb(client.db) was called",
+      "Discord connector used before setDiscordDb(client.db, …) was called",
     );
   }
   return dbHandle;
+}
+
+function requireIdentity(): IdentityService {
+  if (!identityHandle) {
+    throw new Error(
+      "Discord connector used before setDiscordDb(…, client.identity) was called",
+    );
+  }
+  return identityHandle;
 }
 
 /** Redis key prefix for the `/verify` anti-guessing attempt counter. */
@@ -114,9 +130,17 @@ export function buildDiscordConnector():
     // `discord_id` stays the SOLE resolution key; `email` is the AUTHORITATIVE
     // address the link was issued for (from the engine-verified state), never the
     // OAuth-reported Discord email. `contactProperties` is NON-KEY metadata.
+    //
+    // Goes through `client.identity.linkContact` (NOT bare
+    // `resolveOrCreateContact`) so a successful `/link` contact-merge propagates
+    // the PostHog merge through the SAME engine emission ingest uses (§7) — the
+    // discord-keyed loser is absorbed into the canonical (email/external)
+    // survivor (MF-2: an already-identified loser `external_id` is excluded and
+    // logged as a residual twin, never aliased). Bare resolveOrCreateContact
+    // would merge the rows but leave the Discord-platform events on a separate
+    // PostHog person.
     resolveContact: async (patch) => {
-      await resolveOrCreateContact({
-        db: requireDb(),
+      await requireIdentity().linkContact({
         discordId: patch.discordId,
         email: patch.email,
         contactProperties: patch.contactProperties,

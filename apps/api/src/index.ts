@@ -39,8 +39,10 @@ const client = createHogsendClient({
 });
 
 // The Discord connector callbacks (saveDerived/resolveContact) capture the
-// container db lazily — wire it now that the client (and its db) exist.
-setDiscordDb(client.db);
+// container db + identity service lazily — wire them now that the client (and
+// its db/identity) exist. `client.identity` is what `resolveContact` uses so the
+// `/link` contact-merge propagates a PostHog merge through the engine path (§7).
+setDiscordDb(client.db, client.identity);
 
 // Env-only deploys never run `hogsend connect discord`, so the derived
 // credential lacks `discordAppId` and Studio's install button / member-link

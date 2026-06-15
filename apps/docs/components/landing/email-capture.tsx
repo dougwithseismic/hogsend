@@ -7,7 +7,7 @@ import {
   AnalyticsEvent,
   capture,
   getDistinctId,
-  identify,
+  grantConsent,
   sessionIdentity,
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
@@ -166,6 +166,10 @@ export function EmailCapture({
     setStatus("submitting");
 
     const trimmedName = firstName.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    // MF-8 step (1): read the anon distinct id ONCE, before any set_config can
+    // rotate it. The same value is sent as `anonymousId` (step 2) and reused
+    // as the identify target (step 4) so the post-consent self-alias holds.
     const distinctId = getDistinctId();
 
     try {
@@ -175,30 +179,36 @@ export function EmailCapture({
         body: JSON.stringify({
           email,
           ...(trimmedName ? { firstName: trimmedName } : {}),
+          // Step (2): forwarded as the top-level `anonymousId` (the engine keys
+          // the contact on it → returned contactKey equals this browser id).
           ...(distinctId ? { posthogDistinctId: distinctId } : {}),
           termsAccepted,
           productNotes,
         }),
       });
       if (res.ok) {
-        // Session identity (in-memory only, cookieless) lets later deploy
-        // clicks in this browsing session reach the docs-subscriber journey
-        // via /api/deploy-clicked.
-        sessionIdentity.email = email.trim().toLowerCase();
-        // Identify the session under the contact's canonical Hogsend key (a
-        // stable opaque id) — the same PostHog person the contact's email
-        // events land on, and the one hs_t email clicks resolve to. In the
-        // qualifyFirst order this is the stitch: the intent/seat/provider
-        // events fired anonymously above now join this identified person.
-        // The required terms checkbox gates submission, so consent is present:
-        // attach email + name as person properties so the contact is
-        // identifiable in PostHog, not just an opaque key.
+        // Session identity (in-memory only) lets later deploy clicks in this
+        // browsing session reach the docs-subscriber journey via
+        // /api/deploy-clicked.
+        sessionIdentity.email = normalizedEmail;
+        // The required terms checkbox gates submission, so explicit consent is
+        // present. Upgrade persistence to durable localStorage+cookie and
+        // identify under the canonical Hogsend key (a stable opaque id — the
+        // same PostHog person the contact's email events land on). With
+        // anonymousId threading contactKey === the browser id, so this is a
+        // self-alias carrying only the consented email/name person properties;
+        // MF-8 steps (3)+(4) are applied together in grantConsent, using the
+        // pre-upgrade `distinctId` as the upgrade anchor.
         const { contactKey } = (await res.json().catch(() => ({}))) as {
           contactKey?: string;
         };
-        if (contactKey) {
-          identify(contactKey, {
-            email: email.trim().toLowerCase(),
+        // Prefer the returned canonical key (covers the existing-contact case
+        // where it may differ from the browser id); fall back to the captured
+        // anon id so the durable upgrade still anchors on a stable value.
+        const identifyTarget = contactKey ?? distinctId;
+        if (identifyTarget) {
+          grantConsent(identifyTarget, {
+            email: normalizedEmail,
             ...(trimmedName ? { name: trimmedName } : {}),
           });
         }

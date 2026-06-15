@@ -9,6 +9,15 @@ export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 type IngestEventBody = {
   name: string;
   email: string;
+  /**
+   * The subscribing session's PostHog anonymous distinct_id, forwarded as a
+   * top-level identity field (engine ≥0.18) — NOT a contact property. The
+   * engine's resolver uses it as the 2nd-precedence key, so the returned
+   * `contactKey` equals this browser id and the session's anonymous events
+   * land on the same PostHog person with zero merge calls. Email/userId still
+   * carry identity; `anonymousId` is an extra, never a standalone arm.
+   */
+  anonymousId?: string;
   contactProperties?: Record<string, unknown>;
   eventProperties?: Record<string, unknown>;
   lists?: Record<string, boolean>;

@@ -22,7 +22,7 @@ async function main() {
     connectors: discordConnector ? [discordConnector] : [],
     destinations: [discordDestination],
   });
-  setDiscordDb(client.db);
+  setDiscordDb(client.db, client.identity);
   const worker = createWorker({ container: client, journeys, buckets });
 
   async function shutdown(signal: string) {

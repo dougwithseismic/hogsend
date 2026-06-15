@@ -353,6 +353,23 @@ export async function resolveOrCreateContact(opts: {
   created: boolean;
   linked: boolean;
   merged: boolean;
+  /**
+   * SAFE-to-absorb loser keys (§5.3 MF-2): the anonymous/uuid keys the resolver
+   * folded INTO `resolvedKey` this call — populated only on a collide-MERGE or a
+   * canonical-key flip that absorbed an anon/uuid key. Callers fan these out via
+   * `mergeAnalyticsIdentities({ distinctId: resolvedKey, alias: <key> })`. An
+   * `external_id` is NEVER listed here (it carried an identified PostHog person;
+   * aliasing it is the merge PostHog refuses — R2/R4); it surfaces in
+   * {@link mergedIdentifiedKeys} instead. Empty/absent ⇒ nothing to stitch.
+   */
+  mergedKeys?: string[];
+  /**
+   * Loser keys MF-2 could NOT safely absorb — already-identified `external_id`s
+   * (and the superseded `external_id` on a key flip). These are the known
+   * steady-state twin residual (§10, OQ-1); callers log them as
+   * `identity.merge.residual_twin` for observability. Never aliased.
+   */
+  mergedIdentifiedKeys?: string[];
 }> {
   const { db, contactProperties } = opts;
   const userId = opts.userId?.trim() || undefined;
@@ -423,7 +440,29 @@ export async function resolveOrCreateContact(opts: {
     // --- CASE: fill-in-link (single existing row) ---
     const single = candidates[0];
     if (candidates.length === 1 && single) {
-      const { id, resolvedKey } = await fillInLink(tx, single, {
+      const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
+        await fillInLink(tx, single, {
+          userId,
+          email,
+          anonymousId,
+          discordId,
+          patch,
+          hasPatch,
+        });
+      return {
+        id,
+        resolvedKey,
+        created: false,
+        linked: true,
+        merged: false,
+        mergedKeys,
+        mergedIdentifiedKeys,
+      };
+    }
+
+    // --- CASE: collide-MERGE (2-3 distinct rows) ---
+    const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
+      await mergeContacts(tx, candidates, {
         userId,
         email,
         anonymousId,
@@ -431,19 +470,15 @@ export async function resolveOrCreateContact(opts: {
         patch,
         hasPatch,
       });
-      return { id, resolvedKey, created: false, linked: true, merged: false };
-    }
-
-    // --- CASE: collide-MERGE (2-3 distinct rows) ---
-    const { id, resolvedKey } = await mergeContacts(tx, candidates, {
-      userId,
-      email,
-      anonymousId,
-      discordId,
-      patch,
-      hasPatch,
-    });
-    return { id, resolvedKey, created: false, linked: true, merged: true };
+    return {
+      id,
+      resolvedKey,
+      created: false,
+      linked: true,
+      merged: true,
+      mergedKeys,
+      mergedIdentifiedKeys,
+    };
   });
 }
 
@@ -465,7 +500,12 @@ async function fillInLink(
   tx: Tx,
   row: ContactRow,
   ctx: ResolveCtx,
-): Promise<{ id: string; resolvedKey: string }> {
+): Promise<{
+  id: string;
+  resolvedKey: string;
+  mergedKeys?: string[];
+  mergedIdentifiedKeys?: string[];
+}> {
   const set: Record<string, unknown> = {
     lastSeenAt: new Date(),
     updatedAt: new Date(),
@@ -513,6 +553,15 @@ async function fillInLink(
   // updated row (with its new email/keys) is what foldJourneyStates/email_sends
   // denormalize into.
   const newKey = nextExternalId ?? nextAnonymousId ?? row.id;
+  // §5.3 emission point 2 (canonical-key flip): when the key flips, the OLD key
+  // is folded into the NEW one. MF-3 gate — only emit a merge when `oldKey` was
+  // an anonymous/uuid key (never an `external_id` being superseded; that is the
+  // twin case, OQ-1). In practice a flip in fillInLink only fires when the row
+  // had NO external_id (attaching one never happens to an already-external row),
+  // so `oldKey` is structurally always anon/uuid here — the explicit gate guards
+  // the invariant regardless.
+  let mergedKeys: string[] | undefined;
+  let mergedIdentifiedKeys: string[] | undefined;
   if (newKey !== oldKey) {
     const updatedRow: ContactRow = {
       ...row,
@@ -521,6 +570,14 @@ async function fillInLink(
       email: (set.email as string | undefined) ?? row.email,
     };
     await repointOwnHistory(tx, oldKey, newKey, updatedRow);
+
+    const oldKeyWasExternalId =
+      row.externalId != null && oldKey === row.externalId;
+    if (oldKeyWasExternalId) {
+      mergedIdentifiedKeys = [oldKey];
+    } else {
+      mergedKeys = [oldKey];
+    }
   }
 
   for (const key of promoted) {
@@ -540,7 +597,7 @@ async function fillInLink(
 
   // `newKey` IS the post-fill canonical key (external_id ?? anonymous_id ?? id) —
   // the same value the old read-back derived.
-  return { id: row.id, resolvedKey: newKey };
+  return { id: row.id, resolvedKey: newKey, mergedKeys, mergedIdentifiedKeys };
 }
 
 /**
@@ -551,9 +608,21 @@ async function mergeContacts(
   tx: Tx,
   candidates: ContactRow[],
   ctx: ResolveCtx,
-): Promise<{ id: string; resolvedKey: string }> {
+): Promise<{
+  id: string;
+  resolvedKey: string;
+  mergedKeys?: string[];
+  mergedIdentifiedKeys?: string[];
+}> {
   const { survivor, losers } = pickSurvivor(candidates);
   const survivorKey = contactKey(survivor);
+
+  // §5.3 emission point 1 (collide-MERGE) accumulators. MF-2: a loser's
+  // anonymous/uuid key is SAFE to absorb (it never identified a PostHog person);
+  // a loser's `external_id` is an already-identified person PostHog refuses to
+  // merge on the safe path — it is recorded as the twin residual, NEVER aliased.
+  const safeLoserKeys: string[] = [];
+  const identifiedLoserKeys: string[] = [];
 
   for (const loser of losers) {
     const loserStrKeys = [loser.externalId, loser.anonymousId, loser.id].filter(
@@ -562,6 +631,19 @@ async function mergeContacts(
     // The id is the last-resort key for a loser that has neither external nor
     // anonymous id (its user_id rows were keyed on contacts.id).
     const loserKeysToRewrite = loserStrKeys;
+
+    // MF-2 split: the SAFE-to-absorb key is the loser's anonymous/uuid key —
+    // `loser.anonymousId`, or `loser.id` ONLY when the loser was never
+    // identified (no external_id). When the loser HAS an external_id, that
+    // external_id was its canonical key, so its events were captured under it
+    // (identified) → residual; `loser.id` never carried events in that case, so
+    // there is no safe key to alias from it.
+    if (loser.externalId) {
+      identifiedLoserKeys.push(loser.externalId);
+      if (loser.anonymousId) safeLoserKeys.push(loser.anonymousId);
+    } else {
+      safeLoserKeys.push(loser.anonymousId ?? loser.id);
+    }
 
     // (ii) user_events.user_id rewrite.
     await tx
@@ -703,8 +785,16 @@ async function mergeContacts(
   }
 
   // `newSurvivorKey` IS the post-merge canonical key of the survivor — the same
-  // value the old read-back derived for the merged row.
-  return { id: survivor.id, resolvedKey: newSurvivorKey };
+  // value the old read-back derived for the merged row. The merge folds every
+  // loser key into it, so callers fan out `mergeAnalyticsIdentities` aliasing
+  // each SAFE loser key into `newSurvivorKey` (§5.3 emission point 1).
+  return {
+    id: survivor.id,
+    resolvedKey: newSurvivorKey,
+    mergedKeys: safeLoserKeys.length > 0 ? safeLoserKeys : undefined,
+    mergedIdentifiedKeys:
+      identifiedLoserKeys.length > 0 ? identifiedLoserKeys : undefined,
+  };
 }
 
 /**
@@ -1121,6 +1211,10 @@ export async function upsertContact(opts: {
   created: boolean;
   linked: boolean;
   merged: boolean;
+  /** §5.3 MF-2: safe-to-absorb loser keys folded this call (anon/uuid). */
+  mergedKeys?: string[];
+  /** §5.3 MF-2: already-identified loser keys (twin residual); never aliased. */
+  mergedIdentifiedKeys?: string[];
 }> {
   return resolveOrCreateContact({
     db: opts.db,

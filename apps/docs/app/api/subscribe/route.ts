@@ -20,8 +20,10 @@ function sanitizeFirstName(value: unknown): string | undefined {
 
 /**
  * sanitizeDistinctId — the PostHog anonymous distinct_id of the subscribing
- * session, stored as a contact property so the anonymous browsing trail can
- * be joined to the contact later. Optional and best-effort.
+ * session. Forwarded as the top-level `anonymousId` identity field so the
+ * engine's resolver keys the contact on it: the returned `contactKey` then
+ * equals this browser id and the session's anonymous events join the same
+ * PostHog person with no merge call. Optional and best-effort.
  */
 function sanitizeDistinctId(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -36,7 +38,9 @@ function sanitizeDistinctId(value: unknown): string | undefined {
  * POST /api/subscribe — accepts { email, firstName?, posthogDistinctId? }
  * and forwards a `docs.subscribed` lifecycle event to the external Hogsend
  * ingest API, carrying the first name (so journey templates can greet by
- * name) and the session's PostHog distinct_id as contact properties.
+ * name) as a contact property and the session's PostHog distinct_id as the
+ * top-level `anonymousId` (the engine keys the contact on it, so the returned
+ * `contactKey` equals the browser id — zero-merge identity threading).
  */
 export async function POST(request: Request): Promise<NextResponse> {
   if (!ingestConfigured()) {
@@ -78,9 +82,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     {
       name: "docs.subscribed",
       email: normalizedEmail,
+      // The browser anon id rides as top-level `anonymousId` (the engine
+      // resolver's 2nd-precedence key), NOT as the inert contactProperties
+      // entry it used to be — that property never stitched anything.
+      ...(posthogDistinctId ? { anonymousId: posthogDistinctId } : {}),
       contactProperties: {
         ...(firstName ? { firstName } : {}),
-        ...(posthogDistinctId ? { posthogDistinctId } : {}),
       },
       // termsAccepted is recorded on the event as the consent audit trail.
       eventProperties: { source: "docs-site", termsAccepted },

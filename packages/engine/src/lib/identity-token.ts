@@ -8,8 +8,12 @@ import {
 /**
  * Short-lived identity token appended to tracked-link redirects as `hs_t`
  * (opt-in via TRACKING_IDENTITY_TOKEN). The landing site exchanges it at
- * `POST /v1/t/identify` for the distinct id and calls `posthog.identify` —
- * stitching the email click to the web session.
+ * `POST /v1/t/identify`, where the engine fires a SERVER-SIDE `alias` folding
+ * the caller's own anon session into the token's canonical id — stitching the
+ * click to the web session. Minted for EMAIL links by default; non-email
+ * (Discord/referral) links carry a token only when explicitly stitch-bearing
+ * (`tracked_links.distinct_id` set) — referral links are token-less by default
+ * (MF-4 anti-hijack).
  *
  * ENCRYPTED (AES-256-GCM keyed off BETTER_AUTH_SECRET), not merely signed:
  * the distinct id can fall back to an email address, and a signed-but-
@@ -18,11 +22,38 @@ import {
  * auth tag also covers integrity, so tampering fails decryption.
  */
 
+/**
+ * The only merge mode a token may authorize: fold the CALLER's own anonymous
+ * session INTO the token's canonical `distinctId`. There is deliberately no
+ * "become the subject" / overwrite mode — that is the anti-hijack invariant.
+ */
+export type IdentityTokenScope = "anon-absorb";
+
 export interface IdentityTokenPayload {
-  /** The distinct id the landing site should identify as. */
+  /**
+   * The canonical contact key the landing site should fold INTO — the ONLY
+   * ever-identified id. NEVER a per-link or anonymous id.
+   */
   distinctId: string;
-  emailSendId: string;
+  /**
+   * Where the token was minted: `"email:<sendId>"` | `"link:<linkId>"`.
+   * Referral links are excluded by default (they carry no identity token).
+   */
+  src: string;
+  /**
+   * The authorized merge mode. Only `"anon-absorb"` is ever minted. OPTIONAL on
+   * the wire for the rolling-deploy window (MF-7): a token minted by the still-old
+   * click route carries no `scope`, so `validateIdentityToken` treats a MISSING
+   * scope as `"anon-absorb"` (allow) and rejects only a PRESENT-and-wrong value.
+   */
+  scope?: IdentityTokenScope;
   exp: number;
+  /**
+   * @deprecated Alias of `src` for ONE minor (mirrors the `resendId` → `messageId`
+   * deprecation window). Old tokens carry only `emailSendId`; new email tokens
+   * carry both. Reads should prefer `src`.
+   */
+  emailSendId?: string;
 }
 
 export class InvalidIdentityTokenError extends Error {
@@ -43,11 +74,27 @@ function deriveKey(secret: string): Buffer {
 export function generateIdentityToken(opts: {
   secret: string;
   distinctId: string;
-  emailSendId: string;
+  /**
+   * Mint provenance: `"email:<sendId>"` | `"link:<linkId>"`. When omitted, falls
+   * back to `email:<emailSendId>` for the legacy email-link caller.
+   */
+  src?: string;
+  /** Defaults to `"anon-absorb"` — the only mode a token may authorize. */
+  scope?: IdentityTokenScope;
+  /**
+   * @deprecated Pass `src` instead. Kept for the one-minor deprecation window so
+   * existing email-link callers compile unchanged; mirrored into the payload's
+   * deprecated `emailSendId` field and used to synthesize `src` when `src` is
+   * absent.
+   */
+  emailSendId?: string;
   expiresInSeconds?: number;
 }): string {
+  const src = opts.src ?? (opts.emailSendId ? `email:${opts.emailSendId}` : "");
   const payload: IdentityTokenPayload = {
     distinctId: opts.distinctId,
+    src,
+    scope: opts.scope ?? "anon-absorb",
     emailSendId: opts.emailSendId,
     exp:
       Math.floor(Date.now() / 1000) +
@@ -107,6 +154,19 @@ export function validateIdentityToken(opts: {
   }
   if (payload.exp < Math.floor(Date.now() / 1000)) {
     throw new InvalidIdentityTokenError("Token expired");
+  }
+  // MF-7 — missing-scope-ALLOW. The API and worker deploy independently from
+  // the same image, so a token minted by the still-old click route carries no
+  // `scope`. Treat a MISSING scope as the only legal mode (`"anon-absorb"`);
+  // reject ONLY a present-and-wrong value. Old tokens (no `scope`, no `src`)
+  // still validate — this check never widened the required-shape gate above.
+  if (payload.scope !== undefined && payload.scope !== "anon-absorb") {
+    throw new InvalidIdentityTokenError("Unsupported token scope");
+  }
+  // Backfill `src` from the deprecated `emailSendId` for old tokens, so the one
+  // response schema (`{ distinctId, src, emailSendId? }`) is always populated.
+  if (typeof payload.src !== "string" || payload.src.length === 0) {
+    payload.src = payload.emailSendId ? `email:${payload.emailSendId}` : "";
   }
   return payload;
 }

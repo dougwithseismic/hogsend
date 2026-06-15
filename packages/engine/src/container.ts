@@ -56,6 +56,10 @@ import type {
   FrequencyCapConfig,
 } from "./lib/email-service-types.js";
 import { hatchet } from "./lib/hatchet.js";
+import {
+  createIdentityService,
+  type IdentityService,
+} from "./lib/identity-service.js";
 import { createLogger, type Logger } from "./lib/logger.js";
 import { createTrackedMailer } from "./lib/mailer.js";
 import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
@@ -124,6 +128,15 @@ export interface HogsendClient {
    * treats that as a silent no-op.
    */
   analytics?: AnalyticsProvider;
+  /**
+   * Identity-attach helper that resolves/merges a contact AND propagates the
+   * analytics merge (§5.3) in one call, for identity-attach OUTSIDE the
+   * `/v1/events` ingest path. Discord `/link` (§7) wires its `resolveContact`
+   * callback to `client.identity.linkContact` so a successful contact-merge
+   * folds the discord-keyed person into the canonical one through the SAME
+   * engine emission ingest uses — never bespoke per-consumer plumbing.
+   */
+  identity: IdentityService;
   registry: JourneyRegistry;
   /**
    * The bucket registry (id map + event/property inverted indexes for candidate
@@ -614,6 +627,13 @@ export function createHogsendClient(
   // undefined (no provider configured) — the reads stay no-ops.
   setAnalytics(analytics);
 
+  // Identity-attach helper (§7): bound to THIS container's db + resolved
+  // analytics provider so a contact-merge outside the `/v1/events` ingest path
+  // (Discord `/link`) propagates the analytics merge through the same engine
+  // emission ingest uses. Closes over `analytics` (may be undefined → the merge
+  // emission no-ops; the resolve still happens).
+  const identity = createIdentityService({ db, analytics, logger });
+
   // Build + install the outbound DESTINATION registry (Phase 3) the
   // self-booting delivery task resolves by `webhook_endpoints.kind`. Order is
   // load-bearing: the env-enabled presets come FIRST and the consumer's
@@ -700,6 +720,7 @@ export function createHogsendClient(
     templates,
     analyticsProviders,
     analytics,
+    identity,
     registry,
     bucketRegistry,
     listRegistry,
