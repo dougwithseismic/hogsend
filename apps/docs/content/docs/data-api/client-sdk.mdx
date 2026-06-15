@@ -48,6 +48,7 @@ const hs = new Hogsend({
 await hs.contacts.upsert({
   email: "ada@example.com",
   userId: "u_1",
+  anonymousId: "01890a5d-...", // optional — your analytics anon id, for zero-merge stitching
   properties: { plan: "pro" },
   lists: { newsletter: true },
 }); // → { id, created, linked }
@@ -63,6 +64,7 @@ await hs.contacts.delete({ userId: "u_1" }); // → { deleted }
 await hs.events.send({
   userId: "u_1",
   name: "signup",
+  anonymousId: "01890a5d-...",             // optional — your analytics anon id, for zero-merge stitching
   eventProperties: { source: "landing" }, // → trigger.where / exitOn
   contactProperties: { country: "GB" },   // → contact record
   idempotencyKey: "evt_abc",

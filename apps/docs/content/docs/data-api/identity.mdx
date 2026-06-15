@@ -60,7 +60,68 @@ After a merge, the loser's old keys live on a soft-deleted row. The resolver con
 
 ### Anonymous → identified
 
-The model is built to support a future anonymous path: a contact can be keyed on an `anonymousId` (a stable distinct id) before any email or userId exists, then promoted/merged into an identified contact. The machinery is wired internally; the public `/v1/events` and `/v1/contacts` bodies expose `email` and `userId` today.
+A contact can be keyed on an `anonymousId` (a stable distinct id) before any email or userId exists, then promoted/merged into an identified contact. `anonymousId` is an optional, third-precedence resolvable key — after `externalId`, then `email`. The public `/v1/events` and `/v1/contacts` bodies accept it (see [Events](/docs/data-api/events)); it is an **extra** that rides alongside an `email` or `userId`, never a third identity arm on its own (anon-only public ingest stays an abuse vector, so one of `email`/`userId` is still required).
+
+This is also the lever for **identity stitching** into your analytics provider — keeping one human as one PostHog person — described next.
+
+## Identity stitching (analytics)
+
+The contact model above keeps one human as one Hogsend **contact**. Identity stitching extends that guarantee into your analytics provider so one human is also one **PostHog person** — instead of fragmenting into a web-anonymous person, a logged-in person, a Discord person, and one per email click.
+
+<Callout type="info">
+  Stitching shipped in `@hogsend/*@0.23.0`. Every path here is **off by default** — it activates only when you forward an `anonymousId`, enable `TRACKING_IDENTITY_TOKEN`, or wire Discord `/link`. The full design reference (merge physics, the alias-direction footgun, threat model, rollout) lives at [`docs/posthog-identity-stitching.md`](https://github.com/dougwithseismic/hogsend/blob/main/docs/posthog-identity-stitching.md) in the repo.
+</Callout>
+
+### One canonical person
+
+The governing rule: **exactly one distinct id per human ever becomes identified in the analytics person store — the canonical Hogsend contact key** (`externalId ?? anonymousId ?? contacts.id`). Every other id a human generates — a browser `posthog-js` anon session, a login `userId`, a Discord account — is **absorbed into that canonical key while still anonymous**, never identified on its own.
+
+This direction is load-bearing because of PostHog's merge physics: an anonymous person can be folded into an identified one, but two **already-identified** persons cannot be merged on the safe path. So Hogsend only ever keeps one key identified and absorbs the rest.
+
+### Zero-merge: forward `anonymousId` from the browser
+
+The cheapest stitch is to never fork. Send the browser's own analytics distinct id as `anonymousId` on the **first** identifying call (with the email, before any `userId`/`externalId` exists). The contact key then *becomes* that anon id, so the browser's `posthog-js` events and the server's events land on the same person with **zero merge calls**.
+
+```ts title="On subscribe — align web + server in one shot"
+const anonymousId = posthog.get_distinct_id(); // the browser's current anon id
+
+// Send it to the server alongside the email…
+await fetch("/v1/events", {
+  method: "POST",
+  body: JSON.stringify({ name: "subscribed", email, anonymousId }),
+});
+// …the returned contact key == anonymousId, so this is now a self-alias no-op:
+posthog.identify(anonymousId);
+```
+
+Because `posthog.identify(<contactKey>)` targets the same id the server keyed the contact on, both sides agree without any `$create_alias`. The [`@hogsend/client`](/docs/data-api/client-sdk) SDK accepts the same optional `anonymousId` on event and contact inputs.
+
+<Callout type="warn">
+  Under `posthog-js` `persistence: "memory"` the browser anon id regenerates on every full page load, so this alignment is **session-scoped**. Upgrade persistence to `localStorage+cookie` on explicit consent to make it durable. The server-side paths below carry the cross-pageload load when persistence stays in memory.
+</Callout>
+
+### The login key-flip — one `$create_alias`
+
+When a `userId`/`externalId` later attaches to an email- or anon-keyed contact (the **fill-in-link**, `linked: true`), the canonical key flips from the old anon/uuid key to the new `externalId`. At that single moment the engine fires exactly **one** server-side alias to fold the old anon person into the new canonical one:
+
+- **Survivor / canonical** = the new key (`distinctId`).
+- **Absorbed / anonymous** = the old anon/uuid key (`alias`).
+
+Server-side stitching always uses `alias` in that direction — never a server `identify`, which can only stamp properties and merges nothing (the server has no anonymous session to fold). The alias fires once, inside the idempotency-guarded ingest block, so retries don't re-emit it. A contact whose old key was already an `externalId` (a true two-identified-persons collision) is **not** aliased — it's recorded as a residual instead of mis-merging (see limits below).
+
+### Identity across email and Discord
+
+The same canonical-person guarantee extends past the browser:
+
+- **Email link clicks (opt-in).** With `TRACKING_IDENTITY_TOKEN=true`, an email link can carry a scoped, single-subject token. On click, the engine server-side aliases the clicker's browser session into the email recipient's canonical person at `/v1/t/identify`. The token only ever lets a clicker fold *their own* session into the subject — it can never overwrite the subject or let a forwardee become them. **Referral and shareable links are token-less by default** (a forwarded link must never mis-identify a stranger); per-prospect stitching is opt-in via single-use tokens only.
+- **Discord `/link`.** The `/link` flow verifies an email, links the `discord_id`, and merges that Discord-keyed contact into the email contact — then fires the same alias path so the human's Discord-platform events land on their one canonical person.
+
+### Known limits
+
+Stitching **stops new forks and stitches forward; it does not heal history.**
+
+- It does **not** retroactively merge pre-existing duplicate persons created before stitching was enabled.
+- It cannot safely merge two **already-identified** persons (PostHog refuses this on the safe path; only the deferred `$merge_dangerously` repair could). So the honest guarantee is *"one email → one person, except across two prior identified persons."* Absorbing ids early (zero-merge threading) makes this residual rarer, but does not eliminate it.
 
 ## `contactProperties` merge vs `eventProperties`
 
