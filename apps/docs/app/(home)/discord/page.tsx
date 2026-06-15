@@ -10,10 +10,10 @@ import {
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
+import { Clip } from "@/components/clips/clip";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
-import { ClipVideo } from "@/components/ds/clip-video";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 
@@ -214,7 +214,7 @@ export default function DiscordPage(): JSX.Element {
         </Reveal>
 
         <Reveal className="mt-12">
-          <ClipVideo
+          <Clip
             clip="discord-welcome"
             title="A new Discord member, welcomed the moment they link an email"
           />
@@ -244,7 +244,7 @@ export default function DiscordPage(): JSX.Element {
         </Reveal>
 
         <Reveal className="mt-12">
-          <ClipVideo
+          <Clip
             clip="discord-link"
             title="Link a Discord account to an email with a code"
           />

@@ -1,3 +1,4 @@
+import { Clip } from "@/components/clips/clip";
 import { Eyebrow } from "@/components/ds/badge";
 import { CodeHighlight } from "@/components/ds/code-highlight";
 import { MockupFrame } from "@/components/ds/mockup";
@@ -34,20 +35,6 @@ const WAIT_CODE = `run: async (user, ctx) => {
   if (timedOut) {
     await sendEmail({ to: user.email, template: "nudge" });
   }
-}`;
-
-const ACTIONS_CODE = `// In the email: each answer is a link that MEANS something.
-<EmailAction event="nps.submitted" properties={{ score }} href={thanksUrl}>
-  {String(score)}
-</EmailAction>
-
-// In the journey: wait for the answer, branch on the payload.
-const { timedOut, properties } = await ctx.waitForEvent({
-  event: "nps.submitted",
-  timeout: days(3),
-});
-if (!timedOut && Number(properties?.score) <= 6) {
-  await ctx.trigger({ event: "nps.detractor", userId: user.id });
 }`;
 
 const TRACKING_CODE = `run: async (user, ctx) => {
@@ -124,7 +111,6 @@ export async function BuildingBlocks() {
   const [
     journeyMedia,
     waitMedia,
-    actionsMedia,
     trackingMedia,
     bucketMedia,
     destinationsMedia,
@@ -132,7 +118,6 @@ export async function BuildingBlocks() {
   ] = await Promise.all([
     CodeHighlight({ code: JOURNEY_CODE, lang: "ts" }),
     CodeHighlight({ code: WAIT_CODE, lang: "ts" }),
-    CodeHighlight({ code: ACTIONS_CODE, lang: "tsx" }),
     CodeHighlight({ code: TRACKING_CODE, lang: "ts" }),
     CodeHighlight({ code: BUCKET_CODE, lang: "ts" }),
     CodeHighlight({ code: DESTINATIONS_CODE, lang: "ts" }),
@@ -165,7 +150,12 @@ export async function BuildingBlocks() {
       description:
         "A yes/no, an NPS score, a one-tap choice — each answer is a link whose click fires a real event with its payload. The journey branches on the answer; PostHog receives it under your event name. First answer wins, and scanner click-bursts are filtered before anything is recorded.",
       tags: ["NPS & yes/no", "Answer = event", "Scanner-safe"],
-      media: <MockupFrame>{actionsMedia}</MockupFrame>,
+      media: (
+        <Clip
+          clip="semantic-links"
+          title="An in-email question where the click is the answer — the journey branches on it"
+        />
+      ),
     },
     {
       id: "tracking",
@@ -175,6 +165,20 @@ export async function BuildingBlocks() {
         "Every send is tracked first-party for opens and link clicks; engagement flows back as events (email.opened / email.link_clicked) you can branch on mid-journey or fan out to your destinations.",
       tags: ["Open tracking", "Click tracking", "Flows back as events"],
       media: <MockupFrame>{trackingMedia}</MockupFrame>,
+    },
+    {
+      id: "providers",
+      label: "Your provider",
+      title: "Send through your own account",
+      description:
+        "Email goes out through your own Resend or Postmark — your domain, your reputation, your costs. Swapping the provider is one env var; the journey code never changes.",
+      tags: ["Resend · Postmark", "Your domain", "Config, not code"],
+      media: (
+        <Clip
+          clip="byo-provider"
+          title="The engine hands rendered email to your own Resend or Postmark account"
+        />
+      ),
     },
     {
       id: "buckets",

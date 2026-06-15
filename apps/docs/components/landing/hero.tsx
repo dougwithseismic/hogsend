@@ -31,20 +31,18 @@ export function Hero({ className }: HeroProps): JSX.Element {
 
       <div className="container-page relative z-10 flex flex-col items-center pt-40 pb-36 text-center md:pt-[188px] md:pb-44">
         <Reveal className="flex flex-col items-center">
-          <PillBadge>Self-hosted · your repo, your provider</PillBadge>
+          <PillBadge>Lifecycle marketing for teams on PostHog</PillBadge>
 
           <h1 className="mt-8 max-w-6xl font-display font-medium text-5xl text-white leading-[1.02] tracking-[-0.06em] md:text-[72px] md:leading-[74px]">
-            The lifecycle email layer
+            PostHog sees it all.
             <br />
-            PostHog doesn&apos;t have yet
+            Hogsend acts on it.
           </h1>
 
           <p className="mt-7 max-w-[560px] text-base text-white/80 leading-6">
-            An event comes in — from PostHog, Stripe, or your own app. A
-            TypeScript journey in your repo reacts: it sends the welcome, waits
-            two days, checks what the user did, and branches. Every send, open,
-            and click fans back out to PostHog. Email goes through your own
-            Resend or Postmark account.
+            Welcome series, trial nudges, win-backs — the lifecycle emails that
+            act on what PostHog already sees. Sent from your own account,
+            running on the data you&apos;ve got.
           </p>
         </Reveal>
 

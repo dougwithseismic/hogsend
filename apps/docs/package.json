@@ -10,7 +10,6 @@
     "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)"
   },
   "dependencies": {
-    "aws4fetch": "^1.0.20",
     "clsx": "^2.1.1",
     "fumadocs-core": "^16.9.1",
     "fumadocs-mdx": "^15.0.8",
@@ -19,8 +18,8 @@
     "motion": "^12.40.0",
     "next": "^16.2.6",
     "posthog-js": "^1.386.0",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "tailwind-merge": "^3.0.1"
   },
   "devDependencies": {
