@@ -102,6 +102,8 @@ Hogsend sits between whatever emits events and wherever you want them to land. J
 - **PostHog**, **Segment**, **Slack**, a **CRM**, a **warehouse**, or any signed webhook via `defineDestination()`
 - The outbound catalog is 13 events — `contact.*`, `email.*` (including `email.complained`), `journey.completed`, and `bucket.*`
 
+Web, email, server, and Discord activity for one human resolve to a single PostHog person — Hogsend stitches identities forward into one canonical contact key, so it's no longer one email scattered across many persons.
+
 The public data-plane API (`POST /v1/events`, contacts, lists, transactional email) is the front door for all of it — drive it from the typed `@hogsend/client` SDK or plain HTTP.
 
 > Full guides: **[Integrations](https://docs.hogsend.com/docs/integrations)** | **[Recipes](https://docs.hogsend.com/docs/recipes)**

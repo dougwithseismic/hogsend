@@ -66,6 +66,7 @@ hogsend events send <name> [options]
 |---|---|
 | `--email <addr>` | Recipient/identity email. At least one of `--email` / `--user-id` is required. |
 | `--user-id <id>` | External (distinct) id. At least one of `--email` / `--user-id` is required. |
+| `--anonymous-id <id>` | Your analytics provider's anonymous id (not a third identity). Aligns the event with that anon person for zero-merge identity stitching — see [Identity](/docs/data-api/identity). |
 | `--prop <key=value>` | Event property; repeatable. Value parsed as JSON, falling back to a string. |
 | `--props <json>` | Event properties as one JSON object. |
 | `--contact-prop <k=v>` | Contact property to merge onto the contact; repeatable. |

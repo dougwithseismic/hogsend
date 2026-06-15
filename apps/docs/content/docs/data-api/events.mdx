@@ -20,6 +20,7 @@ One of `email` or `userId` is required.
   "name": "signup",
   "email": "ada@example.com",
   "userId": "user_123",
+  "anonymousId": "01890a5d-...",                // your analytics anon id, for zero-merge identity stitching
   "eventProperties": { "source": "web" },     // → the event row + journey trigger.where / exitOn
   "contactProperties": { "plan": "pro" },      // → the contact record only
   "lists": { "product-updates": true },
@@ -33,6 +34,7 @@ One of `email` or `userId` is required.
 | `name` | `string` | Yes | Event name (this is the journey trigger; replaces the old `event` field) |
 | `email` | `string` | one of email/userId | Recipient email (normalized) |
 | `userId` | `string` | one of email/userId | Your external user identifier |
+| `anonymousId` | `string` | No | Your analytics provider's anonymous id (e.g. the browser's posthog-js distinct id). Not a third identity — `email` or `userId` is still required. When sent before any `userId`/external id exists, the contact key *becomes* this id, so the browser's own `identify(<contactKey>)` and the server's events land on the same PostHog person with no merge call. A later `userId`/external id flips the canonical key and fires exactly one `$create_alias` to absorb the anonymous person. |
 | `eventProperties` | `Record<string, unknown>` | No | Stored on the event row; what `trigger.where` and `exitOn` evaluate. **Does not touch the contact.** |
 | `contactProperties` | `Record<string, unknown>` | No | Merged onto `contacts.properties`. **Does not touch the event.** What buckets segment on. |
 | `lists` | `Record<string, boolean>` | No | List membership applied after ingest (requires a resolvable email) |

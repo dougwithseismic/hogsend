@@ -17,6 +17,7 @@ Resolves a contact (create, fill-in-link, or merge), merges `properties` onto it
 {
   "email": "ada@example.com",
   "userId": "user_123",
+  "anonymousId": "01890a5d-...",
   "properties": { "plan": "pro", "company": "Acme" },
   "lists": { "product-updates": true }
 }
@@ -26,6 +27,7 @@ Resolves a contact (create, fill-in-link, or merge), merges `properties` onto it
 |---|---|---|---|
 | `email` | `string` | one of email/userId | Email address (normalized: trimmed + lowercased) |
 | `userId` | `string` | one of email/userId | Your external user identifier (maps to `external_id`) |
+| `anonymousId` | `string` | No | Your analytics provider's anonymous id. Not a third identity — `email` or `userId` is still required. Sent before any `userId` exists, the contact key *becomes* this id (zero-merge stitching); a later `userId` flips the key and fires one `$create_alias`. See [Identity](/docs/data-api/identity). |
 | `properties` | `Record<string, unknown>` | No | Merged onto `contacts.properties` (additive; explicit `null` clears a key) |
 | `lists` | `Record<string, boolean>` | No | List membership to apply after the upsert (requires a resolvable email) |
 
