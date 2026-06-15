@@ -43,6 +43,10 @@ Discord throttles rapid channel/role creates: a burst of ~10 then **HTTP 429**. 
 - **Don't reset the bot token casually.** Resetting in the Developer Portal is **MFA-gated** (you can't do it headless) AND it invalidates the token the `apps/api` connector / dogfood share — breaking `/link`. Reuse the existing token.
 - **Destructive ops need `--confirm`** (`channel delete`, `member kick/ban`, `msg delete`). Never add `--confirm` blindly on a destructive command.
 - **`@everyone` in `perm set`** = the guild id (`1516090424194760744`), e.g. `perm set STAFF 1516090424194760744 --deny view_channel`.
+- **Name collision → use the channel ID.** `msg send <name>` (and other name-resolving ops) can match a same-named **category** first — a `#events` text channel under an `EVENTS` category made `msg send events …` fail (you can't post to a category). When a channel shares a name with a category, target the channel by **id**.
+- **Run buildout scripts via `bash`, not the zsh tool shell.** A `D="npx -y @ibbybuilds/discli --server …"` var does NOT word-split in zsh (you'll get `no such file or directory: npx -y …`). Use `bash /tmp/x.sh`, `bash -c '…'`, or a Python `subprocess.run([... ])` with an argv list.
+- **Pace ~6s + retry on 429.** 4s isn't enough after a burst — the limiter prints `Rate limited. Retry after Ns` and **silently skips the op**. Wrap writes in a retry that parses `Retry after Ns`, waits `N+1`, and re-runs; always re-verify a phase (`channel list` / API GET) and re-apply gaps.
+- **`server set --description` is Community-Mode-gated.** It no-ops on a non-Community server (the guild `description` field requires Community features) — set it from the UI after enabling Community Mode, alongside forum/announcement/stage channel types.
 
 ## discli command surface (what you'll use)
 
