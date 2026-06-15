@@ -1,12 +1,16 @@
 import {
-  BarChart3,
   Boxes,
   Clock,
   CreditCard,
-  GitBranch,
+  Gift,
   Mail,
+  MessageSquare,
+  Trophy,
+  Undo2,
+  Zap,
 } from "lucide-react";
 import Link from "next/link";
+import { Clip } from "@/components/clips/clip";
 import { Button } from "@/components/ds/button";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
@@ -25,43 +29,64 @@ const USE_CASES: UseCase[] = [
     icon: <Mail size={ICON_SIZE} strokeWidth={1.5} />,
     title: "Welcome / onboarding",
     description:
-      "Greet people when they sign up, then follow up differently depending on whether they've actually tried things.",
+      "Greet people the moment they sign up, then branch on whether they've actually tried anything yet.",
     href: "/use-cases/onboarding",
+  },
+  {
+    icon: <Zap size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Activation nudge",
+    description:
+      "Drive the one action most correlated with sticking around — before the trial clock runs out.",
+    href: "/use-cases/onboarding",
+  },
+  {
+    icon: <Boxes size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Feature adoption",
+    description:
+      "Most churn is a feature users never found. Surface the one they're missing.",
+    href: "/docs/recipes/lifecycle-journeys",
   },
   {
     icon: <CreditCard size={ICON_SIZE} strokeWidth={1.5} />,
     title: "Trials that convert",
     description:
-      "Nudge trials toward paying, with the message matched to how much they've really used.",
+      "Match the ask to how much they've really used, not the day on the calendar.",
     href: "/use-cases/trial-conversion",
   },
   {
     icon: <Clock size={ICON_SIZE} strokeWidth={1.5} />,
     title: "Failed payments",
     description:
-      "Send friendly reminders when a payment fails, and stop the moment it goes through.",
+      "Involuntary churn is the biggest leak you can plug. Remind, and stop the moment it clears.",
     href: "/docs/recipes/transactional-emails",
   },
   {
-    icon: <Boxes size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "The right moment",
+    icon: <Undo2 size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Win-back",
     description:
-      "ctx.when schedules sends for 9am in the user's timezone, inside your send window. The timezone resolves itself from PostHog or the contact.",
+      "You already paid to acquire them once — winning them back costs a fraction of a new signup.",
+    href: "/use-cases/winback",
+  },
+  {
+    icon: <Trophy size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Milestones",
+    description:
+      "Celebrate progress and reinforce the habit at the moments value actually lands.",
     href: "/docs/guides/journeys",
   },
   {
-    icon: <GitBranch size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "Chaining journeys",
+    icon: <Gift size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "Referral ask",
     description:
-      "Let one sequence hand off to the next, so flows build on each other instead of repeating.",
+      "Ask for the referral at the moment value lands, when they're most likely to say yes.",
     href: "/docs/recipes/lifecycle-journeys",
   },
   {
-    icon: <BarChart3 size={ICON_SIZE} strokeWidth={1.5} />,
-    title: "Win-back",
+    icon: <MessageSquare size={ICON_SIZE} strokeWidth={1.5} />,
+    title: "NPS / feedback",
     description:
-      "Notice when someone goes quiet, run a win-back series, and see who comes back.",
-    href: "/use-cases/winback",
+      "Catch churn risk early and feed it straight back to the product.",
+    href: "/docs/recipes/lifecycle-journeys",
   },
 ];
 
@@ -102,6 +127,13 @@ export function UseCases() {
           </Reveal>
         ))}
       </div>
+
+      <Reveal delay={0.1} className="mt-12 md:mt-16">
+        <Clip
+          clip="journey-onboarding"
+          title="An onboarding journey — welcome, a durable wait for the first project, then a branch, fanning every step back to PostHog"
+        />
+      </Reveal>
 
       <Reveal delay={0.1} className="mt-10">
         <Button href="/emails" variant="outline" icon>

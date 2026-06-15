@@ -2,10 +2,10 @@ import { ArrowUpRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
+import { Clip } from "@/components/clips/clip";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
-import { ClipVideo } from "@/components/ds/clip-video";
 import { CodeWindow } from "@/components/ds/code-window";
 import { CopyButton } from "@/components/ds/copy-button";
 import { FaqAccordion } from "@/components/ds/faq";
@@ -197,7 +197,7 @@ export function JourneyRun({
     <Section>
       <SectionHeading eyebrow="The run" title={title} subtitle={subtitle} />
       <Reveal className="mt-12">
-        <ClipVideo clip={clip} title="Journey run" />
+        <Clip clip={clip} title="Journey run" />
       </Reveal>
     </Section>
   );

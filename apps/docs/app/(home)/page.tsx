@@ -12,6 +12,7 @@ import { HowItWorks } from "@/components/landing/how-it-works";
 import { LiveDemo } from "@/components/landing/live-demo";
 import { LogoStrip } from "@/components/landing/logo-strip";
 import { Manifesto } from "@/components/landing/manifesto";
+import { MoreOutOfPostHog } from "@/components/landing/more-out-of-posthog";
 import { Pillars } from "@/components/landing/pillars";
 import { PoweredByHatchet } from "@/components/landing/powered-by";
 import { ProofGrid } from "@/components/landing/proof-grid";
@@ -22,6 +23,7 @@ import {
   type UseCaseValue,
 } from "@/components/landing/use-case-picker";
 import { UseCases } from "@/components/landing/use-cases";
+import { WhyThisMatters } from "@/components/landing/why-this-matters";
 
 export const metadata: Metadata = {
   title: {
@@ -171,12 +173,14 @@ export default function HomePage() {
       />
 
       <Hero />
-      <LiveDemo />
       <LogoStrip />
       <ProofStrip />
       <Manifesto />
+      <WhyThisMatters />
       <UseCases />
       <UseCasePickerSection />
+      <LiveDemo />
+      <MoreOutOfPostHog />
       <BuildingBlocks />
       <FeatureCards />
       <HowItWorks />
