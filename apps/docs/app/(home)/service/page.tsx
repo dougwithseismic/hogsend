@@ -25,7 +25,7 @@ import { CONTACT_EMAIL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Done-for-you lifecycle email for PostHog-native startups",
   description:
-    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program for you. Setup from $2,300/week, then a managed retainer from $1,000/month.",
+    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program for you. A one-time $2,300 setup week, then a managed retainer from $1,000/month.",
 };
 
 const MAILTO = `mailto:${CONTACT_EMAIL}`;
@@ -61,19 +61,19 @@ const UNLOCK_CARDS: Array<{
     icon: <TrendingUp className="size-5" strokeWidth={1.5} />,
     title: "More trials convert",
     description:
-      "A trial that stalls before the aha-moment usually just goes quiet and expires. The program catches it and sends the nudge back to the action that makes them stay — while they're still deciding.",
+      "A trial that stalls before the aha-moment usually expires without a word. The program catches it and sends the nudge back to the action that makes people stay, while they're still deciding.",
   },
   {
     icon: <RotateCcw className="size-5" strokeWidth={1.5} />,
     title: "Churned customers come back",
     description:
-      "When someone cancels, they get a win-back built around why people actually leave your product — not a generic “we miss you.” Some of them return.",
+      "When someone cancels, they get a win-back built around why people leave your product, addressed to that reason. Some of them return.",
   },
   {
     icon: <Repeat className="size-5" strokeWidth={1.5} />,
     title: "First-time buyers buy again",
     description:
-      "A first purchase is the start, not the win. The program runs the arc that turns it into a habit and a second order, instead of letting them quietly drift.",
+      "Most first-time buyers never place a second order without a prompt. The program runs the onboarding arc that turns the first purchase into a habit and a second order.",
   },
 ];
 
@@ -198,19 +198,19 @@ export default function ServicePage(): JSX.Element {
         <AuroraBeam className="opacity-60" />
         <div className="relative z-10 grid items-center gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,28rem)] lg:gap-16">
           <Reveal className="flex flex-col">
-            <PillBadge className="mb-6 self-start">Done for you</PillBadge>
+            <PillBadge className="mb-6 self-start">Service</PillBadge>
             <h1 className="max-w-2xl font-display text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[44px] md:leading-[52px]">
-              Win back the customers your funnel is quietly losing
+              Done-for-you lifecycle email for PostHog teams
             </h1>
             <p className="mt-6 max-w-xl text-base text-white/70 leading-7">
               Every product loses customers at the same few moments — a trial
               that stalls, a subscription that cancels, a first purchase that
               never becomes a second. Each one is recoverable with the right
-              email at the right time, but only if something&apos;s watching for
-              it. I find those moments in your funnel, build the emails that
-              recover them, and run the whole program for you — so the revenue
-              you&apos;re leaving on the table starts coming back, without you
-              building or babysitting a thing.
+              email at the right time, but only if something is watching for it.
+              I find those moments in your funnel, build the emails that recover
+              them, and run the whole program for you. It sends from your own
+              PostHog and Resend accounts, with no per-contact billing and
+              nothing for you to build or operate.
             </p>
             <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
               <Button href={MAILTO} variant="accent" icon>
@@ -221,7 +221,7 @@ export default function ServicePage(): JSX.Element {
               </Button>
             </div>
             <p className="eyebrow mt-6 text-white/50">
-              Setup from $2,300/week · Managed retainer from $1,000/month · No
+              $2,300 setup week · Managed retainer from $1,000/month · No
               per-contact billing
             </p>
           </Reveal>
@@ -236,7 +236,7 @@ export default function ServicePage(): JSX.Element {
       <Section>
         <Reveal>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4">
-            <Stat value="$2,300" label="Setup, billed weekly" />
+            <Stat value="$2,300" label="Setup, one-time" />
             <Stat value="$1,000+" label="Managed, per month" />
             <Stat value="Done for you" label="Nothing for you to build" />
             <Stat value="$0" label="Per-contact fees" />
@@ -247,9 +247,9 @@ export default function ServicePage(): JSX.Element {
       {/* ---- The unlock: what it does for the business ---------------- */}
       <Section id="unlock">
         <SectionHeading
-          eyebrow="The unlock"
-          title="What this does for your business"
-          subtitle="Lifecycle email isn't about sending more. It's about catching the handful of moments where you're losing people, and turning some of them back into revenue."
+          eyebrow="What it recovers"
+          title="Catch the moments you lose people, turn some back into revenue"
+          subtitle="Lifecycle email works on the handful of moments where customers stall, cancel, or churn, and turns some of them back into revenue."
         />
 
         <div className="mt-12 grid gap-6 md:grid-cols-3">
@@ -308,13 +308,12 @@ export default function ServicePage(): JSX.Element {
                   <span className="font-display text-[40px] text-white leading-[48px]">
                     $2,300
                   </span>
-                  <span className="text-base text-white/60">/per week</span>
+                  <span className="text-base text-white/60">/one week</span>
                 </div>
 
                 <p className="mt-4 text-base text-white/70 leading-6">
-                  A scoped engagement — usually a couple of weeks. It&apos;s
-                  where your program gets found, designed, and built, not just
-                  switched on.
+                  A fixed one-week engagement. It&apos;s where your program gets
+                  found, designed, and built, not just switched on.
                 </p>
 
                 <p className="eyebrow mt-8 text-white/50">
@@ -332,7 +331,7 @@ export default function ServicePage(): JSX.Element {
                     Email doug@withseismic.com
                   </Button>
                   <p className="eyebrow mt-6 text-white/50">
-                    Scoped · billed weekly · yours to keep
+                    One-time · remote · yours to keep
                   </p>
                 </div>
               </div>
@@ -417,7 +416,7 @@ export default function ServicePage(): JSX.Element {
           <Reveal className="flex flex-col items-center">
             <Eyebrow className="mb-4">Get started</Eyebrow>
             <h2 className="max-w-2xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-              Tell me where you&apos;re losing people
+              Scope the setup
             </h2>
             <p className="mt-5 max-w-2xl text-base text-white/70 leading-7">
               Email me with what your product does and where you think the
@@ -432,14 +431,14 @@ export default function ServicePage(): JSX.Element {
           </Reveal>
           <Reveal delay={0.16}>
             <p className="mt-6 text-sm text-white/50">
-              Would rather run Hogsend yourself? Genuinely fine —{" "}
+              Prefer to run Hogsend yourself? The{" "}
               <Link
                 href="/docs/getting-started"
                 className="text-white/70 underline-offset-2 transition-colors hover:text-white hover:underline"
               >
-                start with the docs
-              </Link>
-              , you owe me nothing.
+                docs
+              </Link>{" "}
+              cover the full self-serve path.
             </p>
           </Reveal>
         </div>
