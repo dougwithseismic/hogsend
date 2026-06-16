@@ -11,6 +11,7 @@ import {
   sessionIdentity,
 } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
+import { RAILWAY_DEPLOY_URL } from "@/lib/site";
 
 /**
  * Steps. The default (footer/referral) machine is `form → role → website →
@@ -138,7 +139,7 @@ type ResultSegment = {
   id: string;
   headline: string;
   body: string;
-  ctas: { label: string; href: string }[];
+  ctas: { label: string; href: string; external?: boolean }[];
 };
 
 const AGENCY_CLIENT_WORK: ResultSegment = {
@@ -158,8 +159,8 @@ const POSTHOG_DEEP_NO_LIFECYCLE: ResultSegment = {
   body: "Hogsend reads your PostHog events as journey triggers and sends through Resend, with the journeys defined as TypeScript in your repo. The welcome email you're about to get was sent by the same engine you'd run.",
   ctas: [
     { label: "Watch it run", href: "#live-demo" },
-    { label: "Read the journeys guide", href: "/docs/journeys" },
-    { label: "Deploy on Railway", href: "/deploy" },
+    { label: "Read the journeys guide", href: "/docs/guides/journeys" },
+    { label: "Deploy on Railway", href: RAILWAY_DEPLOY_URL, external: true },
   ],
 };
 
@@ -168,7 +169,7 @@ const POSTHOG_ANOTHER_TOOL: ResultSegment = {
   headline: "Lifecycle email that lives in your repo, not a dashboard",
   body: "Your journeys become TypeScript you can read, diff, and review, triggered by PostHog events and sent through Resend. Self-hosted under ELv2, with no per-contact billing.",
   ctas: [
-    { label: "See the migration guide", href: "/docs/migrate" },
+    { label: "See the migration guide", href: "/docs/compare/migration" },
     { label: "Watch it run", href: "#live-demo" },
     { label: "Read the docs", href: "/docs" },
   ],
@@ -179,9 +180,9 @@ const POSTHOG_HAND_ROLLED: ResultSegment = {
   headline: "Keep writing it in code. Stop maintaining the plumbing.",
   body: "defineJourney() gives you durable sleeps that survive deploys, first-party open and click tracking, and PostHog event triggers, so a three-day wait is one line instead of a cron and a state table.",
   ctas: [
-    { label: "Read the journeys guide", href: "/docs/journeys" },
+    { label: "Read the journeys guide", href: "/docs/guides/journeys" },
     { label: "Watch it run", href: "#live-demo" },
-    { label: "Read the tracking docs", href: "/docs/tracking" },
+    { label: "Read the tracking docs", href: "/docs/api/tracking" },
   ],
 };
 
@@ -201,7 +202,7 @@ const EVALUATING_POSTHOG: ResultSegment = {
   headline: "Worth knowing before you commit to PostHog",
   body: "Hogsend is the lifecycle-email layer for teams on PostHog and Resend, so the events you'd track become triggered journeys defined in code. The demo email you just got shows the loop end to end.",
   ctas: [
-    { label: "Read why PostHog", href: "/docs/why-posthog" },
+    { label: "Read why PostHog", href: "/docs/concepts/why-posthog" },
     { label: "Watch it run", href: "#live-demo" },
     { label: "Read the docs", href: "/docs" },
   ],
@@ -848,6 +849,9 @@ export function EmailCapture({
               <Link
                 key={cta.label}
                 href={cta.href}
+                {...(cta.external
+                  ? { target: "_blank", rel: "noreferrer" }
+                  : {})}
                 className={i === 0 ? RESULT_CTA_PRIMARY : RESULT_CTA_SECONDARY}
               >
                 <span>{cta.label}</span>
