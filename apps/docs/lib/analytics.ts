@@ -64,6 +64,17 @@ export const AnalyticsEvent = {
   /** Referral landing page (/hey/[name]) viewed, with `{ personalised }` —
    * the name in the URL is PII-adjacent and never sent. */
   REFERRAL_VIEWED: "docs.referral_viewed",
+  /** Live-demo qualifier answer — ONE event per question, captured anonymously
+   * before the email step, with `{ question, answer, placement }` where
+   * `question ∈ {posthog_usage, posthog_depth, lifecycle, building}` and
+   * `answer` is that question's closed value. One event, many properties: it
+   * replaces the per-question captures for the qualifyFirst flow only. */
+  QUALIFIER_SELECTED: "docs.qualifier_selected",
+  /** Setup-week hand-raise (non-PostHog offer answered "yes") — fired
+   * server-side to the Hogsend ingest API carrying the email, so the dogfood
+   * lead alert can route on it. NOT a client `capture()`; the constant lives
+   * here so the event name stays the single source of truth. */
+  SETUP_INTERESTED: "docs.setup.interested",
 } as const;
 
 export type AnalyticsEventName =

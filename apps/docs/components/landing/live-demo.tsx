@@ -6,14 +6,14 @@ import { cn } from "@/lib/cn";
 
 /**
  * LiveDemo — the section directly under the hero: the product demonstrating
- * itself. The qualifyFirst EmailCapture asks intent → seat → provider first
- * (captured anonymously), then the email step feeds a stock create-hogsend app
- * running in production; subscribing fires the docs.subscribed event, the
- * post-subscribe identify() stitches the earlier anonymous events to the
- * contact, the welcome journey runs, and the email arrives from
- * hello@hogsend.com. The crimzon card fills the whole 1200px frame box
- * edge-to-edge (no card-within-a-box inset), with the subtle accent aura, copy
- * centred, the shared EmailCapture inside.
+ * itself. The qualifyFirst EmailCapture runs a short PostHog-shaped qualifier
+ * first (captured anonymously), shows a tailored result, then takes the email
+ * to feed a stock create-hogsend app running in production; subscribing fires
+ * the docs.subscribed event, the post-subscribe identify() stitches the earlier
+ * anonymous events to the contact, the welcome journey runs, and the first
+ * email arrives from hello@hogsend.com. The crimzon card fills the whole 1200px
+ * frame box edge-to-edge (no card-within-a-box inset), with the subtle accent
+ * aura, copy centred, the shared EmailCapture inside.
  */
 export function LiveDemo({ className }: { className?: string }): JSX.Element {
   return (
@@ -44,10 +44,12 @@ export function LiveDemo({ className }: { className?: string }): JSX.Element {
             </h2>
 
             <p className="mt-5 max-w-xl text-base text-white/60 leading-6">
-              Tell it a few things about you. Drop your email at the end and a
-              stock create-hogsend app running in production ingests the event,
-              runs its welcome journey, and sends from hello@hogsend.com a few
-              seconds later. A nudge follows two days on.
+              Answer four questions about your stack — PostHog, lifecycle email,
+              what you build — and get a tailored read. Drop your email at the
+              end and a stock create-hogsend app running in production ingests
+              the event, runs its welcome journey, and sends from
+              hello@hogsend.com a few seconds later. That first email opens a
+              real welcome series spread over the days that follow.
             </p>
 
             <EmailCapture
