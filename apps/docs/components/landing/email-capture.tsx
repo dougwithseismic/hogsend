@@ -155,7 +155,8 @@ const AGENCY_CLIENT_WORK: ResultSegment = {
 
 const POSTHOG_DEEP_NO_LIFECYCLE: ResultSegment = {
   id: "posthog_deep_no_lifecycle",
-  headline: "You have the events. You don't have the emails yet.",
+  headline:
+    "You already track the events; Hogsend turns them into triggered emails.",
   body: "Hogsend reads your PostHog events as journey triggers and sends through Resend, with the journeys defined as TypeScript in your repo. The welcome email from this demo is sent by the same engine you'd run.",
   ctas: [
     { label: "Watch it run", href: "#live-demo" },
@@ -177,7 +178,8 @@ const POSTHOG_ANOTHER_TOOL: ResultSegment = {
 
 const POSTHOG_HAND_ROLLED: ResultSegment = {
   id: "posthog_hand_rolled",
-  headline: "Keep writing it in code. Stop maintaining the plumbing.",
+  headline:
+    "Journeys stay in code; the engine handles waits, tracking, and triggers.",
   body: "defineJourney() gives you durable sleeps that survive deploys, first-party open and click tracking, and PostHog event triggers, so a three-day wait is one line instead of a cron and a state table.",
   ctas: [
     { label: "Read the journeys guide", href: "/docs/guides/journeys" },
@@ -199,7 +201,7 @@ const POSTHOG_SHALLOW_OR_FEW_OFFS: ResultSegment = {
 
 const EVALUATING_POSTHOG: ResultSegment = {
   id: "evaluating_posthog",
-  headline: "Worth knowing before you commit to PostHog",
+  headline: "The lifecycle-email layer for a PostHog + Resend stack.",
   body: "Hogsend is the lifecycle-email layer for teams on PostHog and Resend, so the events you'd track become triggered journeys defined in code. The demo email from this page shows the loop end to end.",
   ctas: [
     { label: "Read why PostHog", href: "/docs/concepts/why-posthog" },
