@@ -147,6 +147,14 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>()
             ? {
                 suppressed: body.suppressed,
                 suppressedAt: body.suppressed ? new Date() : null,
+                // Un-suppressing clears the bounce slate. `bounceCount` only
+                // drives the auto-suppress threshold (the send-gate keys off
+                // `suppressed`/`unsubscribedAll`), so a leftover count would
+                // otherwise keep a bounced recipient pinned to the suppression
+                // list with no way to remove them.
+                ...(body.suppressed
+                  ? {}
+                  : { bounceCount: 0, lastBounceAt: null }),
               }
             : {}),
           ...(body.categories !== undefined

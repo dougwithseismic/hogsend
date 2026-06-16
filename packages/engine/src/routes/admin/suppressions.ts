@@ -1,6 +1,6 @@
 import { emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, gt, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gt, or, type SQL } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { serializePrefs } from "../../lib/contacts.js";
 
@@ -8,6 +8,11 @@ import { serializePrefs } from "../../lib/contacts.js";
 // `complained` has no dedicated column — a complaint sets `suppressed` without
 // incrementing `bounceCount` (see mailer `handleComplaint`), so we identify it
 // as suppressed-but-not-bounced.
+//
+// IMPORTANT: the `email_preferences` table holds a row for (nearly) every
+// contact, most of whom are NOT suppressed. The "All" view must therefore
+// restrict to recipients suppressed in *some* way — returning `undefined`
+// here would drop the WHERE clause entirely and list every contact.
 function typeFilter(
   type: "bounced" | "unsubscribed" | "complained" | undefined,
 ): SQL | undefined {
@@ -22,7 +27,12 @@ function typeFilter(
         eq(emailPreferences.bounceCount, 0),
       );
     default:
-      return undefined;
+      // "All" = the union of every suppression reason.
+      return or(
+        eq(emailPreferences.suppressed, true),
+        eq(emailPreferences.unsubscribedAll, true),
+        gt(emailPreferences.bounceCount, 0),
+      );
   }
 }
 

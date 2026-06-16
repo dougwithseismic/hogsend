@@ -144,6 +144,12 @@ const replayRoute = createRoute({
       },
       description: "Replay results",
     },
+    400: {
+      content: {
+        "application/json": { schema: errorSchema },
+      },
+      description: "No replay selection (eventIds or filter) provided",
+    },
   },
 });
 
@@ -362,14 +368,26 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
         conditions.push(lte(userEvents.occurredAt, new Date(body.filter.to)));
       }
 
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      // Refuse an unscoped replay. With no `eventIds` and no filter the WHERE
+      // would collapse to `undefined`, silently re-pushing the most-recent
+      // `limit` events back through the full ingestion pipeline (re-triggering
+      // journeys, re-evaluating exits). Require an explicit selection.
+      if (conditions.length === 0) {
+        return c.json(
+          {
+            error:
+              "Replay requires `eventIds` or at least one `filter` field (event, userId, from, to).",
+          },
+          400,
+        );
+      }
 
       events = await db
         .select()
         .from(userEvents)
-        .where(where)
+        .where(and(...conditions))
         .orderBy(desc(userEvents.occurredAt))
-        .limit(body.limit ?? 100);
+        .limit(body.limit);
     }
 
     let replayed = 0;
