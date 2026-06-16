@@ -391,7 +391,7 @@ export default function ServicePage(): JSX.Element {
               <div className="max-w-2xl">
                 <Eyebrow className="mb-3">No lock-in</Eyebrow>
                 <h2 className="font-display text-[24px] text-white leading-[1.2] tracking-[-0.02em] md:text-[28px]">
-                  It runs on your stuff, and you keep all of it
+                  It runs on your accounts, and you keep all of it
                 </h2>
                 <p className="mt-4 text-base text-white/70 leading-7">
                   No platform to get locked into, and no per-contact bill that

@@ -149,14 +149,14 @@ const AGENCY_CLIENT_WORK: ResultSegment = {
   ctas: [
     { label: "See pricing", href: "/pricing" },
     { label: "Read the docs", href: "/docs" },
-    { label: "Get it set up", href: "/pricing" },
+    { label: "Get it set up", href: "/service" },
   ],
 };
 
 const POSTHOG_DEEP_NO_LIFECYCLE: ResultSegment = {
   id: "posthog_deep_no_lifecycle",
   headline: "You have the events. You don't have the emails yet.",
-  body: "Hogsend reads your PostHog events as journey triggers and sends through Resend, with the journeys defined as TypeScript in your repo. The welcome email you're about to get was sent by the same engine you'd run.",
+  body: "Hogsend reads your PostHog events as journey triggers and sends through Resend, with the journeys defined as TypeScript in your repo. The welcome email from this demo is sent by the same engine you'd run.",
   ctas: [
     { label: "Watch it run", href: "#live-demo" },
     { label: "Read the journeys guide", href: "/docs/guides/journeys" },
@@ -200,7 +200,7 @@ const POSTHOG_SHALLOW_OR_FEW_OFFS: ResultSegment = {
 const EVALUATING_POSTHOG: ResultSegment = {
   id: "evaluating_posthog",
   headline: "Worth knowing before you commit to PostHog",
-  body: "Hogsend is the lifecycle-email layer for teams on PostHog and Resend, so the events you'd track become triggered journeys defined in code. The demo email you just got shows the loop end to end.",
+  body: "Hogsend is the lifecycle-email layer for teams on PostHog and Resend, so the events you'd track become triggered journeys defined in code. The demo email from this page shows the loop end to end.",
   ctas: [
     { label: "Read why PostHog", href: "/docs/concepts/why-posthog" },
     { label: "Watch it run", href: "#live-demo" },
@@ -211,11 +211,12 @@ const EVALUATING_POSTHOG: ResultSegment = {
 /**
  * selectResult — the result-segment selector for PostHog/evaluating visitors
  * (non-PostHog visitors get the offer instead, never this). Precedence:
- *   1. AGENCY OVERRIDE — building=agency_clients AND posthog_usage ≠ not_yet
- *      shows the agency segment INSTEAD of the PostHog-usage segment.
+ *   1. AGENCY OVERRIDE — building=agency_clients AND posthog_usage is a known
+ *      yes/evaluating shows the agency segment INSTEAD of the usage segment.
  *   2. posthog_usage=yes rules, in order (first match wins).
  *   3. posthog_usage=evaluating → the evaluating segment.
- * Returns a stable fallback (the catch-all) so there is always a result.
+ *   4. unknown usage (Q1 skipped) → the neutral general segment.
+ * Always returns a segment so there is a result for every answer set.
  */
 function selectResult(answers: {
   posthog_usage?: string;
@@ -226,8 +227,12 @@ function selectResult(answers: {
   const { posthog_usage, posthog_depth, lifecycle, building } = answers;
 
   // 1. Agency override — wins over the PostHog-usage segment whenever the
-  //    visitor builds for clients and is on/evaluating PostHog.
-  if (building === "agency_clients" && posthog_usage !== "not_yet") {
+  //    visitor builds for clients AND has a known PostHog answer (a skipped Q1
+  //    leaves posthog_usage undefined, which must not trip the override).
+  if (
+    building === "agency_clients" &&
+    (posthog_usage === "yes" || posthog_usage === "evaluating")
+  ) {
     return AGENCY_CLIENT_WORK;
   }
 
@@ -248,8 +253,14 @@ function selectResult(answers: {
     return POSTHOG_SHALLOW_OR_FEW_OFFS;
   }
 
-  // 3. Evaluating PostHog (and any remaining case).
-  return EVALUATING_POSTHOG;
+  // 3. Evaluating PostHog.
+  if (posthog_usage === "evaluating") {
+    return EVALUATING_POSTHOG;
+  }
+
+  // 4. Unknown usage (Q1 skipped) — the neutral general framing, which asserts
+  //    no PostHog status (unlike the evaluating segment's "before you commit").
+  return POSTHOG_SHALLOW_OR_FEW_OFFS;
 }
 
 /** Keyboard focus ring shared by every interactive control. */
@@ -550,26 +561,37 @@ export function EmailCapture({
     }
   }
 
-  /** Skip — advance with no analytics, leaving the field undefined. */
+  /**
+   * Skip — advance with no analytics, CLEARING the field so a value from an
+   * earlier Answer→Back→Skip can't leak into the result segment or the profile
+   * flush. Each case routes off the cleared (undefined) value, not stale state.
+   */
   function skipQualifier(question: string) {
     switch (question) {
       case "posthog_usage": {
+        setPosthogUsage(undefined);
+        // Skipping Q1 also invalidates any Q2 depth and always skips Q2.
+        setPosthogDepth(undefined);
         setBackStack(["q1"]);
-        setStep(afterQ1(posthogUsage));
+        setStep(afterQ1(undefined));
         return;
       }
       case "posthog_depth": {
+        setPosthogDepth(undefined);
         setBackStack((stack) => [...stack, "q2"]);
         setStep("q3");
         return;
       }
       case "lifecycle": {
+        setLifecycle(undefined);
         setBackStack((stack) => [...stack, "q3"]);
         setStep("q4");
         return;
       }
       case "building": {
+        setBuilding(undefined);
         setBackStack((stack) => [...stack, "q4"]);
+        // posthogUsage is the real Q1 answer (unaffected by skipping Q4).
         setStep(afterQuestions(posthogUsage));
         return;
       }
@@ -659,7 +681,7 @@ export function EmailCapture({
         <fieldset
           ref={groupRef}
           tabIndex={-1}
-          aria-label="Question 1: Are you using PostHog?"
+          aria-label="Question 1 of 4: Are you using PostHog?"
           className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
         >
           <p aria-hidden="true" className={STEP_COUNT_CLASS}>
@@ -694,7 +716,7 @@ export function EmailCapture({
         <fieldset
           ref={groupRef}
           tabIndex={-1}
-          aria-label="Question 2: How deep is your PostHog use?"
+          aria-label="Question 2 of 4: How deep is your PostHog use?"
           className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
         >
           <p aria-hidden="true" className={STEP_COUNT_CLASS}>
@@ -741,7 +763,7 @@ export function EmailCapture({
         <fieldset
           ref={groupRef}
           tabIndex={-1}
-          aria-label="Question 3: How do you send lifecycle email today?"
+          aria-label={`Question ${posthogUsage === "yes" ? "3 of 4" : "2 of 3"}: How do you send lifecycle email today?`}
           className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
         >
           <p aria-hidden="true" className={STEP_COUNT_CLASS}>
@@ -788,7 +810,7 @@ export function EmailCapture({
         <fieldset
           ref={groupRef}
           tabIndex={-1}
-          aria-label="Question 4: What are you building?"
+          aria-label={`Question ${posthogUsage === "yes" ? "4 of 4" : "3 of 3"}: What are you building?`}
           className={cn(PANEL_CLASS, !hideHeading && "mt-4")}
         >
           <p aria-hidden="true" className={STEP_COUNT_CLASS}>
