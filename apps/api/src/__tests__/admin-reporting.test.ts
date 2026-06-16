@@ -174,5 +174,7 @@ describe("GET /v1/admin/reporting/sends/export", () => {
     expect(lines[0]).toContain("id,createdAt,templateKey");
     expect(text).toContain(sendAId);
     expect(text).toContain(sendBId);
+    // A small result is well under the cap — no truncation signal.
+    expect(res.headers.get("x-hogsend-export-truncated")).toBeNull();
   });
 });

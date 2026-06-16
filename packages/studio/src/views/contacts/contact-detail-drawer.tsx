@@ -84,8 +84,14 @@ export function ContactDetailDrawer({
   });
 
   const unsuppress = useMutation({
+    // Clear BOTH flags — an unsubscribe is a suppression reason too, so dropping
+    // only `suppressed` would leave an unsubscribed contact stuck (and still on
+    // the suppression list). Mirrors the suppressions-view restore action.
     mutationFn: () =>
-      updateContactPreferences(contactId as string, { suppressed: false }),
+      updateContactPreferences(contactId as string, {
+        suppressed: false,
+        unsubscribedAll: false,
+      }),
     onSuccess: () => {
       toast({
         title: "Contact un-suppressed",

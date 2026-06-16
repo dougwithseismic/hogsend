@@ -362,8 +362,19 @@ reportingRouter.get("/sends/export", async (c) => {
     );
   }
 
+  // The export intentionally returns all matching sends, but is hard-capped at
+  // MAX_EXPORT_ROWS. Signal when the result was truncated so a caller never
+  // mistakes a partial CSV for the complete history.
+  const truncated = rows.length >= MAX_EXPORT_ROWS;
+
   return c.body(lines.join("\n"), 200, {
     "Content-Type": "text/csv; charset=utf-8",
     "Content-Disposition": 'attachment; filename="email-sends.csv"',
+    ...(truncated
+      ? {
+          "X-Hogsend-Export-Truncated": "true",
+          "X-Hogsend-Export-Limit": String(MAX_EXPORT_ROWS),
+        }
+      : {}),
   });
 });
