@@ -18,6 +18,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/use-cases/onboarding",
     "/use-cases/trial-conversion",
     "/use-cases/winback",
+    "/use-cases/community",
     "/integrations",
     "/discord",
     "/recipes",
