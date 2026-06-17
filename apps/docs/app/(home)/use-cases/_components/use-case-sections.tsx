@@ -21,7 +21,11 @@ import { RAILWAY_DEPLOY_URL } from "@/lib/site";
 
 const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
 
-export type UseCaseId = "onboarding" | "trial-conversion" | "winback";
+export type UseCaseId =
+  | "onboarding"
+  | "trial-conversion"
+  | "winback"
+  | "community";
 
 const USE_CASES: Record<
   UseCaseId,
@@ -41,6 +45,11 @@ const USE_CASES: Record<
     title: "Win-back",
     description: "Win-back that knows when someone actually left.",
     href: "/use-cases/winback",
+  },
+  community: {
+    title: "Community",
+    description: "Lifecycle email that knows your Discord members.",
+    href: "/use-cases/community",
   },
 };
 
