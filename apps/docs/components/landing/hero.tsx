@@ -34,9 +34,9 @@ export function Hero({ className }: HeroProps): JSX.Element {
           <PillBadge>Lifecycle marketing for teams on PostHog</PillBadge>
 
           <h1 className="mt-8 max-w-6xl font-display font-medium text-5xl text-white leading-[1.02] tracking-[-0.06em] md:text-[72px] md:leading-[74px]">
-            PostHog sees it all.
+            What PostHog sees,
             <br />
-            Hogsend acts on it.
+            Hogsend acts on.
           </h1>
 
           <p className="mt-7 max-w-[560px] text-base text-white/80 leading-6">
