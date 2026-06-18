@@ -504,7 +504,9 @@ pub fn run() {
 
             TrayIconBuilder::with_id(TRAY_ID)
                 .icon(app.default_window_icon().unwrap().clone())
-                .icon_as_template(true)
+                // Template (monochrome) is the macOS menu-bar convention; on
+                // Windows/Linux the tray wants the full-color icon.
+                .icon_as_template(cfg!(target_os = "macos"))
                 .title("⚪")
                 .tooltip("Hogsend — no instance selected")
                 .menu(&menu)

@@ -32,7 +32,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app"],
+    "targets": "all",
     "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "Menubar companion for the Hogsend lifecycle engine",

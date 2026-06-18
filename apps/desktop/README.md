@@ -53,18 +53,36 @@ pnpm --filter @hogsend/desktop release            # build + publish
 pnpm --filter @hogsend/desktop release --dry-run  # build + sign only, no publish
 ```
 
-`scripts/release.sh` builds a **signed universal** (Intel + Apple Silicon)
-bundle, then with `gh`:
+`scripts/release.sh` is **OS-aware** — on macOS it builds a signed universal
+(Intel + Apple Silicon) `.dmg`; on Windows (Git Bash) it builds a signed NSIS
+`.exe`. Then, with `gh`:
 
-- creates **`desktop-v<version>`** with the `.dmg` (human download) + the
-  updater archive (`--latest=false`, so it never steals the repo's "Latest
-  release" badge from the `@hogsend/*` npm tags);
-- writes `latest.json` and uploads it to the stable **`desktop-latest`**
-  prerelease — the URL the in-app updater polls.
+- creates/updates **`desktop-v<version>`** with the installer + updater asset
+  (`--latest=false`, so it never steals the repo's "Latest release" badge from
+  the `@hogsend/*` npm tags);
+- **merges** this platform's entry into `latest.json` on the stable
+  **`desktop-latest`** prerelease (keeping the other OS's entry), and uploads a
+  stable-named installer (`Hogsend.dmg` / `Hogsend-setup.exe`) — the URLs the
+  updater and the docs "Download" button point at. Post-publish it re-fetches
+  the feed and fails loudly if the swap left it broken.
+
+### Windows
+
+Same app, same script — but you can't cross-build Windows from a Mac. Two ways:
+
+- Run `pnpm --filter @hogsend/desktop release` on a Windows machine (Git Bash +
+  MSVC build tools); it produces the NSIS installer and merges `windows-x86_64`
+  into the same feed.
+- Or let CI do it: `.github/workflows/desktop-windows.yml` runs that script on a
+  `windows-latest` runner when a `desktop-v*` tag appears. One-time, add the
+  `TAURI_SIGNING_PRIVATE_KEY` (+ `…_PASSWORD`) repo secrets so it can sign.
+
+`keyring` uses `apple-native` on macOS and `windows-native` on Windows (selected
+per target in `Cargo.toml`); the tray icon is templated only on macOS.
 
 **Auto-update:** the app checks `desktop-latest/latest.json` on launch (notify
 only) and applies updates from the tray → *Check for Updates…*. The updater
-verifies its own minisign signature, independent of Apple notarization.
+verifies its own minisign signature, independent of OS code-signing.
 
 ### Signing / first launch
 
