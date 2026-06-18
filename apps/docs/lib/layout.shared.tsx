@@ -1,7 +1,6 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
-import { Download } from "lucide-react";
+import { DownloadNavLink } from "@/components/download-nav-link";
 import { Logo } from "@/components/landing/logo";
-import { DESKTOP_DOWNLOAD_URL } from "@/lib/site";
 
 export function baseOptions(): BaseLayoutProps {
   return {
@@ -13,14 +12,9 @@ export function baseOptions(): BaseLayoutProps {
       { text: "Docs", url: "/docs" },
       { text: "Getting Started", url: "/docs/getting-started" },
       { text: "Compare", url: "/docs/compare" },
-      {
-        type: "icon",
-        label: "Download the Hogsend Mac app",
-        icon: <Download />,
-        text: "Download",
-        url: DESKTOP_DOWNLOAD_URL,
-        external: true,
-      },
+      // Download link sits in the icon row next to GitHub, but only renders on
+      // macOS (the only build today) — see DownloadNavLink.
+      { type: "custom", secondary: true, children: <DownloadNavLink /> },
     ],
     githubUrl: "https://github.com/dougwithseismic/hogsend",
   };
