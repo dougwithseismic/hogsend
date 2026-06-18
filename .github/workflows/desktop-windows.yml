@@ -1,0 +1,51 @@
+name: Desktop (Windows)
+
+# The macOS build is cut locally (`pnpm --filter @hogsend/desktop release`).
+# Windows can't be built on a Mac, so this is the ONE runner in the project —
+# scoped to Windows only. It runs the SAME release script on a Windows host and
+# MERGES the windows-x86_64 entry into the existing `desktop-latest` updater
+# feed, so a local macOS release and this Windows build coexide in one feed.
+#
+# Triggers automatically when a `desktop-v*` tag appears (e.g. after the local
+# macOS release creates it), or manually via "Run workflow".
+#
+# One-time setup — add these repo secrets (Settings → Secrets → Actions):
+#   TAURI_SIGNING_PRIVATE_KEY           (contents of ~/.tauri/hogsend-updater.key)
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  (empty string if the key has no password)
+# Until they're set, the build step fails fast on the missing key.
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create/upload the GitHub Release + updater manifest
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      # Same script as the local macOS release; on a Windows host it builds the
+      # NSIS installer, signs it, publishes desktop-v<version>, and merges
+      # windows-x86_64 into desktop-latest/latest.json. `gh` auths via GH_TOKEN.
+      - name: Build + publish Windows
+        shell: bash
+        run: pnpm --filter @hogsend/desktop release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

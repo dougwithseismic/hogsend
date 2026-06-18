@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the Hogsend companion windows.",
+  "windows": ["main", "studio-*"],
+  "permissions": ["core:default", "notification:default", "updater:default"]
+}

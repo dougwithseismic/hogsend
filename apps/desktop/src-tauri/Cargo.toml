@@ -1,0 +1,38 @@
+[package]
+name = "hogsend-desktop"
+version = "0.1.0"
+description = "Hogsend companion — menubar monitoring for your lifecycle engine"
+authors = ["Hogsend"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "hogsend_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-notification = "2"
+tauri-plugin-updater = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["time", "sync"] }
+
+# Per-OS keychain backend (the credential store for auto-login). Selected by
+# target so the app compiles on each platform without dragging in the others.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

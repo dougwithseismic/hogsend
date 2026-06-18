@@ -275,6 +275,14 @@ hogsend studio --base-url https://api.example.com --open
 
 > Full guide: **[Studio](https://docs.hogsend.com/docs/operating/studio)** | **[hogsend studio](https://docs.hogsend.com/docs/cli/studio)**
 
+### Desktop app
+
+**Hogsend Desktop** is a native macOS menubar companion. It polls your instance's `/v1/health` for a live status glyph (🟢/🟡/🔴), raises native notifications on send/journey failures or a worker going offline, and opens the **real** Studio in a native window — it embeds Studio, it's not a fork. Add one or more instances by URL and switch between them; optionally store credentials in the macOS Keychain for auto-login, and let the built-in updater keep it current.
+
+Download the universal (Apple Silicon + Intel) `.dmg` from GitHub Releases: **[Hogsend.dmg](https://github.com/dougwithseismic/hogsend/releases/download/desktop-latest/Hogsend.dmg)**. It isn't notarized yet, so on first launch clear the quarantine flag once with `xattr -dr com.apple.quarantine /Applications/Hogsend.app` (or right-click → Open); after that, auto-updates are seamless.
+
+> Full guide: **[Desktop app](https://docs.hogsend.com/docs/operating/desktop)** | **[All releases](https://github.com/dougwithseismic/hogsend/releases)**
+
 ---
 
 ## Reporting
