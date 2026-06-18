@@ -207,10 +207,20 @@ else
 fi
 
 # --- verify the published feed actually resolves --------------------------
+# Freshly-uploaded release assets take a little while to appear on GitHub's
+# download CDN, so poll with backoff before declaring the feed broken.
 FIRST_KEY="${PLATFORM_KEYS%% *}"
 echo "▸ Verifying updater feed…"
-curl -fsSL "$FEED_URL" -o "$TMP/fetched.json" \
-  || { echo "✗ feed not reachable: $FEED_URL"; exit 1; }
+fetched=0
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsSL "$FEED_URL" -o "$TMP/fetched.json" 2>/dev/null; then
+    fetched=1
+    break
+  fi
+  echo "  feed not propagated yet (attempt ${attempt})…"
+  sleep 10
+done
+[ "$fetched" = "1" ] || { echo "✗ feed not reachable after retries: $FEED_URL"; exit 1; }
 ARCH_URL="$(HS_KEY="$FIRST_KEY" HS_VERSION="$VERSION" node -e "
 const m = require('$TMP/fetched.json');
 if (m.version !== process.env.HS_VERSION) { console.error('version '+m.version+' != '+process.env.HS_VERSION); process.exit(1); }
@@ -218,8 +228,15 @@ const p = m.platforms && m.platforms[process.env.HS_KEY];
 if (!p || !p.url || !p.signature) { console.error('missing '+process.env.HS_KEY+' url/signature'); process.exit(1); }
 process.stdout.write(p.url);
 ")" || { echo "✗ published manifest is invalid for $FIRST_KEY"; exit 1; }
-curl -fsIL "$ARCH_URL" >/dev/null || { echo "✗ updater asset not reachable: $ARCH_URL"; exit 1; }
-curl -fsIL "$STABLE_URL" >/dev/null || { echo "✗ stable download not reachable: $STABLE_URL"; exit 1; }
+reachable() {
+  for _ in 1 2 3 4 5 6; do
+    curl -fsIL "$1" >/dev/null 2>&1 && return 0
+    sleep 10
+  done
+  return 1
+}
+reachable "$ARCH_URL" || { echo "✗ updater asset not reachable: $ARCH_URL"; exit 1; }
+reachable "$STABLE_URL" || { echo "✗ stable download not reachable: $STABLE_URL"; exit 1; }
 
 echo "✓ Published ${TAG} (${OS}, feed verified)"
 echo "  Download (stable): $STABLE_URL"
