@@ -181,10 +181,10 @@ RELEASE_ASSETS=("$DOWNLOAD_ASSET")
 [ "$UPDATER_ASSET" != "$DOWNLOAD_ASSET" ] && RELEASE_ASSETS+=("$UPDATER_ASSET")
 
 if gh release view "$TAG" --repo "$SLUG" >/dev/null 2>&1; then
-  echo "▸ Updating release $TAG…"
+  echo "▸ Updating release ${TAG}…"
   gh release upload "$TAG" "${RELEASE_ASSETS[@]}" --repo "$SLUG" --clobber
 else
-  echo "▸ Creating release $TAG…"
+  echo "▸ Creating release ${TAG}…"
   gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
     --repo "$SLUG" --title "Hogsend Desktop v${VERSION}" \
     --notes "Desktop companion for Hogsend. Download the installer for your OS; installed copies auto-update." \
