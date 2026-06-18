@@ -75,6 +75,12 @@ if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
   TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_FILE")"
   export TAURI_SIGNING_PRIVATE_KEY
 fi
+# Password falls back to the sibling file written by `tauri signer generate`, so
+# local releases don't need it re-exported each time. (CI passes it as a secret.)
+if [ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]; then
+  PW_FILE="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD_PATH:-$HOME/.tauri/hogsend-updater.password}"
+  [ -f "$PW_FILE" ] && TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(cat "$PW_FILE")"
+fi
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
 
 # --- build (signed) -------------------------------------------------------
