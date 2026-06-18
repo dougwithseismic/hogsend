@@ -14,7 +14,7 @@ export const DESKTOP_DOWNLOAD_URL_WIN =
 export const DESKTOP_DOWNLOAD_URL = DESKTOP_DOWNLOAD_URL_MAC;
 /** Which desktop builds we actually ship. Flip `windows` once the first
  *  Windows release is cut so the nav link stops 404-ing. */
-export const DESKTOP_BUILDS = { mac: true, windows: false } as const;
+export const DESKTOP_BUILDS = { mac: true, windows: true } as const;
 export const RAILWAY_DEPLOY_URL =
   "https://railway.com/deploy/hogsend-posthog-audience-stack";
 export const ENGINE_VERSION = "0.20.0"; // bump per release
