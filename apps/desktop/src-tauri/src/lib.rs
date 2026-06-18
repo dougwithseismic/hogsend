@@ -6,6 +6,7 @@
 //! new failure appears. Fetching lives here (not the webview) so it sidesteps
 //! CORS and keeps running while the window is hidden.
 
+use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -342,6 +343,9 @@ fn auto_login_script(origin: &str, creds: &StoredCreds) -> String {
     format!(
         r#"(function(){{
   try {{
+    // Top frame only + exact-origin match: never run inside an iframe or on
+    // any origin other than the configured instance.
+    if (window.top !== window.self) return;
     var BASE = {origin_js};
     if (location.origin !== BASE) return;
     if (sessionStorage.getItem("hs_autologin")) return;
@@ -363,32 +367,52 @@ fn auto_login_script(origin: &str, creds: &StoredCreds) -> String {
     )
 }
 
+/// One Studio window per instance origin. Using a per-origin label (instead of
+/// a single "studio" label we destroy+recreate) sidesteps the Tauri
+/// `WindowLabelAlreadyExists` race — `destroy()` is asynchronous on the event
+/// loop, so an immediate same-label rebuild often fails. Each instance keeps
+/// its own window (and its own auto-login), and switching just reuses/creates.
+fn studio_label(origin: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    origin.hash(&mut hasher);
+    format!("studio-{:x}", hasher.finish())
+}
+
+/// Auto-login may only run where credentials can't be sniffed in transit:
+/// https anywhere, or http on loopback (where there is no network hop).
+fn is_secure_for_credentials(url: &tauri::Url) -> bool {
+    url.scheme() == "https"
+        || matches!(
+            url.host_str(),
+            Some("localhost") | Some("127.0.0.1") | Some("::1")
+        )
+}
+
 #[tauri::command]
 fn open_studio(app: AppHandle, base_url: String) -> Result<(), String> {
     let trimmed = base_url.trim_end_matches('/');
     let parsed =
         tauri::Url::parse(&format!("{trimmed}{STUDIO_PATH}")).map_err(|e| e.to_string())?;
     let origin = parsed.origin().ascii_serialization();
+    let label = studio_label(&origin);
 
-    if let Some(window) = app.get_webview_window("studio") {
-        let same =
-            window.url().ok().map(|u| u.origin().ascii_serialization()) == Some(origin.clone());
-        if same {
-            let _ = window.show();
-            let _ = window.set_focus();
-            return Ok(());
-        }
-        // Different instance — tear it down so the right auto-login attaches.
-        let _ = window.destroy();
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
     }
 
-    let mut builder = WebviewWindowBuilder::new(&app, "studio", WebviewUrl::External(parsed))
+    let secure = is_secure_for_credentials(&parsed);
+    let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::External(parsed))
         .title("Hogsend Studio")
         .inner_size(1100.0, 800.0)
         .min_inner_size(720.0, 540.0);
 
-    if let Some(creds) = read_creds(trimmed) {
-        builder = builder.initialization_script(&auto_login_script(&origin, &creds));
+    // Never inject credentials over a plaintext (non-loopback) origin.
+    if secure {
+        if let Some(creds) = read_creds(trimmed) {
+            builder = builder.initialization_script(&auto_login_script(&origin, &creds));
+        }
     }
 
     builder.build().map_err(|e| e.to_string())?;
@@ -533,21 +557,25 @@ pub fn run() {
             });
 
             // Quiet update check on launch — notify only; the user applies it
-            // from the tray (no surprise restart). No-ops in dev / when the
-            // feed is unreachable.
+            // from the tray (no surprise restart). Errors (unreachable feed,
+            // bad manifest/signature) are logged, never silently swallowed —
+            // otherwise a broken update feed is invisible.
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                if let Ok(updater) = handle.updater() {
-                    if let Ok(Some(update)) = updater.check().await {
-                        notify(
+                match handle.updater() {
+                    Ok(updater) => match updater.check().await {
+                        Ok(Some(update)) => notify(
                             &handle,
                             "Update available",
                             &format!(
                                 "Hogsend {} is ready — tray menu → Check for Updates to install.",
                                 update.version
                             ),
-                        );
-                    }
+                        ),
+                        Ok(None) => {}
+                        Err(e) => eprintln!("[hogsend] update check failed: {e}"),
+                    },
+                    Err(e) => eprintln!("[hogsend] updater unavailable: {e}"),
                 }
             });
 

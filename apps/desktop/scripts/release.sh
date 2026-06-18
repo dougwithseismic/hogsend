@@ -21,15 +21,32 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
 DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
-# Stable tag that only ever holds latest.json — the updater endpoint points
-# here, so it must not collide with the per-package npm release tags.
+# Stable tag that only ever holds latest.json + a stable-named dmg — the updater
+# endpoint and the docs "Download" link point here, so it must not collide with
+# the per-package npm release tags.
 MANIFEST_TAG="desktop-latest"
 
 VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 TAG="desktop-v${VERSION}"
+
+# Version parity: the updater compares the manifest version against the version
+# baked into the binary at build time, so tauri.conf.json / package.json /
+# Cargo.toml must agree or updates silently mis-gate (H5).
+PKG_VERSION="$(node -p "require('./package.json').version")"
+CARGO_VERSION="$(grep -m1 '^version = ' src-tauri/Cargo.toml | sed -E 's/version = "(.*)"/\1/')"
+if [ "$VERSION" != "$PKG_VERSION" ] || [ "$VERSION" != "$CARGO_VERSION" ]; then
+  echo "✗ Version mismatch — align all three before releasing:"
+  echo "    tauri.conf.json: $VERSION"
+  echo "    package.json:    $PKG_VERSION"
+  echo "    Cargo.toml:      $CARGO_VERSION"
+  exit 1
+fi
 
 echo "▸ Hogsend desktop ${VERSION} (tag ${TAG})"
 
@@ -60,8 +77,11 @@ echo "▸ Building universal bundle (this takes a few minutes)…"
 pnpm tauri build --target universal-apple-darwin
 
 BUNDLE="src-tauri/target/universal-apple-darwin/release/bundle"
-DMG="$(ls "$BUNDLE"/dmg/*.dmg | head -1)"
-ARCHIVE="$(ls "$BUNDLE"/macos/*.app.tar.gz | head -1)"
+# Globs into arrays (no `ls` parsing / no SIGPIPE under pipefail).
+dmgs=("$BUNDLE"/dmg/*.dmg)
+archives=("$BUNDLE"/macos/*.app.tar.gz)
+DMG="${dmgs[0]}"
+ARCHIVE="${archives[0]}"
 SIG_FILE="${ARCHIVE}.sig"
 
 [ -f "$DMG" ] || { echo "✗ dmg not found under $BUNDLE/dmg"; exit 1; }
@@ -77,8 +97,10 @@ ARCHIVE_URL="https://github.com/${SLUG}/releases/download/${TAG}/$(basename "$AR
 SIG="$(cat "$SIG_FILE")"
 PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-LATEST_JSON="$(mktemp -d)/latest.json"
+LATEST_JSON="$TMP/latest.json"
 # A universal binary runs on both arches, so point both platform keys at it.
+# (Do NOT collapse to a single "darwin-universal" key — the updater resolves
+#  darwin-aarch64 / darwin-x86_64 at runtime and would 404 on "universal".)
 # SIG is passed as an env var (prefix) — NOT an argv — so env.SIG is populated.
 SIG="$SIG" node -e "
 const fs = require('fs');
@@ -120,15 +142,38 @@ else
 fi
 
 # Stable manifest release (machine-only): prerelease so it's never the badge.
+# Holds latest.json (the updater feed) + a stable-named dmg (the docs download
+# link). gh `--clobber` deletes-then-uploads each asset, so we verify the feed
+# afterwards (below) and fail loudly if the swap left it broken (H2).
+STABLE_DMG="$TMP/Hogsend.dmg"
+cp "$DMG" "$STABLE_DMG"
+
 if gh release view "$MANIFEST_TAG" --repo "$SLUG" >/dev/null 2>&1; then
-  gh release upload "$MANIFEST_TAG" "$LATEST_JSON" --repo "$SLUG" --clobber
+  gh release upload "$MANIFEST_TAG" "$STABLE_DMG" "$LATEST_JSON" --repo "$SLUG" --clobber
 else
-  gh release create "$MANIFEST_TAG" "$LATEST_JSON" \
-    --repo "$SLUG" --title "Hogsend Desktop — updater manifest" \
-    --notes "Auto-generated pointer consumed by the Tauri updater. Do not delete." \
+  gh release create "$MANIFEST_TAG" "$STABLE_DMG" "$LATEST_JSON" \
+    --repo "$SLUG" --title "Hogsend Desktop — latest" \
+    --notes "Auto-generated download + updater feed. Managed by scripts/release.sh — do not delete." \
     --prerelease
 fi
 
-echo "✓ Published ${TAG}"
-echo "  Download: https://github.com/${SLUG}/releases/tag/${TAG}"
-echo "  Updater feed: https://github.com/${SLUG}/releases/download/${MANIFEST_TAG}/latest.json"
+# --- verify the published feed actually resolves --------------------------
+FEED_URL="https://github.com/${SLUG}/releases/download/${MANIFEST_TAG}/latest.json"
+DMG_URL="https://github.com/${SLUG}/releases/download/${MANIFEST_TAG}/Hogsend.dmg"
+echo "▸ Verifying updater feed…"
+curl -fsSL "$FEED_URL" -o "$TMP/fetched.json" \
+  || { echo "✗ feed not reachable: $FEED_URL"; exit 1; }
+ARCH_URL="$(node -e "
+const m = require('$TMP/fetched.json');
+if (m.version !== '${VERSION}') { console.error('version '+m.version+' != ${VERSION}'); process.exit(1); }
+const p = m.platforms && m.platforms['darwin-aarch64'];
+if (!p || !p.url || !p.signature) { console.error('missing url/signature'); process.exit(1); }
+process.stdout.write(p.url);
+")" || { echo "✗ published manifest is invalid"; exit 1; }
+curl -fsIL "$ARCH_URL" >/dev/null || { echo "✗ updater archive not reachable: $ARCH_URL"; exit 1; }
+curl -fsIL "$DMG_URL" >/dev/null || { echo "✗ stable dmg not reachable: $DMG_URL"; exit 1; }
+
+echo "✓ Published ${TAG} (feed verified)"
+echo "  Download (stable): $DMG_URL"
+echo "  Release:           https://github.com/${SLUG}/releases/tag/${TAG}"
+echo "  Updater feed:      $FEED_URL"
