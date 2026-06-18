@@ -1,0 +1,84 @@
+---
+title: "Desktop app"
+description: "Hogsend Desktop — a native macOS menubar companion that watches your instance's health, fires failure notifications, and opens the full Studio in a native window."
+---
+
+Hogsend Desktop is a native macOS menubar companion for your running instance. It lives in your menu bar with no Dock icon, shows a live health glyph, fires native notifications when something fails, and opens the **real** [Studio](/docs/operating/studio) in a native window — it embeds Studio, it is not a fork or a reimplementation. Point it at one or more instance URLs and switch between them.
+
+<Callout type="info">
+  Hogsend Desktop is a thin companion, not a separate control plane. It reads the same `GET /v1/health` route the [CLI's `doctor`](/docs/cli/doctor) uses and embeds the same Studio you reach at `${baseUrl}/studio`. Everything it shows is already available over the API.
+</Callout>
+
+## Requirements
+
+- macOS (the app ships as a universal build for Apple Silicon and Intel).
+- A reachable Hogsend instance URL (for example `https://t.hogsend.com`).
+
+## Install
+
+### 1. Download
+
+Grab the latest stable build (universal `.dmg`) and drag **Hogsend.app** into `/Applications`:
+
+```text title="latest stable, macOS universal .dmg"
+https://github.com/dougwithseismic/hogsend/releases/download/desktop-latest/Hogsend.dmg
+```
+
+Older builds and the full changelog live on the [releases page](https://github.com/dougwithseismic/hogsend/releases).
+
+### 2. First open (clear the quarantine)
+
+The app is **not yet Apple-signed or notarized**, so on first download macOS quarantines it and refuses to launch it with a double-click. Clear the quarantine flag once:
+
+```bash title="clear the quarantine attribute"
+xattr -dr com.apple.quarantine /Applications/Hogsend.app
+```
+
+Or, instead of the command, **right-click the app → Open** and confirm the dialog the first time. Either path only needs doing once — after that, in-app [auto-updates](#auto-updates) are seamless.
+
+### 3. Connect an instance
+
+Open the app and add a Hogsend instance by URL — the base URL of your deployment, for example `https://t.hogsend.com` (no trailing path). You can add **more than one** instance and switch between them from the tray; the selected instance is the one the menubar status and Studio window track.
+
+## Menubar status & notifications
+
+The app polls the selected instance's `GET /v1/health` every **15 seconds** and reflects it as a status glyph in the menu bar:
+
+| Glyph | Meaning |
+|---|---|
+| 🟢 | Healthy — components up, no pending migrations |
+| 🟡 | Degraded — a component is struggling or migrations are pending |
+| 🔴 | Down — the instance is unreachable or unhealthy |
+
+Click the tray to open a dashboard with:
+
+- **Component health** — database, redis, and worker status.
+- **24h activity** — emails sent / failed and journeys completed / failed over the last day.
+- **Pending-migration warnings** — surfaced the same way the [health endpoint](/docs/api/ingestion#health) reports `inSync`.
+
+It raises a **native notification** when a new email or journey failure appears, or when the worker goes offline — so you can leave it in the menu bar and only look when something needs you.
+
+## Opening Studio
+
+Selecting an instance opens `${baseUrl}/studio` in a native window. This is the full [Hogsend Studio](/docs/operating/studio) — journeys, emails, sends, and contacts — not a cut-down view. You sign in once and the session persists across app launches.
+
+<Callout type="info">
+  Studio is **login-only** — public sign-up is disabled, and there is no web create-admin form. Mint the first admin from your server before signing in (see [`hogsend studio admin create`](/docs/cli/studio#hogsend-studio-admin--shell-gated-admin-create--recovery) or the `STUDIO_ADMIN_EMAIL` boot path), then log in from the desktop window.
+</Callout>
+
+## Optional auto-login (Keychain)
+
+If you'd rather not sign in by hand, store an instance's email and password **once** in the macOS Keychain and the app signs Studio in for you on open. Credentials are held in the system Keychain, not in app config. Leave it off and the standard flow applies — you log in once and the session persists.
+
+## Auto-updates
+
+The app uses the built-in Tauri updater. It checks for a new release on launch, and you can trigger a check on demand from the tray menu → **"Check for Updates…"**. Because updates are delivered in-app, you only do the [first-open quarantine step](#2-first-open-clear-the-quarantine) once — subsequent updates apply without re-running `xattr`.
+
+## Related
+
+<Cards>
+  <Card title="Studio" href="/docs/operating/studio" />
+  <Card title="hogsend doctor" href="/docs/cli/doctor" />
+  <Card title="Monitoring" href="/docs/operating/monitoring" />
+  <Card title="Health endpoint" href="/docs/api/ingestion#health" />
+</Cards>
