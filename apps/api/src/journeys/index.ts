@@ -11,6 +11,10 @@ import { feedbackNps } from "./feedback-nps.js";
 import { reactivationDormancy } from "./reactivation-dormancy.js";
 import { referralInvite } from "./referral-invite.js";
 import { retentionMilestone } from "./retention-milestone.js";
+import { telegramLinkRequest } from "./telegram-link-request.js";
+import { telegramLinked } from "./telegram-linked.js";
+import { telegramOnboarding } from "./telegram-onboarding.js";
+import { telegramWelcome } from "./telegram-welcome.js";
 import { testOnboarding } from "./test-onboarding.js";
 
 /**
@@ -30,6 +34,10 @@ export const journeys: DefinedJourney[] = [
   detractorRescue,
   reactivationDormancy,
   churnPrevention,
+  telegramWelcome,
+  telegramLinked,
+  telegramLinkRequest,
+  telegramOnboarding,
   testOnboarding,
 ];
 
@@ -47,5 +55,9 @@ export {
   reactivationDormancy,
   referralInvite,
   retentionMilestone,
+  telegramLinked,
+  telegramLinkRequest,
+  telegramOnboarding,
+  telegramWelcome,
   testOnboarding,
 };

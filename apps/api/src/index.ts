@@ -9,6 +9,7 @@ import {
   getRedisIfConnected,
   reportApiReady,
 } from "@hogsend/engine";
+import { telegramActions, telegramConnector } from "@hogsend/plugin-telegram";
 import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
 import {
@@ -20,6 +21,7 @@ import {
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
+import { registerTelegramConnectRoutes } from "./telegram-connect.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
 const discordConnector = buildDiscordConnector();
@@ -32,7 +34,14 @@ const client = createHogsendClient({
   // Discord INBOUND connector (gateway transport) — only when configured. The
   // engine's `/v1/connectors/discord/{oauth,interactions,ingress}` + admin
   // connect-info/member-link routes dispatch into it from the registry.
-  connectors: discordConnector ? [discordConnector] : [],
+  connectors: [
+    ...(discordConnector ? [discordConnector] : []),
+    // Telegram INBOUND connector (webhook transport) — served at
+    // POST /v1/webhooks/telegram. Always registered; sends are token-gated.
+    telegramConnector,
+  ],
+  // Telegram OUTBOUND actions — journey-callable sendMessage/dm.
+  connectorActions: telegramActions,
   // Discord OUTBOUND destination — always registered (config-driven per
   // webhook_endpoint), so lifecycle events can fan out to a Discord channel.
   destinations: [discordDestination],
@@ -101,7 +110,11 @@ await bootstrapAdminFromEnv({ client });
 // HOGSEND_BOOTSTRAP_API_KEY=false. API process only — never the worker.
 await bootstrapApiKeyFromEnv({ client });
 
-const app = createApp(client, { webhookSources });
+const app = createApp(client, {
+  webhookSources,
+  // Telegram cold-connect: GET /connect/telegram (page) + POST .../exchange.
+  routes: registerTelegramConnectRoutes,
+});
 const { logger, env } = client;
 
 const server = serve(

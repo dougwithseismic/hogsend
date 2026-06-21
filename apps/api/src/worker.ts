@@ -1,4 +1,5 @@
 import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { telegramActions, telegramConnector } from "@hogsend/plugin-telegram";
 import { buckets } from "./buckets/index.js";
 import {
   buildDiscordConnector,
@@ -19,7 +20,11 @@ async function main() {
     email: { templates },
     // Mirror the API's connector/destination registration so the worker's
     // process-singleton registries match (the ingest pipeline runs here too).
-    connectors: discordConnector ? [discordConnector] : [],
+    connectors: [
+      ...(discordConnector ? [discordConnector] : []),
+      telegramConnector,
+    ],
+    connectorActions: telegramActions,
     destinations: [discordDestination],
   });
   setDiscordDb(client.db, client.identity);

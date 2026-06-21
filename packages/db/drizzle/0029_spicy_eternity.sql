@@ -1,0 +1,2 @@
+DROP INDEX "uq_user_journey_active";--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_user_journey_active" ON "journey_states" USING btree ("user_id","journey_id") WHERE status IN ('active', 'waiting');
