@@ -207,6 +207,19 @@ export const env = createEnv({
     // (the route 401s), so a gateway worker cannot relay without it. MUST be
     // high-entropy — generate with `openssl rand -base64 32`.
     CONNECTOR_INGRESS_SECRET: z.string().min(32).optional(),
+    // --- Connector runtimes (inline gateway sockets) ---
+    // The long-lived inbound socket for gateway-transport connectors (Discord)
+    // runs INLINE inside the host process below, gated by a Redis leader lease so
+    // exactly ONE replica holds it. Auto-on: a registered gateway connector +
+    // its bot token present is enough. Enum (not z.coerce.boolean) so an explicit
+    // "false" actually disables it (z.coerce.boolean treats "false" as true).
+    ENABLE_CONNECTOR_RUNTIMES: z.enum(["true", "false"]).default("true"),
+    // Which already-deployed process hosts the inline runtime. "worker" (default)
+    // is the committed home; "standalone" defers to the advanced discord-worker
+    // entry; "api" is reserved (host it yourself via startConnectorRuntimes).
+    CONNECTOR_RUNTIME_HOST: z
+      .enum(["worker", "api", "standalone"])
+      .default("worker"),
     // --- Outbound destination presets (Phase 3) ---
     // Which `defineDestination()` PRESETS are registered into the process
     // destination registry the delivery task resolves by `endpoint.kind`. csv of

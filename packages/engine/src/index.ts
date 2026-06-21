@@ -91,6 +91,18 @@ export {
   resetBucketRegistry,
   setBucketRegistry,
 } from "./buckets/registry-singleton.js";
+export {
+  ConnectorActionRegistry,
+  getConnectorActionRegistry,
+  resetConnectorActionRegistry,
+  setConnectorActionRegistry,
+} from "./connectors/action-registry-singleton.js";
+export {
+  type ConnectorActionCtx,
+  type DefinedConnectorAction,
+  defineConnectorAction,
+  type ResolvedActionContact,
+} from "./connectors/define-action.js";
 // --- Inbound connectors: unified authoring layer ---
 export {
   type ConnectorCtx,
@@ -115,6 +127,13 @@ export {
   resetConnectorRegistry,
   setConnectorRegistry,
 } from "./connectors/registry-singleton.js";
+export {
+  type ConnectorRuntime,
+  type ConnectorRuntimeDeps,
+  type ConnectorRuntimeFactory,
+  type ConnectorRuntimesHandle,
+  startConnectorRuntimes,
+} from "./connectors/runtime.js";
 export {
   createHogsendClient,
   type HogsendClient,
@@ -201,6 +220,18 @@ export {
   type BucketTransitionSource,
   emitBucketTransition,
 } from "./lib/bucket-emit.js";
+// --- Connector outbound actions (journey-callable, socket-free) ---
+export {
+  type SendConnectorActionArgs,
+  sendConnectorAction,
+} from "./lib/connector-actions.js";
+// --- Connector-runtime liveness heartbeat (connector-neutral) ---
+export {
+  type ConnectorHeartbeat,
+  type ConnectorHeartbeatHandle,
+  getConnectorHeartbeat,
+  startConnectorHeartbeat,
+} from "./lib/connector-heartbeat.js";
 // --- Single-use link codes (native connector /link → /verify identify loop) ---
 export {
   type CreateLinkCodeResult,
@@ -289,6 +320,13 @@ export {
   type IngestResult,
   ingestEvent,
 } from "./lib/ingestion.js";
+// --- Leader lease (connector-runtime singleton election) ---
+export {
+  acquireLeaderLease,
+  newLeaseToken,
+  releaseLeaderLease,
+  renewLeaderLease,
+} from "./lib/leader-lease.js";
 // --- Logging ---
 export { createLogger, type Logger } from "./lib/logger.js";
 export { createTrackedMailer } from "./lib/mailer.js";

@@ -24,6 +24,13 @@ export interface DiscordGatewayWorkerConfig {
    * it into the gateway heartbeat so Studio can confirm "Bot installed".
    */
   onGuildObserved?: (guildId: string) => void;
+  /**
+   * In-process dispatch sink. When supplied, each raw dispatch is handed to this
+   * poster INSTEAD of the default HTTP ingress POST — so an engine-hosted inline
+   * runtime feeds `transform`→`ingest` directly, with no network hop and no
+   * shared ingress secret. Omit for the standalone (HTTP) path.
+   */
+  poster?: IngressPoster;
 }
 
 export interface DiscordGatewayWorker {
@@ -125,7 +132,9 @@ export function createDiscordGatewayWorker(
       }
       // Fire-and-forget: forwardDispatch never throws (it try/catches and logs),
       // so a slow/failed ingress POST never blocks the socket or crashes us.
-      void forwardDispatch(config, packet);
+      // `config.poster` (engine inline runtime) overrides the default HTTP poster;
+      // undefined ⇒ the standalone HTTP ingress path.
+      void forwardDispatch(config, packet, config.poster);
     });
     // discord.js v14 routes SOCKET errors to `shardError` (and signals lifecycle
     // via `shardDisconnect`/`invalidated`), NOT the generic `error` event. The
