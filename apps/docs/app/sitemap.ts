@@ -13,6 +13,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   const marketingPages = [
     "/pricing",
+    "/growth-metrics",
     "/emails",
     "/about",
     "/use-cases/onboarding",
