@@ -18,6 +18,7 @@ const COLUMNS: FooterColumn[] = [
   {
     heading: "Product",
     links: [
+      { label: "Done-for-you setup", href: "/service" },
       { label: "Pricing", href: "/pricing" },
       { label: "Templates", href: "/emails" },
       { label: "Integrations", href: "/integrations" },
@@ -31,8 +32,10 @@ const COLUMNS: FooterColumn[] = [
     heading: "Use cases",
     links: [
       { label: "Onboarding", href: "/use-cases/onboarding" },
+      { label: "Onboarding the PostHog way", href: "/dogfood-onboarding" },
       { label: "Trial conversion", href: "/use-cases/trial-conversion" },
       { label: "Win-back", href: "/use-cases/winback" },
+      { label: "Community", href: "/use-cases/community" },
       {
         label: "Transactional email",
         href: "/docs/recipes/transactional-emails",

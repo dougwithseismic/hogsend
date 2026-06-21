@@ -14,6 +14,7 @@ import { Logo } from "./logo";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Templates", href: "/emails" },
+  { label: "Service", href: "/service" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
   { label: "Changelog", href: "/changelog" },
@@ -38,6 +39,11 @@ const USE_CASE_LINKS: MenuItem[] = [
     label: "Win-back",
     description: "Spot who's gone quiet and bring them back.",
     href: "/use-cases/winback",
+  },
+  {
+    label: "Community",
+    description: "Read Discord activity off the same contact as your product.",
+    href: "/use-cases/community",
   },
   {
     label: "Failed payments",
