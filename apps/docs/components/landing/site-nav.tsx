@@ -14,6 +14,7 @@ import { Logo } from "./logo";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Templates", href: "/emails" },
+  { label: "Growth", href: "/growth-metrics" },
   { label: "Service", href: "/service" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },

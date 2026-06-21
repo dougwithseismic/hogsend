@@ -20,6 +20,14 @@
   --color-accent-deep: #b8281c;
   --color-accent-tint: rgba(246, 72, 56, 0.15);
   --color-ink: #050101; /* the one page background */
+
+  /* Data-viz semantic tokens — scoped to the /growth-metrics calculators.
+     The page chrome stays one-red-accent crimzon; these only colour live
+     calculator state (good ↑ / bad ↓). "warn" reuses --color-accent. */
+  --color-good: #54d6c4; /* teal — healthy / up / output */
+  --color-good-tint: rgba(84, 214, 196, 0.12);
+  --color-caution: #e8b23a; /* amber — watch it / value */
+  --color-caution-tint: rgba(232, 178, 58, 0.12);
   /* Legacy "light section" tokens — remapped to dark equivalents so old
      bg-paper / bg-paper-pure classes keep compiling and render dark. */
   --color-paper: #050101;
@@ -157,6 +165,19 @@ h4,
     rgba(246, 72, 56, 0) 70%
   );
   filter: blur(8px);
+}
+
+/* Flywheel rotor — the /growth-metrics unit-economics widget. Spin duration
+   is set inline by JS (∝ LTV:CAC); the global reduced-motion override above
+   neutralises the animation for users who ask for it. */
+@keyframes hs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.flywheel-rotor {
+  transform-origin: center;
+  animation: hs-spin linear infinite;
 }
 
 /* Hide horizontal scrollbars on tag/marquee rows. */
