@@ -327,6 +327,13 @@ export {
   releaseLeaderLease,
   renewLeaderLease,
 } from "./lib/leader-lease.js";
+// --- Managed tracked links (channel-agnostic mint — Studio/Discord/share) ---
+export {
+  type LinkType,
+  type MintedLink,
+  type MintLinkOptions,
+  mintLink,
+} from "./lib/links.js";
 // --- Logging ---
 export { createLogger, type Logger } from "./lib/logger.js";
 export { createTrackedMailer } from "./lib/mailer.js";

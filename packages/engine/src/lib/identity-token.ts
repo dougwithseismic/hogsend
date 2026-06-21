@@ -64,6 +64,12 @@ export class InvalidIdentityTokenError extends Error {
 }
 
 const DEFAULT_EXPIRY_SECONDS = 60 * 60; // 1 hour — a click-to-landing hop
+/**
+ * The single-use burn sentinel (`POST /v1/t/identify`) lives in Redis for the
+ * token's full validity window, so a reshared token can't replay a merge while
+ * it would still validate. Kept equal to the token lifetime.
+ */
+export const IDENTITY_TOKEN_TTL_SECONDS = DEFAULT_EXPIRY_SECONDS;
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 

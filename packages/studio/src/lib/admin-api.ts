@@ -731,6 +731,102 @@ export function disconnectIntegration(providerId: string) {
   );
 }
 
+// --- Links (generic first-party link tracker) ----------------------------
+
+/**
+ * One row from `GET /v1/admin/links` — a first-party tracked link minted
+ * outside the email pipeline (mintLink). `type` enforces the share-safe
+ * invariant: a `distinctId` is only ever attached to `personal` links
+ * (single-recipient, do-not-share); `public` links carry no identity.
+ * One FLAT shape everywhere: `url` is the short redirect URL and `clickCount`
+ * the computed count. Mirrors the engine link schema (routes/admin/links.ts).
+ */
+export type Link = {
+  id: string;
+  /** The link's redirect tracked-row id (one per managed link). */
+  trackedLinkId: string | null;
+  originalUrl: string;
+  type: "personal" | "public";
+  label: string | null;
+  campaign: string | null;
+  source: string | null;
+  distinctId: string | null;
+  createdBy: string | null;
+  clickCount: number;
+  /** The short redirect URL: `${API_PUBLIC_URL}/v1/t/c/:trackedLinkId`. */
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+};
+
+/** One click recorded against a link (link_clicks row), newest first. */
+export type LinkClick = {
+  id: string;
+  trackedLinkId: string;
+  clickedAt: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+};
+
+/** `GET /:id` — the flat link plus its recent clicks. */
+export type LinkDetail = Link & {
+  clicks: LinkClick[];
+};
+
+/**
+ * Created link — the create route mints a `links` row + a `tracked_links` row
+ * and returns the flat link (its short redirect URL is `link.url`).
+ */
+export type CreatedLink = Link;
+
+export function listLinks(filters?: {
+  type?: "personal" | "public";
+  includeArchived?: boolean;
+}) {
+  return api.get<{
+    links: Link[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>("/v1/admin/links", {
+    query: {
+      type: filters?.type,
+      includeArchived: filters?.includeArchived ? "true" : undefined,
+      limit: 200,
+    },
+  });
+}
+
+export function getLink(id: string) {
+  return api.get<LinkDetail>(`/v1/admin/links/${encodeURIComponent(id)}`);
+}
+
+export function createLink(body: {
+  url: string;
+  label: string;
+  type: "personal" | "public";
+  campaign?: string;
+  /** Honored only when `type === "personal"` (share-safe invariant). */
+  distinctId?: string;
+}) {
+  return api.post<CreatedLink>("/v1/admin/links", { json: body });
+}
+
+export function updateLink(
+  id: string,
+  body: { label?: string; campaign?: string },
+) {
+  return api.patch<Link>(`/v1/admin/links/${encodeURIComponent(id)}`, {
+    json: body,
+  });
+}
+
+/** Archive (soft-delete) a link — sets `archivedAt`; the short URL keeps working. */
+export function archiveLink(id: string) {
+  return api.delete<Link>(`/v1/admin/links/${encodeURIComponent(id)}`);
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
@@ -756,4 +852,6 @@ export const qk = {
   domain: ["domain"] as const,
   integrations: ["integrations"] as const,
   discordConnectInfo: ["discord-connect-info"] as const,
+  links: (type: string) => ["links", type] as const,
+  link: (id: string) => ["link", id] as const,
 };

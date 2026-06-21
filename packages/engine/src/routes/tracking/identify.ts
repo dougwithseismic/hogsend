@@ -1,9 +1,12 @@
+import { createHash } from "node:crypto";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import {
+  IDENTITY_TOKEN_TTL_SECONDS,
   InvalidIdentityTokenError,
   validateIdentityToken,
 } from "../../lib/identity-token.js";
+import { getRedis } from "../../lib/redis.js";
 
 /**
  * Exchange a redirect identity token (`hs_t`) for the distinct id, AND — when
@@ -80,6 +83,50 @@ export const identifyRouter = new OpenAPIHono<AppEnv>().openapi(
         return c.body(null, 400);
       }
       throw err;
+    }
+
+    // SINGLE-USE BURN (anti-reshare): a tracked link can be forwarded, so the
+    // `hs_t` token rides into other inboxes. The control is single-use — the
+    // FIRST exchange of a token wins; a second exchange of the SAME token must
+    // NOT fire another identify/merge (a reshared link can't keep folding the
+    // subject around). Key on a sha256 of the RAW token (never the plaintext id)
+    // and claim it atomically with SET … NX; if the claim loses (`null`), the
+    // token is already spent → return a 200 no-op (never error the landing
+    // page). TTL matches the token lifetime so the sentinel covers the whole
+    // window in which the token would still validate.
+    // The resolve-only response (no server merge) — returned when the token is
+    // already spent.
+    const resolveOnly = {
+      distinctId: payload.distinctId,
+      src: payload.src,
+      emailSendId: payload.emailSendId,
+    };
+    const burnKey = `hs_t:burn:${createHash("sha256").update(token).digest("hex")}`;
+    try {
+      const claimed = await getRedis().set(
+        burnKey,
+        "1",
+        "EX",
+        IDENTITY_TOKEN_TTL_SECONDS,
+        "NX",
+      );
+      if (claimed === null) {
+        // Token already spent — no-op (no identify/merge), still 200 the page.
+        logger.info("identify: token already spent (single-use burn)", {
+          src: payload.src,
+        });
+        return c.json(resolveOnly, 200);
+      }
+    } catch (err) {
+      // Redis unavailable — degrade to the normal identify. The burn works when
+      // Redis is up (≈ always); a Redis-down window restores the pre-burn merge
+      // behaviour rather than coupling the exchange to Redis liveness or dropping
+      // legitimate first-time merges. Never fail the exchange. (A stricter deploy
+      // could fail CLOSED here — skip the merge — to also close the narrow
+      // reshare-during-outage replay window; we accept it as best-effort.)
+      logger.warn("identify: single-use burn unavailable (degrading)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // MF-5 — fire the alias FIRE-AND-FORGET (never await on the response path)
