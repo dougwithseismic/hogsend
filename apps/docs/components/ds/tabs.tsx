@@ -13,6 +13,8 @@ type Tab = {
   description: string;
   tags?: string[];
   media: React.ReactNode;
+  /** Optional "Learn more →" link under the description (e.g. to a docs page). */
+  doc?: { href: string; label: string };
 };
 
 type TabbedShowcaseProps = {
@@ -115,6 +117,15 @@ export function TabbedShowcase({ tabs, className }: TabbedShowcaseProps) {
                     <TagPill key={tag}>{tag}</TagPill>
                   ))}
                 </div>
+              ) : null}
+              {active.doc ? (
+                <a
+                  href={active.doc.href}
+                  className="mt-5 inline-flex items-center gap-1 font-medium text-accent text-sm transition-colors hover:text-white"
+                >
+                  {active.doc.label}
+                  <span aria-hidden>→</span>
+                </a>
               ) : null}
             </div>
             <div className="glass-panel min-w-0 overflow-hidden">
