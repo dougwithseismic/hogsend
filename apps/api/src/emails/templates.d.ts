@@ -10,15 +10,21 @@ import type {
   ActivationNudgeEmailProps,
   ActivationQuickstartEmailProps,
   ChurnPaymentFailedEmailProps,
+  ChurnSaveEmailProps,
   ConversionTrialExpiringEmailProps,
   ConversionUsageMilestoneEmailProps,
   ConversionWinbackOfferEmailProps,
   FeedbackNpsSurveyEmailProps,
   JourneyNotificationEmailProps,
   MarketingProductUpdateProps,
+  OnboardingNudgeEmailProps,
+  OnboardingPersonalizedEmailProps,
   PasswordResetEmailProps,
   ReactivationCheckinEmailProps,
   ReactivationFinalNudgeEmailProps,
+  ReengageTipAEmailProps,
+  ReengageTipBEmailProps,
+  ReengageWebinarEmailProps,
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
   TransactionalDiscordLinkCodeProps,
@@ -30,6 +36,11 @@ import type {
 
 declare module "@hogsend/email" {
   interface TemplateRegistryMap {
+    "onboarding-personalized": OnboardingPersonalizedEmailProps;
+    "onboarding-nudge": OnboardingNudgeEmailProps;
+    "reengage-tip-a": ReengageTipAEmailProps;
+    "reengage-tip-b": ReengageTipBEmailProps;
+    "reengage-webinar": ReengageWebinarEmailProps;
     welcome: WelcomeEmailProps;
     "password-reset": PasswordResetEmailProps;
     "journey-notification": JourneyNotificationEmailProps;
@@ -46,6 +57,7 @@ declare module "@hogsend/email" {
     "reactivation-final-nudge": ReactivationFinalNudgeEmailProps;
     "feedback-nps-survey": FeedbackNpsSurveyEmailProps;
     "churn-payment-failed": ChurnPaymentFailedEmailProps;
+    "churn-save": ChurnSaveEmailProps;
     "transactional/verify-email": TransactionalVerifyEmailProps;
     "transactional/discord-link-code": TransactionalDiscordLinkCodeProps;
     "transactional/magic-link": TransactionalMagicLinkProps;

@@ -18,6 +18,7 @@
     "discord:register-commands": "tsx --env-file=.env scripts/register-discord-commands.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.85",
     "@hatchet-dev/typescript-sdk": "^1.22.3",
     "@hogsend/core": "workspace:^",
     "@hogsend/db": "workspace:^",
@@ -30,6 +31,7 @@
     "@hono/zod-openapi": "^1.4.0",
     "@scalar/hono-api-reference": "^0.10.19",
     "@t3-oss/env-core": "^0.13.11",
+    "ai": "^6.0.208",
     "better-auth": "^1.6.11",
     "discord.js": "^14.26.4",
     "drizzle-orm": "^0.45.2",

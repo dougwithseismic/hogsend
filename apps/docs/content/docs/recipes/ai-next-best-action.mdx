@@ -1,0 +1,202 @@
+---
+title: AI next-best action
+description: generateText with tools lets the model pull user history mid-reasoning and commit a typed decision — including "suppress". The journey acts on the decision without knowing which model steps fired; a suppress decision exits with no send.
+---
+
+Re-engaging a dormant user is a branching problem. The right email depends on what the user has done before, what they tried and abandoned, and whether contacting them at all is the right move. This recipe puts that reasoning inside the model rather than a hand-written rule tree: `generateText({ tools })` with `claude-opus-4-8` lets the model fetch history mid-reasoning, then commit to a typed action — or choose to stay silent.
+
+| Step | Primitive |
+|---|---|
+| Dormancy detected | `user.dormant_30d` event (emitted by your product or a cron) |
+| Agent reads history | `getRecentEvents` tool → `ctx.history.events()` |
+| Agent commits | `decide` tool → typed `{ action, reason }` |
+| Journey acts | branch on `action`; `suppress` exits with no send |
+
+## The agent
+
+```ts
+// src/agents/reengagement-strategist.ts
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { generateText, tool } from "ai";
+import { z } from "zod";
+import type { JourneyContext, JourneyUser } from "@hogsend/engine";
+
+const DecisionSchema = z.object({
+  action: z.enum([
+    "reengage_tip_a",
+    "reengage_tip_b",
+    "reengage_webinar",
+    "suppress",
+  ]),
+  reason: z.string().describe("One sentence explaining the choice."),
+});
+
+export type Decision = z.infer<typeof DecisionSchema>;
+
+export async function decideNextBestAction(
+  user: JourneyUser,
+  ctx: JourneyContext,
+): Promise<Decision | null> {
+  const anthropic = createAnthropic();
+
+  const result = await generateText({
+    model: anthropic("claude-opus-4-8"),
+    maxSteps: 5,
+    tools: {
+      getRecentEvents: tool({
+        description:
+          "Fetch the user's recent events, newest first. Use this to understand " +
+          "what the user has been doing and what they haven't tried.",
+        parameters: z.object({
+          limit: z.number().int().min(1).max(50).default(20),
+        }),
+        execute: async ({ limit }) => {
+          const events = await ctx.history.events({ userId: user.id, limit });
+          return events.map((e) => ({ event: e.event, occurredAt: e.occurredAt }));
+        },
+      }),
+
+      decide: tool({
+        description:
+          "Commit to a re-engagement action for this user. Call this exactly " +
+          "once after you've reviewed their history. Choose 'suppress' if " +
+          "they've been recently active or already received a re-engagement email.",
+        parameters: DecisionSchema,
+        // No side effects — just capture the decision.
+        execute: async (decision) => decision,
+      }),
+    },
+    system:
+      "You are a re-engagement strategist. Use getRecentEvents to understand " +
+      "the user's history, then call decide once. " +
+      "'reengage_tip_a' = quick practical win. " +
+      "'reengage_tip_b' = advanced pattern for power users. " +
+      "'reengage_webinar' = live session invite for users who prefer learning together. " +
+      "'suppress' = user is active or doesn't need contact right now.",
+    prompt: `Decide the best re-engagement action for user ${user.id} (${user.email}).`,
+  });
+
+  // Find the decide tool call in the steps — it fires exactly once.
+  for (const step of result.steps) {
+    for (const call of step.toolCalls ?? []) {
+      if (call.toolName === "decide") {
+        return DecisionSchema.parse(call.args);
+      }
+    }
+  }
+
+  return null; // model didn't commit — treated as suppress
+}
+```
+
+`maxSteps: 5` gives the model room for one `getRecentEvents` call and one `decide` call with buffer. The journey interprets a `null` return (no decide call) the same as `suppress`.
+
+## The journey
+
+```ts
+// src/journeys/ai-reengagement.ts
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { hours } from "@hogsend/core";
+import { decideNextBestAction } from "../agents/reengagement-strategist.js";
+import { Events, Templates } from "./constants/index.js";
+
+const TEMPLATE_MAP = {
+  reengage_tip_a:   Templates.REENGAGE_TIP_A,
+  reengage_tip_b:   Templates.REENGAGE_TIP_B,
+  reengage_webinar: Templates.REENGAGE_WEBINAR,
+} as const;
+
+export const aiReengagement = defineJourney({
+  meta: {
+    id: "ai-reengagement",
+    name: "AI Re-engagement — Next Best Action",
+    enabled: true,
+    trigger: { event: Events.DORMANT_30D },
+    entryLimit: "once_per_period",
+    entryPeriod: { days: 30 },
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_ACTIVATED }],
+  },
+
+  run: async (user, ctx) => {
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    const decision = await decideNextBestAction(user, ctx);
+
+    // null or suppress — the model chose silence. No send.
+    if (!decision || decision.action === "suppress") return;
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: TEMPLATE_MAP[decision.action],
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+## Constants and registration
+
+```ts
+// src/journeys/constants/index.ts (additions)
+export const Events = {
+  // …existing…
+  DORMANT_30D:    "user.dormant_30d",
+  USER_ACTIVATED: "user.activated",
+} as const;
+
+export const Templates = {
+  // …existing…
+  REENGAGE_TIP_A:   "reengage/tip-a",
+  REENGAGE_TIP_B:   "reengage/tip-b",
+  REENGAGE_WEBINAR: "reengage/webinar",
+} as const;
+```
+
+Each template key needs a React Email component, a `registry.ts` entry, and a `templates.d.ts` augmentation — the [Email guide](/docs/guides/email) covers the four-file contract.
+
+```ts
+// src/journeys/index.ts
+import { aiReengagement } from "./ai-reengagement.js";
+export const journeys: DefinedJourney[] = [aiReengagement, /* …others… */];
+```
+
+## Emitting the dormancy trigger
+
+The `user.dormant_30d` event isn't a product action — it's computed. Emit it from a cron task or a scheduled Hatchet workflow that scans for users with no events in the last 30 days:
+
+```ts
+// src/workflows/detect-dormancy.ts (excerpt)
+// Runs on a daily cron; emits dormancy events for eligible users.
+const dormantUsers = await db.query…;
+for (const u of dormantUsers) {
+  await hs.events.send({
+    name: "user.dormant_30d",
+    userId: u.id,
+    eventProperties: { daysSinceActive: u.daysSinceActive },
+    idempotencyKey: `dormant-${u.id}-${todayIso}`,
+  });
+}
+```
+
+The `idempotencyKey` prevents double-enrollment when the cron re-runs on the same day.
+
+## Why Opus 4.8 here
+
+`claude-opus-4-8` is the right model when the agent needs to:
+- Pull additional data mid-reasoning (the `getRecentEvents` tool call)
+- Weigh multiple signals (recency, event types, email engagement)
+- Make a nuanced judgment (tip-a vs tip-b vs suppress)
+
+For simple slot-filling — drafting a subject line and body from a known context — `claude-haiku-4-5` is faster and lower-cost (see [AI-personalised onboarding](/docs/recipes/ai-personalized-onboarding)).
+
+<Callout type="info">
+  - **`suppress` is a first-class outcome.** The journey exits cleanly with no send — there's no fallback email for a model that chooses silence. Build that into your templates: if every branch *must* send, remove `suppress` from the enum.
+  - **`entryLimit: "once_per_period"` with `entryPeriod: days(30)`.** A dormancy event re-fires if the same user stays dormant next month. The period limit means they get at most one re-engagement attempt per 30-day window, however often the cron runs.
+  - **Tools are synchronous to the journey context.** The `getRecentEvents` tool closes over `ctx` from the journey run — it reads the live DB, not a snapshot. The model gets fresh data every call.
+  - **The model's reasoning is not logged.** Only the committed `decide` call matters to the journey. If you need to audit model reasoning (the intermediate `getRecentEvents` calls and thinking), capture `result.steps` and write it somewhere.
+</Callout>
+
+Related: [AI-personalised onboarding](/docs/recipes/ai-personalized-onboarding) is the simpler Tier-1 version of this pattern; [AI churn-save with Eve](/docs/recipes/ai-churn-save-eve) is the Tier-3 long-running version with human-in-the-loop; [Vercel AI SDK integration](/docs/integrations/ai-sdk) documents all three tiers side by side.

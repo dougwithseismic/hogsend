@@ -30,6 +30,72 @@ export interface JourneyNotificationEmailProps {
 }
 
 // ---------------------------------------------------------------------------
+// AI onboarding templates
+// ---------------------------------------------------------------------------
+
+export interface OnboardingPersonalizedEmailProps {
+  name: string;
+  /** The AI-drafted email subject (used by the mailer, not rendered in body). */
+  subject?: string;
+  /** AI-drafted body paragraph shown below the title. */
+  body?: string;
+  /** Optional list of personalised tips rendered in a callout block. */
+  tips?: string[];
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface OnboardingNudgeEmailProps {
+  name: string;
+  /** The feature name to nudge the user towards. */
+  featureName?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Re-engagement templates
+// ---------------------------------------------------------------------------
+
+export interface ReengageTipAEmailProps {
+  name: string;
+  /** The quick-win tip to highlight. */
+  tip?: string;
+  /** Optional detail or supporting context for the tip. */
+  tipDetail?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface ReengageTipBEmailProps {
+  name: string;
+  /** The advanced use case to highlight. */
+  useCase?: string;
+  /** Optional detail or supporting context for the use case. */
+  useCaseDetail?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface ReengageWebinarEmailProps {
+  name: string;
+  /** Title of the webinar or live session. */
+  webinarTitle?: string;
+  /** Human-readable date/time string for the webinar. */
+  webinarDate?: string;
+  /** Short description of what the session covers. */
+  webinarDescription?: string;
+  /** Registration or calendar URL. */
+  registerUrl?: string;
+  ctaText?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Activation templates
 // ---------------------------------------------------------------------------
 
@@ -163,6 +229,17 @@ export interface ChurnPaymentFailedEmailProps {
   retryUrl?: string;
   updatePaymentUrl?: string;
   gracePeriodDays?: number;
+  unsubscribeUrl?: string;
+}
+
+export interface ChurnSaveEmailProps {
+  name: string;
+  /** Headline for the save offer. */
+  offerHeadline?: string;
+  /** Supporting detail about what the team can do — shown in a callout when provided. */
+  offerDetail?: string;
+  ctaText?: string;
+  ctaUrl?: string;
   unsubscribeUrl?: string;
 }
 

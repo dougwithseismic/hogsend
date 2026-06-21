@@ -19,6 +19,7 @@
     "db:migrate": "tsx --env-file-if-exists=.env scripts/migrate.ts"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.85",
     "@hatchet-dev/typescript-sdk": "^1.22.3",
     "@hogsend/cli": "^{{ENGINE_VERSION}}",
     "@hogsend/client": "^{{ENGINE_VERSION}}",
@@ -42,6 +43,7 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "resend": "^6.12.3",
+    "ai": "^6.0.208",
     "winston": "^3.19.0",
     "zod": "^4.4.3"
   },

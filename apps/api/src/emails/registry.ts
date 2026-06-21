@@ -4,15 +4,21 @@ import ActivationFeatureHighlightEmail from "./activation-feature-highlight.js";
 import ActivationNudgeEmail from "./activation-nudge.js";
 import ActivationQuickstartEmail from "./activation-quickstart.js";
 import ChurnPaymentFailedEmail from "./churn-payment-failed.js";
+import ChurnSaveEmail from "./churn-save.js";
 import ConversionTrialExpiringEmail from "./conversion-trial-expiring.js";
 import ConversionUsageMilestoneEmail from "./conversion-usage-milestone.js";
 import ConversionWinbackOfferEmail from "./conversion-winback-offer.js";
 import FeedbackNpsSurveyEmail from "./feedback-nps-survey.js";
 import JourneyNotificationEmail from "./journey-notification.js";
 import MarketingProductUpdateEmail from "./marketing-product-update.js";
+import OnboardingNudgeEmail from "./onboarding-nudge.js";
+import OnboardingPersonalizedEmail from "./onboarding-personalized.js";
 import PasswordResetEmail from "./password-reset.js";
 import ReactivationCheckinEmail from "./reactivation-checkin.js";
 import ReactivationFinalNudgeEmail from "./reactivation-final-nudge.js";
+import ReengageTipAEmail from "./reengage-tip-a.js";
+import ReengageTipBEmail from "./reengage-tip-b.js";
+import ReengageWebinarEmail from "./reengage-webinar.js";
 import RetentionAchievementEmail from "./retention-achievement.js";
 import RetentionWeeklyDigestEmail from "./retention-weekly-digest.js";
 import TransactionalDiscordLinkCode from "./transactional-discord-link-code.js";
@@ -31,6 +37,60 @@ import WelcomeEmail from "./welcome.js";
 // `TemplateRegistryMap` (see `./templates.d.ts`) for `send({ template, props })`
 // to type-check.
 export const templates: TemplateRegistry = {
+  "onboarding-personalized": {
+    component: OnboardingPersonalizedEmail,
+    defaultSubject: "Welcome — here's where to start",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, a quick note personalized for you.`,
+    examples: {
+      name: "Ada",
+      body: "Based on your setup, we think you'll get the most value from our journey builder.",
+      tips: ["Define your first journey", "Connect your PostHog project"],
+    },
+  },
+  "onboarding-nudge": {
+    component: OnboardingNudgeEmail,
+    defaultSubject: "Still haven't tried it?",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, you haven't activated the key feature yet.`,
+    examples: { name: "Ada", featureName: "the journey builder" },
+  },
+  "reengage-tip-a": {
+    component: ReengageTipAEmail,
+    defaultSubject: "A quick win while you were away",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, here's a quick win to get more out of Hogsend.`,
+    examples: {
+      name: "Ada",
+      tip: "Set up frequency caps so your journeys never over-mail a contact",
+    },
+  },
+  "reengage-tip-b": {
+    component: ReengageTipBEmail,
+    defaultSubject: "An advanced pattern you might not have tried",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, here's an advanced Hogsend pattern worth a look.`,
+    examples: {
+      name: "Ada",
+      useCase: "AI-driven journeys that decide which email to send next",
+    },
+  },
+  "reengage-webinar": {
+    component: ReengageWebinarEmail,
+    defaultSubject: "Get your first journey live — join us",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, join us for a live onboarding session.`,
+    examples: {
+      name: "Ada",
+      webinarTitle: "Hogsend Live: Get Your First Journey Running",
+      webinarDate: "Thursday, 2 July at 4 pm UTC",
+    },
+  },
   welcome: {
     component: WelcomeEmail,
     defaultSubject: "Welcome to Hogsend",
@@ -132,6 +192,19 @@ export const templates: TemplateRegistry = {
     defaultSubject: "Your payment didn't go through",
     category: "transactional",
     preview: (props) => `${props.name}, action needed on your billing`,
+  },
+  "churn-save": {
+    component: ChurnSaveEmail,
+    defaultSubject: "We'd love to keep you",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, we noticed you might be leaving — here's what we can do.`,
+    examples: {
+      name: "Ada",
+      offerHeadline: "Before you go — let's see if we can help",
+      offerDetail:
+        "Our retention team has reviewed your account and has a few ideas that might change things.",
+    },
   },
 
   // --- Transactional — sent one-off via

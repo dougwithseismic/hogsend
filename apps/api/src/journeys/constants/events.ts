@@ -3,9 +3,11 @@ export const Events = {
   USER_DELETED: "user.deleted",
   USER_ACTIVATED: "user.activated",
   USER_DORMANCY_DETECTED: "user.dormancy_detected",
+  DORMANT_30D: "user.dormant_30d",
   USER_SUPPRESSED: "user.suppressed",
 
   FEATURE_USED: "feature.used",
+  FEATURE_ACTIVATED: "feature.activated",
   KEY_ACTION: "key.action",
   APP_ACTIVE: "app.active",
   SETUP_COMPLETED: "setup.completed",
@@ -42,6 +44,11 @@ export const Events = {
   JOURNEY_COMPLETED: "journey.completed",
 
   TEST_SIGNUP: "test.signup",
+
+  // Churn-save (Tier-3 / Eve integration)
+  CHURN_RISK_FLAGGED: "churn.risk_flagged",
+  REACTIVATED: "churn.reactivated",
+  AGENT_COMPLETED: "agent.completed",
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];

@@ -1,6 +1,9 @@
 import type { DefinedJourney } from "@hogsend/engine";
 import { activationNudgeSeries } from "./activation-nudge-series.js";
 import { activationWelcome } from "./activation-welcome.js";
+import { aiChurnSave } from "./ai-churn-save.js";
+import { aiOnboarding } from "./ai-onboarding.js";
+import { aiReengagement } from "./ai-reengagement.js";
 import { churnPrevention } from "./churn-prevention.js";
 import { conversionAbandonedCheckout } from "./conversion-abandoned-checkout.js";
 import { conversionTrialUpgrade } from "./conversion-trial-upgrade.js";
@@ -18,6 +21,9 @@ import { testOnboarding } from "./test-onboarding.js";
 export const journeys: DefinedJourney[] = [
   activationWelcome,
   activationNudgeSeries,
+  aiOnboarding,
+  aiReengagement,
+  aiChurnSave,
   conversionTrialUpgrade,
   conversionAbandonedCheckout,
   retentionMilestone,
@@ -33,6 +39,9 @@ export const journeys: DefinedJourney[] = [
 export {
   activationNudgeSeries,
   activationWelcome,
+  aiChurnSave,
+  aiOnboarding,
+  aiReengagement,
   churnPrevention,
   conversionAbandonedCheckout,
   conversionTrialUpgrade,

@@ -14,12 +14,20 @@ export const Templates = {
 
   RETENTION_ACHIEVEMENT: "retention-achievement",
 
+  ONBOARDING_PERSONALIZED: "onboarding-personalized",
+  ONBOARDING_NUDGE: "onboarding-nudge",
+
+  REENGAGE_TIP_A: "reengage-tip-a",
+  REENGAGE_TIP_B: "reengage-tip-b",
+  REENGAGE_WEBINAR: "reengage-webinar",
+
   REACTIVATION_CHECKIN: "reactivation-checkin",
   REACTIVATION_FINAL_NUDGE: "reactivation-final-nudge",
 
   FEEDBACK_NPS_SURVEY: "feedback-nps-survey",
 
   CHURN_PAYMENT_FAILED: "churn-payment-failed",
+  CHURN_SAVE: "churn-save",
 
   // Transactional — one-off via hs.emails.send.
   TRANSACTIONAL_VERIFY_EMAIL: "transactional/verify-email",

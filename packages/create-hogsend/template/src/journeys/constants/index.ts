@@ -9,6 +9,7 @@ export const Events = {
   USER_CREATED: "user.created",
   USER_DELETED: "user.deleted",
   FEATURE_USED: "feature.used",
+  FEATURE_ACTIVATED: "feature.activated",
 
   // Billing lifecycle — drives the bundled `trial-expiring` journey. Emit
   // `trial.started` from your signup/billing code (e.g. `hs.events.send`); the
@@ -92,6 +93,10 @@ export const Templates = {
 
   // Feedback — semantic-link check-in (sent from the feedback-checkin journey).
   FEEDBACK_CHECKIN: "feedback/checkin",
+
+  // AI onboarding — personalised welcome + day-3 nudge.
+  ONBOARDING_PERSONALIZED: "onboarding/personalized",
+  ONBOARDING_NUDGE: "onboarding/nudge",
 } as const;
 
 export type TemplateName = (typeof Templates)[keyof typeof Templates];

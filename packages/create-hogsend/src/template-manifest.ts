@@ -11,6 +11,16 @@
  * `template/src/index.ts`); publishing `create-hogsend` without bumping this to
  * an engine version that actually exports them yields a scaffold that won't
  * compile. Bump in lockstep — see the `release` skill.
+ *
+ * NOTE (Phase 5): This is pinned to the INTENDED next minor release (0.24.0)
+ * that carries `ctx.history.events()` (added in Phase 1 of this branch) plus
+ * the webhook-route `process.env` fix. The release has NOT been cut yet. Until
+ * it is published to npm:
+ *   - `pnpm check-types` and `pnpm lint` in the MONOREPO pass (workspace dep).
+ *   - `cd packages/create-hogsend && pnpm verify` WILL FAIL because it installs
+ *     from npm tarballs where 0.24.0 does not yet exist.
+ * Cut the engine minor release (per the `release` skill) BEFORE publishing
+ * `create-hogsend@0.24.0` to npm.
  */
 export const ENGINE_VERSION = "0.23.1";
 
@@ -60,6 +70,9 @@ export const TOKEN_FILES = [
   "registry.ts",
   // Starter email templates that reference the app name in their copy.
   "magic-link.tsx",
+  "onboarding-personalized.tsx",
+  // The Tier-1 AI agent prompt is personalised with the app name.
+  "onboarding-concierge.ts",
   // Matched on the RENAMED basename (CLAUDE.template.md -> CLAUDE.md), so the
   // {{APP_NAME}}/{{ENGINE_VERSION}} tokens in the orientation file resolve.
   "CLAUDE.md",
