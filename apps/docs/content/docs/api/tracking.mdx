@@ -125,18 +125,46 @@ These events:
 
 ### `tracked_links`
 
-One row per unique URL per email. Created at send time during HTML rewriting.
+One row per unique URL. Created at send time during email HTML rewriting, **or**
+by `mintLink` for a managed link on any channel (see
+[Link tracking](/docs/guides/link-tracking)).
 
 | Column | Type | Description |
 |---|---|---|
 | `id` | UUID | Primary key — used in tracking redirect URL |
-| `email_send_id` | UUID | FK → `email_sends`. Cascade deletes. |
+| `email_send_id` | UUID | FK → `email_sends` (nullable — NULL for managed links). Cascade deletes. |
+| `link_id` | UUID | FK → `links` (nullable — NULL for email links). `ON DELETE set null`. |
 | `original_url` | TEXT | The original destination URL |
 | `click_count` | INTEGER | Denormalized click counter (default 0) |
 | `created_at` | TIMESTAMP | When the tracked link was created |
 | `updated_at` | TIMESTAMP | Last updated (click count change) |
 
-**Indexes:** `email_send_id`
+**Indexes:** `email_send_id`, `link_id`
+
+### `links`
+
+The durable, named identity of a **managed** tracked link (Studio / `mintLink`).
+Email's per-send rewritten links do not appear here — they keep
+`tracked_links.link_id` NULL. The click count is computed on read by summing the
+link's `tracked_links.click_count`; there is no counter on this table.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID | Primary key |
+| `original_url` | TEXT | The destination the redirect 302s to |
+| `type` | TEXT | `public` (shareable, no identity) or `personal` (1:1, stitch-bearing) |
+| `label` | TEXT | Operator-facing name (nullable) |
+| `campaign` | TEXT | Campaign grouping (nullable) |
+| `source` | TEXT | Originating channel (`studio`, `discord`, …) |
+| `distinct_id` | TEXT | Canonical contact key to stitch — **only** set for `personal` links |
+| `created_by` | TEXT | The actor who minted it (nullable) |
+| `archived_at` | TIMESTAMP | Soft-delete marker; the short URL keeps redirecting |
+
+**Indexes:** `source`, `campaign`, `created_at`
+
+Managed via the admin API: `POST /v1/admin/links` (mint), `GET /v1/admin/links`
+(list), `GET /v1/admin/links/:id` (one link + recent clicks), `PATCH` (rename /
+regroup), `DELETE` (archive).
 
 ### `link_clicks`
 

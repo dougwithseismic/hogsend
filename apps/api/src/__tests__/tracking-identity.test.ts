@@ -346,6 +346,37 @@ describe("POST /v1/t/identify — server-side alias (MF-5)", () => {
     expect(mergeSpy).not.toHaveBeenCalled();
   });
 
+  it("single-use burn — the SAME token merges only ONCE; the replayed exchange is a 200 no-op", async () => {
+    // Requires Redis (the NX burn). The token is unique per generation (GCM IV),
+    // so this is re-runnable; the first exchange wins, the second is spent.
+    const token = generateIdentityToken({
+      secret: SECRET,
+      distinctId: "burn-canon",
+      emailSendId: "send-burn",
+    });
+    const body = JSON.stringify({ token, currentDistinctId: "burn-browser" });
+    const opts = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    };
+    const first = await mergeApp.request("/v1/t/identify", opts);
+    const second = await mergeApp.request("/v1/t/identify", opts);
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    // Both resolve the same canonical key…
+    expect((await first.json()).distinctId).toBe("burn-canon");
+    expect((await second.json()).distinctId).toBe("burn-canon");
+    // …but the server merge fires EXACTLY ONCE — the reshared/replayed token
+    // can't fold the subject around again.
+    expect(mergeSpy).toHaveBeenCalledTimes(1);
+    expect(mergeSpy).toHaveBeenCalledWith({
+      distinctId: "burn-canon",
+      alias: "burn-browser",
+    });
+  });
+
   it("provider lacks identityMerge → no merge, still 200 (client fallback)", async () => {
     expect(noMergeContainer.analytics?.capabilities.identityMerge).toBe(false);
     const token = generateIdentityToken({

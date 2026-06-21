@@ -9,6 +9,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
 import { emailSends } from "./email-sends.js";
+import { links } from "./links.js";
 
 export const trackedLinks = pgTable(
   "tracked_links",
@@ -20,6 +21,13 @@ export const trackedLinks = pgTable(
     // populating it; the FK + index are unchanged.
     emailSendId: uuid("email_send_id").references(() => emailSends.id, {
       onDelete: "cascade",
+    }),
+    // The managed `links` row this click-counter belongs to, when the link was
+    // minted via `mintLink` (Studio / Discord / share links). NULL for email's
+    // per-send rewritten links (they resolve identity from `email_sends`). ON
+    // DELETE set null so archiving/removing a `links` row keeps the click spine.
+    linkId: uuid("link_id").references(() => links.id, {
+      onDelete: "set null",
     }),
     // Subject of a stitch-bearing NON-email link: the canonical contact key the
     // click should fold the visitor's anon session into. NULL for broadcast
@@ -46,5 +54,8 @@ export const trackedLinks = pgTable(
     }),
     ...timestamps,
   },
-  (table) => [index("tracked_links_email_send_id_idx").on(table.emailSendId)],
+  (table) => [
+    index("tracked_links_email_send_id_idx").on(table.emailSendId),
+    index("tracked_links_link_id_idx").on(table.linkId),
+  ],
 );

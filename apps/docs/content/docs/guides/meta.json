@@ -8,6 +8,7 @@
     "webhook-sources",
     "email",
     "semantic-links",
+    "link-tracking",
     "lists",
     "conditions",
     "destinations",

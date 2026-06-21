@@ -1,0 +1,136 @@
+---
+title: Link tracking
+description: First-party tracked links for any channel — mint personal or public links, count clicks, and stitch identity outside the email pipeline.
+---
+
+Email already rewrites its links to redirect through your own domain and counts
+every click (see [Tracking API](/docs/api/tracking)). **Link tracking** is that
+same machinery as a standalone primitive: mint a first-party tracked link for
+*any* channel — a Discord message, an SMS, a QR code, a share link on your site
+— and get the clicks back as events, with optional per-person identity.
+
+A tracked link is a short `/v1/t/c/:id` URL on your own `API_PUBLIC_URL`. It
+302-redirects to the real destination and records the click first-party — no
+third-party cookie, no external tracker, no deliverability hit.
+
+## Personal vs public
+
+Every link is one of two types, and the type is a contract about identity:
+
+- **`public`** — shareable. A campaign-style link you can post anywhere. It
+  counts clicks and attributes them to the link's campaign, but carries **no
+  person identity**. Forward it and every click still rolls up to the same
+  campaign — which is the point.
+- **`personal`** — one recipient. It carries a `distinctId` (a canonical
+  contact key) so a click can stitch the visitor's session to that person. Send
+  it to one person; **don't post it publicly.**
+
+The split exists because a shared link can't identify a person — whoever clicks
+a forwarded "personal" link would be mis-attributed to the original recipient.
+The engine enforces this: a `public` link **never** stores a `distinctId`, even
+if you pass one.
+
+## Minting a link in code
+
+`mintLink` is the channel-agnostic counterpart to email's send-time rewriter.
+Call it anywhere you hold the container's `db` (a workflow task, a connector
+action, a custom route):
+
+```ts
+import { mintLink } from "@hogsend/engine";
+
+const { url } = await mintLink({
+  db,
+  url: "https://yourapp.com/welcome",
+  baseUrl: env.API_PUBLIC_URL,
+  source: "discord", // where it originated (open string)
+  type: "personal",
+  distinctId: contactKey, // honoured only for personal links
+  label: "Discord welcome", // operator-facing name
+  campaign: "discord-onboard", // grouping (mostly for public links)
+});
+
+// → url = https://api.yourapp.com/v1/t/c/<id>
+// post `url` in the DM / channel / SMS / page
+```
+
+It inserts a durable `links` row (the named identity you manage) plus a
+`tracked_links` click-counter row, and returns the short redirect URL. The
+destination must be `http(s)` — non-http schemes are rejected at mint time, so a
+managed link is never an open redirect.
+
+## In Studio
+
+The **Links** view mints and manages links without code: pick a destination,
+name it, choose public or personal, and copy the short URL. The list shows each
+link's live click count and lets you archive the ones you're done with.
+Archiving is a soft-delete — the short URL keeps redirecting and the click
+history survives.
+
+The same surface is a REST API: `POST /v1/admin/links` to mint,
+`GET /v1/admin/links` to list, `GET /v1/admin/links/:id` for one link with its
+recent clicks, `PATCH` to rename/regroup, `DELETE` to archive.
+
+## Click counts
+
+The count is computed on read by summing `tracked_links.click_count`, so a click
+never writes back to the `links` row. Each click also records a `link_clicks`
+row (IP, user agent, timestamp), which the Studio link detail shows newest-first.
+
+## Identity, the share-safe way
+
+A **personal** link can stitch a click to a person across devices. With
+`TRACKING_IDENTITY_TOKEN=true`, the redirect appends a short-lived, encrypted
+`hs_t` token; your landing site exchanges it for the distinct id and identifies
+the session:
+
+```ts
+// on the landing site, after arrival from a tracked link
+const res = await fetch("https://api.yourapp.com/v1/t/identify", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    token: params.get("hs_t"),
+    currentDistinctId: posthog.get_distinct_id(), // optional: fold this session in
+  }),
+});
+const { distinctId } = await res.json();
+posthog.identify(distinctId); // the link click and the web session merge
+```
+
+The exchange is **single-use**: the first exchange of a token wins, and a
+replayed or reshared token is a 200 no-op. A forwarded personal link can
+therefore stitch at most once — it can't keep folding new sessions into the
+original person. (See
+[Semantic links → cross-device identity](/docs/guides/semantic-links#cross-device-identity-hs_t)
+for the token's AES-256-GCM encryption and the anti-hijack model.)
+
+A **public** link has no token and no `distinctId` — there's nothing to
+identify, by design. You still get the click and its campaign.
+
+## How it relates to email
+
+Email links and managed links share one click spine (`tracked_links` +
+`link_clicks`) but stay independent:
+
+- Email **rewrites HTML at send time** and leaves `tracked_links.link_id` NULL —
+  its links belong to an `email_sends` row, not a managed `links` row.
+- `mintLink` creates a managed `links` row and points `tracked_links.link_id` at
+  it.
+
+So the Studio Links view lists only your **managed** links, not the per-send
+links inside every email. Both emit the same first-party click event.
+
+## What it is not
+
+- **Not a public-link person tracker.** A shared/public link attributes by
+  campaign only — it can't tell you *who* clicked, because you can't put one
+  person's identity on a link many people share.
+- **Not a URL shortener for untrusted input.** Destinations are validated
+  `http(s)` and links are operator-minted (Studio or your own code); the
+  redirect follows the stored URL, so it isn't an open redirect for arbitrary
+  callers.
+
+See also: [Tracking API](/docs/api/tracking) for the click/open endpoints and
+schema, and [Semantic links](/docs/guides/semantic-links) for links whose clicks
+carry an answer.

@@ -162,8 +162,9 @@ export async function BuildingBlocks() {
       label: "Tracking",
       title: "Opens and clicks, first-party",
       description:
-        "Every send is tracked first-party for opens and link clicks; engagement flows back as events (email.opened / email.link_clicked) you can branch on mid-journey or fan out to your destinations.",
-      tags: ["Open tracking", "Click tracking", "Flows back as events"],
+        "Every send is tracked first-party for opens and link clicks; engagement flows back as events (email.opened / email.link_clicked) you can branch on mid-journey or fan out to your destinations. The same click spine mints standalone tracked links for any channel — Discord, SMS, a share link — counted first-party, with optional per-person identity.",
+      tags: ["Open tracking", "Click tracking", "Any channel"],
+      doc: { href: "/docs/guides/link-tracking", label: "Link tracking" },
       media: <MockupFrame>{trackingMedia}</MockupFrame>,
     },
     {

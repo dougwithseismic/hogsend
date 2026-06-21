@@ -9,6 +9,7 @@ import { ContactsView } from "@/views/contacts-view";
 import { DebugView } from "@/views/debug-view";
 import { IntegrationsView } from "@/views/integrations-view";
 import { JourneysView } from "@/views/journeys-view";
+import { LinksView } from "@/views/links-view";
 import { OverviewView } from "@/views/overview-view";
 import { SendsView } from "@/views/sends-view";
 import { SettingsView } from "@/views/settings-view";
@@ -36,6 +37,12 @@ const templatesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/templates",
   component: TemplatesView,
+});
+
+const linksRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/links",
+  component: LinksView,
 });
 
 const journeysRoute = createRoute({
@@ -90,6 +97,7 @@ const routeTree = rootRoute.addChildren([
   overviewRoute,
   sendsRoute,
   templatesRoute,
+  linksRoute,
   journeysRoute,
   bucketsRoute,
   contactsRoute,
