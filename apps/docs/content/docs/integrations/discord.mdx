@@ -1,9 +1,9 @@
 ---
 title: Discord
-description: Turn a Discord server into a Hogsend event source — messages, reactions, joins, and presence flow in as discord.* events over a Gateway worker, contacts link their email in-Discord via a /link modal, and an outbound destination posts lifecycle events to a channel.
+description: Turn a Discord server into a Hogsend event source — messages, reactions, joins, and presence flow in as discord.* events over an inline Gateway socket inside the Hatchet worker, contacts link their email in-Discord via a /link modal, and an outbound destination posts lifecycle events to a channel.
 ---
 
-`@hogsend/plugin-discord` is a **consumer-mounted** connector — the engine ships no Discord code; you `pnpm add` the package and wire it into your app. It ships two parts under `meta.id = "discord"`: an **inbound** Gateway connector that turns Discord activity into `discord.*` events, and an **outbound** destination that posts lifecycle events to a channel. The live socket runs in a **separate long-lived worker process** that dials Discord outbound and POSTs each dispatch to the connector ingress — the API process never opens a WebSocket.
+`@hogsend/plugin-discord` is a **consumer-mounted** connector — the engine ships no Discord code; you `pnpm add` the package and wire it into your app. It ships two parts under `meta.id = "discord"`: an **inbound** Gateway connector that turns Discord activity into `discord.*` events, and an **outbound** destination that posts lifecycle events to a channel. The live socket runs **inline inside the existing Hatchet worker** — gated by a Redis **leader lease** so exactly one replica holds it per bot token — and feeds `transform → ingestEvent` **in process**. There is no separate Discord worker and no HTTP ingress hop on the default path.
 
 <Callout type="info">
   This is consumer-mounted content. You `pnpm add @hogsend/plugin-discord`, build a connector with `createDiscordConnector(...)`, and pass it to `createHogsendClient`. Discord is **not** a signed-webhook preset — it does not appear in `ENABLED_WEBHOOK_PRESETS` and does not auto-mount from a secret env var.
@@ -16,35 +16,42 @@ description: Turn a Discord server into a Hogsend event source — messages, rea
 - `discord.message_sent`, `discord.reaction_added`, `discord.member_joined`, `discord.presence_active` — see [Events](#events) for the full mapping.
 - A contact gains a `discord_id` identity and a `contacts.properties.discord` metadata object.
 
-**Out** — `discordDestination` posts one Discord-markdown line per lifecycle event to a channel (incoming webhook preferred, bot-REST as the alt) on the durable outbound spine. See [Outbound](#outbound-the-destination) and the [Destinations guide](/docs/guides/destinations).
+**Out** — `discordDestination` posts one Discord-markdown line per lifecycle event to a channel (incoming webhook preferred, bot-REST as the alt) on the durable outbound spine. See [Outbound](#outbound-the-destination) and the [Destinations guide](/docs/guides/destinations). Journeys can also send to Discord directly with `sendConnectorAction(...)` — see [Outbound actions](#outbound-actions-from-a-journey).
 
 ## Architecture
 
-Three processes, one integration:
+The Gateway socket runs **inline inside the Hatchet worker** — the same process that already executes your journey tasks. There is no separate Discord service, and no shared ingress secret on the default path.
 
 ```
-Discord Gateway  ──socket──▶  discord-worker (its own process)
-                                   │  POST { __t, d }
-                                   ▼
-                         POST /v1/connectors/discord/ingress   (x-hogsend-ingress-secret)
-                                   │  transform → IngestEvent
-                                   ▼
-                         ingestEvent() → user_events + contact upsert + journeys
+real Discord activity (message / reaction / join / presence)
+  → discord.js Gateway socket   (INLINE in the Hatchet worker, leader replica only)
+  → in-process: connector.transform(dispatch)  →  ingestEvent(...)
+  → user_events row + contact upsert (discord_id key + properties.discord) + journey routing
 
-Discord (slash/modal/button)  ──HTTP──▶  POST /v1/connectors/discord/interactions  (ed25519 + ±300s)
+Discord (slash / modal / button)  ──HTTP──▶  POST /v1/connectors/discord/interactions  (ed25519 + ±300s)
 ```
 
-The worker is dumb: it forwards `{ __t: dispatchType, d: payload }` and holds no transform logic. The connector's `transform()` runs server-side at the ingress route, so changing how a dispatch maps to an event never redeploys the worker.
+The pieces:
 
-The three routes under `/v1/connectors/discord` and their auth:
+- **One socket, one replica.** A Discord bot token permits exactly one live Gateway session. The worker elects a single leader via a **Redis leader lease** (`hogsend:connector-runtime:discord:leader`, `SET … NX PX`, 30s TTL, renewed every 10s). Only the leader opens the socket; losers idle and re-race every 5s, so scaling the worker to N replicas never opens a second session. Failover is automatic within the TTL.
+- **In-process dispatch.** The leader hands each raw Gateway dispatch straight to the connector's `transform`, then `ingestEvent` — the exact pair the legacy HTTP ingress route ran, minus the network hop. No HTTP, no shared secret. Because the in-process path holds the container, it passes `client.analytics` into `ingestEvent`, so a Discord-keyed contact merge also stitches the analytics person.
+- **Readiness is the heartbeat.** The leader writes a TTL'd Redis key `hogsend:connector-runtime:discord:heartbeat` (30s TTL, refreshed every 10s). The admin `connect-info.workerOnline` flag and Studio's **"Worker Online"** both reflect this key. Because only the lease-holder writes it, a fresh key means *this deployment's elected leader owns the socket*.
+- **Outbound is socket-free.** Bot-REST actions (send a channel message, DM a member, mention a role) go through `sendConnectorAction()` + `discordActions`. They need only the bot token and are independent of the inbound runtime — a deploy with the gateway off can still send.
+
+Source: `packages/engine/src/connectors/runtime.ts`, `packages/engine/src/lib/leader-lease.ts`, `packages/engine/src/lib/connector-heartbeat.ts`.
+
+The HTTP routes under `/v1/connectors/discord` and their auth:
 
 | Route | Purpose | Auth |
 |---|---|---|
-| `POST /v1/connectors/discord/ingress` | Gateway worker posts raw dispatches | `x-hogsend-ingress-secret` header equals `CONNECTOR_INGRESS_SECRET` (≥32 chars, fail-closed) |
 | `POST /v1/connectors/discord/interactions` | Discord HTTP Interactions (slash / modal / button) | ed25519 signature + ±300s timestamp replay window |
 | `GET\|POST /v1/connectors/discord/oauth/callback` | OAuth install + member-link (see [Caveats](#caveats)) | signed CSRF `state`, engine-verified before dispatch |
 
-`/v1/connectors/*` is per-IP rate-limited (60/min) **except** `/ingress` and `/interactions` — both arrive from a small set of source IPs (the worker behind a tunnel, Discord's interaction egress), so per-IP keying would collapse a whole community onto one bucket. They are gated by the ingress secret and ed25519+replay respectively instead.
+`/v1/connectors/*` is per-IP rate-limited (60/min) **except** `/interactions` — it arrives from Discord's interaction egress (a small set of source IPs), so per-IP keying would collapse a whole community onto one bucket. It is gated by ed25519 + replay instead.
+
+<Callout type="info">
+  The inbound socket is **optional**. The `/link` + `/verify` identity loop is pure HTTP interactions — it needs no socket and no bot token (the role grant aside). You only run the worker runtime when you also want inbound ingestion. See [Run the inline Gateway runtime](#8-run-the-inline-gateway-runtime).
+</Callout>
 
 ## Setup
 
@@ -56,7 +63,7 @@ In the [Discord Developer Portal](https://discord.com/developers/applications), 
 
 ### 2. Add a bot and toggle the three privileged intents
 
-On the **Bot** tab, click **Reset Token** (this value is `DISCORD_BOT_TOKEN`). On the same tab, enable the three **Privileged Gateway Intents**: **Message Content**, **Server Members**, **Presence**. If any of the three is off, the Gateway worker's login rejects with a disallowed-intents error and the process exits.
+On the **Bot** tab, click **Reset Token** (this value is `DISCORD_BOT_TOKEN`). On the same tab, enable the three **Privileged Gateway Intents**: **Message Content**, **Server Members**, **Presence**. Toggle all three **before** the worker gets the token: if any is off, `discord.js` `login()` rejects with a disallowed-intents error and the inline runtime fails to start (it releases the lease so another replica or a fixed redeploy re-races cleanly).
 
 ### 3. Collect four values from the portal
 
@@ -81,20 +88,28 @@ https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applic
 
 ### 5. Set environment variables
 
-Every `DISCORD_*` var is optional — a deploy with no Discord configured still boots (the connector registers nothing). The connector is built only when `DISCORD_APPLICATION_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_PUBLIC_KEY` are all set. `API_PUBLIC_URL` must be a public host (not loopback). `CONNECTOR_INGRESS_SECRET` is ≥32 chars and must be the **same** value in the worker and the API.
+Every `DISCORD_*` var is optional — a deploy with no Discord configured still boots (the connector registers nothing). The connector is built only when `DISCORD_APPLICATION_ID`, `DISCORD_CLIENT_SECRET`, and `DISCORD_PUBLIC_KEY` are all set. `API_PUBLIC_URL` must be a public host (not loopback).
 
-```bash title=".env"
+The split matters: the connector registration + the HTTP interactions/OAuth legs live on the **API** service; the bot token and a shared `REDIS_URL` live on the **worker** service (it holds the socket and the lease).
+
+```bash title=".env — API service"
 DISCORD_APPLICATION_ID=...
 DISCORD_PUBLIC_KEY=...
-DISCORD_BOT_TOKEN=...          # secret — the Gateway worker logs in with this
 DISCORD_CLIENT_SECRET=...      # secret — OAuth member-link only
+DISCORD_BOT_TOKEN=...          # optional here — role grant on /link + outbound actions if the API sends
 DISCORD_GUILD_ID=...           # optional — enables instant guild-scoped command registration
 
 API_PUBLIC_URL=https://api.example.com   # public host, not loopback
-CONNECTOR_INGRESS_SECRET=...             # >= 32 chars; shared by the worker + the ingress route
 ```
 
-`API_PUBLIC_URL` and `CONNECTOR_INGRESS_SECRET` are engine env (mirrored in the consumer so the standalone worker can read them without the container).
+```bash title=".env — worker service"
+DISCORD_BOT_TOKEN=...          # secret — the inline Gateway socket logs in with this
+REDIS_URL=...                  # the SAME Redis the API uses — load-bearing for the lease + heartbeat
+```
+
+<Callout type="warn">
+  The worker's `REDIS_URL` must point at the **same** Redis the API reads. The leader lease and the "Worker Online" heartbeat both live in Redis; if the worker can't reach the API's Redis, **"Worker Online" never goes green** even with a perfectly healthy socket.
+</Callout>
 
 ### Wire the connector
 
@@ -216,6 +231,7 @@ export { discordDestination };
 ```ts title="src/index.ts and src/worker.ts"
 import {
   buildDiscordConnector,
+  discordActions,
   discordDestination,
   setDiscordDb,
 } from "./discord.js";
@@ -226,6 +242,7 @@ const client = createHogsendClient({
   // ...journeys, email, etc.
   connectors: discordConnector ? [discordConnector] : [],
   destinations: [discordDestination],
+  connectorActions: discordActions, // socket-free outbound — see below
 });
 
 // Wire the container db into the deferred Discord callbacks (once, post-build).
@@ -240,7 +257,13 @@ In the portal (General Information → Interactions Endpoint URL), point it at `
 https://api.example.com/v1/connectors/discord/interactions
 ```
 
-Discord sends a synchronous validation PING when you save; the route answers PONG, verified env-only with `DISCORD_PUBLIC_KEY` — no `hogsend connect discord` needed. The API must already be running behind the public URL when you click Save. On an env-only deploy you set this URL in the portal yourself (there is no server-side auto-wiring of it).
+Discord sends a synchronous validation PING when you save; the route answers PONG, verified env-only with `DISCORD_PUBLIC_KEY` — no `hogsend connect discord` needed. The API must already be running behind the public URL when you click Save. On an env-only deploy you set this URL in the portal yourself (or run `hogsend connect discord`, which `PATCH`es it onto the app for you when your consumer mounts the `/wire` route).
+
+Also add the OAuth2 redirect (OAuth2 → Redirects) so the install + member-link callbacks land:
+
+```
+https://api.example.com/v1/connectors/discord/oauth/callback
+```
 
 ### 7. Register slash commands
 
@@ -252,37 +275,64 @@ pnpm --filter @hogsend/api discord:register-commands
 
 This calls the Discord REST API directly — it needs `DISCORD_APPLICATION_ID` and `DISCORD_BOT_TOKEN` (and optional `DISCORD_GUILD_ID`) only, with no dependency on `API_PUBLIC_URL` or a tunnel. With `DISCORD_GUILD_ID` set it registers guild-scoped commands (instant); without it, global commands (~1h propagation). The call replaces the full command set, so it is idempotent.
 
-### 8. Run the Gateway worker
+### 8. Run the inline Gateway runtime
 
-The worker opens the Discord WebSocket via `discord.js`, declared as an **optional** peer of `@hogsend/plugin-discord` so a destination-only deploy isn't forced to install a socket client. Install it in the worker's app:
+This is what turns on **inbound ingestion** (the `/link` loop needs none of it). The socket opens inside the **existing Hatchet worker** — there is no separate Discord process. You wire it in two places.
+
+First, install `discord.js` in the worker's app — it's declared as an **optional** peer of `@hogsend/plugin-discord` so a destination-only deploy isn't forced to install a socket client:
 
 ```bash
 pnpm add discord.js
 ```
 
-The peer range is `>=14.0.0`; `apps/api` pins `discord.js@^14.26.4`.
+The peer range is `>=14.0.0`; `apps/api` pins `discord.js@^14.26.4`. `discord.js` is imported dynamically inside the socket's `start()` — enabling the runtime without the peer installed fails loudly at start, not at module load.
 
-The worker is a separate long-lived process (its own Railway service in production). Use `discord:dev` (tsx watch) for development and `discord:worker` (node) for production:
+Then pass the Discord runtime factory to `createWorker` in `src/worker.ts`:
 
-```bash
-cd apps/api && pnpm discord:dev      # development — tsx watch, --env-file=.env
-cd apps/api && pnpm discord:worker   # production — node dist/discord-worker.js
+```ts title="src/worker.ts"
+import { createWorker } from "@hogsend/engine";
+import { createDiscordRuntime } from "@hogsend/plugin-discord/gateway";
+
+const worker = createWorker({
+  container: client,
+  journeys,
+  // ...buckets, extraWorkflows, etc.
+  connectorRuntimes: { discord: createDiscordRuntime },
+});
 ```
 
-The worker logs in with `DISCORD_BOT_TOKEN`, dials Discord outbound over the socket, and POSTs each mapped dispatch to `${API_PUBLIC_URL}/v1/connectors/discord/ingress` with header `x-hogsend-ingress-secret: <CONNECTOR_INGRESS_SECRET>`. On success it logs `discord gateway worker connected`. Slash commands run the opposite direction — HTTP interactions Discord POSTs to the Interactions Endpoint from step 6.
+The runtime **auto-starts** when **all** of these hold (the first two are the defaults — you don't set them):
+
+- `ENABLE_CONNECTOR_RUNTIMES=true` (default),
+- `CONNECTOR_RUNTIME_HOST=worker` (default),
+- a `discord` factory is passed to `connectorRuntimes`, **and**
+- the Discord connector is registered as a `gateway`-transport connector.
+
+On a lease win the worker logs `Connector runtime acquired lease; opening socket` then `Connector runtimes started`. With N worker replicas, exactly one opens the socket; the rest idle and stand by for failover. `createDiscordRuntime` returns `null` when `DISCORD_BOT_TOKEN` is unset — the engine then skips Discord cleanly (no lease held, dashboard stays truthfully Offline), so forgetting the token is a silent no-op, not a crash.
+
+Verify readiness via Studio (**Integrations → Discord → "Worker Online"**) or the admin projection:
+
+```bash
+curl -s "https://api.example.com/v1/admin/connectors/discord/connect-info" \
+  -H "Authorization: Bearer ${ADMIN_API_KEY}" | jq '{workerOnline, workerLastSeenAt}'
+```
+
+`workerOnline: true` ⇒ a lease-holder owns the socket. Then post a message in a channel the bot can see and confirm a `discord.message_sent` row lands in `user_events`.
 
 <Callout type="info">
-  The worker refuses to boot if a requested privileged intent is not toggled in the portal — `login()` rejects with a disallowed-intents error rather than silently connecting with no events. Toggle the three intents in step 2 first.
+  The runtime refuses to boot if a requested privileged intent is not toggled in the portal — `login()` rejects with a disallowed-intents error rather than silently connecting with no events. Toggle the three intents in step 2 first. On a failed start the runtime releases the lease, so another replica (or a fixed redeploy) re-races cleanly.
 </Callout>
+
+To explicitly **disable** the inline runtime (e.g. you run the standalone hatch instead), set `ENABLE_CONNECTOR_RUNTIMES=false` on the worker (the env is a literal enum — `"false"` actually disables it).
 
 ### Direction recap
 
-- The bot dials Discord **outbound** for the Gateway socket and forwards dispatches to the ingress route.
+- The bot dials Discord **outbound** for the Gateway socket, held inline in the worker by the lease-holder.
 - Slash commands are **inbound** HTTP interactions Discord POSTs to the public Interactions Endpoint.
 
 ## The /link identity loop
 
-A contact links their email **inside Discord** via `/link` (the primary UX). `/verify <code>` is a typed fallback. Every interaction is ed25519-verified with a ±300s replay window before any work runs.
+A contact links their email **inside Discord** via `/link` (the primary UX). `/verify <code>` is a typed fallback. Every interaction is ed25519-verified with a ±300s replay window before any work runs. This whole loop is pure HTTP interactions — it needs no Gateway socket.
 
 ```
 /link  ──▶  email modal  ──submit──▶  valid? ──no──▶  inline ephemeral error (no defer)
@@ -386,15 +436,43 @@ await hs.webhooks.create({
 
 See the [Destinations guide](/docs/guides/destinations) for authoring `defineDestination()` transforms and [Outbound destinations](/docs/data-api/destinations) for the delivery spine.
 
+## Outbound actions (from a journey)
+
+The destination above fans lifecycle events out per webhook-endpoint config. To send to Discord **from inside a journey or workflow** — a one-off channel message, a DM, a mention — use `sendConnectorAction(...)`. It is a standalone import (NOT on `JourneyContext` — like `sendEmail()`, features are standalone imports), socket-free (bot-REST, needs only the bot token), and fully independent of the inbound gateway. A deploy with the gateway off, or a worker replica that is a lease loser, can still send.
+
+Register the action set once on the client with `connectorActions: discordActions` (shown in the [Wire the connector](#wire-the-connector) snippet above), then call from a journey:
+
+```ts
+import { sendConnectorAction } from "@hogsend/engine";
+
+await sendConnectorAction({
+  connectorId: "discord",
+  action: "sendChannelMessage",
+  args: { channelId: "…", content: "…" },
+});
+```
+
+`discordActions` (from `@hogsend/plugin-discord`) is the array of every Discord outbound action:
+
+| Action | Sends |
+|---|---|
+| `sendChannelMessage` | one message to a channel |
+| `broadcastToChannel` | a broadcast message to a channel |
+| `mentionMembers` | a message that @-mentions members |
+| `mentionRole` | a message that @-mentions a role |
+| `dmMember` | a direct message to a member |
+
+`sendConnectorAction` resolves the action from the registry and runs it with a contact-resolution helper that matches by email / external id / discord snowflake. It throws when the action isn't registered — so pass `connectorActions: discordActions` to `createHogsendClient` first.
+
 ## Security
 
 ### Interaction verification
 
 Every interaction is verified with an ed25519 signature over `timestamp + body` (native `node:crypto`, no tweetnacl), fail-closed, plus a ±300s timestamp replay window. The route reads the exact raw body bytes the signature covers before parsing anything.
 
-### Ingress auth
+### Inbound socket isolation
 
-The Gateway worker's `x-hogsend-ingress-secret` header must equal `CONNECTOR_INGRESS_SECRET` (≥32 chars), compared constant-time and fail-closed — an unset secret cannot be relayed into. `/ingress` and `/interactions` are exempt from the per-IP rate limit (they're gated by the ingress secret and ed25519+replay respectively), so a busy community is never bucketed onto one limiter.
+The inbound socket has no inbound network surface to authenticate — it dials Discord **outbound** and feeds dispatches into `transform → ingestEvent` in process. There is no HTTP ingress endpoint and no shared secret on the default path. The one access control that matters is the **leader lease**: only the lease-holding replica opens the socket, and it is fail-safe — a Redis fault means "no lease ⇒ no socket", never two sockets. Liveness is **owned** (only the lease-holder writes the heartbeat), so a stray process can no longer light the dashboard green.
 
 ### Privileged intents & ToS
 
@@ -402,12 +480,26 @@ The four events require three privileged Gateway intents: `MESSAGE_CONTENT`, `GU
 
 Discord's terms still bind regardless of the toggle: no ML-training on message content, a public privacy policy, user opt-out and deletion, and data minimization. Hogsend stores **derived signals** — `last_seen`, counts, metadata — not raw message bodies.
 
+## Legacy: the standalone worker path
+
+Before the inline runtime (engine `< 0.25.0`), the Gateway socket ran in a **separate long-lived worker process** (`pnpm discord:worker` / `node dist/discord-worker.js`) that dialed Discord and POSTed each raw dispatch to `POST /v1/connectors/discord/ingress` behind an `x-hogsend-ingress-secret` header equal to `CONNECTOR_INGRESS_SECRET` (≥32 chars, shared by the worker and the API). On the default `CONNECTOR_RUNTIME_HOST=worker` deploy that hop **no longer exists** — `transform → ingest` runs in process.
+
+| Thing | Status |
+|---|---|
+| `CONNECTOR_INGRESS_SECRET` (env) | **Legacy.** Used only by the standalone hatch (`CONNECTOR_RUNTIME_HOST=standalone`). The default worker-hosted runtime ignores it — **do not set it for a worker-hosted deploy.** |
+| `POST /v1/connectors/discord/ingress` (route) | **Legacy.** The HTTP ingress hop. Not used by the default inline runtime; kept for the standalone host mode. |
+| `discord-worker` entry / `pnpm discord:worker` | **Advanced escape hatch.** Run only with `CONNECTOR_RUNTIME_HOST=standalone`. That mode DOES use `CONNECTOR_INGRESS_SECRET` and the ingress route, with the same secret set on both the API and the standalone worker. |
+| `connect-info.ingressSecretConfigured` (admin field) | **Stale as a readiness signal.** It keys on the unset `CONNECTOR_INGRESS_SECRET`, so it reports `false` on a perfectly healthy worker-hosted deploy. **Do not gate readiness on it** — use `workerOnline` (the heartbeat). |
+
+For worker-hosted readiness, the signal to watch is **`workerOnline`** (the connector heartbeat / Studio "Worker Online"), not `ingressSecretConfigured`.
+
 ## Caveats
 
 - The bot must be a **guild member** to receive that guild's channel events.
 - Presence is not last-seen: `offline` / absent presence is dropped, and `last_seen` is derived from observed events.
+- One bot token = one live Gateway session. The leader lease prevents two replicas of the *same* deploy from doubling up, but it cannot stop a *different* process using the same token (e.g. a stray standalone worker). If events arrive duplicated, ensure only the worker-hosted runtime is active.
 - <Callout type="info">
-    On an env-only deploy the OAuth install URL and the member-link URL (`POST /v1/admin/connectors/discord/member-link-url`) both work — they are engine-shipped routes, and `apps/api` seeds `derived.discordAppId` from `DISCORD_APPLICATION_ID` at boot. The one capability that remains CLI-only is the server-side `PATCH /applications/@me` that auto-sets the Interactions Endpoint URL; on an env-only deploy you set that URL in the portal (Setup step 6).
+    On an env-only deploy the OAuth install URL and the member-link URL (`POST /v1/admin/connectors/discord/member-link-url`) both work — they are engine-shipped routes, and `apps/api` seeds `derived.discordAppId` from `DISCORD_APPLICATION_ID` at boot. The capability that remains CLI-driven is the server-side `PATCH /applications/@me` that auto-sets the Interactions Endpoint URL (via `hogsend connect discord`, when your consumer mounts the `/wire` route); on an env-only deploy you set that URL in the portal (Setup step 6).
   </Callout>
 - The first npm publish of `@hogsend/plugin-discord` is **manual** — CI cannot create a new `@hogsend/*` package.
 
