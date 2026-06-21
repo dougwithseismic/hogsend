@@ -3,12 +3,9 @@
 import { Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
-  DESKTOP_BUILDS,
-  DESKTOP_DOWNLOAD_URL_MAC,
-  DESKTOP_DOWNLOAD_URL_WIN,
-} from "@/lib/site";
-
-type Os = "mac" | "windows" | "other";
+  type DesktopDownload,
+  resolveDesktopDownload,
+} from "@/lib/desktop-download";
 
 /**
  * Download link for the desktop app, shown in the nav's icon row. Resolves to
@@ -19,17 +16,10 @@ type Os = "mac" | "windows" | "other";
 export function DownloadNavLink() {
   // Detection is client-only; render nothing until mounted so SSR and the
   // unsupported case both produce no link (and no hydration mismatch).
-  const [target, setTarget] = useState<{ href: string; label: string } | null>(
-    null,
-  );
+  const [target, setTarget] = useState<DesktopDownload | null>(null);
 
   useEffect(() => {
-    const os = detectOs();
-    if (os === "mac" && DESKTOP_BUILDS.mac) {
-      setTarget({ href: DESKTOP_DOWNLOAD_URL_MAC, label: "Mac app" });
-    } else if (os === "windows" && DESKTOP_BUILDS.windows) {
-      setTarget({ href: DESKTOP_DOWNLOAD_URL_WIN, label: "Windows app" });
-    }
+    setTarget(resolveDesktopDownload());
   }, []);
 
   if (!target) return null;
@@ -46,20 +36,4 @@ export function DownloadNavLink() {
       <Download className="size-5" />
     </a>
   );
-}
-
-function detectOs(): Os {
-  if (typeof navigator === "undefined") return "other";
-  const nav = navigator as Navigator & {
-    userAgentData?: { platform?: string };
-  };
-  const platform = nav.userAgentData?.platform || nav.platform || "";
-  const ua = nav.userAgent;
-  // iPadOS reports as "MacIntel"; exclude touch devices — no desktop app there.
-  const isTouch = nav.maxTouchPoints > 1;
-  if (!isTouch && (/mac/i.test(platform) || /Macintosh/i.test(ua))) {
-    return "mac";
-  }
-  if (/win/i.test(platform) || /Windows/i.test(ua)) return "windows";
-  return "other";
 }
