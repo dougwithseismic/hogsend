@@ -44,6 +44,11 @@ export const Events = {
   JOURNEY_COMPLETED: "journey.completed",
 
   TEST_SIGNUP: "test.signup",
+
+  // Churn-save (Tier-3 / Eve integration)
+  CHURN_RISK_FLAGGED: "churn.risk_flagged",
+  REACTIVATED: "churn.reactivated",
+  AGENT_COMPLETED: "agent.completed",
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];

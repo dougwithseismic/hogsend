@@ -27,6 +27,7 @@ export const Templates = {
   FEEDBACK_NPS_SURVEY: "feedback-nps-survey",
 
   CHURN_PAYMENT_FAILED: "churn-payment-failed",
+  CHURN_SAVE: "churn-save",
 
   // Transactional — one-off via hs.emails.send.
   TRANSACTIONAL_VERIFY_EMAIL: "transactional/verify-email",

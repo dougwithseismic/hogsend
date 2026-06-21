@@ -135,7 +135,15 @@ export function registerWebhookSourceRoutes(
     const rawBody = await c.req.text();
     const headers = headersToRecord(c.req.raw.headers);
 
-    let secret = env[auth.envKey as keyof typeof env] as string | undefined;
+    // Engine-declared secrets (presets) resolve from the validated env. A
+    // CONSUMER-defined webhook source may name an env var the engine schema
+    // doesn't declare (a BYO signature/match source), so fall back to the raw
+    // process.env value for it. Both auth branches below gate on truthiness, so
+    // an unset/blank secret stays fail-closed (signature → 401) and
+    // open-when-unconfigured (match) exactly as before.
+    let secret =
+      (env[auth.envKey as keyof typeof env] as string | undefined) ??
+      process.env[auth.envKey];
 
     // For the inbound PostHog source, fall back to the secret minted by
     // `hogsend connect` (kind="derived" store) when env has none — so an
