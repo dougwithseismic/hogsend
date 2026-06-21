@@ -55,6 +55,206 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.25.0",
+    anchor: "0-25-0",
+    date: "June 21, 2026",
+    title: "The connector runtime",
+    bullets: (
+      <>
+        <Bullet>
+          The Discord gateway socket now runs inside the Hatchet worker — no
+          separate service, no <Code>CONNECTOR_INGRESS_SECRET</Code>. A Redis
+          leader lease holds exactly one socket per bot token with bounded
+          automatic failover, and only the lease-holder writes the liveness
+          heartbeat Studio reads, so a stray process cannot fake an online bot.
+        </Bullet>
+        <Bullet>
+          Outbound actions need no socket: <Code>sendConnectorAction(...)</Code>{" "}
+          invokes registered <Code>defineConnectorAction</Code>s from a journey
+          and works with the inbound gateway off.
+        </Bullet>
+        <Bullet>
+          <Code>@hogsend/plugin-discord</Code> ships{" "}
+          <Code>createDiscordRuntime</Code> and <Code>discordActions</Code> (
+          <Code>sendChannelMessage</Code>, <Code>broadcastToChannel</Code>,{" "}
+          <Code>mentionMembers</Code>, <Code>mentionRole</Code>,{" "}
+          <Code>dmMember</Code>); register them via{" "}
+          <Code>createHogsendClient</Code> and wire the runtime via{" "}
+          <Code>createWorker</Code>.
+        </Bullet>
+        <Bullet>
+          The seam is connector-agnostic: a second connector (Slack) implements
+          only <Code>defineConnector</Code> plus a <Code>ConnectorRuntime</Code>{" "}
+          factory and reuses lease election, the heartbeat, and the admin
+          projection.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive and opt-in —
+        activation is automatic when a gateway connector and its bot token are
+        present; the standalone Gateway worker from 0.22 remains an escape hatch
+        (<Code>CONNECTOR_RUNTIME_HOST=standalone</Code>).
+      </>
+    ),
+  },
+  {
+    version: "0.24.0",
+    anchor: "0-24-0",
+    date: "June 21, 2026",
+    title: "AI agents on your event stream",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>{"ctx.history.events({ userId, limit?, within? })"}</Code> reads
+          a user's recent events newest-first (with{" "}
+          <Code>RecentEventsOptions</Code> / <Code>RecentEvent</Code> types) —
+          the foundation for an agent's context bundle.
+        </Bullet>
+        <Bullet>
+          A freshly scaffolded app ships a working Tier-1 AI onboarding journey
+          (<Code>src/agents/</Code>, user context backed by{" "}
+          <Code>ctx.history.events()</Code>) and gains <Code>ai</Code> +{" "}
+          <Code>@ai-sdk/anthropic</Code>; new docs cover three AI SDK
+          integration tiers — inline, tools, and Eve durable human-in-the-loop.
+        </Bullet>
+        <Bullet>
+          BYO webhook-source secrets: a consumer-defined <Code>signature</Code>{" "}
+          source now resolves its secret from{" "}
+          <Code>process.env[auth.envKey]</Code> when the engine's validated env
+          doesn't declare that key — still fail-closed, so an unset secret is a
+          401.
+        </Bullet>
+      </>
+    ),
+  },
+  {
+    version: "0.23.0",
+    anchor: "0-23-0",
+    date: "June 15, 2026",
+    title: "One PostHog person per contact",
+    bullets: (
+      <>
+        <Bullet>
+          Identity stitching ends one-email-many-persons fragmentation: every
+          anonymous id a person carries is absorbed, while still anonymous, into
+          one canonical and ever-identified <Code>distinct_id</Code> — the
+          Hogsend contact key.
+        </Bullet>
+        <Bullet>
+          Provider-neutral by contract: <Code>mergeIdentities</Code> plus an{" "}
+          <Code>identityMerge</Code> capability on{" "}
+          <Code>AnalyticsProvider</Code> (<Code>distinctId</Code> survives,{" "}
+          <Code>alias</Code> is absorbed). <Code>@hogsend/plugin-posthog</Code>{" "}
+          implements it via native <Code>client.alias</Code> in the correct
+          direction, and merges are idempotent so a retry never re-aliases.
+        </Bullet>
+        <Bullet>
+          <Code>POST /v1/events</Code> threads an <Code>anonymousId</Code> so
+          the contact key can equal the browser's anon id with no merge at all;
+          tracked links carry scoped identity tokens redeemed server-side at{" "}
+          <Code>/v1/t/identify</Code>, with referral links token-less by
+          default.
+        </Bullet>
+        <Bullet>
+          0.23.1 fix: the admin Suppressions All view built no filter and listed
+          every contact as suppressed — display only, deliverability was never
+          affected (the send-gate blocks on <Code>suppressed</Code> /{" "}
+          <Code>unsubscribedAll</Code>). It now restricts to
+          genuinely-suppressed recipients.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive and off by
+        default — no forced migration.
+      </>
+    ),
+  },
+  {
+    version: "0.22.0",
+    anchor: "0-22-0",
+    date: "June 14, 2026",
+    title: "Discord: events, identity, and outbound",
+    bullets: (
+      <>
+        <Bullet>
+          New <Code>@hogsend/plugin-discord</Code> — both faces of one
+          integration under <Code>{'meta.id = "discord"'}</Code>. A long-lived
+          Gateway worker (its own process) feeds{" "}
+          <Code>discord.message_sent</Code>, <Code>discord.reaction_added</Code>
+          , <Code>discord.member_joined</Code>, and{" "}
+          <Code>discord.presence_active</Code> into <Code>ingestEvent</Code>,
+          stored on the contact; bot, webhook, and system messages and offline
+          presence are dropped.
+        </Bullet>
+        <Bullet>
+          <Code>contacts.discord_id</Code> is a new indexed merge key — a fourth
+          identity Kind — so a Discord member resolves to the same contact as
+          their product activity and email.
+        </Bullet>
+        <Bullet>
+          In-Discord linking: <Code>/link</Code> opens an email modal and mails
+          a 6-digit single-use code (15-minute TTL, hashed at rest, rate
+          limited); every interaction is ed25519-verified with a ±300s replay
+          window, and a <Code>connector_link_codes</Code> table backs the codes.
+        </Bullet>
+        <Bullet>
+          Outbound: <Code>discordDestination</Code> posts one Discord-markdown
+          line per lifecycle event to a channel on the durable outbound spine —
+          via a no-bot-token incoming webhook (<Code>config.webhookUrl</Code>)
+          or bot-REST (<Code>config.channelId</Code>).
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: run <Code>db:migrate</Code> — <Code>contacts.discord_id</Code>{" "}
+        and <Code>connector_link_codes</Code> are schema changes. The plugin is
+        consumer-mounted; run the Gateway worker as its own process.
+      </>
+    ),
+  },
+  {
+    version: "0.21.0",
+    anchor: "0-21-0",
+    date: "June 13, 2026",
+    title: "Keyless PostHog connect",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>hogsend connect posthog</Code> runs the OAuth handshake first —
+          no <Code>phc_</Code> paste needed. It mints and persists the webhook
+          secret server-side and grabs the project's public key on the way
+          through; the inbound webhook source resolves that secret from the
+          credential store at request time, so the loop verifies with no
+          redeploy.
+        </Bullet>
+        <Bullet>
+          The OAuth scope set is front-loaded (4 → 13) so later features land
+          without forcing a reconnect; <Code>connect-info</Code> surfaces a{" "}
+          <Code>scopeGap</Code> to nudge already-connected users to re-consent,
+          and the <Code>create-hogsend</Code> scaffold makes the{" "}
+          <Code>phc_</Code> paste optional.
+        </Bullet>
+        <Bullet>
+          0.21.1 fix: disconnect now also purges the derived credential row (the
+          minted secret and grabbed <Code>phc_</Code>); the inbound source's
+          secret cache is busted the moment connect mints a secret, so it is
+          enforced immediately instead of after a ~30s recheck.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive; existing{" "}
+        <Code>POSTHOG_PERSONAL_API_KEY</Code> setups keep working.
+      </>
+    ),
+  },
+  {
     version: "0.20.0",
     anchor: "0-20-0",
     date: "June 12, 2026",

@@ -17,7 +17,6 @@ const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Service", href: "/service" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
-  { label: "Changelog", href: "/changelog" },
 ];
 
 type MenuItem = { label: string; description: string; href: string };
