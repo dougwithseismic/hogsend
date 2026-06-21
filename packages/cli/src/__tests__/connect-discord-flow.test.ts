@@ -40,7 +40,7 @@ function connectInfo(
     apiPublicUrl: BASE_URL,
     redirectUri: `${BASE_URL}/v1/connectors/discord/oauth/callback`,
     interactionsUrl: `${BASE_URL}/v1/connectors/discord/interactions`,
-    ingressSecretConfigured: true,
+    workerOnline: true,
     credentialStored: false,
     guildId: null,
     botInstalled: false,

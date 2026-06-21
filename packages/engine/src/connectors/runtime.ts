@@ -72,6 +72,9 @@ export interface ConnectorRuntimesHandle {
 const LEASE_TTL_MS = 30_000;
 const RENEW_MS = 10_000;
 const ELECT_MS = 5_000;
+// ~30s of failed elections (6 * ELECT_MS) before warning loudly that a
+// configured runtime still can't acquire its lease (Redis down or contended).
+const LEASE_MISS_WARN_AT = 6;
 
 /** Build the in-process dispatch→transform→ingest sink for one connector. */
 function makeIngest(client: HogsendClient, connector: DefinedConnector) {
@@ -150,6 +153,7 @@ function startController(
   let leading = false;
   let token = "";
   let stopped = false;
+  let leaseMisses = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   /** Drop leadership: heartbeat key deleted FIRST (immediate Offline), then socket. */
@@ -178,6 +182,7 @@ function startController(
           ttlMs: LEASE_TTL_MS,
         });
         if (won) {
+          leaseMisses = 0;
           leading = true;
           heartbeat = startConnectorHeartbeat(connectorId, logger);
           heartbeat.state.setMetadata(rt.getMetadata());
@@ -197,6 +202,22 @@ function startController(
             heartbeat = undefined;
             leading = false;
             await releaseLeaderLease({ key: leaseKey, token });
+          }
+        } else {
+          // Lease not acquired: another replica holds it (benign, normal during
+          // rollout) OR Redis is unreachable (the gateway can NEVER connect) —
+          // indistinguishable from the boolean. Warn LOUDLY once after ~30s of
+          // misses so a genuinely stuck runtime surfaces instead of silently
+          // never connecting (which Studio otherwise mis-reads as "intents off").
+          leaseMisses++;
+          if (leaseMisses === LEASE_MISS_WARN_AT) {
+            logger.error(
+              "Connector runtime has not acquired its leader lease after ~30s — " +
+                "Redis unreachable (check REDIS_URL points at the SAME instance " +
+                "as the API) or another replica holds it; if none does, the " +
+                "gateway will not connect.",
+              { connectorId },
+            );
           }
         }
       } else {

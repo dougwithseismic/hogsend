@@ -211,6 +211,25 @@ function DiscordCardBody({
         )}
       </div>
 
+      {credentialStored && gateway && !gateway.workerHealthy ? (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-3 text-xs text-white/70">
+          <p className="font-medium text-amber-400">Worker offline</p>
+          <p className="mt-1">
+            Secrets are stored but no worker holds the gateway socket. Set{" "}
+            <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono">
+              DISCORD_BOT_TOKEN
+            </code>{" "}
+            and the API's{" "}
+            <code className="rounded bg-white/[0.06] px-1 py-0.5 font-mono">
+              REDIS_URL
+            </code>{" "}
+            on the worker service and redeploy. If it stays offline with the
+            token set, enable the 3 privileged gateway intents in the Discord
+            developer portal.
+          </p>
+        </div>
+      ) : null}
+
       {gateway?.guildId ? (
         <CopyRow label="Guild" value={gateway.guildId} />
       ) : null}
@@ -273,7 +292,10 @@ function IntegrationCard({
   connectInfo: DiscordConnectInfo | undefined;
   onDisconnect: (integration: Integration) => void;
 }) {
-  const isDiscord = integration.id === "discord";
+  // Render the rich gateway card for ANY gateway-transport connector (not the
+  // literal "discord" id) — so multiple Discord bots each get their own card and
+  // the seam stays many-bots-shaped.
+  const isGateway = integration.transport === "gateway";
   const connected = Boolean(integration.credential?.connected);
 
   return (
@@ -300,7 +322,7 @@ function IntegrationCard({
       </CardHeader>
 
       <CardContent className="flex-1 space-y-4">
-        {isDiscord ? (
+        {isGateway ? (
           <DiscordCardBody
             integration={integration}
             connectInfo={connectInfo}

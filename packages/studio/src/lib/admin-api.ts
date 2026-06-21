@@ -702,7 +702,6 @@ export type DiscordConnectInfo = {
   apiPublicUrl: string;
   redirectUri: string;
   interactionsUrl: string;
-  ingressSecretConfigured: boolean;
   credentialStored: boolean;
   guildId: string | null;
   /** Tri-state: true = installed, false = not installed, null = unknown. */

@@ -97,7 +97,10 @@ const connectInfoSchema = z.object({
   apiPublicUrl: z.string(),
   redirectUri: z.string(),
   interactionsUrl: z.string(),
-  ingressSecretConfigured: z.boolean(),
+  // @deprecated legacy standalone-gateway signal (Boolean(CONNECTOR_INGRESS_SECRET)).
+  // The default inline runtime never uses the ingress secret; readiness is
+  // `workerOnline` (the owned Redis heartbeat). Kept one minor; NOT a precondition.
+  legacyIngressSecretConfigured: z.boolean(),
   credentialStored: z.boolean(),
   guildId: z.string().nullable(),
   // Tri-state — null = unknown (no guild from worker or derived credential).
@@ -420,7 +423,7 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
         apiPublicUrl,
         redirectUri,
         interactionsUrl: `${apiPublicUrl}/v1/connectors/discord/interactions`,
-        ingressSecretConfigured: Boolean(env.CONNECTOR_INGRESS_SECRET),
+        legacyIngressSecretConfigured: Boolean(env.CONNECTOR_INGRESS_SECRET),
         credentialStored: derived !== null,
         guildId,
         // Tri-state — a guild id (live or derived) confirms install; else null.
