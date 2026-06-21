@@ -22,7 +22,9 @@ export default function OnboardingPersonalizedEmail({
       eyebrow="Welcome"
       unsubscribeUrl={unsubscribeUrl}
     >
-      <Title>Welcome to {"{{APP_NAME}}"}, {name}</Title>
+      <Title>
+        Welcome to {"{{APP_NAME}}"}, {name}
+      </Title>
       {body ? (
         <Body>{body}</Body>
       ) : (

@@ -21,4 +21,10 @@ export const journeys: DefinedJourney[] = [
 ];
 
 // Re-export individual journeys for direct reference (tests, custom wiring).
-export { aiOnboarding, feedbackCheckin, testOnboarding, trialExpiring, welcome };
+export {
+  aiOnboarding,
+  feedbackCheckin,
+  testOnboarding,
+  trialExpiring,
+  welcome,
+};
