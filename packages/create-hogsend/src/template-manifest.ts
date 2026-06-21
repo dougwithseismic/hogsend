@@ -22,7 +22,7 @@
  * Cut the engine minor release (per the `release` skill) BEFORE publishing
  * `create-hogsend@0.24.0` to npm.
  */
-export const ENGINE_VERSION = "0.24.0";
+export const ENGINE_VERSION = "0.23.1";
 
 /** Every `@hogsend/*` package the scaffolded app depends on. */
 export const HOGSEND_PACKAGES = [
