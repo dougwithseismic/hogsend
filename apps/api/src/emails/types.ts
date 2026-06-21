@@ -56,6 +56,46 @@ export interface OnboardingNudgeEmailProps {
 }
 
 // ---------------------------------------------------------------------------
+// Re-engagement templates
+// ---------------------------------------------------------------------------
+
+export interface ReengageTipAEmailProps {
+  name: string;
+  /** The quick-win tip to highlight. */
+  tip?: string;
+  /** Optional detail or supporting context for the tip. */
+  tipDetail?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface ReengageTipBEmailProps {
+  name: string;
+  /** The advanced use case to highlight. */
+  useCase?: string;
+  /** Optional detail or supporting context for the use case. */
+  useCaseDetail?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface ReengageWebinarEmailProps {
+  name: string;
+  /** Title of the webinar or live session. */
+  webinarTitle?: string;
+  /** Human-readable date/time string for the webinar. */
+  webinarDate?: string;
+  /** Short description of what the session covers. */
+  webinarDescription?: string;
+  /** Registration or calendar URL. */
+  registerUrl?: string;
+  ctaText?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Activation templates
 // ---------------------------------------------------------------------------
 

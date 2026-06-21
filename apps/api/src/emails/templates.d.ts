@@ -21,6 +21,9 @@ import type {
   PasswordResetEmailProps,
   ReactivationCheckinEmailProps,
   ReactivationFinalNudgeEmailProps,
+  ReengageTipAEmailProps,
+  ReengageTipBEmailProps,
+  ReengageWebinarEmailProps,
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
   TransactionalDiscordLinkCodeProps,
@@ -34,6 +37,9 @@ declare module "@hogsend/email" {
   interface TemplateRegistryMap {
     "onboarding-personalized": OnboardingPersonalizedEmailProps;
     "onboarding-nudge": OnboardingNudgeEmailProps;
+    "reengage-tip-a": ReengageTipAEmailProps;
+    "reengage-tip-b": ReengageTipBEmailProps;
+    "reengage-webinar": ReengageWebinarEmailProps;
     welcome: WelcomeEmailProps;
     "password-reset": PasswordResetEmailProps;
     "journey-notification": JourneyNotificationEmailProps;

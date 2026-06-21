@@ -3,6 +3,7 @@ export const Events = {
   USER_DELETED: "user.deleted",
   USER_ACTIVATED: "user.activated",
   USER_DORMANCY_DETECTED: "user.dormancy_detected",
+  DORMANT_30D: "user.dormant_30d",
   USER_SUPPRESSED: "user.suppressed",
 
   FEATURE_USED: "feature.used",

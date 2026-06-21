@@ -15,6 +15,9 @@ import OnboardingPersonalizedEmail from "./onboarding-personalized.js";
 import PasswordResetEmail from "./password-reset.js";
 import ReactivationCheckinEmail from "./reactivation-checkin.js";
 import ReactivationFinalNudgeEmail from "./reactivation-final-nudge.js";
+import ReengageTipAEmail from "./reengage-tip-a.js";
+import ReengageTipBEmail from "./reengage-tip-b.js";
+import ReengageWebinarEmail from "./reengage-webinar.js";
 import RetentionAchievementEmail from "./retention-achievement.js";
 import RetentionWeeklyDigestEmail from "./retention-weekly-digest.js";
 import TransactionalDiscordLinkCode from "./transactional-discord-link-code.js";
@@ -52,6 +55,40 @@ export const templates: TemplateRegistry = {
     preview: (props) =>
       `${props.name ?? "there"}, you haven't activated the key feature yet.`,
     examples: { name: "Ada", featureName: "the journey builder" },
+  },
+  "reengage-tip-a": {
+    component: ReengageTipAEmail,
+    defaultSubject: "A quick win while you were away",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, here's a quick win to get more out of Hogsend.`,
+    examples: {
+      name: "Ada",
+      tip: "Set up frequency caps so your journeys never over-mail a contact",
+    },
+  },
+  "reengage-tip-b": {
+    component: ReengageTipBEmail,
+    defaultSubject: "An advanced pattern you might not have tried",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, here's an advanced Hogsend pattern worth a look.`,
+    examples: {
+      name: "Ada",
+      useCase: "AI-driven journeys that decide which email to send next",
+    },
+  },
+  "reengage-webinar": {
+    component: ReengageWebinarEmail,
+    defaultSubject: "Get your first journey live — join us",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, join us for a live onboarding session.`,
+    examples: {
+      name: "Ada",
+      webinarTitle: "Hogsend Live: Get Your First Journey Running",
+      webinarDate: "Thursday, 2 July at 4 pm UTC",
+    },
   },
   welcome: {
     component: WelcomeEmail,

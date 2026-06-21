@@ -17,6 +17,10 @@ export const Templates = {
   ONBOARDING_PERSONALIZED: "onboarding-personalized",
   ONBOARDING_NUDGE: "onboarding-nudge",
 
+  REENGAGE_TIP_A: "reengage-tip-a",
+  REENGAGE_TIP_B: "reengage-tip-b",
+  REENGAGE_WEBINAR: "reengage-webinar",
+
   REACTIVATION_CHECKIN: "reactivation-checkin",
   REACTIVATION_FINAL_NUDGE: "reactivation-final-nudge",
 
