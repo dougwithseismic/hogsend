@@ -1,5 +1,18 @@
 # @hogsend/api
 
+## 0.0.26
+
+### Patch Changes
+
+- Updated dependencies [a637866]
+  - @hogsend/engine@0.24.0
+  - @hogsend/core@0.24.0
+  - @hogsend/db@0.24.0
+  - @hogsend/email@0.24.0
+  - @hogsend/plugin-posthog@0.24.0
+  - @hogsend/plugin-resend@0.24.0
+  - @hogsend/plugin-discord@0.24.0
+
 ## 0.0.25
 
 ### Patch Changes
