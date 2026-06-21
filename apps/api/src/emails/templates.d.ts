@@ -16,6 +16,8 @@ import type {
   FeedbackNpsSurveyEmailProps,
   JourneyNotificationEmailProps,
   MarketingProductUpdateProps,
+  OnboardingNudgeEmailProps,
+  OnboardingPersonalizedEmailProps,
   PasswordResetEmailProps,
   ReactivationCheckinEmailProps,
   ReactivationFinalNudgeEmailProps,
@@ -30,6 +32,8 @@ import type {
 
 declare module "@hogsend/email" {
   interface TemplateRegistryMap {
+    "onboarding-personalized": OnboardingPersonalizedEmailProps;
+    "onboarding-nudge": OnboardingNudgeEmailProps;
     welcome: WelcomeEmailProps;
     "password-reset": PasswordResetEmailProps;
     "journey-notification": JourneyNotificationEmailProps;

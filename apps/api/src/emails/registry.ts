@@ -10,6 +10,8 @@ import ConversionWinbackOfferEmail from "./conversion-winback-offer.js";
 import FeedbackNpsSurveyEmail from "./feedback-nps-survey.js";
 import JourneyNotificationEmail from "./journey-notification.js";
 import MarketingProductUpdateEmail from "./marketing-product-update.js";
+import OnboardingNudgeEmail from "./onboarding-nudge.js";
+import OnboardingPersonalizedEmail from "./onboarding-personalized.js";
 import PasswordResetEmail from "./password-reset.js";
 import ReactivationCheckinEmail from "./reactivation-checkin.js";
 import ReactivationFinalNudgeEmail from "./reactivation-final-nudge.js";
@@ -31,6 +33,26 @@ import WelcomeEmail from "./welcome.js";
 // `TemplateRegistryMap` (see `./templates.d.ts`) for `send({ template, props })`
 // to type-check.
 export const templates: TemplateRegistry = {
+  "onboarding-personalized": {
+    component: OnboardingPersonalizedEmail,
+    defaultSubject: "Welcome — here's where to start",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, a quick note personalized for you.`,
+    examples: {
+      name: "Ada",
+      body: "Based on your setup, we think you'll get the most value from our journey builder.",
+      tips: ["Define your first journey", "Connect your PostHog project"],
+    },
+  },
+  "onboarding-nudge": {
+    component: OnboardingNudgeEmail,
+    defaultSubject: "Still haven't tried it?",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, you haven't activated the key feature yet.`,
+    examples: { name: "Ada", featureName: "the journey builder" },
+  },
   welcome: {
     component: WelcomeEmail,
     defaultSubject: "Welcome to Hogsend",

@@ -6,6 +6,7 @@ export const Events = {
   USER_SUPPRESSED: "user.suppressed",
 
   FEATURE_USED: "feature.used",
+  FEATURE_ACTIVATED: "feature.activated",
   KEY_ACTION: "key.action",
   APP_ACTIVE: "app.active",
   SETUP_COMPLETED: "setup.completed",

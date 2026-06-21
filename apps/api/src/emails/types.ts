@@ -30,6 +30,32 @@ export interface JourneyNotificationEmailProps {
 }
 
 // ---------------------------------------------------------------------------
+// AI onboarding templates
+// ---------------------------------------------------------------------------
+
+export interface OnboardingPersonalizedEmailProps {
+  name: string;
+  /** The AI-drafted email subject (used by the mailer, not rendered in body). */
+  subject?: string;
+  /** AI-drafted body paragraph shown below the title. */
+  body?: string;
+  /** Optional list of personalised tips rendered in a callout block. */
+  tips?: string[];
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+export interface OnboardingNudgeEmailProps {
+  name: string;
+  /** The feature name to nudge the user towards. */
+  featureName?: string;
+  ctaText?: string;
+  ctaUrl?: string;
+  unsubscribeUrl?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Activation templates
 // ---------------------------------------------------------------------------
 

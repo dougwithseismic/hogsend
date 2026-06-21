@@ -14,6 +14,9 @@ export const Templates = {
 
   RETENTION_ACHIEVEMENT: "retention-achievement",
 
+  ONBOARDING_PERSONALIZED: "onboarding-personalized",
+  ONBOARDING_NUDGE: "onboarding-nudge",
+
   REACTIVATION_CHECKIN: "reactivation-checkin",
   REACTIVATION_FINAL_NUDGE: "reactivation-final-nudge",
 

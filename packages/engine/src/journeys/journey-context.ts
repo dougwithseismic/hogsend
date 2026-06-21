@@ -21,6 +21,7 @@ import {
 import type {
   IfPast,
   JourneyContext,
+  RecentEvent,
   TimeOfDayBuilder,
   WaitForEventResult,
   Weekday,
@@ -450,6 +451,36 @@ export function createJourneyContext(
               : null,
           count: total,
         };
+      },
+
+      async events({
+        userId: targetUserId,
+        limit = 50,
+        within,
+      }): Promise<RecentEvent[]> {
+        const conditions = [eq(userEvents.userId, targetUserId)];
+        if (within) {
+          const since = new Date(Date.now() - durationToMs(within));
+          conditions.push(gte(userEvents.occurredAt, since));
+        }
+        const rows = await db
+          .select({
+            event: userEvents.event,
+            properties: userEvents.properties,
+            occurredAt: userEvents.occurredAt,
+          })
+          .from(userEvents)
+          .where(and(...conditions))
+          .orderBy(desc(userEvents.occurredAt))
+          .limit(limit);
+        return rows.map((row) => ({
+          event: row.event,
+          properties: row.properties ?? null,
+          occurredAt:
+            row.occurredAt instanceof Date
+              ? row.occurredAt.toISOString()
+              : String(row.occurredAt),
+        }));
       },
     },
   };

@@ -16,6 +16,8 @@ export type {
   FeedbackNpsSurveyEmailProps,
   JourneyNotificationEmailProps,
   MarketingProductUpdateProps,
+  OnboardingNudgeEmailProps,
+  OnboardingPersonalizedEmailProps,
   PasswordResetEmailProps,
   ReactivationCheckinEmailProps,
   ReactivationFinalNudgeEmailProps,

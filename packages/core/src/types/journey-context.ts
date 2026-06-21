@@ -96,6 +96,18 @@ export interface EmailHistoryResult {
   count: number;
 }
 
+export interface RecentEventsOptions {
+  userId: string;
+  limit?: number;
+  within?: DurationObject;
+}
+
+export interface RecentEvent {
+  event: string;
+  properties: Record<string, unknown> | null;
+  occurredAt: string;
+}
+
 export interface WaitForEventOptions {
   /** Event name to wait for (use your `Events` constant). Matched verbatim. */
   event: string;
@@ -169,6 +181,7 @@ export interface JourneyContext {
     hasEvent(opts: HasEventOptions): Promise<HasEventResult>;
     journey(opts: JourneyHistoryOptions): Promise<JourneyHistoryResult>;
     email(opts: EmailHistoryOptions): Promise<EmailHistoryResult>;
+    events(opts: RecentEventsOptions): Promise<RecentEvent[]>;
   };
 }
 
