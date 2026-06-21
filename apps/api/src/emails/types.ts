@@ -232,17 +232,6 @@ export interface ChurnPaymentFailedEmailProps {
   unsubscribeUrl?: string;
 }
 
-export interface ChurnSaveEmailProps {
-  name: string;
-  /** Headline for the save offer. */
-  offerHeadline?: string;
-  /** Supporting detail about what the team can do — shown in a callout when provided. */
-  offerDetail?: string;
-  ctaText?: string;
-  ctaUrl?: string;
-  unsubscribeUrl?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Transactional templates (sent one-off via hs.emails.send / POST /v1/emails).
 // One-off, system-triggered mail — no unsubscribe, no list.

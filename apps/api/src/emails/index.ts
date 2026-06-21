@@ -10,7 +10,6 @@ export type {
   ActivationNudgeEmailProps,
   ActivationQuickstartEmailProps,
   ChurnPaymentFailedEmailProps,
-  ChurnSaveEmailProps,
   ConversionTrialExpiringEmailProps,
   ConversionUsageMilestoneEmailProps,
   ConversionWinbackOfferEmailProps,
