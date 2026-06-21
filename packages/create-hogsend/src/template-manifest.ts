@@ -12,15 +12,9 @@
  * an engine version that actually exports them yields a scaffold that won't
  * compile. Bump in lockstep — see the `release` skill.
  *
- * NOTE (Phase 5): This is pinned to the INTENDED next minor release (0.24.0)
- * that carries `ctx.history.events()` (added in Phase 1 of this branch) plus
- * the webhook-route `process.env` fix. The release has NOT been cut yet. Until
- * it is published to npm:
- *   - `pnpm check-types` and `pnpm lint` in the MONOREPO pass (workspace dep).
- *   - `cd packages/create-hogsend && pnpm verify` WILL FAIL because it installs
- *     from npm tarballs where 0.24.0 does not yet exist.
- * Cut the engine minor release (per the `release` skill) BEFORE publishing
- * `create-hogsend@0.24.0` to npm.
+ * 0.24.0 adds `ctx.history.events()` and the webhook-route `process.env`
+ * secret-resolution fix, and the scaffold ships the Tier-1 AI onboarding
+ * journey (Vercel AI SDK). Published to npm.
  */
 export const ENGINE_VERSION = "0.24.0";
 

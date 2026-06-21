@@ -10,7 +10,6 @@ import type {
   ActivationNudgeEmailProps,
   ActivationQuickstartEmailProps,
   ChurnPaymentFailedEmailProps,
-  ChurnSaveEmailProps,
   ConversionTrialExpiringEmailProps,
   ConversionUsageMilestoneEmailProps,
   ConversionWinbackOfferEmailProps,
@@ -57,7 +56,6 @@ declare module "@hogsend/email" {
     "reactivation-final-nudge": ReactivationFinalNudgeEmailProps;
     "feedback-nps-survey": FeedbackNpsSurveyEmailProps;
     "churn-payment-failed": ChurnPaymentFailedEmailProps;
-    "churn-save": ChurnSaveEmailProps;
     "transactional/verify-email": TransactionalVerifyEmailProps;
     "transactional/discord-link-code": TransactionalDiscordLinkCodeProps;
     "transactional/magic-link": TransactionalMagicLinkProps;

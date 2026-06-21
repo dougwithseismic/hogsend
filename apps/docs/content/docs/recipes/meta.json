@@ -45,7 +45,6 @@
     "agent-feedback-loop",
     "ai-personalized-onboarding",
     "ai-next-best-action",
-    "ai-churn-save-eve",
     "---Pipelines & orchestration---",
     "posthog-triggered-journeys",
     "cross-journey-funnels",

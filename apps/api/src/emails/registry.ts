@@ -4,7 +4,6 @@ import ActivationFeatureHighlightEmail from "./activation-feature-highlight.js";
 import ActivationNudgeEmail from "./activation-nudge.js";
 import ActivationQuickstartEmail from "./activation-quickstart.js";
 import ChurnPaymentFailedEmail from "./churn-payment-failed.js";
-import ChurnSaveEmail from "./churn-save.js";
 import ConversionTrialExpiringEmail from "./conversion-trial-expiring.js";
 import ConversionUsageMilestoneEmail from "./conversion-usage-milestone.js";
 import ConversionWinbackOfferEmail from "./conversion-winback-offer.js";
@@ -193,20 +192,6 @@ export const templates: TemplateRegistry = {
     category: "transactional",
     preview: (props) => `${props.name}, action needed on your billing`,
   },
-  "churn-save": {
-    component: ChurnSaveEmail,
-    defaultSubject: "We'd love to keep you",
-    category: "journey",
-    preview: (props) =>
-      `${props.name ?? "there"}, we noticed you might be leaving — here's what we can do.`,
-    examples: {
-      name: "Ada",
-      offerHeadline: "Before you go — let's see if we can help",
-      offerDetail:
-        "Our retention team has reviewed your account and has a few ideas that might change things.",
-    },
-  },
-
   // --- Transactional — sent one-off via
   // hs.emails.send / POST /v1/emails. No list, no unsubscribe.
   "transactional/verify-email": {

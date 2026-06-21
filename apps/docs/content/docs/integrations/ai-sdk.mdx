@@ -1,6 +1,6 @@
 ---
 title: Vercel AI SDK
-description: Wire the Vercel AI SDK into a Hogsend journey — generateObject for typed slot-filling, generateText with tools for mid-reasoning history reads, and ctx.waitForEvent for long-running HITL agent sessions (no Eve dependency required).
+description: Wire the Vercel AI SDK into a Hogsend journey — generateObject for typed slot-filling and generateText with tools for mid-reasoning history reads.
 ---
 
 Hogsend journeys are async TypeScript functions. The Vercel AI SDK is a set of async functions. Wiring them together needs no plugin, no registry, no abstraction — import the agent function into the journey and call it.
@@ -11,13 +11,12 @@ The pattern is the same regardless of which tier you use:
 2. **Call the agent function** (`generateObject` / `generateText`) — it returns a validated, typed result.
 3. **Act on the result** — `sendEmail`, another sleep, or a tool-decided branch.
 
-Three tiers cover the range from a simple completion to a full human-in-the-loop session:
+Two tiers cover the range from a simple completion to a tool-using agent that reads history mid-reasoning:
 
 | Tier | SDK call | Model | Use when |
 |---|---|---|---|
 | 1 — Personalised send | `generateObject` | `claude-haiku-4-5` | Draft typed email slots from user context |
 | 2 — Next-best action | `generateText({ tools })` | `claude-opus-4-8` | Agent pulls history mid-reasoning and decides |
-| 3 — HITL session | `fetch` out + `ctx.waitForEvent` back | External agent | Long-running; needs human approval or memory |
 
 ## Installation
 
@@ -250,86 +249,9 @@ await sendEmail({
 });
 ```
 
-## Tier 3 — HITL session with Eve (no plugin)
-
-For long-running agent sessions with human-in-the-loop approval, the journey parks on `ctx.waitForEvent` while an external Eve instance handles the session. No Hogsend-side Eve dependency — just `fetch` out and a `defineWebhookSource` in:
-
-```ts
-// src/lib/eve.ts
-export async function startEveSession(opts: {
-  agent: string;
-  userId: string;
-  callbackEvent: string;
-  input: Record<string, unknown>;
-}) {
-  const res = await fetch(`${process.env.EVE_BASE_URL}/eve/v1/session`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.EVE_TOKEN}`,
-    },
-    body: JSON.stringify({
-      agent: opts.agent,
-      input: opts.input,
-      metadata: { userId: opts.userId, callbackEvent: opts.callbackEvent },
-    }),
-  });
-  if (!res.ok) throw new Error(`Eve session failed: ${res.status}`);
-  return res.json() as Promise<{ sessionId: string }>;
-}
-```
-
-```ts
-// src/journeys/ai-churn-save.ts (excerpt)
-// 1. Start the Eve session — it runs HITL async, separate from the worker.
-await startEveSession({
-  agent: "retention-strategist",
-  userId: user.id,
-  callbackEvent: Events.AGENT_COMPLETED,
-  input: { context },
-});
-
-// 2. Park the journey until Eve posts back (or 7 days pass).
-const result = await ctx.waitForEvent({
-  event: Events.AGENT_COMPLETED,
-  timeout: days(7),
-  label: "eve-agent-result",
-});
-
-if (result.timedOut || !(await ctx.guard.isSubscribed())) return;
-// 3. Act on the typed play Eve produced.
-```
-
-The Eve webhook source receives Eve's POST and ingests it as an event:
-
-```ts
-// src/webhook-sources/eve.ts
-import { defineWebhookSource } from "@hogsend/engine";
-
-export const eveSource = defineWebhookSource({
-  meta: { id: "eve", name: "Eve Agent Callback" },
-  auth: {
-    type: "signature",
-    scheme: "hmac-hex",
-    header: "x-eve-signature",
-    envKey: "EVE_WEBHOOK_SECRET",
-  },
-  transform(payload) {
-    const userId = payload?.metadata?.userId;
-    const callbackEvent = payload?.metadata?.callbackEvent;
-    if (typeof userId !== "string" || typeof callbackEvent !== "string") {
-      return null;
-    }
-    return {
-      name: callbackEvent,
-      userId,
-      eventProperties: { play: JSON.stringify(payload.result ?? {}) },
-    };
-  },
-});
-```
-
-Register it in `src/webhook-sources/index.ts` and pass to `createApp(client, { webhookSources })`.
+<Callout type="info">
+  **Longer-running / human-in-the-loop agents.** When an agent needs to run for hours or days, or loop a human in for approval, keep the long-running work in a dedicated agent runtime and let the journey park on `ctx.waitForEvent` until it posts a result back through a `defineWebhookSource`. Hogsend stays the lifecycle brain; the external agent owns the session. That pattern is provider-agnostic: `fetch` out to the agent, then a `defineWebhookSource` that verifies a signed callback and resumes the parked journey.
+</Callout>
 
 ## What the model may produce
 
@@ -351,4 +273,4 @@ The model never produces HTML — it fills typed slots. The registered React Ema
   - **Hatchet handles the durability.** Journeys run in durable Hatchet tasks — a `ctx.sleep(days(3))` survives a worker restart. The agent call runs inside the task, so a failed completion fails the task and Hatchet retries it.
 </Callout>
 
-Related: [AI-personalised onboarding](/docs/recipes/ai-personalized-onboarding), [AI next-best action](/docs/recipes/ai-next-best-action), [AI churn-save with Eve](/docs/recipes/ai-churn-save-eve).
+Related: [AI-personalised onboarding](/docs/recipes/ai-personalized-onboarding), [AI next-best action](/docs/recipes/ai-next-best-action).
