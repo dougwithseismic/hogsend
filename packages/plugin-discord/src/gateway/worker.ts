@@ -1,6 +1,7 @@
 import { DISCORD_INTENTS } from "../constants.js";
 import { DiscordEvents } from "../events.js";
 import { type PostToIngressResult, postToIngress } from "./ingress.js";
+import { registerSlashCommands } from "./register-commands.js";
 
 /**
  * The long-lived Discord Gateway worker. It is its OWN entrypoint / Railway
@@ -171,6 +172,21 @@ export function createDiscordGatewayWorker(
     });
     c.once("ready", () => {
       console.log("discord gateway worker connected");
+      // Idempotently (re)register /link + /verify so the forgotten manual
+      // `discord:register-commands` step is gone and the commands self-heal
+      // after a token rotation. App id comes from the ready client; GLOBAL
+      // registration so they appear in every guild the bot is in.
+      const appId = c.application?.id;
+      if (appId) {
+        void registerSlashCommands({
+          botToken: config.botToken,
+          applicationId: appId,
+        });
+      } else {
+        console.warn(
+          "discord: no application id on ready; skipping command registration",
+        );
+      }
     });
 
     // Rejects on a bad token or disallowed (un-toggled) privileged intents —

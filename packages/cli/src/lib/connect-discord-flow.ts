@@ -30,8 +30,8 @@ export interface DiscordConnectInfoResponse {
   redirectUri: string;
   /** ${API_PUBLIC_URL}/v1/connectors/discord/interactions */
   interactionsUrl: string;
-  /** Whether CONNECTOR_INGRESS_SECRET is set on the instance (advisory). */
-  ingressSecretConfigured: boolean;
+  /** Whether the inline gateway runtime's lease-holder is live (Worker Online). */
+  workerOnline: boolean;
   /** Whether a derived `discord` credential is already stored. */
   credentialStored: boolean;
   /** The captured guild id once the bot install completes (else null). */
@@ -231,10 +231,20 @@ export async function runConnectDiscord(
         `  secrets stored  ${info.credentialStored ? "yes" : "no"}`,
         `  interactions    ${info.botInstalled ? "wired" : "not wired"}`,
         `  guild id        ${info.guildId ?? "(not yet captured)"}`,
-        `  ingress secret  ${info.ingressSecretConfigured ? "set" : "unset"}`,
+        `  worker online   ${info.workerOnline ? "yes" : "no"}`,
         `  install url     ${info.installUrl ?? "(stored secrets first)"}`,
       ].join("\n"),
     );
+    // The most common "secrets set but nothing happens" cause is the worker not
+    // holding the socket. Surface the actionable next step (the ingress secret
+    // is no longer part of the default path).
+    if (info.credentialStored && !info.workerOnline) {
+      deps.out.log(
+        "Worker offline: set DISCORD_BOT_TOKEN + the API's REDIS_URL on the " +
+          "worker service and redeploy. If it stays offline with the token set, " +
+          "enable the 3 privileged gateway intents in the Discord portal.",
+      );
+    }
     return {
       verdict: info.botInstalled ? "connected" : "secrets_stored_not_wired",
       providerId: "discord",
@@ -285,6 +295,15 @@ export async function runConnectDiscord(
       }),
     );
   } catch (err) {
+    if (isHttpError(err) && err.status === 404) {
+      throw new ConnectDiscordError(
+        "store_failed",
+        "this instance has not mounted the Discord admin routes " +
+          "(PUT /v1/admin/connectors/discord/secrets returned 404)",
+        "Mount the consumer /secrets + /wire routes — see " +
+          "docs/connect-discord-consumer-routes.md.",
+      );
+    }
     throw new ConnectDiscordError("store_failed", errMsg(err));
   }
 
@@ -339,6 +358,14 @@ export async function runConnectDiscord(
         `API_PUBLIC_URL is ${info.apiPublicUrl} — Discord cannot PING the ` +
           "interactions endpoint",
         HINT_LOOPBACK,
+      );
+    }
+    if (isHttpError(err) && err.status === 404) {
+      throw new ConnectDiscordError(
+        "wire_failed",
+        "this instance has not mounted the Discord /wire route (404)",
+        "Mount the consumer /secrets + /wire routes — see " +
+          "docs/connect-discord-consumer-routes.md.",
       );
     }
     throw new ConnectDiscordError("wire_failed", errMsg(err));
