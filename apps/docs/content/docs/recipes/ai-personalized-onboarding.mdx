@@ -1,0 +1,170 @@
+---
+title: AI-personalised onboarding
+description: generateObject drafts typed email slots from a user-context bundle (recent events + email engagement + PostHog person props); the template owns all markup. A day-3 nudge fires if the key feature stays un-activated — featureToActivate survives the durable sleep in the Hatchet task's local scope.
+---
+
+A new signup gets a welcome email drafted by an Anthropic model rather than a hand-written copy block. The model fills a Zod-validated struct — subject line, body paragraph, tips, and the feature it recommends activating first. The React Email template renders the struct; the model never sees or produces HTML.
+
+| Boundary | Owner |
+|---|---|
+| Email subject + body + tips | `generateObject` → `OnboardingPlan` (Zod-validated) |
+| Template markup + layout + tracking | React Email component (code-owned) |
+| Send pipeline (preferences, tracking) | `sendEmail` |
+| Day-3 activation nudge | `ctx.sleep(days(3))` → `ctx.history.hasEvent` |
+
+## What ships in the scaffold
+
+Every app scaffolded with `create-hogsend` includes this journey out of the box:
+
+- `src/agents/onboarding-concierge.ts` — the agent function (`draftOnboardingPlan`)
+- `src/lib/user-context.ts` — the context bundle helper (`getUserContext`)
+- `src/journeys/ai-onboarding.ts` — the journey wiring
+- `src/emails/onboarding-personalized.tsx` + `src/emails/onboarding-nudge.tsx` — the templates
+
+Set `ANTHROPIC_API_KEY` in `.env` and fire a `user.created` event to see it end to end.
+
+## The context bundle
+
+The agent needs to know who it's talking to. `getUserContext` pulls from three sources in parallel:
+
+```ts
+// src/lib/user-context.ts
+const [events, openedResult, clickedResult, posthogProps] = await Promise.all([
+  ctx.history.events({ userId: user.id, limit: 50 }), // newest-first from user_events
+  ctx.history.hasEvent({ userId: user.id, event: "email.opened" }),
+  ctx.history.hasEvent({ userId: user.id, event: "email.link_clicked" }),
+  getPostHog()?.getPersonProperties(user.id) ?? Promise.resolve(undefined),
+]);
+```
+
+`ctx.history.events()` reads the engine's own `user_events` table — no PostHog personal API key required. PostHog person props are additive: present when `POSTHOG_PERSONAL_API_KEY` is configured, omitted otherwise.
+
+## The agent
+
+```ts
+// src/agents/onboarding-concierge.ts
+export const OnboardingPlan = z.object({
+  subject:           z.string().describe("Concise, personalised subject (max 60 chars)."),
+  body:              z.string().describe("Friendly 2–3 sentence opening paragraph."),
+  tips:              z.array(z.string()).min(1).max(3).describe("1–3 actionable tips."),
+  featureToActivate: z.string().describe("The single most important feature to try first."),
+});
+
+export async function draftOnboardingPlan(context: UserContext): Promise<OnboardingPlanType> {
+  const { object } = await generateObject({
+    model: createAnthropic()("claude-haiku-4-5"),
+    schema: OnboardingPlan,
+    prompt: `…${JSON.stringify(context)}…`,
+  });
+  return object;
+}
+```
+
+`generateObject` validates the completion against `OnboardingPlan` before returning. If the model produces something that doesn't satisfy the schema, the call throws and the Hatchet task fails — Hatchet retries the whole function (context query + model call + send), which is safe because nothing has been sent yet.
+
+## The journey
+
+```ts
+// src/journeys/ai-onboarding.ts
+export const aiOnboarding = defineJourney({
+  meta: {
+    id: "ai-onboarding",
+    name: "AI Onboarding — Personalised Welcome",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    const context = await getUserContext(ctx, user);
+    const plan    = await draftOnboardingPlan(context);
+
+    // Welcome email — immediately.
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_PERSONALIZED,
+      subject: plan.subject,
+      props: {
+        name: user.email.split("@")[0] ?? "there",
+        body: plan.body, tips: plan.tips,
+      },
+      journeyName: user.journeyName,
+    });
+
+    // Wait three days — durable Hatchet sleep, survives a worker restart.
+    await ctx.sleep({ duration: days(3), label: "post-welcome-window" });
+
+    // plan.featureToActivate is still in scope — it lives in the Hatchet task's
+    // local state, not in a DB column. No extra write needed.
+    const { found: hasActivated } = await ctx.history.hasEvent({
+      userId: user.id, event: Events.FEATURE_ACTIVATED,
+    });
+
+    if (!hasActivated && await ctx.guard.isSubscribed()) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.ONBOARDING_NUDGE,
+        subject: `Still haven't tried ${plan.featureToActivate}?`,
+        props: {
+          name: user.email.split("@")[0] ?? "there",
+          featureName: plan.featureToActivate,
+        },
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+## Constants and registration
+
+```ts
+// src/journeys/constants/index.ts (additions)
+export const Events = {
+  // …existing…
+  FEATURE_ACTIVATED:       "feature.activated",
+} as const;
+
+export const Templates = {
+  // …existing…
+  ONBOARDING_PERSONALIZED: "onboarding/personalized",
+  ONBOARDING_NUDGE:        "onboarding/nudge",
+} as const;
+```
+
+```ts
+// src/journeys/index.ts
+import { aiOnboarding } from "./ai-onboarding.js";
+export const journeys: DefinedJourney[] = [aiOnboarding, /* …others… */];
+```
+
+## Test it locally
+
+```bash
+# 1. Start the worker (keeps journeys alive)
+pnpm worker:dev
+
+# 2. Fire a signup event via the data API
+curl -X POST http://localhost:3002/v1/ingest \
+  -H "Authorization: Bearer $HOGSEND_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"user.created","userId":"u_demo","email":"ada@example.com"}'
+
+# 3. Watch the Hatchet dashboard (localhost:8888) — the ai-onboarding task
+#    appears and completes. The personalised email is sent via Resend.
+
+# 4. Simulate no activation — after 3 days the nudge fires automatically.
+#    To test immediately, trigger a dormancy-check event or adjust the sleep
+#    duration to minutes(1) in dev.
+```
+
+<Callout type="info">
+  - **The welcome plan is the nudge's input.** `plan.featureToActivate` persists in the durable task's local scope across the sleep. You don't need a DB column or a separate lookup — Hatchet's durable execution keeps the in-memory value alive.
+  - **Emission timing matters.** Emit `feature.activated` from your app code (e.g. the moment a user completes a key action). The nudge branch reads `ctx.history.hasEvent` at the 3-day mark, so any emission before that suppresses the nudge.
+  - **`entryLimit: "once"` is a hard gate.** A second `user.created` for the same userId is skipped — there's no risk of double-welcoming a user who re-triggers the event.
+  - **Model cost.** `claude-haiku-4-5` handles a short prompt + small schema at very low latency and cost. Swap the model string in `onboarding-concierge.ts` if you want a more capable model for this step.
+</Callout>
+
+Related: [AI next-best action](/docs/recipes/ai-next-best-action) shows how to use `generateText({ tools })` for a model that needs to pull history mid-reasoning; [Vercel AI SDK integration](/docs/integrations/ai-sdk) covers all three tiers; [Welcome series](/docs/recipes/welcome-series) is the non-AI version of the same pattern.

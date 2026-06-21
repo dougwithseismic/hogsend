@@ -104,7 +104,10 @@ APPDIR="$APP_PARENT/my-app"
 EXPECTED=(
   package.json src/index.ts src/worker.ts
   src/journeys/index.ts src/journeys/welcome.ts src/journeys/test-onboarding.ts
+  src/journeys/ai-onboarding.ts
   src/journeys/constants/index.ts
+  src/agents/index.ts src/agents/onboarding-concierge.ts
+  src/lib/user-context.ts
   src/buckets/index.ts src/buckets/power-users.ts
   src/webhook-sources/index.ts src/webhook-sources/posthog.ts
   src/destinations/index.ts

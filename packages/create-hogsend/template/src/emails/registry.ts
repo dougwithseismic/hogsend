@@ -2,6 +2,8 @@ import type { TemplateRegistry } from "@hogsend/email";
 import ActivationNudgeEmail from "./activation-nudge.js";
 import FeedbackCheckinEmail from "./feedback-checkin.js";
 import MagicLinkEmail from "./magic-link.js";
+import OnboardingNudgeEmail from "./onboarding-nudge.js";
+import OnboardingPersonalizedEmail from "./onboarding-personalized.js";
 import ProductUpdateEmail from "./product-update.js";
 import ReceiptEmail from "./receipt.js";
 import TrialExpiringEmail from "./trial-expiring.js";
@@ -25,6 +27,28 @@ import WelcomeEmail from "./welcome.js";
 //   - a LIST id (e.g. "product-updates")  ties a broadcast to that list's opt-in
 //     (see `productUpdates` in `src/lists/index.ts`)
 export const templates: TemplateRegistry = {
+  // AI onboarding — personalised welcome + day-3 nudge (ai-onboarding journey).
+  "onboarding/personalized": {
+    component: OnboardingPersonalizedEmail,
+    defaultSubject: "Welcome — here's where to start",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, a quick note personalized for you.`,
+    examples: {
+      name: "Ada",
+      body: "Based on your setup, here's where we'd suggest you start.",
+      tips: ["Define your first journey", "Connect your data source"],
+    },
+  },
+  "onboarding/nudge": {
+    component: OnboardingNudgeEmail,
+    defaultSubject: "Still haven't tried it?",
+    category: "journey",
+    preview: (props) =>
+      `${props.name ?? "there"}, you haven't activated the key feature yet.`,
+    examples: { name: "Ada", featureName: "the key feature" },
+  },
+
   // Feedback — semantic yes/no links (sent from the feedback-checkin journey).
   "feedback/checkin": {
     component: FeedbackCheckinEmail,

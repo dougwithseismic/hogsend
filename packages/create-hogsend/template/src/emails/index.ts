@@ -7,6 +7,8 @@ export { templates } from "./registry.js";
 export type {
   ActivationNudgeEmailProps,
   MagicLinkEmailProps,
+  OnboardingNudgeEmailProps,
+  OnboardingPersonalizedEmailProps,
   ProductUpdateEmailProps,
   ReceiptEmailProps,
   TrialExpiringEmailProps,

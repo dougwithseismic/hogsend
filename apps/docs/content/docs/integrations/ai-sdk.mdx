@@ -1,0 +1,354 @@
+---
+title: Vercel AI SDK
+description: Wire the Vercel AI SDK into a Hogsend journey — generateObject for typed slot-filling, generateText with tools for mid-reasoning history reads, and ctx.waitForEvent for long-running HITL agent sessions (no Eve dependency required).
+---
+
+Hogsend journeys are async TypeScript functions. The Vercel AI SDK is a set of async functions. Wiring them together needs no plugin, no registry, no abstraction — import the agent function into the journey and call it.
+
+The pattern is the same regardless of which tier you use:
+
+1. **Assemble a context bundle** from `ctx.history.*` — recent events, email engagement, and optional PostHog person props.
+2. **Call the agent function** (`generateObject` / `generateText`) — it returns a validated, typed result.
+3. **Act on the result** — `sendEmail`, another sleep, or a tool-decided branch.
+
+Three tiers cover the range from a simple completion to a full human-in-the-loop session:
+
+| Tier | SDK call | Model | Use when |
+|---|---|---|---|
+| 1 — Personalised send | `generateObject` | `claude-haiku-4-5` | Draft typed email slots from user context |
+| 2 — Next-best action | `generateText({ tools })` | `claude-opus-4-8` | Agent pulls history mid-reasoning and decides |
+| 3 — HITL session | `fetch` out + `ctx.waitForEvent` back | External agent | Long-running; needs human approval or memory |
+
+## Installation
+
+```bash
+pnpm add ai @ai-sdk/anthropic
+```
+
+Add your key to `.env`:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-…
+```
+
+## Tier 1 — Personalised onboarding send
+
+The agent drafts typed email slots; `sendEmail` fills the template. The model never touches markup.
+
+### The user-context bundle
+
+Agents need context. Rather than scatter `ctx.history.*` calls across agent files, assemble everything once in a shared helper:
+
+```ts
+// src/lib/user-context.ts
+import type { JourneyContext, JourneyUser, RecentEvent } from "@hogsend/engine";
+import { getPostHog } from "@hogsend/engine";
+
+export interface UserContext {
+  contact: { id: string; email: string; properties: Record<string, string | number | boolean | null> };
+  events: RecentEvent[];
+  email: { everOpened: boolean; everClicked: boolean };
+  posthog?: Record<string, unknown>;
+}
+
+export async function getUserContext(
+  ctx: JourneyContext,
+  user: JourneyUser,
+): Promise<UserContext> {
+  const [events, openedResult, clickedResult, posthogProps] = await Promise.all([
+    ctx.history.events({ userId: user.id, limit: 50 }),
+    ctx.history.hasEvent({ userId: user.id, event: "email.opened" }),
+    ctx.history.hasEvent({ userId: user.id, event: "email.link_clicked" }),
+    getPostHog()?.getPersonProperties(user.id) ?? Promise.resolve(undefined),
+  ]);
+
+  const context: UserContext = {
+    contact: { id: user.id, email: user.email, properties: user.properties },
+    events,
+    email: { everOpened: openedResult.found, everClicked: clickedResult.found },
+  };
+  if (posthogProps !== undefined) context.posthog = posthogProps;
+  return context;
+}
+```
+
+### The agent function
+
+`generateObject` is the right primitive when you need a validated struct — no separate `.parse()` because the Zod schema IS the validation gate:
+
+```ts
+// src/agents/onboarding-concierge.ts
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { generateObject } from "ai";
+import { z } from "zod";
+import type { UserContext } from "../lib/user-context.js";
+
+export const OnboardingPlan = z.object({
+  subject:          z.string().describe("Concise, personalised subject line (max 60 chars)."),
+  body:             z.string().describe("Friendly 2–3 sentence opening paragraph."),
+  tips:             z.array(z.string()).min(1).max(3).describe("1–3 actionable tips."),
+  featureToActivate: z.string().describe("The single most important feature to try first."),
+});
+export type OnboardingPlanType = z.infer<typeof OnboardingPlan>;
+
+export async function draftOnboardingPlan(context: UserContext): Promise<OnboardingPlanType> {
+  const anthropic = createAnthropic();
+  const { object } = await generateObject({
+    model: anthropic("claude-haiku-4-5"),
+    schema: OnboardingPlan,
+    prompt: `You are the onboarding concierge. A new user just signed up.
+
+User context:
+- Email: ${context.contact.email}
+- Properties: ${JSON.stringify(context.contact.properties)}
+- Recent events: ${context.events.slice(0, 10).map(e => e.event).join(", ") || "none yet"}
+- Email engagement: opened=${context.email.everOpened}, clicked=${context.email.everClicked}
+
+Draft a personalised onboarding plan. Be concise, warm, and practical.`,
+  });
+  return object;
+}
+```
+
+### The journey
+
+```ts
+// src/journeys/ai-onboarding.ts
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { draftOnboardingPlan } from "../agents/onboarding-concierge.js";
+import { getUserContext } from "../lib/user-context.js";
+import { Events, Templates } from "./constants/index.js";
+
+export const aiOnboarding = defineJourney({
+  meta: {
+    id: "ai-onboarding",
+    name: "AI Onboarding — Personalised Welcome",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    const context = await getUserContext(ctx, user);
+    const plan    = await draftOnboardingPlan(context);
+
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.ONBOARDING_PERSONALIZED,
+      subject: plan.subject,
+      props: {
+        name: user.email.split("@")[0] ?? "there",
+        body: plan.body, tips: plan.tips,
+      },
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(3), label: "post-welcome-window" });
+
+    const { found: hasActivated } = await ctx.history.hasEvent({
+      userId: user.id, event: Events.FEATURE_ACTIVATED,
+    });
+
+    if (!hasActivated && await ctx.guard.isSubscribed()) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.ONBOARDING_NUDGE,
+        subject: `Still haven't tried ${plan.featureToActivate}?`,
+        props: {
+          name: user.email.split("@")[0] ?? "there",
+          featureName: plan.featureToActivate,
+        },
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+The `featureToActivate` from the welcome plan is available 3 days later because it lives in the Hatchet durable task's local scope across the sleep — no extra DB write.
+
+## Tier 2 — Next-best action with tools
+
+`generateText({ tools, maxSteps })` lets the model pull additional history during reasoning before committing to a decision. The journey acts on the typed decision without knowing which model steps fired.
+
+```ts
+// src/agents/reengagement-strategist.ts
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { generateText, tool } from "ai";
+import { z } from "zod";
+import type { JourneyContext, JourneyUser } from "@hogsend/engine";
+
+const DecisionSchema = z.object({
+  action: z.enum(["reengage_tip_a", "reengage_tip_b", "reengage_webinar", "suppress"]),
+  reason: z.string(),
+});
+export type Decision = z.infer<typeof DecisionSchema>;
+
+export async function decideNextBestAction(
+  user: JourneyUser,
+  ctx: JourneyContext,
+): Promise<Decision | null> {
+  const anthropic = createAnthropic();
+
+  const result = await generateText({
+    model: anthropic("claude-opus-4-8"),
+    maxSteps: 5,
+    tools: {
+      getRecentEvents: tool({
+        description: "Fetch the user's recent events to understand their activity.",
+        parameters: z.object({ limit: z.number().int().min(1).max(50).default(20) }),
+        execute: async ({ limit }) => {
+          const events = await ctx.history.events({ userId: user.id, limit });
+          return events.map(e => ({ event: e.event, occurredAt: e.occurredAt }));
+        },
+      }),
+      decide: tool({
+        description: "Commit to a re-engagement action for this user.",
+        parameters: DecisionSchema,
+        execute: async (decision) => decision,
+      }),
+    },
+    system:
+      "You are a re-engagement strategist. Use getRecentEvents to understand the " +
+      "user's history, then call decide once with the best next action. " +
+      "Choose 'suppress' if the user has been recently active or already engaged.",
+    prompt: `Decide the best re-engagement action for user ${user.id} (${user.email}).`,
+  });
+
+  // Find the `decide` tool call in the steps.
+  for (const step of result.steps) {
+    for (const call of step.toolCalls ?? []) {
+      if (call.toolName === "decide") {
+        return DecisionSchema.parse(call.args);
+      }
+    }
+  }
+  return null;
+}
+```
+
+The journey branches on the decision without caring about the model's reasoning steps:
+
+```ts
+// src/journeys/ai-reengagement.ts (excerpt)
+const decision = await decideNextBestAction(user, ctx);
+if (!decision || decision.action === "suppress") return;
+
+const templateMap = {
+  reengage_tip_a:    Templates.REENGAGE_TIP_A,
+  reengage_tip_b:    Templates.REENGAGE_TIP_B,
+  reengage_webinar:  Templates.REENGAGE_WEBINAR,
+} as const;
+
+await sendEmail({
+  to: user.email, userId: user.id, journeyStateId: user.stateId,
+  template: templateMap[decision.action],
+  journeyName: user.journeyName,
+});
+```
+
+## Tier 3 — HITL session with Eve (no plugin)
+
+For long-running agent sessions with human-in-the-loop approval, the journey parks on `ctx.waitForEvent` while an external Eve instance handles the session. No Hogsend-side Eve dependency — just `fetch` out and a `defineWebhookSource` in:
+
+```ts
+// src/lib/eve.ts
+export async function startEveSession(opts: {
+  agent: string;
+  userId: string;
+  callbackEvent: string;
+  input: Record<string, unknown>;
+}) {
+  const res = await fetch(`${process.env.EVE_BASE_URL}/eve/v1/session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.EVE_TOKEN}`,
+    },
+    body: JSON.stringify({
+      agent: opts.agent,
+      input: opts.input,
+      metadata: { userId: opts.userId, callbackEvent: opts.callbackEvent },
+    }),
+  });
+  if (!res.ok) throw new Error(`Eve session failed: ${res.status}`);
+  return res.json() as Promise<{ sessionId: string }>;
+}
+```
+
+```ts
+// src/journeys/ai-churn-save.ts (excerpt)
+// 1. Start the Eve session — it runs HITL async, separate from the worker.
+await startEveSession({
+  agent: "retention-strategist",
+  userId: user.id,
+  callbackEvent: Events.AGENT_COMPLETED,
+  input: { context },
+});
+
+// 2. Park the journey until Eve posts back (or 7 days pass).
+const result = await ctx.waitForEvent({
+  event: Events.AGENT_COMPLETED,
+  timeout: days(7),
+  label: "eve-agent-result",
+});
+
+if (result.timedOut || !(await ctx.guard.isSubscribed())) return;
+// 3. Act on the typed play Eve produced.
+```
+
+The Eve webhook source receives Eve's POST and ingests it as an event:
+
+```ts
+// src/webhook-sources/eve.ts
+import { defineWebhookSource } from "@hogsend/engine";
+
+export const eveSource = defineWebhookSource({
+  meta: { id: "eve", name: "Eve Agent Callback" },
+  auth: {
+    type: "signature",
+    scheme: "hmac-hex",
+    header: "x-eve-signature",
+    envKey: "EVE_WEBHOOK_SECRET",
+  },
+  transform(payload) {
+    const userId = payload?.metadata?.userId;
+    const callbackEvent = payload?.metadata?.callbackEvent;
+    if (typeof userId !== "string" || typeof callbackEvent !== "string") {
+      return null;
+    }
+    return {
+      name: callbackEvent,
+      userId,
+      eventProperties: { play: JSON.stringify(payload.result ?? {}) },
+    };
+  },
+});
+```
+
+Register it in `src/webhook-sources/index.ts` and pass to `createApp(client, { webhookSources })`.
+
+## What the model may produce
+
+The Zod schema is the boundary in every tier:
+
+| Where | Enforced by |
+|---|---|
+| `generateObject` output | the schema passed to `generateObject` — validated before the function returns |
+| `generateText` tool args | per-tool `parameters` schema — the SDK validates each call |
+| Journey `trigger.where` | out-of-range event properties are skipped at enrollment |
+| Send pipeline | `sendEmail` is still preference-checked — an unsubscribed user never receives |
+
+The model never produces HTML — it fills typed slots. The registered React Email component is what determines the rendered email; the tracking footer, unsubscribe link, and link rewrites are engine-owned and model-agnostic.
+
+<Callout type="info">
+  - **`ctx.history.events()` is the primary personalisation source.** It returns events newest-first from the engine's own `user_events` table — no PostHog API key required for the event list itself. PostHog person properties are additive (omitted when `POSTHOG_PERSONAL_API_KEY` is unset).
+  - **`claude-haiku-4-5` for slot-filling, `claude-opus-4-8` for tool-using reasoning.** Haiku is the fast, lowest-cost tier for constrained completions. Opus 4.8 is worth the cost when the model needs to pull history mid-reasoning and make a nuanced decision.
+  - **No factory, no registry for agents.** Each agent is a plain async function in `src/agents/`. Import it directly where you need it.
+  - **Hatchet handles the durability.** Journeys run in durable Hatchet tasks — a `ctx.sleep(days(3))` survives a worker restart. The agent call runs inside the task, so a failed completion fails the task and Hatchet retries it.
+</Callout>
+
+Related: [AI-personalised onboarding](/docs/recipes/ai-personalized-onboarding), [AI next-best action](/docs/recipes/ai-next-best-action), [AI churn-save with Eve](/docs/recipes/ai-churn-save-eve).
