@@ -55,6 +55,52 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.26.0",
+    anchor: "0-26-0",
+    date: "June 21, 2026",
+    title: "Connector DX polish",
+    bullets: (
+      <>
+        <Bullet>
+          Readiness now reads the owned heartbeat: connect-info's{" "}
+          <Code>ingressSecretConfigured</Code> becomes{" "}
+          <Code>legacyIngressSecretConfigured</Code> (deprecated one minor) and{" "}
+          <Code>workerOnline</Code> drives it — the inline runtime never uses an
+          ingress secret. A runtime that can't take its lease for ~30s (Redis
+          down or contended) now logs a loud, actionable error instead of
+          silently never connecting.
+        </Bullet>
+        <Bullet>
+          The Discord gateway runtime auto-registers the <Code>/link</Code> and{" "}
+          <Code>/verify</Code> slash commands (global, idempotent) the moment
+          the socket comes up — no separate{" "}
+          <Code>discord:register-commands</Code> step, and it self-heals after a
+          token rotation. Exports <Code>registerSlashCommands</Code> +{" "}
+          <Code>LINK_VERIFY_COMMANDS</Code>.
+        </Bullet>
+        <Bullet>
+          <Code>hogsend connect discord --status</Code> drops the stale
+          ingress-secret line when the worker is online, adds a worker-offline
+          hint, and returns a 404-specific error when the consumer's{" "}
+          <Code>/secrets</Code> + <Code>/wire</Code> routes aren't mounted.
+        </Bullet>
+        <Bullet>
+          Studio renders the rich gateway card for any{" "}
+          <Code>{'transport === "gateway"'}</Code> connector (not the literal{" "}
+          <Code>discord</Code> id) — a second Discord bot gets its own card for
+          free.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive;{" "}
+        <Code>ingressSecretConfigured</Code> stays one more minor as{" "}
+        <Code>legacyIngressSecretConfigured</Code>.
+      </>
+    ),
+  },
+  {
     version: "0.25.0",
     anchor: "0-25-0",
     date: "June 21, 2026",
