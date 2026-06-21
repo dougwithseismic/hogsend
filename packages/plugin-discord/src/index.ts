@@ -7,6 +7,22 @@
  */
 
 export {
+  type BroadcastToChannelArgs,
+  broadcastToChannel,
+  type DmMemberArgs,
+  type DmResult,
+  discordActions,
+  dmMember,
+  type MentionMembersArgs,
+  type MentionMembersResult,
+  type MentionRoleArgs,
+  mentionMembers,
+  mentionRole,
+  type SendChannelMessageArgs,
+  type SendMessageResult,
+  sendChannelMessage,
+} from "./actions/index.js";
+export {
   ephemeralReply,
   handleInteraction,
   InteractionCallbackFlags,

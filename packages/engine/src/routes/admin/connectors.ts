@@ -4,8 +4,8 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, isNotNull, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { getDestinationRegistry } from "../../destinations/registry-singleton.js";
+import { getConnectorHeartbeat } from "../../lib/connector-heartbeat.js";
 import { signConnectorState } from "../../lib/connector-state.js";
-import { getDiscordGatewayHeartbeat } from "../../lib/discord-gateway-heartbeat.js";
 import {
   getDerivedCredential,
   getProviderCredential,
@@ -281,14 +281,25 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
           const derived = (await getDerivedCredential(db, id).catch(
             () => null,
           )) as Record<string, unknown> | null;
-          const heartbeat = await getDiscordGatewayHeartbeat();
+          const heartbeat = await getConnectorHeartbeat(id);
+          // guildId/intents ride in the connector-neutral heartbeat metadata
+          // blob (folded in by the inline runtime; the legacy Discord key is
+          // normalized into the same shape on read).
+          const heartbeatGuildId =
+            typeof heartbeat.metadata?.guildId === "string"
+              ? heartbeat.metadata.guildId
+              : null;
+          const heartbeatIntents =
+            typeof heartbeat.metadata?.intents === "number"
+              ? heartbeat.metadata.intents
+              : null;
 
           const derivedGuildId =
             typeof derived?.discordGuildId === "string"
               ? derived.discordGuildId
               : null;
           // Prefer the live worker-observed guild; fall back to the stored one.
-          const guildId = heartbeat.guildId ?? derivedGuildId;
+          const guildId = heartbeatGuildId ?? derivedGuildId;
           // Prefer the LIVE worker-reported intents (the derived credential never
           // carries discordIntents — install writes only the guild id); fall back
           // to the derived value for forward-compat if it ever IS written.
@@ -296,7 +307,7 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
             typeof derived?.discordIntents === "number"
               ? derived.discordIntents
               : null;
-          const intents = heartbeat.intents ?? derivedIntents;
+          const intents = heartbeatIntents ?? derivedIntents;
           // Tri-state: a guild id (either source) confirms the bot is in a
           // server; otherwise unknown (null), NOT a false "not installed".
           const botInstalled: boolean | null = guildId ? true : null;
@@ -354,10 +365,14 @@ export const adminConnectorsRouter = new OpenAPIHono<AppEnv>()
     const derived = (await getDerivedCredential(db, "discord").catch(
       () => null,
     )) as Record<string, unknown> | null;
-    const heartbeat = await getDiscordGatewayHeartbeat();
+    const heartbeat = await getConnectorHeartbeat("discord");
     // Prefer the live worker-observed guild; fall back to the stored one.
+    const heartbeatGuildId =
+      typeof heartbeat.metadata?.guildId === "string"
+        ? heartbeat.metadata.guildId
+        : null;
     const guildId =
-      heartbeat.guildId ??
+      heartbeatGuildId ??
       (typeof derived?.discordGuildId === "string"
         ? derived.discordGuildId
         : null);

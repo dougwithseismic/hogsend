@@ -3,6 +3,10 @@ import {
   selectBucketReactionTasks,
   selectBucketTasks,
 } from "./buckets/registry.js";
+import {
+  type ConnectorRuntimeFactory,
+  startConnectorRuntimes,
+} from "./connectors/runtime.js";
 import type { HogsendClient } from "./container.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
 import { parseEnabledFilter, selectJourneyTasks } from "./journeys/registry.js";
@@ -39,6 +43,14 @@ export interface CreateWorkerOptions {
   enabledBuckets?: string;
   /** Extra client tasks registered alongside the built-in workflows. */
   extraWorkflows?: unknown[];
+  /**
+   * Inbound connector-runtime factories keyed by connector id (e.g.
+   * `{ discord: createDiscordRuntime }`). When `CONNECTOR_RUNTIME_HOST=worker`
+   * (default) and `ENABLE_CONNECTOR_RUNTIMES` is on, the worker elects a single
+   * leader replica per gateway connector and holds its socket inline — no
+   * separate service, no ingress secret.
+   */
+  connectorRuntimes?: Record<string, ConnectorRuntimeFactory>;
 }
 
 export interface Worker {
@@ -99,11 +111,14 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
   // lifecycle. `_worker` is captured for stop().
   let _worker: Awaited<ReturnType<typeof hatchet.worker>> | undefined;
   let _stopHeartbeat: (() => Promise<void>) | undefined;
+  let _stopRuntimes: (() => Promise<void>) | undefined;
 
   async function stop(): Promise<void> {
-    // Delete the heartbeat first (an immediate "worker down" signal) before the
-    // Redis connection is torn down below.
+    // Delete the worker heartbeat first (an immediate "worker down" signal) and
+    // release any connector-runtime leases + their heartbeats BEFORE the Redis
+    // connection is torn down below.
     await _stopHeartbeat?.();
+    await _stopRuntimes?.();
     await Promise.allSettled([
       _worker?.stop(),
       // Shut down the injected analytics instance (same object the worker's
@@ -141,6 +156,26 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     // Publish liveness so the API + Studio can show "worker connected"
     // (read via GET /v1/health). Best-effort; never blocks the listener.
     _stopHeartbeat = startWorkerHeartbeat(container.logger);
+
+    // Inline connector runtimes (gateway sockets) — the worker is the default
+    // host. Each gateway connector with a supplied factory races a Redis leader
+    // lease so exactly one replica holds its socket; the in-process sink feeds
+    // transform→ingest with no HTTP hop. Auto-on; a factory that declines (e.g.
+    // no bot token) simply no-ops. Started AFTER the heartbeat and BEFORE the
+    // blocking `_worker.start()` below (anything after it is dead code at
+    // runtime until shutdown).
+    if (
+      container.env.ENABLE_CONNECTOR_RUNTIMES === "true" &&
+      container.env.CONNECTOR_RUNTIME_HOST === "worker" &&
+      opts.connectorRuntimes &&
+      Object.keys(opts.connectorRuntimes).length > 0
+    ) {
+      const runtimes = startConnectorRuntimes({
+        client: container,
+        factories: opts.connectorRuntimes,
+      });
+      _stopRuntimes = () => runtimes.stop();
+    }
 
     // Boot-time backfill / criteria-change re-eval (Section 6.6 B): diff each
     // enabled bucket's criteriaHash against bucket_configs and trigger a

@@ -20,6 +20,11 @@ import {
   buildBucketRegistry,
   collectBucketReactionJourneys,
 } from "./buckets/registry.js";
+import {
+  ConnectorActionRegistry,
+  setConnectorActionRegistry,
+} from "./connectors/action-registry-singleton.js";
+import type { DefinedConnectorAction } from "./connectors/define-action.js";
 import type { DefinedConnector } from "./connectors/define-connector.js";
 import { connectorsFromEnv } from "./connectors/presets/index.js";
 import {
@@ -161,6 +166,13 @@ export interface HogsendClient {
    * `/v1/connectors/:id/*` routes read `get(id).handlers`.
    */
   connectorRegistry: ConnectorRegistry;
+  /**
+   * The connector OUTBOUND ACTION registry, keyed by `${connectorId}:${name}`.
+   * Holds the journey-callable imperative actions (Discord post / broadcast /
+   * mention / DM) the standalone `sendConnectorAction()` resolves. Socket-free —
+   * independent of any inbound gateway runtime. Empty when none are wired.
+   */
+  connectorActionRegistry: ConnectorActionRegistry;
   hatchet: HatchetClient;
   /**
    * The client repo's migration journal (`migrations/meta/_journal.json`),
@@ -281,6 +293,14 @@ export interface HogsendClientOptions {
    * connectors. Defaults to none.
    */
   connectors?: DefinedConnector[];
+  /**
+   * Connector OUTBOUND ACTIONS (e.g. `discordActions` from `@hogsend/plugin-discord`)
+   * — journey-callable imperative actions registered into the
+   * {@link ConnectorActionRegistry} and invoked via the standalone
+   * `sendConnectorAction()`. Socket-free; independent of any inbound gateway
+   * runtime. Defaults to none.
+   */
+  connectorActions?: DefinedConnectorAction[];
   /**
    * @deprecated pass `connectors` instead. Back-compat array of
    * `defineWebhookSource()` sources; converted to webhook-transport connectors.
@@ -679,6 +699,15 @@ export function createHogsendClient(
     `Connector registry loaded: ${connectorRegistry.count()} connectors`,
   );
 
+  // Build + install the connector ACTION registry (outbound imperative actions),
+  // the action sibling of the connector registry above. Runs in BOTH the API and
+  // worker (both call createHogsendClient), so `sendConnectorAction()` resolves
+  // in either process.
+  const connectorActionRegistry = new ConnectorActionRegistry(
+    opts.connectorActions ?? [],
+  );
+  setConnectorActionRegistry(connectorActionRegistry);
+
   // Optional: auto-seed a PostHog DESTINATION on the outbound spine so the email
   // lifecycle fans out to PostHog durably. Default OFF (ENABLE_POSTHOG_DESTINATION)
   // to avoid double-emit alongside the fire-and-forget capture path. Idempotent +
@@ -725,6 +754,7 @@ export function createHogsendClient(
     bucketRegistry,
     listRegistry,
     connectorRegistry,
+    connectorActionRegistry,
     hatchet: opts.overrides?.hatchet ?? hatchet,
     clientJournal: opts.clientJournal ?? { entries: [] },
     defaults,
