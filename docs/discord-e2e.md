@@ -385,11 +385,14 @@ URLs, so both are reachable without the CLI:
 `PATCH /applications/@me` that auto-sets the Interactions Endpoint URL for you.
 `apps/api` does not mount it (the `secrets` / `wire` admin routes are
 consumer-mounted and not added here), so on an env-only deploy you set the
-Interactions Endpoint URL **in the portal** (Step 3). To drive that auto-wiring,
-a consumer would mount the `secrets` / `wire` routes via
+Interactions Endpoint URL **in the portal** (Step 3). The dogfood consumer DOES
+mount them — `hogsend-dogfood/src/discord-admin-routes.ts`
+(`registerDiscordAdminRoutes`), wired in `src/index.ts`; see
+[`connect-discord-consumer-routes.md`](./connect-discord-consumer-routes.md). To
+drive that auto-wiring, a consumer mounts the `secrets` / `wire` routes via
 `createApp(client, { routes })` (`DerivedCredentialPayload` already carries the
 optional Discord fields — `packages/engine/src/lib/provider-credentials.ts`),
-then run:
+then runs:
 
 ```bash
 cd packages/cli && env ADMIN_API_KEY=<admin-key> \
