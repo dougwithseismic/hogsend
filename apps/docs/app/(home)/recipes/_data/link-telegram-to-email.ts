@@ -1,20 +1,12 @@
 import type { RecipeLander } from "./types";
 
 const LINK_REQUEST_CODE = `// src/journeys/telegram-link-request.ts — fires on /link <email>.
-// Mints a single-use confirm token sealing { telegramUserId, email } and emails
-// the link. The typed address is PROVEN by the click, never trusted from here.
+// telegramColdConnect.mintConfirm seals { telegramUserId, email } in a single-use
+// token (throttled, fail-closed) and returns it; we email the confirm link. The
+// typed address is PROVEN by the click, never trusted from here.
 import { hours } from "@hogsend/core";
-import {
-  defineJourney,
-  getEmailService,
-  getRedis,
-  sendConnectorAction,
-} from "@hogsend/engine";
-import {
-  buildTelegramConfirmUrl,
-  mintTelegramConfirmToken,
-  TelegramEvents,
-} from "@hogsend/plugin-telegram";
+import { defineJourney, getEmailService, sendConnectorAction } from "@hogsend/engine";
+import { telegramColdConnect, TelegramEvents } from "@hogsend/plugin-telegram";
 
 const EMAIL_RE = /^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/;
 
@@ -46,27 +38,20 @@ export const telegramLinkRequest = defineJourney({
       return;
     }
 
-    // Anti email-bomb: the Telegram webhook has only a static secret token (no
-    // per-message signature), so cap confirm emails at 3 per fromId per hour.
-    const redis = getRedis();
-    if (redis) {
-      const rlKey = \`hogsend:telegram:linkreq:rl:\${fromId}\`;
-      const n = await redis.incr(rlKey);
-      if (n === 1) await redis.expire(rlKey, 3600);
-      if (n > 3) {
-        await reply("You've requested a few link emails recently — check your inbox.");
-        return;
-      }
-    }
-
-    const minted = await mintTelegramConfirmToken({ telegramUserId: fromId, email });
+    // mintConfirm throttles per Telegram user INSIDE the primitive (Redis-backed,
+    // fail-closed) — the webhook has only a static secret token, no per-message
+    // signature, so a forged /link could otherwise spray a victim's inbox.
+    const minted = await telegramColdConnect.mintConfirm({
+      platformUserId: fromId,
+      email,
+    });
     if (!minted.ok) {
-      await reply("Linking is briefly unavailable — please try again shortly.");
+      await reply("Linking is briefly unavailable or rate-limited — check your inbox or try again shortly.");
       return;
     }
 
     const apiPublicUrl = process.env.API_PUBLIC_URL ?? "http://localhost:3002";
-    const url = buildTelegramConfirmUrl({ apiPublicUrl, token: minted.token });
+    const url = telegramColdConnect.confirmUrl({ apiPublicUrl, token: minted.token });
 
     // TRANSACTIONAL send — skipPreferenceCheck so the link is never suppressed.
     await getEmailService().send({
@@ -84,55 +69,38 @@ export const telegramLinkRequest = defineJourney({
   },
 });`;
 
-const EXCHANGE_CODE = `// src/telegram-connect.ts — the connect page + exchange, mounted with
-// createApp({ routes: registerTelegramConnectRoutes }). The bind runs on a human
-// button CLICK (POST), never on GET — a link-preview prefetch can't complete it.
-import { type CreateAppOptions, ingestEvent } from "@hogsend/engine";
-import {
-  consumeTelegramConfirmToken,
-  peekTelegramConfirmToken,
-} from "@hogsend/plugin-telegram";
+const EXCHANGE_CODE = `// telegramColdConnect is built ONCE with the engine createColdConnect() primitive
+// (it ships pre-built from @hogsend/plugin-telegram). The primitive owns the
+// sealed-token store, the connect page, and the peek -> ingestEvent -> consume
+// exchange. The bind runs on a human button CLICK (POST), never on GET — a
+// link-preview prefetch can't complete it.
+import { createColdConnect } from "@hogsend/engine";
 
-export const registerTelegramConnectRoutes: NonNullable<
-  CreateAppOptions["routes"]
-> = (app) => {
-  app.get("/connect/telegram", (c) => {
-    const { env } = c.get("container");
-    return c.html(connectPageHtml(env)); // page calls posthog.identify on success
-  });
+export const telegramColdConnect = createColdConnect({
+  connectorId: "telegram",
+  identityKind: "userId",
+  platformKey: (id) => \`telegram:\${id}\`, // the merge key folded with the email
+  linkedEvent: "telegram.linked", // pushed by the exchange's ingest -> welcome journey
+  identifyPropKey: "telegram_id", // set client-side in posthog.identify(contactKey)
+  buildIngest: (b) => ({
+    // Scalar trigger props the welcome journey reads off user.properties.* —
+    // contactProperties never reach the Hatchet payload, so the ids ride here.
+    eventProperties: {
+      source: "telegram",
+      chatId: b.platformUserId,
+      fromId: b.platformUserId,
+      via: "email_confirm",
+    },
+    // telegram is in DEEP_MERGE_KEYS — this merges, never clobbers.
+    contactProperties: {
+      telegram: { id: b.platformUserId, chat_id: b.platformUserId },
+    },
+  }),
+  branding: { badge: "✈️", title: "Connect your Telegram" /* …copy… */ },
+});
 
-  app.post("/connect/telegram/exchange", async (c) => {
-    const container = c.get("container");
-    const { tok } = await c.req.json();
-
-    // Peek (not consume): the token survives a transient failure, so a retry works.
-    const binding = await peekTelegramConfirmToken(tok);
-    if (!binding) return c.json({ ok: false, error: "invalid_or_used" }, 410);
-
-    // Authoritative bind: telegram:<id> + email folded onto ONE contact. Returns
-    // the canonical contact key the page hands to posthog.identify().
-    const result = await ingestEvent({
-      db: container.db,
-      registry: container.registry,
-      hatchet: container.hatchet,
-      logger: container.logger,
-      analytics: container.analytics,
-      event: {
-        event: "telegram.linked",
-        userId: \`telegram:\${binding.telegramUserId}\`,
-        userEmail: binding.email,
-        contactProperties: {
-          // telegram is in DEEP_MERGE_KEYS — this merges, never clobbers.
-          telegram: { id: binding.telegramUserId, chat_id: binding.telegramUserId },
-        },
-        idempotencyKey: \`telegram:confirm:\${binding.telegramUserId}:\${tok}\`,
-      },
-    });
-
-    await consumeTelegramConfirmToken(tok); // single-use, AFTER the bind committed
-    return c.json({ ok: true, key: result.contactKey, telegramId: binding.telegramUserId });
-  });
-};`;
+// Mount the connect page + exchange (routes compose as an array):
+// createApp(client, { routes: [telegramColdConnect.routes] });`;
 
 export const linkTelegramToEmail: RecipeLander = {
   slug: "link-telegram-to-email",
@@ -162,13 +130,13 @@ export const linkTelegramToEmail: RecipeLander = {
       filename: "src/journeys/telegram-link-request.ts",
       code: LINK_REQUEST_CODE,
       caption:
-        "Fires on /link <email>: validate the shape, rate-limit (3/user/hour, since the webhook has no per-message signature), mint a sealed confirm token, and email the link through a transactional send so it is never suppressed.",
+        "Fires on /link <email>: validate the shape, mint a sealed confirm token via telegramColdConnect.mintConfirm (throttled + fail-closed inside the primitive), and email the link through a transactional send so it is never suppressed.",
     },
     {
-      filename: "src/telegram-connect.ts",
+      filename: "src/connectors/telegram.ts",
       code: EXCHANGE_CODE,
       caption:
-        "The connect page binds only on the POST exchange: peek the sealed token, ingest telegram.linked to fold telegram:<id> + email onto one contact, then consume the token. The page hands the returned contact key to posthog.identify client-side.",
+        "telegramColdConnect (from createColdConnect) owns the connect page + the POST exchange: peek the sealed token, ingest telegram.linked to fold telegram:<id> + email onto one contact, then consume. Mount its routes; the page hands the returned contact key to posthog.identify client-side.",
     },
   ],
   points: [
@@ -182,7 +150,7 @@ export const linkTelegramToEmail: RecipeLander = {
     },
     {
       title: "An anti-email-bomb rate limit",
-      body: "The Telegram webhook carries only a static secret-token header, not a per-message signature, so a forged /link could otherwise spray a victim's inbox from your sending domain. The journey caps confirmation emails at 3 per Telegram user per rolling hour in Redis.",
+      body: "The Telegram webhook carries only a static secret-token header, not a per-message signature, so a forged /link could otherwise spray a victim's inbox from your sending domain. telegramColdConnect.mintConfirm throttles confirmation emails per Telegram user inside the primitive (Redis-backed, fail-closed).",
     },
     {
       title: "telegram:<id> is the merge key; metadata never resolves",

@@ -57,7 +57,12 @@ export {
   type SchemaVersion,
 } from "@hogsend/db";
 // --- App / container / worker factories ---
-export { type AppEnv, type CreateAppOptions, createApp } from "./app.js";
+export {
+  type AppEnv,
+  type CreateAppOptions,
+  createApp,
+  type RoutesFn,
+} from "./app.js";
 // --- Buckets ---
 export {
   type BucketAccessor,
@@ -91,6 +96,14 @@ export {
   resetBucketRegistry,
   setBucketRegistry,
 } from "./buckets/registry-singleton.js";
+// --- Cold-connect (email-confirmed chat-platform contact linking) ---
+export {
+  type ColdConnect,
+  type ColdConnectBinding,
+  type ColdConnectBranding,
+  type ColdConnectConfig,
+  createColdConnect,
+} from "./cold-connect/index.js";
 export {
   ConnectorActionRegistry,
   getConnectorActionRegistry,

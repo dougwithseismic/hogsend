@@ -9,7 +9,11 @@ import {
   getRedisIfConnected,
   reportApiReady,
 } from "@hogsend/engine";
-import { telegramActions, telegramConnector } from "@hogsend/plugin-telegram";
+import {
+  telegramActions,
+  telegramColdConnect,
+  telegramConnector,
+} from "@hogsend/plugin-telegram";
 import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
 import {
@@ -21,7 +25,6 @@ import {
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
-import { registerTelegramConnectRoutes } from "./telegram-connect.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
 const discordConnector = buildDiscordConnector();
@@ -112,8 +115,10 @@ await bootstrapApiKeyFromEnv({ client });
 
 const app = createApp(client, {
   webhookSources,
-  // Telegram cold-connect: GET /connect/telegram (page) + POST .../exchange.
-  routes: registerTelegramConnectRoutes,
+  // Telegram cold-connect: GET /connect/telegram (page) + POST .../exchange,
+  // mounted by the engine `createColdConnect()` primitive (basePath derived from
+  // connectorId). Pass as an array so additional route fns compose cleanly.
+  routes: [telegramColdConnect.routes],
 });
 const { logger, env } = client;
 

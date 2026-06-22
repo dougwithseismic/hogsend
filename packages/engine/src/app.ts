@@ -33,9 +33,17 @@ export type AppEnv = {
   };
 };
 
+/** A function that mounts custom routers onto the app after the built-in routes. */
+export type RoutesFn = (app: OpenAPIHono<AppEnv>) => void;
+
 export interface CreateAppOptions {
-  /** Mount custom routers after the built-in routes. */
-  routes?: (app: OpenAPIHono<AppEnv>) => void;
+  /**
+   * Mount custom routers after the built-in routes. Accepts a single function or
+   * an array — each is applied in order, so a consumer can compose its own
+   * routes with e.g. `cc.routes` without clobbering: `routes: [existing,
+   * cc.routes]`.
+   */
+  routes?: RoutesFn | RoutesFn[];
   /** Extra middleware applied after the built-in stack. */
   middleware?: MiddlewareHandler[];
   /** Webhook sources served at `/v1/webhooks/:sourceId`. */
@@ -161,7 +169,13 @@ export function createApp(
     );
   }
 
-  opts.routes?.(app);
+  for (const routeFn of Array.isArray(opts.routes)
+    ? opts.routes
+    : opts.routes
+      ? [opts.routes]
+      : []) {
+    routeFn(app);
+  }
 
   if (container.env.NODE_ENV !== "production") {
     app.doc("/openapi.json", {

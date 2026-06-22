@@ -44,6 +44,15 @@ function boot(posthogKey: string): void {
     // loads. Pre-consent the anon id regenerates each full load (session-scoped
     // by design); post-consent it is stable (zero further merges).
     persistence,
+    // Scope the post-consent distinct_id cookie to `.hogsend.com` (not the bare
+    // host) so other Hogsend subdomains — notably the cold-connect connect page
+    // served off the API host — can read this visitor's existing id and fold
+    // their prior anonymous browsing into the proven identity. This is INIT-only
+    // config: it sets the cookie DOMAIN but never forces a write, so pre-consent
+    // ("memory" persistence) still writes no cookie at all. The durable cookie
+    // appears only once persistence upgrades to localStorage+cookie at consent —
+    // the consent gate above is untouched.
+    cross_subdomain_cookie: true,
     capture_pageview: true,
     capture_pageleave: true,
     // /hey/<name> referral pages carry a first name in the URL. PostHog gets
