@@ -1,5 +1,19 @@
 # @hogsend/api
 
+## 0.0.32
+
+### Patch Changes
+
+- Updated dependencies [e5f720e]
+  - @hogsend/engine@0.30.0
+  - @hogsend/db@0.30.0
+  - @hogsend/core@0.30.0
+  - @hogsend/email@0.30.0
+  - @hogsend/plugin-posthog@0.30.0
+  - @hogsend/plugin-resend@0.30.0
+  - @hogsend/plugin-discord@0.30.0
+  - @hogsend/plugin-telegram@0.30.0
+
 ## 0.0.31
 
 ### Patch Changes
