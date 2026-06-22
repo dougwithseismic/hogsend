@@ -15,6 +15,7 @@ import { humanApprovalGate } from "./human-approval-gate";
 import { leadAlerts } from "./lead-alerts";
 import { lifecycleAlertsInSlack } from "./lifecycle-alerts-in-slack";
 import { linkDiscordToEmail } from "./link-discord-to-email";
+import { linkTelegramToEmail } from "./link-telegram-to-email";
 import { npsSurvey } from "./nps-survey";
 import { postPurchaseSeries } from "./post-purchase-series";
 import { posthogTriggeredJourneys } from "./posthog-triggered-journeys";
@@ -30,6 +31,7 @@ import { verificationChase } from "./verification-chase";
 import { waitlistLaunch } from "./waitlist-launch";
 import { weeklyDigest } from "./weekly-digest";
 import { welcomeNewDiscordMembers } from "./welcome-new-discord-members";
+import { welcomeNewTelegramMembers } from "./welcome-new-telegram-members";
 import { welcomeSeries } from "./welcome-series";
 import { winbackAndSunset } from "./winback-and-sunset";
 
@@ -42,6 +44,8 @@ export const RECIPE_LANDERS: RecipeLander[] = [
   verificationChase,
   welcomeNewDiscordMembers,
   linkDiscordToEmail,
+  welcomeNewTelegramMembers,
+  linkTelegramToEmail,
   // Trial, billing & upgrades
   trialConversionSequence,
   failedPaymentDunning,

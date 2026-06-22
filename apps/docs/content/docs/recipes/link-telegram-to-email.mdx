@@ -1,0 +1,239 @@
+---
+title: Link a Telegram account to an email
+description: How the /link email-confirm flow attaches an email to a Telegram account — the user sends /link you@example.com, Hogsend mails a single-use confirmation link, clicking it binds telegram:<id> to the email on one contact and identifies the PostHog person client-side. Plus the /start one-tap deep link for users you already know.
+---
+
+A Telegram user and an email subscriber are the same person on two surfaces, but nothing ties them together until they link. The [`@hogsend/plugin-telegram`](/docs/integrations/telegram) connector does this two ways. For a cold connect started **inside Telegram**, `/link you@example.com` mails a single-use confirmation link; clicking it proves inbox ownership and folds the email onto the `telegram:<id>` contact. For a user you already know (a logged-in dashboard), a one-tap `t.me/<bot>?start=<token>` deep link binds immediately. After either, the contact has both a `telegram:<id>` external key and an email, and the member is both emailable and credited for Telegram activity.
+
+This is consumer wiring — a journey on `telegram.link_requested` and a small connect-page route set — plus how a journey reads the result.
+
+## The /link email-confirm loop
+
+The bind is gated on a real email click, never on the typed address alone:
+
+| Step | What happens |
+|---|---|
+| `/link you@example.com` | The connector emits `telegram.link_requested` carrying the lowercased email |
+| `telegram-link-request` journey | Validates the address shape, rate-limits (3/user/hour), mints a sealed token, emails the confirm link, replies in Telegram |
+| Click the emailed link | Opens `GET /connect/telegram?tok=…` — a dark connect page; the token is read client-side, never reflected into markup |
+| **Confirm connection** button | `POST /connect/telegram/exchange` peeks the sealed token, ingests `telegram.linked` to bind, then consumes the token; the page calls `posthog.identify` client-side |
+
+The bind happens on a human button **click (POST)**, never on GET — so an email or Telegram link-preview prefetch can't complete it.
+
+## The wiring
+
+Two pieces make `/link` work: a journey on `telegram.link_requested` that mints and mails the confirmation, and a route set that serves the connect page and the exchange.
+
+```ts
+// src/journeys/telegram-link-request.ts
+import { hours } from "@hogsend/core";
+import {
+  defineJourney,
+  getEmailService,
+  getRedis,
+  sendConnectorAction,
+} from "@hogsend/engine";
+import {
+  buildTelegramConfirmUrl,
+  mintTelegramConfirmToken,
+  TelegramEvents,
+} from "@hogsend/plugin-telegram";
+
+// Loose shape check only — the binding is PROVEN by the email being delivered.
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+export const telegramLinkRequest = defineJourney({
+  meta: {
+    id: "telegram-link-request",
+    name: "Telegram — Link Request (/link)",
+    enabled: true,
+    trigger: { event: TelegramEvents.LINK_REQUESTED }, // "telegram.link_requested"
+    entryLimit: "unlimited",
+    suppress: hours(0),
+  },
+
+  run: async (user, _ctx) => {
+    const chatId = user.properties.chatId ? String(user.properties.chatId) : null;
+    const fromId = user.properties.fromId ? String(user.properties.fromId) : null;
+    if (!chatId || !fromId) return;
+
+    const reply = (text: string) =>
+      sendConnectorAction({
+        connectorId: "telegram",
+        action: "sendMessage",
+        args: { chatId, text },
+      });
+
+    const email = user.properties.email ? String(user.properties.email) : "";
+    if (!email || !EMAIL_RE.test(email)) {
+      await reply("To connect your email, send:\n\n/link you@example.com");
+      return;
+    }
+
+    // Anti email-bomb: the Telegram webhook has only a static secret token (no
+    // per-message signature), so a forged/replayed /link could spray a victim's
+    // inbox from your sending domain. Cap at 3 per rolling hour per fromId.
+    const redis = getRedis();
+    if (redis) {
+      const rlKey = `hogsend:telegram:linkreq:rl:${fromId}`;
+      const n = await redis.incr(rlKey);
+      if (n === 1) await redis.expire(rlKey, 3600);
+      if (n > 3) {
+        await reply("You've requested a few link emails recently — check your inbox.");
+        return;
+      }
+    }
+
+    // Seal { telegramUserId, email } server-side under a single-use token.
+    const minted = await mintTelegramConfirmToken({ telegramUserId: fromId, email });
+    if (!minted.ok) {
+      await reply("Linking is briefly unavailable — please try again shortly.");
+      return;
+    }
+
+    const apiPublicUrl = process.env.API_PUBLIC_URL ?? "http://localhost:3002";
+    const url = buildTelegramConfirmUrl({ apiPublicUrl, token: minted.token });
+
+    // TRANSACTIONAL send — skipPreferenceCheck so the confirm link is NEVER
+    // dropped by unsubscribe/frequency suppression.
+    await getEmailService().send({
+      template: "transactional/magic-link",
+      props: { magicLinkUrl: url, expiresIn: "15 minutes" },
+      to: email,
+      userId: email,
+      userEmail: email,
+      subject: "Confirm your Telegram connection",
+      category: "transactional",
+      skipPreferenceCheck: true,
+    });
+
+    await reply(`📧 I've emailed a confirmation link to ${email}.\n\nIt expires in 15 minutes.`);
+  },
+});
+```
+
+```ts
+// src/telegram-connect.ts — the connect page + exchange, mounted with
+// createApp({ routes: registerTelegramConnectRoutes }). Domain-agnostic: served
+// on the customer's own API_PUBLIC_URL against the customer's own PostHog.
+import { type CreateAppOptions, ingestEvent } from "@hogsend/engine";
+import {
+  consumeTelegramConfirmToken,
+  peekTelegramConfirmToken,
+} from "@hogsend/plugin-telegram";
+
+export const registerTelegramConnectRoutes: NonNullable<
+  CreateAppOptions["routes"]
+> = (app) => {
+  // GET serves the dark connect page; ?tok= is read CLIENT-side, never reflected.
+  app.get("/connect/telegram", (c) => {
+    const { env } = c.get("container");
+    return c.html(connectPageHtml(env)); // page calls posthog.identify on success
+  });
+
+  // POST is the only path that binds — a link-preview prefetch (GET) can't.
+  app.post("/connect/telegram/exchange", async (c) => {
+    const container = c.get("container");
+    const { tok } = await c.req.json();
+
+    // Peek (not consume): the token survives a transient failure, so a retry works.
+    const binding = await peekTelegramConfirmToken(tok);
+    if (!binding) return c.json({ ok: false, error: "invalid_or_used" }, 410);
+
+    // Authoritative bind: telegram:<id> + email folded onto ONE contact. Returns
+    // the canonical contact key the page hands to posthog.identify(), so the web
+    // session joins the SAME person the contact's email events land on.
+    const result = await ingestEvent({
+      db: container.db,
+      registry: container.registry,
+      hatchet: container.hatchet,
+      logger: container.logger,
+      analytics: container.analytics,
+      event: {
+        event: "telegram.linked",
+        userId: `telegram:${binding.telegramUserId}`,
+        userEmail: binding.email,
+        contactProperties: {
+          // telegram is in DEEP_MERGE_KEYS, so this never clobbers richer fields
+          // (username/etc.) set by inbound messages — it merges.
+          telegram: {
+            id: binding.telegramUserId,
+            chat_id: binding.telegramUserId, // == user id for a private chat
+          },
+        },
+        idempotencyKey: `telegram:confirm:${binding.telegramUserId}:${tok}`,
+      },
+    });
+
+    // Single-use: consume only AFTER the bind ingest committed.
+    await consumeTelegramConfirmToken(tok);
+    return c.json({ ok: true, key: result.contactKey, telegramId: binding.telegramUserId });
+  });
+};
+```
+
+## The one-tap alternative: /start deep link
+
+When you already know the contact's email — a logged-in dashboard — skip the email round trip. Mint a personalized deep link and the user binds in one tap:
+
+```ts
+import { mintTelegramStartLink } from "@hogsend/plugin-telegram";
+
+const minted = await mintTelegramStartLink({
+  botUsername: process.env.TELEGRAM_BOT_USERNAME ?? "",
+  email: contact.email,
+});
+// minted.url === "https://t.me/<bot>?start=<token>" — render it as a button.
+```
+
+`mintTelegramStartLink` stores `token → email` in Redis under a short opaque token (Telegram caps the `start` param at 64 chars and forbids the signed-state form, so the binding lives server-side, never in the link) with a 900-second TTL. When the user taps it, `/start <token>` resolves the bound email and the connector emits `telegram.linked` carrying both `userId` and `userEmail` — the engine folds the Telegram identity onto the email contact with no journey of your own required.
+
+## Reading the linked identity in a journey
+
+`JourneyUser` carries `id`, `email`, and `properties`, but not the nested Telegram metadata. The `telegram.linked` event sets `user.email` once the bind commits, so a journey on `telegram.linked` can branch on it directly:
+
+```ts
+// src/journeys/telegram-linked.ts
+import { hours } from "@hogsend/core";
+import { defineJourney, sendConnectorAction } from "@hogsend/engine";
+import { TelegramEvents } from "@hogsend/plugin-telegram";
+
+export const telegramLinked = defineJourney({
+  meta: {
+    id: "telegram-linked",
+    name: "Telegram — Account Linked",
+    enabled: true,
+    trigger: { event: TelegramEvents.LINKED }, // "telegram.linked"
+    entryLimit: "unlimited",
+    suppress: hours(0),
+  },
+
+  run: async (user, _ctx) => {
+    const chatId = user.properties.chatId ? String(user.properties.chatId) : null;
+    if (!chatId) return;
+    const email = user.email ?? "your email";
+
+    // Confirm the cross-channel link back in Telegram.
+    await sendConnectorAction({
+      connectorId: "telegram",
+      action: "sendMessage",
+      args: {
+        chatId,
+        text:
+          `✅ Linked your Telegram to ${email}.\n\n` +
+          "Your community activity and email lifecycle are now one contact.",
+      },
+    });
+  },
+});
+```
+
+The richer `contacts.properties.telegram` metadata (`username`, `first_name`, `last_name`, `language`, and the derived `last_seen`) is on the contact row, deep-merged and non-clobbering — read the authoritative `contacts` row if a journey needs it. It is never a resolution key; `telegram:<id>` (the `externalId`) is the merge key.
+
+<Callout type="info">
+  - **The linked email is proven by the click**, not the typed address. The `/link` flow seals `{ telegramUserId, email }` server-side and only binds when the emailed link is clicked — so a forged `/link` can't attach an address the sender does not control.
+  - **The bind is on POST, never GET.** A link-preview prefetch fetches the page (GET) but cannot complete the bind, which requires the explicit **Confirm connection** button (POST).
+  - **`/start` peeks, never consumes.** The deep-link redeem reads the Redis binding without deleting it, so a webhook auto-retry can't burn a user's one-tap link — single use is bounded by the 900s TTL instead.
+</Callout>
+
+Related: [Welcome new Telegram members](/docs/recipes/welcome-new-telegram-members) replies on the first message and routes onboarding, and the [Telegram integration](/docs/integrations/telegram#linking-a-contact-start-vs-link) documents both link paths and the identity model.

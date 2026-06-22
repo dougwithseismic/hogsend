@@ -186,7 +186,7 @@ export default async function RecipeCategoryPage(props: {
         <Reveal delay={0.12}>
           <div className="mt-10">
             <Button href="/recipes" variant="outline" icon>
-              All 33 recipes
+              All 35 recipes
             </Button>
           </div>
         </Reveal>
