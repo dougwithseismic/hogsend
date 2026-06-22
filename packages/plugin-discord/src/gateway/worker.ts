@@ -172,10 +172,10 @@ export function createDiscordGatewayWorker(
     });
     c.once("ready", () => {
       console.log("discord gateway worker connected");
-      // Idempotently (re)register /link + /verify so the forgotten manual
-      // `discord:register-commands` step is gone and the commands self-heal
+      // Idempotently (re)register /link so the forgotten manual
+      // `discord:register-commands` step is gone and the command self-heals
       // after a token rotation. App id comes from the ready client; GLOBAL
-      // registration so they appear in every guild the bot is in.
+      // registration so it appears in every guild the bot is in.
       const appId = c.application?.id;
       if (appId) {
         void registerSlashCommands({

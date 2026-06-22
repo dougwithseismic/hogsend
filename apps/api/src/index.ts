@@ -18,6 +18,7 @@ import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
 import {
   buildDiscordConnector,
+  discordColdConnect,
   discordDestination,
   seedDiscordDerived,
   setDiscordDb,
@@ -115,10 +116,15 @@ await bootstrapApiKeyFromEnv({ client });
 
 const app = createApp(client, {
   webhookSources,
-  // Telegram cold-connect: GET /connect/telegram (page) + POST .../exchange,
+  // Cold-connect pages: GET /connect/<id> (page) + POST .../exchange, each
   // mounted by the engine `createColdConnect()` primitive (basePath derived from
-  // connectorId). Pass as an array so additional route fns compose cleanly.
-  routes: [telegramColdConnect.routes],
+  // its own connectorId, so the two never collide). The Discord page is mounted
+  // only when the connector is configured — its `/link` flow emails the confirm
+  // link, and a click that hit an unmounted page would 404.
+  routes: [
+    telegramColdConnect.routes,
+    ...(discordConnector ? [discordColdConnect.routes] : []),
+  ],
 });
 const { logger, env } = client;
 

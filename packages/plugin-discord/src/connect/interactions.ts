@@ -1,9 +1,9 @@
 import { createPublicKey, verify as edVerify } from "node:crypto";
-import { LINK_CODE_TTL_SECONDS } from "@hogsend/engine";
 import { editInteractionResponse } from "./interactions-followup.js";
 
 /**
- * Discord interactions — Ed25519 request verification + the native identify UX.
+ * Discord interactions — Ed25519 request verification + the cold-connect
+ * link-confirm UX.
  *
  * Discord signs every interaction request over `timestamp || rawBody` with the
  * application's Ed25519 key; the route MUST verify against the EXACT raw bytes
@@ -13,28 +13,26 @@ import { editInteractionResponse } from "./interactions-followup.js";
  * prefix — NO `tweetnacl`. Verification FAILS CLOSED: a missing header, a
  * malformed key, or a thrown verify all resolve to `false`.
  *
- * The identify UX is a private-MODAL loop (every step is ephemeral to the
- * invoker; no secret ever rides in a `custom_id`, a rendered message, or a log):
- *  A `/link` APPLICATION_COMMAND      → open the email modal (type 9).
- *  B email MODAL_SUBMIT               → defer (type 5, flags 64), then out of
- *                                       band mint+send and PATCH @original with
- *                                       an "Enter code" button.
- *  C "Enter code" MESSAGE_COMPONENT   → open the code modal (type 9). This button
- *                                       is the MANDATORY bridge: Discord forbids
- *                                       returning a modal from a MODAL_SUBMIT, so
- *                                       a component click sits between the two
- *                                       modals.
- *  D code MODAL_SUBMIT                → defer (type 5, flags 64), then out of band
- *                                       redeem+resolve and PATCH @original with a
- *                                       Components-V2 success card (or plain text
- *                                       on failure).
- *  Fallback `/verify <code>` slash    → INLINE ephemeral redeem (kept for clients
- *                                       that can't use the button/modal).
+ * The link-confirm UX is a single private-MODAL step (ephemeral to the invoker;
+ * no secret ever rides in a `custom_id`, a rendered message, or a log) followed
+ * by a one-click EMAIL link — there is no typed-code path:
+ *  A `/link` APPLICATION_COMMAND → open the email modal (type 9).
+ *  B email MODAL_SUBMIT          → defer (type 5, flags 64), then out of band
+ *                                  `requestConfirm` (mint a cold-connect token +
+ *                                  email the one-click confirm LINK) and PATCH
+ *                                  @original with a button-less "check your
+ *                                  inbox, click the link" message.
  *
- * Re B/D deferral: a modal-open is the INITIAL response and does zero work, so it
- * is instant (within Discord's 3s window). The modal SUBMITS do slow work (a
- * provider HTTP send; a DB transaction) that can exceed 3s under cold-start /
- * cross-region latency, so they DEFER first and PATCH @original out of band (the
+ * The bind itself now happens in the BROWSER: the user clicks the emailed link,
+ * lands on the engine-served cold-connect page (the CONSUMER mounts
+ * `discordColdConnect.routes`), and the page's button POST runs the exchange
+ * (fold `discord_id` + email onto one contact, `afterBind` grants the verified
+ * role, the page client-identifies). Discord only ever shows "check your inbox".
+ *
+ * Re B deferral: a modal-open is the INITIAL response and does zero work, so it
+ * is instant (within Discord's 3s window). The modal SUBMIT does slow work (a
+ * token mint + a provider HTTP send) that can exceed 3s under cold-start /
+ * cross-region latency, so it DEFERS first and PATCHes @original out of band (the
  * interaction token is valid ~15 min).
  */
 
@@ -136,7 +134,7 @@ export const InteractionResponseType = {
   CHANNEL_MESSAGE_WITH_SOURCE: 4,
   /** "thinking…" ack — modal submits defer, then PATCH @original out of band. */
   DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: 5,
-  /** Open a modal — the INITIAL response to /link and the Enter-code button. */
+  /** Open a modal — the INITIAL response to /link's email collection. */
   MODAL: 9,
 } as const;
 
@@ -167,16 +165,10 @@ export const InteractionCallbackFlags = {
 /** The static `custom_id` step routers — NONE carries a secret/user data. */
 export const CustomIds = {
   EMAIL_MODAL: "discord_link_email_modal",
-  ENTER_CODE_BUTTON: "discord_link_enter_code",
-  CODE_MODAL: "discord_link_code_modal",
 } as const;
 
-/** The Text Input `custom_id`s read out of the two modals' submits. */
+/** The Text Input `custom_id` read out of the email modal's submit. */
 const EMAIL_INPUT_ID = "email";
-const CODE_INPUT_ID = "code";
-
-/** Discord blurple (#5865F2) as a decimal accent_color for the V2 card. */
-const BLURPLE_ACCENT = 0x5865f2;
 
 /** A Discord interaction-response body (what the route 200s back). */
 export interface InteractionResponse {
@@ -185,14 +177,13 @@ export interface InteractionResponse {
 }
 
 /**
- * How long a minted code is valid before redeem (15 minutes). Re-exported from
- * the engine so the TTL has a SINGLE source — the copy string below derives its
- * "N minutes" from this same value rather than hard-coding it twice.
+ * The confirm-link TTL rendered in the "check your inbox" copy. The plugin
+ * cannot read the engine's cold-connect `ttlSeconds` (it lives in the consumer's
+ * `discordColdConnect` config closure), so this mirrors the cold-connect default
+ * of 900s. Matches the Telegram link-request journey copy, which also hardcodes
+ * "15 minutes". Keep this in sync if the consumer overrides `ttlSeconds`.
  */
-export { LINK_CODE_TTL_SECONDS };
-
-/** The TTL rendered in user-facing copy, derived from the single source. */
-const TTL_MINUTES = Math.round(LINK_CODE_TTL_SECONDS / 60);
+const CONFIRM_TTL_MINUTES = 15;
 
 /** Build an EPHEMERAL inline message response (type 4, flags 64). */
 export function ephemeralReply(content: string): InteractionResponse {
@@ -244,91 +235,19 @@ function emailModalResponse(): InteractionResponse {
 }
 
 /**
- * The code-collection modal (the response to the Enter-code button click — the
- * legal modal hop the modal→modal prohibition forces us through). `max_length`
- * is generous; the engine redeem trims + bounds the code.
- */
-function codeModalResponse(): InteractionResponse {
-  return {
-    type: InteractionResponseType.MODAL,
-    data: {
-      custom_id: CustomIds.CODE_MODAL,
-      title: "Enter your code",
-      components: [
-        {
-          type: ComponentType.ACTION_ROW,
-          components: [
-            {
-              type: ComponentType.TEXT_INPUT,
-              custom_id: CODE_INPUT_ID,
-              style: 1,
-              label: "6-digit code",
-              placeholder: "123456",
-              min_length: 1,
-              max_length: 12,
-              required: true,
-            },
-          ],
-        },
-      ],
-    },
-  };
-}
-
-/**
  * The "check your inbox" PATCH body that replaces the deferred email-submit ack.
- * It carries the Enter-code button (the bridge to the code modal) and NEVER
+ * It carries NO components — the one-click confirm action lives in the EMAILED
+ * link (the bind happens in the browser, not via a Discord button). It NEVER
  * echoes the email address — the user just typed it into the modal, and not
  * re-stating it keeps the address out of the rendered message. The "N minutes"
- * is derived from {@link LINK_CODE_TTL_SECONDS}.
+ * mirrors {@link CONFIRM_TTL_MINUTES}.
  */
 function checkInboxBody(): Record<string, unknown> {
   return {
     content:
-      "Check your inbox for a 6-digit code, then tap the button below to " +
-      `enter it. The code expires in ${TTL_MINUTES} minutes. Didn't get it? ` +
-      "Re-run /link and double-check the address.",
-    components: [
-      {
-        type: ComponentType.ACTION_ROW,
-        components: [
-          {
-            type: ComponentType.BUTTON,
-            style: 1,
-            label: "Enter code",
-            custom_id: CustomIds.ENTER_CODE_BUTTON,
-          },
-        ],
-      },
-    ],
-  };
-}
-
-/**
- * The Components-V2 ephemeral success card PATCHed in after a successful redeem.
- * V2 (flag 32768) DISABLES `content`/`embeds`, so the text is Text Display
- * components inside a Container; the EPHEMERAL bit (64) PERSISTS — the body
- * carries `flags: 32832` (64 | 32768), NEVER 32768 alone (which would drop
- * ephemerality on the rendered card). The card does NOT print the email.
- */
-function successCardBody(): Record<string, unknown> {
-  return {
-    flags:
-      InteractionCallbackFlags.EPHEMERAL |
-      InteractionCallbackFlags.IS_COMPONENTS_V2,
-    components: [
-      {
-        type: ComponentType.CONTAINER,
-        accent_color: BLURPLE_ACCENT,
-        components: [
-          { type: ComponentType.TEXT_DISPLAY, content: "**You're all set**" },
-          {
-            type: ComponentType.TEXT_DISPLAY,
-            content: "Your email is now linked to your Discord account.",
-          },
-        ],
-      },
-    ],
+      "Check your inbox for a confirmation link, then click it to finish " +
+      `linking. The link expires in ${CONFIRM_TTL_MINUTES} minutes. Didn't ` +
+      "get it? Re-run /link and double-check the address.",
   };
 }
 
@@ -408,31 +327,6 @@ export function parseCommand(
   return { discordUserId, token, name: name.toLowerCase(), options };
 }
 
-/** The parsed shape of a verified MESSAGE_COMPONENT (button click). */
-export interface ParsedComponent {
-  discordUserId: string;
-  /** The interaction token — REQUIRED (authenticates any follow-up). */
-  token: string;
-  /** The clicked component's static `custom_id`. */
-  customId: string;
-}
-
-/**
- * Pull the invoking user + token + `custom_id` from a verified type-3 payload.
- * Returns null for any non-component / malformed payload (mirrors parseCommand:
- * a missing user/token/custom_id falls through to the deferred ack).
- */
-export function parseComponent(
-  payload: InteractionPayload,
-): ParsedComponent | null {
-  if (payload.type !== InteractionType.MESSAGE_COMPONENT) return null;
-  const discordUserId = readUserId(payload);
-  const token = payload.token;
-  const customId = payload.data?.custom_id;
-  if (!discordUserId || !token || !customId) return null;
-  return { discordUserId, token, customId };
-}
-
 /** The parsed shape of a verified MODAL_SUBMIT. */
 export interface ParsedModalSubmit {
   discordUserId: string;
@@ -497,73 +391,56 @@ export function parseModalSubmit(
   const modalId = payload.data?.custom_id;
   if (!discordUserId || !token || !modalId) return null;
   const values: Record<string, string> = {};
-  for (const id of [EMAIL_INPUT_ID, CODE_INPUT_ID]) {
-    const v = readModalValue(payload, id);
-    if (typeof v === "string") values[id] = v;
-  }
+  const v = readModalValue(payload, EMAIL_INPUT_ID);
+  if (typeof v === "string") values[EMAIL_INPUT_ID] = v;
   return { discordUserId, token, modalId, values };
 }
 
-/** Result of minting a code (delegates to the engine throttle+store). */
-export type LinkMintResult =
-  | { ok: true; code: string }
-  | { ok: false; reason: "throttled" };
-
-/** Result of redeeming a code (delegates to the engine store). */
-export type LinkRedeemResult =
-  | { ok: true; email: string }
-  | { ok: false; reason: "invalid" | "expired" | "used" | "wrong_user" };
-
-/** Result of recording a verify attempt (anti-guessing throttle). */
-export type VerifyAttemptResult = { throttled: boolean };
+/**
+ * The result of {@link InteractionDeps.requestConfirm} — mirrors the engine's
+ * `MintConfirmResult` shape (throttled / Redis-down both surface as `ok:false`),
+ * but `ok:true` carries NO token: the confirm token is server-sealed and only
+ * ever lands in the emailed URL the consumer builds, never in this handler.
+ */
+export type RequestConfirmResult =
+  | { ok: true }
+  | { ok: false; reason: "rate_limited" | "unavailable" };
 
 /**
- * Dependencies the link → verify loop runs against. The connector wires these
+ * Dependencies the link-confirm flow runs against. The connector wires these
  * from its config closure so the plugin holds NO engine internals (no db, no
- * Redis, no `process.env`) — exactly how `resolveContact`/`saveDerived` are
- * injected. `mintCode`/`redeemCode` delegate to the engine's table-backed
- * `createLinkCode`/`redeemLinkCode` (throttle + single-use + identity-binding +
- * TTL live there); `sendLinkCode` emails the minted code via the consumer's
- * transactional mailer.
+ * Redis, no `process.env`, no email service) — exactly how `resolveContact`/
+ * `saveDerived` are injected.
+ *
+ * There is ONE consumer callback for the front of the flow: `requestConfirm`.
+ * The handler never sees the minted token (it is server-sealed and only ever
+ * lands in the emailed link), so mint + URL-build + send are one inseparable
+ * unit the consumer owns — exactly as the Telegram link-request journey does it
+ * (`mintConfirm` → `confirmUrl` → transactional send). The bind, analytics
+ * merge, role grant (`afterBind`), and `discord.linked` emit all happen later in
+ * `discordColdConnect.routes` when the user clicks the emailed link.
  */
 export interface InteractionDeps {
   /** Discord application id — the deferred follow-up PATCH target. */
   applicationId: string;
   /**
-   * Mint a single-use code for `(discordUserId, email)`. The engine enforces the
-   * anti-email-bomb throttle BEFORE minting and returns `{ ok:false }` when over
-   * cap (no code minted, nothing to send). A thrown error (e.g. DB down) MUST
-   * propagate so the caller fails CLOSED — never fall through to an unthrottled
-   * send.
+   * Mint a server-sealed cold-connect confirm token for `(discordUserId, email)`
+   * AND email the one-click confirm LINK to that address. The CONSUMER wires this
+   * to `discordColdConnect.mintConfirm({ platformUserId: discordUserId, email })`,
+   * builds the URL with `discordColdConnect.confirmUrl(...)`, and sends it via a
+   * TRANSACTIONAL mailer (`category:"transactional"`, `skipPreferenceCheck:true`)
+   * so a confirm link is NEVER dropped by unsubscribe/frequency suppression.
+   *
+   * The cold-connect primitive owns the anti-email-bomb throttle (Redis-INCR,
+   * fail-closed): an over-cap mint returns `{ ok:false, reason:"rate_limited" }`
+   * and a Redis fault `{ ok:false, reason:"unavailable" }` — the consumer MUST
+   * NOT send a link on `ok:false`. A thrown error (e.g. mailer down) MUST
+   * propagate so the loop fails CLOSED (an apologetic reply, no link).
    */
-  mintCode: (args: {
+  requestConfirm: (args: {
     discordUserId: string;
     email: string;
-  }) => Promise<LinkMintResult>;
-  /** Email the minted code to the target address (transactional, bypasses prefs). */
-  sendLinkCode: (args: { email: string; code: string }) => Promise<void>;
-  /**
-   * Redeem a typed code for the bound email — single-use, TTL-enforced, and
-   * identity-bound to `discordUserId` (the engine re-checks the binding).
-   */
-  redeemCode: (args: {
-    discordUserId: string;
-    code: string;
-  }) => Promise<LinkRedeemResult>;
-  /** Attach the verified email to the Discord identity (resolveOrCreateContact). */
-  resolveContact: (args: { discordId: string; email: string }) => Promise<void>;
-  /**
-   * OPTIONAL anti-guessing throttle, checked BEFORE redeem. Caps how many codes
-   * one Discord user may try per window so brute-force traffic can't grind the
-   * store. BEST-EFFORT, fail-OPEN: a throttle-store outage MUST NOT block a
-   * legitimate redeem (the per-mint caps + the redeem identity-binding are the
-   * real backstops — see the `/verify`/code-modal throttle catch). When omitted,
-   * no per-attempt cap is applied (each redeem is still identity-bound +
-   * single-use, so guessing another account's code is impossible).
-   */
-  recordVerifyAttempt?: (args: {
-    discordUserId: string;
-  }) => Promise<VerifyAttemptResult>;
+  }) => Promise<RequestConfirmResult>;
   /** The deferred-follow-up editor (PATCH @original); overridable in tests. */
   editResponse?: typeof editInteractionResponse;
   logger: { error: (msg: string, meta?: unknown) => void };
@@ -579,12 +456,13 @@ function normalizeEmail(raw: string): string | null {
 }
 
 /**
- * The async work behind the email modal submit (step B): validate → throttle +
- * mint → email → PATCH the deferred ack into the "check your inbox" message with
- * the Enter-code button. Fire-and-forget from `handleInteraction` (the type-5
- * ack already went back inside the 3s window). NEVER throws to the caller —
- * every failure path edits an apologetic message and logs ONLY a short reason
- * (never the code or the email). No PATCH body echoes the email address.
+ * The async work behind the email modal submit (step B): validate → mint a
+ * cold-connect confirm token + email the one-click confirm LINK (both inside the
+ * consumer-supplied `requestConfirm`) → PATCH the deferred ack into a button-less
+ * "check your inbox, click the link" message. Fire-and-forget from
+ * `handleInteraction` (the type-5 ack already went back inside the 3s window).
+ * NEVER throws to the caller — every failure path edits an apologetic message and
+ * logs ONLY a short reason (never the email). No PATCH body echoes the email.
  */
 async function runEmailFollowUp(
   submit: ParsedModalSubmit,
@@ -600,32 +478,39 @@ async function runEmailFollowUp(
         "That doesn't look like an email address. Run /link to try again.",
       );
     } else {
-      // mintCode runs the throttle FIRST and only mints when under cap. A thrown
-      // error here (Redis/DB down) is caught below → apologetic reply, NO send —
-      // an unthrottled send would defeat the email-bomb control.
-      const minted = await deps.mintCode({
+      // requestConfirm runs the cold-connect throttle FIRST and only mints +
+      // emails the link when under cap. A thrown error here (mailer/Redis down)
+      // is caught below → apologetic reply, NO link — an unthrottled send would
+      // defeat the email-bomb control.
+      const result = await deps.requestConfirm({
         discordUserId: submit.discordUserId,
         email,
       });
-      if (!minted.ok) {
+      if (!result.ok) {
+        // rate_limited vs. unavailable both surface a "try again later" reply;
+        // never confirm whether an address exists / was previously linked.
         body = plainTextBody(
-          "You've requested too many codes recently. Please try again later.",
+          result.reason === "rate_limited"
+            ? "You've requested too many confirmation links recently. " +
+                "Please try again later."
+            : "Linking is briefly unavailable — please try /link again shortly.",
         );
       } else {
-        await deps.sendLinkCode({ email, code: minted.code });
-        // Success → the "check your inbox" message + Enter-code button. The
-        // email is NOT echoed (it lived in the modal the user just typed).
+        // Success → the button-less "check your inbox" message. The email is NOT
+        // echoed (it lived in the modal the user just typed), and the confirm
+        // action is the EMAILED link, not a Discord button.
         body = checkInboxBody();
       }
     }
   } catch (err) {
     // Never echo the error (it may carry email/provider detail) — log a short
-    // reason only, and NEVER the code or the email.
+    // reason only, and NEVER the email.
     deps.logger.error("discord link email follow-up failed", {
       error: err instanceof Error ? err.message : String(err),
     });
     body = plainTextBody(
-      "Something went wrong sending your code. Please try /link again.",
+      "Something went wrong sending your confirmation link. " +
+        "Please try /link again.",
     );
   }
   try {
@@ -642,123 +527,21 @@ async function runEmailFollowUp(
 }
 
 /**
- * The async work behind the code modal submit (step D): optional throttle
- * (BEST-EFFORT, fail-OPEN) → redeem (single-use + TTL + identity-bound) →
- * resolve → PATCH the deferred ack into the Components-V2 success card (or a
- * plain text edit on failure). Fire-and-forget; NEVER throws; logs ONLY a short
- * reason. No PATCH body echoes the email.
- */
-async function runCodeFollowUp(
-  submit: ParsedModalSubmit,
-  rawCode: string,
-  deps: InteractionDeps,
-): Promise<void> {
-  const edit = deps.editResponse ?? editInteractionResponse;
-  const body = await resolveCodeBody(submit, rawCode, deps);
-  try {
-    await edit({
-      applicationId: deps.applicationId,
-      token: submit.token,
-      body,
-    });
-  } catch (err) {
-    deps.logger.error("discord link code follow-up edit failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-}
-
-/**
- * Resolve the code modal submit to a PATCH body (success card or plain text),
- * sharing the redeem + resolve flow with the `/verify` slash fallback's reply.
- */
-async function resolveCodeBody(
-  submit: ParsedModalSubmit,
-  rawCode: string,
-  deps: InteractionDeps,
-): Promise<Record<string, unknown>> {
-  const code = rawCode.trim();
-  if (!code) {
-    return plainTextBody(
-      "That code is invalid, expired, or already used. Run /link for a new one.",
-    );
-  }
-  // Anti-guessing throttle BEFORE redeem (blunts brute-force traffic). BEST-
-  // EFFORT, fail-OPEN: a throttle-store outage LOGS and CONTINUES — the per-mint
-  // caps + the redeem identity-binding are the real backstops, so a missed
-  // throttle never enables cross-account guessing.
-  if (deps.recordVerifyAttempt) {
-    try {
-      const attempt = await deps.recordVerifyAttempt({
-        discordUserId: submit.discordUserId,
-      });
-      if (attempt.throttled) {
-        return plainTextBody(
-          "Too many verification attempts. Please wait a bit and try again.",
-        );
-      }
-    } catch (err) {
-      deps.logger.error("discord link verify throttle failed", {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      // fall through to redeem (fail-open).
-    }
-  }
-  let result: LinkRedeemResult;
-  try {
-    result = await deps.redeemCode({
-      discordUserId: submit.discordUserId,
-      code,
-    });
-  } catch (err) {
-    deps.logger.error("discord link verify redeem failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return plainTextBody(
-      "Something went wrong verifying your code. Please try again.",
-    );
-  }
-  if (!result.ok) {
-    // Collapse invalid/expired/used/wrong_user into one non-leaking message:
-    // never confirm a code exists for another account.
-    return plainTextBody(
-      "That code is invalid, expired, or already used. Run /link for a new one.",
-    );
-  }
-  try {
-    await deps.resolveContact({
-      discordId: submit.discordUserId,
-      email: result.email,
-    });
-  } catch (err) {
-    deps.logger.error("discord link verify resolveContact failed", {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return plainTextBody(
-      "We verified your code but couldn't finish linking. Please try again.",
-    );
-  }
-  // Success → the Components-V2 card. The email is NOT printed (it is the user's
-  // own address, typed two steps earlier — keep it out of the rendered card).
-  return successCardBody();
-}
-
-/**
  * Answer an already-signature-verified interaction (the connector runs the
  * ed25519 verify FIRST and only calls this on success). Routes on `payload.type`
- * first, then the command name (type 2) or the static `custom_id` (types 3/5):
+ * first, then the command name (type 2) or the modal `custom_id` (type 5):
  *
- *  - PING(1)                          → PONG(1).
- *  - APPLICATION_COMMAND /link        → open the email modal (type 9; zero work,
- *                                       so instant within 3s).
- *  - APPLICATION_COMMAND /verify <code> → INLINE ephemeral redeem (the slash
- *                                       fallback; no deferral — DB-bounded work).
- *  - MESSAGE_COMPONENT Enter-code     → open the code modal (type 9; the legal
- *                                       hop the modal→modal ban forces).
- *  - MODAL_SUBMIT email               → DEFER (type-5 ephemeral ack) + out-of-band
- *                                       mint+send+PATCH (the send is a provider
- *                                       HTTP call that can exceed 3s).
- *  - MODAL_SUBMIT code                → DEFER + out-of-band redeem+resolve+PATCH.
+ *  - PING(1)                   → PONG(1).
+ *  - APPLICATION_COMMAND /link → open the email modal (type 9; zero work, so
+ *                                instant within 3s).
+ *  - MODAL_SUBMIT email        → DEFER (type-5 ephemeral ack) + out-of-band
+ *                                `requestConfirm` (mint cold-connect token + email
+ *                                the confirm LINK) + PATCH the button-less "check
+ *                                your inbox" message. The bind itself happens in
+ *                                the browser when the user clicks that link.
+ *
+ * There is NO typed-code path (`/verify`, the Enter-code button, the code modal
+ * are all gone) — the email-link click is the bind.
  *
  * Without `deps` (PING/PONG-only callers) OR for a payload we don't serve,
  * returns the historical deferred ack so Discord doesn't error.
@@ -786,43 +569,7 @@ export async function handleInteraction(
       // zero work, so it is instant (no deferral needed).
       return emailModalResponse();
     }
-    if (command.name === "verify") {
-      // Fallback slash path — INLINE ephemeral redeem (kept for clients that
-      // can't use the button/modal). DB-bounded, so no deferral.
-      const body = await resolveCodeBody(
-        {
-          discordUserId: command.discordUserId,
-          token: command.token,
-          modalId: "verify",
-          values: {},
-        },
-        command.options.code ?? "",
-        deps,
-      );
-      // resolveCodeBody returns either a plain `{ content }` (failure) or the
-      // V2 success card. For the inline /verify reply, render the success as a
-      // simple ephemeral text (the slash path predates V2 cards).
-      if (typeof body.content === "string") {
-        return ephemeralReply(body.content);
-      }
-      return ephemeralReply(
-        "Linked your email to your Discord account. You're all set.",
-      );
-    }
     // A command we don't serve — deferred ack so Discord doesn't error.
-    return {
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    };
-  }
-
-  // --- type 3: MESSAGE_COMPONENT (the Enter-code bridge button) -------------
-  const component = parseComponent(payload);
-  if (component) {
-    if (component.customId === CustomIds.ENTER_CODE_BUTTON) {
-      // Step C — open the code modal (legal from a component; the modal→modal
-      // ban is why a button sits between the two modals).
-      return codeModalResponse();
-    }
     return {
       type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
     };
@@ -836,7 +583,7 @@ export async function handleInteraction(
       // error (type 4 — legal for a modal submit; only type-9 modals aren't).
       // This avoids deferring (and thus the racy follow-up edit) for the most
       // common mistake — a typo'd / non-email value. Only a valid address defers
-      // into the out-of-band mint+send+PATCH (step B).
+      // into the out-of-band mint+email-link+PATCH (step B).
       const email = normalizeEmail(submit.values[EMAIL_INPUT_ID] ?? "");
       if (!email) {
         return ephemeralReply(
@@ -845,11 +592,6 @@ export async function handleInteraction(
         );
       }
       void runEmailFollowUp(submit, email, deps);
-      return ephemeralDeferredAck();
-    }
-    if (submit.modalId === CustomIds.CODE_MODAL) {
-      // Step D — DEFER first, then redeem+resolve+PATCH out of band.
-      void runCodeFollowUp(submit, submit.values[CODE_INPUT_ID] ?? "", deps);
       return ephemeralDeferredAck();
     }
     return {

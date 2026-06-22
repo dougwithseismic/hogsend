@@ -31,12 +31,9 @@ export {
   InteractionResponseType,
   InteractionType,
   isLikelyEmail,
-  LINK_CODE_TTL_SECONDS,
-  type LinkMintResult,
-  type LinkRedeemResult,
   type ParsedCommand,
   parseCommand,
-  type VerifyAttemptResult,
+  type RequestConfirmResult,
   verifyInteractionSignature,
 } from "./connect/interactions.js";
 export { editInteractionResponse } from "./connect/interactions-followup.js";

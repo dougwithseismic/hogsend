@@ -46,19 +46,26 @@ absent are dropped), so presence is not a last-seen feed.
 
 ## The `/link` identity loop
 
-`/link` (no options) opens an email modal. A valid address mails a 6-digit code
-via a transactional template; an "Enter code" button then opens a code modal
-that redeems it and resolves the contact (the button is the mandatory bridge —
-Discord forbids returning a modal from a modal submit). Every step is ephemeral;
-no message body echoes the email or code. `/verify <code>` is the typed
-fallback.
+`/link` (no options) opens an email modal. A valid address mints a server-sealed
+[cold-connect](https://hogsend.com/docs) confirm token and emails a one-click
+confirm LINK (no typed code) via a transactional template, then PATCHes a
+button-less "check your inbox" message. There is NO `/verify` step — the
+email-link click IS the bind.
 
-Codes are single-use (atomic claim), have a 15-min TTL, are bound to the
-invoking Discord user (constant-time compare), and are hashed at rest. Throttles:
-5 mints/user + 3 mints/email per 15-min window (engine); an optional consumer
-Redis throttle of 10 `/verify` attempts/user/15 min (fail-open). Every
-interaction is ed25519-verified (native `node:crypto`, fail-closed) with a ±300s
-timestamp replay window.
+Clicking the link lands the user on the engine-served connect page
+(`GET /connect/discord`, mounted by the consumer's `discordColdConnect.routes`);
+the page's button POST runs the exchange: `ingestEvent` folds `discord_id` +
+email onto ONE contact, the consumer's `afterBind` grants the verified role, and
+the page client-identifies (`posthog.identify(contactKey, { discord_id })`).
+Every Discord step is ephemeral; no message body echoes the email, and the
+confirm token never rides in a `custom_id`, a rendered message, or a log.
+
+The anti-email-bomb throttle (Redis-INCR, fail-closed) lives INSIDE the engine's
+cold-connect `mintConfirm`, so the plugin no longer hand-rolls a counter; an
+over-cap mint returns `{ ok:false, reason:"rate_limited" }` and a Redis fault
+`{ ok:false, reason:"unavailable" }` — the consumer must not email a link on
+`ok:false`. Every interaction is ed25519-verified (native `node:crypto`,
+fail-closed) with a ±300s timestamp replay window.
 
 ## Routes
 
@@ -87,25 +94,50 @@ connect helpers from the main entry and never loads a WebSocket client.
 
 ## Wiring (consumer)
 
-All callbacks below are required (only `recordVerifyAttempt` is optional). The
-consumer injects the engine helpers so the plugin never reaches into the engine
-itself — see `apps/api/src/discord.ts` for the full reference wiring.
+The `/link` flow binds via the engine's `createColdConnect()` primitive — the
+consumer constructs `discordColdConnect` (so `afterBind` can hold the consumer's
+`DISCORD_BOT_TOKEN` for `grantVerifiedRole`), wires `requestConfirm` to mint +
+email the confirm LINK, and mounts `discordColdConnect.routes` on the app. The
+plugin's only `/link` callback is `requestConfirm` (`resolveContact` remains, but
+is used ONLY by the OAuth `member_link` branch). See `apps/api/src/discord.ts`
+for the full reference wiring.
 
 ```ts
 import {
-  createLinkCode,
+  createColdConnect,
   getDerivedCredential,
   getEmailService,
-  redeemLinkCode,
-  resolveOrCreateContact,
   saveDerivedCredential,
 } from "@hogsend/engine";
 import {
   createDiscordConnector,
+  DISCORD_PROVIDER_ID,
   discordDestination,
 } from "@hogsend/plugin-discord";
 
 const base = env.API_PUBLIC_URL.replace(/\/$/, "");
+
+// Consumer-constructed so afterBind can hold the bot token (grantVerifiedRole).
+const discordColdConnect = createColdConnect({
+  connectorId: DISCORD_PROVIDER_ID,
+  identityKind: "discordId", // dedicated contacts.discord_id column
+  platformKey: (id) => id, // raw snowflake — no namespace prefix
+  linkedEvent: "discord.linked",
+  identifyPropKey: "discord_id",
+  buildIngest: (binding) => ({
+    // Scalar eventProperties the welcome journey branches on — contactProperties
+    // never reach the Hatchet payload.
+    eventProperties: { source: "discord", discordId: binding.platformUserId },
+    contactProperties: { discord: { id: binding.platformUserId } },
+  }),
+  branding: {
+    /* title / blurb / successCopy / errorCopy / badge / accentColor */
+  },
+  // afterBind is AT-LEAST-ONCE (idempotent-required) — a role PUT is idempotent.
+  afterBind: async ({ platformUserId }) => {
+    await grantVerifiedRole(platformUserId); // bot-REST PUT, consumer bot token
+  },
+});
 
 const discord = createDiscordConnector({
   applicationId: env.DISCORD_APPLICATION_ID,
@@ -120,55 +152,58 @@ const discord = createDiscordConnector({
     const current = (await getDerivedCredential(db, "discord")) ?? {};
     await saveDerivedCredential(db, "discord", { ...current, ...patch });
   },
-  // Route the snowflake through the `discord` identity Kind; `email` is the
-  // engine-verified address the link was issued for (never the OAuth email).
+  // OAuth `member_link` branch ONLY (the operator/web-bind path — it does NOT go
+  // through cold-connect). The consumer grants the verified role + emits
+  // discord.linked here too, so both bind paths stay at parity.
   resolveContact: async (patch) => {
-    await resolveOrCreateContact({
-      db,
+    await client.identity.linkContact({
       discordId: patch.discordId,
-      email: patch.email,
+      email: patch.email, // engine-verified address, never the OAuth email
       contactProperties: patch.contactProperties,
     });
   },
-  // Mint a single-use code — the anti-email-bomb throttle runs FIRST inside
-  // createLinkCode; over-cap returns { ok: false } with no mint.
-  mintCode: async ({ discordUserId, email }) => {
-    const r = await createLinkCode({
-      db,
-      connectorId: "discord",
+  // The `/link` front door: mint a cold-connect confirm token (throttle runs
+  // FIRST inside mintConfirm) and, only on ok:true, email the one-click LINK. The
+  // handler never sees the token — it lives only in the emailed URL. A mailer
+  // throw propagates so the loop fails CLOSED.
+  requestConfirm: async ({ discordUserId, email }) => {
+    const minted = await discordColdConnect.mintConfirm({
       platformUserId: discordUserId,
       email,
     });
-    return r.ok ? { ok: true, code: r.code } : { ok: false, reason: "throttled" };
-  },
-  // TRANSACTIONAL send — skipPreferenceCheck so a code is NEVER dropped by an
-  // unsubscribe or frequency cap.
-  sendLinkCode: async ({ email, code }) => {
+    if (!minted.ok) {
+      return {
+        ok: false,
+        reason:
+          minted.reason === "redis_unavailable" ? "unavailable" : "rate_limited",
+      };
+    }
+    const url = discordColdConnect.confirmUrl({
+      apiPublicUrl: base,
+      token: minted.token,
+    });
     await getEmailService().send({
-      template: "transactional/discord-link-code",
-      props: { code },
+      template: "transactional/magic-link",
+      props: { magicLinkUrl: url, expiresIn: "15 minutes" },
       to: email,
       userId: email,
       userEmail: email,
-      subject: "Your Discord verification code",
+      subject: "Confirm your Discord connection",
       category: "transactional",
-      skipPreferenceCheck: true,
+      skipPreferenceCheck: true, // never dropped by unsubscribe / frequency cap
     });
+    return { ok: true };
   },
-  // Redeem — single-use (atomic claim), TTL-enforced, identity-bound.
-  redeemCode: ({ discordUserId, code }) =>
-    redeemLinkCode({
-      db,
-      connectorId: "discord",
-      platformUserId: discordUserId,
-      code,
-    }),
 });
 
 const client = createHogsendClient({
   connectors: [discord],
   destinations: [discordDestination],
 });
+
+// Mount the connect page + exchange (GET/POST /connect/discord). Forgetting this
+// means a confirm-link click 404s.
+const app = createApp(client, { routes: [discordColdConnect.routes] });
 ```
 
 ## Gateway worker
