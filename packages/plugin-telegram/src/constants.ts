@@ -15,12 +15,5 @@ export const TELEGRAM_LINK_REDIS_PREFIX = "hogsend:telegram:link:";
 /** Default TTL (seconds) for a minted `/start` link binding. */
 export const TELEGRAM_LINK_TTL_SECONDS = 900;
 
-/**
- * Redis key prefix for `/link <email>` email-confirmation bindings (token →
- * { telegramUserId, email }). The confirmation LINK is emailed to the address,
- * so a click proves inbox ownership; the token seals BOTH ids server-side.
- */
-export const TELEGRAM_CONFIRM_REDIS_PREFIX = "hogsend:telegram:confirm:";
-
 /** Path (under the customer's API_PUBLIC_URL) that serves the connect page. */
 export const TELEGRAM_CONNECT_PATH = "/connect/telegram";

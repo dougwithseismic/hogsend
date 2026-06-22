@@ -2,14 +2,9 @@ import { hours } from "@hogsend/core";
 import {
   defineJourney,
   getEmailService,
-  getRedis,
   sendConnectorAction,
 } from "@hogsend/engine";
-import {
-  buildTelegramConfirmUrl,
-  mintTelegramConfirmToken,
-  TelegramEvents,
-} from "@hogsend/plugin-telegram";
+import { TelegramEvents, telegramColdConnect } from "@hogsend/plugin-telegram";
 
 /** Loose shape check only — the binding is PROVEN by the email being delivered. */
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -53,35 +48,31 @@ export const telegramLinkRequest = defineJourney({
       return;
     }
 
-    // Anti email-bomb: cap confirmation-email sends per Telegram user. The
-    // Telegram webhook has no per-message signature (only a static secret token),
-    // so a forged/replayed /link could otherwise spray a victim's inbox from the
-    // customer's own sending domain. 3 per rolling hour per fromId.
-    const redis = getRedis();
-    if (redis) {
-      const rlKey = `hogsend:telegram:linkreq:rl:${fromId}`;
-      const n = await redis.incr(rlKey);
-      if (n === 1) await redis.expire(rlKey, 3600);
-      if (n > 3) {
+    // Mint a server-sealed confirm token. The cold-connect primitive owns the
+    // anti email-bomb throttle now (Redis-INCR, fail-closed) — a forged/replayed
+    // /link can't spray a victim's inbox, and a Redis fault returns
+    // `{ ok:false }` so we never send a link we can't honor.
+    const minted = await telegramColdConnect.mintConfirm({
+      platformUserId: fromId,
+      email,
+    });
+    if (!minted.ok) {
+      if (minted.reason === "rate_limited") {
         await reply(
           "You've requested a few link emails recently — check your inbox, " +
             "or try again in a little while.",
         );
         return;
       }
-    }
-
-    const minted = await mintTelegramConfirmToken({
-      telegramUserId: fromId,
-      email,
-    });
-    if (!minted.ok) {
       await reply("Linking is briefly unavailable — please try again shortly.");
       return;
     }
 
     const apiPublicUrl = process.env.API_PUBLIC_URL ?? "http://localhost:3002";
-    const url = buildTelegramConfirmUrl({ apiPublicUrl, token: minted.token });
+    const url = telegramColdConnect.confirmUrl({
+      apiPublicUrl,
+      token: minted.token,
+    });
 
     await getEmailService().send({
       template: "transactional/magic-link",

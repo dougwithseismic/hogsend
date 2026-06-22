@@ -14,10 +14,10 @@ export {
   sendMessage,
   telegramActions,
 } from "./actions/index.js";
+export { telegramColdConnect } from "./cold-connect.js";
 export { telegramConnector } from "./connector.js";
 export {
   TELEGRAM_API_BASE,
-  TELEGRAM_CONFIRM_REDIS_PREFIX,
   TELEGRAM_CONNECT_PATH,
   TELEGRAM_LINK_REDIS_PREFIX,
   TELEGRAM_LINK_TTL_SECONDS,
@@ -26,16 +26,10 @@ export {
 export type { TelegramEnv } from "./env.js";
 export { type TelegramEventName, TelegramEvents } from "./events.js";
 export {
-  buildTelegramConfirmUrl,
-  consumeTelegramConfirmToken,
-  type MintConfirmTokenResult,
   type MintStartLinkResult,
-  mintTelegramConfirmToken,
   mintTelegramStartLink,
-  peekTelegramConfirmToken,
   peekTelegramStartToken,
   randomLinkToken,
-  type TelegramConfirmBinding,
 } from "./link.js";
 export type {
   TelegramChat,
