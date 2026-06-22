@@ -1,0 +1,255 @@
+---
+title: Telegram
+description: Turn a Telegram bot into a Hogsend event source — messages, /start deep-link onboarding, and /link email-confirm linking flow in as telegram.* events over the Bot API webhook, contacts bind their email via a one-tap deep link or an emailed confirmation page, and journeys reply on Telegram with sendConnectorAction.
+---
+
+`@hogsend/plugin-telegram` is a **consumer-mounted** connector — the engine ships no Telegram code; you `pnpm add` the package and wire it into your app. It ships under `meta.id = "telegram"`: an **inbound** webhook connector that turns Telegram Bot API activity into `telegram.*` events, plus **outbound** actions (`sendMessage`, `dm`) a journey calls to reply on Telegram. Unlike Discord, Telegram is **webhook transport** — there is no long-lived socket and no leader lease. Telegram delivers each update over HTTPS to `POST /v1/webhooks/telegram`, where the engine route verifies the secret header and hands the update to the connector's `transform`, which feeds `ingestEvent` in process.
+
+<Callout type="info">
+  This is consumer-mounted content. You `pnpm add @hogsend/plugin-telegram`, register `telegramConnector` and `telegramActions` on `createHogsendClient`, and the inbound route mounts at `POST /v1/webhooks/telegram`. Telegram is **not** a signed-webhook preset — it does not appear in `ENABLED_WEBHOOK_PRESETS`. It auto-registers from the connector you pass, not from a secret env var.
+</Callout>
+
+## What it does
+
+**In** — Telegram Bot API updates become `telegram.*` events. Each runs through the same [ingestion pipeline](/docs/data-api/events) as PostHog and the REST API: stored in `user_events`, routed to matching journeys, exit-checked, and upserted onto a contact.
+
+- `telegram.message`, `telegram.started`, `telegram.linked`, `telegram.link_requested` — see [Events](#events) for the full mapping.
+- A contact gains a `telegram:<id>` external key and a `contacts.properties.telegram` metadata object.
+
+**Out** — a journey replies on Telegram with `sendConnectorAction(...)` — a channel message or a DM to a resolved contact. The actions are socket-free bot-REST calls that need only the bot token, fully independent of the inbound webhook. See [Outbound actions](#outbound-actions-from-a-journey).
+
+## Architecture
+
+Telegram is webhook transport. There is no socket, no leader lease, and no separate Telegram process — every inbound update arrives as an HTTPS POST that the engine API route verifies and hands straight to the connector's `transform`, which feeds `ingestEvent` in process.
+
+```
+real Telegram activity (message / /start / /link)
+  → Telegram Bot API delivers an Update   (HTTPS POST)
+  → POST /v1/webhooks/telegram            (header check: x-telegram-bot-api-secret-token == TELEGRAM_WEBHOOK_SECRET)
+  → in-process: connector.transform(update)  →  ingestEvent(...)
+  → user_events row + contact upsert (telegram:<id> key + properties.telegram) + journey routing
+
+journey reply  ──HTTPS──▶  api.telegram.org/bot<TOKEN>/sendMessage   (sendConnectorAction → telegramActions)
+```
+
+The pieces:
+
+- **Webhook in, no socket.** Telegram pushes each Update to your public URL; you register that URL once with the Bot API's `setWebhook`. Because the transport is a plain HTTP POST that the engine route already handles, there is nothing to run in the worker for inbound — the connector's `transform` runs in the API process that receives the webhook.
+- **The secret header is the auth.** `setWebhook(secret_token=…)` makes Telegram echo that value in the `X-Telegram-Bot-Api-Secret-Token` header on every Update. The connector's `inboundVerify` is `type: "match"` against `TELEGRAM_WEBHOOK_SECRET`. `match` is **open when the env var is unset** — a misconfigured secret never hard-locks local testing; set `TELEGRAM_WEBHOOK_SECRET` to enforce it.
+- **In-process dispatch.** The route hands the parsed Update to `transform`, then `ingestEvent` — the same pair every webhook source runs. Because the in-process path holds the container, it passes `client.analytics` into `ingestEvent`, so a Telegram-keyed contact merge also stitches the analytics person.
+- **Outbound is token-only.** `sendMessage` / `dm` are plain Bot API HTTPS calls reading `TELEGRAM_BOT_TOKEN` from the env. They are independent of the inbound webhook — any replica can send.
+
+Source: `packages/plugin-telegram/src/connector.ts`, `packages/plugin-telegram/src/actions/`, `packages/plugin-telegram/src/link.ts`.
+
+<Callout type="info">
+  The inbound webhook and the outbound actions are independent. Outbound `sendMessage` / `dm` need only `TELEGRAM_BOT_TOKEN`; they work even if you never call `setWebhook`. You only register the webhook when you want inbound ingestion.
+</Callout>
+
+## Setup
+
+The steps below are the canonical order. Every value, route, env name, and command is copyable and correct against the code. Steps 1–3 stand up the bot and your env; the **Wire the connector** subsection is the prerequisite for steps 4–5.
+
+### 1. Create a bot with BotFather
+
+In Telegram, message [@BotFather](https://t.me/BotFather), run `/newbot`, and follow the prompts. BotFather returns a **bot token** (this value is `TELEGRAM_BOT_TOKEN`) and you choose a **bot username** ending in `bot` (this value is `TELEGRAM_BOT_USERNAME`, without the `@`). Each self-hosted deploy runs its own single-tenant bot.
+
+### 2. Choose a webhook secret
+
+Pick an arbitrary high-entropy string for `TELEGRAM_WEBHOOK_SECRET`. Telegram echoes it back in the `X-Telegram-Bot-Api-Secret-Token` header on every Update, and the engine route compares it against this var. Leaving it unset makes the route accept unauthenticated posts — set it for any public deploy.
+
+### 3. Set environment variables
+
+Every `TELEGRAM_*` var is optional — a deploy with no Telegram configured still boots. `API_PUBLIC_URL` must be a public host (not loopback), because it is both the `setWebhook` target and the host the email-confirm connect page is served on.
+
+```bash title=".env"
+TELEGRAM_BOT_TOKEN=...          # secret — from BotFather; every Bot API call uses bot<token>
+TELEGRAM_WEBHOOK_SECRET=...     # echoed in x-telegram-bot-api-secret-token; route compares it
+TELEGRAM_BOT_USERNAME=...       # no @ — builds t.me/<username>?start=… deep links
+
+API_PUBLIC_URL=https://api.example.com   # public host, not loopback
+```
+
+The same env powers both processes: the inbound connector runs in the API service that receives the webhook, and the worker mirrors the same connector/action registration so the ingest pipeline (which runs in the worker too) has an identical registry.
+
+### Wire the connector
+
+The plugin never reads `process.env` for the inbound path — you register the connector value. Register `telegramConnector` and `telegramActions` on `createHogsendClient` in **both** entry points (the HTTP API and the worker — the ingest pipeline runs in the Hatchet worker too, so the connector/action registry must be identical in both). Then mount the cold-connect routes on the API with `createApp({ routes })`.
+
+```ts title="src/index.ts and src/worker.ts"
+import { createHogsendClient } from "@hogsend/engine";
+import { telegramActions, telegramConnector } from "@hogsend/plugin-telegram";
+
+const client = createHogsendClient({
+  // ...journeys, email, etc.
+  // Telegram INBOUND connector (webhook transport) — served at
+  // POST /v1/webhooks/telegram. Always registered; sends are token-gated.
+  connectors: [telegramConnector],
+  // Telegram OUTBOUND actions — journey-callable sendMessage/dm.
+  connectorActions: telegramActions,
+});
+```
+
+The cold-connect page + exchange (the `/link` email-confirm flow, [below](#linking-a-contact-start-vs-link)) is a small consumer route set, mounted on the API only:
+
+```ts title="src/index.ts"
+import { createApp } from "@hogsend/engine";
+import { registerTelegramConnectRoutes } from "./telegram-connect.js";
+
+const app = createApp(client, {
+  // ...webhookSources, etc.
+  // Telegram cold-connect: GET /connect/telegram (page) + POST .../exchange.
+  routes: registerTelegramConnectRoutes,
+});
+```
+
+### 4. Register the webhook
+
+Point Telegram at your public webhook URL and seal it with the secret. This is one Bot API call:
+
+```
+https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=<API_PUBLIC_URL>/v1/webhooks/telegram&secret_token=<TELEGRAM_WEBHOOK_SECRET>
+```
+
+With `API_PUBLIC_URL=https://api.example.com` the `url` parameter is `https://api.example.com/v1/webhooks/telegram`. The API must already be running behind the public URL when you call `setWebhook` — Telegram validates the URL is reachable. After this, every message and command to the bot arrives at the route with the secret in the header.
+
+### 5. Verify inbound
+
+Send any message to the bot in a direct chat. Confirm a `telegram.message` row lands in `user_events`, then a journey triggered on `TelegramEvents.MESSAGE` replies in real time (see [Welcome new Telegram members](/docs/recipes/welcome-new-telegram-members)). Tapping the bot's **Start** button (or sending `/start`) emits `telegram.started`; `/link you@example.com` emits `telegram.link_requested`.
+
+## Events
+
+The Telegram updates and their Hogsend event names:
+
+| Telegram input | Hogsend event |
+|---|---|
+| any text message (not a command) | `telegram.message` |
+| bare `/start`, or `/start` with an unknown/expired token | `telegram.started` |
+| `/start <token>` whose token resolves to a bound email | `telegram.linked` |
+| `/link <email>` | `telegram.link_requested` |
+
+Noise is dropped (the transform returns `null`, the route still `200`s): non-message updates and any message from a bot (`from.is_bot`) or with no `from`. Each event carries a deterministic `idempotencyKey` (`telegram:msg:…`, `telegram:start:…`, `telegram:linked:…`, `telegram:linkreq:…`), so a Telegram webhook auto-retry (Telegram retries on any non-2xx) dedupes on `user_events.idempotencyKey` rather than re-firing your journeys.
+
+The `telegram.message` event carries `chatId`, `fromId`, `messageId`, `hasText`, and the message `text` (truncated to 500 chars) in its `eventProperties`. The `/start` and `/link` events carry `chatId` and `fromId`; `telegram.linked` also carries the resolved `username`, and `telegram.link_requested` carries the lowercased `email` argument (validated and proven by delivery downstream, never trusted from here).
+
+### Identity
+
+The contact's canonical key is `telegram:<userId>` — the connector sets `userId = "telegram:<id>"` on the `IngestEvent`, which lands on `contacts.externalId`. This is the minimal-path identity: no engine schema change, no extra identity column. On a `telegram.linked` event the connector also carries `userEmail`, so the engine's `resolveOrCreateContact` folds the Telegram identity onto the email contact — one contact across both channels.
+
+### Contact metadata
+
+Telegram metadata lands under `contacts.properties.telegram`, **deep-merged** one level (`telegram` is in the engine's `DEEP_MERGE_KEYS`, alongside `discord`) — non-clobbering, so each event carries only the fields it knows and absent fields are preserved from prior events. `null` is never written: a `username`/`first_name` Telegram reports as absent is left off, not stored as null.
+
+| Field | When |
+|---|---|
+| `id` | always (the Telegram user id) |
+| `chat_id` | always (the chat to reply to; equals the user id for a private chat) |
+| `last_seen` | always (derived first-party — see below) |
+| `username` | message / start / link (when present) |
+| `first_name` | message / start / link (when present) |
+| `last_name` | message / start / link (when present) |
+| `language` | message / start / link (when present, from `language_code`) |
+
+<Callout type="warn">
+  `last_seen` is **derived first-party** — Telegram has no last-seen field. Hogsend stamps it from each event's `date` (the message's unix timestamp; an edited message with no `date` falls back to receipt time).
+</Callout>
+
+## Linking a contact: /start vs /link
+
+Two paths attach a Telegram account to an email-bearing contact, chosen by where the linking starts. Both are domain-agnostic — served on the customer's own `API_PUBLIC_URL` against the customer's own PostHog project.
+
+| | `/start <token>` — one-tap deep link | `/link <email>` — email confirm |
+|---|---|---|
+| **Entry point** | A personalized `t.me/<bot>?start=<token>` link from your app/dashboard | Inside Telegram, the user sends `/link you@example.com` |
+| **Flow** | One tap opens the bot; the token resolves to the bound email and binds immediately | Hogsend emails a confirmation link; clicking it opens `/connect/telegram` and a button completes the bind |
+| **Identity proof** | The email the link was minted for (server-side Redis binding, never in the link) | Inbox ownership — the bind only completes when the emailed link is clicked |
+| **Hogsend event** | `telegram.linked` | `telegram.link_requested` → bind on the connect page |
+
+**Use `/start <token>`** when you already know the contact's email (a logged-in dashboard). Mint the link with `mintTelegramStartLink({ botUsername, email })`, which stores `token → email` in Redis under a short opaque token (Telegram caps the `start` param at 64 chars and forbids the signed-state form, so the binding lives server-side, never in the link) with a 900-second TTL. The user taps once; `/start <token>` resolves the bound email and emits `telegram.linked` carrying both `userId` and `userEmail`.
+
+**Use `/link <email>`** for a cold connect started inside Telegram, where you do not yet trust the typed address. A consumer journey on `telegram.link_requested` mints a confirmation token sealing `{ telegramUserId, email }`, emails the link to that address, and the user clicks it. See [Link a Telegram account to an email](/docs/recipes/link-telegram-to-email) for the full flow.
+
+<Callout type="info">
+  The `/start <token>` redeem **peeks** the Redis binding without consuming it. `/start` arrives over a webhook that auto-retries on any non-2xx, so consuming the token in the transform — before the ingest commits — would let one transient blip permanently burn the link and silently downgrade the user to onboarding. Single-use is instead bounded by the short TTL, and the token rides only in a private deep link.
+</Callout>
+
+## The /link email-confirm loop
+
+`/link <email>` is the cold-connect path: the user names an address you do not yet trust, and inbox ownership is the proof.
+
+```
+/link you@example.com  ──▶  telegram.link_requested
+                              │  (consumer journey: rate-limit, mint token, email link)
+                              ▼
+              emailed confirmation link  ──click──▶  GET /connect/telegram
+                              │
+              "Confirm connection" button ──POST──▶ /connect/telegram/exchange
+                              │  (peek sealed token → ingest telegram.linked → consume token)
+                              ▼
+              bind telegram:<id> + email onto one contact + client-side posthog.identify
+```
+
+- The `telegram-link-request` journey validates the address shape, applies an anti-email-bomb rate limit (3 confirmation emails per Telegram user per rolling hour, since the Telegram webhook has only a static secret, no per-message signature), mints a confirmation token via `mintTelegramConfirmToken({ telegramUserId, email })`, and emails the `/connect/telegram?tok=…` link through a transactional send (`skipPreferenceCheck`).
+- The bind happens on a human button **click (POST)**, never on GET — so an email/Telegram link-preview prefetch can't complete it.
+- The token seals `{ telegramUserId, email }` server-side and is single-use (consumed only **after** the bind ingest commits, via `consumeTelegramConfirmToken`). The web caller never names either id — both come from the sealed token, not the request.
+- The connect page identifies CLIENT-side (real geo/IP) keyed to the server-proven `contactKey` the exchange returns, so the web session joins the same PostHog person the contact's email events land on. There is no graft vector — the page never sends a distinct id the server resolves a contact on.
+
+## Outbound actions (from a journey)
+
+To send to Telegram **from inside a journey or workflow** — a reply, a DM, a nudge — use `sendConnectorAction(...)`. It is a standalone import (NOT on `JourneyContext` — like `sendEmail()`, features are standalone imports), socket-free (bot-REST, needs only `TELEGRAM_BOT_TOKEN`), and fully independent of the inbound webhook.
+
+Register the action set once on the client with `connectorActions: telegramActions` (shown in the [Wire the connector](#wire-the-connector) snippet above), then call from a journey:
+
+```ts
+import { sendConnectorAction } from "@hogsend/engine";
+
+await sendConnectorAction({
+  connectorId: "telegram",
+  action: "sendMessage",
+  args: { chatId: user.properties.chatId, text: "Welcome 👋" },
+});
+```
+
+`telegramActions` (from `@hogsend/plugin-telegram`) is the array of every Telegram outbound action:
+
+| Action | Sends |
+|---|---|
+| `sendMessage` | one text message to a Telegram chat by id (Bot API `sendMessage`) |
+| `dm` | a direct message to a contact, resolving the contact → chat id |
+
+`sendMessage` takes `{ chatId, text, parseMode?, replyMarkup? }`; the `chatId` rides on the trigger event's `user.properties.chatId` for a Telegram-triggered journey, so `sendMessage` is the most direct reply. `dm` takes `{ to, text, parseMode? }` where `to` is a contact email / external id / raw chat id — use it when a **non-Telegram** event (an app or email event) should reach the user on Telegram; it resolves the recipient through `properties.telegram.chat_id` / `.id` or a `telegram:<id>` `externalId`. Both return `{ messageId, delivered }` and **soft-fail** — a Telegram-level error (e.g. `403` "bot was blocked by the user") or a network blip returns `delivered: false` rather than throwing out of the journey.
+
+## Security
+
+### Webhook verification
+
+`setWebhook(secret_token=…)` makes Telegram echo that value in the `X-Telegram-Bot-Api-Secret-Token` header on every Update; the engine route compares it against `TELEGRAM_WEBHOOK_SECRET` before parsing. The `match` auth is **open when the var is unset** — convenient for local testing, but it means a public deploy with no secret accepts unauthenticated posts. Set `TELEGRAM_WEBHOOK_SECRET` (and pass it to `setWebhook`) for any deploy reachable from the internet.
+
+<Callout type="warn">
+  The Telegram webhook has **no per-message signature** — only the static secret-token header. A forged or replayed `/link <email>` could otherwise spray a victim's inbox from your sending domain, so the `telegram-link-request` journey caps confirmation emails at 3 per Telegram user per rolling hour. Keep that rate limit if you fork the journey.
+</Callout>
+
+### Token bindings
+
+Both link tokens are short, opaque, single-use-by-TTL Redis nonces — never signed claims in the link. The `/start` deep-link token (900s TTL) maps `token → email`; the `/link` confirm token (900s TTL) seals `{ telegramUserId, email }`. Neither carries a forgeable claim, and the confirm bind only completes on a human button click against the sealed token, so a link-preview prefetch can't complete it.
+
+### Outbound token isolation
+
+The outbound actions read `TELEGRAM_BOT_TOKEN` directly and never place it in a thrown error message. A misconfigured or missing token soft-fails the action (warned, `delivered: false`) rather than throwing a token-bearing error out of a journey.
+
+## Caveats
+
+- Telegram is **webhook transport** — no socket, no leader lease. Inbound runs in the API process that receives the POST; you do not run a separate Telegram worker.
+- `match` auth is **open when `TELEGRAM_WEBHOOK_SECRET` is unset.** Set it for any public deploy, and pass the same value to `setWebhook(secret_token=…)`.
+- The `chat_id` equals the user id only for a **private chat**. Group/channel chats have their own ids — `sendMessage` replies to whatever `chatId` the trigger event carried.
+- The `/start` redeem **peeks** the token (TTL-bounded single use), so a transient ingest blip never burns a user's one-tap link. The `/link` confirm token is consumed only after the bind commits, so a retry still works.
+- `telegram.message` truncates the stored `text` to 500 chars — Hogsend stores derived signals, not full message bodies.
+- The first npm publish of `@hogsend/plugin-telegram` is **manual** — CI cannot create a new `@hogsend/*` package.
+
+## Related
+
+<Cards>
+  <Card title="Link a Telegram account to an email" href="/docs/recipes/link-telegram-to-email" />
+  <Card title="Welcome new Telegram members" href="/docs/recipes/welcome-new-telegram-members" />
+  <Card title="Discord integration" href="/docs/integrations/discord" />
+  <Card title="Events" href="/docs/data-api/events" />
+</Cards>

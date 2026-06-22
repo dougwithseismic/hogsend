@@ -43,6 +43,8 @@ PostHog is deliberately absent from this table: its receiver is scaffold content
 
 **[Discord](/docs/integrations/discord)** is also absent from the preset table: it's a **consumer-mounted** connector (you `pnpm add @hogsend/plugin-discord` and wire it with `createDiscordConnector`), not a signed-webhook preset. Discord activity flows in over a long-lived Gateway worker that POSTs to `/v1/connectors/discord/ingress` (auth = `CONNECTOR_INGRESS_SECRET`), and a matching outbound destination posts lifecycle events to a channel.
 
+**[Telegram](/docs/integrations/telegram)** is another **consumer-mounted** connector (you `pnpm add @hogsend/plugin-telegram` and register `telegramConnector`), not a signed-webhook preset. Unlike Discord, Telegram is **webhook transport** — there is no socket. The Bot API delivers each Update to `POST /v1/webhooks/telegram`, where the engine route checks the `x-telegram-bot-api-secret-token` header against `TELEGRAM_WEBHOOK_SECRET` and the connector's `transform` feeds `ingestEvent` in process; journeys reply on Telegram with `sendConnectorAction`.
+
 Each provider's exact event mapping — which provider events become which Hogsend events, and how each field is split — lives on its own page. Start with the one you use.
 
 ## Enabling presets
@@ -110,5 +112,6 @@ Building a webhook source from scratch — auth, schema, and `transform()` — i
   <Card title="Stripe" href="/docs/integrations/stripe" />
   <Card title="Segment" href="/docs/integrations/segment" />
   <Card title="Discord" href="/docs/integrations/discord" />
+  <Card title="Telegram" href="/docs/integrations/telegram" />
   <Card title="Vercel AI SDK" href="/docs/integrations/ai-sdk" />
 </Cards>

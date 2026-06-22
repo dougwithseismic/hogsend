@@ -1,0 +1,132 @@
+---
+title: Welcome new Telegram members
+description: A real-time onboarding pair triggered by telegram.started and telegram.message — reply to a bare /start with a welcome, and echo every inbound message with a TypeScript journey, so an inbound platform event becomes an outbound Telegram reply in your repo.
+---
+
+A new Telegram user taps your bot and hits **Start**, or sends their first message. The [`@hogsend/plugin-telegram`](/docs/integrations/telegram) connector turns each into a `telegram.*` event over the Bot API webhook, which runs the full [ingestion pipeline](/docs/data-api/events): stored in `user_events`, routed to a journey, and upserted onto a contact carrying a `telegram:<id>` external key and a `contacts.properties.telegram` metadata object. Because Telegram is a real-time, two-way surface, the welcome is not an email on a timer — it is an instant reply, sent from a journey with `sendConnectorAction`. A `/start` gets the onboarding welcome; every message gets an echo reply, so the bot feels alive.
+
+| Stage | How you express it |
+|---|---|
+| Welcome on a bare `/start` | `trigger: { event: TelegramEvents.STARTED }` |
+| Reply on the welcome | `sendConnectorAction({ connectorId: "telegram", action: "sendMessage", … })` |
+| Echo every inbound message | `trigger: { event: TelegramEvents.MESSAGE }` |
+| Reply to each one | the chat id rides on `user.properties.chatId` |
+| Reply to every message | `entryLimit: "unlimited"` |
+
+## The onboarding reply
+
+A bare `/start` (or `/start` with an unknown/expired token) emits `telegram.started`. A `/start <token>` from a minted deep link instead emits `telegram.linked` and never reaches here — see [Link a Telegram account to an email](/docs/recipes/link-telegram-to-email).
+
+```ts
+// src/journeys/telegram-onboarding.ts
+import { hours } from "@hogsend/core";
+import { defineJourney, sendConnectorAction } from "@hogsend/engine";
+import { TelegramEvents } from "@hogsend/plugin-telegram";
+
+export const telegramOnboarding = defineJourney({
+  meta: {
+    id: "telegram-onboarding",
+    name: "Telegram — Onboarding (/start)",
+    enabled: true,
+    trigger: { event: TelegramEvents.STARTED }, // "telegram.started"
+    entryLimit: "unlimited",
+    suppress: hours(0),
+  },
+
+  run: async (user, _ctx) => {
+    // The chat id to reply to rides on the trigger event's properties.
+    const chatId = user.properties.chatId ? String(user.properties.chatId) : null;
+    if (!chatId) return;
+
+    await sendConnectorAction({
+      connectorId: "telegram",
+      action: "sendMessage",
+      args: {
+        chatId,
+        text:
+          "👋 Welcome to Hogsend.\n\n" +
+          "This bot is wired into a TypeScript lifecycle engine — send any " +
+          "message and a journey replies in real time.\n\n" +
+          "To connect this Telegram to your contact, tap the connect link from " +
+          "your dashboard (one tap, no codes).",
+      },
+    });
+  },
+});
+```
+
+The `/start`, the contact upsert, and the reply happen in one durable function. There is no email and no wait — the trigger event carries the `chatId`, and the journey replies on the same surface the user is already on.
+
+## The echo reply
+
+Any inbound text that is not a command emits `telegram.message`. An echo journey replies in real time, proving the round trip end to end: an inbound platform event → a TypeScript journey → an outbound message, all in your repo.
+
+```ts
+// src/journeys/telegram-welcome.ts
+import { hours } from "@hogsend/core";
+import { defineJourney, sendConnectorAction } from "@hogsend/engine";
+import { TelegramEvents } from "@hogsend/plugin-telegram";
+
+export const telegramWelcome = defineJourney({
+  meta: {
+    id: "telegram-welcome",
+    name: "Telegram — Welcome / Echo",
+    enabled: true,
+    trigger: { event: TelegramEvents.MESSAGE }, // "telegram.message"
+    entryLimit: "unlimited", // every message gets a reply
+    suppress: hours(0),
+  },
+
+  run: async (user, _ctx) => {
+    const chatId = user.properties.chatId ? String(user.properties.chatId) : null;
+    if (!chatId) return;
+
+    // The connector puts the message text (truncated to 500 chars) on the event.
+    const said = user.properties.text ? String(user.properties.text) : "";
+
+    await sendConnectorAction({
+      connectorId: "telegram",
+      action: "sendMessage",
+      args: {
+        chatId,
+        text:
+          "👋 You're connected to Hogsend. This reply is a TypeScript journey " +
+          "reacting to your message in real time." +
+          (said ? `\n\nYou said: “${said}”` : ""),
+      },
+    });
+  },
+});
+```
+
+`entryLimit: "unlimited"` is what makes the echo respond to every message rather than just the first; an onboarding-only flow would use `"once"` instead. `sendConnectorAction` soft-fails — if the user has blocked the bot (`403`), the action returns `delivered: false` rather than throwing out of the journey.
+
+## Why there is no waitForEvent here
+
+Unlike the [Discord welcome](/docs/recipes/welcome-new-discord-members), this journey does not park on a link event. Telegram is a two-way surface: the trigger event already carries a `chatId` you can reply to, so the welcome reaches the user immediately on Telegram — no address is required. Linking the user's **email** is a separate concern handled by the `/start` deep link or the `/link` confirm flow ([Link a Telegram account to an email](/docs/recipes/link-telegram-to-email)); the welcome reply needs none of it.
+
+## Register the journeys
+
+Both journeys import `TelegramEvents` from the connector — no constants file of your own is required for the event names, since the connector exports them:
+
+```ts
+// src/journeys/index.ts
+import { telegramOnboarding } from "./telegram-onboarding.js";
+import { telegramWelcome } from "./telegram-welcome.js";
+
+export const journeys = [
+  // ...other journeys
+  telegramOnboarding,
+  telegramWelcome,
+];
+```
+
+`telegram.started` and `telegram.message` are emitted by the connector — you do not declare them. Make sure `telegramConnector` and `telegramActions` are registered on `createHogsendClient` (see the [Telegram integration](/docs/integrations/telegram#wire-the-connector)) so the inbound webhook lands the events and `sendConnectorAction` can reply.
+
+<Callout type="info">
+  - **The reply needs no email.** Telegram is two-way; the trigger event carries the `chatId`, so the welcome sends immediately — unlike a Discord join, which has no address until the contact links one.
+  - **`/start <token>` does not reach the onboarding journey.** A minted deep-link token emits `telegram.linked` instead, handled by the linked journey. Only a bare `/start` (or an unknown/expired token) emits `telegram.started`.
+  - **Idempotency dedupes retries, not your logic.** Each event carries a deterministic `idempotencyKey`, so a Telegram webhook auto-retry won't double-fire the journey — but `entryLimit: "unlimited"` is what intentionally replies to every distinct message.
+</Callout>
+
+Related: [Link a Telegram account to an email](/docs/recipes/link-telegram-to-email) attaches an email so the same person is reachable on both channels, and the [Telegram integration](/docs/integrations/telegram) documents the events, identity model, and outbound actions.
