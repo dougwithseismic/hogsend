@@ -200,7 +200,7 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
  * additive — siblings stay strictly shallow, preserving the documented contract
  * for everything else. NON-KEY metadata only; never an identity-resolution key.
  */
-const DEEP_MERGE_KEYS = ["discord"] as const;
+const DEEP_MERGE_KEYS = ["discord", "telegram"] as const;
 
 /**
  * Merge `patch` onto the existing jsonb properties (§2.1 contract): additive
@@ -798,21 +798,23 @@ async function mergeContacts(
 }
 
 /**
- * journey_states fold. `uq_user_journey_active` is a FULL (non-partial) unique
- * index on `(user_id, journey_id, status)` — it constrains EVERY status, not
- * just active/waiting. So a blind rewrite of loser rows onto the survivor key
- * collides whenever the survivor already holds a row for the SAME
- * (journey_id, status) — including the common terminal case where both
- * identities completed/failed/exited the same journey.
+ * journey_states fold. `uq_user_journey_active` is a PARTIAL unique index on
+ * `(user_id, journey_id) WHERE status IN ('active','waiting')` — it constrains
+ * only LIVE rows, so terminal rows (completed/failed/exited) may legitimately
+ * duplicate across the merged identities. A rewrite of a loser's LIVE row onto
+ * the survivor key still collides whenever the survivor already holds a live row
+ * for that journey.
  *
  * Fix: build the survivor's occupied (journey_id|status) set over ALL statuses.
  * For active/waiting collisions, EXIT the loser's row first (preserve the
- * survivor's live run). For any OTHER collision (terminal, or an active row that
- * collides after exiting), DELETE the loser's duplicate — the survivor already
- * records that state. Rewrite only the non-colliding remainder onto the survivor
- * key (+ survivor email). Re-check 'exited' occupancy after exiting so a
- * just-exited loser row that would now duplicate a pre-existing survivor
- * 'exited' row is dropped rather than rewritten.
+ * survivor's live run) so the rewrite lands an 'exited' (out-of-predicate) row.
+ * For any OTHER collision (terminal), DELETE the loser's duplicate — no longer
+ * REQUIRED by the constraint (terminal rows are outside the predicate), but kept
+ * as hygiene so the survivor doesn't carry two identical terminal rows (which
+ * would inflate the count()-based ctx.history.journey.entryCount). Rewrite only
+ * the non-colliding remainder onto the survivor key (+ survivor email). Re-check
+ * 'exited' occupancy after exiting so a just-exited loser row that would now
+ * duplicate a pre-existing survivor 'exited' row is dropped rather than rewritten.
  */
 async function foldJourneyStates(
   tx: Tx,

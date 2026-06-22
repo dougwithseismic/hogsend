@@ -15,7 +15,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "tsx --env-file=.env scripts/smoke.ts",
-    "discord:register-commands": "tsx --env-file=.env scripts/register-discord-commands.ts"
+    "discord:register-commands": "tsx --env-file=.env scripts/register-discord-commands.ts",
+    "telegram:link": "tsx --env-file=.env scripts/mk-telegram-link.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.85",
@@ -27,6 +28,7 @@
     "@hogsend/plugin-discord": "workspace:^",
     "@hogsend/plugin-posthog": "workspace:^",
     "@hogsend/plugin-resend": "workspace:^",
+    "@hogsend/plugin-telegram": "workspace:^",
     "@hono/node-server": "^2.0.4",
     "@hono/zod-openapi": "^1.4.0",
     "@scalar/hono-api-reference": "^0.10.19",

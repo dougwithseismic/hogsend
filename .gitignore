@@ -62,3 +62,4 @@ marketing/screenshots/
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
+.claude-work/
