@@ -3,24 +3,25 @@ import { DISCORD_API_BASE } from "../constants.js";
 /**
  * Edit the ORIGINAL response of a deferred interaction.
  *
- * The deferred modal-submit steps (`/link` email → mint+send; the code modal →
- * redeem+resolve) return a type-5 ack inside Discord's hard 3-second window and
- * then do their real work — the anti-email-bomb throttle, the code mint, the
- * provider HTTP send, the redeem + DB attach — out of band. When that work
- * resolves, this PATCHes the deferred "thinking…" message into the final
- * ephemeral reply via Discord's interaction-webhook endpoint
+ * The deferred email-modal-submit step (`/link` email → mint a cold-connect
+ * confirm token + email the one-click confirm LINK) returns a type-5 ack inside
+ * Discord's hard 3-second window and then does its real work — the
+ * anti-email-bomb throttle, the token mint, the provider HTTP send — out of band.
+ * When that work resolves, this PATCHes the deferred "thinking…" message into the
+ * final ephemeral reply via Discord's interaction-webhook endpoint
  * (`PATCH /webhooks/{applicationId}/{token}/messages/@original`).
  *
  * The PATCH authenticates with the APPLICATION ID + the per-interaction TOKEN
  * ONLY — NO bot token, no Authorization header (this is the interaction-webhook
- * endpoint, not the bot REST API). The body is a full message body so callers
- * can edit `content` (plain replies), `components` (the Enter-code button), or a
- * Components-V2 success card (`flags: 32832`).
+ * endpoint, not the bot REST API). The body is a full message body — the
+ * link-confirm flow only ever edits `content` (the button-less "check your inbox"
+ * message and the failure replies); there is no longer a button/component edit.
  *
  * The interaction token is short-lived (Discord allows ~15 min of follow-ups);
  * a deferred reply edited well within that window always lands. The call is
  * best-effort: a failed PATCH leaves the user on the "thinking…" state, so the
- * caller logs (never throws) — the code is already minted+emailed regardless.
+ * caller logs (never throws) — the confirm link is already minted+emailed
+ * regardless.
  *
  * SECRET HYGIENE: the `token` authenticates the follow-up; it is NEVER logged.
  * On a non-2xx we surface ONLY the HTTP status, never the response body (which

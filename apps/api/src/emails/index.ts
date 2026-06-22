@@ -26,7 +26,6 @@ export type {
   ReengageWebinarEmailProps,
   RetentionAchievementEmailProps,
   RetentionWeeklyDigestEmailProps,
-  TransactionalDiscordLinkCodeProps,
   TransactionalMagicLinkProps,
   TransactionalReceiptProps,
   TransactionalVerifyEmailProps,

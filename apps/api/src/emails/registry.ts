@@ -20,7 +20,6 @@ import ReengageTipBEmail from "./reengage-tip-b.js";
 import ReengageWebinarEmail from "./reengage-webinar.js";
 import RetentionAchievementEmail from "./retention-achievement.js";
 import RetentionWeeklyDigestEmail from "./retention-weekly-digest.js";
-import TransactionalDiscordLinkCode from "./transactional-discord-link-code.js";
 import TransactionalMagicLinkEmail from "./transactional-magic-link.js";
 import TransactionalReceiptEmail from "./transactional-receipt.js";
 import TransactionalVerifyEmailEmail from "./transactional-verify-email.js";
@@ -204,13 +203,6 @@ export const templates: TemplateRegistry = {
       verifyUrl: "https://app.hogsend.com/verify?token=demo",
       expiresIn: "24 hours",
     },
-  },
-  "transactional/discord-link-code": {
-    component: TransactionalDiscordLinkCode,
-    defaultSubject: "Your Discord verification code",
-    category: "transactional",
-    preview: () => "Your Discord verification code — paste it into /verify",
-    examples: { name: "Ada", code: "428917" },
   },
   "transactional/magic-link": {
     component: TransactionalMagicLinkEmail,

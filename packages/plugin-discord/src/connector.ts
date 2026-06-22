@@ -7,9 +7,7 @@ import {
 } from "@hogsend/engine";
 import {
   handleInteraction,
-  type LinkMintResult,
-  type LinkRedeemResult,
-  type VerifyAttemptResult,
+  type RequestConfirmResult,
   verifyInteractionSignature,
 } from "./connect/interactions.js";
 import { memberLinkToContactPatch } from "./connect/member-link.js";
@@ -239,8 +237,11 @@ export const discordConnector: DefinedConnector = defineConnector({
  * Config for {@link createDiscordConnector} — the boot-time factory that
  * populates the generic-route handlers (`oauthCallback` + `interactions`) with
  * the env the plugin must NOT read directly. The consumer injects the engine's
- * public credential/identity helpers as `saveDerived`/`resolveContact` so the
- * plugin stays free of engine internals.
+ * public credential/identity helpers (`saveDerived`, `resolveContact`) and its
+ * `discordColdConnect`-backed `requestConfirm` so the plugin stays free of engine
+ * internals. NOTE: `resolveContact` is used ONLY by the `member_link` OAuth
+ * branch — the `/link` interactions flow binds via cold-connect's own exchange,
+ * not here.
  */
 export interface CreateDiscordConnectorConfig {
   applicationId: string;
@@ -251,20 +252,23 @@ export interface CreateDiscordConnectorConfig {
   /** Persist server-derived Discord config (kind="derived"). */
   saveDerived: (patch: Record<string, unknown>) => Promise<void>;
   /**
-   * Resolve / merge the member-linked contact. The consumer wires this to the
-   * engine's identity-attach helper `client.identity.linkContact({ discordId:
-   * patch.discordId, email: patch.email, contactProperties:
-   * patch.contactProperties })` — routing the raw snowflake through the `discord`
-   * identity Kind so the `discord_id` column is load-bearing. `email` is the
-   * AUTHORITATIVE address the link was issued for (from the engine-verified
-   * state), NOT the OAuth-reported Discord email.
+   * Resolve / merge the member-linked contact for the `member_link` OAuth branch
+   * ONLY (the operator/web-bind path — it does NOT go through cold-connect). The
+   * consumer wires this to the engine's identity-attach helper
+   * `client.identity.linkContact({ discordId: patch.discordId, email:
+   * patch.email, contactProperties: patch.contactProperties })` — routing the raw
+   * snowflake through the `discord` identity Kind so the `discord_id` column is
+   * load-bearing. `email` is the AUTHORITATIVE address the link was issued for
+   * (from the engine-verified state), NOT the OAuth-reported Discord email.
    *
    * Use `client.identity.linkContact` (NOT bare `resolveOrCreateContact`): on a
-   * successful `/link` contact-merge it propagates the analytics merge through
-   * the SAME engine emission ingest uses (§7), folding the discord-keyed loser
-   * into the canonical (email/external) survivor so Discord-platform events stop
-   * landing on a separate PostHog person. `resolveOrCreateContact` alone merges
-   * the rows but emits no PostHog merge.
+   * successful contact-merge it propagates the analytics merge through the SAME
+   * engine emission ingest uses (§7), folding the discord-keyed loser into the
+   * canonical (email/external) survivor so Discord-platform events stop landing
+   * on a separate PostHog person. The consumer ALSO grants the verified role +
+   * emits `discord.linked` from here for the OAuth path (the `/link` flow gets
+   * those from cold-connect's `afterBind` + exchange ingest instead).
+   * `resolveOrCreateContact` alone merges the rows but emits no PostHog merge.
    */
   resolveContact: (patch: {
     discordId: string;
@@ -273,46 +277,24 @@ export interface CreateDiscordConnectorConfig {
     contactProperties: Record<string, unknown>;
   }) => Promise<void>;
   /**
-   * Mint a single-use `/link` code for `(discordUserId, email)`. The CONSUMER
-   * wires this to the engine's `createLinkCode({ db, connectorId: "discord", … })`
-   * so the anti-email-bomb throttle (per invoking user AND per target email,
-   * counted on mint) runs BEFORE the mint and an over-cap request returns
-   * `{ ok:false, reason:"throttled" }` without minting. A thrown error (DB down)
-   * MUST propagate so the loop fails CLOSED (no unthrottled send).
+   * Mint a cold-connect confirm token for `(discordUserId, email)` AND email the
+   * one-click confirm LINK. The CONSUMER wires this to its `discordColdConnect`:
+   * `mintConfirm({ platformUserId: discordUserId, email })`, then on `ok:true`
+   * builds the URL with `discordColdConnect.confirmUrl(...)` and sends it via a
+   * TRANSACTIONAL mailer (`category:"transactional"`, `skipPreferenceCheck:true`)
+   * so a confirm link is NEVER dropped by unsubscribe/frequency suppression.
+   *
+   * The cold-connect primitive owns the anti-email-bomb throttle (Redis-INCR,
+   * fail-closed): an over-cap mint returns `{ ok:false, reason:"rate_limited" }`,
+   * a Redis fault `{ ok:false, reason:"unavailable" }`. A thrown error (mailer
+   * down) MUST propagate so the loop fails CLOSED (no link emailed). The bind
+   * itself happens later in `discordColdConnect.routes` when the user clicks the
+   * emailed link — this callback only mints + sends the link.
    */
-  mintCode: (args: {
+  requestConfirm: (args: {
     discordUserId: string;
     email: string;
-  }) => Promise<LinkMintResult>;
-  /**
-   * Email a `/link`-minted code via Hogsend. The CONSUMER wires this to a
-   * TRANSACTIONAL send (`category: "transactional"`, `skipPreferenceCheck: true`)
-   * so a verification code is NEVER dropped by unsubscribe/frequency suppression
-   * (routing it through the journey-category `sendEmail` would silently drop it
-   * for unsubscribed users — see the spec's transactional-bypass correction).
-   */
-  sendLinkCode: (args: { email: string; code: string }) => Promise<void>;
-  /**
-   * Redeem a `/verify` code for the bound email. The CONSUMER wires this to the
-   * engine's `redeemLinkCode({ db, connectorId: "discord", platformUserId, code })`
-   * — single-use (atomic claim), TTL-enforced, and identity-bound (the engine
-   * re-checks `platformUserId` with a constant-time compare).
-   */
-  redeemCode: (args: {
-    discordUserId: string;
-    code: string;
-  }) => Promise<LinkRedeemResult>;
-  /**
-   * OPTIONAL anti-guessing throttle for `/verify`, checked BEFORE redeem (caps
-   * brute-force `/verify` traffic per Discord user). BEST-EFFORT, fail-OPEN: a
-   * throttle-store outage MUST NOT block a legitimate redeem — the per-mint caps
-   * + the redeem identity-binding are the real backstops, so a missed throttle
-   * never enables cross-account guessing. Omit to apply no per-attempt cap
-   * (redeem is still single-use + identity-bound).
-   */
-  recordVerifyAttempt?: (args: {
-    discordUserId: string;
-  }) => Promise<VerifyAttemptResult>;
+  }) => Promise<RequestConfirmResult>;
   /** Where to send the browser after a successful install/link. */
   studioIntegrationsUrl: string;
 }
@@ -358,26 +340,15 @@ export function createDiscordConnector(
       }
 
       // The ed25519 verify above gates EVERYTHING. handleInteraction runs the
-      // /link→/verify identify loop (PING→PONG + unknown commands fall through
-      // to a deferred ack). The route 200s the returned body verbatim — which IS
-      // Discord's interaction response (an immediate ephemeral reply for
-      // /verify; a type-5 ephemeral ack for /link, whose real work + @original
-      // PATCH happen out of band inside handleInteraction).
+      // /link cold-connect flow (PING→PONG + unknown commands fall through to a
+      // deferred ack). The route 200s the returned body verbatim — which IS
+      // Discord's interaction response (an immediate modal for /link; a type-5
+      // ephemeral ack for the email submit, whose mint+email-link + @original
+      // PATCH happen out of band inside handleInteraction). `resolveContact` is
+      // NOT wired here — the /link bind happens in cold-connect's own exchange.
       const response = await handleInteraction(payload, {
         applicationId: config.applicationId,
-        mintCode: config.mintCode,
-        sendLinkCode: config.sendLinkCode,
-        redeemCode: config.redeemCode,
-        recordVerifyAttempt: config.recordVerifyAttempt,
-        resolveContact: (patch) =>
-          config.resolveContact({
-            discordId: patch.discordId,
-            email: patch.email,
-            // The /verify attach is identity-only; richer Discord metadata
-            // arrives via the gateway events. resolveOrCreateContact needs only
-            // discordId + email to bind the identity.
-            contactProperties: {},
-          }),
+        requestConfirm: config.requestConfirm,
         logger: args.ctx.logger,
       });
       return { kind: "ack", body: response };
