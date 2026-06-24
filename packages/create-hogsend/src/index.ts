@@ -122,10 +122,10 @@ function runBootstrap(
   return result.status === 0;
 }
 
-/** Post-deploy PostHog hint — shown only when PostHog was configured. */
-const POSTHOG_NEXT_STEP = `${color.dim("once deployed:")} ${color.cyan("hogsend connect posthog")}   ${color.dim("(wires person reads + the PostHog→Hogsend event loop)")}`;
+/** Post-deploy PostHog hint — shown only when PostHog is in use. */
+const POSTHOG_NEXT_STEP = `${color.cyan("hogsend connect posthog")}${color.dim("  # after deploy: authorize PostHog, mint the webhook secret, wire the event loop")}`;
 const POSTHOG_NEXT_STEP_PLAIN =
-  "once deployed: hogsend connect posthog   (wires person reads + the PostHog→Hogsend event loop)";
+  "hogsend connect posthog  # after deploy: authorize PostHog, mint the webhook secret, wire the event loop";
 
 /** The guided "what now" — the difference between a scaffold and an onboarding. */
 function nextSteps(opts: CliOptions, setupDone: boolean): string {
@@ -141,7 +141,7 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     "",
     `${color.dim("First journey:")} ${color.cyan("src/journeys/welcome.ts")}   ${color.dim(`· ${DOCS}`)}`,
     skillsLine,
-    opts.posthog ? POSTHOG_NEXT_STEP : null,
+    opts.usingPosthog ? POSTHOG_NEXT_STEP : null,
   ];
 
   const lines = setupDone
@@ -160,6 +160,12 @@ async function main(): Promise<void> {
   if (interactive) {
     intro(
       `${color.bgMagenta(color.black(" create-hogsend "))} ${color.dim(`scaffold a Hogsend app · ${DOCS}`)}`,
+    );
+    note(
+      `${color.dim(
+        "Lifecycle marketing for scrappy product engineering teams —\ncode-first journeys on PostHog + Resend.",
+      )}\n${color.dim("Docs & guides: ")}${color.cyan("hogsend.com")}`,
+      color.magenta("Welcome to Hogsend"),
     );
   }
 
@@ -280,7 +286,7 @@ async function main(): Promise<void> {
     if (!setupDone) note(nextSteps(opts, setupDone), "Next steps");
     // Bootstrap's own summary can't know about PostHog — surface the connect
     // hint here when the next-steps note was skipped.
-    if (setupDone && opts.posthog) log.info(POSTHOG_NEXT_STEP);
+    if (setupDone && opts.usingPosthog) log.info(POSTHOG_NEXT_STEP);
     outro(
       setupDone
         ? `${color.green("Done.")} ${color.dim(`${cdHint}Docs: ${DOCS}`)}`
@@ -294,7 +300,9 @@ async function main(): Promise<void> {
     const skillsNote = opts.skills
       ? "  Agent skills: .claude/skills (Claude Code discovers them automatically)"
       : `  Add agent skills later: ${dlxCmd(pm, "hogsend skills add")}`;
-    const posthogNote = opts.posthog ? `\n  ${POSTHOG_NEXT_STEP_PLAIN}` : "";
+    const posthogNote = opts.usingPosthog
+      ? `\n  ${POSTHOG_NEXT_STEP_PLAIN}`
+      : "";
     if (setupDone) {
       console.log(`
   Done. ${cdHint}Docs: ${DOCS}${posthogNote}

@@ -63,9 +63,35 @@ function warn(msg: string): void {
   process.stdout.write(`  ${yellow("!")} ${msg}\n`);
 }
 function die(msg: string, hint?: string): never {
+  // Restore the cursor in case we died mid-spin (startSpinner hides it).
+  if (isTTY) process.stdout.write("\x1b[?25h");
   process.stdout.write(`\n  ${red("✗")} ${msg}\n`);
   if (hint) process.stdout.write(`    ${dim(hint)}\n`);
   process.exit(1);
+}
+
+/**
+ * Dependency-free single-line spinner (the scaffolded app has no clack). Off a
+ * TTY it just prints the message once and returns a no-op, so CI logs stay
+ * linear. Returns a `stop()` that clears the line and restores the cursor.
+ */
+function startSpinner(message: string): () => void {
+  if (!isTTY) {
+    info(message);
+    return () => {};
+  }
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let i = 0;
+  process.stdout.write("\x1b[?25l"); // hide cursor
+  const timer = setInterval(() => {
+    const frame = frames[i % frames.length];
+    i += 1;
+    process.stdout.write(`\r  ${cyan(frame)} ${dim(message)}`);
+  }, 80);
+  return () => {
+    clearInterval(timer);
+    process.stdout.write("\r\x1b[2K\x1b[?25h"); // clear line + show cursor
+  };
 }
 
 /**
@@ -355,13 +381,16 @@ async function ensureHatchetToken(): Promise<void> {
   }
 
   const tenantId = hatchetTenantId();
-  let token: string | null = null;
-  for (let attempt = 1; attempt <= 20 && !token; attempt += 1) {
-    token = mintToken(tenantId);
-    if (!token) {
-      if (attempt === 1) info("Waiting for Hatchet to finish initializing…");
+  // Try once eagerly — if Hatchet is already initialized the token mints
+  // immediately and we never start a spinner (no spinner flash on the happy path).
+  let token = mintToken(tenantId);
+  if (!token) {
+    const stop = startSpinner("Waiting for Hatchet to finish initializing…");
+    for (let attempt = 2; attempt <= 20 && !token; attempt += 1) {
       await sleep(2000);
+      token = mintToken(tenantId);
     }
+    stop(); // stop BEFORE printing ok()/die() so the spinner line is gone.
   }
   if (!token) {
     die(
@@ -471,9 +500,10 @@ async function ensureDataPlaneKey(): Promise<void> {
  * a no-op in CI / non-TTY runs and when the operator declines.
  *
  * It shells out to the SAME `studio:admin` wrapper the package.json exposes
- * (`node --env-file=.env node_modules/.bin/hogsend studio admin create`), so the
- * CLI sees `DATABASE_URL` + `BETTER_AUTH_SECRET` from `.env` — exactly how `dev`
- * loads its env. The masked password prompt is the CLI's own (stdio inherited).
+ * (`node --env-file=.env node_modules/@hogsend/cli/dist/bin.js studio admin
+ * create`), so the CLI sees `DATABASE_URL` + `BETTER_AUTH_SECRET` from `.env` —
+ * exactly how `dev` loads its env. The masked password prompt is the CLI's own
+ * (stdio inherited).
  */
 async function bootstrapAdmin(): Promise<void> {
   const env = readFileSync(ENV_PATH, "utf8");
@@ -505,12 +535,16 @@ async function bootstrapAdmin(): Promise<void> {
     return;
   }
 
-  // Reuse the exact env-loading the `studio:admin` script uses.
+  // Reuse the exact env-loading the `studio:admin` script uses. Target the CLI's
+  // real ESM entry, NOT `node_modules/.bin/hogsend`: under pnpm/yarn that bin is a
+  // POSIX shell shim, so pointing `node` at it makes Node parse shell as JS
+  // ("SyntaxError: missing ) after argument list"). `@hogsend/cli`'s bin is
+  // `./dist/bin.js`, which resolves identically on npm/pnpm/yarn/bun.
   const status = runLive(
     "node",
     [
       "--env-file=.env",
-      join("node_modules", ".bin", "hogsend"),
+      join("node_modules", "@hogsend", "cli", "dist", "bin.js"),
       "studio",
       "admin",
       "create",
@@ -556,6 +590,13 @@ async function main(): Promise<void> {
   await bootstrapAdmin();
 
   const dash = `http://localhost:${ports.dash}`;
+  const finalEnv = readFileSync(ENV_PATH, "utf8");
+  // `connect posthog` needs a reachable instance (PostHog can't hit a localhost
+  // webhook), so this is an "After deploy" step — only surface it when the .env
+  // already points at PostHog.
+  const usingPosthog =
+    getEnv(finalEnv, "ENABLE_POSTHOG_DESTINATION") === "true" ||
+    Boolean(getEnv(finalEnv, "POSTHOG_HOST"));
   process.stdout.write(
     [
       `\n${green(bold("✓ Ready."))} Your local stack is up.\n`,
@@ -567,8 +608,13 @@ async function main(): Promise<void> {
       "",
       `  ${dim("Studio admin:")} ${cyan(pmRun("studio:admin"))}   ${dim("# create one anytime (sign-up is closed)")}`,
       `  ${dim("First journey:")} ${cyan("src/journeys/welcome.ts")}   ${dim("· docs.hogsend.com")}`,
+      usingPosthog
+        ? `  ${dim("After deploy:")} ${cyan("hogsend connect posthog")}   ${dim("# fetch the key, mint the webhook secret, wire the PostHog→Hogsend loop")}`
+        : null,
       "",
-    ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   );
 }
 

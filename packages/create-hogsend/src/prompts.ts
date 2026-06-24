@@ -30,6 +30,12 @@ export interface CliOptions {
    * inherits them).
    */
   posthog?: PosthogOptions;
+  /**
+   * The user is using PostHog, regardless of whether a key was pasted. Gates the
+   * post-deploy `hogsend connect posthog` next-step hint (the `posthog` field is
+   * only set when an actual key was supplied, so it can't gate the finisher).
+   */
+  usingPosthog: boolean;
   /** TEST-ONLY: resolve `@hogsend/*` from `file:` tarballs in this dir. */
   useTarballs?: string;
 }
@@ -300,6 +306,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       setup: wantSetup && !values["no-setup"] && install,
       domain,
       posthog,
+      usingPosthog: posthog !== undefined,
       useTarballs: values["use-tarballs"],
     };
   }
@@ -340,8 +347,9 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
   // PostHog: opt-in — --posthog-key already resolved it above, --no-posthog
   // skips the prompt entirely, and a blank key means "configure later" (the
   // env.example placeholders stay commented).
+  let usingPosthog = posthog !== undefined;
   if (posthog === undefined && !values["no-posthog"]) {
-    const usingPosthog = bail(
+    usingPosthog = bail(
       await confirm({
         message: "Are you using PostHog?",
         initialValue: true,
@@ -361,7 +369,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
       );
       if (!apiKey) {
         log.info(
-          "No key pasted — run 'hogsend connect posthog' after deploy to fetch the key, mint the webhook secret, and create the webhook automatically.",
+          "No key pasted — that's fine. After you deploy, run 'hogsend connect posthog' to authorize PostHog, mint the webhook secret, and wire the PostHog→Hogsend event loop.",
         );
       } else {
         const region = bail(
@@ -458,6 +466,7 @@ export async function resolveOptions(argv: string[]): Promise<CliOptions> {
     setup,
     domain,
     posthog,
+    usingPosthog,
     useTarballs: values["use-tarballs"],
   };
 }

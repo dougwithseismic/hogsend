@@ -7,7 +7,7 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "dev": "tsx watch --include \"src/**\" --env-file=.env src/index.ts",
     "worker:dev": "tsx watch --include \"src/**\" --env-file=.env src/worker.ts",
-    "studio:admin": "node --env-file=.env node_modules/.bin/hogsend studio admin create",
+    "studio:admin": "node --env-file=.env node_modules/@hogsend/cli/dist/bin.js studio admin create",
     "build": "tsup",
     "start": "node dist/index.js",
     "worker": "node dist/worker.js",
