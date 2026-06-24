@@ -92,9 +92,15 @@ export function runWithJourneyBoundary<T>(
 export function createMemoize(hatchetCtx: unknown): JourneyBoundary["memoize"] {
   const ctx = hatchetCtx as HatchetMemoCtx;
   return async <T>(deps: unknown[], fn: () => Promise<T> | T): Promise<T> => {
-    const memo = ctx.memo;
-    if (typeof memo === "function" && ctx.supportsEviction === true) {
-      return memo(fn, deps);
+    // Invoke `ctx.memo(...)` DIRECTLY — never via an extracted
+    // `const memo = ctx.memo; memo(...)`, which drops the `this` binding. The
+    // SDK's `memo` body opens with `this.throwIfCancelled()`, so an unbound call
+    // throws "Cannot read properties of undefined (reading 'throwIfCancelled')"
+    // the moment eviction is live (a hatchet-lite >= v0.80.0). This is the live
+    // path for EVERY journey side effect (sendEmail / sendConnectorAction /
+    // ctx.trigger), so the bug surfaces on the first send under such an engine.
+    if (typeof ctx.memo === "function" && ctx.supportsEviction === true) {
+      return ctx.memo(fn, deps);
     }
     return fn();
   };
