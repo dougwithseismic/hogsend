@@ -108,6 +108,8 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
         // §2.5: caller-supplied event time (backfill/replay). The validated ISO
         // string is coerced to a Date inside ingestEvent.
         occurredAt: body.timestamp,
+        // Public data-plane ingest (the `@hogsend/client` SDK / your app code).
+        source: "api",
       },
     });
 

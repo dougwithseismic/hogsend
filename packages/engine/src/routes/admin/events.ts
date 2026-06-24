@@ -1,6 +1,6 @@
-import { userEvents } from "@hogsend/db";
+import { contacts, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, gte, lte } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 
@@ -10,19 +10,52 @@ const eventSchema = z.object({
   event: z.string(),
   properties: z.record(z.string(), z.unknown()).nullable(),
   occurredAt: z.string(),
+  // Where the event entered the pipeline ("posthog", "api", "studio", …).
+  source: z.string().nullable(),
+  // Resolved from the matching live contact (user_events.userId ==
+  // contacts.externalId), so the Events feed can show WHO an event is from.
+  userEmail: z.string().nullable(),
+  contactId: z.string().nullable(),
 });
 
 const errorSchema = z.object({ error: z.string() });
 
-function serializeEvent(row: typeof userEvents.$inferSelect) {
+/** A `userEvents` row joined to its (optional) live contact. */
+type JoinedEvent = {
+  event: typeof userEvents.$inferSelect;
+  contact: { id: string; email: string | null } | null;
+};
+
+function serializeEvent(row: JoinedEvent) {
+  const e = row.event;
   return {
-    id: row.id,
-    userId: row.userId,
-    event: row.event,
-    properties: (row.properties ?? null) as Record<string, unknown> | null,
-    occurredAt: row.occurredAt.toISOString(),
+    id: e.id,
+    userId: e.userId,
+    event: e.event,
+    properties: (e.properties ?? null) as Record<string, unknown> | null,
+    occurredAt: e.occurredAt.toISOString(),
+    source: e.source ?? null,
+    userEmail: row.contact?.email ?? null,
+    contactId: row.contact?.id ?? null,
   };
 }
+
+/**
+ * LEFT JOIN to the live contact for the userId. `userEvents.userId` holds the
+ * resolved canonical key (`external_id ?? anonymous_id ?? id`), so match all
+ * three — covering email-only/anonymous contacts, not just externalId-keyed
+ * ones. Each key is partial-unique among live rows, and the three namespaces
+ * don't overlap in practice, so at most one live contact matches per userId.
+ */
+const contactJoin = and(
+  or(
+    eq(contacts.externalId, userEvents.userId),
+    eq(contacts.anonymousId, userEvents.userId),
+    eq(sql`${contacts.id}::text`, userEvents.userId),
+  ),
+  isNull(contacts.deletedAt),
+);
+const contactCols = { id: contacts.id, email: contacts.email };
 
 const listRoute = createRoute({
   method: "get",
@@ -35,6 +68,7 @@ const listRoute = createRoute({
       offset: z.coerce.number().min(0).default(0),
       userId: z.string().optional(),
       event: z.string().optional(),
+      source: z.string().optional(),
       from: z.string().datetime().optional(),
       to: z.string().datetime().optional(),
     }),
@@ -140,6 +174,8 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
         userId,
         userEmail,
         eventProperties: properties ?? {},
+        // The Studio Debug panel ("Fire event").
+        source: "studio",
       },
     });
 
@@ -147,11 +183,13 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
   })
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
-    const { limit, offset, userId, event, from, to } = c.req.valid("query");
+    const { limit, offset, userId, event, source, from, to } =
+      c.req.valid("query");
 
     const conditions = [];
     if (userId) conditions.push(eq(userEvents.userId, userId));
     if (event) conditions.push(eq(userEvents.event, event));
+    if (source) conditions.push(eq(userEvents.source, source));
     if (from) conditions.push(gte(userEvents.occurredAt, new Date(from)));
     if (to) conditions.push(lte(userEvents.occurredAt, new Date(to)));
 
@@ -159,8 +197,9 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
 
     const [rows, totalRows] = await Promise.all([
       db
-        .select()
+        .select({ event: userEvents, contact: contactCols })
         .from(userEvents)
+        .leftJoin(contacts, contactJoin)
         .where(where)
         .orderBy(desc(userEvents.occurredAt))
         .limit(limit)
@@ -183,8 +222,9 @@ export const eventsRouter = new OpenAPIHono<AppEnv>()
     const { id } = c.req.valid("param");
 
     const rows = await db
-      .select()
+      .select({ event: userEvents, contact: contactCols })
       .from(userEvents)
+      .leftJoin(contacts, contactJoin)
       .where(eq(userEvents.id, id))
       .limit(1);
 

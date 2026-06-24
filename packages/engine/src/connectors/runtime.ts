@@ -98,7 +98,7 @@ function makeIngest(client: HogsendClient, connector: DefinedConnector) {
         registry: client.registry,
         hatchet: client.hatchet,
         logger: client.logger,
-        event,
+        event: { ...event, source: "connector" },
         // Pass the active analytics provider so a Discord-keyed contact merge
         // stitches the analytics person too (the HTTP route omits this; in-proc
         // can do better since it already holds the container).

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GitBranch, Mail, Zap } from "lucide-react";
 import { useState } from "react";
+import { PropertyTable } from "@/components/property-table";
 import { ErrorState } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -185,6 +186,14 @@ export function ContactDetailDrawer({
                 </dd>
               </div>
             </dl>
+
+            <section>
+              <h3 className="eyebrow mb-3 text-white/50">Properties</h3>
+              <PropertyTable
+                properties={contact.properties}
+                emptyLabel="No properties set on this contact."
+              />
+            </section>
 
             <section>
               <h3 className="eyebrow mb-3 text-white/50">

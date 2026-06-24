@@ -60,6 +60,24 @@ describe("GET /v1/admin/events", () => {
     expect(body.offset).toBe(0);
   });
 
+  it("includes the joined person fields (userEmail/contactId)", async () => {
+    const res = await app.request("/v1/admin/events?limit=20", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    for (const ev of body.events) {
+      // Resolved from contacts via the LEFT JOIN — string when a live contact
+      // matches the userId, null otherwise. Always present.
+      expect(ev.userEmail === null || typeof ev.userEmail === "string").toBe(
+        true,
+      );
+      expect(ev.contactId === null || typeof ev.contactId === "string").toBe(
+        true,
+      );
+    }
+  });
+
   it("supports pagination", async () => {
     const res = await app.request("/v1/admin/events?limit=5&offset=0", {
       headers: AUTH_HEADER,

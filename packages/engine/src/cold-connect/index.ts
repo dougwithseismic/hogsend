@@ -212,6 +212,7 @@ export function createColdConnect<S = Record<string, unknown>>(
             userEmail: binding.email,
             eventProperties,
             contactProperties,
+            source: "connector",
             idempotencyKey: `cc:confirm:${connectorId}:${binding.platformUserId}:${tok}`,
           },
         });

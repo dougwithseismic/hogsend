@@ -213,7 +213,7 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
           registry,
           hatchet,
           logger,
-          event: result.event,
+          event: { ...result.event, source: "connector" },
         });
         return c.json({ ok: true }, 200);
       }
@@ -265,7 +265,7 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
         registry,
         hatchet,
         logger,
-        event,
+        event: { ...event, source: "connector" },
       });
       // INTENTIONALLY `result.exits.length` (a number) — a deliberate
       // divergence from the `/v1/webhooks/:sourceId` route, which returns the

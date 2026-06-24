@@ -695,6 +695,48 @@ export function ingestEvent(body: {
   });
 }
 
+// --- Events feed ---------------------------------------------------------
+
+/** One ingested event (a `user_events` row joined to its live contact). */
+export type EventListItem = {
+  id: string;
+  userId: string;
+  event: string;
+  properties: Record<string, unknown> | null;
+  occurredAt: string;
+  /** Where the event entered the pipeline ("posthog", "api", "studio", …). */
+  source: string | null;
+  /** The person this event is from (matched live contact), or null. */
+  userEmail: string | null;
+  /** The matched contact's id (uuid) — pass to getContact / ContactDetailDrawer. */
+  contactId: string | null;
+};
+
+export type EventListFilters = {
+  limit?: number;
+  offset?: number;
+  userId?: string;
+  event?: string;
+  source?: string;
+  from?: string;
+  to?: string;
+};
+
+export function listEvents(filters: EventListFilters) {
+  return api.get<{
+    events: EventListItem[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>("/v1/admin/events", { query: filters });
+}
+
+export function getEvent(id: string) {
+  return api.get<{ event: EventListItem }>(
+    `/v1/admin/events/${encodeURIComponent(id)}`,
+  );
+}
+
 // --- Domain (Setup) --------------------------------------------------------
 
 /** Mirrors the pinned `DnsRecord` shape (@hogsend/core providers/domains.ts). */
@@ -971,6 +1013,8 @@ export const qk = {
   overview: ["overview"] as const,
   emails: (filters: EmailListFilters) => ["emails", filters] as const,
   email: (id: string) => ["email", id] as const,
+  events: (filters: EventListFilters) => ["events", filters] as const,
+  event: (id: string) => ["event", id] as const,
   templates: ["templates"] as const,
   templatePreview: (key: string) => ["template-preview", key] as const,
   templateReport: (key: string) => ["template-report", key] as const,
