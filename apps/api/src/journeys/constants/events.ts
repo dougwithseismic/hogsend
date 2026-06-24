@@ -44,6 +44,10 @@ export const Events = {
   JOURNEY_COMPLETED: "journey.completed",
 
   TEST_SIGNUP: "test.signup",
+
+  // Synthetic event emitted by the Discord cold-connect `/link` flow on a
+  // successful email verification (carries { source, discordId, via }).
+  DISCORD_LINKED: "discord.linked",
 } as const;
 
 export type EventName = (typeof Events)[keyof typeof Events];
