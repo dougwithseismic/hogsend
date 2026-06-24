@@ -249,6 +249,118 @@ export function setJourneyEnabled(id: string, enabled: boolean) {
   }>(`/v1/admin/journeys/${encodeURIComponent(id)}`, { json: { enabled } });
 }
 
+export type JourneyStateStatus =
+  | "active"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "exited";
+
+/** One enrolled instance of a journey (a row of `journey_states`). */
+export type JourneyState = {
+  id: string;
+  userId: string;
+  userEmail: string;
+  journeyId: string;
+  currentNodeId: string;
+  status: string;
+  hatchetRunId: string | null;
+  context: Record<string, unknown>;
+  errorMessage: string | null;
+  entryCount: number;
+  completedAt: string | null;
+  exitedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** A single condition object (PropertyCondition et al.) — shape-opaque here. */
+export type JourneyCondition = Record<string, unknown>;
+
+export type JourneyDetail = {
+  id: string;
+  name: string;
+  description?: string;
+  enabled: boolean;
+  trigger: { event: string; where?: JourneyCondition[] };
+  exitOn?: Array<{ event: string; where?: JourneyCondition[] }>;
+  entryLimit: "once" | "once_per_period" | "unlimited";
+  suppress: Record<string, number>;
+  counts: {
+    active: number;
+    waiting: number;
+    completed: number;
+    failed: number;
+    exited: number;
+  };
+  recentStates: JourneyState[];
+};
+
+export function getJourney(id: string) {
+  return api.get<{ journey: JourneyDetail }>(
+    `/v1/admin/journeys/${encodeURIComponent(id)}`,
+  );
+}
+
+export type JourneyStatesFilter = {
+  status?: JourneyStateStatus;
+  limit?: number;
+  offset?: number;
+  userId?: string;
+};
+
+export function listJourneyStates(
+  id: string,
+  filter: JourneyStatesFilter = {},
+) {
+  return api.get<{
+    states: JourneyState[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>(`/v1/admin/journeys/${encodeURIComponent(id)}/states`, {
+    query: {
+      status: filter.status,
+      limit: filter.limit,
+      offset: filter.offset,
+      userId: filter.userId,
+    },
+  });
+}
+
+/** One transition row from `journey_logs` (node → node, with a detail bag). */
+export type JourneyLog = {
+  id: string;
+  fromNodeId: string | null;
+  toNodeId: string | null;
+  action: string;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export function getJourneyState(id: string, stateId: string) {
+  return api.get<{ state: JourneyState; logs: JourneyLog[] }>(
+    `/v1/admin/journeys/${encodeURIComponent(id)}/states/${encodeURIComponent(
+      stateId,
+    )}`,
+  );
+}
+
+/** A template the journey has SENT, with engagement counts (observed). */
+export type JourneyTemplate = {
+  templateKey: string;
+  sent: number;
+  opened: number;
+  clicked: number;
+  lastSentAt: string | null;
+};
+
+export function getJourneyTemplates(id: string) {
+  return api.get<{ templates: JourneyTemplate[] }>(
+    `/v1/admin/journeys/${encodeURIComponent(id)}/templates`,
+  );
+}
+
 // --- Buckets -------------------------------------------------------------
 
 export type BucketListItem = {
@@ -865,6 +977,12 @@ export const qk = {
   journeyMetrics: ["journey-metrics"] as const,
   journeys: ["journeys"] as const,
   journeyFunnel: (id: string) => ["journey-funnel", id] as const,
+  journey: (id: string) => ["journey", id] as const,
+  journeyStates: (id: string, filter: JourneyStatesFilter) =>
+    ["journey-states", id, filter] as const,
+  journeyState: (id: string, stateId: string) =>
+    ["journey-state", id, stateId] as const,
+  journeyTemplates: (id: string) => ["journey-templates", id] as const,
   buckets: ["buckets"] as const,
   bucketMetrics: ["bucket-metrics"] as const,
   bucket: (id: string) => ["bucket", id] as const,
