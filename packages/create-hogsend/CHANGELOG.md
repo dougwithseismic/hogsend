@@ -1,5 +1,152 @@
 # create-hogsend
 
+## 0.32.0
+
+### Minor Changes
+
+- 8c672dc: Managed-link campaigns + connector engagement events.
+
+  `link.clicked` is now a first-party bus event: a click on any NON-email managed
+  link (Discord, SMS, referral, standalone Studio link) re-ingests through the
+  journey pipeline, so a journey can `trigger` on — or `ctx.waitForEvent` for — a
+  click of a SPECIFIC managed link (filter by `linkId`/`campaign`). The re-ingest
+  is gated on `!isBot` (unfurl/prefetch bots that auto-fetch DM'd links are
+  suppressed) and a personal link's `distinctId` (broadcast/public links carry no
+  person). The per-hit outbound `link.clicked` webhook and the entire email
+  branch are unchanged.
+
+  `ctx.waitForEvent` gains an optional `where` predicate (the same model as
+  `trigger.where`) so a journey can await a specific link's click mid-run. It runs
+  an engine-side durable re-arm loop with a persisted `wait_deadline` (survives
+  Hatchet replay), gap-proof re-scans, and scalar-narrowed properties; omitting
+  `where` keeps the exact legacy single-wait. `ctx.history.events` gains an
+  `event` name filter.
+
+  Connector engagement events: the connector transform contract widens to
+  `IngestEvent | IngestEvent[] | null`, and Discord reactions now fan out into a
+  reactor-keyed `discord.reaction_added` (carrying the target author for
+  distinct-people counting) plus, when the message author is known (resolved
+  cache-only in the gateway worker — no REST), an author-keyed
+  `discord.reaction_received` powering "your post resonated with N people". Adds
+  `discord.reaction_removed` and a `grantRole` outbound action for the
+  community-gamification loop (count an engagement event → grant a role + DM).
+
+### Patch Changes
+
+- 092cc7c: create-hogsend: finish the onboarding hand-off — Studio, Discord, and docs, not just Hatchet.
+
+  Once a scaffold (and `bootstrap`) finishes, the "what now" now leads with the three
+  touchpoints that matter — the Studio dashboard (`http://localhost:3002/studio`), the
+  Discord invite (`discord.gg/rv6eZNvYrr`), and the docs — instead of dropping the user
+  at the Hatchet dashboard. The bootstrap summary also states plainly that local infra
+  is up but the app itself is NOT running yet: the compose stack is only Postgres + Redis
+
+  - Hatchet, while the API and worker are your code, started with `dev` + `worker:dev`.
+    A closing "Welcome to Hogsend" bookends the scaffolder's opening note.
+
+  Two fixes ride along:
+
+  - The CLI's git-init and dependency-install now run as async `spawn` instead of the
+    blocking `spawnSync`. A clack spinner animates on a `setInterval`, and `spawnSync`
+    froze the event loop for the whole (often 30s+) install — so the spinner sat dead on
+    one frame and read as "is this stuck?". `spawn` keeps the loop free so it actually
+    spins.
+  - The engine dev banner pointed Studio at a Vite `:5173` origin that only exists in
+    the monorepo, so a scaffolded `pnpm dev` showed a link that 404'd. It now points at
+    the API's own `${url}/studio`, where the Studio SPA is actually served, and adds the
+    Discord link.
+
+  The rest of the `@hogsend/*` line moves with this patch to stay on a single engine
+  version line.
+
+- e7583f3: Journeys: exactly-once side effects across a Hatchet durable replay.
+
+  Journey `run()` bodies call `sendEmail()`, `ctx.trigger()`, and `sendConnectorAction()` inline between durable waits. Hatchet replays a durable task from the top on worker crash, OOM, or redeploy, so these previously re-fired and could deliver duplicate emails / events / connector messages.
+
+  Side effects are now exactly-once with **no journey-authoring change in the common case**. An `AsyncLocalStorage` journey boundary auto-derives a deterministic, branch-stable idempotency key (`workflowRunId : nearest-wait-label : discriminant`) and threads it through the existing `email_sends` / `user_events` unique-index short-circuits, plus a new `connector_deliveries` table (migration `0031`) for Telegram/Discord sends. A Hatchet `memo()` fast path skips the effect entirely before the DB on eviction-capable engines (>= v0.80.0). The one authoring rule (enforced by a loud throw on an intra-run key collision): pass a distinct `idempotencyLabel` when sending the same template, triggering the same event, or running the same connector action more than once in one journey on divergent branches. Adds `ctx.now()` (replay-stable clock) and `ctx.once()` (record-once per enrollment).
+
+  The rest of the `@hogsend/*` line moves with this patch to stay on a single engine version line.
+
+- ea4d9d0: Studio: Debug is now a global drawer with a typed (scalar) property builder.
+
+  Firing a test event no longer means navigating to a `/debug` page. A **Fire event**
+  button in the header (and the Overview getting-started CTA) opens a slide-out drawer
+  from anywhere in Studio, so you can trigger a journey without leaving the page you're
+  on. The `/debug` route, its sidebar item, and the old page are removed.
+
+  The drawer also replaces the raw-JSON properties textarea with a **typed scalar
+  editor**: each property is a key + a type (string / number / boolean) + a value, so
+  the test event exercises `POST /v1/admin/events` with the same scalar types real code
+  sends. Numbers that don't parse to a finite value fail loudly (no silent `NaN`/`null`),
+  and a duplicate key is rejected rather than silently overwritten.
+
+  The rest of the `@hogsend/*` line moves with this patch to stay on a single engine
+  version line.
+
+- ce700ae: Studio: an Events feed with source provenance + person drill-in, and event provenance on every ingested event.
+
+  Studio gains an **Events** view — a filterable, paginated feed of every event ingested
+  into the pipeline (`Event · Source · Person · Properties · Time`), with a **Live**
+  auto-refresh toggle. Clicking an event opens its properties as **typed key/value rows**
+  (string/number/boolean/null type chips); clicking the **person** opens the full contact
+  drawer (properties + email activity + a timeline of their other events). The contact
+  drawer also now renders the contact's **properties** (previously fetched but hidden).
+
+  To make "where did this event come from?" answerable, events now carry a **source**.
+  A new nullable `user_events.source` column (migration `0030`) is stamped at every
+  ingestion entry point: webhook sources record their id (so PostHog → `posthog`, Stripe
+  → `stripe`, …), the public data-plane API → `api`, the Studio Debug panel + admin
+  enroll → `studio`, connectors → `connector`, journey triggers → `journey`, plus
+  `bucket` / `tracking` / `import`. The Events feed shows + filters by it.
+
+  The admin events list endpoint LEFT JOINs the live contact (matching the resolved key
+  across `externalId` / `anonymousId` / `id`) so each event carries its person's email +
+  contact id, and accepts a `source` filter. Pre-existing events have `source = null`.
+
+  The rest of the `@hogsend/*` line moves with this patch to stay on a single engine
+  version line.
+
+- 32d9875: Studio: per-journey detail pages.
+
+  Journeys in Studio were a single list with an inline funnel — there was no way to
+  drill into one. Clicking a journey now opens a dedicated `/journeys/:id` page:
+
+  - **Definition** — trigger event + `where` conditions, `exitOn` rules, `entryLimit`,
+    and the `suppress` window.
+  - **Funnel** — the existing enrolled → sent → opened → clicked → completed funnel.
+  - **Email** — the templates the journey has actually sent, with sent/opened/clicked
+    counts and an inline rendered preview (reusing the template-preview iframe). Scoped
+    to email; other channels (Discord/Telegram) aren't shown.
+  - **Instances** — a filterable, paginated browser of `journey_states`; each row opens
+    a slide-out drawer with the instance's transition log and enrollment context.
+
+  Backed by a new `GET /v1/admin/journeys/:id/templates` endpoint (distinct templates
+  sent within the journey, derived from `email_sends` joined through `journey_states`).
+  `StatusBadge` also gained journey-instance statuses (active/waiting/completed/exited)
+  so they're visually distinguishable.
+
+  The rest of the `@hogsend/*` line moves with this patch to stay on a single engine
+  version line.
+
+- 28e14de: Studio: a non-blocking setup checklist, and stop the domain page erroring without a Resend key.
+
+  Opening Studio with no (or a send-only) email provider key made `GET /v1/admin/domain`
+  return a 502 — "domains request to provider resend failed: … API key is invalid" — which
+  the Setup view rendered as a scary error. A permission-denied (401/403) from the provider's
+  domains API is a CONFIGURATION state, not a server error, so it now degrades gracefully:
+  the domain status service catches it, engages the same warn-once + back-off the per-send
+  path already uses, and returns a `200` with `status: null`. Transient failures (network/5xx)
+  still surface as `502`.
+
+  On top of that, a new `GET /v1/admin/readiness` endpoint reports per-area setup state
+  (Studio admin, Hatchet, email provider key, data-plane API key, sending domain, PostHog) as
+  `ok` / `action` / `optional`, and the Studio Setup page renders it as a non-blocking
+  checklist above the sending-domain section. Nothing gates the UI: while it loads it shows a
+  skeleton, and any probe failure degrades a single row rather than the page.
+
+  The rest of the `@hogsend/*` line moves with this patch to stay on a single engine version
+  line.
+
 ## 0.31.1
 
 ### Patch Changes
