@@ -14,7 +14,7 @@ const JOURNEY_CODE = `export const welcomeNewDiscordMembers = defineJourney({
 
   run: async (user, ctx) => {
     // A fresh join has a discord_id but usually no linked email yet. Park on
-    // the link event the /link → /verify loop fires when it resolves the
+    // the link event the /link email-confirm flow fires when it resolves the
     // contact; lookback covers a member who linked seconds before this wait.
     const linked = await ctx.waitForEvent({
       event: Events.CONTACT_LINKED,
@@ -49,7 +49,7 @@ const JOURNEY_CODE = `export const welcomeNewDiscordMembers = defineJourney({
 
 const LINK_FIRE_CODE = `// A tiny companion journey re-emits contact.linked so the welcome's wait
 // resumes. ctx.trigger injects the registry/hatchet/logger the ingest pipeline
-// needs — a bare redeemCode callback in src/discord.ts can't reach them, so a
+// needs — a bare connector callback in src/discord.ts can't reach them, so a
 // raw ingestEvent({ db, registry, hatchet, logger, event }) is not callable
 // there. Trigger on the member's first post-link activity instead.
 export const emitContactLinked = defineJourney({
@@ -132,11 +132,11 @@ export const welcomeNewDiscordMembers: RecipeLander = {
   faq: [
     {
       q: "Why can't the welcome email fire on discord.member_joined directly?",
-      a: "A join carries a Discord snowflake, not an email. user.email is empty until the contact links an address through the /link → /verify loop. Sending on the join would mean sending to nobody — so the journey waits for the link event first.",
+      a: "A join carries a Discord snowflake, not an email. user.email is empty until the contact links an address through the /link email-confirm flow. Sending on the join would mean sending to nobody — so the journey waits for the link event first.",
     },
     {
       q: "How does the member link their email?",
-      a: "Inside Discord: /link opens an email modal, Hogsend emails a 6-digit code, and an Enter code button (or /verify <code>) resolves the contact. A small companion journey then re-emits contact.linked via ctx.trigger on the member's next activity, which resolves this journey's wait. See Link a Discord account to an email.",
+      a: "Inside Discord: /link opens an email modal, Hogsend emails a one-click confirm link, and clicking it folds the address onto the discord_id contact in the browser. A small companion journey then re-emits contact.linked via ctx.trigger on the member's next activity, which resolves this journey's wait. See Link a Discord account to an email.",
     },
     {
       q: "What does the in-channel nudge actually do?",

@@ -1,38 +1,72 @@
 ---
 title: Link a Discord account to an email
-description: How the in-Discord /link modal loop attaches an email to a Discord account — a transactional 6-digit code, single-use with a 15-minute TTL and rate limits, the /verify fallback, and reading the resulting discord_id and contacts.properties.discord on a contact.
+description: How the in-Discord /link modal loop attaches an email to a Discord account — a transactional one-click confirm link, single-use with a 15-minute TTL and a fail-closed throttle, where the bind happens in the browser, plus reading the resulting discord_id and contacts.properties.discord on a contact.
 ---
 
-A Discord member and an email subscriber are the same person on two surfaces, but nothing ties them together until the member links their email. The [`@hogsend/plugin-discord`](/docs/integrations/discord) connector does this **inside Discord**: `/link` opens an email modal, Hogsend mails a single-use code through a transactional send, and `/verify <code>` (or an **Enter code** button) folds the email onto the `discord_id` contact. After that, `discord_id` and `contacts.properties.discord` are on the contact row, and the member is both emailable and credited for Discord activity.
+A Discord member and an email subscriber are the same person on two surfaces, but nothing ties them together until the member links their email. The [`@hogsend/plugin-discord`](/docs/integrations/discord) connector does this **inside Discord**, built on the engine's [`createColdConnect()`](/docs/integrations/discord#the-link-identity-loop) primitive: `/link` opens an email modal, Hogsend mails a one-click confirm **link** through a transactional send, and clicking that link binds the email onto the `discord_id` contact **in the browser**. After that, `discord_id` and `contacts.properties.discord` are on the contact row, and the member is both emailable and credited for Discord activity.
 
 This is not a journey — it is the consumer wiring that makes the loop work, plus how a journey reads the result.
 
 ## The /link loop
 
-The flow is fully ephemeral and never echoes the email or code in a message body:
+The flow is fully ephemeral and never echoes the email in a message body. There is no typed code, no Enter-code button, and no `/verify` command — the bind is a click on the emailed link:
 
 | Step | What happens |
 |---|---|
-| `/link` | Opens an email modal (the primary UX) |
-| Email modal submit | Validates the address **synchronously first** — a bad address gets an instant inline error; a valid one defers, mints a code, mails it, and PATCHes an **Enter code** button |
-| **Enter code** button | Opens the code modal — the mandatory bridge, because Discord forbids returning a modal from a modal submit |
-| Code modal submit (or `/verify <code>`) | Redeems the code and resolves the contact, then replies with an ephemeral success card |
+| `/link` | Opens an email modal (the primary UX; a modal is the initial response and does zero work, so it is instant) |
+| Email modal submit | Validates the address **synchronously first** — a bad address gets an instant inline ephemeral error (no defer); a valid one defers, then out-of-band mints a cold-connect token, emails the one-click confirm **link**, and PATCHes a **button-less** "check your inbox, click the link" message |
+| Click the emailed link | Lands on `GET /connect/discord` — the engine-served connect page, styled to the Studio "Crimzon" language and showing the real Discord mark. `?tok=` is read client-side only |
+| **Confirm connection** button | A human button **POST** runs the exchange: it folds `discord_id` + email onto **one** contact, then the page runs client-side `posthog.identify(contactKey, { discord_id })` |
 
-Every interaction is ed25519-verified with a ±300s replay window before any work runs.
+Every interaction is ed25519-verified with a ±300s replay window before any work runs. The bind only ever happens on the human button click (POST) — a link-preview prefetch (GET) renders the page but cannot complete the bind.
 
 ## The wiring
 
-`createDiscordConnector` injects the engine helpers the plugin must not read itself; the connector is then passed to `createHogsendClient` in **both** entry points. The four callbacks below are what make `/link` work:
+`createDiscordConnector` injects the engine helpers the plugin must not read itself; the connector is then passed to `createHogsendClient` in **both** entry points. The `/link` front door is the consumer's `requestConfirm` callback, which mints a token through a `discordColdConnect = createColdConnect({...})` flow and emails the one-click confirm link:
 
-```ts
-// src/discord.ts
+```ts title="src/discord.ts"
 import {
-  createLinkCode,
+  createColdConnect,
   getEmailService,
-  redeemLinkCode,
-  resolveOrCreateContact,
 } from "@hogsend/engine";
-import { createDiscordConnector } from "@hogsend/plugin-discord";
+import {
+  createDiscordConnector,
+  DISCORD_PROVIDER_ID,
+} from "@hogsend/plugin-discord";
+
+// The cold-connect flow — the same engine primitive Telegram uses. It owns the
+// sealed single-use token, the connect page, and the bind exchange.
+export const discordColdConnect = createColdConnect<Record<string, never>>({
+  connectorId: DISCORD_PROVIDER_ID,
+  identityKind: "discordId",
+  // The dedicated `discord_id` column keys on the RAW snowflake — no namespace
+  // prefix (the engine has a collision guard on that column).
+  platformKey: (id) => id,
+  linkedEvent: "discord.linked",
+  identifyPropKey: "discord_id",
+  buildIngest: (binding) => ({
+    // Scalar trigger properties a `discord.linked` welcome journey reads off
+    // `user.properties.*` — `contactProperties` never reach the Hatchet payload.
+    eventProperties: {
+      source: "discord",
+      discordId: binding.platformUserId,
+      via: "email_confirm",
+    },
+    // `discord` is a deep-merge key, so this never clobbers the richer metadata
+    // (username/avatar/etc.) inbound gateway events set.
+    contactProperties: { discord: { id: binding.platformUserId } },
+  }),
+  branding: {
+    iconSvg: DISCORD_ICON_SVG, // the real Discord mark, accent-tinted chip
+    accentColor: "#5865f2",
+    title: "Connect your Discord",
+    blurb: "Tap below to finish linking your Discord account to your contact.",
+    reassurance:
+      "Didn't start this in Discord? You can safely close this tab — nothing " +
+      "links to your account until you tap Confirm above.",
+    // successCopy / errorCopy …
+  },
+});
 
 export const discordConnector = createDiscordConnector({
   applicationId: env.DISCORD_APPLICATION_ID,
@@ -43,53 +77,67 @@ export const discordConnector = createDiscordConnector({
   saveDerived: async (patch) => {
     /* read-merge-write into the derived credential */
   },
-
-  // Mint a single-use code. The engine runs the anti-email-bomb throttle
-  // (5/user + 3/email per 15 min) BEFORE minting; over-cap returns ok:false.
-  mintCode: async ({ discordUserId, email }) => {
-    const r = await createLinkCode({
-      db: requireDb(),
-      connectorId: "discord",
+  // discord_id is the SOLE merge key. Goes through `client.identity.linkContact`
+  // (NOT bare resolveOrCreateContact) so the contact-merge propagates the PostHog
+  // merge through the SAME engine path ingest uses.
+  resolveContact: async (patch) => {
+    await client.identity.linkContact({
+      discordId: patch.discordId,
+      email: patch.email, // the AUTHORITATIVE address the link was issued for
+      contactProperties: patch.contactProperties,
+    });
+  },
+  // The /link front door: mint a server-sealed cold-connect token (the throttle
+  // runs FIRST inside mintConfirm) and, only on ok:true, email the one-click
+  // confirm LINK. The handler never sees the token — it lives only in the URL.
+  requestConfirm: async ({ discordUserId, email }) => {
+    const minted = await discordColdConnect.mintConfirm({
       platformUserId: discordUserId,
       email,
     });
-    return r.ok
-      ? { ok: true, code: r.code }
-      : { ok: false, reason: "throttled" };
-  },
-
-  // TRANSACTIONAL send — skipPreferenceCheck so a verification code is NEVER
-  // dropped by unsubscribe/frequency suppression.
-  sendLinkCode: async ({ email, code }) => {
+    if (!minted.ok) {
+      return {
+        ok: false,
+        reason:
+          minted.reason === "redis_unavailable" ? "unavailable" : "rate_limited",
+      };
+    }
+    const url = discordColdConnect.confirmUrl({ apiPublicUrl: base, token: minted.token });
+    // TRANSACTIONAL send — skipPreferenceCheck so a confirm link is NEVER dropped
+    // by unsubscribe/frequency suppression. No contact exists yet, so userId is
+    // the email (the exchange later folds discord_id + email onto one contact).
     await getEmailService().send({
-      template: "transactional/discord-link-code",
-      props: { code },
+      template: "transactional/magic-link",
+      props: { magicLinkUrl: url, expiresIn: "15 minutes" },
       to: email,
       userId: email,
       userEmail: email,
-      subject: "Your Discord verification code",
+      subject: "Confirm your Discord connection",
       category: "transactional",
       skipPreferenceCheck: true,
     });
+    return { ok: true };
   },
+});
+```
 
-  // Redeem — single-use (atomic claim), 15-min TTL, identity-bound to the
-  // invoking Discord user (constant-time). Resolves through the discord Kind.
-  redeemCode: ({ discordUserId, code }) =>
-    redeemLinkCode({
-      db: requireDb(),
-      connectorId: "discord",
-      platformUserId: discordUserId,
-      code,
-    }),
+Mount the connect page so a clicked link resolves (the engine derives the basePath from `connectorId`, so `discordColdConnect.routes` serves `GET /connect/discord` + `POST /connect/discord/exchange`):
+
+```ts title="src/index.ts"
+const app = createApp(client, {
+  webhookSources,
+  routes: [
+    telegramColdConnect.routes,
+    ...(discordConnector ? [discordColdConnect.routes] : []),
+  ],
 });
 ```
 
 Three guarantees fall out of this wiring:
 
-- **The code rides a transactional send.** `category: "transactional"` with `skipPreferenceCheck: true` means the code is never dropped by an unsubscribe or a frequency cap — routing it through the journey-category `sendEmail` would silently lose it for unsubscribed users.
-- **The throttles run before the mint.** `createLinkCode` counts mints per invoking Discord user (5) and per target email (3) in a rolling 15-minute window before issuing a code, so an over-cap `/link` returns `ok: false` with no email sent. An optional Redis `/verify` throttle (10/user/15 min, fail-open) blunts brute-force redeem traffic.
-- **`redeemLinkCode` is an atomic claim.** A code works exactly once, expires after 15 minutes, and the engine re-checks the invoking Discord user with a constant-time compare — a code minted for one account cannot be redeemed by another.
+- **The confirm link rides a transactional send.** `category: "transactional"` with `skipPreferenceCheck: true` means the link is never dropped by an unsubscribe or a frequency cap — routing it through the journey-category `sendEmail` would silently lose it for unsubscribed users.
+- **The throttle runs inside `mintConfirm`.** Before any token is sealed, `mintConfirm` enforces the cold-connect throttle (per-user + per-email Redis-INCR rolling windows, **fail-closed**), so an over-cap `/link` returns `{ ok: false }` with no email sent. The consumer no longer hand-rolls a `/verify` attempt counter.
+- **The bind happens in the browser on the Confirm button POST.** The sealed token is single-use (default 900s TTL) and lives only in the emailed URL. The exchange runs on a human button **POST**, never on the page GET — so a link-preview prefetch can't complete the bind, and the token survives an interrupted attempt for a retry (it is peeked, then consumed only after the bind commits).
 
 ## Reading the linked identity in a journey
 
@@ -145,12 +193,11 @@ export const reactToLinkedState = defineJourney({
 });
 ```
 
-`discord_id` is the **sole** merge key — `redeemCode` resolves through `resolveOrCreateContact` with the `discord` identity Kind, so the raw snowflake lands in the indexed `discord_id` column. `contacts.properties.discord` is decorative metadata (`username`, `global_name`, `avatar`, `joined_at`, `roles`, and the derived `last_seen`), deep-merged and non-clobbering — never a resolution key.
+`discord_id` is the **sole** merge key — the connect-page exchange resolves through `client.identity.linkContact` with the `discord` identity Kind, so the raw snowflake lands in the indexed `discord_id` column. `contacts.properties.discord` is decorative metadata (`username`, `global_name`, `avatar`, `joined_at`, `roles`, and the derived `last_seen`), deep-merged and non-clobbering — never a resolution key.
 
 <Callout type="info">
-  - **The linked email is the one typed**, carried through the engine-verified state. The OAuth member-link fallback uses the address the link was *issued for*, never the OAuth-reported Discord email — using the latter as a resolution key would let a member attach an address they do not own.
-  - **The OAuth member-link is not wired end to end yet.** The one-click install / member-link (`hogsend connect discord`) needs consumer-mounted `secrets`/`wire` admin routes that `apps/api` does not mount, so that CLI 404s today. The in-Discord `/link` modal is the primary, live path.
-  - **`/verify` is the typed fallback.** The verification email instructs the user to run `/verify {code}` — the modal is primary, but the email steers to the typed command.
+  - **The linked email is the one typed**, proven by the click on the emailed link and carried through the engine-sealed token. The OAuth member-link alternative uses the address the link was *issued for*, never the OAuth-reported Discord email — using the latter as a resolution key would let a member attach an address they do not own.
+  - **The OAuth member-link is the web-initiated alternative.** The one-click install / member-link path (`POST /v1/admin/connectors/discord/member-link-url`) is unchanged and stays available, but the in-Discord `/link` modal is the primary, live path.
 </Callout>
 
 Related: [Welcome new Discord members](/docs/recipes/welcome-new-discord-members) gates its welcome on this link, [Re-engage quiet Discord members](/docs/recipes/re-engage-quiet-discord-members) reads the same contact metadata, and the [Discord integration](/docs/integrations/discord#the-link-identity-loop) documents the loop's security model.
