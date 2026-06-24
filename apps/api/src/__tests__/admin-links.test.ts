@@ -215,8 +215,86 @@ describe("admin links CRUD", () => {
     const body = await res.json();
     expect(body.label).toBe(`${RUN}-after`);
     expect(body.campaign).toBe(`${RUN}-c2`);
-    // The destination URL is immutable via PATCH.
+    // Omitting originalUrl leaves the destination unchanged (the re-target case
+    // is covered below).
     expect(body.originalUrl).toBe("https://example.com/to-edit");
+  });
+
+  it("PATCH /:id re-targets the destination, updating BOTH links and tracked_links", async () => {
+    const created = await app.request("/v1/admin/links", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        url: "https://example.com/old-target",
+        type: "public",
+        label: `${RUN}-retarget`,
+      }),
+    });
+    const createdBody = await created.json();
+    createdLinkIds.push(createdBody.id);
+    createdTrackedLinkIds.push(createdBody.trackedLinkId);
+
+    const next = "https://example.com/new-target";
+    const res = await app.request(`/v1/admin/links/${createdBody.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ originalUrl: next }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.originalUrl).toBe(next);
+
+    // The links row (display/source of truth) is updated...
+    const [linkRow] = await db
+      .select({ originalUrl: links.originalUrl })
+      .from(links)
+      .where(eq(links.id, createdBody.id));
+    expect(linkRow?.originalUrl).toBe(next);
+
+    // ...AND the linked tracked_links row — the load-bearing write, since the
+    // click redirect reads tracked_links.originalUrl, not links.originalUrl.
+    const [trackedRow] = await db
+      .select({ originalUrl: trackedLinks.originalUrl })
+      .from(trackedLinks)
+      .where(eq(trackedLinks.linkId, createdBody.id));
+    expect(trackedRow?.originalUrl).toBe(next);
+
+    // End-to-end: the same short URL now 302s to the NEW destination. A public
+    // link carries no person token, so the Location is the verbatim target.
+    const click = await app.request(`/v1/t/c/${createdBody.trackedLinkId}`, {
+      redirect: "manual",
+    });
+    expect(click.status).toBe(302);
+    expect(click.headers.get("location")).toBe(next);
+  });
+
+  it("PATCH /:id rejects a non-http(s) destination and leaves the target intact", async () => {
+    const created = await app.request("/v1/admin/links", {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        url: "https://example.com/keep",
+        type: "public",
+        label: `${RUN}-badurl`,
+      }),
+    });
+    const createdBody = await created.json();
+    createdLinkIds.push(createdBody.id);
+    createdTrackedLinkIds.push(createdBody.trackedLinkId);
+
+    const res = await app.request(`/v1/admin/links/${createdBody.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ originalUrl: "ftp://example.com/x" }),
+    });
+    expect(res.status).toBe(400);
+
+    // The destination is untouched after a rejected re-target.
+    const [trackedRow] = await db
+      .select({ originalUrl: trackedLinks.originalUrl })
+      .from(trackedLinks)
+      .where(eq(trackedLinks.linkId, createdBody.id));
+    expect(trackedRow?.originalUrl).toBe("https://example.com/keep");
   });
 
   it("DELETE /:id archives (soft-delete) and the link drops off the list", async () => {

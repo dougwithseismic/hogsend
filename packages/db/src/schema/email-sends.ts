@@ -38,10 +38,17 @@ export const emailSends = pgTable(
     // Bounce classification from the Resend webhook (hard/soft/transient + reason).
     bounceType: text("bounce_type"),
     bounceReason: text("bounce_reason"),
-    // Caller-supplied idempotency key (POST /v1/emails). A retry with the same
-    // key short-circuits to the prior send instead of dispatching a duplicate —
-    // mirrors the user_events idempotency pattern. Nullable: journey/system sends
-    // don't set it.
+    // Deterministic idempotency key. A retry/replay with the same key
+    // short-circuits to the prior send instead of dispatching a duplicate —
+    // mirrors the user_events idempotency pattern. Set by:
+    //   • POST /v1/emails — the caller-supplied key.
+    //   • Journey sends — the engine auto-derives
+    //     `journeySend:<runAnchor>:<site>:<template>` (runAnchor = the replay-
+    //     stable Hatchet run id; site = the nearest authored wait label, or an
+    //     explicit `idempotencyLabel`) so a durable replay re-firing the same
+    //     logical send is absorbed here.
+    // Nullable ONLY for legacy/admin-raw sends (sendRaw writes no row at all);
+    // NULLs are distinct in Postgres so those never collide.
     idempotencyKey: text("idempotency_key"),
     // Free-form per-send annotations. Set ONLY by test-mode redirected sends
     // today — `{ testMode: true, originalTo: <real recipient> }` — so Studio can

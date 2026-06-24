@@ -62,6 +62,14 @@ export interface TriggerOptions {
   userId: string;
   userEmail?: string;
   properties?: Record<string, unknown>;
+  /**
+   * Disambiguates a trigger's exactly-once idempotency key when the SAME event
+   * is triggered more than once in one journey enrollment on divergent branches.
+   * Normally the engine auto-derives the key from the nearest authored wait
+   * label, so this is rarely needed; pass a distinct label per call if the
+   * engine throws an intra-run key-collision error. Additive and optional.
+   */
+  idempotencyLabel?: string;
 }
 
 export interface HasEventOptions {
@@ -157,6 +165,14 @@ export interface WaitForEventResult {
    * answer (e.g. an in-email NPS score) without a separate history lookup.
    */
   properties?: Record<string, string | number | boolean | null>;
+  /**
+   * The matched event's occurrence time as an ISO-8601 string, present
+   * (best-effort) only when the event branch fired via the `lookback`
+   * fast-path (which reads `user_events.occurred_at`). This is RECORDED data, so
+   * it is replay-stable on ANY engine — prefer it over `ctx.now()` / `new Date()`
+   * for any timestamp written into an analytics payload after a wait.
+   */
+  occurredAt?: string;
 }
 
 export interface JourneyContext {
@@ -187,6 +203,32 @@ export interface JourneyContext {
 
   checkpoint(label: string): Promise<void>;
   trigger(opts: TriggerOptions): Promise<void>;
+
+  /**
+   * The current instant, memoized across replays where the engine supports it
+   * (returns the same `Date` on every replay of the same task run). Use it for
+   * any timestamp that must stay stable across a replay — e.g. a value written
+   * into an analytics `identify` payload — instead of `new Date()`. On a
+   * pre-eviction engine it falls back to the live clock (still correct; only the
+   * replay-stability degrades).
+   */
+  now(): Promise<Date>;
+
+  /**
+   * Record-once-per-enrollment memo, DURABLE on ANY engine (it persists the
+   * computed value in the journey state row, not just Hatchet's eviction memo).
+   * The FIRST time a given `key` runs in this enrollment, `compute()` is invoked
+   * and its result stored; on every later call (including a replay-from-top on a
+   * pre-eviction engine) the stored value is returned WITHOUT re-running
+   * `compute()`. Use it for any non-deterministic decision whose output feeds a
+   * later side effect's identity — e.g. an LLM/RNG/time-bucketing choice that
+   * picks which template to send — so a replay re-derives the SAME choice (and so
+   * the SAME exactly-once send key) instead of diverging. `compute()`'s result
+   * must be JSON-serializable. Distinct from `memoize` internals: `once` is the
+   * version-independent (DB-backed) durable record, the public counterpart to the
+   * engine's Layer-1 Hatchet memo.
+   */
+  once<T>(key: string, compute: () => Promise<T> | T): Promise<T>;
 
   guard: {
     isSubscribed(): Promise<boolean>;
