@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -16,6 +16,12 @@ import { type CliOptions, resolveOptions } from "./prompts.js";
 
 const interactive = Boolean(stdin.isTTY);
 const DOCS = "docs.hogsend.com";
+const DISCORD = "discord.gg/rv6eZNvYrr";
+// Studio is served by the API itself at `${API_PUBLIC_URL}/studio`. The scaffold
+// defaults API_PUBLIC_URL to http://localhost:3002, so this is where the
+// dashboard lives once `dev` is running. (The engine's :5173 dev banner is the
+// monorepo Vite server — it does not apply to a scaffolded app.)
+const STUDIO_LOCAL_URL = "http://localhost:3002/studio";
 
 function templateDir(): string {
   // `dist/index.js` and `template/` are siblings in the published tarball
@@ -82,13 +88,38 @@ async function assertWritable(
   }
 }
 
-function tryGitInit(targetDir: string): boolean {
-  const run = (args: string[]) =>
-    spawnSync("git", args, { cwd: targetDir, stdio: "ignore" });
+/**
+ * Run a child process to completion WITHOUT blocking the event loop. This is the
+ * whole reason install/git use the async `spawn` and not `spawnSync`: a clack
+ * spinner animates on a `setInterval`, and `spawnSync` blocks the loop for the
+ * entire (often 30s+) install — freezing the spinner on one frame, which reads
+ * as "is this stuck?". `spawn` keeps the loop free so the spinner actually spins.
+ * Resolves the exit code (1 on spawn error).
+ */
+function runAsync(
+  cmd: string,
+  args: string[],
+  stdio: "ignore" | "inherit",
+  targetDir: string,
+): Promise<number> {
+  return new Promise((res) => {
+    const child = spawn(cmd, args, {
+      cwd: targetDir,
+      stdio,
+      // pnpm/npm/yarn/bun are .cmd shims on Windows — they need a shell.
+      shell: process.platform === "win32",
+    });
+    child.on("error", () => res(1));
+    child.on("close", (code) => res(code ?? 1));
+  });
+}
+
+async function tryGitInit(targetDir: string): Promise<boolean> {
+  const run = (args: string[]) => runAsync("git", args, "ignore", targetDir);
   try {
-    if (run(["init"]).status !== 0) return false;
-    run(["add", "-A"]);
-    run(["commit", "-m", "chore: scaffold hogsend app"]);
+    if ((await run(["init"])) !== 0) return false;
+    await run(["add", "-A"]);
+    await run(["commit", "-m", "chore: scaffold hogsend app"]);
     return true;
   } catch {
     // git missing or commit failed — scaffold is still valid, never fatal.
@@ -96,17 +127,20 @@ function tryGitInit(targetDir: string): boolean {
   }
 }
 
-function runInstall(
+async function runInstall(
   targetDir: string,
   pm: CliOptions["packageManager"],
-): boolean {
-  // Interactive: capture output so it doesn't fight the spinner; we only surface
-  // it on failure. Non-interactive: stream it so CI logs show the install.
-  const result = spawnSync(pm, ["install"], {
-    cwd: targetDir,
-    stdio: interactive ? "ignore" : "inherit",
-  });
-  return result.status === 0;
+): Promise<boolean> {
+  // Interactive: swallow output so it doesn't fight the spinner (which now stays
+  // alive because the install runs async). Non-interactive: stream it so CI logs
+  // show the install.
+  const code = await runAsync(
+    pm,
+    ["install"],
+    interactive ? "ignore" : "inherit",
+    targetDir,
+  );
+  return code === 0;
 }
 
 /** Stream `<pm> run bootstrap` — it prints its own step-by-step progress. */
@@ -127,6 +161,11 @@ const POSTHOG_NEXT_STEP = `${color.cyan("hogsend connect posthog")}${color.dim("
 const POSTHOG_NEXT_STEP_PLAIN =
   "hogsend connect posthog  # after deploy: authorize PostHog, mint the webhook secret, wire the event loop";
 
+/** A dim, fixed-width label so the link rows line up under each other. */
+function linkRow(label: string, url: string, note: string): string {
+  return `${color.dim(label.padEnd(8))}${color.cyan(url)}   ${color.dim(note)}`;
+}
+
 /** The guided "what now" — the difference between a scaffold and an onboarding. */
 function nextSteps(opts: CliOptions, setupDone: boolean): string {
   const pm = opts.packageManager;
@@ -135,11 +174,33 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     ? `${color.dim("Agent skills:")} ${color.cyan(".claude/skills")}   ${color.dim("· Claude Code discovers them automatically")}`
     : `${color.dim("Add agent skills later:")} ${color.cyan(dlxCmd(pm, "hogsend skills add"))}`;
 
-  const tail = [
-    `${color.cyan(scriptCmd(pm, "dev"))}   ${color.dim("# API on :3002")}`,
-    `${color.cyan(scriptCmd(pm, "worker:dev"))}   ${color.dim("# Hatchet worker, 2nd terminal")}`,
+  // Run-it: the two commands that actually start the app (it does NOT run after
+  // bootstrap — bootstrap only brings up the infra it depends on).
+  const run = [
+    `${color.cyan(scriptCmd(pm, "dev"))}   ${color.dim("# API + Studio on :3002")}`,
+    `${color.cyan(scriptCmd(pm, "worker:dev"))}   ${color.dim("# Hatchet worker, 2nd terminal — runs your journeys")}`,
+  ];
+
+  // Where to go next — the three touchpoints the onboarding hinges on.
+  const links = [
     "",
-    `${color.dim("First journey:")} ${color.cyan("src/journeys/welcome.ts")}   ${color.dim(`· ${DOCS}`)}`,
+    linkRow(
+      "Studio",
+      STUDIO_LOCAL_URL,
+      `# dashboard — open it after ${scriptCmd(pm, "dev")}`,
+    ),
+    linkRow(
+      "Docs",
+      DOCS,
+      "# guides + your first journey: src/journeys/welcome.ts",
+    ),
+    linkRow("Discord", DISCORD, "# questions, help, and what we're shipping"),
+  ];
+
+  const tail = [
+    ...run,
+    ...links,
+    "",
     skillsLine,
     opts.usingPosthog ? POSTHOG_NEXT_STEP : null,
   ];
@@ -149,7 +210,7 @@ function nextSteps(opts: CliOptions, setupDone: boolean): string {
     : [
         cd,
         opts.install ? null : color.cyan(`${pm} install`),
-        `${color.cyan(scriptCmd(pm, "bootstrap"))}   ${color.dim("# Docker + .env + Hatchet token + migrate")}`,
+        `${color.cyan(scriptCmd(pm, "bootstrap"))}   ${color.dim("# Docker infra + .env + Hatchet token + migrate")}`,
         ...tail,
       ];
 
@@ -229,14 +290,14 @@ async function main(): Promise<void> {
     if (interactive) {
       const s = spinner();
       s.start("Initializing git repo");
-      const ok = tryGitInit(targetDir);
+      const ok = await tryGitInit(targetDir);
       s.stop(
         ok
           ? `${color.green("✓")} Git repo initialized`
           : `${color.yellow("!")} Skipped git (not available)`,
       );
     } else {
-      tryGitInit(targetDir);
+      await tryGitInit(targetDir);
     }
   }
 
@@ -246,14 +307,14 @@ async function main(): Promise<void> {
     if (interactive) {
       const s = spinner();
       s.start(`Installing dependencies (${opts.packageManager} install)`);
-      installed = runInstall(targetDir, opts.packageManager);
+      installed = await runInstall(targetDir, opts.packageManager);
       s.stop(
         installed
           ? `${color.green("✓")} Dependencies installed`
           : `${color.yellow("!")} Install didn't finish — run it manually`,
       );
     } else {
-      installed = runInstall(targetDir, opts.packageManager);
+      installed = await runInstall(targetDir, opts.packageManager);
       if (!installed) {
         console.warn(
           `\n  "${opts.packageManager} install" did not complete. Run it manually in the app dir.`,
@@ -288,9 +349,7 @@ async function main(): Promise<void> {
     // hint here when the next-steps note was skipped.
     if (setupDone && opts.usingPosthog) log.info(POSTHOG_NEXT_STEP);
     outro(
-      setupDone
-        ? `${color.green("Done.")} ${color.dim(`${cdHint}Docs: ${DOCS}`)}`
-        : `${color.green("Scaffolded.")} ${color.dim(`Run the steps above. Docs: ${DOCS}`)}`,
+      `${color.magenta("Welcome to Hogsend.")} ${color.dim(`${cdHint}${DOCS} · ${DISCORD}`)}`,
     );
   } else {
     const pm = opts.packageManager;
@@ -303,19 +362,25 @@ async function main(): Promise<void> {
     const posthogNote = opts.usingPosthog
       ? `\n  ${POSTHOG_NEXT_STEP_PLAIN}`
       : "";
+    const links =
+      `  Studio    ${STUDIO_LOCAL_URL}   # dashboard (after ${dev})\n` +
+      `  Docs      ${DOCS}   # first journey: src/journeys/welcome.ts\n` +
+      `  Discord   ${DISCORD}   # questions, help, and what we're shipping`;
     if (setupDone) {
+      // Bootstrap already streamed its full "Ready" summary — just add the
+      // welcome + the `cd` hint it can't know about.
       console.log(`
-  Done. ${cdHint}Docs: ${DOCS}${posthogNote}
+  Welcome to Hogsend. ${cdHint}Docs: ${DOCS} · Discord: ${DISCORD}${posthogNote}
 `);
     } else {
       console.log(`
-  Done. Next steps:
+  Welcome to Hogsend. Next steps:
 
-${cd}${opts.install ? "" : `    ${pm} install\n`}    ${scriptCmd(pm, "bootstrap")}     # Docker + .env + Hatchet token + migrate
-    ${dev}           # HTTP API (port 3002)
+${cd}${opts.install ? "" : `    ${pm} install\n`}    ${scriptCmd(pm, "bootstrap")}     # Docker infra + .env + Hatchet token + migrate
+    ${dev}           # API + Studio on :3002
     ${worker}    # Hatchet worker (second terminal)
 
-  First journey: src/journeys/welcome.ts — docs at ${DOCS}
+${links}
 ${skillsNote}${posthogNote}
 `);
     }
