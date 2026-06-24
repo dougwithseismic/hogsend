@@ -9,6 +9,7 @@ import {
   getRedisIfConnected,
   reportApiReady,
 } from "@hogsend/engine";
+import { discordActions } from "@hogsend/plugin-discord";
 import {
   telegramActions,
   telegramColdConnect,
@@ -44,8 +45,13 @@ const client = createHogsendClient({
     // POST /v1/webhooks/telegram. Always registered; sends are token-gated.
     telegramConnector,
   ],
-  // Telegram OUTBOUND actions — journey-callable sendMessage/dm.
-  connectorActions: telegramActions,
+  // Journey-callable outbound actions — Telegram sendMessage/dm + Discord
+  // grant/remove role + dmMember (Discord actions registered only when the
+  // connector is configured, so the lifecycle/gamification journeys can act).
+  connectorActions: [
+    ...telegramActions,
+    ...(discordConnector ? discordActions : []),
+  ],
   // Discord OUTBOUND destination — always registered (config-driven per
   // webhook_endpoint), so lifecycle events can fan out to a Discord channel.
   destinations: [discordDestination],

@@ -1,4 +1,5 @@
 import { createHogsendClient, createWorker } from "@hogsend/engine";
+import { discordActions } from "@hogsend/plugin-discord";
 import { telegramActions, telegramConnector } from "@hogsend/plugin-telegram";
 import { buckets } from "./buckets/index.js";
 import {
@@ -24,7 +25,10 @@ async function main() {
       ...(discordConnector ? [discordConnector] : []),
       telegramConnector,
     ],
-    connectorActions: telegramActions,
+    connectorActions: [
+      ...telegramActions,
+      ...(discordConnector ? discordActions : []),
+    ],
     destinations: [discordDestination],
   });
   setDiscordDb(client.db, client.identity);

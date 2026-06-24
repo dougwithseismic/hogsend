@@ -52,26 +52,6 @@ function guildIdOf(user: {
   return user.properties.guildId ? String(user.properties.guildId) : "";
 }
 
-/** 🌱 Sproutling — joined the server. */
-export const discordSproutling = defineJourney({
-  meta: {
-    id: "discord-sproutling",
-    name: "Discord — Sproutling (joined)",
-    enabled: true,
-    trigger: { event: DiscordEvents.GUILD_MEMBER_ADD },
-    entryLimit: "once",
-    suppress: days(0),
-  },
-  run: async (user) => {
-    await grantAndAnnounce({
-      member: user.id,
-      guildId: guildIdOf(user),
-      roleId: DiscordGamification.roles.SPROUTLING,
-      dm: "🎉 You just earned the 🌱 Sproutling role for joining the server! Welcome! 👋",
-    });
-  },
-});
-
 /** 👋 Hello world — first message. */
 export const discordHelloWorld = defineJourney({
   meta: {

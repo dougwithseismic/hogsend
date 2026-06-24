@@ -12,8 +12,8 @@ import {
   discordHypeHog,
   discordIntroduced,
   discordResonator,
-  discordSproutling,
 } from "./discord-gamification.js";
+import { discordPiglet, discordStranger } from "./discord-lifecycle.js";
 import { feedbackNps } from "./feedback-nps.js";
 import { linkClickCampaign } from "./link-click-campaign.js";
 import { reactivationDormancy } from "./reactivation-dormancy.js";
@@ -48,7 +48,8 @@ export const journeys: DefinedJourney[] = [
   telegramOnboarding,
   testOnboarding,
   linkClickCampaign,
-  discordSproutling,
+  discordStranger,
+  discordPiglet,
   discordHelloWorld,
   discordIntroduced,
   discordResonator,
@@ -68,8 +69,9 @@ export {
   discordHelloWorld,
   discordHypeHog,
   discordIntroduced,
+  discordPiglet,
   discordResonator,
-  discordSproutling,
+  discordStranger,
   feedbackNps,
   linkClickCampaign,
   reactivationDormancy,
