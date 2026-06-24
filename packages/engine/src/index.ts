@@ -186,6 +186,14 @@ export {
   defineJourney,
 } from "./journeys/define-journey.js";
 export { JourneyExitedError } from "./journeys/errors.js";
+export {
+  createMemoize,
+  deriveJourneyKey,
+  getJourneyBoundary,
+  type JourneyBoundary,
+  registerKey,
+  runWithJourneyBoundary,
+} from "./journeys/journey-boundary.js";
 export { createJourneyContext } from "./journeys/journey-context.js";
 export {
   buildJourneyRegistry,

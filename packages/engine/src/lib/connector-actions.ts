@@ -3,6 +3,11 @@ import { and, eq, isNull, or } from "drizzle-orm";
 import { getConnectorActionRegistry } from "../connectors/action-registry-singleton.js";
 import type { ResolvedActionContact } from "../connectors/define-action.js";
 import { env } from "../env.js";
+import {
+  deriveJourneyKey,
+  getJourneyBoundary,
+  registerKey,
+} from "../journeys/journey-boundary.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
 
@@ -82,9 +87,33 @@ export async function sendConnectorAction(
     );
   }
   const db = getDb();
-  return action.run(input.args, {
-    db,
-    logger: createLogger(env.LOG_LEVEL),
-    resolveContact: (ref: string) => resolveContact(db, ref),
-  });
+  const doRun = () =>
+    action.run(input.args, {
+      db,
+      logger: createLogger(env.LOG_LEVEL),
+      resolveContact: (ref: string) => resolveContact(db, ref),
+    });
+
+  // Layer-1 (eviction-gated) replay protection. Connector actions (Telegram /
+  // Discord REST sends) have NO Layer-2 DB backstop — there is no deliveries
+  // table to dedupe against — so on a degraded (pre-eviction) engine a replay
+  // CAN still double-send. When eviction is live this memoize makes the action
+  // exactly-once for free; the key is content/site-derived exactly like sends so
+  // two distinct actions on divergent branches stay apart. A Layer-2 backstop
+  // (connector_deliveries table / Redis SETNX) is a documented follow-up.
+  const boundary = getJourneyBoundary();
+  if (boundary) {
+    const site =
+      boundary.currentLabel ?? `${input.connectorId}:${input.action}`;
+    const key = deriveJourneyKey({
+      kind: "connector",
+      anchor: boundary.runAnchor,
+      site,
+      discriminant: `${input.connectorId}:${input.action}`,
+    });
+    registerKey(boundary, key);
+    return boundary.memoize([key], doRun);
+  }
+
+  return doRun();
 }

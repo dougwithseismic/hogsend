@@ -102,7 +102,10 @@ export async function ingestEvent(opts: {
   const occurredAt = event.occurredAt ? new Date(event.occurredAt) : undefined;
 
   // (2) Idempotency dedup + `user_events` insert keyed on the resolved key, with
-  // ONLY eventProperties in the properties bag (D2).
+  // ONLY eventProperties in the properties bag (D2). `ctx.trigger` now supplies a
+  // deterministic key (`journeyTrigger:<runAnchor>:<site>:<event>`), so a journey
+  // replay re-pushing the same trigger hits the onConflictDoNothing early-return
+  // below — the push, checkExits, contact upsert, and alias never re-fire.
   let idempotentInsertId: string | undefined;
   if (event.idempotencyKey) {
     const result = await db

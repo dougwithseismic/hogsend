@@ -1,4 +1,9 @@
 import { generateUnsubscribeUrl } from "@hogsend/email";
+import {
+  deriveJourneyKey,
+  getJourneyBoundary,
+  registerKey,
+} from "../journeys/journey-boundary.js";
 import type {
   EmailService,
   EmailServiceSendOptions,
@@ -29,6 +34,21 @@ export interface SendEmailOptions {
   journeyName?: string;
   journeyStateId?: string;
   props?: Record<string, unknown>;
+  /**
+   * Explicit idempotency key. A public caller (e.g. POST /v1/emails) sets this
+   * directly; it always wins over the engine's auto-derivation. Journey sends
+   * leave it unset — the engine derives a deterministic key from the active
+   * journey boundary (see {@link idempotencyLabel}).
+   */
+  idempotencyKey?: string;
+  /**
+   * Disambiguates a send's exactly-once idempotency key when the SAME template
+   * is sent more than once in one journey enrollment on divergent branches.
+   * Normally the engine auto-derives the key from the nearest authored wait
+   * label, so this is rarely needed; pass a distinct label per call if the
+   * engine throws an intra-run key-collision error. Additive and optional.
+   */
+  idempotencyLabel?: string;
 }
 
 export interface SendEmailResult {
@@ -40,6 +60,31 @@ export async function sendEmail(
   opts: SendEmailOptions,
 ): Promise<SendEmailResult> {
   const service = getEmailService();
+
+  // Exactly-once across a durable replay. When inside a journey run, derive a
+  // deterministic, branch-stable key (anchored on the replay-stable
+  // `boundary.runAnchor` = Hatchet run id, NOT the freshly-minted stateId) so a
+  // replay re-firing the same logical send re-derives the SAME key and the unique
+  // `email_sends.idempotencyKey` index absorbs the duplicate provider call
+  // (Layer 2 — version-independent). The boundary's nearest authored wait label
+  // is the "site" discriminant, so two sends of the SAME template on different
+  // branches derive distinct keys for free. An explicit key (public callers)
+  // always wins; outside a journey (admin bulk / POST /v1/emails) the key is
+  // whatever the caller passed (NULL for journey-less sends — Postgres treats
+  // NULLs as distinct, so unchanged).
+  const boundary = getJourneyBoundary();
+  let resolvedIdempotencyKey: string | undefined = opts.idempotencyKey;
+  if (!resolvedIdempotencyKey && boundary) {
+    const site =
+      opts.idempotencyLabel ?? boundary.currentLabel ?? opts.template;
+    resolvedIdempotencyKey = deriveJourneyKey({
+      kind: "send",
+      anchor: boundary.runAnchor,
+      site,
+      discriminant: opts.template,
+    });
+    registerKey(boundary, resolvedIdempotencyKey);
+  }
 
   let unsubscribeUrl: string | undefined;
   if (process.env.API_PUBLIC_URL && process.env.BETTER_AUTH_SECRET) {
@@ -78,6 +123,7 @@ export async function sendEmail(
     to: opts.to,
     subject: opts.subject,
     journeyStateId: opts.journeyStateId,
+    idempotencyKey: resolvedIdempotencyKey,
     userId: opts.userId,
     userEmail: opts.to,
     category: "journey",
@@ -89,10 +135,22 @@ export async function sendEmail(
     headers,
   } as unknown as EmailServiceSendOptions;
 
-  const result = await service.send(sendOptions);
-
-  return {
-    emailSendId: result.emailSendId,
-    sentAt: new Date().toISOString(),
+  // Layer 1 (fast path): when inside a journey on an eviction-capable engine,
+  // run the provider send through Hatchet's durable `memo` so a replay returns
+  // the recorded `{ emailSendId, sentAt }` WITHOUT re-hitting the provider or
+  // the DB. JSON-safe (both fields are strings). Degrades to a bare send when
+  // eviction is unavailable — Layer 2 (the DB key above) still guarantees
+  // exactly-once. Outside a journey, send directly (no boundary).
+  const doSend = async (): Promise<SendEmailResult> => {
+    const result = await service.send(sendOptions);
+    return {
+      emailSendId: result.emailSendId,
+      sentAt: new Date().toISOString(),
+    };
   };
+
+  if (boundary && resolvedIdempotencyKey) {
+    return boundary.memoize([resolvedIdempotencyKey], doSend);
+  }
+  return doSend();
 }

@@ -106,6 +106,11 @@ services:
       retries: 5
 
   hatchet-lite:
+    # Journey replay-safety Layer 1 (the durable `memo` fast path) needs engine
+    # >= v0.80.0 (DURABLE_EVICTION); below that `memo` silently no-ops. The
+    # version-independent Layer 2 (Postgres unique-index dedup) is the
+    # authoritative exactly-once guarantee regardless of the engine tag. Pin to a
+    # concrete >= v0.80.0 tag if you need Layer 1's durability to be guaranteed.
     image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
     restart: unless-stopped
     depends_on:

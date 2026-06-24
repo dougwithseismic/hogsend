@@ -476,6 +476,25 @@ export const journeyRegistry: Record<string, JourneyDefinition> = {
 
 Adding a journey = write a `.ts` file, add it to the registry, deploy. An AI agent can do this with a single file write.
 
+### Replay-safety (exactly-once side effects)
+
+Journeys run as Hatchet durable tasks that **replay-from-top** on a worker crash, OOM, or redeploy (every push to `main`). Side effects between durable waits — `sendEmail()`, `ctx.trigger()` — must therefore be exactly-once across a replay, or a redeploy mid-journey re-delivers an email.
+
+The engine guarantees this automatically, with **zero authoring change in the common case** (each template sent once per enrollment). Two defense-in-depth layers, both fed by one shared content-derived key:
+
+- **Layer 2 (primary, version-independent)** — each send/trigger is auto-keyed by the enrollment's **replay-stable Hatchet run id** + the nearest authored wait/checkpoint label + the templateKey/event. The run id (not the freshly-minted `journeyStates.id`) is the anchor because a replay-from-top of a journey whose prior enrollment is TERMINAL would otherwise mint a new state row and a non-colliding key; on replay the engine **recovers the existing enrollment by run id** so the same id and the same key are re-derived. That deterministic key is threaded into the existing `email_sends`/`user_events` unique-index dedup, so a replayed effect short-circuits to the prior row instead of re-dispatching. The key is content/label-derived (never positional), so it is robust to the branch and clock divergence a replay can introduce. The auto-keying lives in the tracked mailer, so even a journey that calls the raw `getEmailService().send(...)` (bypassing the `sendEmail()` helper) is covered.
+- **Layer 1 (fast path, eviction-gated)** — the same key is also run through Hatchet's durable `memo`, skipping the effect entirely before the DB is touched. Active only on engine >= v0.80.0 (DURABLE_EVICTION); below that it cleanly no-ops and Layer 2 carries the guarantee. Logged once at boot.
+
+Scope: exactly-once is scoped to **replays of the same durable run**. A genuinely new trigger delivery that spawns a separate run is a new enrollment and (for `unlimited` / elapsed `once_per_period` journeys) legitimately sends again — that is re-enrollment, not a duplicate.
+
+**The only authoring rule:** if you send the SAME template (or trigger the SAME event) more than once in one journey on divergent branches that share a nearest wait label, pass a distinct `idempotencyLabel` per call. The engine throws a loud intra-run key-collision error if two sites derive the same key, so the footgun is caught in dev — never a silently dropped message.
+
+`getPostHog()?.identify()` is replay-safe (a `$set` upsert); prefer a recorded timestamp (e.g. the matched event's `occurredAt` from `ctx.waitForEvent`) over `new Date()` for any value it writes.
+
+**Non-deterministic decisions** — if a journey makes a non-deterministic choice (LLM, RNG, time-bucketing) whose output selects the send template or trigger event (i.e. becomes the dedup key's discriminant), wrap it in `ctx.once(key, compute)`. `ctx.once` records the computed value in the enrollment's state row the first time and replays it verbatim thereafter — durable on ANY engine — so a replay re-derives the SAME choice (and the SAME send key) instead of delivering a duplicate-but-different message.
+
+**Connector actions** — `sendConnectorAction()` (Telegram/Discord) has NO Layer-2 DB backstop (no deliveries table yet), so it is exactly-once only via Layer-1 memo when the engine supports eviction; on a pre-eviction engine a replay can still double-send a connector message. A Layer-2 backstop is a documented follow-up. Do not rely on connector exactly-once in degraded mode.
+
 ---
 
 ## Engine Core

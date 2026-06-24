@@ -35,7 +35,15 @@ export const aiReengagement = defineJourney({
     await ctx.checkpoint("deciding-action");
 
     // Ask the AI strategist which action (or suppress) fits this user best.
-    const { action } = await decideNextBestAction(user, ctx);
+    // The decision is NON-DETERMINISTIC (an LLM call) and it picks the template
+    // that becomes the send's exactly-once key discriminant — so a replay that
+    // re-ran the LLM could choose a DIFFERENT template, derive a non-colliding
+    // key, and deliver a second (different) email. `ctx.once` records the chosen
+    // action in the enrollment's state row the first time and replays it
+    // verbatim thereafter (durable on ANY engine), so the send key is stable.
+    const { action } = await ctx.once("reengagement-action", () =>
+      decideNextBestAction(user, ctx),
+    );
 
     // If the agent chose to stay silent, return without sending anything.
     if (action === "suppress") {
