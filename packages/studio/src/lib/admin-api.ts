@@ -652,6 +652,32 @@ export function verifyDomain() {
   return api.post<EngineDomainStatus>("/v1/admin/domain/verify");
 }
 
+// --- Setup readiness (non-blocking FTUX checklist) ------------------------
+
+/**
+ * One row of the setup checklist from `GET /v1/admin/readiness`.
+ * `ok` = done · `action` = needs doing · `optional` = nice-to-have, not done.
+ */
+export type ReadinessCheck = {
+  id: string;
+  label: string;
+  status: "ok" | "action" | "optional";
+  detail: string;
+  docsUrl?: string;
+};
+
+export type Readiness = {
+  /** true when nothing is left in the `action` state (optional rows may remain). */
+  ready: boolean;
+  doneCount: number;
+  totalCount: number;
+  checks: ReadinessCheck[];
+};
+
+export function getReadiness() {
+  return api.get<Readiness>("/v1/admin/readiness");
+}
+
 // --- Integrations (connectors + destinations) ----------------------------
 
 /**
@@ -850,6 +876,7 @@ export const qk = {
   suppressions: (type: string) => ["suppressions", type] as const,
   apiKeys: ["api-keys"] as const,
   domain: ["domain"] as const,
+  readiness: ["readiness"] as const,
   integrations: ["integrations"] as const,
   discordConnectInfo: ["discord-connect-info"] as const,
   links: (type: string) => ["links", type] as const,

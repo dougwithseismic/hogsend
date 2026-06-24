@@ -303,7 +303,23 @@ export function createDomainStatusService(deps: {
 
     // biome-ignore lint/style/noNonNullAssertion: `supported` guarantees it.
     const capability = provider.domains!;
-    const providerStatus = await capability.get(domain);
+    let providerStatus: DomainStatus | null;
+    try {
+      providerStatus = await capability.get(domain);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // A permission-denied (401/403) from the provider's domains API — a
+      // missing or send-only restricted key — is a CONFIGURATION state, not a
+      // server error. Engage the same warn-once + back-off the per-send refresh
+      // uses and return a degraded (`status: null`) snapshot, so an explicit
+      // getStatus({ refresh }) (admin route, Studio Setup, readiness) resolves
+      // to a graceful 200 "not configured" instead of throwing a scary 502.
+      // Transient failures (network/5xx) still throw → the caller surfaces 502.
+      if (isPermissionDeniedMessage(message)) {
+        return markPermissionBlocked(message);
+      }
+      throw err;
+    }
     // The key CAN read domains after all — clear any permission back-off so a
     // key swap recovers immediately and a future restriction warns once again.
     permissionBlocked = false;
@@ -342,7 +358,7 @@ export function createDomainStatusService(deps: {
    * cold cache commits the assumed-verified `null` snapshot (fail-open
    * verified, the existing contract — production mail is never redirected).
    */
-  const markPermissionBlocked = (message: string): void => {
+  const markPermissionBlocked = (message: string): EngineDomainStatus => {
     permissionBlocked = true;
     if (!permissionWarned) {
       permissionWarned = true;
@@ -361,9 +377,12 @@ export function createDomainStatusService(deps: {
       // Preserve the last real snapshot as the truth; just push its
       // freshness window out to the back-off TTL.
       cache.fetchedAt = Date.now();
-      return;
+      return cache.snapshot;
     }
-    commitSnapshot(null, { assumedVerified: true });
+    // Cold cache: commit the assumed-verified `null` snapshot (fail-open) and
+    // hand it back so an explicit getStatus() resolves to a degraded 200
+    // instead of throwing.
+    return commitSnapshot(null, { assumedVerified: true });
   };
 
   return {
@@ -397,14 +416,10 @@ export function createDomainStatusService(deps: {
       if (isFresh()) return;
       void fetchDeduped().catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        // Permission-style failure (401/403, e.g. a send-only restricted key):
-        // one explanatory warn + long back-off instead of warn-spam forever.
-        if (isPermissionDeniedMessage(message)) {
-          markPermissionBlocked(message);
-          return;
-        }
-        // Transient failures (network, 5xx) keep the existing behavior: warn
-        // every stale refresh, short TTL, fail-open verified via the cache.
+        // Permission-denied (401/403) is handled INSIDE fetchSnapshot now
+        // (warn-once + long back-off, resolves rather than rejects), so only
+        // transient failures (network, 5xx) reach here: warn every stale
+        // refresh, short TTL, fail-open verified via the cache.
         logger.warn("domain-status refresh failed", {
           domain,
           providerId,

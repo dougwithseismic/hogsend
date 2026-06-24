@@ -265,8 +265,8 @@ describe("per-send safety contract (sync, cache-only)", () => {
   });
 });
 
-describe("provider errors surface as 502 (not an opaque 500)", () => {
-  it("GET ?refresh=true returns 502 with the provider message when the domains call throws", async () => {
+describe("provider domains errors: permission-denied degrades, transient 502s", () => {
+  it("GET ?refresh=true degrades to 200 (status: null) on a permission-denied (401) key — Studio Setup must not see a 502", async () => {
     domainsGet.mockRejectedValueOnce(
       new Error(
         "Resend domains API 401: This API key is restricted to only send emails",
@@ -275,10 +275,26 @@ describe("provider errors surface as 502 (not an opaque 500)", () => {
     const res = await app.request("/v1/admin/domain?refresh=true", {
       headers: AUTH_HEADER,
     });
+    // A send-only restricted key cannot READ domains — that's a config state,
+    // not a server error, so the passive status check degrades gracefully.
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.supported).toBe(true);
+    expect(body.providerId).toBe("resend");
+    expect(body.status).toBeNull();
+  });
+
+  it("GET ?refresh=true still returns 502 on a TRANSIENT (non-permission) failure", async () => {
+    domainsGet.mockRejectedValueOnce(
+      new Error("Resend domains API request failed with status 503"),
+    );
+    const res = await app.request("/v1/admin/domain?refresh=true", {
+      headers: AUTH_HEADER,
+    });
     expect(res.status).toBe(502);
     const body = await res.json();
     expect(body.error).toContain('provider "resend"');
-    expect(body.error).toContain("restricted to only send emails");
+    expect(body.error).toContain("503");
   });
 
   it("POST /v1/admin/domain returns 502 when the provider create throws", async () => {
@@ -315,5 +331,35 @@ describe("OpenAPI registration", () => {
       paths.some((p) => p === "/v1/admin/domain" || p === "/v1/admin/domain/"),
     ).toBe(true);
     expect(paths).toContain("/v1/admin/domain/verify");
+  });
+});
+
+describe("GET /v1/admin/readiness (setup checklist)", () => {
+  it("returns a non-blocking checklist (200) with structured checks", async () => {
+    const res = await app.request("/v1/admin/readiness", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(typeof body.ready).toBe("boolean");
+    expect(typeof body.doneCount).toBe("number");
+    expect(Array.isArray(body.checks)).toBe(true);
+    expect(body.checks.length).toBe(body.totalCount);
+
+    const ids = body.checks.map((ch: { id: string }) => ch.id);
+    // Studio admin is trivially satisfied (you must be one to reach the route).
+    expect(ids).toContain("studio_admin");
+    expect(ids).toContain("email_provider");
+    expect(ids).toContain("sending_domain");
+    for (const ch of body.checks) {
+      expect(typeof ch.label).toBe("string");
+      expect(["ok", "action", "optional"]).toContain(ch.status);
+      expect(typeof ch.detail).toBe("string");
+    }
+  });
+
+  it("is gated behind admin auth", async () => {
+    const res = await app.request("/v1/admin/readiness");
+    expect([401, 403]).toContain(res.status);
   });
 });

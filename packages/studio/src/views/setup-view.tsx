@@ -1,5 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Globe, RefreshCw, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Circle,
+  Copy,
+  Globe,
+  RefreshCw,
+  ShieldCheck,
+} from "lucide-react";
 import { useState } from "react";
 import {
   EmptyState,
@@ -26,7 +34,9 @@ import {
   type DomainVerificationState,
   type EngineDomainStatus,
   getDomainStatus,
+  getReadiness,
   qk,
+  type ReadinessCheck,
   type TestModeState,
   verifyDomain,
 } from "@/lib/admin-api";
@@ -138,6 +148,72 @@ function AddDomainForm({
   );
 }
 
+/** Icon + tint per check status. */
+const CHECK_ICON: Record<
+  ReadinessCheck["status"],
+  { Icon: typeof CheckCircle2; className: string }
+> = {
+  ok: { Icon: CheckCircle2, className: "text-emerald-400" },
+  action: { Icon: AlertTriangle, className: "text-amber-400" },
+  optional: { Icon: Circle, className: "text-white/25" },
+};
+
+/**
+ * Non-blocking first-time-setup checklist. Reads `GET /v1/admin/readiness` and
+ * renders one row per area (email key, sending domain, data-plane key, …). It
+ * never gates the page: while it loads it shows a skeleton, and on any error it
+ * renders nothing rather than blocking the Setup view below it.
+ */
+function SetupChecklist() {
+  const query = useQuery({
+    queryKey: qk.readiness,
+    queryFn: () => getReadiness(),
+  });
+
+  if (query.isPending) return <TableSkeleton />;
+  if (query.isError || !query.data) return null;
+
+  const { checks, doneCount, totalCount } = query.data;
+
+  return (
+    <div className="rounded-lg border bg-white/[0.015] p-4">
+      <div className="mb-1 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-white">Setup checklist</h2>
+        <span className="text-xs text-white/50">
+          {doneCount}/{totalCount} done
+        </span>
+      </div>
+      <ul className="divide-y divide-white/5">
+        {checks.map((check) => {
+          const { Icon, className } = CHECK_ICON[check.status];
+          return (
+            <li key={check.id} className="flex items-start gap-3 py-2.5">
+              <Icon
+                className={`mt-0.5 h-4 w-4 shrink-0 ${className}`}
+                strokeWidth={1.5}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-white/90">{check.label}</p>
+                <p className="text-xs text-white/50">{check.detail}</p>
+              </div>
+              {check.docsUrl && check.status !== "ok" ? (
+                <a
+                  href={check.docsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 text-xs text-accent hover:underline"
+                >
+                  Docs
+                </a>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export function SetupView() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -149,6 +225,8 @@ export function SetupView() {
 
   const applyStatus = (status: EngineDomainStatus) => {
     queryClient.setQueryData(qk.domain, status);
+    // A domain change can flip the checklist's "sending domain" row.
+    void queryClient.invalidateQueries({ queryKey: qk.readiness });
   };
 
   const onMutationError = (title: string) => (error: unknown) => {
@@ -207,7 +285,7 @@ export function SetupView() {
     <div className="space-y-6">
       <PageHeader
         title="Setup"
-        description="Sending-domain verification — DNS records, status, and test mode."
+        description="Get your instance production-ready — a configuration checklist plus sending-domain verification."
         action={
           data?.supported ? (
             <div className="flex gap-2">
@@ -234,6 +312,10 @@ export function SetupView() {
           ) : null
         }
       />
+
+      <SetupChecklist />
+
+      <h2 className="-mb-2 text-sm font-medium text-white">Sending domain</h2>
 
       {query.isPending ? (
         <TableSkeleton />
