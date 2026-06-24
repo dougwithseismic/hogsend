@@ -1,5 +1,23 @@
 # @hogsend/plugin-posthog
 
+## 0.33.0
+
+### Minor Changes
+
+- 855b3e4: feat(plugin-discord): `removeRole` outbound action for tenure ladders.
+
+  Adds a `removeRole` action mirroring `grantRole` (bot-REST `DELETE
+.../roles/{roleId}`, idempotent, soft-fails on an unresolved member or a
+  permission/hierarchy 403) so journeys can demote as well as promote — e.g. a
+  Stranger → Piglet → Hog member lifecycle (drop Stranger on `/link`, drop Piglet
+  on graduating to Hog after a 7-day tenure + a message). The rest of the engine
+  line rides the version bump.
+
+### Patch Changes
+
+- Updated dependencies [855b3e4]
+  - @hogsend/core@0.33.0
+
 ## 0.32.1
 
 ### Patch Changes
