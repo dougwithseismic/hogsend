@@ -77,6 +77,7 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
       purpose: c.req.header("purpose"),
       xPurpose: c.req.header("x-purpose"),
       xMozPrefetch: c.req.header("x-moz"),
+      secPurpose: c.req.header("sec-purpose"),
     });
 
     // The linkClicks insert + clickCount increment stay UNCONDITIONAL — every

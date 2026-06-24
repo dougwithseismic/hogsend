@@ -159,6 +159,9 @@ describe("discordConnector.transform", () => {
     expect(received.userId).toBeUndefined();
     expect(received.discordId).toBe("author1");
     expect(received.eventProperties.reactorKey).toBe("discord:reactor1");
+    // The author's own snowflake rides on the payload so a cold-created author
+    // can still be granted/DM'd by the raw id.
+    expect(received.eventProperties.authorId).toBe("author1");
     expect(received.idempotencyKey).toBe("discord:react:m5:reactor1:❤️:r");
     // The two idempotency keys never collide.
     expect(added.idempotencyKey).not.toBe(received.idempotencyKey);

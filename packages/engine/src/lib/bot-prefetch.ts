@@ -16,25 +16,33 @@ const BOT_UA_RE =
 
 export interface BotPrefetchHeaders {
   userAgent?: string | null;
-  /** `Purpose` request header (Chrome/Safari prefetch). */
+  /** `Purpose` request header (legacy Chrome/Safari prefetch). */
   purpose?: string | null;
   /** `X-Purpose` request header (Safari). */
   xPurpose?: string | null;
   /** `X-Moz` request header (Firefox prefetch — value `prefetch`). */
   xMozPrefetch?: string | null;
+  /**
+   * `Sec-Purpose` request header — modern Chromium (Chrome/Edge 121+)
+   * Speculation-Rules prefetch/prerender, sent with a REAL browser UA. Values
+   * like `prefetch` or `prefetch;prerender`.
+   */
+  secPurpose?: string | null;
 }
 
 /**
  * True when the request looks like an automated unfurl bot or a speculative
- * prefetch rather than a real human click.
+ * prefetch/prerender rather than a real human click.
  */
 export function isBotOrPrefetch(headers: BotPrefetchHeaders): boolean {
-  const { userAgent, purpose, xPurpose, xMozPrefetch } = headers;
+  const { userAgent, purpose, xPurpose, xMozPrefetch, secPurpose } = headers;
   if (userAgent && BOT_UA_RE.test(userAgent)) return true;
   const p = purpose?.toLowerCase();
   if (p === "prefetch" || p === "preview") return true;
   const xp = xPurpose?.toLowerCase();
   if (xp === "prefetch" || xp === "preview") return true;
   if (xMozPrefetch) return true;
+  const sp = secPurpose?.toLowerCase();
+  if (sp && (sp.includes("prefetch") || sp.includes("prerender"))) return true;
   return false;
 }

@@ -151,8 +151,15 @@ export const discordResonator = defineJourney({
     });
     if (already.found) return;
 
+    // Use the author's raw snowflake (on the event) — `resolveDiscordId` maps an
+    // all-digit ref straight to a snowflake, so grant/DM fire even if this author
+    // has no contact yet (a cold-created author has a UUID subject key that can't
+    // be mapped back to Discord).
+    const member = user.properties.authorId
+      ? String(user.properties.authorId)
+      : user.id;
     const granted = await grantAndAnnounce({
-      member: user.id,
+      member,
       guildId: guildIdOf(user),
       roleId: DiscordGamification.roles.RESONATOR,
       dm: "🎉 You just earned the 🌟 Resonator role because your post resonated with 5+ people!",

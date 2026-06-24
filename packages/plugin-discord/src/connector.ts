@@ -195,6 +195,11 @@ export const discordConnector: DefinedConnector = defineConnector({
               emoji: d.emoji?.name ?? null,
               reactorId: d.user_id,
               reactorKey: discordUserKey(d.user_id),
+              // The author's OWN snowflake on the payload, so an author-keyed
+              // journey can grant/DM via the raw id even when this reaction is
+              // the author's first-ever touch (no contact yet → a UUID subject
+              // key that resolveDiscordId can't map back to a snowflake).
+              authorId: targetAuthorId,
             },
             contactProperties: {
               discord: discordMetadata({

@@ -39,7 +39,7 @@ import {
   journeyStates,
   userEvents,
 } from "@hogsend/db";
-import { and, count, desc, eq, gte, max, notInArray } from "drizzle-orm";
+import { and, count, desc, eq, gte, max, notInArray, sql } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { ingestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
@@ -276,6 +276,19 @@ export function createJourneyContext(
       deadline.getTime() - durationToMs(timeout) - lookbackMs,
     );
 
+    // Push `eq` conditions (the common "await THIS specific link/campaign" case)
+    // into SQL so the LIMIT below bounds MATCHING rows, not all same-name rows —
+    // otherwise a chatty user emitting >LIMIT other same-name events could bury
+    // the matching row past the cutoff and the wait would falsely time out.
+    // jsonb `->>` extracts as text; scalar eq compares as text (matching how the
+    // value was stored). Non-eq operators are left to the JS re-verify below.
+    const eqPreds = where
+      .filter((c) => c.operator === "eq" && c.value !== undefined)
+      .map(
+        (c) =>
+          sql`${userEvents.properties} ->> ${c.property} = ${String(c.value)}`,
+      );
+
     const scanForMatch = async (): Promise<NonNullable<
       WaitForEventResult["properties"]
     > | null> => {
@@ -287,10 +300,14 @@ export function createJourneyContext(
             eq(userEvents.userId, userId),
             eq(userEvents.event, event),
             gte(userEvents.occurredAt, scanSince),
+            ...eqPreds,
           ),
         )
         .orderBy(desc(userEvents.occurredAt))
-        .limit(25);
+        // 100 is a generous backstop for a `where` of ONLY non-eq operators (no
+        // SQL pushdown); the eq-pushdown path returns only matching rows, so the
+        // cap can never hide a match there.
+        .limit(100);
       for (const row of recent) {
         const props = (row.properties ?? {}) as Record<string, unknown>;
         if (
