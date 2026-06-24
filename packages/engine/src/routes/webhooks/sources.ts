@@ -236,7 +236,15 @@ export function registerWebhookSourceRoutes(
       return c.json({ ok: true, skipped: true });
     }
 
-    const result = await ingestEvent({ db, registry, hatchet, logger, event });
+    // Stamp the origin with the webhook source id ("posthog", "stripe", …) so
+    // the Events feed can show + filter where it came from.
+    const result = await ingestEvent({
+      db,
+      registry,
+      hatchet,
+      logger,
+      event: { ...event, source: sourceId },
+    });
 
     return c.json({
       ok: true,

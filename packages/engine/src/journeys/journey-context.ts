@@ -379,6 +379,8 @@ export function createJourneyContext(
           userId: targetUserId,
           userEmail: targetEmail ?? userEmail,
           eventProperties: properties ?? {},
+          // Cross-journey trigger (ctx.trigger).
+          source: "journey",
         },
       });
     },

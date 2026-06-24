@@ -410,6 +410,7 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
               // Stored `user_events.properties` is the event-property bag (D2).
               eventProperties:
                 (event.properties as Record<string, unknown>) ?? {},
+              source: "import",
             },
           }),
         ),
@@ -504,6 +505,7 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
               // Public batch-enroll request field stays `properties`
               // (decision #14); maps to the event-property bag (D2).
               eventProperties: user.properties ?? {},
+              source: "import",
             },
           }),
         ),
