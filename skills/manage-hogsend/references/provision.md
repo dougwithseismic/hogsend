@@ -35,7 +35,7 @@ mcp__railway__create_service projectId="<id>" name="hatchet-postgres" type="data
 ### Step 3: Deploy Hatchet-Lite
 
 ```
-mcp__railway__create_service projectId="<id>" name="hatchet-lite" image="ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest"
+mcp__railway__create_service projectId="<id>" name="hatchet-lite" image="ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0"
 ```
 
 Set Hatchet env vars:

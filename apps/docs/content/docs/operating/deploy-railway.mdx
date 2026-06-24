@@ -129,7 +129,7 @@ Both services deploy from the same repository. In Railway, create two services p
 
 ### Hatchet-Lite
 
-Deploy as a separate Railway service from the Docker image `ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest`, with its own Postgres instance:
+Deploy as a separate Railway service from the Docker image `ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0` (pinned to a concrete `>= v0.80.0` tag so journey replay-safety's durable `memo` fast path is guaranteed), with its own Postgres instance:
 
 | Variable | Value |
 |---|---|
