@@ -159,6 +159,28 @@ alternative), `SERVER_ALLOW_CREATE_TENANT`, `SERVER_ALLOW_INVITES`. Keep
 `SERVER_AUTH_SET_EMAIL_VERIFIED=true` (the seeded login depends on it with no
 SMTP configured).
 
+### (d) hatchet-lite: image pinned to a concrete tag (MANUAL — dashboard-only)
+
+Every **in-repo** hatchet-lite reference is pinned to
+`ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0` (the dev/prod compose files,
+the examples, the create-hogsend scaffold). The reason is journey replay-safety:
+the Layer-1 durable-`memo` fast path is only durable on hatchet engine
+`>= v0.80.0` (`engine-version.d.ts` `DURABLE_EVICTION = 'v0.80.0'`), so a floating
+`:latest` could silently drift below that and disable the fast path. (Correctness
+is never at risk regardless of version — the Layer-2 `connector_deliveries` /
+`email_sends` / `user_events` Postgres unique-index dedup guarantees exactly-once
+independent of the engine version. The pin only protects the Layer-1 fast path.)
+
+**The published marketplace template's `hatchet-lite` service is NOT covered by
+this — its image is composed dashboard-only and cannot be edited from the repo,
+so a fresh marketplace deploy likely still floats on `:latest`.** Re-pin it by
+hand: at `railway.com/workspace/templates/291daa3b-…`, set the `hatchet-lite`
+service image to `ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0`. Do **NOT**
+click the published card's **Update** button to apply it (Update clobbers the
+template's parameterized vars with the live project's literal secrets — see the
+title caveat above); make the image edit in the template editor and republish via
+the editor's normal save/publish, not the live-project Update sync.
+
 ## `hogsend-api` variables (as configured)
 
 3 required user-inputs + 13 pre-configured:
