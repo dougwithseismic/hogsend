@@ -7,7 +7,15 @@ import { churnPrevention } from "./churn-prevention.js";
 import { conversionAbandonedCheckout } from "./conversion-abandoned-checkout.js";
 import { conversionTrialUpgrade } from "./conversion-trial-upgrade.js";
 import { detractorRescue } from "./detractor-rescue.js";
+import {
+  discordHelloWorld,
+  discordHypeHog,
+  discordIntroduced,
+  discordResonator,
+  discordSproutling,
+} from "./discord-gamification.js";
 import { feedbackNps } from "./feedback-nps.js";
+import { linkClickCampaign } from "./link-click-campaign.js";
 import { reactivationDormancy } from "./reactivation-dormancy.js";
 import { referralInvite } from "./referral-invite.js";
 import { retentionMilestone } from "./retention-milestone.js";
@@ -39,6 +47,12 @@ export const journeys: DefinedJourney[] = [
   telegramLinkRequest,
   telegramOnboarding,
   testOnboarding,
+  linkClickCampaign,
+  discordSproutling,
+  discordHelloWorld,
+  discordIntroduced,
+  discordResonator,
+  discordHypeHog,
 ];
 
 // Re-export individual journeys for direct reference (tests, custom wiring).
@@ -51,7 +65,13 @@ export {
   conversionAbandonedCheckout,
   conversionTrialUpgrade,
   detractorRescue,
+  discordHelloWorld,
+  discordHypeHog,
+  discordIntroduced,
+  discordResonator,
+  discordSproutling,
   feedbackNps,
+  linkClickCampaign,
   reactivationDormancy,
   referralInvite,
   retentionMilestone,
