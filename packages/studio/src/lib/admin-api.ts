@@ -953,7 +953,7 @@ export function createLink(body: {
 
 export function updateLink(
   id: string,
-  body: { label?: string; campaign?: string },
+  body: { label?: string; campaign?: string; originalUrl?: string },
 ) {
   return api.patch<Link>(`/v1/admin/links/${encodeURIComponent(id)}`, {
     json: body,
