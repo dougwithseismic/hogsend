@@ -6,6 +6,7 @@ export {
   evaluateCondition,
   evaluateEventCondition,
   evaluatePropertyConditions,
+  normalizeWhere,
   type PropertyMatcher,
 } from "./conditions/index.js";
 export {

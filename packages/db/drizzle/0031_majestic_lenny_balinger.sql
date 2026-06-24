@@ -1,0 +1,1 @@
+ALTER TABLE "journey_states" ADD COLUMN "wait_deadline" timestamp with time zone;

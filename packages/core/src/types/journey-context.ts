@@ -1,5 +1,6 @@
 import type { DurationObject } from "../duration.js";
 import type { TimeZone } from "../schedule/tz.js";
+import type { JourneyWhere } from "./journey.js";
 
 export interface SleepOptions {
   duration: DurationObject;
@@ -98,6 +99,8 @@ export interface EmailHistoryResult {
 
 export interface RecentEventsOptions {
   userId: string;
+  /** Restrict to a single event name (use your `Events` constant). Omit for all. */
+  event?: string;
   limit?: number;
   within?: DurationObject;
 }
@@ -130,6 +133,18 @@ export interface WaitForEventOptions {
    * isn't mistaken for a fresh one.
    */
   lookback?: DurationObject;
+  /**
+   * Narrow the awaited event to ones whose properties match — the SAME
+   * predicate model as `trigger.where` (`(b) => b.prop("linkId").eq(id)` or a
+   * declarative `PropertyCondition[]`). Without it, the wait resolves on the
+   * FIRST `event` of that name for the user — so awaiting a generic event like
+   * `link.clicked` would wrongly resolve on ANY link's click. With it, the
+   * engine runs a durable, deadline-bounded re-arm loop: events failing the
+   * predicate are skipped (the wait re-arms) and only an event matching BOTH the
+   * user and `where` resolves, or the `timeout` elapses. Omitting it keeps the
+   * exact legacy single-wait behavior.
+   */
+  where?: JourneyWhere;
 }
 
 export interface WaitForEventResult {

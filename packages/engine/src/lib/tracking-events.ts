@@ -4,6 +4,7 @@ import { type Database, emailSends, journeyStates } from "@hogsend/db";
 import { eq } from "drizzle-orm";
 import { type IngestResult, ingestEvent } from "./ingestion.js";
 import type { Logger } from "./logger.js";
+import { LINK_CLICKED } from "./tracking-event-names.js";
 
 interface EmailSendContext {
   userId: string;
@@ -172,6 +173,77 @@ export async function pushTrackingEvent(
       userId: ctx.userId,
       userEmail: ctx.userEmail,
       eventProperties: properties,
+      source: "tracking",
+      idempotencyKey: opts.idempotencyKey,
+    },
+  });
+}
+
+export interface PushLinkClickEventOpts {
+  db: Database;
+  hatchet: HatchetClient;
+  registry: JourneyRegistry;
+  logger: Logger;
+  /**
+   * The MANAGED `links.id` — the durable, re-mint-safe key a journey filters on
+   * via `trigger.where`/`ctx.waitForEvent` (`where: b.prop("linkId").eq(...)`).
+   * Null when the tracked link has no managed parent row.
+   */
+  linkId: string | null;
+  /** The `tracked_links.id` (the redirect `:id`); disambiguates a re-mint. */
+  trackedLinkId: string;
+  campaign: string | null;
+  source: string | null;
+  linkType: string | null;
+  linkUrl: string;
+  /**
+   * The personal link's canonical contact key (`links.distinct_id`). MUST be the
+   * subject's EXTERNAL canonical key (an app `external_id`, or "discord:<id>" for
+   * a Discord member) — a raw snowflake or anonymous id would fork an orphan
+   * contact. Null ⇒ a broadcast/public link (no person) ⇒ no re-ingest.
+   */
+  distinctId: string | null;
+  idempotencyKey?: string;
+}
+
+/**
+ * Re-push a NON-email managed-link click onto the INTERNAL bus (`ingestEvent`)
+ * as the first-party `link.clicked` event so journeys can trigger / await a
+ * click of a SPECIFIC managed link (filtered by `linkId`/`campaign`).
+ *
+ * IDENTITY GATE (crash-guard): `ingestEvent`→`resolveOrCreateContact` THROWS on
+ * a zero-key event, so a broadcast/public link (`distinctId == null`) returns
+ * `undefined` WITHOUT calling ingest. The click route ALSO suppresses
+ * bot/prefetch hits upstream (`isBotOrPrefetch`), so an unfurl bot never reaches
+ * here. All six payload keys are scalars (or null) so they survive ingest and
+ * reach `trigger.where` + `waitForEvent.properties`.
+ *
+ * Distinct from the per-hit OUTBOUND `link.clicked` webhook: that fires for
+ * EVERY hit and carries `trackedLinks.id` + the raw mint distinctId; THIS bus
+ * event carries the managed `links.id` + the resolved survivor contact key.
+ */
+export async function pushLinkClickEvent(
+  opts: PushLinkClickEventOpts,
+): Promise<IngestResult | undefined> {
+  const { db, hatchet, registry, logger, distinctId } = opts;
+  if (!distinctId) return undefined;
+
+  return await ingestEvent({
+    db,
+    registry,
+    hatchet,
+    logger,
+    event: {
+      event: LINK_CLICKED,
+      userId: distinctId,
+      eventProperties: {
+        linkId: opts.linkId,
+        trackedLinkId: opts.trackedLinkId,
+        campaign: opts.campaign,
+        source: opts.source,
+        linkType: opts.linkType,
+        linkUrl: opts.linkUrl,
+      },
       source: "tracking",
       idempotencyKey: opts.idempotencyKey,
     },

@@ -1,11 +1,13 @@
-import { emailSends, linkClicks, trackedLinks } from "@hogsend/db";
+import { emailSends, linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { isBotOrPrefetch } from "../../lib/bot-prefetch.js";
 import { generateIdentityToken } from "../../lib/identity-token.js";
 import { emitOutbound } from "../../lib/outbound.js";
 import { EMAIL_LINK_CLICKED } from "../../lib/tracking-event-names.js";
 import {
+  pushLinkClickEvent,
   pushTrackingEvent,
   resolveEmailSendContext,
 } from "../../lib/tracking-events.js";
@@ -42,8 +44,16 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
         source: trackedLinks.source,
         event: trackedLinks.event,
         eventProperties: trackedLinks.eventProperties,
+        // Managed-link provenance (NULL for email-rewritten links, whose
+        // `tracked_links.link_id` is NULL). `linkId` is the durable `links.id`
+        // a journey filters on; it rides ONLY the bus re-ingest (A5), never the
+        // unchanged outbound payloads which keep `trackedLinks.id` as `linkId`.
+        linkId: links.id,
+        campaign: links.campaign,
+        linkType: links.type,
       })
       .from(trackedLinks)
+      .leftJoin(links, eq(trackedLinks.linkId, links.id))
       .where(eq(trackedLinks.id, id))
       .limit(1);
 
@@ -57,6 +67,17 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
       c.req.header("x-real-ip") ??
       null;
     const userAgent = c.req.header("user-agent") ?? null;
+
+    // Unfurl-bot / prefetch detection. A link-preview bot (Discord/Slack/…)
+    // auto-fetches a DM'd link BEFORE a human clicks; we still record the click
+    // + 302, but must NOT re-ingest it onto the journey bus (it would phantom
+    // enroll the recipient). Affects ONLY the non-email bus re-ingest below.
+    const isBot = isBotOrPrefetch({
+      userAgent,
+      purpose: c.req.header("purpose"),
+      xPurpose: c.req.header("x-purpose"),
+      xMozPrefetch: c.req.header("x-moz"),
+    });
 
     // The linkClicks insert + clickCount increment stay UNCONDITIONAL — every
     // tracked link counts clicks, email or not.
@@ -251,6 +272,34 @@ export const clickRouter = new OpenAPIHono<AppEnv>().openapi(
           at: new Date().toISOString(),
         },
       }).catch(logger.warn);
+
+      // BUS re-ingest: the first-party `link.clicked` event for a NON-email
+      // managed link, so journeys can trigger / `ctx.waitForEvent` on a click of
+      // a SPECIFIC managed link (filter by `linkId`/`campaign`). GATED on:
+      //  • `!isBot` — an unfurl/prefetch bot fetched the link, not a human.
+      //  • `link.distinctId` — a broadcast/public link carries no person, and
+      //    `resolveOrCreateContact` THROWS on a zero-key event. Personal links
+      //    only; the resolved subject is the survivor contact (not the raw
+      //    mint key). Per-second idempotencyKey dedupes the userEvents INSERT on
+      //    retry only — `entryLimit` is the journey-level throttle.
+      if (!isBot && link.distinctId) {
+        void pushLinkClickEvent({
+          db,
+          hatchet,
+          registry,
+          logger,
+          linkId: link.linkId ?? null,
+          trackedLinkId: link.id,
+          campaign: link.campaign ?? null,
+          source: link.source ?? null,
+          linkType: link.linkType ?? null,
+          linkUrl: link.originalUrl,
+          distinctId: link.distinctId,
+          idempotencyKey: `link:click:${link.id}:${Math.floor(
+            Date.now() / 1000,
+          )}`,
+        }).catch(logger.warn);
+      }
     }
 
     return c.redirect(redirectUrl, 302);

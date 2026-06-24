@@ -8,7 +8,12 @@ import {
   UserEventCondition,
 } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type { DurationObject } from "@hogsend/core";
-import { durationToMs, evaluateEventCondition } from "@hogsend/core";
+import {
+  durationToMs,
+  evaluateEventCondition,
+  evaluatePropertyConditions,
+  normalizeWhere,
+} from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import {
   isValidTimeZone,
@@ -21,6 +26,7 @@ import {
 import type {
   IfPast,
   JourneyContext,
+  PropertyCondition,
   RecentEvent,
   TimeOfDayBuilder,
   WaitForEventResult,
@@ -207,6 +213,160 @@ export function createJourneyContext(
     return { sleptAt, resumedAt };
   };
 
+  const narrowScalars = (
+    props: Record<string, unknown> | null | undefined,
+  ): NonNullable<WaitForEventResult["properties"]> =>
+    Object.fromEntries(
+      Object.entries(props ?? {}).filter(
+        ([, v]) =>
+          typeof v === "string" ||
+          typeof v === "number" ||
+          typeof v === "boolean" ||
+          v === null,
+      ),
+    ) as NonNullable<WaitForEventResult["properties"]>;
+
+  // WHERE-filtered durable wait. Unlike the legacy single-wait (which resolves
+  // on the FIRST same-name event, ignoring properties), this resolves ONLY on an
+  // event whose properties satisfy `where`. Correctness:
+  //  • DURABLE DEADLINE — persisted to `journey_states.wait_deadline`
+  //    read-first/set-once, so a Hatchet replay-from-top reuses it instead of
+  //    extending the wait on every replay (the single-`sleepFor` durability
+  //    trick does not survive a multi-iteration re-arm).
+  //  • GAP-PROOF — each iteration re-scans `user_events` over the WHOLE window
+  //    since the wait began (ingest writes the row BEFORE the Hatchet push), so
+  //    a match landing in the gap between a non-matching wake and the re-arm is
+  //    never lost. `lookback` widens the window backward.
+  //  • enterWait / resumeFromWait fire EXACTLY ONCE around the loop; an `exitOn`
+  //    landing mid-wait is caught by the per-iteration terminal-status check.
+  const performFilteredWaitForEvent = async (
+    event: string,
+    timeout: DurationObject,
+    nodeId: string,
+    where: PropertyCondition[],
+    lookback?: DurationObject,
+  ): Promise<WaitForEventResult> => {
+    // Durable deadline: read-first / set-once.
+    const stateRow = await db
+      .select({ waitDeadline: journeyStates.waitDeadline })
+      .from(journeyStates)
+      .where(eq(journeyStates.id, stateId))
+      .limit(1);
+    const storedDeadline = stateRow[0]?.waitDeadline ?? null;
+    const deadline = storedDeadline
+      ? new Date(storedDeadline)
+      : new Date(Date.now() + durationToMs(timeout));
+    if (!storedDeadline) {
+      await db
+        .update(journeyStates)
+        .set({ waitDeadline: deadline, updatedAt: new Date() })
+        .where(eq(journeyStates.id, stateId));
+    }
+
+    const clearDeadline = () =>
+      db
+        .update(journeyStates)
+        .set({ waitDeadline: null, updatedAt: new Date() })
+        .where(eq(journeyStates.id, stateId));
+
+    // Scan window: the (durable) instant the wait began — deadline minus the
+    // original timeout — widened backward by `lookback`.
+    const lookbackMs = lookback ? durationToMs(lookback) : 0;
+    const scanSince = new Date(
+      deadline.getTime() - durationToMs(timeout) - lookbackMs,
+    );
+
+    const scanForMatch = async (): Promise<NonNullable<
+      WaitForEventResult["properties"]
+    > | null> => {
+      const recent = await db
+        .select({ properties: userEvents.properties })
+        .from(userEvents)
+        .where(
+          and(
+            eq(userEvents.userId, userId),
+            eq(userEvents.event, event),
+            gte(userEvents.occurredAt, scanSince),
+          ),
+        )
+        .orderBy(desc(userEvents.occurredAt))
+        .limit(25);
+      for (const row of recent) {
+        const props = (row.properties ?? {}) as Record<string, unknown>;
+        if (
+          evaluatePropertyConditions({ conditions: where, properties: props })
+        ) {
+          return narrowScalars(props);
+        }
+      }
+      return null;
+    };
+
+    // Immediate hit (incl. the lookback window) — resolve without a state flip.
+    const preHit = await scanForMatch();
+    if (preHit) {
+      await clearDeadline();
+      return { timedOut: false, properties: preHit };
+    }
+
+    await enterWait(nodeId);
+
+    let outcome: WaitForEventResult;
+    while (true) {
+      const hit = await scanForMatch();
+      if (hit) {
+        outcome = { timedOut: false, properties: hit };
+        break;
+      }
+
+      // exitOn landing mid-wait flips the row to a terminal status — abort
+      // cleanly (no resume, no post-wait side effects) instead of re-arming.
+      const st = await db
+        .select({ status: journeyStates.status })
+        .from(journeyStates)
+        .where(eq(journeyStates.id, stateId))
+        .limit(1);
+      const status = st[0]?.status;
+      if (status && (TERMINAL_STATUSES as readonly string[]).includes(status)) {
+        throw new JourneyExitedError(stateId);
+      }
+
+      const remainingMs = deadline.getTime() - Date.now();
+      if (remainingMs <= 0) {
+        outcome = { timedOut: true };
+        break;
+      }
+
+      const armed = await hatchetCtx.waitFor(
+        Or(
+          new UserEventCondition(
+            event,
+            `input.userId == ${celStringLiteral(userId)}`,
+            "event",
+          ),
+          new SleepCondition(remainingMs, "timeout"),
+        ),
+      );
+      const fired = (("CREATE" in armed ? armed.CREATE : armed) ??
+        {}) as Record<string, unknown>;
+      if (!("event" in fired)) {
+        // Timeout branch — one final scan for an event landing exactly as the
+        // sleep expired, then conclude.
+        const last = await scanForMatch();
+        outcome = last
+          ? { timedOut: false, properties: last }
+          : { timedOut: true };
+        break;
+      }
+      // Event branch: loop — the next scan picks up the (already persisted) row
+      // if it matches, else re-arms toward the durable deadline.
+    }
+
+    await resumeFromWait();
+    await clearDeadline();
+    return outcome;
+  };
+
   // Durably wait for THIS user's `event` OR `timeout`, whichever fires first,
   // sharing the same guarded lifecycle as `performSleep`.
   const performWaitForEvent = async (
@@ -214,6 +374,7 @@ export function createJourneyContext(
     timeout: DurationObject,
     nodeId: string,
     lookback?: DurationObject,
+    where?: PropertyCondition[],
   ): Promise<WaitForEventResult> => {
     // Reject a timeout longer than the journey task's executionTimeout up front
     // so it fails fast at authoring time. (Eviction-capable engines may allow
@@ -222,6 +383,18 @@ export function createJourneyContext(
     if (durationToMs(timeout) > MAX_WAIT_MS) {
       throw new RangeError(
         `waitForEvent timeout exceeds the journey execution limit (${JOURNEY_EXECUTION_TIMEOUT})`,
+      );
+    }
+
+    // WHERE-filtered wait takes the durable re-arm path; an empty/absent `where`
+    // keeps the exact legacy single-wait below byte-for-byte.
+    if (where && where.length > 0) {
+      return performFilteredWaitForEvent(
+        event,
+        timeout,
+        nodeId,
+        where,
+        lookback,
       );
     }
 
@@ -343,12 +516,13 @@ export function createJourneyContext(
       );
     },
 
-    async waitForEvent({ event, timeout, label, lookback }) {
+    async waitForEvent({ event, timeout, label, lookback, where }) {
       return performWaitForEvent(
         event,
         timeout,
         label ?? `wait-event:${event}`,
         lookback,
+        normalizeWhere(where),
       );
     },
 
@@ -457,10 +631,14 @@ export function createJourneyContext(
 
       async events({
         userId: targetUserId,
+        event,
         limit = 50,
         within,
       }): Promise<RecentEvent[]> {
         const conditions = [eq(userEvents.userId, targetUserId)];
+        if (event) {
+          conditions.push(eq(userEvents.event, event));
+        }
         if (within) {
           const since = new Date(Date.now() - durationToMs(within));
           conditions.push(gte(userEvents.occurredAt, since));
