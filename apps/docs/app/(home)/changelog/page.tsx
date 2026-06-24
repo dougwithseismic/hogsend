@@ -128,6 +128,148 @@ const ENTRIES: ChangelogEntry[] = [
     ),
   },
   {
+    version: "0.29.0",
+    anchor: "0-29-0",
+    date: "June 22, 2026",
+    title: "createColdConnect() — one cold-connect primitive for every channel",
+    bullets: (
+      <>
+        <Bullet>
+          New <Code>createColdConnect</Code> engine primitive extracts the
+          Telegram link flow (<Code>/link &lt;email&gt;</Code> &rarr; emailed
+          confirm link &rarr; click &rarr; server-sealed bind &rarr; client-side{" "}
+          <Code>posthog.identify</Code>) into a channel-agnostic factory, so
+          Discord, Telegram, and future connectors share one mechanism. It owns
+          the sealed-token store (Redis), the connect page, and the{" "}
+          <Code>peek &rarr; ingestEvent &rarr; consume</Code> exchange,
+          returning <Code>{"{ mintConfirm, confirmUrl, routes }"}</Code>.
+        </Bullet>
+        <Bullet>
+          Security invariants are baked in: the bind runs only on a human POST
+          (never a GET prefetch); ids come solely from the sealed token (no
+          graft); single-use peek-then-consume so a webhook retry can&rsquo;t
+          burn the link; a fail-closed Redis-INCR mint throttle; and
+          cross-connector token isolation (a{" "}
+          <Code>{"binding.connectorId === connectorId"}</Code> assert, 410 on
+          mismatch). The exchange returns the canonical <Code>contactKey</Code>,
+          which the page hands to <Code>posthog.identify</Code> — keyed to the
+          server-proven id, never a client-supplied one.
+        </Bullet>
+        <Bullet>
+          <Code>CreateAppOptions.routes</Code> now accepts a single fn or an
+          array, so a consumer can mount{" "}
+          <Code>{"[existingRoutes, coldConnect.routes]"}</Code> without
+          clobbering. <Code>@hogsend/plugin-telegram</Code> is refactored onto
+          the primitive; the basePath (<Code>/connect/telegram</Code>) is
+          unchanged, so confirmation emails in flight keep resolving.
+        </Bullet>
+        <Bullet>
+          The marketing site&rsquo;s PostHog init now sets{" "}
+          <Code>cross_subdomain_cookie: true</Code> so a <em>consented</em>{" "}
+          visitor&rsquo;s distinct_id is written to a <Code>.hogsend.com</Code>{" "}
+          cookie — letting a connect page served off the API host read the
+          existing id and fold prior browsing into the proven identity.
+          Pre-consent behaviour (memory-only, no cookie) is unchanged.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive —{" "}
+        <Code>createColdConnect</Code> is a new export and the{" "}
+        <Code>routes</Code> array form is backward-compatible.
+      </>
+    ),
+  },
+  {
+    version: "0.28.0",
+    anchor: "0-28-0",
+    date: "June 22, 2026",
+    title: "Telegram connector + live-only journey index",
+    bullets: (
+      <>
+        <Bullet>
+          New <Code>@hogsend/plugin-telegram</Code> — an inbound webhook
+          connector for messages, the <Code>/start</Code> deep-link, and a{" "}
+          <Code>/link</Code> email-confirm cold connect, with journey-callable{" "}
+          <Code>sendMessage</Code>/<Code>dm</Code> actions. Linking uses
+          Redis-token peek-then-consume, so a Telegram webhook retry can&rsquo;t
+          burn a link mid-flight.
+        </Bullet>
+        <Bullet>
+          Engine: <Code>uq_user_journey_active</Code> is now a PARTIAL unique
+          index scoped to live rows (
+          <Code>{"status IN ('active','waiting')"}</Code>), so an{" "}
+          <Code>unlimited</Code> journey can complete more than once per user —
+          the old full <Code>(user_id, journey_id, status)</Code> index threw{" "}
+          <Code>23505</Code> on the second completion. Ships migration{" "}
+          <Code>0029</Code>.
+        </Bullet>
+        <Bullet>
+          <Code>contacts.properties.telegram</Code> now deep-merges, mirroring{" "}
+          <Code>discord</Code>.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive; run migration{" "}
+        <Code>0029</Code> to swap the journey index to the live-only partial.
+      </>
+    ),
+  },
+  {
+    version: "0.27.0",
+    anchor: "0-27-0",
+    date: "June 21, 2026",
+    title: "Generic first-party link tracker",
+    bullets: (
+      <>
+        <Bullet>
+          The email link-tracking machinery is now a channel-agnostic primitive:{" "}
+          <Code>mintLink(...)</Code> inserts a durable <Code>links</Code> row
+          (operator/campaign identity) plus a <Code>tracked_links</Code>{" "}
+          click-counter that back-references it via <Code>link_id</Code>, and
+          returns the <Code>{"/v1/t/c/:id"}</Code> redirect URL — so Studio,
+          Discord, SMS, or a share link can mint a tracked link, not just email.
+          Email is unchanged: it still rewrites HTML at send time with{" "}
+          <Code>link_id</Code> NULL, so the two stay independent consumers of
+          one click spine.
+        </Bullet>
+        <Bullet>
+          Share-safe by construction: a link carries a person token (a{" "}
+          <Code>distinctId</Code> the click can stitch) ONLY when{" "}
+          <Code>{'type: "personal"'}</Code>. A <Code>public</Code> link never
+          carries one, so a reshared public link attributes by campaign only.
+          Destinations are validated http(s) at mint time, closing the latent
+          open-redirect.
+        </Bullet>
+        <Bullet>
+          The <Code>hs_t</Code> identity-token redirect is now single-use: the
+          first <Code>{"POST /v1/t/identify"}</Code> exchange wins, a
+          replayed/reshared token is a 200 no-op (Redis <Code>SET NX</Code> on a
+          sha256 of the token). Best-effort — a Redis fault degrades to the
+          pre-burn behaviour rather than coupling the exchange to Redis
+          liveness.
+        </Bullet>
+        <Bullet>
+          A new Studio &ldquo;Links&rdquo; view mints personal/public links,
+          copies the short URL, shows per-link click counts, and archives —
+          backed by admin CRUD at <Code>/v1/admin/links</Code>.{" "}
+          <Code>@hogsend/db</Code> adds the <Code>links</Code> table +{" "}
+          <Code>tracked_links.link_id</Code> FK (additive migration{" "}
+          <Code>0028</Code>).
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive; run the{" "}
+        <Code>0028</Code> migration.
+      </>
+    ),
+  },
+  {
     version: "0.26.0",
     anchor: "0-26-0",
     date: "June 21, 2026",
