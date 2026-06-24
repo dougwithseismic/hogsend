@@ -84,7 +84,9 @@ function startSpinner(message: string): () => void {
   let i = 0;
   process.stdout.write("\x1b[?25l"); // hide cursor
   const timer = setInterval(() => {
-    const frame = frames[i % frames.length];
+    // `?? "⠋"` keeps `frame` a string under noUncheckedIndexedAccess (the
+    // scaffold's tsconfig) — the modulo guarantees a valid index anyway.
+    const frame = frames[i % frames.length] ?? "⠋";
     i += 1;
     process.stdout.write(`\r  ${cyan(frame)} ${dim(message)}`);
   }, 80);
