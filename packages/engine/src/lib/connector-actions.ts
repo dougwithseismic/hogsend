@@ -1,8 +1,13 @@
-import { contacts, type Database } from "@hogsend/db";
+import { connectorDeliveries, contacts, type Database } from "@hogsend/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { getConnectorActionRegistry } from "../connectors/action-registry-singleton.js";
 import type { ResolvedActionContact } from "../connectors/define-action.js";
 import { env } from "../env.js";
+import {
+  deriveJourneyKey,
+  getJourneyBoundary,
+  registerKey,
+} from "../journeys/journey-boundary.js";
 import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
 
@@ -55,6 +60,18 @@ export interface SendConnectorActionArgs {
   action: string;
   /** The action's own args object (shape defined by the action). */
   args?: unknown;
+  /**
+   * Disambiguates the exactly-once dedupe key when the SAME action is sent more
+   * than once in one journey run. The action's `args` are NOT part of the
+   * derived key, so two genuinely-distinct sends of the same action within one
+   * run — without an intervening `ctx.sleep`/`waitForEvent`/`checkpoint` to
+   * advance the nearest label — would otherwise derive an IDENTICAL key and the
+   * second would fail-fast via `registerKey`. Pass a distinct label per call
+   * (e.g. broadcasting the same message to two channels back-to-back). Mirrors
+   * `idempotencyLabel` on `sendEmail()` and `ctx.trigger()`. Additive and
+   * optional.
+   */
+  idempotencyLabel?: string;
 }
 
 /**
@@ -82,9 +99,184 @@ export async function sendConnectorAction(
     );
   }
   const db = getDb();
-  return action.run(input.args, {
-    db,
-    logger: createLogger(env.LOG_LEVEL),
-    resolveContact: (ref: string) => resolveContact(db, ref),
+  const doRun = () =>
+    action.run(input.args, {
+      db,
+      logger: createLogger(env.LOG_LEVEL),
+      resolveContact: (ref: string) => resolveContact(db, ref),
+    });
+
+  // Outside a journey run (an admin/manual send) there is no replay to defend
+  // against and no boundary to key from — run the action directly.
+  const boundary = getJourneyBoundary();
+  if (!boundary) return doRun();
+
+  // The replay-stable, branch-derived key shared by BOTH defense layers. `site`
+  // = the explicit `idempotencyLabel` ?? the nearest authored wait/checkpoint
+  // label (so two of the SAME action on divergent branches derive distinct keys
+  // for free) ?? the connector:action. Mirrors sendEmail()/ctx.trigger().
+  const site =
+    input.idempotencyLabel ??
+    boundary.currentLabel ??
+    `${input.connectorId}:${input.action}`;
+  const discriminant = `${input.connectorId}:${input.action}`;
+  const key = deriveJourneyKey({
+    kind: "connector",
+    anchor: boundary.runAnchor,
+    site,
+    discriminant,
   });
+  registerKey(boundary, key);
+
+  // Layer 1 (eviction-gated, FREE) fast path wrapping the Layer-2-backed run.
+  // When the engine supports eviction the durable `memo()` skips the action —
+  // and the DB round-trip below — entirely on a replay. When it does NOT (a
+  // pre-eviction / ':latest'-drifted engine), `memoize` falls through to the
+  // closure and Layer 2 (the `connector_deliveries` short-circuit) is the
+  // version-INDEPENDENT exactly-once guarantee. Belt-and-suspenders, mirroring
+  // the email send path (tracked.ts).
+  return boundary.memoize([key], () =>
+    runWithConnectorDelivery({
+      db,
+      connectorId: input.connectorId,
+      action: input.action,
+      dedupeKey: key,
+      run: doRun,
+    }),
+  );
+}
+
+interface ConnectorDeliveryArgs {
+  db: Database;
+  connectorId: string;
+  action: string;
+  dedupeKey: string;
+  run: () => Promise<unknown>;
+}
+
+/**
+ * Layer-2 (version-independent) DB backstop for a connector action, mirroring
+ * the `email_sends.idempotencyKey` short-circuit in tracked.ts:
+ *
+ *  1. SELECT by `(connectorId, dedupeKey)` — a TERMINAL-success ("sent") prior
+ *     row is a satisfied duplicate: return its stored `result` WITHOUT
+ *     re-running the action. A "queued" prior row is NOT satisfied (a prior
+ *     attempt claimed the key but may have died before the action returned) —
+ *     re-drive it (safer missed>doubled), matching the MF-2 fix in tracked.ts.
+ *  2. INSERT `onConflictDoNothing` to claim the key; on a concurrent loser,
+ *     re-read the winner and apply the same satisfied/queued rule.
+ *  3. Run the action, then UPDATE the claimed row with the JSON-round-tripped
+ *     result + "sent". On a thrown action, stamp "failed" AND release the key
+ *     (set null) so a retry genuinely re-attempts rather than deduping to it.
+ */
+async function runWithConnectorDelivery(
+  args: ConnectorDeliveryArgs,
+): Promise<unknown> {
+  const { db, connectorId, action, dedupeKey, run } = args;
+
+  // 1. Up-front short-circuit: a prior terminal-success row replays its result.
+  const existing = await db
+    .select({
+      id: connectorDeliveries.id,
+      status: connectorDeliveries.status,
+      result: connectorDeliveries.result,
+    })
+    .from(connectorDeliveries)
+    .where(
+      and(
+        eq(connectorDeliveries.connectorId, connectorId),
+        eq(connectorDeliveries.dedupeKey, dedupeKey),
+      ),
+    )
+    .limit(1);
+
+  const prior = existing[0];
+  let rowId: string;
+  if (prior) {
+    if (prior.status === "sent") return prior.result;
+    // Only a "queued" row can reach here: this SELECT is keyed on the (non-null)
+    // dedupeKey, and the failure path nulls the key (see below), so a "failed"
+    // row is never returned by the keyed lookup. A post-failure retry therefore
+    // takes the INSERT-new-row branch below — it never re-drives a failed row.
+    // Re-drive the queued row against the same id (the unique index is honored).
+    rowId = prior.id;
+  } else {
+    // 2. Claim the key. Swallow a concurrent-insert collision on the unique
+    // index (the select above is not atomic) and resolve the winner.
+    const inserted = await db
+      .insert(connectorDeliveries)
+      .values({ connectorId, action, dedupeKey, status: "queued" })
+      .onConflictDoNothing({
+        target: [
+          connectorDeliveries.connectorId,
+          connectorDeliveries.dedupeKey,
+        ],
+      })
+      .returning({ id: connectorDeliveries.id });
+
+    const insertedRow = inserted[0];
+    if (insertedRow) {
+      rowId = insertedRow.id;
+    } else {
+      // A concurrent send claimed the key first — resolve its row, applying the
+      // same satisfied-vs-requeue rule.
+      const winnerRows = await db
+        .select({
+          id: connectorDeliveries.id,
+          status: connectorDeliveries.status,
+          result: connectorDeliveries.result,
+        })
+        .from(connectorDeliveries)
+        .where(
+          and(
+            eq(connectorDeliveries.connectorId, connectorId),
+            eq(connectorDeliveries.dedupeKey, dedupeKey),
+          ),
+        )
+        .limit(1);
+      const winner = winnerRows[0];
+      if (!winner) throw new Error("Failed to claim connector_deliveries row");
+      if (winner.status === "sent") return winner.result;
+      // As above, the winner can only be "sent" or "queued": a "failed" row has
+      // a null dedupeKey and is never returned by this keyed lookup.
+      rowId = winner.id;
+    }
+  }
+
+  // 3. Run the action and persist the (JSON-round-tripped) result. `result`
+  // survives the jsonb column, so a later replay returns the SAME value.
+  // Normalize an `undefined` action result to `null` on write: an action may
+  // legitimately return nothing (a fire-and-forget send with no message id),
+  // and Drizzle's `mapUpdateSet` drops `undefined` values from the UPDATE — so
+  // an unnormalized `undefined` would leave the column at its NULL default and a
+  // later short-circuit would replay `null`, NOT the `undefined` the first run
+  // observed. Coercing here makes both the first run and every replay observe
+  // the SAME value (`null`), keeping the round-trip claim literally true.
+  try {
+    const result = await run();
+    const now = new Date();
+    await db
+      .update(connectorDeliveries)
+      .set({
+        result: (result === undefined ? null : result) as unknown,
+        status: "sent",
+        sentAt: now,
+        updatedAt: now,
+      })
+      .where(eq(connectorDeliveries.id, rowId));
+    return result === undefined ? null : result;
+  } catch (error) {
+    // Release the key (set null) so a retry genuinely re-attempts rather than
+    // deduping to this failed row — exactly like the tracked-mailer failed path.
+    await db
+      .update(connectorDeliveries)
+      .set({
+        status: "failed",
+        dedupeKey: null,
+        lastError: error instanceof Error ? error.message : String(error),
+        updatedAt: new Date(),
+      })
+      .where(eq(connectorDeliveries.id, rowId));
+    throw error;
+  }
 }

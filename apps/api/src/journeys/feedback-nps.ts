@@ -36,6 +36,10 @@ export const feedbackNps = defineJourney({
       template: Templates.FEEDBACK_NPS_SURVEY,
       subject: "Quick question — how are we doing?",
       journeyName: user.journeyName,
+      // This journey sends FEEDBACK_NPS_SURVEY twice (survey + reminder). A
+      // distinct idempotencyLabel per send keeps their auto-derived exactly-once
+      // keys apart so a replay can't conflate them into one.
+      idempotencyLabel: "nps-survey",
     });
 
     let answer = await ctx.waitForEvent({
@@ -52,6 +56,9 @@ export const feedbackNps = defineJourney({
         template: Templates.FEEDBACK_NPS_SURVEY,
         subject: "We'd still love your feedback (10 seconds)",
         journeyName: user.journeyName,
+        // See the first send: the reminder reuses FEEDBACK_NPS_SURVEY, so it
+        // carries a distinct label to avoid an intra-run key collision.
+        idempotencyLabel: "nps-reminder",
       });
 
       answer = await ctx.waitForEvent({
@@ -75,10 +82,15 @@ export const feedbackNps = defineJourney({
 
     await ctx.checkpoint(`scored-${score}`);
     // Person enrichment is a standalone service, not a ctx primitive — no-op
-    // without POSTHOG_API_KEY.
+    // without POSTHOG_API_KEY. identify ($set) is last-write-wins idempotent so
+    // re-firing on a replay is harmless; the one replay defect would be a
+    // divergent timestamp. Use the matched event's RECORDED occurredAt when the
+    // lookback path supplied it (replay-stable on ANY engine); otherwise omit the
+    // timestamp entirely (PostHog stamps its own ingest time) rather than write a
+    // `new Date()` that would drift on replay.
     getPostHog()?.identify(user.id, {
       nps_score: score,
-      nps_responded_at: new Date().toISOString(),
+      ...(answer.occurredAt ? { nps_responded_at: answer.occurredAt } : {}),
     });
 
     if (score <= 6) {

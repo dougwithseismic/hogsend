@@ -1,7 +1,9 @@
 import { hours } from "@hogsend/core";
 import {
   defineJourney,
+  deriveJourneyKey,
   getEmailService,
+  getJourneyBoundary,
   sendConnectorAction,
 } from "@hogsend/engine";
 import { TelegramEvents, telegramColdConnect } from "@hogsend/plugin-telegram";
@@ -52,10 +54,29 @@ export const telegramLinkRequest = defineJourney({
     // anti email-bomb throttle now (Redis-INCR, fail-closed) — a forged/replayed
     // /link can't spray a victim's inbox, and a Redis fault returns
     // `{ ok:false }` so we never send a link we can't honor.
-    const minted = await telegramColdConnect.mintConfirm({
-      platformUserId: fromId,
-      email,
-    });
+    //
+    // The mint does a non-idempotent Redis INCR rate-limit bump, so a durable
+    // replay would double-count it and could trip an honest user's `rate_limited`
+    // gate. Memoize it through the journey boundary so a replay returns the
+    // recorded mint instead of re-bumping (Layer 1, eviction-gated). On a
+    // pre-eviction engine this falls through and re-runs — acceptable: the bump
+    // is a soft limit, not a delivery.
+    const boundary = getJourneyBoundary();
+    const mintFn = () =>
+      telegramColdConnect.mintConfirm({ platformUserId: fromId, email });
+    const minted = boundary
+      ? await boundary.memoize(
+          [
+            deriveJourneyKey({
+              kind: "connector",
+              anchor: boundary.runAnchor,
+              site: "mint-confirm",
+              discriminant: "telegram:mintConfirm",
+            }),
+          ],
+          mintFn,
+        )
+      : await mintFn();
     if (!minted.ok) {
       if (minted.reason === "rate_limited") {
         await reply(

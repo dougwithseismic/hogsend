@@ -16,11 +16,15 @@ export const aiOnboarding = defineJourney({
   },
 
   run: async (user, ctx) => {
-    // Build the rich user-context bundle consumed by the agent.
-    const context = await getUserContext(ctx, user);
-
-    // Ask the AI to draft a personalised onboarding plan.
-    const plan = await draftOnboardingPlan(context);
+    // Ask the AI to draft a personalised onboarding plan. Recorded once per
+    // enrollment via `ctx.once`: the template key here is fixed (so the send key
+    // is already replay-stable), but recording the plan keeps the email CONTENT
+    // identical across a replay and avoids a second paid LLM call. Durable on any
+    // engine.
+    const plan = await ctx.once("onboarding-plan", async () => {
+      const context = await getUserContext(ctx, user);
+      return draftOnboardingPlan(context);
+    });
 
     // Send the personalised welcome email immediately.
     await sendEmail({

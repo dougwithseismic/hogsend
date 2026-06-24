@@ -23,10 +23,36 @@ import { resolveTimezoneWithSource } from "../lib/timezone.js";
 import { getClientScheduleDefaults } from "./client-defaults-singleton.js";
 import { JOURNEY_EXECUTION_TIMEOUT } from "./constants.js";
 import { JourneyExitedError } from "./errors.js";
+import {
+  createMemoize,
+  type JourneyBoundary,
+  runWithJourneyBoundary,
+  supportsEviction,
+} from "./journey-boundary.js";
 import { createJourneyContext, TERMINAL_STATUSES } from "./journey-context.js";
 import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
 const logger = createLogger(process.env.LOG_LEVEL);
+
+/**
+ * Log whether Hatchet's durable `memo` (Layer-1 fast path) is actually durable
+ * on this engine — ONCE per worker process. `supportsEviction === false`
+ * (hatchet-lite < v0.80.0) means `memo` silently no-ops, so Layer 2 (the
+ * Postgres `email_sends`/`user_events` unique-index dedup) is the sole live
+ * guarantee. Surfaced at boot so the team knows which layer is carrying the load.
+ */
+let evictionSupportLogged = false;
+function logEvictionSupportOnce(hatchetCtx: unknown): void {
+  if (evictionSupportLogged) return;
+  evictionSupportLogged = true;
+  const live = supportsEviction(hatchetCtx);
+  logger.info(
+    live
+      ? "journey replay-safety: Layer-1 memo fast path is LIVE (engine supports eviction)"
+      : "journey replay-safety: Layer-1 memo is INERT (engine < v0.80.0); " +
+          "exactly-once relies on the Layer-2 Postgres unique-index dedup",
+  );
+}
 
 interface EventPayloadInput {
   userId: JsonValue;
@@ -130,35 +156,65 @@ export function defineJourney(options: {
         return { status: "skipped", reason: "user_unsubscribed" };
       }
 
-      const activeState = await db.query.journeyStates.findFirst({
-        where: and(
-          eq(journeyStates.userId, userId),
-          eq(journeyStates.journeyId, meta.id),
-          inArray(journeyStates.status, ["active", "waiting"]),
-        ),
-      });
-      if (activeState) {
-        return { status: "skipped", reason: "already_active" };
-      }
+      // The replay-stable anchor for this enrollment: the Hatchet run id is
+      // preserved across replays of the SAME logical durable run (crash / OOM /
+      // eviction / redeploy mid-run), whereas a freshly-minted journeyStates.id
+      // is not. Both dedup-key derivation AND the enrollment-recovery below key
+      // on it so a replay re-derives the SAME stateId and the SAME keys.
+      const workflowRunId = hatchetCtx.workflowRunId();
 
-      const [state] = await db
-        .insert(journeyStates)
-        .values({
-          userId,
-          userEmail,
-          journeyId: meta.id,
-          currentNodeId: "start",
-          status: "active",
-          context: properties,
-          hatchetRunId: hatchetCtx.workflowRunId(),
-        })
-        .returning();
+      // REPLAY RECOVERY (must run before the active-state guard / insert).
+      // A replay-from-top of the same run must reuse the enrollment it already
+      // created — otherwise, for a journey whose prior enrollment reached a
+      // TERMINAL status (the normal end state for unlimited/once_per_period), the
+      // active-state guard would miss it, a fresh stateId would be minted, and the
+      // derived keys would no longer collide → a duplicate send. Recovering by the
+      // run-stable id makes the replay deterministic regardless of the prior row's
+      // status.
+      const recovered = workflowRunId
+        ? await db.query.journeyStates.findFirst({
+            where: and(
+              eq(journeyStates.hatchetRunId, workflowRunId),
+              eq(journeyStates.journeyId, meta.id),
+            ),
+          })
+        : undefined;
+
+      let state = recovered;
+      if (!state) {
+        const activeState = await db.query.journeyStates.findFirst({
+          where: and(
+            eq(journeyStates.userId, userId),
+            eq(journeyStates.journeyId, meta.id),
+            inArray(journeyStates.status, ["active", "waiting"]),
+          ),
+        });
+        if (activeState) {
+          return { status: "skipped", reason: "already_active" };
+        }
+
+        [state] = await db
+          .insert(journeyStates)
+          .values({
+            userId,
+            userEmail,
+            journeyId: meta.id,
+            currentNodeId: "start",
+            status: "active",
+            context: properties,
+            hatchetRunId: workflowRunId,
+          })
+          .returning();
+      }
 
       if (!state) {
         return { status: "skipped", reason: "state_creation_failed" };
       }
 
       const stateId = state.id;
+      // The replay-stable key anchor: prefer the run id (constant across replays
+      // of this run), fall back to stateId when the engine has no run id.
+      const runAnchor = workflowRunId || stateId;
 
       const user: JourneyUser = {
         id: userId,
@@ -213,6 +269,11 @@ export function defineJourney(options: {
       const ctx = createJourneyContext({
         db,
         hatchet,
+        // The real DurableContext structurally satisfies the (widened) config —
+        // it exposes `sleepFor`/`waitFor` AND a replay-memoized `now()` (SDK
+        // 1.22.3). Forwarding it whole lets ctx clock reads (ctx.when,
+        // sleepUntil delta, lookback, ctx.now) read the memoized clock on an
+        // eviction-capable engine, falling back to the live clock pre-eviction.
         hatchetCtx,
         registry: getJourneyRegistrySingleton(),
         logger,
@@ -224,8 +285,34 @@ export function defineJourney(options: {
         defaultSendWindow: scheduleDefaults.sendWindow,
       });
 
+      // The journey boundary makes journey side effects (sendEmail, ctx.trigger)
+      // EXACTLY-ONCE across a durable replay WITHOUT any change to journey
+      // authoring. It is established once around `run()`: a replay-from-top
+      // re-enters this scope from the top. Its `runAnchor` is the replay-stable
+      // Hatchet run id (recovered above so the SAME stateId is reused on replay),
+      // so the derived keys collide across a replay of the same run even if the
+      // enrollment row had to be recovered rather than freshly inserted.
+      // `memoize` is the Layer-1 fast path (durable only when the engine supports
+      // eviction); the auto-derived `email_sends`/`user_events` idempotency keys
+      // (anchored on `runAnchor`) are the version-independent Layer-2 guarantee.
+      logEvictionSupportOnce(hatchetCtx);
+      const boundary: JourneyBoundary = {
+        stateId,
+        runAnchor,
+        currentLabel: undefined,
+        seenKeys: new Set<string>(),
+        memoize: createMemoize(hatchetCtx),
+      };
+
+      // Seed the context's memoized-clock snapshot ONCE before run() so a
+      // `ctx.when` chain used BEFORE the first durable step reads a replay-stable
+      // instant (on an eviction engine) instead of the construction-time
+      // `new Date()` seed. Best-effort: on a pre-eviction engine this reads the
+      // live clock, same as before.
+      await ctx.now();
+
       try {
-        await options.run(user, ctx);
+        await runWithJourneyBoundary(boundary, () => options.run(user, ctx));
 
         const completedAt = new Date();
         await db

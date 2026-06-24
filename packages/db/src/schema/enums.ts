@@ -58,3 +58,13 @@ export const webhookDeliveryStatusEnum = pgEnum("webhook_delivery_status", [
   "failed", // attempts exhausted — TERMINAL, mirrored to dead_letter_queue
   "discarded", // endpoint disabled/deleted mid-flight — TERMINAL, NOT an error, NOT dead-lettered
 ]);
+
+export const connectorDeliveryStatusEnum = pgEnum("connector_delivery_status", [
+  "queued", // row claimed (INSERT won) — the action call is in flight; NOT yet a
+  // satisfied duplicate. A replay finding this re-drives the action (safer
+  // missed>doubled), mirroring the email_sends "queued" re-drive.
+  "sent", // the action returned — TERMINAL success. A replay finding this returns
+  // the stored result WITHOUT re-running the action.
+  "failed", // the action threw — TERMINAL failure. The dedupe key is released
+  // (set null) so a retry genuinely re-attempts, mirroring email_sends.
+]);

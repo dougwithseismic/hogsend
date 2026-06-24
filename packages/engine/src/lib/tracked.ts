@@ -13,6 +13,11 @@ import {
   renderToHtml,
 } from "@hogsend/email";
 import { eq } from "drizzle-orm";
+import {
+  deriveJourneyKey,
+  getJourneyBoundary,
+  registerKey,
+} from "../journeys/journey-boundary.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import type { TestModeState } from "./domain-status.js";
 import {
@@ -65,7 +70,46 @@ interface TrackedEmailDeps {
   testMode?: TestModeState | null;
 }
 
+/**
+ * Boundary-aware entry point. When a send reaches the tracked mailer from INSIDE
+ * a journey `run()` WITHOUT an idempotency key already set — i.e. a journey that
+ * called the raw `getEmailService().send(...)` instead of the `sendEmail()`
+ * helper (which derives its own key) — derive the same deterministic, replay-
+ * stable key HERE so the engine's exactly-once guarantee covers that path too.
+ * This closes the raw-service footgun: ANY journey send is auto-keyed + memoized
+ * regardless of which import the author reached for. Outside a journey, or when
+ * a key is already set (sendEmail / POST /v1/emails), this is a transparent
+ * pass-through to {@link sendTrackedEmailInner}.
+ */
 export async function sendTrackedEmail<K extends TemplateName>(
+  opts: TrackedEmailDeps & { options: SendTrackedEmailOptions<K> },
+): Promise<TrackedSendResult> {
+  const boundary = getJourneyBoundary();
+  if (!boundary || opts.options.idempotencyKey) {
+    return sendTrackedEmailInner(opts);
+  }
+
+  // Raw-service send inside a journey: derive the key the same way sendEmail
+  // would (site = nearest authored wait label ?? templateKey; discriminant =
+  // templateKey), register it for the loud intra-run collision throw, thread it
+  // onto the options, and memoize the whole send (Layer 1 fast path when the
+  // engine supports eviction; Layer 2 DB key otherwise).
+  const site = boundary.currentLabel ?? String(opts.options.templateKey);
+  const key = deriveJourneyKey({
+    kind: "send",
+    anchor: boundary.runAnchor,
+    site,
+    discriminant: String(opts.options.templateKey),
+  });
+  registerKey(boundary, key);
+  const keyed = {
+    ...opts,
+    options: { ...opts.options, idempotencyKey: key },
+  };
+  return boundary.memoize([key], () => sendTrackedEmailInner(keyed));
+}
+
+async function sendTrackedEmailInner<K extends TemplateName>(
   opts: TrackedEmailDeps & { options: SendTrackedEmailOptions<K> },
 ): Promise<TrackedSendResult> {
   const {
@@ -106,6 +150,15 @@ export async function sendTrackedEmail<K extends TemplateName>(
   // Idempotency short-circuit (POST /v1/emails): a retry with the same key
   // returns the prior send instead of dispatching a duplicate provider call /
   // tracking artifacts (mirrors the user_events idempotency pattern).
+  //
+  // CRASH-SAFETY: only a TERMINAL-success ("sent") prior row is a satisfied
+  // duplicate. A "queued" row means a prior attempt inserted the row but the
+  // worker died before the provider returned or before the status flip — the
+  // email may NEVER have gone out. Returning it as a duplicate would silently
+  // suppress a never-delivered send. Instead, REUSE that row and re-drive the
+  // provider call (no second row — the unique index is honored). The failed path
+  // already NULLs the key, so a "failed" row never collides here.
+  let reuseRowId: string | undefined;
   if (options.idempotencyKey) {
     const existing = await db
       .select({ id: emailSends.id, status: emailSends.status })
@@ -114,7 +167,11 @@ export async function sendTrackedEmail<K extends TemplateName>(
       .limit(1);
     const prior = existing[0];
     if (prior) {
-      return idempotentResult(prior);
+      if (prior.status === "queued") {
+        reuseRowId = prior.id;
+      } else {
+        return idempotentResult(prior);
+      }
     }
   }
 
@@ -304,45 +361,62 @@ export async function sendTrackedEmail<K extends TemplateName>(
   const wireSubject = redirect ? redirect.subject : subject;
   const wireFrom = redirect ? redirect.from : options.from;
 
-  const baseInsert = db.insert(emailSends).values({
-    templateKey: options.templateKey,
-    fromEmail: wireFrom,
-    toEmail: redirect ? redirect.redirectTo : options.to,
-    subject: wireSubject,
-    category: effectiveCategory,
-    journeyStateId: options.journeyStateId,
-    userId: options.userId,
-    userEmail: options.userEmail ?? options.to,
-    status: "queued",
-    idempotencyKey: options.idempotencyKey,
-    ...(redirect
-      ? { metadata: { testMode: true, originalTo: options.to } }
-      : {}),
-  });
+  // Re-driving an orphaned "queued" row (crash before the provider returned):
+  // reuse that row instead of inserting a second one, so the provider call is
+  // re-attempted while the unique idempotency key stays honored.
+  let emailSendId: string;
+  if (reuseRowId) {
+    emailSendId = reuseRowId;
+  } else {
+    const baseInsert = db.insert(emailSends).values({
+      templateKey: options.templateKey,
+      fromEmail: wireFrom,
+      toEmail: redirect ? redirect.redirectTo : options.to,
+      subject: wireSubject,
+      category: effectiveCategory,
+      journeyStateId: options.journeyStateId,
+      userId: options.userId,
+      userEmail: options.userEmail ?? options.to,
+      status: "queued",
+      idempotencyKey: options.idempotencyKey,
+      ...(redirect
+        ? { metadata: { testMode: true, originalTo: options.to } }
+        : {}),
+    });
 
-  // With an idempotency key, swallow a concurrent-insert collision on the unique
-  // index (the select-then-insert above is not atomic) and return the winner.
-  const insertRows = options.idempotencyKey
-    ? await baseInsert
-        .onConflictDoNothing({ target: emailSends.idempotencyKey })
-        .returning({ id: emailSends.id })
-    : await baseInsert.returning({ id: emailSends.id });
+    // With an idempotency key, swallow a concurrent-insert collision on the
+    // unique index (the select-then-insert above is not atomic) and return the
+    // winner.
+    const insertRows = options.idempotencyKey
+      ? await baseInsert
+          .onConflictDoNothing({ target: emailSends.idempotencyKey })
+          .returning({ id: emailSends.id })
+      : await baseInsert.returning({ id: emailSends.id });
 
-  const insertedRow = insertRows[0];
-  if (!insertedRow && options.idempotencyKey) {
-    // A concurrent send claimed the key first — return its row.
-    const winner = await db
-      .select({ id: emailSends.id, status: emailSends.status })
-      .from(emailSends)
-      .where(eq(emailSends.idempotencyKey, options.idempotencyKey))
-      .limit(1);
-    const won = winner[0];
-    if (won) {
-      return idempotentResult(won);
+    const insertedRow = insertRows[0];
+    if (!insertedRow && options.idempotencyKey) {
+      // A concurrent send claimed the key first — return its row, UNLESS it is
+      // an orphaned "queued" row (crash mid-send), in which case re-drive it.
+      const winner = await db
+        .select({ id: emailSends.id, status: emailSends.status })
+        .from(emailSends)
+        .where(eq(emailSends.idempotencyKey, options.idempotencyKey))
+        .limit(1);
+      const won = winner[0];
+      if (won) {
+        if (won.status !== "queued") {
+          return idempotentResult(won);
+        }
+        emailSendId = won.id;
+      } else {
+        throw new Error("Failed to insert email_sends row");
+      }
+    } else if (!insertedRow) {
+      throw new Error("Failed to insert email_sends row");
+    } else {
+      emailSendId = insertedRow.id;
     }
   }
-  if (!insertedRow) throw new Error("Failed to insert email_sends row");
-  const emailSendId = insertedRow.id;
 
   try {
     // HTML-ONLY wire — the engine ALWAYS renders React → HTML itself. When
