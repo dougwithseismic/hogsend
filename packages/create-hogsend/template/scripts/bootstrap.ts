@@ -593,23 +593,48 @@ async function main(): Promise<void> {
 
   const dash = `http://localhost:${ports.dash}`;
   const finalEnv = readFileSync(ENV_PATH, "utf8");
+  // Studio is served by the API itself at `${API_PUBLIC_URL}/studio`; read the
+  // real values from the .env we just wrote so a custom PORT / public URL is
+  // honoured (default http://localhost:3002).
+  const apiUrl = getEnv(finalEnv, "API_PUBLIC_URL") ?? "http://localhost:3002";
+  const apiPort = getEnv(finalEnv, "PORT") ?? "3002";
+  const studioUrl = `${apiUrl}/studio`;
   // `connect posthog` needs a reachable instance (PostHog can't hit a localhost
   // webhook), so this is an "After deploy" step — only surface it when the .env
   // already points at PostHog.
   const usingPosthog =
     getEnv(finalEnv, "ENABLE_POSTHOG_DESTINATION") === "true" ||
     Boolean(getEnv(finalEnv, "POSTHOG_HOST"));
+
+  // Aligned `label  url  # note` row for the three onboarding touchpoints.
+  const link = (label: string, url: string, note: string): string =>
+    `  ${dim(label.padEnd(9))}${cyan(url)}   ${dim(note)}`;
+
   process.stdout.write(
     [
-      `\n${green(bold("✓ Ready."))} Your local stack is up.\n`,
-      `  ${dim("Hatchet dashboard:")} ${cyan(dash)} ${dim("(admin@example.com / Admin123!!)")}`,
+      `\n${green(bold("✓ Ready."))} ${bold("Welcome to Hogsend.")}`,
+      // The compose stack is only the infra your app talks to — the API and
+      // worker are your code and run as host processes (hot-reload), so nothing
+      // is serving yet until you start them.
+      `  ${dim("Local infra is up (Postgres, Redis, Hatchet) — your app isn't running yet. Start it:")}`,
       "",
-      `  ${bold("Next:")}`,
-      `    ${cyan(pmRun("dev"))}          ${dim("# HTTP API on :3002")}`,
-      `    ${cyan(pmRun("worker:dev"))}   ${dim("# Hatchet worker (second terminal)")}`,
+      `    ${cyan(pmRun("dev"))}          ${dim(`# API + Studio on :${apiPort}`)}`,
+      `    ${cyan(pmRun("worker:dev"))}   ${dim("# Hatchet worker, 2nd terminal — runs your journeys")}`,
+      "",
+      link("Studio", studioUrl, "# your dashboard (once dev is running)"),
+      link(
+        "Docs",
+        "https://docs.hogsend.com",
+        "# guides + first journey: src/journeys/welcome.ts",
+      ),
+      link(
+        "Discord",
+        "https://discord.gg/rv6eZNvYrr",
+        "# questions, help, and what we're shipping",
+      ),
       "",
       `  ${dim("Studio admin:")} ${cyan(pmRun("studio:admin"))}   ${dim("# create one anytime (sign-up is closed)")}`,
-      `  ${dim("First journey:")} ${cyan("src/journeys/welcome.ts")}   ${dim("· docs.hogsend.com")}`,
+      `  ${dim("Hatchet dashboard:")} ${cyan(dash)} ${dim("(admin@example.com / Admin123!!)")}`,
       usingPosthog
         ? `  ${dim("After deploy:")} ${cyan("hogsend connect posthog")}   ${dim("# fetch the key, mint the webhook secret, wire the PostHog→Hogsend loop")}`
         : null,

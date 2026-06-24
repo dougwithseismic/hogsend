@@ -165,11 +165,15 @@ async function run(ctx: CommandContext): Promise<void> {
 
   ctx.out.note(
     [
-      `${color.cyan("pnpm dev")}          ${color.dim("# HTTP API on :3002")}`,
-      `${color.cyan("pnpm worker:dev")}   ${color.dim("# Hatchet worker, 2nd terminal")}`,
+      `${color.cyan("pnpm dev")}          ${color.dim("# API + Studio on :3002")}`,
+      `${color.cyan("pnpm worker:dev")}   ${color.dim("# Hatchet worker, 2nd terminal — runs your journeys")}`,
+      "",
+      `${color.dim("Studio  ")} ${color.cyan("http://localhost:3002/studio")}   ${color.dim("# dashboard (once dev is running)")}`,
+      `${color.dim("Docs    ")} ${color.cyan("https://docs.hogsend.com")}   ${color.dim("# guides + first journey: src/journeys/welcome.ts")}`,
+      `${color.dim("Discord ")} ${color.cyan("https://discord.gg/rv6eZNvYrr")}   ${color.dim("# questions, help, and what we're shipping")}`,
       "",
       `${color.dim("Verify with")} ${color.cyan("hogsend doctor")}${color.dim(".")}`,
-      `${color.dim("Grab HATCHET_CLIENT_TOKEN at")} ${color.cyan("http://localhost:8888")} ${color.dim("and set it in .env.")}`,
+      `${color.dim("Need a Hatchet token? Grab one at")} ${color.cyan("http://localhost:8888")} ${color.dim("and set HATCHET_CLIENT_TOKEN in .env.")}`,
     ].join("\n"),
     "Next steps",
   );
@@ -181,7 +185,7 @@ async function run(ctx: CommandContext): Promise<void> {
   }
 
   ctx.out.outro(
-    `${color.green("Done.")} ${color.dim("Local infra is up — go write a journey.")}`,
+    `${color.magenta("Welcome to Hogsend.")} ${color.dim("Local infra is up — go write a journey.")}`,
   );
 }
 

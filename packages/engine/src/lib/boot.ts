@@ -25,10 +25,13 @@ import { API_VERSION } from "../env.js";
 // rather than risking a stale hard-coded version slipping into structured logs.
 const FALLBACK_ENGINE_VERSION = "unknown";
 
-// Conventional Vite dev-server origin for the Studio package (`pnpm dev` starts
-// it). In production the Studio is served by the API at `${API_PUBLIC_URL}/studio`.
-const STUDIO_DEV_URL = "http://localhost:5173";
+// The Studio SPA is served by the API itself at `/studio` (static dist with an
+// SPA fallback — see `mountStudio`), so its URL is always the running server's
+// own origin, in dev and prod alike. A scaffolded app has no separate Vite dev
+// server, so we must NOT point at one (the old hard-coded `:5173` 404'd for
+// every consumer).
 const DOCS_URL = "https://docs.hogsend.com";
+const DISCORD_URL = "https://discord.gg/rv6eZNvYrr";
 
 let cachedEngineVersion: string | undefined;
 
@@ -135,9 +138,10 @@ export function reportApiReady(info: ApiReadyInfo): void {
     testModeLine,
     "",
     `  ${label("API")}${color.cyan(localUrl)}`,
+    `  ${label("Studio")}${color.cyan(`${localUrl}/studio`)}`,
     `  ${label("Docs")}${color.cyan(`${localUrl}/docs`)}`,
-    `  ${label("Studio")}${color.cyan(STUDIO_DEV_URL)}`,
     `  ${label("Guides")}${color.cyan(DOCS_URL)}`,
+    `  ${label("Discord")}${color.cyan(DISCORD_URL)}`,
     "",
     `  ${dim("Next")}  fire a test event in ${color.cyan("Studio › Debug")} ${dim("·")} run the worker: ${color.cyan("pnpm worker:dev")}`,
   ]);
