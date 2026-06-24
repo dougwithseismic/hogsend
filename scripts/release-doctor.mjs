@@ -166,6 +166,22 @@ const checks = [
     },
   },
   {
+    // create-hogsend is a separate scope (not @hogsend/*) so it falls outside
+    // ENGINE_LINE — but its template pins `^{{ENGINE_VERSION}}` and it must
+    // republish every release or `create-hogsend@latest` scaffolds a stale app.
+    // It silently drifted to 0.22.0 while the line reached 0.30.0 BECAUSE no
+    // check held it to the line. This is that check: the scaffolder rides the
+    // engine version, caught up + bumped with the line in the release changeset.
+    name: "create-hogsend tracks the engine version line",
+    fn: () => {
+      const e = engineVersion();
+      const c = readJson("packages/create-hogsend/package.json").version;
+      return c === e
+        ? null
+        : `create-hogsend@${c} but @hogsend/engine@${e} — the scaffolder must ride the engine line so its ^{{ENGINE_VERSION}} pins stay current; bump create-hogsend with the line (see .claude/skills/release)`;
+    },
+  },
+  {
     // Catches the split-version-line trap at PR time instead of letting it
     // surface as a uniformity failure on the Version Packages PR much later
     // (hit on PR #121: a changeset bumping only @hogsend/plugin-resend).
