@@ -2,7 +2,7 @@ import { linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, inArray, isNull, sql, sum } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { mintLink } from "../../lib/links.js";
+import { assertHttpUrl, mintLink } from "../../lib/links.js";
 import { errorSchema } from "../../lib/schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -197,13 +197,16 @@ const updateLinkRoute = createRoute({
   method: "patch",
   path: "/{id}",
   tags: ["Admin — Links"],
-  summary: "Update a managed link (label + campaign)",
+  summary: "Update a managed link (destination URL + label + campaign)",
   request: {
     params: z.object({ id: z.string().uuid() }),
     body: {
       content: {
         "application/json": {
           schema: z.object({
+            // NOT NULL on both tables — omit = no change, provide = re-target
+            // both links.originalUrl and the linked tracked_links row.
+            originalUrl: z.string().url().optional(),
             label: z.string().nullable().optional(),
             campaign: z.string().nullable().optional(),
           }),
@@ -215,6 +218,10 @@ const updateLinkRoute = createRoute({
     200: {
       content: { "application/json": { schema: linkSchema } },
       description: "Updated link",
+    },
+    400: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Invalid destination URL",
     },
     404: {
       content: { "application/json": { schema: errorSchema } },
@@ -406,17 +413,53 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const patch: Partial<Pick<LinkRow, "label" | "campaign">> & {
+    // Re-targeting the destination: validate http(s) BEFORE opening the tx so an
+    // invalid URL never starts a transaction. Reuses the exact open-redirect
+    // guard mintLink applies at create time.
+    if (body.originalUrl !== undefined) {
+      try {
+        assertHttpUrl(body.originalUrl);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Invalid destination URL";
+        return c.json({ error: message }, 400);
+      }
+    }
+
+    const patch: Partial<
+      Pick<LinkRow, "label" | "campaign" | "originalUrl">
+    > & {
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (body.label !== undefined) patch.label = body.label;
     if (body.campaign !== undefined) patch.campaign = body.campaign;
+    if (body.originalUrl !== undefined) patch.originalUrl = body.originalUrl;
 
-    const [updated] = await db
-      .update(links)
-      .set(patch)
-      .where(eq(links.id, id))
-      .returning();
+    // Both writes in ONE transaction so the two originalUrls can never diverge.
+    // CRITICAL: the click redirect reads tracked_links.originalUrl fresh per
+    // hit (no cache), NOT links.originalUrl — so re-targeting MUST also update
+    // the 1:1 tracked_links row (scoped by link_id, which can only ever be the
+    // managed tracked row). The links row is the display/source of truth.
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(links)
+        .set(patch)
+        .where(eq(links.id, id))
+        .returning();
+
+      // Signal 404 to the caller; returning null (vs throwing) commits an empty
+      // tx and avoids bubbling as a 500.
+      if (!row) return null;
+
+      if (body.originalUrl !== undefined) {
+        await tx
+          .update(trackedLinks)
+          .set({ originalUrl: body.originalUrl, updatedAt: new Date() })
+          .where(eq(trackedLinks.linkId, id));
+      }
+
+      return row;
+    });
 
     if (!updated) {
       return c.json({ error: "Link not found" }, 404);

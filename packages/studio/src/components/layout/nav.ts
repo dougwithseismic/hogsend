@@ -1,4 +1,5 @@
 import {
+  Activity,
   Ban,
   Boxes,
   GitBranch,
@@ -21,6 +22,7 @@ export type NavItem = {
 
 export const navItems: NavItem[] = [
   { label: "Overview", path: "/", icon: LayoutDashboard },
+  { label: "Events", path: "/events", icon: Activity },
   { label: "Sends", path: "/sends", icon: Send },
   { label: "Templates", path: "/templates", icon: Mail },
   { label: "Links", path: "/links", icon: Link2 },

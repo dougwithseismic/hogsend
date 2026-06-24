@@ -35,6 +35,13 @@ export interface IngestEvent {
    * the ingest instant. Accepts a `Date` or an ISO-8601 string.
    */
   occurredAt?: Date | string;
+  /**
+   * Where the event entered the pipeline — a webhook source id ("posthog",
+   * "stripe", …), "api" (public data plane), "studio" (Debug panel), a connector
+   * id, "journey" (cross-journey trigger), etc. Stored on `user_events.source`
+   * so the Events feed can show + filter by origin. Optional (null when unset).
+   */
+  source?: string;
 }
 
 export interface ExitResult {
@@ -114,6 +121,7 @@ export async function ingestEvent(opts: {
         userId: resolvedKey,
         event: event.event,
         properties: event.eventProperties,
+        source: event.source ?? null,
         idempotencyKey: event.idempotencyKey,
         ...(occurredAt ? { occurredAt } : {}),
       })
@@ -131,6 +139,7 @@ export async function ingestEvent(opts: {
       userId: resolvedKey,
       event: event.event,
       properties: event.eventProperties,
+      source: event.source ?? null,
       ...(occurredAt ? { occurredAt } : {}),
     });
   }

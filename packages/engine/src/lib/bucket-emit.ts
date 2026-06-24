@@ -125,6 +125,7 @@ export async function emitBucketTransition(opts: {
       userId,
       userEmail: userEmail ?? "",
       eventProperties: properties,
+      source: "bucket",
       idempotencyKey,
     },
   });
@@ -143,6 +144,7 @@ export async function emitBucketTransition(opts: {
         userId,
         userEmail: userEmail ?? "",
         eventProperties: properties,
+        source: "bucket",
         idempotencyKey: `bucket:${bucket.id}:${userId}:${kind}:${epoch}:generic`,
       },
     });

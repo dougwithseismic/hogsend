@@ -6,6 +6,7 @@ import {
 import { AppShell } from "@/components/layout/app-shell";
 import { BucketsView } from "@/views/buckets-view";
 import { ContactsView } from "@/views/contacts-view";
+import { EventsView } from "@/views/events-view";
 import { IntegrationsView } from "@/views/integrations-view";
 import { JourneyDetailView } from "@/views/journey-detail-view";
 import { JourneysView } from "@/views/journeys-view";
@@ -25,6 +26,12 @@ const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: OverviewView,
+});
+
+const eventsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/events",
+  component: EventsView,
 });
 
 const sendsRoute = createRoute({
@@ -100,6 +107,7 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   overviewRoute,
+  eventsRoute,
   sendsRoute,
   templatesRoute,
   linksRoute,

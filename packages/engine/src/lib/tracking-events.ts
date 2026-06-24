@@ -172,6 +172,7 @@ export async function pushTrackingEvent(
       userId: ctx.userId,
       userEmail: ctx.userEmail,
       eventProperties: properties,
+      source: "tracking",
       idempotencyKey: opts.idempotencyKey,
     },
   });

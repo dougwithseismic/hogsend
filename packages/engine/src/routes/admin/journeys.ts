@@ -710,6 +710,8 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
         // Public request field stays `properties` (decision #14); it maps to
         // the event-property bag of the IngestEvent (D2 split).
         eventProperties: body.properties ?? {},
+        // Studio "Enroll" action (admin manual enrollment).
+        source: "studio",
       },
     });
 

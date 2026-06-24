@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { AlertTriangle, Copy, Link2, Plus } from "lucide-react";
+import { AlertTriangle, Copy, Link2, Pencil, Plus } from "lucide-react";
 import { useState } from "react";
 import {
   EmptyState,
@@ -34,6 +34,7 @@ import {
   type Link,
   listLinks,
   qk,
+  updateLink,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
@@ -72,6 +73,7 @@ export function LinksView() {
   const [createOpen, setCreateOpen] = useState(false);
   const [created, setCreated] = useState<CreatedLink | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Link | null>(null);
+  const [editTarget, setEditTarget] = useState<Link | null>(null);
 
   // Create-form fields.
   const [url, setUrl] = useState("");
@@ -79,6 +81,12 @@ export function LinksView() {
   const [campaign, setCampaign] = useState("");
   const [linkType, setLinkType] = useState<LinkType>("public");
   const [distinctId, setDistinctId] = useState("");
+
+  // Edit-form fields (separate from the create form so the two dialogs never
+  // share state). Pre-filled from the target row on open.
+  const [editUrl, setEditUrl] = useState("");
+  const [editLabel, setEditLabel] = useState("");
+  const [editCampaign, setEditCampaign] = useState("");
 
   const query = useQuery({
     queryKey: qk.links(type),
@@ -94,8 +102,18 @@ export function LinksView() {
     setDistinctId("");
   }
 
+  function openEdit(row: Link) {
+    setEditTarget(row);
+    setEditUrl(row.originalUrl);
+    setEditLabel(row.label ?? "");
+    setEditCampaign(row.campaign ?? "");
+  }
+
   const urlValid = isHttpUrl(url.trim());
   const canSubmit = urlValid && label.trim().length > 0;
+
+  const editUrlValid = isHttpUrl(editUrl.trim());
+  const canSaveEdit = editUrlValid && editLabel.trim().length > 0;
 
   const create = useMutation({
     mutationFn: () =>
@@ -122,6 +140,39 @@ export function LinksView() {
       toast({
         variant: "error",
         title: "Could not create link",
+        description:
+          error instanceof ApiError ? error.message : "Unexpected error.",
+      });
+    },
+  });
+
+  const update = useMutation({
+    mutationFn: () => {
+      // Guard rather than assert: the dialog only opens with a target, but this
+      // narrows editTarget to a non-null Link so updateLink gets a real string
+      // id (its first arg is `string`, not `string | undefined`).
+      if (!editTarget) throw new Error("No link selected to edit.");
+      return updateLink(editTarget.id, {
+        originalUrl: editUrl.trim(),
+        label: editLabel.trim(),
+        campaign: editCampaign.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      const id = editTarget?.id;
+      toast({ title: "Link updated" });
+      setEditTarget(null);
+      void queryClient.invalidateQueries({ queryKey: ["links"] });
+      // The detail query (getLink) caches originalUrl too — refresh it so an
+      // open detail view doesn't show the stale destination after re-target.
+      if (id) {
+        void queryClient.invalidateQueries({ queryKey: qk.link(id) });
+      }
+    },
+    onError: (error) => {
+      toast({
+        variant: "error",
+        title: "Could not update link",
         description:
           error instanceof ApiError ? error.message : "Unexpected error.",
       });
@@ -281,13 +332,23 @@ export function LinksView() {
                       {formatDateTime(row.createdAt)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setArchiveTarget(row)}
-                      >
-                        Archive
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openEdit(row)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setArchiveTarget(row)}
+                        >
+                          Archive
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -389,6 +450,71 @@ export function LinksView() {
             </div>
           </>
         ) : null}
+      </Dialog>
+
+      {/* Edit dialog — re-target destination + relabel a managed link. */}
+      <Dialog
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title="Edit link"
+        description="Change where this managed short link points, or relabel it."
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => update.mutate()}
+              disabled={!canSaveEdit || update.isPending}
+            >
+              {update.isPending ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-link-url">Destination URL</Label>
+          <Input
+            id="edit-link-url"
+            placeholder="https://hogsend.com/pricing"
+            value={editUrl}
+            onChange={(e) => setEditUrl(e.target.value)}
+          />
+          {editUrl.trim() && !editUrlValid ? (
+            <p className="text-accent text-xs">Must be a valid http(s) URL.</p>
+          ) : null}
+        </div>
+
+        {editTarget && editUrl.trim() !== editTarget.originalUrl ? (
+          <div className="flex items-start gap-2 rounded-md border border-accent/40 bg-accent-tint p-3 text-accent text-xs">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              Changing the destination redirects the already-distributed short
+              link — the next click on the same short URL goes to the new
+              target.
+            </span>
+          </div>
+        ) : null}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-link-label">Label</Label>
+          <Input
+            id="edit-link-label"
+            placeholder="Pricing CTA — June launch"
+            value={editLabel}
+            onChange={(e) => setEditLabel(e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-link-campaign">Campaign (optional)</Label>
+          <Input
+            id="edit-link-campaign"
+            placeholder="june-launch"
+            value={editCampaign}
+            onChange={(e) => setEditCampaign(e.target.value)}
+          />
+        </div>
       </Dialog>
 
       {/* Minted-link reveal */}
