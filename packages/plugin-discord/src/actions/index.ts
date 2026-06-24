@@ -2,6 +2,7 @@ import type { DefinedConnectorAction } from "@hogsend/engine";
 import { broadcastToChannel } from "./broadcast.js";
 import { dmMember } from "./dm.js";
 import { mentionMembers, mentionRole } from "./mention.js";
+import { grantRole } from "./role.js";
 import { sendChannelMessage } from "./send-channel-message.js";
 
 /**
@@ -17,6 +18,7 @@ export const discordActions: DefinedConnectorAction[] = [
   mentionMembers,
   mentionRole,
   dmMember,
+  grantRole,
 ];
 
 export {
@@ -32,6 +34,7 @@ export {
   mentionRole,
 } from "./mention.js";
 export type { SendMessageResult } from "./rest.js";
+export { type GrantRoleArgs, type GrantRoleResult, grantRole } from "./role.js";
 export {
   type SendChannelMessageArgs,
   sendChannelMessage,

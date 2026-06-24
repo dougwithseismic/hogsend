@@ -178,8 +178,18 @@ export interface DefinedConnector<T = unknown> {
   credential?: StoredCredentialRef;
   /** Optional Zod schema validating the payload BEFORE transform. */
   schema?: z.ZodSchema<T>;
-  /** The transport-invariant heart: raw platform payload → IngestEvent | null. */
-  transform(payload: T, ctx: ConnectorCtx): Promise<IngestEvent | null>;
+  /**
+   * The transport-invariant heart: raw platform payload →
+   * `IngestEvent | IngestEvent[] | null`. Returning an ARRAY fans one inbound
+   * dispatch into multiple subject-keyed events (e.g. a Discord reaction →
+   * reactor-keyed `reaction_added` + author-keyed `reaction_received`); each
+   * element ingests independently with its own idempotencyKey (see
+   * `ingestTransformResult`).
+   */
+  transform(
+    payload: T,
+    ctx: ConnectorCtx,
+  ): Promise<IngestEvent | IngestEvent[] | null>;
   /** OPTIONAL OAuth + interactions hooks for the generic dispatch routes. */
   handlers?: ConnectorHandlers;
 }

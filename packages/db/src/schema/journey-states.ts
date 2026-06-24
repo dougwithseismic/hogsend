@@ -29,6 +29,13 @@ export const journeyStates = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     exitedAt: timestamp("exited_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    // Absolute deadline for a `ctx.waitForEvent({ where })` re-arm loop. The
+    // single-`sleepFor` durability trick does NOT extend to a multi-iteration
+    // re-arm (each iteration arms a fresh SleepCondition), so the deadline is
+    // persisted here once (read-first / set-once) and re-read on Hatchet
+    // replay-from-top — without it the wait would extend on every replay. NULL
+    // when the row is not in a where-filtered wait; cleared on resolve.
+    waitDeadline: timestamp("wait_deadline", { withTimezone: true }),
     ...timestamps,
   },
   (table) => [

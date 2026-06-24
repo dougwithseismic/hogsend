@@ -13,6 +13,9 @@ export {
   type DmResult,
   discordActions,
   dmMember,
+  type GrantRoleArgs,
+  type GrantRoleResult,
+  grantRole,
   type MentionMembersArgs,
   type MentionMembersResult,
   type MentionRoleArgs,
@@ -78,6 +81,7 @@ export {
 export { discordDestination } from "./destination.js";
 export type { DiscordEnv } from "./env.js";
 export {
+  DISCORD_REACTION_RECEIVED,
   type DiscordDispatchType,
   type DiscordEventName,
   DiscordEvents,

@@ -3,7 +3,7 @@ import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import type { DefinedConnector } from "../../connectors/define-connector.js";
 import { headersToRecord } from "../../lib/headers.js";
-import { ingestEvent } from "../../lib/ingestion.js";
+import { ingestEvent, ingestTransformResult } from "../../lib/ingestion.js";
 import type { Logger } from "../../lib/logger.js";
 import { getDerivedCredential } from "../../lib/provider-credentials.js";
 import { verifySignature } from "../../webhook-sources/verify.js";
@@ -224,17 +224,36 @@ export function registerWebhookSourceRoutes(
       payload = parsed.data;
     }
 
-    const event = await source.transform(payload, {
+    const transformed = await source.transform(payload, {
       db,
       logger,
       transport: "webhook",
       rawBody,
       headers,
     });
-    if (!event) {
+    if (!transformed) {
       logger.info("Webhook event skipped", { source: sourceId });
       return c.json({ ok: true, skipped: true });
     }
+    // A transform MAY fan into an array (contract parity with connectors); no
+    // webhook source does today, but handle it so the union stays honest.
+    if (Array.isArray(transformed)) {
+      const { exits } = await ingestTransformResult({
+        result: transformed,
+        db,
+        registry,
+        hatchet,
+        logger,
+        source: sourceId,
+      });
+      return c.json({
+        ok: true,
+        event: transformed[0]?.event ?? "batch",
+        userId: transformed[0]?.userId,
+        exits,
+      });
+    }
+    const event = transformed;
 
     // Stamp the origin with the webhook source id ("posthog", "stripe", …) so
     // the Events feed can show + filter where it came from.

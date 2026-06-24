@@ -64,6 +64,64 @@ export interface IngestResult {
   contactKey: string;
 }
 
+/**
+ * Ingest a connector transform RESULT — a single {@link IngestEvent}, an ARRAY
+ * of events (a dual-side fan-out, e.g. a Discord reaction yields a reactor-keyed
+ * `reaction_added` AND an author-keyed `reaction_received`), or null. Each
+ * element ingests INDEPENDENTLY with per-element error isolation, so one bad
+ * element never aborts its siblings, plus a defensive zero-key skip mirroring
+ * `pushLinkClickEvent` (`resolveOrCreateContact` throws on a zero-key event).
+ * `source` stamps every element's `user_events.source`.
+ */
+export async function ingestTransformResult(opts: {
+  result: IngestEvent | IngestEvent[] | null;
+  db: Database;
+  registry: JourneyRegistry;
+  hatchet: HatchetClient;
+  logger: Logger;
+  source: string;
+  analytics?: AnalyticsProvider;
+}): Promise<{ ingested: number; exits: number }> {
+  const { result, db, registry, hatchet, logger, source, analytics } = opts;
+  if (!result) return { ingested: 0, exits: 0 };
+  const events = Array.isArray(result) ? result : [result];
+  let ingested = 0;
+  let exits = 0;
+  for (const event of events) {
+    if (
+      !event.userId &&
+      !event.userEmail &&
+      !event.anonymousId &&
+      !event.discordId
+    ) {
+      logger.warn("ingestTransformResult: skipping zero-key event", {
+        event: event.event,
+        source,
+      });
+      continue;
+    }
+    try {
+      const r = await ingestEvent({
+        db,
+        registry,
+        hatchet,
+        logger,
+        event: { ...event, source },
+        analytics,
+      });
+      ingested++;
+      exits += r.exits.length;
+    } catch (err) {
+      logger.warn("ingestTransformResult: element ingest failed", {
+        event: event.event,
+        source,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return { ingested, exits };
+}
+
 export async function ingestEvent(opts: {
   db: Database;
   registry: JourneyRegistry;
