@@ -76,8 +76,26 @@ const ccThrow = createColdConnect({
   },
 });
 
+// Hostile branding: a title carrying a </script> breakout + a malformed iconSvg
+// that must NOT be raw-inlined. Exercises the page-render security hardening.
+const ccHostile = createColdConnect({
+  connectorId: `cch-${RUN}`,
+  identityKind: "userId",
+  platformKey: (id) => `cch:${id}`,
+  linkedEvent: "cch.linked",
+  identifyPropKey: "cch_id",
+  buildIngest: () => ({ eventProperties: { source: "cch" } }),
+  branding: {
+    ...COPY,
+    badge: "✈️",
+    iconSvg: "<img src=x onerror=alert(1)>",
+    title: "Pwn</script><script>alert(1)</script>",
+  },
+  throttle: { perUser: { max: 100 }, perEmail: { max: 100 } },
+});
+
 const app = createApp(container, {
-  routes: [cca.routes, ccb.routes, ccThrow.routes],
+  routes: [cca.routes, ccb.routes, ccThrow.routes, ccHostile.routes],
 });
 
 const post = (path: string, body: unknown) =>
@@ -207,5 +225,20 @@ describe("cold-connect exchange", () => {
       tok: minted.token,
     });
     expect(res.status).toBe(200);
+  });
+
+  it("page render hardens the inline <script>: escapes </script> in branding and fails closed on a malformed iconSvg", async () => {
+    const page = await app.request(`/connect/cch-${RUN}?tok=anything`);
+    expect(page.status).toBe(200);
+    const html = await page.text();
+
+    // The hostile title's </script> must not close the bootstrap early: exactly
+    // one real </script> tag, and the breakout appears unicode-escaped instead.
+    expect((html.match(/<\/script>/g) ?? []).length).toBe(1);
+    expect(html).toContain("\\u003c/script\\u003e");
+
+    // The malformed iconSvg is never raw-inlined; the emoji badge is used instead.
+    expect(html).not.toContain("onerror");
+    expect(html).toContain('"badge":"✈️"');
   });
 });
