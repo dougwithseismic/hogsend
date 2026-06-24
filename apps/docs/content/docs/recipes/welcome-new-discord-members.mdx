@@ -34,7 +34,7 @@ export const welcomeNewDiscordMembers = defineJourney({
 
   run: async (user, ctx) => {
     // A fresh join has a discord_id but usually no linked email yet. Park on
-    // the link event the /link → /verify loop fires when it resolves the
+    // the link event the /link email-confirm flow fires when it resolves the
     // contact; lookback covers a member who linked seconds before this wait.
     const linked = await ctx.waitForEvent({
       event: Events.CONTACT_LINKED, // "contact.linked"
@@ -74,7 +74,7 @@ The join, the wait, the welcome, and the nudge live in one durable function. A w
 
 A raw join carries no email — `user.email` is empty until the [`/link` loop](/docs/integrations/discord#the-link-identity-loop) resolves the contact. Two mechanics make the wait reliable:
 
-- **It resumes on the link.** Fire `contact.linked` once the member is emailable, and the wait resolves the instant it lands — the welcome arrives in minutes, not at the next timer tick. Emit it with `ctx.trigger` from inside a journey: `ctx.trigger` injects the registry/Hatchet/logger the ingest pipeline needs, which a bare `redeemCode` callback in `src/discord.ts` cannot reach (a raw `ingestEvent()` call requires all four — `{ db, registry, hatchet, logger, event }`).
+- **It resumes on the link.** Fire `contact.linked` once the member is emailable, and the wait resolves the instant it lands — the welcome arrives in minutes, not at the next timer tick. Emit it with `ctx.trigger` from inside a journey: `ctx.trigger` injects the registry/Hatchet/logger the ingest pipeline needs, which a bare connector callback in `src/discord.ts` cannot reach (a raw `ingestEvent()` call requires all four — `{ db, registry, hatchet, logger, event }`).
 - **`lookback` covers the gap.** A member who linked seconds before this wait was established is caught by the `lookback: minutes(30)` check against recent `user_events`, instead of being missed.
 
 A tiny companion journey watches the member's first Discord activity *after* the `/link` loop resolved their contact and re-emits `contact.linked` through `ctx.trigger`, so the welcome's wait resumes:
@@ -90,7 +90,7 @@ export const emitContactLinked = defineJourney({
     name: "Discord — emit contact.linked once linked",
     enabled: true,
     // Any post-link Discord activity now resolves to a contact WITH an email
-    // (the /link → /verify loop folded the address onto the discord_id).
+    // (the /link email-confirm flow folded the address onto the discord_id).
     trigger: { event: Events.DISCORD_MESSAGE_SENT }, // "discord.message_sent"
     entryLimit: "once",
     suppress: hours(12),

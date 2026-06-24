@@ -55,6 +55,47 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.30.0",
+    anchor: "0-30-0",
+    date: "June 24, 2026",
+    title: "One connect page for Telegram + Discord",
+    bullets: (
+      <>
+        <Bullet>
+          Discord drops the typed <Code>/verify</Code> code. <Code>/link</Code>{" "}
+          now emails a one-click confirm link — the same cold-connect flow
+          Telegram uses. The bind happens in the browser when the user clicks
+          the link (no 6-digit code to copy back), folding{" "}
+          <Code>discord_id</Code> + email onto one contact and identifying the
+          PostHog person client-side.
+        </Bullet>
+        <Bullet>
+          The engine-served connect page (
+          <Code>{"GET /connect/<connector>"}</Code>) is restyled to the Hogsend
+          Studio design language — ink surface, hairline card, the real Telegram
+          / Discord logo, and an &ldquo;if this wasn&rsquo;t you, ignore
+          this&rdquo; reassurance line. It&rsquo;s engine-owned, so every
+          cold-connect connector inherits the look.
+        </Bullet>
+        <Bullet>
+          Hardened: the branding JSON embedded in the page&rsquo;s inline{" "}
+          <Code>{"<script>"}</Code> is escaped against a{" "}
+          <Code>{"</script>"}</Code> breakout, <Code>iconSvg</Code> is
+          shape-checked (fails closed to the emoji badge), the page clears WCAG
+          AA contrast, and it no longer pulls a third-party webfont.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive — the connect
+        page is engine-owned, so Telegram and Discord both pick up the new look.
+        Discord&rsquo;s typed <Code>/verify</Code> command is removed; the
+        emailed link is the only confirm path.
+      </>
+    ),
+  },
+  {
     version: "0.26.0",
     anchor: "0-26-0",
     date: "June 21, 2026",

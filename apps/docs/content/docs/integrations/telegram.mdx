@@ -89,16 +89,16 @@ const client = createHogsendClient({
 });
 ```
 
-The cold-connect page + exchange (the `/link` email-confirm flow, [below](#linking-a-contact-start-vs-link)) is a small consumer route set, mounted on the API only:
+The cold-connect page + exchange (the `/link` email-confirm flow, [below](#linking-a-contact-start-vs-link)) is the engine `createColdConnect()` primitive — the plugin exports the built flow as `telegramColdConnect`, and you mount its `routes` on the API only. The basePath (`/connect/telegram`) is derived from the connector id by the primitive, so the page and exchange never collide with another connector's:
 
 ```ts title="src/index.ts"
 import { createApp } from "@hogsend/engine";
-import { registerTelegramConnectRoutes } from "./telegram-connect.js";
+import { telegramColdConnect } from "@hogsend/plugin-telegram";
 
 const app = createApp(client, {
   // ...webhookSources, etc.
   // Telegram cold-connect: GET /connect/telegram (page) + POST .../exchange.
-  routes: registerTelegramConnectRoutes,
+  routes: [telegramColdConnect.routes],
 });
 ```
 
@@ -160,13 +160,13 @@ Two paths attach a Telegram account to an email-bearing contact, chosen by where
 | | `/start <token>` — one-tap deep link | `/link <email>` — email confirm |
 |---|---|---|
 | **Entry point** | A personalized `t.me/<bot>?start=<token>` link from your app/dashboard | Inside Telegram, the user sends `/link you@example.com` |
-| **Flow** | One tap opens the bot; the token resolves to the bound email and binds immediately | Hogsend emails a confirmation link; clicking it opens `/connect/telegram` and a button completes the bind |
+| **Flow** | One tap opens the bot; the token resolves to the bound email and binds immediately | Hogsend emails a confirmation link; clicking it opens the Studio-styled `/connect/telegram` page and a button completes the bind |
 | **Identity proof** | The email the link was minted for (server-side Redis binding, never in the link) | Inbox ownership — the bind only completes when the emailed link is clicked |
 | **Hogsend event** | `telegram.linked` | `telegram.link_requested` → bind on the connect page |
 
 **Use `/start <token>`** when you already know the contact's email (a logged-in dashboard). Mint the link with `mintTelegramStartLink({ botUsername, email })`, which stores `token → email` in Redis under a short opaque token (Telegram caps the `start` param at 64 chars and forbids the signed-state form, so the binding lives server-side, never in the link) with a 900-second TTL. The user taps once; `/start <token>` resolves the bound email and emits `telegram.linked` carrying both `userId` and `userEmail`.
 
-**Use `/link <email>`** for a cold connect started inside Telegram, where you do not yet trust the typed address. A consumer journey on `telegram.link_requested` mints a confirmation token sealing `{ telegramUserId, email }`, emails the link to that address, and the user clicks it. See [Link a Telegram account to an email](/docs/recipes/link-telegram-to-email) for the full flow.
+**Use `/link <email>`** for a cold connect started inside Telegram, where you do not yet trust the typed address. A consumer journey on `telegram.link_requested` calls `telegramColdConnect.mintConfirm({ platformUserId, email })` (which seals the binding server-side), emails the confirm link to that address, and the user clicks it. See [Link a Telegram account to an email](/docs/recipes/link-telegram-to-email) for the full flow.
 
 <Callout type="info">
   The `/start <token>` redeem **peeks** the Redis binding without consuming it. `/start` arrives over a webhook that auto-retries on any non-2xx, so consuming the token in the transform — before the ingest commits — would let one transient blip permanently burn the link and silently downgrade the user to onboarding. Single-use is instead bounded by the short TTL, and the token rides only in a private deep link.
@@ -178,9 +178,9 @@ Two paths attach a Telegram account to an email-bearing contact, chosen by where
 
 ```
 /link you@example.com  ──▶  telegram.link_requested
-                              │  (consumer journey: rate-limit, mint token, email link)
+                              │  (consumer journey: mintConfirm → throttle + seal token → email link)
                               ▼
-              emailed confirmation link  ──click──▶  GET /connect/telegram
+              emailed confirmation link  ──click──▶  GET /connect/telegram  (styled page, no writes)
                               │
               "Confirm connection" button ──POST──▶ /connect/telegram/exchange
                               │  (peek sealed token → ingest telegram.linked → consume token)
@@ -188,9 +188,10 @@ Two paths attach a Telegram account to an email-bearing contact, chosen by where
               bind telegram:<id> + email onto one contact + client-side posthog.identify
 ```
 
-- The `telegram-link-request` journey validates the address shape, applies an anti-email-bomb rate limit (3 confirmation emails per Telegram user per rolling hour, since the Telegram webhook has only a static secret, no per-message signature), mints a confirmation token via `mintTelegramConfirmToken({ telegramUserId, email })`, and emails the `/connect/telegram?tok=…` link through a transactional send (`skipPreferenceCheck`).
+- The `telegram-link-request` journey validates the address shape, then calls `telegramColdConnect.mintConfirm({ platformUserId, email })`. The cold-connect throttle runs **inside** `mintConfirm` — independent per-user and per-email Redis-INCR rolling windows, **fail-closed** — so a forged or replayed `/link <email>` can't spray a victim's inbox (the Telegram webhook has only a static secret, no per-message signature). On `{ ok: false, reason }` (throttled, or Redis unavailable) the journey replies in Telegram and sends nothing. On `{ ok: true, token }` it builds `telegramColdConnect.confirmUrl({ apiPublicUrl, token })` and emails it through a transactional send (template `transactional/magic-link`, subject "Confirm your Telegram connection", `skipPreferenceCheck`).
+- The connect page is **Studio-styled** (the Crimzon design language — ink surface, hairline-bordered card, Inter, eyebrow micro-label, faint grain). It shows the real **Telegram paper-plane logo** in an accent-tinted chip (not an emoji), and carries a reassurance footnote: _"Didn't start this in Telegram? You can safely close this tab — nothing links to your account until you tap Confirm above."_ The `?tok=` is read CLIENT-side only, never reflected into the markup.
 - The bind happens on a human button **click (POST)**, never on GET — so an email/Telegram link-preview prefetch can't complete it.
-- The token seals `{ telegramUserId, email }` server-side and is single-use (consumed only **after** the bind ingest commits, via `consumeTelegramConfirmToken`). The web caller never names either id — both come from the sealed token, not the request.
+- The binding (`{ platformUserId, email }`) is sealed server-side and single-use: the exchange **peeks** the token, runs the bind ingest, and **consumes the token only after** that commits — so a transient blip on the ingest leaves the token live for the user's retry. The web caller never names either id — both come from the sealed token, not the request.
 - The connect page identifies CLIENT-side (real geo/IP) keyed to the server-proven `contactKey` the exchange returns, so the web session joins the same PostHog person the contact's email events land on. There is no graft vector — the page never sends a distinct id the server resolves a contact on.
 
 ## Outbound actions (from a journey)
@@ -225,12 +226,12 @@ await sendConnectorAction({
 `setWebhook(secret_token=…)` makes Telegram echo that value in the `X-Telegram-Bot-Api-Secret-Token` header on every Update; the engine route compares it against `TELEGRAM_WEBHOOK_SECRET` before parsing. The `match` auth is **open when the var is unset** — convenient for local testing, but it means a public deploy with no secret accepts unauthenticated posts. Set `TELEGRAM_WEBHOOK_SECRET` (and pass it to `setWebhook`) for any deploy reachable from the internet.
 
 <Callout type="warn">
-  The Telegram webhook has **no per-message signature** — only the static secret-token header. A forged or replayed `/link <email>` could otherwise spray a victim's inbox from your sending domain, so the `telegram-link-request` journey caps confirmation emails at 3 per Telegram user per rolling hour. Keep that rate limit if you fork the journey.
+  The Telegram webhook has **no per-message signature** — only the static secret-token header. A forged or replayed `/link <email>` could otherwise spray a victim's inbox from your sending domain, so `telegramColdConnect.mintConfirm` applies the cold-connect throttle (independent per-user and per-email Redis-INCR rolling windows, **fail-closed**) before it seals a token — the journey only sends a link when `mintConfirm` returns `{ ok: true }`. The throttle lives in the engine primitive, so a forked journey keeps it for free.
 </Callout>
 
 ### Token bindings
 
-Both link tokens are short, opaque, single-use-by-TTL Redis nonces — never signed claims in the link. The `/start` deep-link token (900s TTL) maps `token → email`; the `/link` confirm token (900s TTL) seals `{ telegramUserId, email }`. Neither carries a forgeable claim, and the confirm bind only completes on a human button click against the sealed token, so a link-preview prefetch can't complete it.
+Both link tokens are short, opaque Redis nonces — never signed claims in the link. The `/start` deep-link token (900s TTL) maps `token → email` and is peeked, not consumed (TTL-bounded single use). The `/link` cold-connect confirm token (900s TTL by default) seals `{ platformUserId, email }` and is genuinely single-use — the exchange consumes it after the bind commits. Neither carries a forgeable claim, and the confirm bind only completes on a human button click against the sealed token, so a link-preview prefetch can't complete it.
 
 ### Outbound token isolation
 
@@ -241,7 +242,7 @@ The outbound actions read `TELEGRAM_BOT_TOKEN` directly and never place it in a 
 - Telegram is **webhook transport** — no socket, no leader lease. Inbound runs in the API process that receives the POST; you do not run a separate Telegram worker.
 - `match` auth is **open when `TELEGRAM_WEBHOOK_SECRET` is unset.** Set it for any public deploy, and pass the same value to `setWebhook(secret_token=…)`.
 - The `chat_id` equals the user id only for a **private chat**. Group/channel chats have their own ids — `sendMessage` replies to whatever `chatId` the trigger event carried.
-- The `/start` redeem **peeks** the token (TTL-bounded single use), so a transient ingest blip never burns a user's one-tap link. The `/link` confirm token is consumed only after the bind commits, so a retry still works.
+- The `/start` redeem **peeks** the token (TTL-bounded single use), so a transient ingest blip never burns a user's one-tap link. The `/link` cold-connect confirm token is likewise peeked and consumed only after the bind commits, so a retry still works. The `mintConfirm` throttle is **fail-closed** — if Redis is unavailable it returns `{ ok: false }` and the journey sends nothing rather than minting a link it can't honor.
 - `telegram.message` truncates the stored `text` to 500 chars — Hogsend stores derived signals, not full message bodies.
 - The first npm publish of `@hogsend/plugin-telegram` is **manual** — CI cannot create a new `@hogsend/*` package.
 

@@ -14,30 +14,24 @@ The bind is gated on a real email click, never on the typed address alone:
 | Step | What happens |
 |---|---|
 | `/link you@example.com` | The connector emits `telegram.link_requested` carrying the lowercased email |
-| `telegram-link-request` journey | Validates the address shape, rate-limits (3/user/hour), mints a sealed token, emails the confirm link, replies in Telegram |
-| Click the emailed link | Opens `GET /connect/telegram?tok=…` — a dark connect page; the token is read client-side, never reflected into markup |
-| **Confirm connection** button | `POST /connect/telegram/exchange` peeks the sealed token, ingests `telegram.linked` to bind, then consumes the token; the page calls `posthog.identify` client-side |
+| `telegram-link-request` journey | Validates the address shape, calls `telegramColdConnect.mintConfirm` (which runs the cold-connect throttle — per-user + per-email Redis-INCR windows, fail-closed — then seals a single-use token), emails the confirm link, replies in Telegram |
+| Click the emailed link | Opens `GET /connect/telegram?tok=…` — the engine-served connect page, styled in the Hogsend Studio "Crimzon" language (ink surface, hairline card, the real Telegram paper-plane logo in an accent-tinted chip) with the "didn't start this in Telegram? you can safely close this tab" reassurance footnote; the token is read client-side, never reflected into markup |
+| **Confirm connection** button | `POST /connect/telegram/exchange` peeks the sealed token, ingests `telegram.linked` to fold `telegram:<id>` + email onto one contact, then consumes the token; the page calls `posthog.identify` client-side with `{ telegram_id }` |
 
 The bind happens on a human button **click (POST)**, never on GET — so an email or Telegram link-preview prefetch can't complete it.
 
 ## The wiring
 
-Two pieces make `/link` work: a journey on `telegram.link_requested` that mints and mails the confirmation, and a route set that serves the connect page and the exchange.
+Two pieces make `/link` work: a journey on `telegram.link_requested` that mints and mails the confirmation, and mounting the cold-connect routes that serve the connect page and the exchange. Both lean on the engine `createColdConnect()` primitive — `telegramColdConnect` is the prebuilt flow (`connectorId: "telegram"`, `platformKey: telegram:<id>`, `linkedEvent: "telegram.linked"`, `identifyPropKey: "telegram_id"`), so the journey only mints and mails, and the routes mount in one line.
 
-```ts
-// src/journeys/telegram-link-request.ts
+```ts title="src/journeys/telegram-link-request.ts"
 import { hours } from "@hogsend/core";
 import {
   defineJourney,
   getEmailService,
-  getRedis,
   sendConnectorAction,
 } from "@hogsend/engine";
-import {
-  buildTelegramConfirmUrl,
-  mintTelegramConfirmToken,
-  TelegramEvents,
-} from "@hogsend/plugin-telegram";
+import { TelegramEvents, telegramColdConnect } from "@hogsend/plugin-telegram";
 
 // Loose shape check only — the binding is PROVEN by the email being delivered.
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -70,29 +64,31 @@ export const telegramLinkRequest = defineJourney({
       return;
     }
 
-    // Anti email-bomb: the Telegram webhook has only a static secret token (no
-    // per-message signature), so a forged/replayed /link could spray a victim's
-    // inbox from your sending domain. Cap at 3 per rolling hour per fromId.
-    const redis = getRedis();
-    if (redis) {
-      const rlKey = `hogsend:telegram:linkreq:rl:${fromId}`;
-      const n = await redis.incr(rlKey);
-      if (n === 1) await redis.expire(rlKey, 3600);
-      if (n > 3) {
-        await reply("You've requested a few link emails recently — check your inbox.");
+    // Mint a server-sealed confirm token. The cold-connect primitive owns the
+    // anti email-bomb throttle now (per-user + per-email Redis-INCR windows,
+    // fail-closed), so a forged/replayed /link can't spray a victim's inbox, and
+    // a Redis fault returns { ok:false } so we never send a link we can't honor.
+    const minted = await telegramColdConnect.mintConfirm({
+      platformUserId: fromId,
+      email,
+    });
+    if (!minted.ok) {
+      if (minted.reason === "rate_limited") {
+        await reply(
+          "You've requested a few link emails recently — check your inbox, " +
+            "or try again in a little while.",
+        );
         return;
       }
-    }
-
-    // Seal { telegramUserId, email } server-side under a single-use token.
-    const minted = await mintTelegramConfirmToken({ telegramUserId: fromId, email });
-    if (!minted.ok) {
       await reply("Linking is briefly unavailable — please try again shortly.");
       return;
     }
 
     const apiPublicUrl = process.env.API_PUBLIC_URL ?? "http://localhost:3002";
-    const url = buildTelegramConfirmUrl({ apiPublicUrl, token: minted.token });
+    const url = telegramColdConnect.confirmUrl({
+      apiPublicUrl,
+      token: minted.token,
+    });
 
     // TRANSACTIONAL send — skipPreferenceCheck so the confirm link is NEVER
     // dropped by unsubscribe/frequency suppression.
@@ -107,69 +103,29 @@ export const telegramLinkRequest = defineJourney({
       skipPreferenceCheck: true,
     });
 
-    await reply(`📧 I've emailed a confirmation link to ${email}.\n\nIt expires in 15 minutes.`);
+    await reply(
+      `📧 I've emailed a confirmation link to ${email}.\n\n` +
+        "Open it to finish connecting — it expires in 15 minutes.",
+    );
   },
 });
 ```
 
-```ts
-// src/telegram-connect.ts — the connect page + exchange, mounted with
-// createApp({ routes: registerTelegramConnectRoutes }). Domain-agnostic: served
-// on the customer's own API_PUBLIC_URL against the customer's own PostHog.
-import { type CreateAppOptions, ingestEvent } from "@hogsend/engine";
-import {
-  consumeTelegramConfirmToken,
-  peekTelegramConfirmToken,
-} from "@hogsend/plugin-telegram";
+The connect page and the `/exchange` bind are both provided by `telegramColdConnect.routes` — there's no hand-rolled page or peek/consume/`ingestEvent` block to write any more. Mount it on the app:
 
-export const registerTelegramConnectRoutes: NonNullable<
-  CreateAppOptions["routes"]
-> = (app) => {
-  // GET serves the dark connect page; ?tok= is read CLIENT-side, never reflected.
-  app.get("/connect/telegram", (c) => {
-    const { env } = c.get("container");
-    return c.html(connectPageHtml(env)); // page calls posthog.identify on success
-  });
+```ts title="src/index.ts"
+import { createApp, createHogsendClient } from "@hogsend/engine";
+import { telegramColdConnect } from "@hogsend/plugin-telegram";
 
-  // POST is the only path that binds — a link-preview prefetch (GET) can't.
-  app.post("/connect/telegram/exchange", async (c) => {
-    const container = c.get("container");
-    const { tok } = await c.req.json();
+const client = createHogsendClient({ journeys, email: { templates } });
 
-    // Peek (not consume): the token survives a transient failure, so a retry works.
-    const binding = await peekTelegramConfirmToken(tok);
-    if (!binding) return c.json({ ok: false, error: "invalid_or_used" }, 410);
-
-    // Authoritative bind: telegram:<id> + email folded onto ONE contact. Returns
-    // the canonical contact key the page hands to posthog.identify(), so the web
-    // session joins the SAME person the contact's email events land on.
-    const result = await ingestEvent({
-      db: container.db,
-      registry: container.registry,
-      hatchet: container.hatchet,
-      logger: container.logger,
-      analytics: container.analytics,
-      event: {
-        event: "telegram.linked",
-        userId: `telegram:${binding.telegramUserId}`,
-        userEmail: binding.email,
-        contactProperties: {
-          // telegram is in DEEP_MERGE_KEYS, so this never clobbers richer fields
-          // (username/etc.) set by inbound messages — it merges.
-          telegram: {
-            id: binding.telegramUserId,
-            chat_id: binding.telegramUserId, // == user id for a private chat
-          },
-        },
-        idempotencyKey: `telegram:confirm:${binding.telegramUserId}:${tok}`,
-      },
-    });
-
-    // Single-use: consume only AFTER the bind ingest committed.
-    await consumeTelegramConfirmToken(tok);
-    return c.json({ ok: true, key: result.contactKey, telegramId: binding.telegramUserId });
-  });
-};
+const app = createApp(client, {
+  webhookSources,
+  // GET /connect/telegram (the Studio-styled page) + POST .../exchange (the
+  // sealed-token bind). The basePath is derived from connectorId, so the
+  // confirm links already in flight keep resolving.
+  routes: [telegramColdConnect.routes],
+});
 ```
 
 ## The one-tap alternative: /start deep link
@@ -231,7 +187,7 @@ export const telegramLinked = defineJourney({
 The richer `contacts.properties.telegram` metadata (`username`, `first_name`, `last_name`, `language`, and the derived `last_seen`) is on the contact row, deep-merged and non-clobbering — read the authoritative `contacts` row if a journey needs it. It is never a resolution key; `telegram:<id>` (the `externalId`) is the merge key.
 
 <Callout type="info">
-  - **The linked email is proven by the click**, not the typed address. The `/link` flow seals `{ telegramUserId, email }` server-side and only binds when the emailed link is clicked — so a forged `/link` can't attach an address the sender does not control.
+  - **The linked email is proven by the click**, not the typed address. `mintConfirm` seals `{ platformUserId, email }` server-side under a single-use token and only binds when the emailed link is clicked — so a forged `/link` can't attach an address the sender does not control.
   - **The bind is on POST, never GET.** A link-preview prefetch fetches the page (GET) but cannot complete the bind, which requires the explicit **Confirm connection** button (POST).
   - **`/start` peeks, never consumes.** The deep-link redeem reads the Redis binding without deleting it, so a webhook auto-retry can't burn a user's one-tap link — single use is bounded by the 900s TTL instead.
 </Callout>
