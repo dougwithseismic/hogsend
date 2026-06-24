@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import {
   GitBranch,
   MailCheck,
@@ -9,6 +8,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
+import { useFireEvent } from "@/components/debug/debug-drawer";
 import { StatCard } from "@/components/stat-card";
 import { CardsSkeleton, ErrorState, PageHeader } from "@/components/states";
 import { buttonVariants } from "@/components/ui/button";
@@ -33,6 +33,7 @@ function isFreshInstall(m: OverviewMetrics): boolean {
 }
 
 function OnboardingCard() {
+  const fireEvent = useFireEvent();
   return (
     <Card className="border-accent/40 bg-accent-tint hover:border-accent/40">
       <CardHeader>
@@ -58,10 +59,14 @@ function OnboardingCard() {
           </li>
         </ol>
         <div className="flex flex-wrap gap-2">
-          <Link to="/debug" className={cn(buttonVariants({ size: "sm" }))}>
+          <button
+            type="button"
+            className={cn(buttonVariants({ size: "sm" }))}
+            onClick={fireEvent}
+          >
             <Zap className="h-4 w-4" />
             Send a test event
-          </Link>
+          </button>
           <DocLink href={links.quickstart}>Quickstart</DocLink>
           <DocLink href={links.journeys} variant="ghost">
             Create a journey
