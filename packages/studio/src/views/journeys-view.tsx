@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   EmptyState,
@@ -8,7 +9,6 @@ import {
 } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { DocLink } from "@/components/ui/doc-link";
 import {
@@ -31,14 +31,13 @@ import {
 import { ApiError } from "@/lib/api";
 import { formatDuration, formatNumber, formatPercent } from "@/lib/format";
 import { links } from "@/lib/links";
-import { JourneyFunnel } from "./journeys/journey-funnel";
 
 type Row = JourneyMetric & { enabled: boolean };
 
 export function JourneysView() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const navigate = useNavigate();
   const [toggleTarget, setToggleTarget] = useState<Row | null>(null);
 
   const metricsQuery = useQuery({
@@ -86,8 +85,6 @@ export function JourneysView() {
     ...m,
     enabled: enabledMap.get(m.journeyId) ?? false,
   }));
-
-  const selected = rows.find((r) => r.journeyId === selectedId) ?? null;
 
   return (
     <div className="space-y-6">
@@ -139,13 +136,11 @@ export function JourneysView() {
                 <TableRow
                   key={row.journeyId}
                   className="cursor-pointer"
-                  data-state={
-                    row.journeyId === selectedId ? "selected" : undefined
-                  }
                   onClick={() =>
-                    setSelectedId((cur) =>
-                      cur === row.journeyId ? null : row.journeyId,
-                    )
+                    navigate({
+                      to: "/journeys/$journeyId",
+                      params: { journeyId: row.journeyId },
+                    })
                   }
                 >
                   <TableCell>
@@ -192,17 +187,6 @@ export function JourneysView() {
           </Table>
         </div>
       )}
-
-      {selected ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>{selected.name} — funnel</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <JourneyFunnel journeyId={selected.journeyId} />
-          </CardContent>
-        </Card>
-      ) : null}
 
       <ConfirmDialog
         open={toggleTarget !== null}

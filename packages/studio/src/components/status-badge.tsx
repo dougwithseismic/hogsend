@@ -37,6 +37,24 @@ const STATUS_STYLES: Record<
     variant: "outline",
     className: "border-white/[0.08] bg-white/[0.04] text-white/50",
   },
+  // Journey-instance statuses (same single-accent vocabulary as the email
+  // statuses above; `failed` is shared and stays destructive below).
+  active: {
+    variant: "outline",
+    className: "border-white/30 bg-white/[0.12] text-white",
+  },
+  waiting: {
+    variant: "outline",
+    className: "border-white/15 bg-white/[0.05] text-white/60",
+  },
+  completed: {
+    variant: "outline",
+    className: "border-white/20 bg-white/[0.08] text-white/90",
+  },
+  exited: {
+    variant: "outline",
+    className: "border-white/[0.08] bg-white/[0.03] text-white/45",
+  },
   bounced: { variant: "destructive" },
   complained: { variant: "destructive" },
   failed: { variant: "destructive" },

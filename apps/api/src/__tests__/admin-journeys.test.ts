@@ -205,6 +205,25 @@ describe("GET /v1/admin/journeys/:id/states/:stateId", () => {
   });
 });
 
+describe("GET /v1/admin/journeys/:id/templates", () => {
+  it("returns 404 for unknown journey", async () => {
+    const res = await app.request("/v1/admin/journeys/nonexistent/templates", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns an empty template list for a journey with no sends", async () => {
+    const res = await app.request(
+      "/v1/admin/journeys/activation-welcome/templates",
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.templates).toBeInstanceOf(Array);
+  });
+});
+
 describe("DELETE /v1/admin/journeys/:id/states/:stateId", () => {
   it("returns 404 for nonexistent state", async () => {
     const res = await app.request(

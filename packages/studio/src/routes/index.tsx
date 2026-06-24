@@ -8,6 +8,7 @@ import { BucketsView } from "@/views/buckets-view";
 import { ContactsView } from "@/views/contacts-view";
 import { DebugView } from "@/views/debug-view";
 import { IntegrationsView } from "@/views/integrations-view";
+import { JourneyDetailView } from "@/views/journey-detail-view";
 import { JourneysView } from "@/views/journeys-view";
 import { LinksView } from "@/views/links-view";
 import { OverviewView } from "@/views/overview-view";
@@ -49,6 +50,17 @@ const journeysRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/journeys",
   component: JourneysView,
+});
+
+const journeyDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/journeys/$journeyId",
+  // Read the path param here and hand it down as a plain prop so the view stays
+  // router-agnostic (and there's no view↔route circular import).
+  component: function JourneyDetailRoute() {
+    const { journeyId } = journeyDetailRoute.useParams();
+    return <JourneyDetailView journeyId={journeyId} />;
+  },
 });
 
 const bucketsRoute = createRoute({
@@ -99,6 +111,7 @@ const routeTree = rootRoute.addChildren([
   templatesRoute,
   linksRoute,
   journeysRoute,
+  journeyDetailRoute,
   bucketsRoute,
   contactsRoute,
   suppressionsRoute,

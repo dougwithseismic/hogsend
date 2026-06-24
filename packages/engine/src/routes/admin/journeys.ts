@@ -1,11 +1,21 @@
 import {
   type Database,
+  emailSends,
   journeyConfigs,
   journeyLogs,
   journeyStates,
 } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  sql,
+} from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 
@@ -358,6 +368,41 @@ const enrollRoute = createRoute({
 
 // --- Handlers ---
 
+const templatesRoute = createRoute({
+  method: "get",
+  path: "/{id}/templates",
+  tags: ["Admin — Journeys"],
+  summary: "Email templates this journey has sent (observed from email_sends)",
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            templates: z.array(
+              z.object({
+                templateKey: z.string(),
+                sent: z.number(),
+                opened: z.number(),
+                clicked: z.number(),
+                lastSentAt: z.string().nullable(),
+              }),
+            ),
+          }),
+        },
+      },
+      description:
+        "Distinct templates sent within this journey, with engagement counts",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Journey not found",
+    },
+  },
+});
+
 export const journeysRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db, registry } = c.get("container");
@@ -675,5 +720,52 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
         userId: body.userId,
       },
       202,
+    );
+  })
+  .openapi(templatesRoute, async (c) => {
+    const { db, registry } = c.get("container");
+    const { id } = c.req.valid("param");
+
+    if (!registry.has(id)) {
+      return c.json({ error: "Journey not found" }, 404);
+    }
+
+    // Observed-from-sends: the templates a journey actually sent, routed via
+    // emailSends.journeyStateId → journeyStates.journeyId (no journeyId on
+    // emailSends). NULL templateKeys (ad-hoc HTML sends) are excluded.
+    const rows = await db
+      .select({
+        templateKey: emailSends.templateKey,
+        sent: sql<number>`count(*) filter (where ${emailSends.sentAt} is not null)`,
+        opened: sql<number>`count(*) filter (where ${emailSends.openedAt} is not null)`,
+        clicked: sql<number>`count(*) filter (where ${emailSends.clickedAt} is not null)`,
+        lastSentAt: sql<string | null>`max(${emailSends.sentAt})`,
+      })
+      .from(emailSends)
+      .innerJoin(journeyStates, eq(emailSends.journeyStateId, journeyStates.id))
+      .where(
+        and(
+          eq(journeyStates.journeyId, id),
+          isNull(journeyStates.deletedAt),
+          isNotNull(emailSends.templateKey),
+        ),
+      )
+      .groupBy(emailSends.templateKey)
+      .orderBy(desc(sql`count(*)`));
+
+    return c.json(
+      {
+        templates: rows.map((r) => ({
+          // isNotNull guarantees a string at runtime; satisfy the type too.
+          templateKey: r.templateKey ?? "",
+          sent: Number(r.sent),
+          opened: Number(r.opened),
+          clicked: Number(r.clicked),
+          lastSentAt: r.lastSentAt
+            ? new Date(r.lastSentAt).toISOString()
+            : null,
+        })),
+      },
+      200,
     );
   });
