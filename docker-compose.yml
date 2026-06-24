@@ -46,14 +46,7 @@ services:
       retries: 5
 
   hatchet-lite:
-    # Journey replay-safety Layer 1 (the durable `memo` fast path) is only active
-    # on engine >= v0.80.0 (DURABLE_EVICTION); below that, `memo` silently
-    # no-ops. PINNED to v0.84.0 (>= v0.80.0) so Layer 1's durability is
-    # GUARANTEED, not left to drift on a floating `:latest`. The
-    # version-independent Layer 2 (the Postgres email_sends/user_events/
-    # connector_deliveries unique-index dedup) remains the authoritative
-    # exactly-once guarantee regardless of the engine tag.
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
     restart: unless-stopped
     depends_on:
       hatchet-postgres:
