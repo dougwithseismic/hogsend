@@ -56,7 +56,7 @@ export interface MintedLink {
  * stored URL verbatim, so giving operators a UI to mint these would otherwise
  * widen the latent open-redirect into `javascript:`/`data:` territory.
  */
-function assertHttpUrl(url: string): void {
+export function assertHttpUrl(url: string): void {
   let parsed: URL;
   try {
     parsed = new URL(url);
