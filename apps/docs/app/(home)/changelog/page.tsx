@@ -55,34 +55,35 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
-    version: "0.30.0",
-    anchor: "0-30-0",
+    version: "0.31.0",
+    anchor: "0-31-0",
     date: "June 24, 2026",
-    title: "One connect page for Telegram + Discord",
+    title: "Studio-styled connect page + platform logos",
     bullets: (
       <>
         <Bullet>
-          Discord drops the typed <Code>/verify</Code> code. <Code>/link</Code>{" "}
-          now emails a one-click confirm link — the same cold-connect flow
-          Telegram uses. The bind happens in the browser when the user clicks
-          the link (no 6-digit code to copy back), folding{" "}
-          <Code>discord_id</Code> + email onto one contact and identifying the
-          PostHog person client-side.
-        </Bullet>
-        <Bullet>
           The engine-served connect page (
-          <Code>{"GET /connect/<connector>"}</Code>) is restyled to the Hogsend
-          Studio design language — ink surface, hairline card, the real Telegram
-          / Discord logo, and an &ldquo;if this wasn&rsquo;t you, ignore
+          <Code>{"GET /connect/<connector>"}</Code>) — where a contact confirms
+          a Telegram or Discord email link — is restyled to the Hogsend Studio
+          design language: ink surface, hairline card, the real Telegram /
+          Discord logo, and an &ldquo;if this wasn&rsquo;t you, ignore
           this&rdquo; reassurance line. It&rsquo;s engine-owned, so every
           cold-connect connector inherits the look.
         </Bullet>
         <Bullet>
           Hardened: the branding JSON embedded in the page&rsquo;s inline{" "}
           <Code>{"<script>"}</Code> is escaped against a{" "}
-          <Code>{"</script>"}</Code> breakout, <Code>iconSvg</Code> is
-          shape-checked (fails closed to the emoji badge), the page clears WCAG
-          AA contrast, and it no longer pulls a third-party webfont.
+          <Code>{"</script>"}</Code> breakout, the new <Code>iconSvg</Code>{" "}
+          branding field is shape-checked (fails closed to the emoji badge), the
+          page clears WCAG AA contrast, and it no longer pulls a third-party
+          webfont.
+        </Bullet>
+        <Bullet>
+          <Code>create-hogsend</Code> is realigned to the engine version line —
+          it had drifted to <Code>0.22.0</Code> while the line reached{" "}
+          <Code>0.30.0</Code>, so <Code>create-hogsend@latest</Code> scaffolded
+          a stale app. <Code>release-doctor</Code> now holds the scaffolder to
+          the line so it can&rsquo;t fall behind again.
         </Bullet>
       </>
     ),
@@ -90,8 +91,39 @@ const ENTRIES: ChangelogEntry[] = [
       <>
         Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive — the connect
         page is engine-owned, so Telegram and Discord both pick up the new look.
-        Discord&rsquo;s typed <Code>/verify</Code> command is removed; the
-        emailed link is the only confirm path.
+      </>
+    ),
+  },
+  {
+    version: "0.30.0",
+    anchor: "0-30-0",
+    date: "June 22, 2026",
+    title: "Discord adopts the cold-connect link flow",
+    bullets: (
+      <>
+        <Bullet>
+          Discord drops the typed <Code>/verify</Code> 6-digit code.{" "}
+          <Code>/link</Code> now emails a one-click confirm link — the same
+          cold-connect flow Telegram uses. The bind happens in the browser when
+          the user clicks the link, folding <Code>discord_id</Code> + email onto
+          one contact and identifying the PostHog person client-side.
+        </Bullet>
+        <Bullet>
+          <Code>@hogsend/plugin-discord</Code> <Code>InteractionDeps</Code> is
+          reworked (breaking): the code-flow callbacks (<Code>mintCode</Code>,{" "}
+          <Code>sendLinkCode</Code>, <Code>redeemCode</Code>) are replaced by a
+          single <Code>requestConfirm</Code> that mints a server-sealed
+          cold-connect token and emails the confirm link. The mint throttle
+          moved into <Code>mintConfirm</Code> (Redis-INCR, fail-closed).
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Breaking for consumers
+        wiring Discord <Code>/link</Code> — swap the code-flow callbacks for{" "}
+        <Code>requestConfirm</Code>; <Code>/verify</Code> and the typed-code
+        path are removed.
       </>
     ),
   },
