@@ -46,7 +46,10 @@ services:
       retries: 5
 
   hatchet-lite:
-    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    # Pinned to v0.84.0 (>= v0.80.0 DURABLE_EVICTION) so journey replay-safety
+    # Layer 1 (the durable `memo` fast path) is guaranteed — see the root
+    # docker-compose.yml for the full rationale.
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0
     restart: unless-stopped
     depends_on:
       hatchet-postgres:

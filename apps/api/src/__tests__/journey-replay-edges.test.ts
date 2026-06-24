@@ -10,7 +10,9 @@
  *     (MF-6): the boundary auto-keying lives in the tracked mailer, so a journey
  *     that bypasses the sendEmail() helper still gets exactly-once.
  *  3. sendConnectorAction is boundary-aware (MF-5): Layer-1 memoize wraps the
- *     action so a replay on an eviction-capable engine does not re-fire it.
+ *     action so a replay on an eviction-capable engine does not re-fire it, AND
+ *     the Layer-2 `connector_deliveries` DB backstop makes it exactly-once even
+ *     on a pre-eviction (degraded) engine — the version-independent guarantee.
  *  4. ctx.once (MF-8): a non-deterministic decision is recorded once per
  *     enrollment and replayed verbatim, durable on ANY engine.
  */
@@ -20,12 +22,15 @@ process.env.DATABASE_URL =
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { emailSends, journeyStates } = await import("@hogsend/db");
+const { connectorDeliveries, emailSends, journeyStates } = await import(
+  "@hogsend/db"
+);
 const { eq } = await import("drizzle-orm");
 const {
   createHogsendClient,
   createJourneyContext,
   createMemoize,
+  deriveJourneyKey,
   createTrackedMailer,
   defineConnectorAction,
   getEmailService,
@@ -149,11 +154,24 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
-  for (const s of ["queued", "raw", "conn", "conn2", "once"]) {
+  for (const s of [
+    "queued",
+    "raw",
+    "conn",
+    "conn2",
+    "conn3",
+    "conn3b",
+    "once",
+  ]) {
     const uid = `${RUN}-${s}`;
     await db.delete(emailSends).where(eq(emailSends.userId, uid));
     await db.delete(journeyStates).where(eq(journeyStates.userId, uid));
   }
+  // The connector tests own connector id "test"; clear their dedupe rows so a
+  // re-run against the same DB starts clean.
+  await db
+    .delete(connectorDeliveries)
+    .where(eq(connectorDeliveries.connectorId, "test"));
   resetConnectorActionRegistry();
 });
 
@@ -296,7 +314,7 @@ describe("sendConnectorAction is boundary-aware (Layer-1 memoize)", () => {
     expect(runs).toBe(1);
   });
 
-  it("eviction OFF: connector action falls through to fn() (degraded mode)", async () => {
+  it("eviction OFF: Layer-2 DB backstop still makes the action exactly-once", async () => {
     const userId = `${RUN}-conn2`;
     const stateId = await seedState(userId);
 
@@ -306,18 +324,133 @@ describe("sendConnectorAction is boundary-aware (Layer-1 memoize)", () => {
       name: "ping2",
       run: async () => {
         runs += 1;
-        return { ok: true };
+        return { ok: true, n: runs };
       },
     });
     setConnectorActionRegistry(new ConnectorActionRegistry([action]));
 
     const call = () =>
       sendConnectorAction({ connectorId: "test", action: "ping2" });
-    // Degraded engine: no memo → bare fn(). Two separate runs re-fire (the
-    // documented degraded behaviour — connectors have no Layer-2 backstop yet).
-    await runWithJourneyBoundary(makeBoundary({ stateId }), call);
-    await runWithJourneyBoundary(makeBoundary({ stateId }), call);
+    // Degraded engine: no durable memo → Layer-1 falls through to fn(). The
+    // Layer-2 `connector_deliveries` short-circuit is what guarantees
+    // exactly-once on a pre-eviction engine: the first run claims the
+    // (connectorId, dedupeKey) row + stores the result; the replay finds the
+    // terminal "sent" row and replays the stored result WITHOUT re-running.
+    const first = await runWithJourneyBoundary(makeBoundary({ stateId }), call);
+    const second = await runWithJourneyBoundary(
+      makeBoundary({ stateId }),
+      call,
+    );
+    expect(runs).toBe(1);
+    // The replay returns the FIRST run's stored result (round-tripped through
+    // the jsonb column), not a fresh invocation.
+    expect(second).toEqual(first);
+    expect(second).toEqual({ ok: true, n: 1 });
+
+    // EXACTLY ONE durable delivery row resulted from the two boundary runs: the
+    // replay claimed nothing new, it short-circuited on the first run's terminal
+    // "sent" row. Scope by the EXACT derived dedupe key (the connector path uses
+    // `currentLabel ?? "<connectorId>:<action>"` as `site`, here "test:ping2",
+    // anchored on the boundary runAnchor = stateId) so the assertion is isolated
+    // from any other run's rows. This is the version-independent (Layer-2)
+    // guarantee.
+    const dedupeKey = deriveJourneyKey({
+      kind: "connector",
+      anchor: stateId,
+      site: "test:ping2",
+      discriminant: "test:ping2",
+    });
+    const rows = await db
+      .select({
+        status: connectorDeliveries.status,
+        result: connectorDeliveries.result,
+      })
+      .from(connectorDeliveries)
+      .where(eq(connectorDeliveries.dedupeKey, dedupeKey));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("sent");
+    expect(rows[0]?.result).toEqual({ ok: true, n: 1 });
+  });
+
+  it("idempotencyLabel escape hatch: two distinct sends of the SAME action in one run", async () => {
+    const userId = `${RUN}-conn3`;
+    const stateId = await seedState(userId);
+
+    // A real multi-target action: the action's `args` are NOT part of the
+    // derived key, so two distinct sends of the SAME action within one run (no
+    // intervening ctx.sleep/waitForEvent/checkpoint advancing the nearest label)
+    // derive an IDENTICAL key.
+    let runs = 0;
+    const action = defineConnectorAction({
+      connectorId: "test",
+      name: "broadcast",
+      run: async (args: unknown) => {
+        runs += 1;
+        return { ok: true, args };
+      },
+    });
+    setConnectorActionRegistry(new ConnectorActionRegistry([action]));
+
+    // WITHOUT idempotencyLabel: the second send derives the same key and
+    // fail-fasts via registerKey (the intended loud footgun, NOT a silent drop).
+    runs = 0;
+    await expect(
+      runWithJourneyBoundary(makeBoundary({ stateId }), async () => {
+        await sendConnectorAction({
+          connectorId: "test",
+          action: "broadcast",
+          args: { channelId: "A", content: "hi" },
+        });
+        await sendConnectorAction({
+          connectorId: "test",
+          action: "broadcast",
+          args: { channelId: "B", content: "hi" },
+        });
+      }),
+    ).rejects.toThrow(/duplicate idempotency key/);
+
+    // WITH distinct idempotencyLabels: both sends fire (the escape hatch makes
+    // the multi-target pattern expressible) and yield two distinct delivery rows.
+    runs = 0;
+    const labelStateId = await seedState(`${RUN}-conn3b`);
+    await runWithJourneyBoundary(
+      makeBoundary({ stateId: labelStateId }),
+      async () => {
+        await sendConnectorAction({
+          connectorId: "test",
+          action: "broadcast",
+          args: { channelId: "A", content: "hi" },
+          idempotencyLabel: "channel-A",
+        });
+        await sendConnectorAction({
+          connectorId: "test",
+          action: "broadcast",
+          args: { channelId: "B", content: "hi" },
+          idempotencyLabel: "channel-B",
+        });
+      },
+    );
     expect(runs).toBe(2);
+
+    const keyA = deriveJourneyKey({
+      kind: "connector",
+      anchor: labelStateId,
+      site: "channel-A",
+      discriminant: "test:broadcast",
+    });
+    const keyB = deriveJourneyKey({
+      kind: "connector",
+      anchor: labelStateId,
+      site: "channel-B",
+      discriminant: "test:broadcast",
+    });
+    const labelRows = await db
+      .select({ dedupeKey: connectorDeliveries.dedupeKey })
+      .from(connectorDeliveries)
+      .where(eq(connectorDeliveries.action, "broadcast"));
+    const keys = labelRows.map((r) => r.dedupeKey).filter(Boolean);
+    expect(keys).toContain(keyA);
+    expect(keys).toContain(keyB);
   });
 });
 

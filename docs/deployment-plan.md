@@ -14,7 +14,7 @@ front because getting any of them backwards costs a rebuild or a security hole.
 
 1. **Hatchet token auto-mint is NOT proven feasible.** The whole "turnkey" idea
    rests on a `hatchet-admin token create` CLI inside the pinned
-   `ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest` image. No file in the repo
+   `ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0` image. No file in the repo
    references it; every real artifact (`packages/create-hogsend/template/env.example:21`,
    `README`, `skills/manage-hogsend/references/provision.md`, `troubleshoot.md`)
    documents only the manual dashboard flow (`admin@example.com` / `Admin123!!` at

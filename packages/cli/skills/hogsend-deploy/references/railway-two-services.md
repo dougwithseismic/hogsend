@@ -94,7 +94,7 @@ executes the tasks it routes.
   `hogsend setup`): dashboard on `:8888`, gRPC on `:7077`, with its own
   Postgres 15. Default dashboard login: `admin@example.com` / `Admin123!!`.
 - **In production** Hatchet-Lite is its own Railway service (the
-  `ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest` image). Both the api and the
+  `ghcr.io/hatchet-dev/hatchet/hatchet-lite:v0.84.0` image). Both the api and the
   worker connect to it via `HATCHET_CLIENT_TOKEN` + `HATCHET_CLIENT_HOST_PORT`
   (and `HATCHET_CLIENT_TLS_STRATEGY`). Mint the token from the Hatchet
   dashboard.

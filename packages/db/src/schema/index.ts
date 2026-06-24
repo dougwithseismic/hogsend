@@ -6,6 +6,7 @@ export * from "./auth.js";
 export * from "./bucket-configs.js";
 export * from "./bucket-memberships.js";
 export * from "./campaigns.js";
+export * from "./connector-deliveries.js";
 export * from "./connector-link-codes.js";
 export * from "./contact-aliases.js";
 export * from "./contacts.js";
