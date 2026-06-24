@@ -3,7 +3,7 @@ import {
   type ConnectorHeartbeatHandle,
   startConnectorHeartbeat,
 } from "../lib/connector-heartbeat.js";
-import { ingestEvent } from "../lib/ingestion.js";
+import { ingestTransformResult } from "../lib/ingestion.js";
 import {
   acquireLeaderLease,
   newLeaseToken,
@@ -87,21 +87,23 @@ function makeIngest(client: HogsendClient, connector: DefinedConnector) {
       // (`{ __t, d }`) so the connector transform is byte-identical whether the
       // dispatch arrived over HTTP or in-process.
       const payload = { __t: dispatchType, d: data };
-      const event = await connector.transform(payload, {
+      const result = await connector.transform(payload, {
         db: client.db,
         logger: client.logger,
         transport: "gateway",
       });
-      if (!event) return { ok: true, status: 200 };
-      await ingestEvent({
+      // A transform may return a single event, an ARRAY (dual-side fan-out), or
+      // null — ingestTransformResult normalizes + per-element-isolates. Pass the
+      // active analytics provider so a Discord-keyed contact merge stitches the
+      // analytics person too (the HTTP route omits this; in-proc holds the
+      // container).
+      await ingestTransformResult({
+        result,
         db: client.db,
         registry: client.registry,
         hatchet: client.hatchet,
         logger: client.logger,
-        event: { ...event, source: "connector" },
-        // Pass the active analytics provider so a Discord-keyed contact merge
-        // stitches the analytics person too (the HTTP route omits this; in-proc
-        // can do better since it already holds the container).
+        source: "connector",
         analytics: client.analytics,
       });
       return { ok: true, status: 200 };

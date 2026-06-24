@@ -131,11 +131,51 @@ export function createDiscordGatewayWorker(
         const gid = (packet.d as { id?: string } | undefined)?.id;
         if (gid) config.onGuildObserved(gid);
       }
+      // Best-effort author enrichment for reactions: the reaction `d` carries the
+      // reactor but NOT the message author, which the connector needs to fan out
+      // the author-keyed `reaction_received` ("your post resonated"). Resolve it
+      // from discord.js's message cache (CACHE-ONLY, no REST → no rate limits). A
+      // cache miss (message predates the bot's cache) leaves `__author` unset, so
+      // only the reactor side fires — documented best-effort.
+      let packetToForward = packet;
+      if (
+        (packet.t === "MESSAGE_REACTION_ADD" ||
+          packet.t === "MESSAGE_REACTION_REMOVE") &&
+        packet.d
+      ) {
+        try {
+          const r = packet.d as { channel_id?: string; message_id?: string };
+          const channel = r.channel_id
+            ? c.channels.cache.get(r.channel_id)
+            : undefined;
+          const messages = (
+            channel as unknown as {
+              messages?: {
+                cache: {
+                  get(id: string): { author?: { id?: string } } | undefined;
+                };
+              };
+            }
+          )?.messages;
+          const authorId =
+            r.message_id && messages
+              ? messages.cache.get(r.message_id)?.author?.id
+              : undefined;
+          if (authorId) {
+            packetToForward = {
+              t: packet.t,
+              d: { ...(packet.d as object), __author: authorId },
+            };
+          }
+        } catch {
+          // Cache miss / non-text channel — best-effort, forward unenriched.
+        }
+      }
       // Fire-and-forget: forwardDispatch never throws (it try/catches and logs),
       // so a slow/failed ingress POST never blocks the socket or crashes us.
       // `config.poster` (engine inline runtime) overrides the default HTTP poster;
       // undefined ⇒ the standalone HTTP ingress path.
-      void forwardDispatch(config, packet, config.poster);
+      void forwardDispatch(config, packetToForward, config.poster);
     });
     // discord.js v14 routes SOCKET errors to `shardError` (and signals lifecycle
     // via `shardDisconnect`/`invalidated`), NOT the generic `error` event. The

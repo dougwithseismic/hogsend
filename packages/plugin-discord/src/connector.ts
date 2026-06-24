@@ -17,7 +17,7 @@ import {
   getCurrentUser,
 } from "./connect/oauth.js";
 import { DISCORD_EPOCH, DISCORD_PROVIDER_ID } from "./constants.js";
-import { DiscordEvents } from "./events.js";
+import { DISCORD_REACTION_RECEIVED, DiscordEvents } from "./events.js";
 import type {
   DiscordGuildMemberAdd,
   DiscordMessageCreate,
@@ -114,7 +114,7 @@ export const discordConnector: DefinedConnector = defineConnector({
   async transform(
     raw: unknown,
     ctx: ConnectorCtx,
-  ): Promise<IngestEvent | null> {
+  ): Promise<IngestEvent | IngestEvent[] | null> {
     const envelope = raw as { __t: keyof typeof DiscordEvents; d: unknown };
     switch (envelope.__t) {
       case "MESSAGE_CREATE": {
@@ -149,8 +149,75 @@ export const discordConnector: DefinedConnector = defineConnector({
       case "MESSAGE_REACTION_ADD": {
         const d = envelope.d as DiscordReactionAdd;
         const occurredAt = new Date();
-        const event: DiscordIngestEvent = {
+        const targetAuthorId = d.__author ?? null;
+        const targetAuthorKey = targetAuthorId
+          ? discordUserKey(targetAuthorId)
+          : null;
+        // REACTOR-keyed side (always). Carries the target author (when the
+        // gateway resolved it from cache) so a reactor-side journey ("Hype hog"
+        // — reacted to N DIFFERENT people) can count distinct authors.
+        const added: DiscordIngestEvent = {
           event: DiscordEvents.MESSAGE_REACTION_ADD,
+          userId: discordUserKey(d.user_id),
+          discordId: d.user_id,
+          eventProperties: {
+            source: "discord",
+            channelId: d.channel_id,
+            guildId: d.guild_id ?? null,
+            messageId: d.message_id,
+            emoji: d.emoji?.name ?? null,
+            targetAuthorId,
+            targetAuthorKey,
+          },
+          contactProperties: {
+            discord: discordMetadata({ id: d.user_id, lastSeen: occurredAt }),
+          },
+          occurredAt,
+          idempotencyKey:
+            `discord:react:${d.message_id}:${d.user_id}:` +
+            `${d.emoji?.name ?? ""}:a`,
+        };
+        // AUTHOR-keyed side (`reaction_received` — the post author), powering
+        // "your post resonated with N people". Emitted only when the author is
+        // known AND is not the reactor (drop self-reactions). Keyed by
+        // `discordId` ONLY (NOT userId): the discord key is ATTACH-ONLY, so a
+        // LINKED author resolves to their survivor contact without flipping its
+        // canonical key or re-pointing history (a `userId: "discord:<id>"` would).
+        if (targetAuthorId && targetAuthorId !== d.user_id) {
+          const received: DiscordIngestEvent = {
+            event: DISCORD_REACTION_RECEIVED,
+            discordId: targetAuthorId,
+            eventProperties: {
+              source: "discord",
+              channelId: d.channel_id,
+              guildId: d.guild_id ?? null,
+              messageId: d.message_id,
+              emoji: d.emoji?.name ?? null,
+              reactorId: d.user_id,
+              reactorKey: discordUserKey(d.user_id),
+            },
+            contactProperties: {
+              discord: discordMetadata({
+                id: targetAuthorId,
+                lastSeen: occurredAt,
+              }),
+            },
+            occurredAt,
+            idempotencyKey:
+              `discord:react:${d.message_id}:${d.user_id}:` +
+              `${d.emoji?.name ?? ""}:r`,
+          };
+          return [added, received];
+        }
+        return [added];
+      }
+      case "MESSAGE_REACTION_REMOVE": {
+        const d = envelope.d as DiscordReactionAdd;
+        const occurredAt = new Date();
+        // REACTOR-keyed only — a removal has no author-side meaning (roles
+        // ratchet one-way). Mirrors reaction_added's reactor side.
+        const event: DiscordIngestEvent = {
+          event: DiscordEvents.MESSAGE_REACTION_REMOVE,
           userId: discordUserKey(d.user_id),
           discordId: d.user_id,
           eventProperties: {
@@ -165,7 +232,7 @@ export const discordConnector: DefinedConnector = defineConnector({
           },
           occurredAt,
           idempotencyKey:
-            `discord:react:${d.message_id}:${d.user_id}:` +
+            `discord:unreact:${d.message_id}:${d.user_id}:` +
             `${d.emoji?.name ?? ""}`,
         };
         return event;

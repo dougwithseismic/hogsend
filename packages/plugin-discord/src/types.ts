@@ -35,13 +35,21 @@ export interface DiscordMessageCreate {
   webhook_id?: string;
 }
 
-/** `MESSAGE_REACTION_ADD` `d` subset. */
+/** `MESSAGE_REACTION_ADD` / `MESSAGE_REACTION_REMOVE` `d` subset. */
 export interface DiscordReactionAdd {
   user_id: string;
   channel_id: string;
   message_id: string;
   guild_id?: string | null;
   emoji?: { id?: string | null; name?: string | null };
+  /**
+   * Best-effort author of the reacted-to message, injected by the gateway worker
+   * from its `discord.js` message cache (cache-only, NO REST → no rate limits).
+   * Absent when the message predates the bot's cache — then only the
+   * reactor-keyed `reaction_added` fires (no author-keyed `reaction_received`).
+   * NOT a Discord field (the `__` prefix marks it Hogsend-injected).
+   */
+  __author?: string | null;
 }
 
 /** `GUILD_MEMBER_ADD` `d` subset. */

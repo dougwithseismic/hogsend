@@ -4,7 +4,7 @@ import type { DefinedConnector } from "../../connectors/define-connector.js";
 import { getConnectorRegistry } from "../../connectors/registry-singleton.js";
 import { verifyConnectorState } from "../../lib/connector-state.js";
 import { headersToRecord } from "../../lib/headers.js";
-import { ingestEvent } from "../../lib/ingestion.js";
+import { ingestEvent, ingestTransformResult } from "../../lib/ingestion.js";
 import type { Logger } from "../../lib/logger.js";
 import { getRedisIfConnected } from "../../lib/redis.js";
 import { clientIpKey, createRateLimit } from "../../middleware/rate-limit.js";
@@ -254,12 +254,29 @@ export function registerConnectorRoutes(app: OpenAPIHono<AppEnv>) {
         return c.json({ error: "Unauthorized" }, 401);
       }
       const payload = await c.req.json();
-      const event = await connector.transform(payload, {
+      const transformed = await connector.transform(payload, {
         db,
         logger,
         transport: "gateway",
       });
-      if (!event) return c.json({ ok: true, skipped: true }, 200);
+      if (!transformed) return c.json({ ok: true, skipped: true }, 200);
+      // A transform may fan one dispatch into an ARRAY (dual-side reactions);
+      // each element ingests independently.
+      if (Array.isArray(transformed)) {
+        const { exits } = await ingestTransformResult({
+          result: transformed,
+          db,
+          registry,
+          hatchet,
+          logger,
+          source: "connector",
+        });
+        return c.json(
+          { ok: true, event: transformed[0]?.event ?? "batch", exits },
+          200,
+        );
+      }
+      const event = transformed;
       const result = await ingestEvent({
         db,
         registry,
