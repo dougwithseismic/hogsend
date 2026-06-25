@@ -2,7 +2,7 @@
 
 import { useHogsend, useHogsendFeed } from "@hogsend/react";
 import { ArrowRight, Bell, Check, Copy } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { PillBadge, TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { cn } from "@/lib/cn";
@@ -78,6 +78,13 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
   const [firing, setFiring] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Mirror the live unread count into a ref so `fire()` can poll for the journey's
+  // item landing without a stale closure (it can't read the re-rendered metadata).
+  const unreadRef = useRef(0);
+  useEffect(() => {
+    unreadRef.current = metadata.unread_count ?? 0;
+  }, [metadata]);
+
   // Hydrate display-only values client-side (avoids SSR mismatch + reads
   // localStorage only in the browser). Pre-fills the name on a return visit.
   useEffect(() => {
@@ -108,11 +115,17 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
     // 2) flush so it hits the engine immediately (capture is batched)
     await client.flush();
     setStep(2);
-    // 3) give the journey a beat to insert the feed item, then refetch so the
-    //    bell badge updates instantly (the poll backstops it regardless)
-    await new Promise((resolve) => window.setTimeout(resolve, 900));
+    // 3) the journey inserts the feed item server-side in ~1-3s. Poll refetch so
+    //    the shared feed store surfaces it FAST — the FeedToaster (watching the
+    //    store) pops the toast the instant it lands, instead of waiting on the
+    //    slow background poll. Break the moment the unread count grows.
     setStep(3);
-    await refetch();
+    const baseline = unreadRef.current;
+    for (let i = 0; i < 12; i++) {
+      await new Promise((resolve) => window.setTimeout(resolve, 450));
+      if (unreadRef.current > baseline) break; // item landed → toast fired
+      await refetch();
+    }
     setFiring(null);
   }
 
