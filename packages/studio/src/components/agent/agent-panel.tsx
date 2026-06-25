@@ -368,7 +368,9 @@ function ChatThread({
   };
 
   const actions: MessageActions = {
-    busy,
+    // Lock per-message actions while streaming OR mid-edit — saveEdit truncates
+    // by index, so a concurrent regenerate/rollback could act on a stale id.
+    busy: busy || editing !== null,
     onEdit: (id, text) => setEditing({ id, text }),
     onRegenerate,
     onRollback,

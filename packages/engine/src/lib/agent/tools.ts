@@ -16,7 +16,7 @@ import {
   resolveContact,
 } from "../contacts.js";
 import { mintProposal } from "./proposals.js";
-import { baseTier } from "./risk.js";
+import { effectiveTier } from "./risk.js";
 
 /**
  * The agent's tool set. READ tools auto-run (in-process against the container,
@@ -34,15 +34,22 @@ export function buildAgentTools({
   actorEmail: string;
   sessionId?: string;
 }) {
-  const { db, env, registry, bucketRegistry } = container;
+  const { db, env, registry, bucketRegistry, domainStatus } = container;
 
-  /** Shared body for every write tool. NEVER performs the write. */
+  /**
+   * Shared body for every write tool. NEVER performs the write. The recorded
+   * tier is the EFFECTIVE tier at mint time (test-mode-aware) so the confirm
+   * route can detect a test-mode change between propose and confirm. The args
+   * are stored server-side in Redis and deliberately NOT returned to the browser.
+   */
   const mintWrite = async (
     toolName: string,
     args: Record<string, unknown>,
     summary: string,
   ) => {
-    const tier = baseTier(toolName);
+    const tier = effectiveTier(toolName, {
+      testMode: domainStatus.testModeCached(),
+    });
     const { proposalId, token, expiresAt } = await mintProposal({
       secret: env.BETTER_AUTH_SECRET,
       tool: toolName,
@@ -58,7 +65,6 @@ export function buildAgentTools({
       tool: toolName,
       summary,
       tier,
-      args,
       expiresAt,
     };
   };

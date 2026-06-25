@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { auditLogs, campaigns } from "@hogsend/db";
 import { getTemplateNames } from "@hogsend/email";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
@@ -80,10 +81,11 @@ agentRouter.post("/chat", async (c) => {
   const messages = body.messages ?? [];
 
   // The proposing operator — stamped into every minted write proposal so the
-  // confirm route can bind execution to the same actor.
+  // confirm route can bind execution to the same actor. MUST match the actor
+  // resolution in /confirm exactly (key id, not the non-unique key name).
   const user = c.get("user") as { email?: string } | null;
-  const apiKey = c.get("apiKey") as { name?: string } | undefined;
-  const actorEmail = user?.email ?? apiKey?.name ?? "agent";
+  const apiKey = c.get("apiKey") as { id?: string; name?: string } | undefined;
+  const actorEmail = user?.email ?? apiKey?.id ?? apiKey?.name ?? "unknown";
 
   const result = streamText({
     model: getAgentModel(container.env),
@@ -110,6 +112,8 @@ agentRouter.post("/confirm", async (c) => {
     db,
     env,
     registry,
+    bucketRegistry,
+    listRegistry,
     hatchet,
     logger,
     emailService,
@@ -123,8 +127,8 @@ agentRouter.post("/confirm", async (c) => {
   }
 
   const user = c.get("user") as { email?: string } | null;
-  const apiKey = c.get("apiKey") as { name?: string } | undefined;
-  const actor = user?.email ?? apiKey?.name ?? "unknown";
+  const apiKey = c.get("apiKey") as { id?: string; name?: string } | undefined;
+  const actor = user?.email ?? apiKey?.id ?? apiKey?.name ?? "unknown";
 
   const { token } = await c.req.json<{ token?: string }>();
   if (!token) return c.json({ error: "token required" }, 400);
@@ -137,7 +141,11 @@ agentRouter.post("/confirm", async (c) => {
     });
   } catch (err) {
     if (err instanceof InvalidProposalError) {
-      return c.json({ error: err.message }, 410);
+      // Redis blip ⇒ retryable (503); otherwise a spent/expired/bad token (410).
+      return c.json(
+        { error: err.message },
+        err.code === "redis_unavailable" ? 503 : 410,
+      );
     }
     throw err;
   }
@@ -146,9 +154,21 @@ agentRouter.post("/confirm", async (c) => {
     return c.json({ error: "Proposal actor mismatch" }, 403);
   }
 
+  // Re-derive the effective tier from CURRENT test-mode. If it changed since the
+  // proposal was minted (e.g. the domain got verified mid-session), reject — the
+  // operator approved a risk level that no longer holds; they must re-mint.
   const tier = effectiveTier(proposal.tool, {
     testMode: domainStatus.testModeCached(),
   });
+  if (tier !== proposal.tier) {
+    return c.json(
+      {
+        error:
+          "Risk level changed since this action was proposed (test-mode may have changed). Re-issue the action to confirm.",
+      },
+      409,
+    );
+  }
 
   const args = proposal.args;
   const idem = proposal.proposalId;
@@ -206,6 +226,7 @@ agentRouter.post("/confirm", async (c) => {
           template: args.template as never,
           props: (args.props ?? {}) as never,
           to: String(args.to),
+          userEmail: String(args.to),
           subject: args.subject as string | undefined,
           userId: args.userId as string | undefined,
           idempotencyKey: idem,
@@ -219,6 +240,18 @@ agentRouter.post("/confirm", async (c) => {
         }
         const audienceKind = args.list ? "list" : "bucket";
         const audienceId = String(args.list ?? args.bucket);
+        // Reject a non-existent audience up front — otherwise the durable task
+        // resolves zero recipients and the campaign silently "sends" to no one.
+        const audienceExists =
+          audienceKind === "bucket"
+            ? bucketRegistry.has(audienceId)
+            : listRegistry.has(audienceId);
+        if (!audienceExists) {
+          return c.json(
+            { error: `Unknown ${audienceKind}: ${audienceId}` },
+            404,
+          );
+        }
         const inserted = await db
           .insert(campaigns)
           .values({
@@ -254,17 +287,35 @@ agentRouter.post("/confirm", async (c) => {
       case "subscribe_list":
       case "unsubscribe_list": {
         const subscribed = proposal.tool === "subscribe_list";
+        if (!args.email && !args.userId) {
+          return c.json(
+            { error: "subscribe/unsubscribe requires an email or userId" },
+            400,
+          );
+        }
         await resolveOrCreateContact({
           db,
           userId: args.userId as string | undefined,
           email: args.email as string | undefined,
         });
-        await applyListMembership({
-          db,
-          userId: args.userId as string | undefined,
-          email: args.email as string | undefined,
-          lists: { [String(args.list)]: subscribed },
-        });
+        try {
+          await applyListMembership({
+            db,
+            userId: args.userId as string | undefined,
+            email: args.email as string | undefined,
+            lists: { [String(args.list)]: subscribed },
+          });
+        } catch (e) {
+          // List membership keys on email; a contact with no resolvable email is
+          // an operator input problem (400), not a server fault (500).
+          return c.json(
+            {
+              error:
+                e instanceof Error ? e.message : "Cannot set list membership",
+            },
+            400,
+          );
+        }
         result = { list: String(args.list), subscribed };
         break;
       }
@@ -286,6 +337,7 @@ agentRouter.post("/confirm", async (c) => {
           db,
           userId: current.externalId ?? undefined,
           email: (args.email as string) ?? current.email ?? undefined,
+          anonymousId: current.anonymousId ?? undefined,
           contactProperties: (args.properties ?? {}) as Record<string, unknown>,
         });
         break;
@@ -314,8 +366,14 @@ agentRouter.post("/confirm", async (c) => {
     );
   }
 
-  // Explicit audit row (carries args/result/tier the generic middleware can't).
-  db.insert(auditLogs)
+  // Explicit audit row. Args are stored as a DIGEST (data minimization — never
+  // raw PII), with field names + count for forensics. Awaited so `ok:true`
+  // truthfully means the write AND its audit both landed.
+  const argsHash = createHash("sha256")
+    .update(JSON.stringify(args))
+    .digest("hex");
+  await db
+    .insert(auditLogs)
     .values({
       actor: `agent:${actor}`,
       action: `agent.confirm.${proposal.tool}`,
@@ -324,15 +382,16 @@ agentRouter.post("/confirm", async (c) => {
       detail: {
         tool: proposal.tool,
         tier,
-        baseTier: proposal.tier,
+        mintedTier: proposal.tier,
         sessionId: proposal.sessionId,
-        args,
+        argsHash,
+        argCount: Object.keys(args).length,
+        fieldNames: Object.keys(args),
         result,
       },
       ipAddress:
         c.req.header("x-forwarded-for") ?? c.req.header("x-real-ip") ?? null,
     })
-    .then(() => {})
     .catch((e: unknown) =>
       logger.warn("agent confirm audit write failed", {
         error: e instanceof Error ? e.message : String(e),

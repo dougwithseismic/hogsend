@@ -42,7 +42,12 @@ export interface VerifiedProposal extends ProposalPayload {
 }
 
 export class InvalidProposalError extends Error {
-  constructor(message: string) {
+  /** `redis_unavailable` ⇒ retryable infra error (confirm route maps to 503);
+   * otherwise a terminal token problem (burned/expired/bad ⇒ 410). */
+  constructor(
+    message: string,
+    public readonly code?: "redis_unavailable",
+  ) {
     super(message);
     this.name = "InvalidProposalError";
   }
@@ -77,13 +82,18 @@ export async function mintProposal(opts: {
   // Store the args server-side, NX so a (cosmically unlikely) uuid collision can
   // never overwrite a live proposal's args.
   const redis = getRedis();
-  const ok = await redis.set(
-    redisKey(proposalId),
-    JSON.stringify({ tool: opts.tool, args: opts.args }),
-    "EX",
-    TTL_SECONDS,
-    "NX",
-  );
+  let ok: string | null;
+  try {
+    ok = await redis.set(
+      redisKey(proposalId),
+      JSON.stringify({ tool: opts.tool, args: opts.args }),
+      "EX",
+      TTL_SECONDS,
+      "NX",
+    );
+  } catch {
+    throw new InvalidProposalError("Redis unavailable", "redis_unavailable");
+  }
   if (ok !== "OK") {
     throw new InvalidProposalError("Failed to persist proposal args");
   }
@@ -170,14 +180,18 @@ export async function verifyAndBurnProposal(opts: {
     throw new InvalidProposalError("Proposal expired");
   }
 
-  // Single-use burn. If Redis is unreachable this throws → fail-closed (no write
-  // proceeds without a successful burn).
+  // Single-use burn. If Redis is unreachable this throws a retryable error →
+  // fail-closed (no write proceeds without a successful burn), but the confirm
+  // route can distinguish it (503) from a genuinely spent token (410).
   const redis = getRedis();
-  const stored = (await redis.eval(
-    BURN_LUA,
-    1,
-    redisKey(payload.proposalId),
-  )) as string | null;
+  let stored: string | null;
+  try {
+    stored = (await redis.eval(BURN_LUA, 1, redisKey(payload.proposalId))) as
+      | string
+      | null;
+  } catch {
+    throw new InvalidProposalError("Redis unavailable", "redis_unavailable");
+  }
   if (!stored) {
     throw new InvalidProposalError("Proposal already used or expired");
   }
