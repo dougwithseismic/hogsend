@@ -68,6 +68,28 @@ Each publishable package declares `"publishConfig": { "access": "public" }` and 
 Nothing in this two-phase flow runs locally during normal development; you only
 ever run `pnpm changeset` to author the intent.
 
+### 2a. The Version Packages PR is a rolling accumulator — merge it LAST
+
+The "Version Packages" PR (step 2) is **not** a snapshot. `changesets/action`
+rebuilds it on every push to `main`, folding in each newly-merged changeset. So
+the batching rule is:
+
+> **Merge feature PRs first; merge the Version Packages PR last and
+> deliberately — never while a feature PR you want in the release is still open
+> or in CI.**
+
+Merging the Version Packages PR is the explicit "cut the release now" action:
+step 3 publishes immediately on that merge. If it merges while a feature PR is
+mid-CI, that feature's changeset isn't folded in yet, so the release ships
+**without** that work and it slips to the next version (a real occurrence:
+`0.33.0` published while the `0.34.0` feature was still in CI, forcing an extra
+release). Before merging it, confirm `gh pr list` shows no feature PR you mean to
+include.
+
+**Keep auto-merge OFF on the Version Packages PR.** An auto-merging version PR
+publishes out from under in-flight work — the same failure, now unattended. That
+merge must be a human decision.
+
 ---
 
 ## 3. Semver discipline
