@@ -1,0 +1,165 @@
+---
+title: Quickstart
+description: "Mint a publishable key, wrap your app in HogsendProvider, render a notification bell + popover, and send a feed item from the server."
+---
+
+This gets a working notification bell rendering against a running engine in about five minutes: mint a browser key, mount the provider, drop two components, send one feed item from the server.
+
+## Install
+
+```bash
+pnpm add @hogsend/js @hogsend/react
+```
+
+`@hogsend/react` peer-depends on `@hogsend/js`. They publish on the engine version line.
+
+## 1. Mint a publishable key
+
+The browser authenticates with a `pk_` publishable key, not your data-plane `hsk_` key. Mint one through the admin API-keys route. `publishable: true` forces the scope to exactly `["ingest-public"]`, and `allowedOrigins` is required (at least one entry).
+
+```bash
+curl -X POST https://api.example.com/v1/admin/api-keys \
+  -H "Authorization: Bearer <session-or-admin-key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "web-app",
+    "publishable": true,
+    "allowedOrigins": ["https://app.example.com", "http://localhost:3000"]
+  }'
+```
+
+The response returns the key once:
+
+```jsonc
+{
+  "id": "...",
+  "name": "web-app",
+  "key": "pk_...",            // shown ONCE — copy it now
+  "keyPrefix": "pk_",
+  "scopes": ["ingest-public"],
+  "allowedOrigins": ["https://app.example.com", "http://localhost:3000"],
+  "expiresAt": null,
+  "createdAt": "2026-06-25T..."
+}
+```
+
+<Callout type="warn">
+The Origin allowlist is enforced fail-closed on every browser-reachable call. A `pk_` key with no `allowedOrigins`, a request with no `Origin` header, or an `Origin` not in the list all return `403`. Add every origin you serve the app from, including `localhost` ports for development.
+</Callout>
+
+## 2. Wrap your app
+
+Mount `HogsendProvider` once at the root. It instantiates exactly one client (strict-mode safe) and tears it down on unmount.
+
+```tsx
+import { HogsendProvider } from "@hogsend/react";
+import "@hogsend/react/styles.css"; // opt-in component CSS
+
+export function App({ children }: { children: React.ReactNode }) {
+  return (
+    <HogsendProvider
+      apiUrl="https://api.example.com"
+      publishableKey="pk_..."
+    >
+      {children}
+    </HogsendProvider>
+  );
+}
+```
+
+<Callout type="info">
+Component CSS is opt-in. `import "@hogsend/react/styles.css"` once at your root; a hooks-only import pulls no styles. Every hook, provider, and component file carries `"use client"`, so they work in the Next.js App Router.
+</Callout>
+
+## 3. Render the bell + popover
+
+`NotificationBell` shows the unseen count; `FeedPopover` is controlled — you own the open/close state and pass the button ref so focus restores on close.
+
+```tsx
+import { useRef, useState } from "react";
+import { NotificationBell, FeedPopover } from "@hogsend/react";
+
+export function Inbox() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <NotificationBell
+        ref={buttonRef}
+        isOpen={open}
+        onClick={() => setOpen((v) => !v)}
+      />
+      <FeedPopover
+        isVisible={open}
+        onClose={() => setOpen(false)}
+        buttonRef={buttonRef}
+      />
+    </>
+  );
+}
+```
+
+The bell badge counts `unseen` items by default and renders `99+` past 99. The popover reads the `in_app` feed, opens realtime on mount, and emits `inapp.feed_opened` on the closed→open transition.
+
+<Callout type="info">
+Realtime runs over polling. The default mode resolves to a `GET /v1/feed` poll every 12s. SSE is a seam, not the default — a browser `EventSource` cannot send the `Authorization` header the publishable gate requires, so `realtime: "sse"` silently falls back to poll.
+</Callout>
+
+## 4. Send a feed item from the server
+
+Nothing renders until the engine has a feed item for this recipient. From server-side code (a journey, a route, a script), call `sendFeedItem` from `@hogsend/engine`:
+
+```ts
+import { sendFeedItem } from "@hogsend/engine";
+
+await sendFeedItem({
+  recipient: { userId: "u_1" }, // or { email } / { anonymousId }
+  type: "announcement",
+  title: "Welcome to the beta",
+  body: "Your workspace is ready.",
+  actionUrl: "https://app.example.com/onboarding",
+});
+```
+
+The item is written to the recipient's `in_app` feed and published to Redis. The poll (or the next `refetch`) surfaces it in the bell within the interval.
+
+## Anonymous vs identified
+
+A `pk_` key is **anonymous-only by default**. With no `userId`, the client persists an anonymous id and the bell shows that anonymous visitor's feed.
+
+To bind a concrete user, mint a `userToken` server-side and pass it to the provider:
+
+```ts
+// server — after your own login
+import { generateUserToken } from "@hogsend/engine";
+
+const userToken = generateUserToken({
+  secret: process.env.BETTER_AUTH_SECRET!,
+  userId: "u_1",
+}); // default expiry 3600s
+```
+
+```tsx
+// client
+<HogsendProvider
+  apiUrl="https://api.example.com"
+  publishableKey="pk_..."
+  userId="u_1"
+  userToken={userToken}
+>
+```
+
+The token is sent in the body of identity-asserting calls; the engine verifies the signature before acting on the `userId`.
+
+<Callout type="warn">
+`generateUserToken` is server-only — it signs with `node:crypto` over `BETTER_AUTH_SECRET`. Never call it in a browser or expose it as an unauthenticated route; doing so leaks the signing secret. Return the token from a route that runs after your own login, and point `onUserTokenExpiring` at re-fetching it.
+</Callout>
+
+## Next
+
+- [Provider & config](./provider) — every `HogsendProvider` prop, color mode, BYO-proxy `ingestPath`, token refresh.
+- [Hooks](./hooks) — `useHogsend`, `useHogsendFeed` / `useInbox`, `usePreferences`, `useBanner`, `useToast`.
+- [Components](./components) — bell, feed, popover, banner, toast, the five-layer override surface.
+- [Theming](./theming) — the `--hs-*` token set.
+- [Events](./events) — the `inapp.*` / `banner.*` events client interactions emit, and how journeys read them.

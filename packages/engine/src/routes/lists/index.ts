@@ -1,18 +1,25 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type { Database } from "@hogsend/db";
+import { type Database, emailPreferences } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
+import { and, eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
   resolveContact,
   resolveOrCreateContact,
+  resolveRecipient,
   serializeContact,
+  serializePrefs,
 } from "../../lib/contacts.js";
 import type { Logger } from "../../lib/logger.js";
 import { emitOutbound } from "../../lib/outbound.js";
 import { applyListMembership } from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { getListRegistry } from "../../lists/registry-singleton.js";
-import { listMembershipError } from "../_shared.js";
+import {
+  gatePublishableIdentity,
+  listMembershipError,
+  requireIdentity,
+} from "../_shared.js";
 
 const listSummarySchema = z.object({
   id: z.string(),
@@ -24,6 +31,8 @@ const listSummarySchema = z.object({
 const bodySchema = z.object({
   email: z.string().optional(),
   userId: z.string().optional(),
+  // Publishable-key identity assertion (§Phase 1). Ignored on the secret path.
+  userToken: z.string().optional(),
 });
 
 const listRoute = createRoute({
@@ -41,6 +50,44 @@ const listRoute = createRoute({
         },
       },
       description: "Enabled lists",
+    },
+  },
+});
+
+// STATIC `/preferences` read. MUST be registered before any `/:id` GET so the
+// literal path wins matching (there is no `/:id` GET today, so order is safe
+// regardless — but keep it adjacent to `GET /` to preserve that invariant).
+const prefsQuerySchema = z.object({
+  userId: z.string().optional(),
+  email: z.string().optional(),
+  anonymousId: z.string().optional(),
+});
+
+const prefsResponseSchema = z.object({
+  categories: z.record(z.string(), z.boolean()),
+  unsubscribedAll: z.boolean(),
+});
+
+const preferencesRoute = createRoute({
+  method: "get",
+  path: "/preferences",
+  tags: ["Lists"],
+  summary: "Read a contact's list/email preferences",
+  description:
+    "Returns `{ categories, unsubscribedAll }` for the resolved contact. Behind the publishable gate: a pk_ key may read anon-only (anonymousId) — a concrete `email`/`userId` read requires a verified userToken (v3).",
+  request: { query: prefsQuerySchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: prefsResponseSchema } },
+      description: "The contact's list/email preferences",
+    },
+    400: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Missing identity",
+    },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Publishable key may not read a concrete identity",
     },
   },
 });
@@ -71,6 +118,11 @@ const subscribeRoute = createRoute({
     400: {
       content: { "application/json": { schema: errorSchema } },
       description: "Missing recipient or no resolvable email",
+    },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description:
+        "Publishable key attempted to act on another identity without a verified userToken",
     },
     404: {
       content: { "application/json": { schema: errorSchema } },
@@ -105,6 +157,11 @@ const unsubscribeRoute = createRoute({
     400: {
       content: { "application/json": { schema: errorSchema } },
       description: "Missing recipient or no resolvable email",
+    },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description:
+        "Publishable key attempted to act on another identity without a verified userToken",
     },
     404: {
       content: { "application/json": { schema: errorSchema } },
@@ -206,10 +263,66 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
 
     return c.json({ lists }, 200);
   })
+  .openapi(preferencesRoute, async (c) => {
+    const { db } = c.get("container");
+    const { userId, email } = c.req.valid("query");
+
+    // Identity gate (publishable-aware). A secret key needs email/userId via
+    // `requireIdentity`. A publishable key may read anon-only — but a concrete
+    // `email`/`userId` read would leak another person's prefs, so it is rejected
+    // unless v3's userToken arm is added. (`anonymousId` is accepted for a
+    // publishable read; it never resolves to another identity's prefs here.)
+    if (!c.get("publishable")) {
+      const guard = requireIdentity(c, { email, userId });
+      if (guard) return guard;
+    } else if (email || userId) {
+      return c.json(
+        {
+          error:
+            "publishable preference reads are anon-only without a userToken",
+        },
+        403,
+      );
+    }
+
+    const recipient = await resolveRecipient({ db, userId, email });
+    if (!recipient) {
+      return c.json({ categories: {}, unsubscribedAll: false }, 200);
+    }
+    // `email_preferences.user_id` is keyed on `external_id ?? contact.id`
+    // (risk 10) — mirror `resolveRecipient`'s contactId fallback.
+    const extId = recipient.externalId ?? recipient.contactId;
+    const rows = await db
+      .select()
+      .from(emailPreferences)
+      .where(
+        and(
+          eq(emailPreferences.userId, extId),
+          eq(emailPreferences.email, recipient.email),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    if (!row) {
+      return c.json({ categories: {}, unsubscribedAll: false }, 200);
+    }
+    const prefs = serializePrefs(row);
+    return c.json(
+      { categories: prefs.categories, unsubscribedAll: prefs.unsubscribedAll },
+      200,
+    );
+  })
   .openapi(subscribeRoute, async (c) => {
-    const { db, hatchet, logger } = c.get("container");
+    const { db, hatchet, logger, env } = c.get("container");
     const { id } = c.req.valid("param");
-    const { email, userId } = c.req.valid("json");
+    const { email, userId, userToken } = c.req.valid("json");
+
+    const guard = gatePublishableIdentity(
+      c,
+      { email, userId, userToken },
+      env.BETTER_AUTH_SECRET,
+    );
+    if (guard) return guard;
 
     const result = await applyListSubscription({
       db,
@@ -232,9 +345,16 @@ export const listsRouter = new OpenAPIHono<AppEnv>()
     return c.json({ list: id, subscribed: true as const }, 200);
   })
   .openapi(unsubscribeRoute, async (c) => {
-    const { db, hatchet, logger } = c.get("container");
+    const { db, hatchet, logger, env } = c.get("container");
     const { id } = c.req.valid("param");
-    const { email, userId } = c.req.valid("json");
+    const { email, userId, userToken } = c.req.valid("json");
+
+    const guard = gatePublishableIdentity(
+      c,
+      { email, userId, userToken },
+      env.BETTER_AUTH_SECRET,
+    );
+    if (guard) return guard;
 
     const result = await applyListSubscription({
       db,

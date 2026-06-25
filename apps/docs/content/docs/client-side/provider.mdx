@@ -1,0 +1,178 @@
+---
+title: Provider & Identity
+description: "Mount <HogsendProvider>, run anonymous-by-default, and upgrade to identified users with a server-minted userToken."
+---
+
+`<HogsendProvider>` instantiates one `@hogsend/js` client for your React tree and exposes it to every hook and component. Reactive data (feed, banners, preferences, identity) flows through the client's store; the context value `{ client, color }` is stable across renders.
+
+## Mount the provider
+
+```tsx
+import { HogsendProvider } from "@hogsend/react";
+
+export function App({ children }) {
+  return (
+    <HogsendProvider
+      apiUrl="https://api.acme.com"
+      publishableKey={process.env.NEXT_PUBLIC_HOGSEND_PK!}
+    >
+      {children}
+    </HogsendProvider>
+  );
+}
+```
+
+`apiUrl` is the engine origin; `publishableKey` is a browser-safe `pk_…` key. Both are required. The provider creates exactly one client (strict-mode-safe), and tears it down on unmount.
+
+### `HogsendProviderProps`
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `apiUrl` | `string` | — | Engine origin, e.g. `https://api.acme.com`. Required. |
+| `publishableKey` | `string` | — | Browser-safe `pk_…` key. Required. |
+| `userId` | `string` | — | Known user id. Re-identifies when it changes to a truthy value. |
+| `userToken` | `string` | — | Server-minted signed proof of `userId` (see [Identified users](#identified-users-the-usertoken)). |
+| `colorMode` | `"light" \| "dark" \| "system"` | `"system"` | Sets `data-hs-color-mode` on a `display:contents` wrapper. |
+| `ingestPath` | `string` | — | BYO-proxy telemetry path (see [Proxying telemetry](#proxying-telemetry-ingestpath)). |
+| `onUserTokenExpiring` | `() => Promise<string>` | — | Token-refresh hook; must return a fresh `userToken`. |
+| `fetch` | `typeof fetch` | global `fetch` | Injectable fetch (SSR / test). |
+| `children` | `ReactNode` | — | |
+
+`<HogsendProvider>` accepts the same identity and transport config as `createHogsend(config)` in `@hogsend/js`. Realtime mode is not a provider prop — hooks open it lazily via `client.connect(feedId)`.
+
+<Callout type="info">
+  Realtime runs over **polling** by default (`GET /v1/feed` every 12s). SSE is implemented behind the same interface but browser-blocked — a native `EventSource` cannot send `Authorization: Bearer pk_…`, so the publishable gate 401s it. Setting `realtime: "sse"` silently falls back to poll.
+</Callout>
+
+## Anonymous by default
+
+A `pk_` publishable key is **anonymous-only** until you present a `userToken`. With no `userId`/`userToken`, the client mints and persists an anonymous id; `capture` and feed reads work, and events are stamped `source: "inapp"`.
+
+```tsx
+import { useHogsend } from "@hogsend/react";
+
+function Cta() {
+  const { capture } = useHogsend();
+  return <button onClick={() => capture("cta_clicked", { plan: "pro" })}>Upgrade</button>;
+}
+```
+
+`getDistinctId()` returns the known `userId` if bound, else the persisted anonymous id. `getContactKey()` returns the canonical key from the last accepted ingest (`202`), suitable for `posthog.identify(...)`.
+
+### `identify()`
+
+Call `identify` (directly on the client or via [`useHogsend`](./hooks)) to bind a `userId` and write traits. It sets the id, then `PUT /v1/contacts` with `{ userId, anonymousId, userToken?, properties? }`.
+
+```ts
+await client.identify("u_123", { plan: "pro", email: "ada@acme.com" });
+```
+
+`reset()` mints a new anonymous id and drops the known id — call it on logout.
+
+<Callout type="warn">
+  List-preference writes (`subscribe`/`unsubscribe`/`setPreference`) require an identified user. For an anonymous caller the engine receives an `anonymousId` and rejects the write. Capture and feed reads do not require identification.
+</Callout>
+
+## Identified users: the `userToken`
+
+To act on a concrete `userId` (not just anonymous), the browser presents a `userToken` — a short-lived HMAC over `{ userId, exp }` signed with `BETTER_AUTH_SECRET`. The token is **signed, not encrypted**: it proves integrity (a browser cannot forge another person's `userId`), carries no PII, and the engine verifies it on every publishable-reachable handler.
+
+### 1. Mint it server-side
+
+`generateUserToken` lives in `@hogsend/engine` and uses `node:crypto` + `BETTER_AUTH_SECRET`. Call it **after your own login**, in your backend.
+
+```ts
+import { generateUserToken } from "@hogsend/engine";
+
+// e.g. an authenticated route in your app's backend
+export async function GET(req: Request) {
+  const session = await auth(req); // your login, not Hogsend's
+  const userToken = generateUserToken({
+    secret: process.env.BETTER_AUTH_SECRET!,
+    userId: session.userId,
+    expiresInSeconds: 3600, // default 3600
+  });
+  return Response.json({ userToken });
+}
+```
+
+`generateUserToken({ secret, userId, expiresInSeconds? })` returns `` `<base64url(payload)>.<sig>` ``; default expiry is 3600 seconds.
+
+<Callout type="warn">
+  `generateUserToken` is **server-side only**. It needs `BETTER_AUTH_SECRET` (the signing root). Never call it in a browser and never mount it as a public route that mints a token for an arbitrary `userId` — either leaks the ability to forge identity.
+</Callout>
+
+### 2. Pass it to the provider
+
+Fetch the token from your authenticated endpoint and thread it through `userToken`. The SDK sends it in the body of identity-asserting calls.
+
+```tsx
+<HogsendProvider
+  apiUrl="https://api.acme.com"
+  publishableKey={process.env.NEXT_PUBLIC_HOGSEND_PK!}
+  userId={user.id}
+  userToken={userToken}
+  onUserTokenExpiring={async () => {
+    const res = await fetch("/api/hogsend-token");
+    return (await res.json()).userToken;
+  }}
+>
+  {children}
+</HogsendProvider>
+```
+
+### 3. Refresh on expiry
+
+`onUserTokenExpiring` is called once when a request `403`s with an expired or invalid token. It must return a **fresh** token; the SDK stores it and retries that request once. Point it at the same authenticated endpoint that minted the original.
+
+## Publishable keys & allowed origins
+
+A `pk_` key is minted by an admin via `POST /v1/admin/api-keys` with `publishable: true` (which forces scope `["ingest-public"]`) and a non-empty `allowedOrigins` array. The response returns `{ id, name, key, keyPrefix, scopes, allowedOrigins, expiresAt, createdAt }` — `key` is shown once.
+
+The `requirePublishableOrIngest` gate guards the browser-reachable `/v1` subset (`POST /v1/events`, contacts upsert, `GET /v1/lists`, list subscribe/unsubscribe, `GET /v1/lists/preferences`, `/v1/feed`). For a `pk_` key it requires the `ingest-public` scope (and rejects a `pk_` that also carries `ingest` or `full-admin`).
+
+<Callout type="warn">
+  Origin enforcement is **fail-closed**. No `allowedOrigins` on the key, no `Origin` header on the request, or an `Origin` not in the allowlist all return `403`. Add every browser origin (including local dev) to the key's `allowedOrigins`.
+</Callout>
+
+## Feed scope: `<HogsendFeedProvider>`
+
+`<HogsendFeedProvider>` is an optional scope provider that sets a default `feedId` and feed-fetch options for the subtree. [`useHogsendFeed`](./hooks) and the [feed components](./components) work without it, falling back to feed id `"in_app"`.
+
+```tsx
+import { HogsendFeedProvider } from "@hogsend/react";
+
+<HogsendFeedProvider feedId="alerts" defaultFeedOptions={{ pageSize: 20 }}>
+  {children}
+</HogsendFeedProvider>
+```
+
+| Prop | Type | Default |
+|---|---|---|
+| `feedId` | `string` | `"in_app"` |
+| `defaultFeedOptions` | `FeedFetchOptions` | — |
+| `children` | `ReactNode` | — |
+
+## Proxying telemetry (`ingestPath`)
+
+To keep traffic same-origin or hold the data-plane key on your own backend, set `ingestPath` to an absolute URL on your server. Telemetry `POST`s that would target `apiUrl/v1/events` are rerouted there instead; only `/v1/events` paths are rerouted (feed reads and other calls still hit `apiUrl`).
+
+```tsx
+<HogsendProvider
+  apiUrl="https://api.acme.com"
+  publishableKey={process.env.NEXT_PUBLIC_HOGSEND_PK!}
+  ingestPath="https://app.acme.com/_hogsend/events"
+/>
+```
+
+Your proxy receives the event payload, attaches the secret data-plane key, and forwards it to the engine. `ingestPath` also resolves from `window.__HOGSEND__` as a fallback.
+
+## Color mode
+
+`colorMode` (`"light" | "dark" | "system"`) sets `data-hs-color-mode` on a `display:contents` wrapper; only the `--hs-color-*` tokens flip in dark. Read or override it at runtime with [`useColorMode`](./hooks) — see [Theming](./theming) for the token list.
+
+## Next
+
+- [Hooks](./hooks) — `useHogsend`, `useHogsendFeed`, `usePreferences`, `useBanner`, `useToast`, `useColorMode`.
+- [Components](./components) — `<NotificationBell>`, `<NotificationFeed>`, `<FeedPopover>`, `<BannerView>`, `<ToastContainer>`.
+- [Events](./events) — the `inapp.*` / `banner.*` first-party events these surfaces emit.

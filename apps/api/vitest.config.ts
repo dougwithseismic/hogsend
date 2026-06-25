@@ -1,9 +1,13 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Dedupe React so `@hogsend/react`'s `react` import and the test's `react-dom`
+  // share ONE copy — otherwise two dispatcher instances (hooks) collide and
+  // `useState` reads null. (apps/api pins react + react-dom to one version.)
+  resolve: { dedupe: ["react", "react-dom"] },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // All DB-backed suites share ONE docker TimescaleDB. Most isolate via
     // RUN-namespaced rows, but outbound-webhook emit is a GLOBAL fan-out: it
     // selects every `organizationId IS NULL` endpoint and writes a delivery row

@@ -166,6 +166,15 @@ export async function ingestEvent(opts: {
    * no mirror.
    */
   eventMirror?: AnalyticsEventMirrorConfig;
+  /**
+   * PUBLISHABLE (browser, pk_) safety clamp (§Phase 1 GAP-1). Threaded into the
+   * identity resolve so an anon-only browser write cannot attach to / merge /
+   * poison an already-identified victim contact via the browser-readable
+   * `anonymousId`. Only the public-data-plane event route sets this; every
+   * server-side ingest path (webhooks, connectors, journeys) leaves it false, so
+   * their behavior is unchanged.
+   */
+  restrictToAnonymous?: boolean;
 }): Promise<IngestResult> {
   const { db, registry, hatchet, logger, event, analytics, eventMirror } = opts;
 
@@ -189,6 +198,7 @@ export async function ingestEvent(opts: {
     anonymousId: event.anonymousId,
     discordId: event.discordId,
     contactProperties: event.contactProperties,
+    restrictToAnonymous: opts.restrictToAnonymous,
   });
 
   // Caller-supplied event time (backfill/replay). Coerced to a Date; undefined

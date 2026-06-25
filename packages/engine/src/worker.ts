@@ -31,6 +31,7 @@ import {
   sendCampaignTask,
 } from "./workflows/send-campaign.js";
 import { sendEmailTask } from "./workflows/send-email.js";
+import { sendFeedTask } from "./workflows/send-feed.js";
 
 export interface CreateWorkerOptions {
   container: HogsendClient;
@@ -89,6 +90,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
 
   const baseWorkflows = [
     sendEmailTask,
+    sendFeedTask,
     importContactsTask,
     sendCampaignTask,
     reapStuckCampaignsTask,

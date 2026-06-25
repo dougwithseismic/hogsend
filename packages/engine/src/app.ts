@@ -30,6 +30,11 @@ export type AppEnv = {
     user: NonNullable<AuthSession>["user"] | null;
     session: NonNullable<AuthSession>["session"] | null;
     apiKey: ApiKeyContext | undefined;
+    // True when the request authenticated with a PUBLISHABLE (pk_) key via
+    // `requirePublishableOrIngest`. Publishable-reachable handlers gate their
+    // identity logic on this (a pk_ key is anon-only without a verified
+    // userToken). Undefined/false for secret-key + session requests.
+    publishable?: boolean;
   };
 };
 
@@ -77,7 +82,23 @@ export function createApp(
   });
 
   app.use("*", secureHeaders());
-  app.use("*", cors());
+  app.use(
+    "*",
+    cors({
+      // Reflect the request Origin so a browser can READ the response (needed
+      // for pk_ publishable-key ingest from arbitrary first-party origins).
+      // This is NOT the security boundary — the per-key Origin allowlist is
+      // enforced inside `requirePublishableOrIngest` on the actual (non-
+      // preflight) request. A preflight carries no Bearer, so the key class is
+      // unknowable here; echoing the Origin lets the browser proceed to the
+      // real request, which the guard then accepts or 403s. Returning "*" for an
+      // Origin-less request (same-origin / server SDK) preserves today's
+      // wildcard behavior. `credentials` stays default-off (pk_ ingest is
+      // header-bearer, not cookie-auth), so reflecting the Origin does not widen
+      // credentialed/cookie exposure.
+      origin: (origin) => origin ?? "*",
+    }),
+  );
   app.use("*", compress());
   app.use("*", requestId());
   app.use("*", requestLogger);

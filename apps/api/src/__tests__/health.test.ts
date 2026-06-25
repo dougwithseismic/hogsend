@@ -81,6 +81,14 @@ describe("CORS", () => {
       },
     });
     expect(res.status).toBe(204);
-    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    // CORS now REFLECTS the request Origin (echoes it back) rather than the
+    // blanket `*`, so a browser can read responses for pk_ publishable-key
+    // ingest from a specific first-party origin. The security boundary is NOT
+    // here — it is the per-key Origin allowlist enforced in
+    // `requirePublishableOrIngest` on the real request. An Origin-less request
+    // (same-origin / server SDK) still gets `*`.
+    expect(res.headers.get("access-control-allow-origin")).toBe(
+      "http://example.com",
+    );
   });
 });

@@ -17,6 +17,12 @@ export const apiKeys = pgTable(
     keyPrefix: text("key_prefix").notNull(),
     keyHash: text("key_hash").notNull().unique(),
     scopes: jsonb("scopes").$type<string[]>().notNull().default(["read"]),
+    // Per-key browser Origin allowlist for PUBLISHABLE (pk_) keys. NULLABLE:
+    // null/empty ⇒ FAIL-CLOSED for a publishable key (the request guard rejects
+    // a pk_ key with no allowlist or an Origin not in it). Secret (hsk_) keys
+    // ignore this column entirely. Enforcement lives in the request guard
+    // (`requirePublishableOrIngest`), NOT a DB constraint.
+    allowedOrigins: text("allowed_origins").array(),
     createdBy: text("created_by"),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),

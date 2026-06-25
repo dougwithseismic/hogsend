@@ -1,0 +1,12 @@
+{
+  "title": "Client-side SDK",
+  "pages": [
+    "index",
+    "quickstart",
+    "provider",
+    "hooks",
+    "components",
+    "theming",
+    "events"
+  ]
+}

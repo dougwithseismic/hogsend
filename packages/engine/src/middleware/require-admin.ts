@@ -1,6 +1,6 @@
 import { createMiddleware } from "hono/factory";
 import type { AppEnv } from "../app.js";
-import { requireApiKey } from "./api-key.js";
+import { hasScope, requireApiKey } from "./api-key.js";
 
 // Authorizes admin routes via EITHER an API key (Bearer header, the
 // programmatic/CLI path) OR a Better-Auth session (cookie, the Studio path).
@@ -11,7 +11,23 @@ import { requireApiKey } from "./api-key.js";
 export const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
   const header = c.req.header("authorization");
   if (header?.startsWith("Bearer ")) {
-    return requireApiKey(c, next);
+    // Authenticate the key, then REQUIRE `full-admin` scope. Without this,
+    // ANY valid non-revoked key reaches the entire admin surface — including a
+    // PUBLISHABLE (pk_/ingest-public) key embedded in browser JS, which could
+    // then mint a full-admin secret. `requireApiKey` only runs its `next` on a
+    // successful auth (else it returns 401/expired), so use a flag to surface
+    // its short-circuit response; otherwise apply the scope gate.
+    let authed = false;
+    const res = await requireApiKey(c, async () => {
+      authed = true;
+    });
+    if (!authed) return res;
+
+    const apiKey = c.get("apiKey");
+    if (!apiKey || !hasScope(apiKey.scopes, "full-admin")) {
+      return c.json({ error: "Forbidden: insufficient scope" }, 403);
+    }
+    return next();
   }
 
   const { auth } = c.get("container");

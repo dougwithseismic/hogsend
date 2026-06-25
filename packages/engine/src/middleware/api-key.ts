@@ -8,6 +8,10 @@ export interface ApiKeyContext {
   id: string;
   name: string;
   scopes: string[];
+  // Set ONLY by `requirePublishableOrIngest` for a publishable (pk_) key — the
+  // per-key browser Origin allowlist. `requireApiKey` (the secret path) never
+  // populates it, so its behavior is unchanged.
+  allowedOrigins?: string[] | null;
 }
 
 const SCOPE_HIERARCHY: Record<string, number> = {

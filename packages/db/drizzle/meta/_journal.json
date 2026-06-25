@@ -232,6 +232,20 @@
       "when": 1782326053069,
       "tag": "0032_parched_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782379679195,
+      "tag": "0033_sudden_blockbuster",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782388040638,
+      "tag": "0034_light_synch",
+      "breakpoints": true
     }
   ]
 }
