@@ -12,7 +12,7 @@ import {
   Wrench,
   X as XIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Badge } from "@/components/ui/badge";
@@ -22,12 +22,17 @@ import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ markdown */
 
+// Explicit param props — react-markdown's `Components` contextual typing
+// doesn't reliably flow to destructured params across TS/types-resolution
+// environments (CI hit implicit-any), so annotate each component directly.
+type MdProps = { children?: ReactNode };
+
 // Memoized once at module scope so streaming re-renders don't realloc the map.
 const MD_COMPONENTS: Components = {
-  p: ({ children }) => (
+  p: ({ children }: MdProps) => (
     <p className="mb-2 leading-relaxed last:mb-0">{children}</p>
   ),
-  a: ({ href, children }) => (
+  a: ({ href, children }: { href?: string; children?: ReactNode }) => (
     <a
       href={href}
       target="_blank"
@@ -37,80 +42,82 @@ const MD_COMPONENTS: Components = {
       {children}
     </a>
   ),
-  strong: ({ children }) => (
+  strong: ({ children }: MdProps) => (
     <strong className="font-semibold text-white">{children}</strong>
   ),
-  em: ({ children }) => <em className="italic">{children}</em>,
-  h1: ({ children }) => (
+  em: ({ children }: MdProps) => <em className="italic">{children}</em>,
+  h1: ({ children }: MdProps) => (
     <h1 className="mt-3 mb-1.5 font-display text-base text-white">
       {children}
     </h1>
   ),
-  h2: ({ children }) => (
+  h2: ({ children }: MdProps) => (
     <h2 className="mt-3 mb-1.5 font-display text-sm text-white">{children}</h2>
   ),
-  h3: ({ children }) => (
+  h3: ({ children }: MdProps) => (
     <h3 className="mt-2 mb-1 font-display text-sm text-white/90">{children}</h3>
   ),
-  ul: ({ children }) => (
+  ul: ({ children }: MdProps) => (
     <ul className="mb-2 list-disc space-y-1 pl-4 marker:text-white/30">
       {children}
     </ul>
   ),
-  ol: ({ children }) => (
+  ol: ({ children }: MdProps) => (
     <ol className="mb-2 list-decimal space-y-1 pl-4 marker:text-white/30">
       {children}
     </ol>
   ),
-  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+  li: ({ children }: MdProps) => (
+    <li className="leading-relaxed">{children}</li>
+  ),
   hr: () => <hr className="my-3 border-hairline-faint" />,
-  blockquote: ({ children }) => (
+  blockquote: ({ children }: MdProps) => (
     <blockquote className="my-2 border-hairline border-l-2 pl-3 text-white/60 italic">
       {children}
     </blockquote>
   ),
-  code: ({ className, children, ...props }) => {
+  code: ({
+    className,
+    children,
+  }: {
+    className?: string;
+    children?: ReactNode;
+  }) => {
     const isBlock =
       (className ?? "").includes("language-") ||
       String(children).includes("\n");
     if (isBlock) {
       return (
-        <code
-          className="block font-mono text-[12px] text-white/85 leading-relaxed"
-          {...props}
-        >
+        <code className="block font-mono text-[12px] text-white/85 leading-relaxed">
           {children}
         </code>
       );
     }
     return (
-      <code
-        className="rounded bg-black/30 px-1 py-0.5 font-mono text-[12px] text-white/90"
-        {...props}
-      >
+      <code className="rounded bg-black/30 px-1 py-0.5 font-mono text-[12px] text-white/90">
         {children}
       </code>
     );
   },
-  pre: ({ children }) => (
+  pre: ({ children }: MdProps) => (
     <pre className="my-2 overflow-x-auto rounded-md bg-black/30 p-3">
       {children}
     </pre>
   ),
-  table: ({ children }) => (
+  table: ({ children }: MdProps) => (
     <div className="my-2 overflow-x-auto">
       <table className="w-full border-collapse text-xs">{children}</table>
     </div>
   ),
-  thead: ({ children }) => (
+  thead: ({ children }: MdProps) => (
     <thead className="border-hairline border-b">{children}</thead>
   ),
-  th: ({ children }) => (
+  th: ({ children }: MdProps) => (
     <th className="border border-hairline-faint px-2 py-1 text-left font-medium text-white/80">
       {children}
     </th>
   ),
-  td: ({ children }) => (
+  td: ({ children }: MdProps) => (
     <td className="border border-hairline-faint px-2 py-1 align-top text-white/70">
       {children}
     </td>
