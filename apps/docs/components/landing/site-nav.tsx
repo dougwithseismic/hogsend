@@ -4,6 +4,7 @@ import { ChevronDown, Download, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { type JSX, useEffect, useState } from "react";
 import { Button } from "@/components/ds/button";
+import { NavBell } from "@/components/hogsend/nav-bell";
 import { cn } from "@/lib/cn";
 import {
   type DesktopDownload,
@@ -14,8 +15,6 @@ import { Logo } from "./logo";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Templates", href: "/emails" },
-  { label: "Growth", href: "/growth-metrics" },
-  { label: "Service", href: "/service" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },
 ];
@@ -325,6 +324,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             <GitHubMark className="size-5" />
           </a>
           <DownloadNavLink size="size-9" />
+          <NavBell align="end" />
           <Button href="/docs/getting-started" variant="outline" icon>
             Start building
           </Button>
@@ -351,6 +351,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             <GitHubMark className="size-5" />
           </a>
           <DownloadNavLink size="size-10" />
+          <NavBell align="end" />
           <button
             type="button"
             aria-label={menuOpen ? "Close menu" : "Open menu"}
