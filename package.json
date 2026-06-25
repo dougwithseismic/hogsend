@@ -14,6 +14,7 @@
     "preflight": "bash scripts/preflight-deploy.sh",
     "changeset": "changeset",
     "release-doctor": "node scripts/release-doctor.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "version-packages": "changeset version && node scripts/release-doctor.mjs --sync",
     "release": "pnpm build && changeset publish",
     "prepare": "lefthook install || true"
