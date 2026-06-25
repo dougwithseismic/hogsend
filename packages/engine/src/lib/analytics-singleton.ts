@@ -1,4 +1,7 @@
-import type { AnalyticsProvider } from "@hogsend/core";
+import type {
+  AnalyticsEventMirrorConfig,
+  AnalyticsProvider,
+} from "@hogsend/core";
 import { createOptionalSingleton } from "./singleton.js";
 
 /**
@@ -30,3 +33,17 @@ export const setAnalytics = singleton.set;
 export const getAnalytics = singleton.get;
 /** Reset the singleton — only for test cleanup. */
 export const resetAnalytics = singleton.reset;
+
+/**
+ * The resolved {@link AnalyticsEventMirrorConfig} — set once by
+ * `createHogsendClient` alongside {@link setAnalytics}, read by `ingestEvent`
+ * to decide whether to mirror each ingested event into the active provider.
+ * Optional singleton: when the container resolves no mirror config the read
+ * stays `undefined` and the mirror no-ops (DB-only behaviour).
+ */
+const mirrorSingleton = createOptionalSingleton<AnalyticsEventMirrorConfig>();
+
+export const setAnalyticsEventMirror = mirrorSingleton.set;
+export const getAnalyticsEventMirror = mirrorSingleton.get;
+/** Reset the singleton — only for test cleanup. */
+export const resetAnalyticsEventMirror = mirrorSingleton.reset;

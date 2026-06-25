@@ -64,7 +64,10 @@ export const discordHelloWorld = defineJourney({
   },
   run: async (user) => {
     await grantAndAnnounce({
-      member: user.id,
+      // Actor snowflake off the event so the grant/DM fires pre-link (an
+      // unlinked member's discord contact is anonymous, `user.id` is a UUID).
+      // The other actor-keyed sites below share this fallback.
+      member: String(user.properties.authorId ?? user.id),
       guildId: guildIdOf(user),
       roleId: DiscordGamification.roles.HELLO_WORLD,
       dm: "🎉 You just earned the 👋 Hello world role for sending your first message!",
@@ -89,7 +92,7 @@ export const discordIntroduced = defineJourney({
   run: async (user) => {
     if (!DiscordGamification.INTROS_CHANNEL_ID) return;
     await grantAndAnnounce({
-      member: user.id,
+      member: String(user.properties.authorId ?? user.id),
       guildId: guildIdOf(user),
       roleId: DiscordGamification.roles.INTRODUCED,
       dm: "🎉 You just earned the 🪪 Introduced role for introducing yourself to the community!",
@@ -184,7 +187,7 @@ export const discordHypeHog = defineJourney({
     if (already.found) return;
 
     const granted = await grantAndAnnounce({
-      member: user.id,
+      member: String(user.properties.reactorId ?? user.id),
       guildId: guildIdOf(user),
       roleId: DiscordGamification.roles.HYPE_HOG,
       dm: "🎉 You just earned the ❤️ Hype hog role for spreading the love to 5 different people's posts!",

@@ -123,13 +123,16 @@ export const discordConnector: DefinedConnector = defineConnector({
         const occurredAt = snowflakeToDate(d.id);
         const event: DiscordIngestEvent = {
           event: DiscordEvents.MESSAGE_CREATE,
-          userId: discordUserKey(d.author.id),
           discordId: d.author.id,
           eventProperties: {
             source: "discord",
             channelId: d.channel_id,
             guildId: d.guild_id ?? null,
             messageId: d.id,
+            // The actor's own snowflake, so a journey can grant/DM this member
+            // even before they link (the discord contact is now anonymous — its
+            // canonical key is a UUID, not the snowflake).
+            authorId: d.author.id,
             hasContent: typeof d.content === "string" && d.content.length > 0,
           },
           contactProperties: {
@@ -158,7 +161,6 @@ export const discordConnector: DefinedConnector = defineConnector({
         // — reacted to N DIFFERENT people) can count distinct authors.
         const added: DiscordIngestEvent = {
           event: DiscordEvents.MESSAGE_REACTION_ADD,
-          userId: discordUserKey(d.user_id),
           discordId: d.user_id,
           eventProperties: {
             source: "discord",
@@ -166,6 +168,9 @@ export const discordConnector: DefinedConnector = defineConnector({
             guildId: d.guild_id ?? null,
             messageId: d.message_id,
             emoji: d.emoji?.name ?? null,
+            // The reactor's own snowflake (the actor), so a reactor-side journey
+            // can grant/DM them pre-link (anonymous discord contact → UUID key).
+            reactorId: d.user_id,
             targetAuthorId,
             targetAuthorKey,
           },
@@ -223,7 +228,6 @@ export const discordConnector: DefinedConnector = defineConnector({
         // ratchet one-way). Mirrors reaction_added's reactor side.
         const event: DiscordIngestEvent = {
           event: DiscordEvents.MESSAGE_REACTION_REMOVE,
-          userId: discordUserKey(d.user_id),
           discordId: d.user_id,
           eventProperties: {
             source: "discord",
@@ -248,11 +252,13 @@ export const discordConnector: DefinedConnector = defineConnector({
         const occurredAt = new Date();
         const event: DiscordIngestEvent = {
           event: DiscordEvents.GUILD_MEMBER_ADD,
-          userId: discordUserKey(d.user.id),
           discordId: d.user.id,
           eventProperties: {
             source: "discord",
             guildId: d.guild_id,
+            // The joiner's own snowflake (the actor), so a welcome journey can
+            // grant/DM them pre-link (anonymous discord contact → UUID key).
+            memberId: d.user.id,
             joinedAt: d.joined_at ?? occurredAt.toISOString(),
           },
           contactProperties: {
@@ -279,7 +285,6 @@ export const discordConnector: DefinedConnector = defineConnector({
         const occurredAt = new Date();
         const event: DiscordIngestEvent = {
           event: DiscordEvents.PRESENCE_UPDATE,
-          userId: discordUserKey(d.user.id),
           discordId: d.user.id,
           eventProperties: {
             source: "discord",

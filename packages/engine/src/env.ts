@@ -149,6 +149,13 @@ export const env = createEnv({
     // Selects the ACTIVE analytics provider id out of the registry (env
     // presets + consumer-registered providers). Mirrors EMAIL_PROVIDER.
     ANALYTICS_PROVIDER: z.string().min(1).default("posthog"),
+    // Override for the ingest→analytics event mirror (capture every ingested
+    // event into the active analytics provider, keyed to the resolved contact).
+    // The code option `analytics.eventMirror.enabled` is the default; this env,
+    // when set, OVERRIDES it in both directions. Enum (not z.coerce.boolean) so
+    // an explicit "false" actually disables (coerce.boolean treats "false" as
+    // true). Unset ⇒ the code option wins. Allow/deny lists stay code-only.
+    ANALYTICS_EVENT_MIRROR: z.enum(["true", "false"]).optional(),
     POSTHOG_WEBHOOK_SECRET: z.string().min(1).optional(),
     // When true AND POSTHOG_API_KEY is set, the engine idempotently auto-seeds
     // ONE kind="posthog" webhook endpoint subscribed to the email funnel so the

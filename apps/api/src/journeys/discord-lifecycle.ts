@@ -76,7 +76,9 @@ export const discordStranger = defineJourney({
   },
   run: async (user) => {
     await grantAndAnnounce({
-      member: user.id,
+      // Actor snowflake off the event so the grant/DM fires pre-link (an
+      // unlinked member's discord contact is anonymous, `user.id` is a UUID).
+      member: String(user.properties.memberId ?? user.id),
       guildId: guildIdOf(user),
       roleId: DiscordLifecycle.STRANGER,
       dm: "👋 Welcome! You're a **Stranger** for now — run **/link** in the server to verify your email and join the sounder.",
