@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { JSX } from "react";
 import { ReferralLanding } from "./_components/hey-sections";
+import { sanitizeRefParam } from "./_components/name";
 
 /**
  * Bare /hey — someone will type it. Renders the generic (unpersonalised)
@@ -14,6 +15,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function HeyPage(): JSX.Element {
-  return <ReferralLanding name={null} />;
+export default async function HeyPage(props: {
+  searchParams: Promise<{ ref?: string | string[] }>;
+}): Promise<JSX.Element> {
+  const { ref } = await props.searchParams;
+  return <ReferralLanding name={null} refKey={sanitizeRefParam(ref)} />;
 }

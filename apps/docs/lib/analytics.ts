@@ -75,6 +75,16 @@ export const AnalyticsEvent = {
    * lead alert can route on it. NOT a client `capture()`; the constant lives
    * here so the event name stays the single source of truth. */
   SETUP_INTERESTED: "docs.setup.interested",
+  /** Referral-link visit (/hey?ref=<key>) — fired server-side to the Hogsend
+   * ingest API with the referrer's opaque contact key in `{ referred_by }`
+   * and the visitor's PostHog distinct_id as `anonymousId`, so the dogfood
+   * can attribute the conversion (Discord /link) back to the referrer. The
+   * friend's display NAME from the URL is NEVER sent — only the ref token and
+   * the anon id travel. NOT a client `capture()`; the constant lives here so
+   * the event name stays the single source of truth. Note: unlike the rest of
+   * the enum this uses the engine's `object.action` dot form, matching the
+   * cross-repo shared contract verbatim. */
+  REFERRAL_VISITED: "referral.visited",
 } as const;
 
 export type AnalyticsEventName =
