@@ -6,6 +6,7 @@ import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { EmailCapture } from "@/components/landing/email-capture";
 import { ReferralViewPing } from "./referral-view-ping";
+import { ReferralVisitedPing } from "./referral-visited-ping";
 
 /** The four flows every product ends up needing — same list as the homepage. */
 const LIFECYCLE_FLOWS = [
@@ -21,11 +22,20 @@ const LIFECYCLE_FLOWS = [
  * name from the URL segment, or null for the generic fallback. The capture
  * section closes the loop: a subscribe here fires `docs.subscribed` and
  * enrols them in the same docs-subscriber journey that wrote to the referrer.
+ *
+ * `refKey` is the opaque referrer contact key from `?ref` (already sanitised
+ * by the page). It is threaded ONLY into the server-side referral.visited ping
+ * — never into copy, metadata, or the display name. The display `name` and the
+ * `refKey` are deliberately separate: the name is for greeting the human, the
+ * ref is for attribution, and the two must never cross (the name is PII, the
+ * ref is not, and neither should learn about the other on the wire).
  */
 export function ReferralLanding({
   name,
+  refKey = null,
 }: {
   name: string | null;
+  refKey?: string | null;
 }): JSX.Element {
   return (
     <main className="flex flex-1 flex-col">
@@ -68,6 +78,7 @@ export function ReferralLanding({
           </Reveal>
         </div>
         <ReferralViewPing personalised={name !== null} />
+        <ReferralVisitedPing refKey={refKey} />
       </Section>
 
       {/* The offer, plainly. */}

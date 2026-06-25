@@ -8,7 +8,26 @@ export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type IngestEventBody = {
   name: string;
-  email: string;
+  /**
+   * The contact's email — the primary identity arm for every PII-carrying
+   * forward (subscribe, deploy-clicked, …). Optional because a few events are
+   * anonymous-by-design and identify via `userId` or are accepted by the
+   * upstream on `anonymousId` alone (e.g. `referral.visited`, where the
+   * visitor has no email and the only token that travels is the opaque
+   * referrer ref). When omitted, `userId` (or the upstream's anon handling)
+   * must carry identity — the engine's `/v1/events` still enforces its own
+   * identity gate.
+   */
+  email?: string;
+  /**
+   * A stable Hogsend contact key used as the 1st-precedence identity arm when
+   * present (the engine resolves `external → email → anonymous → discord`).
+   * Only set this when you genuinely want to attribute the event to that
+   * contact — for `referral.visited` we deliberately do NOT pass the referrer
+   * ref here (that would attribute the visit to the referrer, not the
+   * anonymous visitor); the ref rides as a contact property instead.
+   */
+  userId?: string;
   /**
    * The subscribing session's PostHog anonymous distinct_id, forwarded as a
    * top-level identity field (engine ≥0.18) — NOT a contact property. The
@@ -72,5 +91,52 @@ export async function forwardToIngest(
       : {};
   } catch {
     return null;
+  }
+}
+
+/**
+ * The referral-visit webhook needs the same ingest base URL plus its OWN shared
+ * secret (the dogfood `referral-visited` webhook source verifies the header).
+ * Separate from `HOGSEND_INGEST_KEY` because it hits a different endpoint with a
+ * different auth scheme.
+ */
+export function referralVisitedConfigured(): boolean {
+  return Boolean(
+    process.env.HOGSEND_INGEST_URL && process.env.HOGSEND_REFERRAL_SECRET,
+  );
+}
+
+/**
+ * forwardReferralVisited — POSTs an ANONYMOUS referral visit to the dogfood's
+ * `referral-visited` webhook source. NOT `/v1/events`: that route enforces
+ * `requireIdentity` and would 400 an email-less, userId-less visit. The webhook
+ * source feeds `ingestEvent()` directly, which accepts an `anonymousId`-only
+ * event. Auth is the shared `x-referral-secret` header (the key never reaches
+ * the client). Returns true on a 2xx; throws nothing — failures come back false.
+ */
+export async function forwardReferralVisited(
+  body: { ref: string; anonymousId: string },
+  idempotencyKey: string,
+): Promise<boolean> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const secret = process.env.HOGSEND_REFERRAL_SECRET;
+  if (!ingestUrl || !secret) return false;
+
+  try {
+    const upstream = await fetch(
+      `${ingestUrl.replace(/\/+$/, "")}/v1/webhooks/referral-visited`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-referral-secret": secret,
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    return upstream.ok;
+  } catch {
+    return false;
   }
 }

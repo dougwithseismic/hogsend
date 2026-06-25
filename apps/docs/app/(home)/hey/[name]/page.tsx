@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { JSX } from "react";
 import { ReferralLanding } from "../_components/hey-sections";
-import { displayNameFromSlug } from "../_components/name";
+import { displayNameFromSlug, sanitizeRefParam } from "../_components/name";
 
 /**
  * Personalised referral landing — /hey/<first-name>, the URL printed in the
@@ -18,7 +18,14 @@ export const metadata: Metadata = {
 
 export default async function HeyNamePage(props: {
   params: Promise<{ name: string }>;
+  searchParams: Promise<{ ref?: string | string[] }>;
 }): Promise<JSX.Element> {
   const { name } = await props.params;
-  return <ReferralLanding name={displayNameFromSlug(name)} />;
+  const { ref } = await props.searchParams;
+  return (
+    <ReferralLanding
+      name={displayNameFromSlug(name)}
+      refKey={sanitizeRefParam(ref)}
+    />
+  );
 }
