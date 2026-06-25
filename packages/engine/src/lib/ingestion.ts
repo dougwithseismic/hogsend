@@ -16,7 +16,10 @@ import {
   getAnalytics,
   getAnalyticsEventMirror,
 } from "./analytics-singleton.js";
-import { resolveOrCreateContact } from "./contacts.js";
+import {
+  ContactProvenanceLostError,
+  resolveOrCreateContact,
+} from "./contacts.js";
 import type { Logger } from "./logger.js";
 
 export interface IngestEvent {
@@ -26,6 +29,16 @@ export interface IngestEvent {
   userEmail?: string;
   /** D1: future anonymous→identified path. Threaded into the resolver. */
   anonymousId?: string;
+  /**
+   * ENGINE-INTERNAL provenance — the subject contact's unforgeable row id
+   * (`contacts.id`). Set ONLY by engine-internal re-emit sites that already
+   * resolved the subject (this fn's own downstream re-ingests, the feed
+   * mark/clear re-ingests). Pins the resolver to that exact row so a contact's
+   * own canonical key round-tripping as `userId` folds back in instead of minting
+   * a phantom `external_id` twin. NEVER set from a request body (the public route
+   * schemas omit it); the public/publishable boundary cannot forge it.
+   */
+  contactId?: string;
   /**
    * Discord user id (snowflake). Resolves a `discord`-keyed contact (a later
    * per-member link merges it into the email contact).
@@ -185,21 +198,46 @@ export async function ingestEvent(opts: {
   // `contacts.properties` (D2 split) and returns BOTH the canonical contact id
   // AND its resolved string key (external_id ?? anonymous_id ?? contact.id —
   // risk 1/6), so no second read-back of the contact row is needed.
+  let resolved: Awaited<ReturnType<typeof resolveOrCreateContact>>;
+  try {
+    resolved = await resolveOrCreateContact({
+      db,
+      userId: event.userId,
+      email: event.userEmail || undefined,
+      anonymousId: event.anonymousId,
+      discordId: event.discordId,
+      // ENGINE-INTERNAL provenance pin (never from a request body — public route
+      // schemas omit it). Pins to the subject's own row so an internal re-emit
+      // whose userId is the contact's canonical key folds in, not a phantom twin.
+      contactId: event.contactId,
+      contactProperties: event.contactProperties,
+      restrictToAnonymous: opts.restrictToAnonymous,
+    });
+  } catch (err) {
+    // Provenance pin pointed at a hard-deleted/unfollowable subject: drop the
+    // internal re-emit (do NOT value-fall-back — that could mint the very twin
+    // the pin prevents). Reachable only for a hard-deleted subject.
+    if (err instanceof ContactProvenanceLostError) {
+      logger.warn("identity.provenance.lost — dropping internal re-emit", {
+        event: event.event,
+        contactId: err.contactId,
+        source: event.source ?? null,
+      });
+      return {
+        stored: false,
+        exits: [],
+        contactKey: event.userId ?? event.anonymousId ?? err.contactId,
+      };
+    }
+    throw err;
+  }
   const {
     id: contactId,
     resolvedKey,
     mergedKeys,
     mergedIdentifiedKeys,
     merged,
-  } = await resolveOrCreateContact({
-    db,
-    userId: event.userId,
-    email: event.userEmail || undefined,
-    anonymousId: event.anonymousId,
-    discordId: event.discordId,
-    contactProperties: event.contactProperties,
-    restrictToAnonymous: opts.restrictToAnonymous,
-  });
+  } = resolved;
 
   // Caller-supplied event time (backfill/replay). Coerced to a Date; undefined
   // falls back to the `occurred_at` DB default (ingest instant).
@@ -327,6 +365,11 @@ export async function ingestEvent(opts: {
       userId: resolvedKey,
       userEmail: event.userEmail ?? "",
       properties: serializableProperties,
+      // ENGINE-INTERNAL provenance: the resolved subject row id, so a journey
+      // enrolling on this event can re-emit for the SAME subject by row id
+      // (folds, never mints a twin). Additive/optional — consumers ignoring it
+      // are unaffected.
+      contactId,
     }),
     checkExits(db, registry, hatchet, logger, {
       userId: resolvedKey,

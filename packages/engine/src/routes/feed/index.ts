@@ -49,6 +49,7 @@ function emitMarkEvents(
     eventType: string;
     feedId: string;
     recipientKey: string;
+    contactId?: string;
   },
 ): Promise<unknown> {
   return Promise.allSettled(
@@ -60,6 +61,11 @@ function emitMarkEvents(
           // recipientKey IS the canonical contact key — pass it as userId so
           // the resolver lands on the SAME contact.
           userId: args.recipientKey,
+          // ENGINE-INTERNAL provenance (server-derived, never from the body):
+          // pin to the recipient's own contact row so an anon visitor's mark
+          // re-ingest folds in by row id instead of minting a phantom
+          // external_id=<anonId> twin that would 403-lock their own feed.
+          contactId: args.contactId,
           eventProperties: { feedItemId: r.id, feedId: args.feedId },
           idempotencyKey: `inapp:${args.feedId}:${r.id}:${args.eventType}`,
           source: "inapp",
@@ -407,7 +413,13 @@ export const feedRouter = new OpenAPIHono<AppEnv>()
     // absorbed by `user_events.idempotencyKey`), so the journey fires once.
     await emitMarkEvents(
       { db, registry, hatchet, logger, analytics },
-      { ids: updated, eventType, feedId, recipientKey: rec.recipientKey },
+      {
+        ids: updated,
+        eventType,
+        feedId,
+        recipientKey: rec.recipientKey,
+        contactId: rec.contactId,
+      },
     );
 
     return c.json({ updated: updated.length }, 200);
@@ -443,6 +455,9 @@ export const feedRouter = new OpenAPIHono<AppEnv>()
         event: {
           event: "inapp.feed_cleared",
           userId: rec.recipientKey,
+          // ENGINE-INTERNAL provenance — fold into the recipient's own contact
+          // row by id, never mint a phantom twin (see emitMarkEvents).
+          contactId: rec.contactId,
           eventProperties: { feedId },
           idempotencyKey: `inapp:${feedId}:all:inapp.feed_cleared`,
           source: "inapp",
@@ -451,7 +466,13 @@ export const feedRouter = new OpenAPIHono<AppEnv>()
     } else {
       await emitMarkEvents(
         { db, registry, hatchet, logger, analytics },
-        { ids: updated, eventType, feedId, recipientKey: rec.recipientKey },
+        {
+          ids: updated,
+          eventType,
+          feedId,
+          recipientKey: rec.recipientKey,
+          contactId: rec.contactId,
+        },
       );
     }
 

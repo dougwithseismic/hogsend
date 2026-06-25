@@ -13,7 +13,7 @@ import {
 } from "../../lib/user-token.js";
 
 export type FeedRecipient =
-  | { ok: true; recipientKey: string }
+  | { ok: true; recipientKey: string; contactId?: string }
   | { ok: false; status: 400 | 403; error: string };
 
 export interface FeedRecipientParams {
@@ -71,18 +71,17 @@ export async function resolveFeedRecipient(
       }
       throw err;
     }
-    return { ok: true, recipientKey: await canonicalKey(db, { userId }) };
+    const ck = await canonicalKey(db, { userId });
+    return { ok: true, recipientKey: ck.recipientKey, contactId: ck.contactId };
   }
 
   // 2. Secret key: trust userId/email directly.
   if (!publishable && (params.userId || params.email)) {
-    return {
-      ok: true,
-      recipientKey: await canonicalKey(db, {
-        userId: params.userId,
-        email: params.email,
-      }),
-    };
+    const ck = await canonicalKey(db, {
+      userId: params.userId,
+      email: params.email,
+    });
+    return { ok: true, recipientKey: ck.recipientKey, contactId: ck.contactId };
   }
 
   // 3. Publishable anon: its raw anon id IS its recipientKey (no resolver — see
@@ -100,7 +99,27 @@ export async function resolveFeedRecipient(
         error: "anonymousId is not addressable",
       };
     }
-    return { ok: true, recipientKey: params.anonymousId };
+    // Surface the anon contact's row id (when it exists) as engine-internal
+    // provenance. The feed's OWN mark/clear re-ingests (emitMarkEvents,
+    // inapp.feed_cleared) re-ingest keyed `userId: recipientKey` = this raw anon
+    // id; threading the row id makes them fold into THIS contact by id instead of
+    // minting a phantom `external_id=<anonId>` twin — the twin that then trips
+    // collidesWithIdentified and 403-locks the visitor out of their own feed.
+    const anonRow = await db
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(
+        and(
+          eq(contacts.anonymousId, params.anonymousId),
+          isNull(contacts.deletedAt),
+        ),
+      )
+      .limit(1);
+    return {
+      ok: true,
+      recipientKey: params.anonymousId,
+      contactId: anonRow[0]?.id,
+    };
   }
 
   // 4. No identity → fail-closed.
@@ -163,7 +182,7 @@ async function collidesWithIdentified(
 async function canonicalKey(
   db: Database,
   ident: { userId?: string; email?: string },
-): Promise<string> {
+): Promise<{ recipientKey: string; contactId?: string }> {
   if (ident.email) {
     const email = normalizeEmail(ident.email);
     const rows = await db
@@ -171,13 +190,14 @@ async function canonicalKey(
       .from(contacts)
       .where(and(eq(contacts.email, email), isNull(contacts.deletedAt)))
       .limit(1);
-    if (rows[0]) return contactKey(rows[0]);
-    return email;
+    if (rows[0])
+      return { recipientKey: contactKey(rows[0]), contactId: rows[0].id };
+    return { recipientKey: email };
   }
   if (ident.userId) {
     const row = await resolveContact({ db, id: ident.userId });
-    if (row) return contactKey(row);
-    return ident.userId;
+    if (row) return { recipientKey: contactKey(row), contactId: row.id };
+    return { recipientKey: ident.userId };
   }
-  return "";
+  return { recipientKey: "" };
 }
