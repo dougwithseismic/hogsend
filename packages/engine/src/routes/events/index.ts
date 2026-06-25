@@ -125,8 +125,12 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
           // §2.5: caller-supplied event time (backfill/replay). The validated
           // ISO string is coerced to a Date inside ingestEvent.
           occurredAt: body.timestamp,
-          // Public data-plane ingest (the `@hogsend/client` SDK / your code).
-          source: "api",
+          // Provenance derived from the authenticated key CLASS, never the
+          // request body (so it can't be spoofed): a publishable (pk_) key is
+          // always an in-app surface interaction from @hogsend/js; a secret key
+          // is the server-side data plane. "inapp" still fans out to PostHog
+          // (the loop-guard only special-cases "posthog").
+          source: c.get("publishable") === true ? "inapp" : "api",
         },
       });
     } catch (err) {

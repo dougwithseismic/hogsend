@@ -49,6 +49,7 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     store,
     ...(resolved.storage ? { storage: resolved.storage } : {}),
     ...(resolved.userId ? { userId: resolved.userId } : {}),
+    ...(resolved.userToken ? { userToken: resolved.userToken } : {}),
   });
 
   const spine: EventSpine = createEventSpine({
@@ -66,9 +67,11 @@ export function createHogsend(config: HogsendConfig): Hogsend {
 
   async function identify(userId: string, traits?: Properties): Promise<void> {
     identity.setUserId(userId);
+    const userToken = identity.getUserToken();
     await transport.put("/v1/contacts", {
       userId,
       anonymousId: identity.getAnonymousId(),
+      ...(userToken ? { userToken } : {}),
       ...(traits ? { properties: traits } : {}),
     });
   }

@@ -36,7 +36,11 @@ export interface HogsendConfig {
   publishableKey: string;
   /** Known user id; omit for anonymous mode. */
   userId?: string;
-  /** Optional signed proof of `userId` (secure mode; v3). */
+  /**
+   * Optional signed proof of `userId` so a publishable (`pk_`) key may act as
+   * that user. Sent as the body `userToken` on every identity-asserting call;
+   * the engine verify path is live. A server-side mint helper lands in v3.
+   */
   userToken?: string;
   /** Storage backend; defaults to localStorage with a memory fallback. */
   storage?: StorageAdapter;

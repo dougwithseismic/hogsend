@@ -47,12 +47,15 @@ export function createEventSpine(opts: EventSpineOptions): EventSpine {
   return {
     capture: async (event, properties, captureOpts) => {
       const userId = opts.identity.getUserId();
+      const userToken = opts.identity.getUserToken();
       queue.enqueue({
         name: event,
         eventProperties: properties ?? {},
         source: "inapp",
         anonymousId: opts.identity.getAnonymousId(),
         ...(userId ? { userId } : {}),
+        // The token only authorizes a claimed userId; never sent anon-only.
+        ...(userId && userToken ? { userToken } : {}),
         ...(captureOpts?.idempotencyKey
           ? { idempotencyKey: captureOpts.idempotencyKey }
           : {}),

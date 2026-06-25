@@ -38,6 +38,19 @@ function identityQuery(
   return userId ? { userId } : { anonymousId: identity.getAnonymousId() };
 }
 
+/**
+ * Identity for a list WRITE body. Lists require a resolvable email/userId, so
+ * an identified write carries `userId` + its signed `userToken` (a publishable
+ * key may only act on another identity with the token); anon falls through to
+ * `anonymousId` (which the engine rejects — anon contacts can't set list prefs).
+ */
+function identityBody(identity: IdentityStore): Record<string, string> {
+  const userId = identity.getUserId();
+  if (!userId) return { anonymousId: identity.getAnonymousId() };
+  const userToken = identity.getUserToken();
+  return { userId, ...(userToken ? { userToken } : {}) };
+}
+
 /** Build the preferences client. */
 export function createPreferencesClient(
   opts: PreferencesClientOptions,
@@ -75,7 +88,7 @@ export function createPreferencesClient(
       const path = subscribed
         ? `/v1/lists/${encodeURIComponent(categoryId)}/subscribe`
         : `/v1/lists/${encodeURIComponent(categoryId)}/unsubscribe`;
-      await opts.transport.post(path, identityQuery(opts.identity));
+      await opts.transport.post(path, identityBody(opts.identity));
       // Optimistic local slice update.
       opts.store.setState((prev) => {
         const prefs = prev.preferences ?? {
@@ -96,14 +109,14 @@ export function createPreferencesClient(
     subscribe: async (listId) => {
       await opts.transport.post(
         `/v1/lists/${encodeURIComponent(listId)}/subscribe`,
-        identityQuery(opts.identity),
+        identityBody(opts.identity),
       );
       await emitChange(listId, true);
     },
     unsubscribe: async (listId) => {
       await opts.transport.post(
         `/v1/lists/${encodeURIComponent(listId)}/unsubscribe`,
-        identityQuery(opts.identity),
+        identityBody(opts.identity),
       );
       await emitChange(listId, false);
     },

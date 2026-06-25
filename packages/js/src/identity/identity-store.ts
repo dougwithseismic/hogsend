@@ -16,6 +16,14 @@ export interface IdentityStoreOptions {
   storage?: StorageAdapter;
   /** Known user id from config (optional). */
   userId?: string;
+  /**
+   * Server-minted signed proof of `userId` (optional). When present, it is
+   * threaded into the JSON body of every identity-asserting data-plane call
+   * (`/v1/events`, `/v1/contacts`, `/v1/lists/*`) so a publishable (`pk_`)
+   * caller may act as the bound `userId` — the engine reads `userToken` from
+   * the body, not a header.
+   */
+  userToken?: string;
 }
 
 /** The identity sub-store. */
@@ -26,6 +34,12 @@ export interface IdentityStore {
   getUserId(): string | null;
   /** Persisted anonymous id (always present). */
   getAnonymousId(): string;
+  /**
+   * Server-minted signed proof of `userId` (sent as the body `userToken` on
+   * every identity-asserting call), else null. Lets a publishable (`pk_`)
+   * caller act as the bound `userId`.
+   */
+  getUserToken(): string | null;
   /** Canonical contact key from the last 202, else null. */
   getContactKey(): string | null;
   isIdentified(): boolean;
@@ -58,6 +72,7 @@ function readSlice(
 export function createIdentityStore(opts: IdentityStoreOptions): IdentityStore {
   const storage = resolveStorage(opts.storage);
   const initialUserId = opts.userId ?? null;
+  const userToken = opts.userToken ?? null;
   const slice = readSlice(storage, initialUserId);
   opts.store.setState((prev) => ({ ...prev, identity: slice }));
 
@@ -84,6 +99,7 @@ export function createIdentityStore(opts: IdentityStoreOptions): IdentityStore {
     getDistinctId: () => current().distinctId,
     getUserId: () => current().userId,
     getAnonymousId: anonId,
+    getUserToken: () => userToken,
     getContactKey: () => current().contactKey,
     isIdentified: () => current().identified,
     setUserId: (userId) => {

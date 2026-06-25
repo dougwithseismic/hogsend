@@ -15,6 +15,9 @@ export interface QueuedEvent {
   source: "inapp";
   anonymousId: string;
   userId?: string;
+  /** Signed proof of `userId` so a publishable key may assert it (engine reads
+   * this from the body, not a header). */
+  userToken?: string;
   idempotencyKey?: string;
   timestamp?: string;
 }
