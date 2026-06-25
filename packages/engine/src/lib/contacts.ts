@@ -14,6 +14,27 @@ const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Thrown by {@link resolveOrCreateContact} when a PUBLISHABLE (browser, pk_) anon
+ * write would attach to / merge into / mutate a contact that already carries an
+ * IDENTIFIED key (`external_id` or `email`), OR would drive a collide-MERGE.
+ *
+ * The `anonymousId` (PostHog `get_distinct_id()`) is browser-readable by design,
+ * so on the publishable path it is NOT a secret and must never be a merge driver
+ * or a path to a victim's identified contact. An anon-only publishable write may
+ * only create or update its OWN anonymous-only contact. Handlers translate this
+ * to a 403. The secret-key path NEVER sets `restrictToAnonymous`, so its behavior
+ * is unchanged.
+ */
+export class PublishableAnonymousMergeError extends Error {
+  constructor(
+    message = "publishable anonymous write cannot attach to or merge an identified contact",
+  ) {
+    super(message);
+    this.name = "PublishableAnonymousMergeError";
+  }
+}
+
+/**
  * The transaction handle drizzle hands to a `db.transaction(cb)` callback. It
  * exposes the same `.select/.insert/.update/.execute/.query` surface as the
  * top-level `Database`, so the merge helpers below accept it interchangeably.
@@ -341,6 +362,18 @@ export async function resolveOrCreateContact(opts: {
   anonymousId?: string;
   discordId?: string;
   contactProperties?: Record<string, unknown>;
+  /**
+   * PUBLISHABLE (browser, pk_) safety clamp (§Phase 1 GAP-1). When set, an
+   * anon-only write (no `userId`/`email`/`discordId`) may ONLY create or update
+   * its own anonymous-only contact: it is forbidden from filling-in-linking to,
+   * or merging with, any contact that already carries an `external_id`/`email`,
+   * and from driving a collide-MERGE — throwing {@link
+   * PublishableAnonymousMergeError}. The `anonymousId` is browser-readable
+   * (`get_distinct_id()`), so without this clamp a pk_ key could forge events as
+   * / poison a victim's identified contact via the anon resolution arm. The
+   * secret-key path NEVER sets this, so its behavior is byte-for-byte unchanged.
+   */
+  restrictToAnonymous?: boolean;
 }): Promise<{
   id: string;
   /**
@@ -376,6 +409,16 @@ export async function resolveOrCreateContact(opts: {
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
   const anonymousId = opts.anonymousId?.trim() || undefined;
   const discordId = opts.discordId?.trim() || undefined;
+  // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
+  // only shape a token-less pk_ key can produce — the gate 403s any
+  // email/userId without a verified userToken before we get here). An identified
+  // arm (token-authorized userId, or the secret path) is never clamped.
+  const restrictToAnonymous =
+    opts.restrictToAnonymous === true &&
+    !userId &&
+    !email &&
+    !discordId &&
+    !!anonymousId;
 
   const keys: ResolveKey[] = [];
   if (userId) keys.push({ kind: "external", value: userId });
@@ -440,6 +483,14 @@ export async function resolveOrCreateContact(opts: {
     // --- CASE: fill-in-link (single existing row) ---
     const single = candidates[0];
     if (candidates.length === 1 && single) {
+      // §Phase 1 GAP-1: an anon-only publishable write resolved to an EXISTING
+      // contact that already carries an identified key (`external_id`/`email`)
+      // is a forge/poison attempt — the browser-readable anonymousId pointed at
+      // a victim. Refuse to fill-in-link / mutate it. (Resolving to its OWN
+      // anonymous-only contact — no external_id, no email — is allowed.)
+      if (restrictToAnonymous && (single.externalId || single.email)) {
+        throw new PublishableAnonymousMergeError();
+      }
       const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
         await fillInLink(tx, single, {
           userId,
@@ -461,6 +512,12 @@ export async function resolveOrCreateContact(opts: {
     }
 
     // --- CASE: collide-MERGE (2-3 distinct rows) ---
+    // §Phase 1 GAP-1: an anon-only publishable write must NEVER drive a merge —
+    // the browser-readable anonymousId would let an attacker fold two of a
+    // victim's contacts together (identity-graph corruption). Refuse.
+    if (restrictToAnonymous) {
+      throw new PublishableAnonymousMergeError();
+    }
     const { id, resolvedKey, mergedKeys, mergedIdentifiedKeys } =
       await mergeContacts(tx, candidates, {
         userId,

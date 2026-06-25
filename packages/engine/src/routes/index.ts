@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import type { AppEnv } from "../app.js";
 import type { HogsendClient } from "../container.js";
 import { requireApiKey, requireScope } from "../middleware/api-key.js";
+import { requirePublishableOrIngest } from "../middleware/publishable-key.js";
 import { createRateLimit } from "../middleware/rate-limit.js";
 import { adminRouter } from "./admin/index.js";
 import { campaignsRouter } from "./campaigns/index.js";
@@ -52,16 +53,64 @@ export function registerRoutes(
     prefix: "ratelimit:emails",
     max: EMAIL_RATE_LIMIT_MAX,
   });
-  for (const base of [
-    "/contacts",
-    "/events",
-    "/emails",
-    "/lists",
-    "/campaigns",
-  ]) {
+
+  // ---- Browser-reachable subset (publishable OR secret-ingest) ----
+  // Registered BEFORE the secret-only prefix loop so these specific patterns
+  // win Hono's match order. `requirePublishableOrIngest` accepts EITHER a
+  // secret ingest-scoped key (unchanged) OR a pk_/ingest-public key (Origin-
+  // allowlisted, fail-closed). Everything NOT listed here stays secret-only.
+  //
+  // `/events` has no subtree (only `POST /`), so the bare pattern is complete.
+  v1.use("/events", requirePublishableOrIngest);
+  // `/lists` catalog + the new static `/preferences` read + subscribe/unsub.
+  v1.use("/lists", requirePublishableOrIngest);
+  v1.use("/lists/preferences", requirePublishableOrIngest);
+  v1.use("/lists/:id/subscribe", requirePublishableOrIngest);
+  v1.use("/lists/:id/unsubscribe", requirePublishableOrIngest);
+  // Bare `/contacts` is dual-purpose: PUT/POST = the publishable upsert;
+  // DELETE = secret-only. Hono runs ALL matching `use`s, so a single guard must
+  // branch by method rather than stacking two guards (which would 403 a valid
+  // pk_ upsert via the secret guard). Any OTHER `/contacts/*` (incl. /find)
+  // stays secret-only below.
+  const contactsDeleteGuard = requireScope("ingest");
+  v1.use("/contacts", async (c, next) => {
+    if (c.req.method !== "DELETE") {
+      return requirePublishableOrIngest(c, next);
+    }
+    // DELETE is secret-only: chain `requireApiKey` then `requireScope("ingest")`
+    // exactly as the secret prefix loop does. `requireApiKey` only runs its
+    // `next` on a successful auth (else it returns 401/expired), so use a flag
+    // to detect that and surface its short-circuit response; otherwise hand off
+    // to the scope guard (which itself returns its 403 or calls `next`).
+    let authed = false;
+    const res = await requireApiKey(c, async () => {
+      authed = true;
+    });
+    if (!authed) return res;
+    return contactsDeleteGuard(c, next);
+  });
+
+  // ---- Secret-only prefixes (unchanged behavior) ----
+  // `/emails`, `/campaigns`: bare + subtree. A pk_ key hitting these fails
+  // `requireScope("ingest")` (its `["ingest-public"]` scope is neither `ingest`
+  // nor `full-admin`) → 403, no escalation.
+  //
+  // NOTE: deliberately NO `/lists/*` OR `/contacts/*` secret catch-all. Hono
+  // runs ALL matching `use`s, AND a `/<prefix>/*` `use` ALSO matches the bare
+  // `/<prefix>` path — so a `/contacts/*` guard would re-run on the bare
+  // `/contacts` upsert and 403 a valid pk_ key AFTER the method-branch
+  // publishable guard above already accepted it (the exact `/lists/*` collision
+  // we avoid the same way). The only secret-only `/contacts` subtree route is
+  // `GET /contacts/find`, so guard it EXPLICITLY; the bare-`/contacts`
+  // method-branch guard above is the sole authority on the bare path (DELETE is
+  // secret-only there, PUT/POST publishable). Any FUTURE secret-only
+  // `/contacts/<x>` or `/lists/<x>` route must mount its own
+  // `requireApiKey + requireScope("ingest")` (fail-closed by construction).
+  for (const base of ["/emails", "/campaigns"]) {
     v1.use(base, requireApiKey, requireScope("ingest"));
     v1.use(`${base}/*`, requireApiKey, requireScope("ingest"));
   }
+  v1.use("/contacts/find", requireApiKey, requireScope("ingest"));
   // Register the email rate-limit ONCE. The wildcard pattern `/emails/*` matches
   // BOTH the bare `POST /v1/emails` and any subtree, so a single registration
   // covers the whole emails surface. Registering both bare AND wildcard with the

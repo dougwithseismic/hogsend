@@ -10,6 +10,9 @@ const apiKeySchema = z.object({
   name: z.string(),
   keyPrefix: z.string(),
   scopes: z.array(z.string()),
+  // Per-key browser Origin allowlist for publishable (pk_) keys; null for
+  // secret keys.
+  allowedOrigins: z.array(z.string()).nullable(),
   createdBy: z.string().nullable(),
   lastUsedAt: z.string().nullable(),
   revokedAt: z.string().nullable(),
@@ -55,14 +58,35 @@ const createKeyRoute = createRoute({
     body: {
       content: {
         "application/json": {
-          schema: z.object({
-            name: z.string().min(1).max(100),
-            scopes: z
-              .array(z.enum(["read", "journey-admin", "full-admin", "ingest"]))
-              .min(1)
-              .default(["read"]),
-            expiresAt: z.string().datetime().optional(),
-          }),
+          schema: z
+            .object({
+              name: z.string().min(1).max(100),
+              scopes: z
+                .array(
+                  z.enum([
+                    "read",
+                    "journey-admin",
+                    "full-admin",
+                    "ingest",
+                    "ingest-public",
+                  ]),
+                )
+                .min(1)
+                .default(["read"]),
+              expiresAt: z.string().datetime().optional(),
+              // Mint a PUBLISHABLE (pk_) browser key: forces scope
+              // `["ingest-public"]` and requires a non-empty `allowedOrigins`.
+              publishable: z.boolean().optional().default(false),
+              allowedOrigins: z.array(z.string().url()).optional(),
+            })
+            .refine(
+              (b) => !b.publishable || (b.allowedOrigins?.length ?? 0) > 0,
+              {
+                message:
+                  "publishable keys require at least one allowedOrigins entry",
+                path: ["allowedOrigins"],
+              },
+            ),
         },
       },
     },
@@ -77,6 +101,7 @@ const createKeyRoute = createRoute({
             key: z.string(),
             keyPrefix: z.string(),
             scopes: z.array(z.string()),
+            allowedOrigins: z.array(z.string()).nullable(),
             expiresAt: z.string().nullable(),
             createdAt: z.string(),
           }),
@@ -117,6 +142,7 @@ function serializeKey(row: typeof apiKeys.$inferSelect) {
     name: row.name,
     keyPrefix: row.keyPrefix,
     scopes: row.scopes as string[],
+    allowedOrigins: row.allowedOrigins ?? null,
     createdBy: row.createdBy,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     revokedAt: row.revokedAt?.toISOString() ?? null,
@@ -159,7 +185,15 @@ export const apiKeysRouter = new OpenAPIHono<AppEnv>()
     const body = c.req.valid("json");
     const actor = c.get("apiKey");
 
-    const { key, prefix, hash } = generateApiKey();
+    const { key, prefix, hash } = generateApiKey({
+      publishable: body.publishable,
+    });
+
+    // A publishable (pk_) key is FORCED to exactly `["ingest-public"]` —
+    // regardless of any submitted `scopes` — so it can never carry
+    // `ingest`/`full-admin` (non-negotiable: no escalation). Secret keys keep
+    // their submitted scopes and a null allowlist (path untouched).
+    const scopes = body.publishable ? ["ingest-public"] : body.scopes;
 
     const [created] = await db
       .insert(apiKeys)
@@ -167,7 +201,8 @@ export const apiKeysRouter = new OpenAPIHono<AppEnv>()
         name: body.name,
         keyPrefix: prefix,
         keyHash: hash,
-        scopes: body.scopes,
+        scopes,
+        allowedOrigins: body.publishable ? (body.allowedOrigins ?? null) : null,
         createdBy: actor?.name ?? null,
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : null,
       })
@@ -182,6 +217,7 @@ export const apiKeysRouter = new OpenAPIHono<AppEnv>()
         key,
         keyPrefix: prefix,
         scopes: created.scopes as string[],
+        allowedOrigins: created.allowedOrigins ?? null,
         expiresAt: created.expiresAt?.toISOString() ?? null,
         createdAt: created.createdAt.toISOString(),
       },

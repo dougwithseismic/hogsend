@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import {
   findContacts,
+  PublishableAnonymousMergeError,
   resolveContact,
   resolveOrCreateContact,
   serializeContact,
@@ -10,7 +11,11 @@ import {
 import { emitOutbound } from "../../lib/outbound.js";
 import { applyListMembership } from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
-import { listMembershipError, requireIdentity } from "../_shared.js";
+import {
+  gatePublishableIdentity,
+  listMembershipError,
+  requireIdentity,
+} from "../_shared.js";
 
 // The public, serialized contact shape (§2.5). `externalId` is nullable (D1 —
 // email-only / anonymous contacts) and timestamps are ISO strings.
@@ -45,6 +50,9 @@ const upsertRoute = createRoute({
             anonymousId: z.string().min(1).max(200).optional(),
             properties: z.record(z.string(), z.unknown()).optional(),
             lists: z.record(z.string(), z.boolean()).optional(),
+            // Publishable-key identity assertion (§Phase 1). Ignored on the
+            // secret-key path.
+            userToken: z.string().optional(),
           }),
         },
       },
@@ -66,6 +74,11 @@ const upsertRoute = createRoute({
     400: {
       content: { "application/json": { schema: errorSchema } },
       description: "Missing recipient or unmanageable list membership",
+    },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description:
+        "Publishable key attempted to act on another identity without a verified userToken",
     },
   },
 });
@@ -136,21 +149,34 @@ const deleteRoute = createRoute({
 
 export const contactsRouter = new OpenAPIHono<AppEnv>()
   .openapi(upsertRoute, async (c) => {
-    const { db, hatchet, logger } = c.get("container");
+    const { db, hatchet, logger, env } = c.get("container");
     const body = c.req.valid("json");
 
-    const guard = requireIdentity(c, body);
+    const guard = gatePublishableIdentity(c, body, env.BETTER_AUTH_SECRET);
     if (guard) return guard;
 
-    const { id, created, linked, merged } = await resolveOrCreateContact({
-      db,
-      userId: body.userId,
-      email: body.email,
-      // §4: 2nd-precedence resolver key (zero-merge stitch). Identity is still
-      // enforced via `requireIdentity` (email/userId) above.
-      anonymousId: body.anonymousId,
-      contactProperties: body.properties,
-    });
+    let resolved: Awaited<ReturnType<typeof resolveOrCreateContact>>;
+    try {
+      resolved = await resolveOrCreateContact({
+        db,
+        userId: body.userId,
+        email: body.email,
+        // §4: 2nd-precedence resolver key (zero-merge stitch).
+        anonymousId: body.anonymousId,
+        contactProperties: body.properties,
+        // §Phase 1 GAP-1: a publishable (pk_) browser upsert is anon-clamped —
+        // its browser-readable `anonymousId` may NOT attach to / merge / poison
+        // an already-identified victim contact. Secret-key upserts are never
+        // clamped.
+        restrictToAnonymous: c.get("publishable") === true,
+      });
+    } catch (err) {
+      if (err instanceof PublishableAnonymousMergeError) {
+        return c.json({ error: err.message }, 403);
+      }
+      throw err;
+    }
+    const { id, created, linked, merged } = resolved;
 
     // INTENT-LAYER outbound emit (decision #3): fire `contact.created` on a real
     // creation, `contact.updated` only when an existing contact was linked/merged

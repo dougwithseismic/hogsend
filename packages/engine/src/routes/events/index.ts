@@ -1,9 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
+import { PublishableAnonymousMergeError } from "../../lib/contacts.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import { applyListMembership } from "../../lib/preferences.js";
 import { errorSchema } from "../../lib/schemas.js";
-import { listMembershipError, requireIdentity } from "../_shared.js";
+import { gatePublishableIdentity, listMembershipError } from "../_shared.js";
 
 const eventRequestSchema = z.object({
   name: z.string().min(1),
@@ -22,6 +23,10 @@ const eventRequestSchema = z.object({
   lists: z.record(z.string(), z.boolean()).optional(),
   idempotencyKey: z.string().optional(),
   timestamp: z.string().datetime().optional(),
+  // Publishable-key identity assertion (§Phase 1). A pk_ key is anon-only
+  // unless it presents a server-minted `userToken` proving the claimed `userId`.
+  // Ignored on the secret-key path (which uses `requireIdentity`).
+  userToken: z.string().optional(),
 });
 
 const eventResponseSchema = z.object({
@@ -70,48 +75,68 @@ const eventRoute = createRoute({
       content: { "application/json": { schema: errorSchema } },
       description: "Missing recipient or unmanageable list membership",
     },
+    403: {
+      content: { "application/json": { schema: errorSchema } },
+      description:
+        "Publishable key attempted to act on another identity without a verified userToken",
+    },
   },
 });
 
 export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
   eventRoute,
   async (c) => {
-    const { db, registry, hatchet, logger, analytics } = c.get("container");
+    const { db, registry, hatchet, logger, analytics, env } =
+      c.get("container");
     const body = c.req.valid("json");
 
-    const guard = requireIdentity(c, body);
+    const guard = gatePublishableIdentity(c, body, env.BETTER_AUTH_SECRET);
     if (guard) return guard;
 
     // The `Idempotency-Key` header wins over the body field (§2.5).
     const headerKey = c.req.header("idempotency-key");
     const idempotencyKey = headerKey ?? body.idempotencyKey;
 
-    const result = await ingestEvent({
-      db,
-      registry,
-      hatchet,
-      logger,
-      // §5.3: thread the active analytics provider so a collide-MERGE / key-flip
-      // fires the provider-neutral `mergeIdentities` stitch. Absent ⇒ no-op.
-      analytics,
-      event: {
-        event: body.name,
-        userId: body.userId,
-        userEmail: body.email,
-        // §4: 2nd-precedence resolver key — lets the contact's canonical key
-        // equal the browser anon id (zero-merge stitch). Identity is still
-        // enforced via `requireIdentity` (email/userId) above.
-        anonymousId: body.anonymousId,
-        eventProperties: body.eventProperties ?? {},
-        contactProperties: body.contactProperties,
-        idempotencyKey,
-        // §2.5: caller-supplied event time (backfill/replay). The validated ISO
-        // string is coerced to a Date inside ingestEvent.
-        occurredAt: body.timestamp,
-        // Public data-plane ingest (the `@hogsend/client` SDK / your app code).
-        source: "api",
-      },
-    });
+    let result: Awaited<ReturnType<typeof ingestEvent>>;
+    try {
+      result = await ingestEvent({
+        db,
+        registry,
+        hatchet,
+        logger,
+        // §5.3: thread the active analytics provider so a collide-MERGE /
+        // key-flip fires the provider-neutral `mergeIdentities` stitch.
+        analytics,
+        // §Phase 1 GAP-1: a publishable (pk_) browser write is anon-clamped —
+        // its browser-readable `anonymousId` may NOT attach to / merge / poison
+        // an already-identified victim contact. Secret-key ingest is never
+        // clamped.
+        restrictToAnonymous: c.get("publishable") === true,
+        event: {
+          event: body.name,
+          userId: body.userId,
+          userEmail: body.email,
+          // §4: 2nd-precedence resolver key — lets the contact's canonical key
+          // equal the browser anon id (zero-merge stitch).
+          anonymousId: body.anonymousId,
+          eventProperties: body.eventProperties ?? {},
+          contactProperties: body.contactProperties,
+          idempotencyKey,
+          // §2.5: caller-supplied event time (backfill/replay). The validated
+          // ISO string is coerced to a Date inside ingestEvent.
+          occurredAt: body.timestamp,
+          // Public data-plane ingest (the `@hogsend/client` SDK / your code).
+          source: "api",
+        },
+      });
+    } catch (err) {
+      // A publishable anon write that resolved to an identified victim contact
+      // (or would drive a merge) is rejected at the resolver — surface as 403.
+      if (err instanceof PublishableAnonymousMergeError) {
+        return c.json({ error: err.message }, 403);
+      }
+      throw err;
+    }
 
     // Lists applied AFTER ingest so the contact exists (§2.5 lists ordering).
     // `applyListMembership` writes `email_preferences` independently of the
@@ -123,7 +148,18 @@ export const eventsRouter = new OpenAPIHono<AppEnv>().openapi(
     // status and (b) tempt a client to retry, re-ingesting the event. Surface it
     // as a `listsError` warning on the 202 instead.
     let listsError: string | undefined;
-    if (body.lists && Object.keys(body.lists).length > 0) {
+    // §Phase 1 GAP-2 (defense in depth): a publishable caller reaching here has
+    // no token-less email/userId (the gate 403'd it) — but assert it explicitly
+    // so a future change that lets `anonymousId` carry a list write can't
+    // silently write `email_preferences` for a victim. `applyListMembership`
+    // needs a resolvable email anyway; a publishable list write is a no-op.
+    const publishableListWrite =
+      c.get("publishable") === true && (body.email || body.userId);
+    if (
+      !publishableListWrite &&
+      body.lists &&
+      Object.keys(body.lists).length > 0
+    ) {
       try {
         await applyListMembership({
           db,
