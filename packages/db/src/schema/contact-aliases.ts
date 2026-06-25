@@ -37,5 +37,8 @@ export const contactAliases = pgTable(
       table.aliasValue,
     ),
     index("contact_aliases_contact_id_idx").on(table.contactId),
+    // Supports the engine-internal `followToSurvivor` chain-follow: from a
+    // soft-deleted loser's row id to its survivor, keyed on `from_contact_id`.
+    index("contact_aliases_from_contact_id_idx").on(table.fromContactId),
   ],
 );

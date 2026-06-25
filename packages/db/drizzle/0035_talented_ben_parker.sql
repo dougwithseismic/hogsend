@@ -1,0 +1,1 @@
+CREATE INDEX "contact_aliases_from_contact_id_idx" ON "contact_aliases" USING btree ("from_contact_id");

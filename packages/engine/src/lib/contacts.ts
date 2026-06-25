@@ -35,6 +35,23 @@ export class PublishableAnonymousMergeError extends Error {
 }
 
 /**
+ * Thrown by {@link resolveOrCreateContact}'s engine-internal `contactId` pin when
+ * the pinned subject row no longer exists and no merge-alias chain leads to a live
+ * survivor (the subject was hard-deleted). The internal re-emit is then dropped
+ * (ingestEvent returns `{ stored: false }`, logs `identity.provenance.lost`) rather
+ * than value-resolving — a value fall-back could mint the very phantom twin the
+ * pin exists to prevent. Reachable ONLY for a hard-deleted/unfollowable subject.
+ */
+export class ContactProvenanceLostError extends Error {
+  constructor(public readonly contactId: string) {
+    super(
+      `contact provenance lost: no live contact or survivor for ${contactId}`,
+    );
+    this.name = "ContactProvenanceLostError";
+  }
+}
+
+/**
  * The transaction handle drizzle hands to a `db.transaction(cb)` callback. It
  * exposes the same `.select/.insert/.update/.execute/.query` surface as the
  * top-level `Database`, so the merge helpers below accept it interchangeably.
@@ -212,6 +229,93 @@ async function findByKey(tx: Tx, key: ResolveKey): Promise<ContactRow | null> {
 }
 
 /**
+ * ENGINE-INTERNAL provenance pin (see {@link resolveOrCreateContact}'s
+ * `contactId`). Resolve to the EXACT subject row by its unforgeable uuid PK and
+ * fold there — never value-probing, never minting. Serializes on the row PK via
+ * `FOR UPDATE`, so a concurrent collide-MERGE that soft-deletes this row as a
+ * loser blocks on / is observed by this pin (rather than racing the mismatched
+ * `external:value` vs `anonymous:value` advisory locks). If the row was merged
+ * away (soft-deleted), follow the server-authored merge-alias chain to the live
+ * SURVIVOR by row id — independent of alias kind/value, closing the post-merge
+ * anon-alias residual. A hard-deleted/unfollowable subject throws
+ * {@link ContactProvenanceLostError} (the caller drops the event, never mints).
+ */
+async function resolveByContactId(
+  tx: Tx,
+  contactId: string,
+  ctx: { patch: Record<string, unknown>; hasPatch: boolean },
+): Promise<{
+  id: string;
+  resolvedKey: string;
+  created: boolean;
+  linked: boolean;
+  merged: boolean;
+}> {
+  let row: ContactRow | null =
+    (
+      await tx
+        .select()
+        .from(contacts)
+        .where(eq(contacts.id, contactId))
+        .for("update")
+        .limit(1)
+    )[0] ?? null;
+  if (!row || row.deletedAt) {
+    row = await followToSurvivor(tx, contactId);
+  }
+  if (!row) throw new ContactProvenanceLostError(contactId);
+  const set: Record<string, unknown> = {
+    lastSeenAt: new Date(),
+    updatedAt: new Date(),
+  };
+  if (ctx.hasPatch) set.properties = mergePropertiesSql(ctx.patch);
+  await tx.update(contacts).set(set).where(eq(contacts.id, row.id));
+  return {
+    id: row.id,
+    resolvedKey: contactKey(row),
+    created: false,
+    linked: false,
+    merged: false,
+  };
+}
+
+/**
+ * Follow the server-authored merge-alias chain from a (soft-deleted loser)
+ * `contacts.id` to the live SURVIVOR row, re-locking each hop `FOR UPDATE`.
+ * Bounded (merge-of-a-merge) to a small cap. Keyed on `from_contact_id` — the
+ * unforgeable row id, never a value — so an attacker-plantable key can never
+ * steer it. Returns the live survivor or null (hard-deleted / chain broken).
+ */
+async function followToSurvivor(
+  tx: Tx,
+  lostId: string,
+): Promise<ContactRow | null> {
+  let cursor = lostId;
+  for (let i = 0; i < 8; i++) {
+    const alias = (
+      await tx
+        .select({ contactId: contactAliases.contactId })
+        .from(contactAliases)
+        .where(eq(contactAliases.fromContactId, cursor))
+        .limit(1)
+    )[0];
+    if (!alias?.contactId) return null;
+    const survivor: ContactRow | undefined = (
+      await tx
+        .select()
+        .from(contacts)
+        .where(eq(contacts.id, alias.contactId))
+        .for("update")
+        .limit(1)
+    )[0];
+    if (!survivor) return null;
+    if (!survivor.deletedAt) return survivor;
+    cursor = alias.contactId;
+  }
+  return null;
+}
+
+/**
  * Top-level property keys whose object value is DEEP-merged (one level) rather
  * than wholly replaced. The §2.1 shallow `||` contract clobbers a top-level key
  * outright, so a nested metadata object (e.g. the Discord connector's
@@ -374,6 +478,21 @@ export async function resolveOrCreateContact(opts: {
    * secret-key path NEVER sets this, so its behavior is byte-for-byte unchanged.
    */
   restrictToAnonymous?: boolean;
+  /**
+   * ENGINE-INTERNAL provenance — the subject contact's UNFORGEABLE row id
+   * (`contacts.id`, a server-minted uuid). Set ONLY by engine-internal re-emit
+   * sites that already resolved the subject (ingestEvent's downstream re-ingests,
+   * the feed mark/clear re-ingests, journey/bucket re-emits). When present (and
+   * uuid-shaped, and not a clamped publishable write), the resolver PINS to that
+   * exact row — never value-resolving, never minting — so an internal event whose
+   * `userId` is a contact's own canonical key (its anonymous_id/id round-tripping)
+   * folds back into that contact instead of minting a phantom `external_id` twin.
+   * NEVER settable from a request body: the public `/v1/events`/`/v1/contacts`/
+   * `/v1/feed` Zod schemas omit it and their handlers build the resolve call
+   * literally, so an attacker cannot forge provenance. Mutually exclusive with
+   * `restrictToAnonymous`.
+   */
+  contactId?: string;
 }): Promise<{
   id: string;
   /**
@@ -409,6 +528,7 @@ export async function resolveOrCreateContact(opts: {
   const email = opts.email ? normalizeEmail(opts.email) : undefined;
   const anonymousId = opts.anonymousId?.trim() || undefined;
   const discordId = opts.discordId?.trim() || undefined;
+  const contactId = opts.contactId?.trim() || undefined;
   // §Phase 1 GAP-1: the publishable clamp only bites an ANON-ONLY write (the
   // only shape a token-less pk_ key can produce — the gate 403s any
   // email/userId without a verified userToken before we get here). An identified
@@ -437,6 +557,18 @@ export async function resolveOrCreateContact(opts: {
   const hasPatch = Object.keys(patch).length > 0;
 
   return db.transaction(async (tx) => {
+    // (−1) ENGINE-INTERNAL PROVENANCE PIN. A uuid-shaped `contactId` from a
+    // trusted internal re-emit pins resolution to that exact row (no value-key
+    // probe, no mint), so a contact's own canonical key round-tripping back as a
+    // `userId` folds into it instead of minting a phantom `external_id` twin.
+    // Gated on `!restrictToAnonymous` (mutually exclusive with the publishable
+    // clamp — a clamped pk_ write can never carry provenance) so it is never an
+    // attacker-reachable path. Runs BEFORE the value-key advisory locks: the pin
+    // serializes on the concrete row PK via `FOR UPDATE`, not on value locks.
+    if (contactId && UUID_REGEX.test(contactId) && !restrictToAnonymous) {
+      return resolveByContactId(tx, contactId, { patch, hasPatch });
+    }
+
     // (0) Advisory locks per key — serialize concurrent resolves on the same
     // identity so the INSERT race can't mint duplicates. Sorted to keep a stable
     // acquisition order across callers (deadlock-safe).
