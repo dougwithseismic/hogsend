@@ -1,0 +1,63 @@
+{
+  "name": "@hogsend/js",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Zero-dependency browser core SDK for Hogsend: identity, event capture, preferences, and the reactive store.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dougwithseismic/hogsend.git",
+    "directory": "packages/js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./preferences": {
+      "types": "./src/preferences/index.ts",
+      "import": "./dist/preferences/index.js",
+      "require": "./dist/preferences/index.cjs"
+    },
+    "./feed": {
+      "types": "./src/feed/index.ts",
+      "import": "./dist/feed/index.js",
+      "require": "./dist/feed/index.cjs"
+    },
+    "./banner": {
+      "types": "./src/banner/index.ts",
+      "import": "./dist/banner/index.js",
+      "require": "./dist/banner/index.cjs"
+    },
+    "./realtime": {
+      "types": "./src/realtime/index.ts",
+      "import": "./dist/realtime/index.js",
+      "require": "./dist/realtime/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "check-types": "tsc --noEmit",
+    "lint": "biome check .",
+    "clean": "rm -rf node_modules dist .turbo"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.15.3",
+    "tsup": "^8.5.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

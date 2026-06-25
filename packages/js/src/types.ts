@@ -1,0 +1,182 @@
+/**
+ * Public type surface for `@hogsend/js`. The versioned core contract is
+ * `createHogsend(config) → Hogsend` plus the store snapshot shapes, the
+ * `RealtimeTransport` interface, and the `inapp.*` event union.
+ */
+
+import type { BannerClient } from "./banner/index.js";
+import type { FeedClient, FeedFetchOptions } from "./feed/index.js";
+import type { RealtimeTransport } from "./realtime/index.js";
+import type { Store } from "./store/external-store.js";
+
+/** A JSON-serializable property bag attached to a captured event. */
+export type Properties = Record<string, unknown>;
+
+/**
+ * Pluggable storage backend for the identity store. Defaults to
+ * `localStorage`, falls back to an in-memory adapter when storage is
+ * unavailable (SSR, private mode, native runtimes).
+ */
+export interface StorageAdapter {
+  get(key: string): string | null;
+  set(key: string, value: string): void;
+  remove(key: string): void;
+}
+
+/** How the SDK selects/opens its realtime transport. v2 wires the impls. */
+export type RealtimeMode = RealtimeTransport | "sse" | "poll" | "off";
+
+/** Configuration for {@link createHogsend}. */
+export interface HogsendConfig {
+  /** Engine origin, e.g. "https://api.acme.com". */
+  apiUrl: string;
+  /** Alias for {@link HogsendConfig.apiUrl}. */
+  host?: string;
+  /** Browser-safe publishable key (`pk_…`). */
+  publishableKey: string;
+  /** Known user id; omit for anonymous mode. */
+  userId?: string;
+  /** Optional signed proof of `userId` (secure mode; v3). */
+  userToken?: string;
+  /** Storage backend; defaults to localStorage with a memory fallback. */
+  storage?: StorageAdapter;
+  /** Injectable fetch (SSR/test). */
+  fetch?: typeof fetch;
+  /**
+   * BYO-proxy fallback: POST telemetry to this absolute URL (the host app's
+   * own backend, which holds the secret key and forwards) instead of
+   * `apiUrl`/v1/events directly. The transport's auth strategy is a seam.
+   */
+  ingestPath?: string;
+  /** Realtime transport selection. Default "sse" → poll fallback (v2). */
+  realtime?: RealtimeMode;
+  /** Flush the queue via `sendBeacon` on page unload. Default true. */
+  flushOnUnload?: boolean;
+  /** Called when a `userToken` is about to expire (secure mode; v3). */
+  onUserTokenExpiring?: () => Promise<string>;
+}
+
+/** Result of a single {@link Hogsend.capture}. */
+export interface CaptureResult {
+  /** Whether the event was accepted/stored by the engine. */
+  stored: boolean;
+  /** Canonical contact key from the ingest 202 (for `posthog.identify`). */
+  contactKey: string;
+}
+
+/** Per-call options for {@link Hogsend.capture}. */
+export interface CaptureOptions {
+  /** Dedup key threaded into the ingest pipeline's idempotency. */
+  idempotencyKey?: string;
+  /** ISO timestamp override; defaults to capture time. */
+  timestamp?: string;
+}
+
+/** A single list/category the contact can opt in/out of. */
+export interface ListSummary {
+  id: string;
+  name: string;
+  description?: string;
+  defaultOptIn: boolean;
+  subscribed: boolean;
+}
+
+/** Resolved email/notification preferences for the current identity. */
+export interface PreferencesState {
+  /** Per-category opt-in map (true = subscribed). */
+  categories: Record<string, boolean>;
+  /** Global opt-out flag. */
+  unsubscribedAll: boolean;
+}
+
+/** The preferences sub-client returned by {@link Hogsend.preferences}. */
+export interface PreferencesClient {
+  /** Fetch current preferences from the engine. */
+  get(): Promise<PreferencesState>;
+  /**
+   * Set a single category preference. Emits `inapp.preference_changed`
+   * through the spine — the structural closed-loop trigger.
+   */
+  setPreference(categoryId: string, subscribed: boolean): Promise<void>;
+  /** Subscribe the current identity to a list/category. */
+  subscribe(listId: string): Promise<void>;
+  /** Unsubscribe the current identity from a list/category. */
+  unsubscribe(listId: string): Promise<void>;
+}
+
+/** Identity slice of the reactive store. */
+export interface IdentitySlice {
+  /** Resolved distinct id (known userId, else persisted anon id). */
+  distinctId: string;
+  /** Known user id when identified, else null. */
+  userId: string | null;
+  /** Canonical contact key from the last 202, else null. */
+  contactKey: string | null;
+  /** Whether a known user id is bound. */
+  identified: boolean;
+}
+
+/** Color mode slice (driven by the React provider in `@hogsend/react`). */
+export type ColorMode = "light" | "dark";
+
+/**
+ * Root reactive state. A flat record of optional slices; each surface owns its
+ * own slice. v1 populates `identity` and `preferences`; `feeds`/`banners` are
+ * declared for v2/v3 and remain undefined until those surfaces wire in.
+ */
+export interface HogsendState {
+  identity: IdentitySlice;
+  preferences?: PreferencesState;
+  /** Keyed by feedId (v2). */
+  feeds?: Record<string, FeedSliceState>;
+  /** Keyed by slot (v3). */
+  banners?: Record<string, BannerSliceState>;
+}
+
+/** Placeholder feed slice shape (v2 fills the body). */
+export interface FeedSliceState {
+  metadata: { total_count: number; unseen_count: number; unread_count: number };
+}
+
+/** Placeholder banner slice shape (v3 fills the body). */
+export interface BannerSliceState {
+  dismissed: boolean;
+}
+
+/** The browser core client. */
+export interface Hogsend {
+  // ── identity ──
+  identify(userId: string, traits?: Properties): Promise<void>;
+  /** Known userId, else the persisted anon id. */
+  getDistinctId(): string;
+  /** Canonical key from the last 202 (for `posthog.identify`, zero PII). */
+  getContactKey(): string | null;
+  isIdentified(): boolean;
+  /** Logout: mint a new anon id, drop the known id. */
+  reset(): void;
+
+  // ── the spine (single telemetry path) ──
+  capture(
+    event: string,
+    properties?: Properties,
+    opts?: CaptureOptions,
+  ): Promise<CaptureResult>;
+  flush(): Promise<void>;
+
+  // ── consumers of the spine ──
+  /** v2 — default feedId "in_app". Throws "not implemented in v1". */
+  feed(feedId?: string, opts?: FeedFetchOptions): FeedClient;
+  preferences(): PreferencesClient;
+  /** v3 — default slot "default". Throws "not implemented in v1". */
+  banners(slot?: string): BannerClient;
+
+  // ── lifecycle + reactive store ──
+  /** Lazily open realtime (v2). No-op in v1. */
+  connect(): void;
+  /** Close sockets, flush queue, remove listeners. */
+  teardown(): void;
+  /** For `useSyncExternalStore`. */
+  subscribe(listener: () => void): () => void;
+  getSnapshot(): HogsendState;
+  readonly store: Store<HogsendState>;
+}
