@@ -2,10 +2,9 @@
 
 import { useHogsend, useHogsendFeed } from "@hogsend/react";
 import { ArrowRight, Bell, Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { PillBadge, TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
-import { CodeWindow } from "@/components/ds/code-window";
 import { cn } from "@/lib/cn";
 import { isHogsendConfigured } from "./config";
 
@@ -38,33 +37,6 @@ const STEPS = [
   "It landed in your bell ↗ — open it. Clicking the item fires inapp.item_clicked back into the loop.",
 ] as const;
 
-const JOURNEY_SRC = `import { days } from "@hogsend/core";
-import { defineJourney, sendFeedItem } from "@hogsend/engine";
-import { DemoEvents } from "./constants/index.js";
-
-export const demoWelcome = defineJourney({
-  meta: {
-    id: "demo-welcome",
-    name: "Demo — In-app welcome",
-    enabled: true,
-    trigger: { event: DemoEvents.WELCOME }, // "demo.welcome"
-    entryLimit: "unlimited",                // re-fire freely
-    suppress: days(0),
-  },
-  run: async (user) => {
-    const n = user.properties.name;
-    const name = typeof n === "string" && n ? n : "there";
-    await sendFeedItem({
-      recipient: { anonymousId: user.id }, // your canonical key
-      type: "welcome",
-      title: \`Welcome, \${name} 👋\`,
-      body: "You fired an event. A journey ran. This is the result.",
-      actionUrl: "https://hogsend.com/docs/client-side/try",
-      journeyStateId: user.stateId,
-    });
-  },
-});`;
-
 function GatedFallback() {
   return (
     <Card className="my-8 p-6">
@@ -92,12 +64,12 @@ function GatedFallback() {
   );
 }
 
-export function TryItDemo() {
+export function TryItDemo({ codePanel }: { codePanel?: ReactNode }) {
   if (!isHogsendConfigured) return <GatedFallback />;
-  return <TryItDemoLive />;
+  return <TryItDemoLive codePanel={codePanel} />;
 }
 
-function TryItDemoLive() {
+function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
   const { client, capture } = useHogsend();
   const { refetch, metadata } = useHogsendFeed();
   const [name, setName] = useState("");
@@ -290,10 +262,7 @@ function TryItDemoLive() {
 
         {/* ── RIGHT: the code that just ran ── */}
         <div className="lg:sticky lg:top-24 lg:self-start">
-          <CodeWindow
-            filename="apps/api/src/journeys/demo-inapp.ts"
-            code={JOURNEY_SRC}
-          />
+          {codePanel}
           <p className="mt-3 text-[12px] text-white/40 leading-5">
             This is the journey that drops the notification into your bell. It
             reads your name off the event and personalizes the title — same

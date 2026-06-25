@@ -3,11 +3,20 @@ title: Try it live
 description: "Fire a first-party event from this page and watch a journey drop a notification into the bell in the top nav — same anonymous identity, no login."
 ---
 
+import { CodeWindow } from "../../../components/ds/code-window";
 import { TryItDemo } from "../../../components/hogsend/try-it-demo";
+import { JOURNEY_SRC } from "../../../components/hogsend/demo-journey-src";
 
 This is the same `@hogsend/js` + `@hogsend/react` you just installed, running on these docs. You are an **anonymous visitor** — no login, no identify call. The bell in the top-right is **your** feed. Fire an event below and watch a journey reach it.
 
-<TryItDemo />
+{/* CodeWindow is an async RSC (server-side Shiki); render it here on the server
+    and pass it into the client TryItDemo as a prop, never construct it inside
+    the client component (that throws React #482 — async client component). */}
+<TryItDemo
+  codePanel={
+    <CodeWindow filename="apps/api/src/journeys/demo-inapp.ts" code={JOURNEY_SRC} />
+  }
+/>
 
 ## What just happened
 
