@@ -6,6 +6,7 @@ import { aiReengagement } from "./ai-reengagement.js";
 import { churnPrevention } from "./churn-prevention.js";
 import { conversionAbandonedCheckout } from "./conversion-abandoned-checkout.js";
 import { conversionTrialUpgrade } from "./conversion-trial-upgrade.js";
+import { demoLaunch, demoTrialNudge, demoWelcome } from "./demo-inapp.js";
 import { detractorRescue } from "./detractor-rescue.js";
 import {
   discordHelloWorld,
@@ -54,6 +55,9 @@ export const journeys: DefinedJourney[] = [
   discordIntroduced,
   discordResonator,
   discordHypeHog,
+  demoWelcome,
+  demoLaunch,
+  demoTrialNudge,
 ];
 
 // Re-export individual journeys for direct reference (tests, custom wiring).
@@ -65,6 +69,9 @@ export {
   churnPrevention,
   conversionAbandonedCheckout,
   conversionTrialUpgrade,
+  demoLaunch,
+  demoTrialNudge,
+  demoWelcome,
   detractorRescue,
   discordHelloWorld,
   discordHypeHog,

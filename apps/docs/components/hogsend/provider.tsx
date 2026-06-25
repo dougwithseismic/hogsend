@@ -2,6 +2,9 @@
 
 import { HogsendProvider } from "@hogsend/react";
 import "@hogsend/react/styles.css";
+// Loaded AFTER the package skin so our equal-specificity `.hsr` overrides win
+// on source order — repaints the bell + feed into the crimzon dark brand.
+import "./bell-theme.css";
 import type { ReactNode } from "react";
 import {
   HOGSEND_API_URL,
