@@ -6,8 +6,12 @@
  * (poll default) and pipes its `onItems`/`onMetadata` into the feed-store.
  */
 
-import type { BannerClient } from "./banner/index.js";
-import { createBannerClient } from "./banner/index.js";
+import type { BannerClient, BannerStore } from "./banner/index.js";
+import {
+  createBannerClient,
+  createBannerStore,
+  toBanner,
+} from "./banner/index.js";
 import { resolveConfig } from "./config.js";
 import type {
   FeedClient,
@@ -24,6 +28,8 @@ import { createPollTransport, createSseTransport } from "./realtime/index.js";
 import { createEventSpine, type EventSpine } from "./spine/event-spine.js";
 import { createTransport } from "./spine/transport.js";
 import { createStore } from "./store/external-store.js";
+import type { ToastClient } from "./toast/index.js";
+import { createToastClient } from "./toast/index.js";
 import type {
   Hogsend,
   HogsendConfig,
@@ -48,20 +54,32 @@ export function createHogsend(config: HogsendConfig): Hogsend {
 
   const store = createStore<HogsendState>({ identity: EMPTY_IDENTITY });
 
-  const transport = createTransport({
-    auth: {
-      baseUrl: resolved.apiUrl,
-      publishableKey: resolved.publishableKey,
-      ...(resolved.ingestPath ? { ingestPath: resolved.ingestPath } : {}),
-    },
-    ...(resolved.fetch ? { fetch: resolved.fetch } : {}),
-  });
-
   const identity = createIdentityStore({
     store,
     ...(resolved.storage ? { storage: resolved.storage } : {}),
     ...(resolved.userId ? { userId: resolved.userId } : {}),
     ...(resolved.userToken ? { userToken: resolved.userToken } : {}),
+  });
+
+  // Secure-mode refresh: on a 403 carrying the expired-`userToken` signal, the
+  // transport calls this once to mint a fresh token, store it, and retry once.
+  const onUnauthorized = resolved.onUserTokenExpiring
+    ? async (): Promise<string | null> => {
+        const fresh = await resolved.onUserTokenExpiring?.();
+        if (fresh) identity.setUserToken(fresh);
+        return fresh ?? null;
+      }
+    : undefined;
+
+  const transport = createTransport({
+    auth: {
+      baseUrl: resolved.apiUrl,
+      publishableKey: resolved.publishableKey,
+      ...(resolved.ingestPath ? { ingestPath: resolved.ingestPath } : {}),
+      ...(onUnauthorized ? { onUnauthorized } : {}),
+      getUserToken: () => identity.getUserToken(),
+    },
+    ...(resolved.fetch ? { fetch: resolved.fetch } : {}),
   });
 
   const spine: EventSpine = createEventSpine({
@@ -105,6 +123,41 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     });
     feedClients.set(feedId, client);
     return client;
+  }
+
+  // One banner-store + banner-client per slot (mirrors feed()).
+  const bannerStores = new Map<string, BannerStore>();
+  const bannerClients = new Map<string, BannerClient>();
+
+  function bannerStoreFor(slot: string): BannerStore {
+    let bs = bannerStores.get(slot);
+    if (!bs) {
+      bs = createBannerStore(store, slot);
+      bannerStores.set(slot, bs);
+    }
+    return bs;
+  }
+
+  function banners(slot = "default"): BannerClient {
+    const existing = bannerClients.get(slot);
+    if (existing) return existing;
+    const client = createBannerClient({
+      slot,
+      transport,
+      spine,
+      identity,
+      store,
+      bannerStore: bannerStoreFor(slot),
+    });
+    bannerClients.set(slot, client);
+    return client;
+  }
+
+  // Lazy ephemeral toast client (singleton; off the persisted store).
+  let toastClient: ToastClient | null = null;
+  function toasts(): ToastClient {
+    if (!toastClient) toastClient = createToastClient({ spine });
+    return toastClient;
   }
 
   // Identity-bound page-1 fetch for the poll transport (Bearer-authed today).
@@ -163,24 +216,60 @@ export function createHogsend(config: HogsendConfig): Hogsend {
 
     feed,
     preferences: () => preferencesClient,
-    banners: (slot = "default"): BannerClient => createBannerClient(slot),
+    banners,
+    toasts,
 
     connect: (feedId = DEFAULT_FEED_ID) => {
       if (channels.has(feedId)) return;
       const transportImpl = resolveRealtime(feedId);
       if (!transportImpl) return;
-      const fed = feedStoreFor(feedId);
+      const isBanner = feedId.startsWith("banner:");
       const channel = transportImpl.connect(`feed:${feedId}`);
-      unsubs.push(
-        channel.onItems((items) => fed.upsert(items)),
-        channel.onMetadata((metadata) => fed.setMetadata(metadata)),
-      );
+      if (isBanner) {
+        // Banner channel: project items into the banner-store for this slot.
+        const slot = feedId.slice("banner:".length);
+        const bs = bannerStoreFor(slot);
+        unsubs.push(
+          channel.onItems((items) =>
+            bs.upsert(items.map((i) => toBanner(i, slot))),
+          ),
+        );
+      } else {
+        const fed = feedStoreFor(feedId);
+        unsubs.push(
+          // Route `type:"toast"` realtime items to the ephemeral toast client
+          // (additive — non-toast items still upsert into the feed-store).
+          channel.onItems((items) => {
+            const toastItems = items.filter((i) => i.type === "toast");
+            if (toastItems.length > 0) {
+              const tc = toasts();
+              for (const i of toastItems) {
+                tc.show({
+                  id: i.id,
+                  type: "toast",
+                  title: i.title,
+                  body: i.body,
+                  actionUrl: i.actionUrl,
+                  metadata: i.metadata,
+                  ...(typeof i.metadata?.duration === "number"
+                    ? { duration: i.metadata.duration }
+                    : {}),
+                });
+              }
+            }
+            const feedItemsOnly = items.filter((i) => i.type !== "toast");
+            if (feedItemsOnly.length > 0) fed.upsert(feedItemsOnly);
+          }),
+          channel.onMetadata((metadata) => fed.setMetadata(metadata)),
+        );
+      }
       channels.set(feedId, channel);
     },
     teardown: () => {
       for (const channel of channels.values()) channel.close();
       channels.clear();
       for (const unsub of unsubs.splice(0)) unsub();
+      toastClient?.teardown();
       spine.teardown();
     },
     subscribe: (listener) => store.subscribe(listener),

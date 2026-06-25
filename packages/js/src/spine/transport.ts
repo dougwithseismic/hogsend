@@ -23,6 +23,22 @@ export interface AuthStrategy {
   ingestPath?: string;
   /** Publishable key sent as `Authorization: Bearer pk_…` (browser-direct). */
   publishableKey: string;
+  /**
+   * Secure-mode refresh hook. Called AT MOST ONCE per request when a data-plane
+   * call 403s with an expired/invalid-`userToken` signal: it must refresh the
+   * token (e.g. re-hit the host server's mint route) and return the fresh token
+   * (or null to give up). The transport then re-stamps the request body's
+   * `userToken` from {@link AuthStrategy.getUserToken} and retries ONCE. A
+   * second 403 throws (no infinite loop). A generic 403 (origin allowlist)
+   * does NOT trigger this — refreshing won't fix an origin block.
+   */
+  onUnauthorized?: () => Promise<string | null>;
+  /**
+   * Reads the CURRENT `userToken` from the identity store. Used to re-stamp the
+   * retried request body after {@link AuthStrategy.onUnauthorized} refreshes it,
+   * so callers that built the body from a stale token need no changes.
+   */
+  getUserToken?: () => string | null;
 }
 
 /** Transport configuration. */
@@ -75,6 +91,43 @@ function parseRetryAfter(value: string | null): number | undefined {
 }
 
 /**
+ * Is this 403 specifically an expired/invalid `userToken` (vs a generic origin
+ * block)? Match the engine's `{ error: "...userToken..." }` message defensively
+ * (case-insensitive substring). FLAG: if the engine ever renames that error
+ * string, the refresh signal silently stops (a generic 403 then surfaces) —
+ * acceptable and documented.
+ */
+function isUserTokenSignal(status: number, body: unknown): boolean {
+  if (status !== 403) return false;
+  if (body && typeof body === "object") {
+    const err = (body as { error?: unknown }).error;
+    if (typeof err === "string") {
+      return err.toLowerCase().includes("usertoken");
+    }
+  }
+  return false;
+}
+
+/**
+ * Re-stamp the request body's `userToken` from the freshly-refreshed token, so
+ * a caller that built the body off a now-stale token retries with the new one
+ * without any caller change. Only touches an object body carrying a `userToken`
+ * key (the identity-asserting paths); everything else passes through untouched.
+ */
+function restampUserToken(body: unknown, fresh: string | null): unknown {
+  if (
+    fresh &&
+    body &&
+    typeof body === "object" &&
+    !Array.isArray(body) &&
+    "userToken" in (body as Record<string, unknown>)
+  ) {
+    return { ...(body as Record<string, unknown>), userToken: fresh };
+  }
+  return body;
+}
+
+/**
  * Resolve the absolute URL for a telemetry POST. Ingest paths (`/v1/events`)
  * route to `ingestPath` when set (proxy mode); everything else is
  * browser-direct against `baseUrl`.
@@ -98,11 +151,17 @@ export function createTransport(config: TransportConfig): Transport {
     return { Authorization: `Bearer ${auth.publishableKey}` };
   }
 
-  async function request<T>(
+  /** One network attempt. Returns the parsed body + status (no throw on !ok). */
+  async function attempt(
     method: string,
     url: string,
     opts: { body?: unknown; idempotencyKey?: string },
-  ): Promise<T> {
+  ): Promise<{
+    ok: boolean;
+    status: number;
+    parsed: unknown;
+    retryAfter?: string | null;
+  }> {
     const headers: Record<string, string> = {
       Accept: "application/json",
       ...authHeaders(),
@@ -137,23 +196,53 @@ export function createTransport(config: TransportConfig): Transport {
         parsed = text;
       }
     }
+    return {
+      ok: res.ok,
+      status: res.status,
+      parsed,
+      retryAfter: res.headers.get("Retry-After"),
+    };
+  }
 
-    if (!res.ok) {
-      if (res.status === 429) {
-        throw new RateLimitError(
-          bodyMessage(res.status, parsed),
-          parsed,
-          parseRetryAfter(res.headers.get("Retry-After")),
-        );
-      }
-      throw new HogsendAPIError(
-        bodyMessage(res.status, parsed),
-        res.status,
+  function raise(
+    status: number,
+    parsed: unknown,
+    retryAfter?: string | null,
+  ): never {
+    if (status === 429) {
+      throw new RateLimitError(
+        bodyMessage(status, parsed),
         parsed,
+        parseRetryAfter(retryAfter ?? null),
       );
     }
+    throw new HogsendAPIError(bodyMessage(status, parsed), status, parsed);
+  }
 
-    return parsed as T;
+  async function request<T>(
+    method: string,
+    url: string,
+    opts: { body?: unknown; idempotencyKey?: string },
+  ): Promise<T> {
+    let r = await attempt(method, url, opts);
+
+    // Secure-mode refresh-and-retry-once: a 403 carrying the expired-/invalid-
+    // `userToken` signal triggers exactly one onUnauthorized() refresh + retry
+    // with the body's `userToken` re-stamped. A `triedRefresh` guard caps it at
+    // one retry — a second 403 falls through to `raise`.
+    if (!r.ok && auth.onUnauthorized && isUserTokenSignal(r.status, r.parsed)) {
+      const fresh = await auth.onUnauthorized();
+      if (fresh) {
+        const nextBody = restampUserToken(
+          opts.body,
+          auth.getUserToken?.() ?? fresh,
+        );
+        r = await attempt(method, url, { ...opts, body: nextBody });
+      }
+    }
+
+    if (!r.ok) raise(r.status, r.parsed, r.retryAfter);
+    return r.parsed as T;
   }
 
   return {

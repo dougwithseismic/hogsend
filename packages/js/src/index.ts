@@ -5,7 +5,17 @@
  * surface-specific code out of the core import.
  */
 
-export type { Banner, BannerClient } from "./banner/index.js";
+export type {
+  Banner,
+  BannerClient,
+  BannerClientOptions,
+  BannerStore,
+} from "./banner/index.js";
+export {
+  bannerCategory,
+  createBannerClient,
+  createBannerStore,
+} from "./banner/index.js";
 export { createHogsend } from "./client.js";
 export { HogsendAPIError, RateLimitError } from "./errors.js";
 export type {
@@ -31,6 +41,13 @@ export {
 } from "./realtime/index.js";
 export type { Patch, Store } from "./store/external-store.js";
 export { createStore } from "./store/external-store.js";
+export type {
+  ShowToastInput,
+  Toast,
+  ToastClient,
+  ToastClientOptions,
+} from "./toast/index.js";
+export { createToastClient } from "./toast/index.js";
 export type {
   BannerSliceState,
   CaptureOptions,

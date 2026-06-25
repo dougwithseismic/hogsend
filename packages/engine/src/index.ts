@@ -224,6 +224,12 @@ export {
   type BatchedBackfillResult,
   runBatchedBackfill,
 } from "./lib/backfill.js";
+// --- On-site banners (thin over sendFeedItem, category `banner:<slot>`) ---
+export {
+  type SendBannerOptions,
+  type SendBannerResult,
+  sendBanner,
+} from "./lib/banner.js";
 // --- Boot output (engine-owned startup banner / structured ready log) ---
 export {
   type ApiReadyInfo,
@@ -450,6 +456,40 @@ export {
    */
   resolveEmailSendContextByResendId,
 } from "./lib/tracking-events.js";
+/**
+ * Publishable-key `userToken` mint/verify helpers.
+ *
+ * `generateUserToken` is the official SERVER-SIDE mint helper. It signs a
+ * short-lived HMAC over a `userId` with `BETTER_AUTH_SECRET`. A publishable
+ * (`pk_`) key is anon-only by default; to let an identified browser act on a
+ * concrete `userId`, the HOST BACKEND calls this AFTER its own login and hands
+ * the result to the browser:
+ *
+ * ```ts
+ * // host server route, AFTER authenticating the user — NEVER expose the secret:
+ * import { generateUserToken } from "@hogsend/engine";
+ * const userToken = generateUserToken({
+ *   secret: process.env.BETTER_AUTH_SECRET!,
+ *   userId: session.user.id,
+ *   expiresInSeconds: 3600,
+ * });
+ * // return { userToken } to the browser; the SDK threads it into every
+ * // identity-asserting data-plane call (createHogsend({ userToken }) /
+ * // <HogsendProvider userToken={...}>). On expiry the SDK calls
+ * // config.onUserTokenExpiring() — point that at re-hitting this route.
+ * ```
+ *
+ * SERVER-SIDE ONLY: it uses `node:crypto` and needs `BETTER_AUTH_SECRET`. Do
+ * NOT mount it as a route and do NOT call it from a browser (it would leak the
+ * signing secret). `verifyUserToken` is the symmetric half the engine wires
+ * into every publishable-reachable handler.
+ */
+export {
+  generateUserToken,
+  InvalidUserTokenError,
+  type UserTokenPayload,
+  verifyUserToken,
+} from "./lib/user-token.js";
 // --- Outbound webhooks: signing core (Section 1.2) ---
 export {
   generateWebhookSecret,

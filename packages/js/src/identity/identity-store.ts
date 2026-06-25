@@ -40,6 +40,12 @@ export interface IdentityStore {
    * caller act as the bound `userId`.
    */
   getUserToken(): string | null;
+  /**
+   * Replace the signed `userToken` (e.g. after `onUserTokenExpiring` refreshes
+   * an expired token on a 403). Additive: every existing `getUserToken()`
+   * reader is unchanged — the field is simply now reassignable.
+   */
+  setUserToken(userToken: string): void;
   /** Canonical contact key from the last 202, else null. */
   getContactKey(): string | null;
   isIdentified(): boolean;
@@ -72,7 +78,7 @@ function readSlice(
 export function createIdentityStore(opts: IdentityStoreOptions): IdentityStore {
   const storage = resolveStorage(opts.storage);
   const initialUserId = opts.userId ?? null;
-  const userToken = opts.userToken ?? null;
+  let userToken = opts.userToken ?? null;
   const slice = readSlice(storage, initialUserId);
   opts.store.setState((prev) => ({ ...prev, identity: slice }));
 
@@ -100,6 +106,9 @@ export function createIdentityStore(opts: IdentityStoreOptions): IdentityStore {
     getUserId: () => current().userId,
     getAnonymousId: anonId,
     getUserToken: () => userToken,
+    setUserToken: (next) => {
+      userToken = next;
+    },
     getContactKey: () => current().contactKey,
     isIdentified: () => current().identified,
     setUserId: (userId) => {

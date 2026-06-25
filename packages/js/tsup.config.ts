@@ -6,6 +6,7 @@ export default defineConfig({
     "src/preferences/index.ts",
     "src/feed/index.ts",
     "src/banner/index.ts",
+    "src/toast/index.ts",
     "src/realtime/index.ts",
   ],
   format: ["esm", "cjs"],

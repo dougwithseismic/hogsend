@@ -4,7 +4,7 @@
  * `RealtimeTransport` interface, and the `inapp.*` event union.
  */
 
-import type { BannerClient } from "./banner/index.js";
+import type { Banner, BannerClient } from "./banner/index.js";
 import type {
   FeedClient,
   FeedFetchOptions,
@@ -14,6 +14,7 @@ import type {
 } from "./feed/index.js";
 import type { RealtimeTransport } from "./realtime/index.js";
 import type { Store } from "./store/external-store.js";
+import type { ToastClient } from "./toast/index.js";
 
 /** A JSON-serializable property bag attached to a captured event. */
 export type Properties = Record<string, unknown>;
@@ -62,7 +63,12 @@ export interface HogsendConfig {
   realtime?: RealtimeMode;
   /** Flush the queue via `sendBeacon` on page unload. Default true. */
   flushOnUnload?: boolean;
-  /** Called when a `userToken` is about to expire (secure mode; v3). */
+  /**
+   * Secure mode: called when a data-plane call 403s with an expired/invalid
+   * `userToken`. Must return a FRESH token (e.g. re-hit the host server's mint
+   * route that calls `generateUserToken`). The SDK stores it and retries the
+   * request once.
+   */
   onUserTokenExpiring?: () => Promise<string>;
 }
 
@@ -160,9 +166,17 @@ export interface FeedSliceState {
   metadata: FeedMetadata;
 }
 
-/** Placeholder banner slice shape (v3 fills the body). */
+/**
+ * Banner slice shape (v3). A `byId` map gives O(1) patches with stable
+ * identity; a priority/createdAt-desc `order` array gives the React selector a
+ * STABLE reference — the visible (non-dismissed) array is derived OUTSIDE the
+ * selector (the infinite-loop guard), mirroring {@link FeedSliceState}.
+ */
 export interface BannerSliceState {
-  dismissed: boolean;
+  /** O(1) banner lookup/patch, keyed by `banner.id`. */
+  byId: Record<string, Banner>;
+  /** priority/createdAt-desc id list; stable array → derive arrays outside selectors. */
+  order: string[];
 }
 
 /** The browser core client. */
@@ -189,8 +203,10 @@ export interface Hogsend {
   /** v2 — default feedId "in_app". Throws "not implemented in v1". */
   feed(feedId?: string, opts?: FeedFetchOptions): FeedClient;
   preferences(): PreferencesClient;
-  /** v3 — default slot "default". Throws "not implemented in v1". */
+  /** On-site banners for a slot (default "default"); a `banner:<slot>` feed. */
   banners(slot?: string): BannerClient;
+  /** Ephemeral client-side toasts (not persisted; realtime + explicit show()). */
+  toasts(): ToastClient;
 
   // ── lifecycle + reactive store ──
   /**

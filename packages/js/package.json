@@ -35,6 +35,11 @@
       "import": "./dist/banner/index.js",
       "require": "./dist/banner/index.cjs"
     },
+    "./toast": {
+      "types": "./src/toast/index.ts",
+      "import": "./dist/toast/index.js",
+      "require": "./dist/toast/index.cjs"
+    },
     "./realtime": {
       "types": "./src/realtime/index.ts",
       "import": "./dist/realtime/index.js",

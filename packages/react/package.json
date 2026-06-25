@@ -38,6 +38,16 @@
       "import": "./dist/bell.js",
       "require": "./dist/bell.cjs"
     },
+    "./banner": {
+      "types": "./src/components/banner/banner.tsx",
+      "import": "./dist/banner.js",
+      "require": "./dist/banner.cjs"
+    },
+    "./toast": {
+      "types": "./src/components/toast/toast-container.tsx",
+      "import": "./dist/toast.js",
+      "require": "./dist/toast.cjs"
+    },
     "./styles.css": "./dist/styles/styles.css",
     "./package.json": "./package.json"
   },

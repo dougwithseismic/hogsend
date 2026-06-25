@@ -6,6 +6,7 @@
 
 // ── re-exported core types ──
 export type {
+  Banner,
   ColorMode,
   FeedItem,
   FeedMetadata,
@@ -14,8 +15,16 @@ export type {
   ListSummary,
   PreferencesState,
   Properties,
+  Toast,
 } from "@hogsend/js";
 // ── components ──
+export {
+  Banner as BannerView,
+  type BannerClassNames,
+  type BannerPlacement,
+  type BannerProps,
+  type BannerRenderHelpers,
+} from "./components/banner/banner.js";
 export {
   type BadgeCountType,
   NotificationBell,
@@ -45,17 +54,28 @@ export {
   VisuallyHidden,
   type VisuallyHiddenProps,
 } from "./components/primitives/visually-hidden.js";
+export {
+  Toast as ToastView,
+  type ToastClassNames,
+  type ToastProps,
+} from "./components/toast/toast.js";
+export {
+  ToastContainer,
+  type ToastContainerProps,
+  type ToastPlacement,
+} from "./components/toast/toast-container.js";
 // ── headless ──
 export {
   FeedStateProvider,
   type FeedStateProviderProps,
 } from "./headless/feed-state.js";
+// ── hooks ──
+export { type UseBanner, useBanner } from "./hooks/use-banner.js";
 export {
   resolveSystemColorMode,
   useColorMode,
   watchSystemColorMode,
 } from "./hooks/use-color-mode.js";
-// ── hooks ──
 export { type UseHogsend, useHogsend } from "./hooks/use-hogsend.js";
 export {
   type FeedNetworkStatus,
@@ -69,6 +89,7 @@ export {
   usePreferences,
 } from "./hooks/use-preferences.js";
 export { useStoreSelector } from "./hooks/use-store.js";
+export { type UseToast, useToast } from "./hooks/use-toast.js";
 // ── styling utilities ──
 export { type ClassValue, cn } from "./lib/cn.js";
 export {

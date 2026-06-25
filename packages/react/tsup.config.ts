@@ -16,6 +16,8 @@ export default defineConfig({
     feed: "src/components/feed/notification-feed.tsx",
     popover: "src/components/popover/feed-popover.tsx",
     bell: "src/components/bell/notification-bell.tsx",
+    banner: "src/components/banner/banner.tsx",
+    toast: "src/components/toast/toast-container.tsx",
     "styles/styles": "src/styles/styles.css",
   },
   format: ["esm", "cjs"],
