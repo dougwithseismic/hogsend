@@ -152,3 +152,24 @@
   color: rgba(255, 255, 255, 0.45);
   font-size: 14px;
 }
+
+/* ── Banner ticker — a new notification fades in as it jumps to the front. ── */
+@keyframes hs-ticker-fade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hs-ticker-item {
+  display: inline-block;
+  animation: hs-ticker-fade 0.45s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hs-ticker-item {
+    animation: none;
+  }
+}

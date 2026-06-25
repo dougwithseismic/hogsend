@@ -27,7 +27,16 @@ const POPOVER_ID = "hs-docs-feed";
  * `@hogsend/react`'s FeedPopover to portal + anchor itself so consumers don't
  * have to. Recompute on scroll/resize while open.
  */
-export function NavBell() {
+export function NavBell({
+  align = "start",
+}: {
+  /**
+   * Which edge of the bell the popover aligns to. "start" (docs left sidebar)
+   * opens down-and-right; "end" (marketing top-right nav) opens down-and-left so
+   * it stays on-screen.
+   */
+  align?: "start" | "end";
+} = {}) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(
@@ -43,7 +52,8 @@ export function NavBell() {
     if (!open) return;
     const update = (): void => {
       const r = buttonRef.current?.getBoundingClientRect();
-      if (r) setAnchor({ top: r.bottom, left: r.left });
+      if (r)
+        setAnchor({ top: r.bottom, left: align === "end" ? r.right : r.left });
     };
     update();
     window.addEventListener("resize", update);
@@ -52,7 +62,7 @@ export function NavBell() {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [open]);
+  }, [open, align]);
 
   if (!isHogsendConfigured) return null;
 
@@ -84,7 +94,7 @@ export function NavBell() {
               isVisible={open}
               onClose={() => setOpen(false)}
               buttonRef={buttonRef}
-              placement="bottom-start"
+              placement={align === "end" ? "bottom-end" : "bottom-start"}
               renderEmpty={() => (
                 <div className="px-5 py-8 text-center">
                   <p className="text-sm text-white/55">No notifications yet.</p>
