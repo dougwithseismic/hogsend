@@ -83,8 +83,10 @@ step 3 publishes immediately on that merge. If it merges while a feature PR is
 mid-CI, that feature's changeset isn't folded in yet, so the release ships
 **without** that work and it slips to the next version (a real occurrence:
 `0.33.0` published while the `0.34.0` feature was still in CI, forcing an extra
-release). Before merging it, confirm `gh pr list` shows no feature PR you mean to
-include.
+release). Before merging it, run **`pnpm release:check`** — it prints the version
+this release will publish, the changesets it includes, and any **open PR whose
+changeset is not yet merged** (i.e. work that would be left out). Merge those
+first if you mean to include them.
 
 **Keep auto-merge OFF on the Version Packages PR.** An auto-merging version PR
 publishes out from under in-flight work — the same failure, now unattended. That
