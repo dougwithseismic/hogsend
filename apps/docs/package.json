@@ -10,6 +10,8 @@
     "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)"
   },
   "dependencies": {
+    "@hogsend/js": "workspace:^",
+    "@hogsend/react": "workspace:^",
     "clsx": "^2.1.1",
     "fumadocs-core": "^16.9.1",
     "fumadocs-mdx": "^15.0.8",
