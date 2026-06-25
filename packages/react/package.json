@@ -1,10 +1,9 @@
 {
   "name": "@hogsend/react",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.34.0",
   "type": "module",
   "license": "MIT",
-  "description": "React hooks and components for Hogsend: provider, preferences, color mode, and the notification surfaces.",
+  "description": "React hooks and components for Hogsend: provider, preferences, color mode, the notification feed, banners, and toasts.",
   "repository": {
     "type": "git",
     "url": "https://github.com/dougwithseismic/hogsend.git",
@@ -12,39 +11,39 @@
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
-  "types": "./src/index.ts",
+  "types": "./dist/index.d.ts",
   "sideEffects": [
     "**/*.css",
     "./dist/styles/styles.css"
   ],
   "exports": {
     ".": {
-      "types": "./src/index.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
     "./feed": {
-      "types": "./src/components/feed/notification-feed.tsx",
+      "types": "./dist/feed.d.ts",
       "import": "./dist/feed.js",
       "require": "./dist/feed.cjs"
     },
     "./popover": {
-      "types": "./src/components/popover/feed-popover.tsx",
+      "types": "./dist/popover.d.ts",
       "import": "./dist/popover.js",
       "require": "./dist/popover.cjs"
     },
     "./bell": {
-      "types": "./src/components/bell/notification-bell.tsx",
+      "types": "./dist/bell.d.ts",
       "import": "./dist/bell.js",
       "require": "./dist/bell.cjs"
     },
     "./banner": {
-      "types": "./src/components/banner/banner.tsx",
+      "types": "./dist/banner.d.ts",
       "import": "./dist/banner.js",
       "require": "./dist/banner.cjs"
     },
     "./toast": {
-      "types": "./src/components/toast/toast-container.tsx",
+      "types": "./dist/toast.d.ts",
       "import": "./dist/toast.js",
       "require": "./dist/toast.cjs"
     },
@@ -55,6 +54,9 @@
     "dist",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "check-types": "tsc --noEmit",
