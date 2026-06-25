@@ -11,7 +11,10 @@ export type Tier = "read" | "write_safe" | "write_external" | "destructive";
 
 /**
  * Static per-tool tier registry. Unknown tool ⇒ treated as `destructive`
- * (fail-closed: an unregistered write must get the loudest confirm).
+ * (fail-closed: an unregistered write must get the loudest confirm). Keep this
+ * in sync with the tools in `buildAgentTools` — a new write tool missing here
+ * still works but gets the most cautious confirm. (If the tool set grows past
+ * ~15, fold the tier into each tool definition + a confirm-handler registry.)
  */
 const TIER_REGISTRY: Record<string, Tier> = {
   // reads — auto-run

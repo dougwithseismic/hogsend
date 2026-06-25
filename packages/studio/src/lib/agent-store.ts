@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import { useSyncExternalStore } from "react";
+import { truncate } from "./format";
 
 /**
  * Multi-chat persistence for the Studio co-working agent, kept entirely in
@@ -80,7 +81,7 @@ function deriveTitle(messages: UIMessage[]): string | null {
     .join(" ")
     .trim();
   if (!text) return null;
-  return text.length > 48 ? `${text.slice(0, 48)}…` : text;
+  return truncate(text, 48);
 }
 
 export const agentStore = {
