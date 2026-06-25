@@ -1,0 +1,325 @@
+---
+title: Theming & customization
+description: "Style the @hogsend/react components with CSS variables, classNames, data-* state attributes, asChild, and render props — no Tailwind or CVA dependency."
+---
+
+The `@hogsend/react` components ship a default skin you opt into, plus five override layers stacked from cheapest to most invasive: CSS variables, `className`/per-slot `classNames`, `data-*` state attributes, `asChild`/`Slot`, and `render*` props. Components carry no Tailwind, CVA, or styling-runtime dependency — the skin is plain CSS keyed off the `.hsr` root class, and every visual is reachable from a host design system without ejecting.
+
+## Load the CSS
+
+Component styles are opt-in. Import the stylesheet once (root layout, `_app`, or any entry that runs before the components mount):
+
+```ts
+import "@hogsend/react/styles.css";
+```
+
+A hooks-only import (`useHogsend`, `useHogsendFeed`, `usePreferences`, …) pulls no CSS. If you render `<NotificationBell>`, `<NotificationFeed>`, `<BannerView>`, or `<ToastView>` without the import, they emit correct markup with no styling — supply your own via the `classNames`/`render*` layers below.
+
+The defaults live on a low-specificity `.hsr` root class, so a single `--hs-*` variable or your own selector overrides them without `!important`.
+
+## Color mode
+
+`<HogsendProvider colorMode>` accepts `"light"`, `"dark"`, or `"system"` (default `"system"`). It sets `data-hs-color-mode` on a `display:contents` wrapper around `children`:
+
+```tsx
+<HogsendProvider apiUrl="https://api.acme.com" publishableKey="pk_live_…" colorMode="dark">
+  <App />
+</HogsendProvider>
+```
+
+The dark block is keyed `[data-hs-color-mode="dark"] .hsr`. Only the color tokens flip; scalar tokens (radii, spacing, fonts, z-index) are mode-independent. With `"system"`, the provider resolves the OS preference and re-resolves on change.
+
+Read or set the mode imperatively with [`useColorMode`](./hooks):
+
+```tsx
+const { colorMode, setColorMode } = useColorMode();
+setColorMode("system"); // "light" | "dark" | "system"
+```
+
+`resolveSystemColorMode()` returns the current OS mode (defaults `"light"`); `watchSystemColorMode(onChange)` subscribes and returns an unsubscribe function.
+
+## The five override layers
+
+Each component exposes the same surface, in order of increasing scope:
+
+| Layer | Mechanism | Scope |
+|---|---|---|
+| 1 | `--hs-*` CSS variables | Tokens shared across all components |
+| 2 | `className` + per-slot `classNames` | Per component, per inner slot |
+| 3 | `data-*` state attributes | Style by live state (unread, open, placement) |
+| 4 | `asChild` → `Slot` | Replace the rendered host element |
+| 5 | `render*` props | Replace the markup entirely |
+
+### Layer 1 — CSS variables
+
+Override a token anywhere up the cascade from `.hsr`. Scope globally on `:root`, or to one subtree:
+
+```css
+:root {
+  --hs-color-accent: #2563eb;
+  --hs-radius: 12px;
+  --hs-feed-width: 420px;
+}
+
+/* or scope to one mounted region */
+.app-sidebar .hsr {
+  --hs-color-surface: #0b0b0f;
+}
+```
+
+#### Color tokens (flip in dark)
+
+| Token | Light | Dark |
+|---|---|---|
+| `--hs-color-surface` | `#ffffff` | `#18181b` |
+| `--hs-color-surface-hover` | `#f4f4f5` | `#27272a` |
+| `--hs-color-text` | `#18181b` | `#fafafa` |
+| `--hs-color-text-muted` | `#71717a` | `#a1a1aa` |
+| `--hs-color-border` | `#e4e4e7` | `#3f3f46` |
+| `--hs-color-accent` | `#6d28d9` | `#a78bfa` |
+| `--hs-color-accent-contrast` | `#ffffff` | `#18181b` |
+| `--hs-color-badge-bg` | `#ef4444` | `#f87171` |
+| `--hs-color-badge-text` | `#ffffff` | `#18181b` |
+| `--hs-color-unread-dot` | `#6d28d9` | `#a78bfa` |
+
+#### Mode-independent scalars
+
+| Token | Value |
+|---|---|
+| `--hs-font-family` | `system-ui, -apple-system, "Segoe UI", Roboto, sans-serif` |
+| `--hs-font-size` | `14px` |
+| `--hs-radius` | `8px` |
+| `--hs-radius-sm` | `4px` |
+| `--hs-shadow` | `0 8px 24px rgba(0,0,0,0.12)` |
+| `--hs-spacing` | `12px` |
+| `--hs-spacing-sm` | `8px` |
+| `--hs-transition` | `120ms ease` |
+| `--hs-z-index` | `1000` |
+
+#### Feed / popover layout
+
+| Token | Value |
+|---|---|
+| `--hs-feed-width` | `380px` |
+| `--hs-feed-max-height` | `520px` |
+| `--hs-feed-gap` | `4px` |
+| `--hs-feed-padding` | `8px` |
+| `--hs-popover-radius` | `var(--hs-radius)` |
+
+#### Badge / unread dot
+
+| Token | Value |
+|---|---|
+| `--hs-badge-size` | `18px` |
+| `--hs-badge-font-size` | `11px` |
+| `--hs-unread-dot-size` | `8px` |
+
+#### Banner / toast
+
+| Token | Value |
+|---|---|
+| `--hs-banner-bg` | `var(--hs-color-accent)` |
+| `--hs-banner-text` | `var(--hs-color-accent-contrast)` |
+| `--hs-banner-padding` | `12px 16px` |
+| `--hs-banner-radius` | `var(--hs-radius)` |
+| `--hs-banner-gap` | `12px` |
+| `--hs-toast-bg` | `var(--hs-color-surface)` |
+| `--hs-toast-text` | `var(--hs-color-text)` |
+| `--hs-toast-padding` | `12px 14px` |
+| `--hs-toast-radius` | `var(--hs-radius)` |
+| `--hs-toast-gap` | `8px` |
+| `--hs-toast-width` | `360px` |
+| `--hs-toast-offset` | `16px` |
+
+The banner and toast tokens reference the color tokens (`--hs-banner-bg: var(--hs-color-accent)`), so overriding `--hs-color-accent` re-skins the banner background too unless you override the banner token directly.
+
+### Layer 2 — `className` and `classNames`
+
+Every component takes a root `className` plus a `classNames` object keyed to each inner slot. Your classes are merged onto the default `.hsr-*` classes, not replacing them — keep or drop the stylesheet independently.
+
+```tsx
+<NotificationFeed
+  className="my-feed"
+  classNames={{
+    header: "my-feed__header",
+    markAllButton: "my-feed__mark-all",
+    item: "my-feed__row",
+    empty: "my-feed__empty",
+  }}
+/>
+```
+
+The slot keys per component:
+
+| Component | `classNames` keys |
+|---|---|
+| `<NotificationBell>` | `root`, `badge`, `icon` |
+| `<NotificationFeed>` | `root`, `header`, `headerTitle`, `markAllButton`, `filterBar`, `filterTab`, `list`, `item`, `empty`, `loadMore` |
+| `<FeedItemView>` | `root`, `unreadDot`, `content`, `title`, `body`, `timestamp`, `action` |
+| `<FeedPopover>` | `root` |
+| `<BannerView>` | `root`, `content`, `title`, `body`, `action`, `dismiss` |
+| `<ToastView>` | `root`, `content`, `title`, `body`, `action`, `dismiss` |
+
+`cn(...values)` is exported for composing class strings (accepts strings, numbers, falsey values, and `Record<string, boolean>` toggle maps) — use it anywhere you build a `className`:
+
+```ts
+import { cn } from "@hogsend/react";
+cn("my-row", { "my-row--active": isOpen, "my-row--muted": false });
+// → "my-row my-row--active"
+```
+
+#### BEM class hooks
+
+If you skip the per-slot `classNames` and just want to override the shipped skin from your own stylesheet, target the default classes (the `.hsr` root marker plus per-component blocks):
+
+```
+.hsr-bell          __icon  __icon-svg  __badge
+.hsr-popover       [data-placement="bottom-end | bottom-start | top-end | top-start"]
+.hsr-feed          __header  __header-title  __mark-all  __filter-bar  __list  __row  __empty  __load-more
+.hsr-feed-item     __unread-dot  __content  __title  __body  __timestamp  __action
+.hsr-banner        __content  __title  __body  __action  __dismiss
+.hsr-toast-container  [data-placement="…"]
+.hsr-toast         __content  __title  __body  __action  __dismiss
+```
+
+### Layer 3 — `data-*` state attributes
+
+Components stamp their live state as `data-*` attributes so you can style by state in plain CSS — no render-prop or JS needed.
+
+| Component | State attributes |
+|---|---|
+| `<NotificationBell>` | `data-unread`, `data-unseen`, `data-has-badge`, `data-state` (`open`/`closed`) |
+| `<NotificationFeed>` | `data-status` (network status), `data-empty` |
+| `<FeedItemView>` | `data-status`, `data-unread`, `data-unseen` |
+| `<FeedPopover>` | `data-placement`, `data-state="open"` |
+| `<BannerView>` | `data-placement`, `data-state` (`visible`/`dismissed`) |
+| `<ToastView>` | `data-type` |
+| `<ToastContainer>` | `data-placement` |
+
+```css
+.hsr-feed-item[data-unread] {
+  background: color-mix(in oklab, var(--hs-color-accent) 6%, transparent);
+}
+.hsr-bell[data-state="open"] {
+  background: var(--hs-color-surface-hover);
+}
+```
+
+Boolean attributes follow the bare-presence convention: `true` renders the attribute with an empty value (`data-unread=""`), and `false`/`undefined` omit it. `dataVariants(props)` is exported to produce the same attribute map from your own components:
+
+```ts
+import { dataVariants } from "@hogsend/react";
+dataVariants({ unread: true, status: "ready", empty: false });
+// → { "data-unread": "", "data-status": "ready" }
+```
+
+### Layer 4 — `asChild` / `Slot`
+
+`asChild` (on `NotificationBell`, `FeedItemView`, `BannerView`, `ToastView`) renders your child element instead of the component's default host element, merging the component's `className`, `data-*`, and `on*` handlers onto it. `Slot` is the Radix-style merge primitive behind it:
+
+```tsx
+<NotificationBell asChild>
+  <button type="button" className="ds-icon-button">
+    <BellIcon />
+  </button>
+</NotificationBell>
+```
+
+`Slot` requires exactly one valid element child; with zero or multiple children it renders `null`. It merges `className` and composes `on*` handlers (both the slot's and the child's run).
+
+### Layer 5 — `render*` props
+
+The widest hook: replace the component's markup entirely while keeping its data, events, and lifecycle. Your render function receives the data plus the bound handlers, and the wrapping component still fires its first-party events (see [Events](./events)).
+
+```tsx
+<NotificationFeed
+  renderHeader={({ metadata, markAllAsRead }) => (
+    <div className="ds-feed-header">
+      <h2>Inbox</h2>
+      <span>{metadata.unread_count} unread</span>
+      <button onClick={markAllAsRead}>Mark all read</button>
+    </div>
+  )}
+  renderItem={(item, { onClick }) => (
+    <article className="ds-card" onClick={onClick}>
+      <h3>{item.title}</h3>
+      <p>{item.body}</p>
+    </article>
+  )}
+  renderEmpty={() => <p>You're all caught up.</p>}
+/>
+```
+
+Each component's render hooks:
+
+| Component | `render*` props |
+|---|---|
+| `<NotificationFeed>` | `renderItem`, `renderHeader`, `renderEmpty`, `renderFilterBar` |
+| `<FeedPopover>` | `renderItem`, `renderHeader`, `renderEmpty` (forwarded to its feed) |
+| `<BannerView>` | `renderBanner(banner, { onClick, onDismiss })` |
+| `<ToastView>` | `renderToast(toast)` |
+| `<ToastContainer>` | `renderToast(toast)` |
+
+`renderItem` and `renderBanner` pass bound handlers — call `onClick`/`onDismiss` to keep the first-party events (`inapp.item_clicked`, `banner.clicked`, `banner.dismissed`) and the read/archive marks firing. Skip them and you keep the visuals but drop the closed-loop instrumentation.
+
+For full markup ownership with zero component chrome, drop to the headless layer instead: `FeedStateProvider` is a render-prop that hands you the entire `useHogsendFeed` shape and renders nothing of its own. See [Components](./components) and [Hooks](./hooks).
+
+## Dropping into a host design system
+
+A typical integration uses one layer per concern: tokens for global brand, `classNames` to bind to your existing CSS modules or utility classes, `data-*` for stateful styling, and `render*` only where your design system component must own the markup.
+
+```tsx
+import "@hogsend/react/styles.css";
+import { NotificationBell, FeedPopover } from "@hogsend/react";
+import { useRef, useState } from "react";
+
+function Inbox() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <NotificationBell
+        ref={buttonRef}
+        isOpen={open}
+        onClick={() => setOpen((v) => !v)}
+        classNames={{ root: "ds-icon-button", badge: "ds-badge" }}
+      />
+      <FeedPopover
+        isVisible={open}
+        onClose={() => setOpen(false)}
+        buttonRef={buttonRef}
+        placement="bottom-end"
+        renderItem={(item, { onClick }) => (
+          <DsListItem onClick={onClick} title={item.title} body={item.body} />
+        )}
+      />
+    </div>
+  );
+}
+```
+
+To match an existing token system, alias your design-system variables into the `--hs-*` tokens once, at the root:
+
+```css
+.hsr {
+  --hs-color-accent: var(--brand-primary);
+  --hs-color-surface: var(--surface-1);
+  --hs-color-text: var(--text-1);
+  --hs-radius: var(--radius-md);
+  --hs-font-family: var(--font-sans);
+}
+```
+
+If your app already manages light/dark, drive `<HogsendProvider colorMode>` from the same source so `data-hs-color-mode` tracks your theme instead of the OS.
+
+<Callout type="info">
+  Components carry no Tailwind or CVA dependency. The default skin is plain CSS on the `.hsr` class; you can delete the stylesheet import entirely and style every slot through `classNames` + `render*` against your own system.
+</Callout>
+
+<Callout type="warn">
+  `useStoreSelector` selectors must return a scalar or a stable reference, never a freshly-built object or array — a new reference each render triggers `useSyncExternalStore`'s infinite-loop guard. Derive arrays outside the selector (`order.map(id => byId[id])`), not inside it.
+</Callout>
+
+<Callout type="warn">
+  Component CSS is opt-in: a hooks-only import pulls no styles. Components without `import "@hogsend/react/styles.css"` render correct, unstyled markup — supply styling through `classNames` or `render*`.
+</Callout>

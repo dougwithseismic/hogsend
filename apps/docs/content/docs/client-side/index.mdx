@@ -1,0 +1,59 @@
+---
+title: Client-side SDK
+description: "@hogsend/js + @hogsend/react — the browser core and React layer for capture, identity, preferences, feed, banners, and toasts, each interaction a first-party event."
+---
+
+`@hogsend/js` is the zero-dependency browser core: capture, identity, preferences, an in-app feed, banners, toasts, realtime, and a reactive store. `@hogsend/react` wraps it in a provider, hooks, and opt-in UI components. The browser talks to the engine directly over a `pk_` publishable key; every interaction is a first-party event through `POST /v1/events` (source `"inapp"`) that can trigger a journey and fan to PostHog.
+
+## Install
+
+```bash
+pnpm add @hogsend/js @hogsend/react
+```
+
+`@hogsend/react` peer-depends on `@hogsend/js`. Both packages publish on the engine version line. Component CSS is opt-in — a hooks-only import pulls no styles:
+
+```ts
+import "@hogsend/react/styles.css";
+```
+
+Every hook, provider, and component file carries `"use client"` (Next.js App Router friendly).
+
+## Architecture
+
+- **`@hogsend/js`** owns the spine — a single telemetry path. `capture()`, `identify()`, and every feed/banner/toast/preference write funnel through it. State lives in a reactive `Store<HogsendState>` (`identity`, `preferences`, `feeds`, `banners`); toasts are ephemeral and kept in their own tiny store outside `HogsendState`.
+- **`@hogsend/react`** instantiates exactly one `Hogsend` client per `<HogsendProvider>` (strict-mode-safe), exposes it through context, and binds the store to React via `useSyncExternalStore`. Reactive data flows through the store, not context — the context value `{ client, color }` is stable.
+- Surfaces are accessors on the client: `client.feed(feedId?)`, `client.preferences()`, `client.banners(slot?)`, `client.toasts()`. Each returns a small client over the shared spine + store.
+
+## The PostHog closed loop
+
+Client interactions emit `inapp.*` and `banner.*` events through `POST /v1/events`. The engine routes them to matching journeys and fans them to PostHog. Examples: `inapp.preference_changed`, `inapp.item_read`, `inapp.feed_opened`, `banner.clicked`, `banner.dismissed`. Feed marks dedup with the server by a shared idempotency key (`` `inapp:${feedId}:${id}:${eventType}` ``), so an optimistic client mark and the server's own write collapse to one event. Author banner journeys on the `banner.*` events, not the internal `inapp.*` mark events. See [Events](./events) for the full list and payloads.
+
+## What you get
+
+- **[Quickstart](./quickstart)** — mint a `pk_` key, wire the provider, render a bell.
+- **[Provider](./provider)** — `<HogsendProvider>` / `<HogsendFeedProvider>` props, color mode, identity, BYO-proxy.
+- **[Hooks](./hooks)** — `useHogsend`, `useHogsendFeed` (alias `useInbox`), `usePreferences`, `useBanner`, `useToast`, `useColorMode`, `useStoreSelector`.
+- **[Components](./components)** — `NotificationBell`, `NotificationFeed`, `FeedPopover`, `BannerView`, `ToastContainer`, plus the headless `FeedStateProvider` render-prop.
+- **[Theming](./theming)** — the `--hs-*` CSS tokens and the five-layer override surface.
+- **[Events](./events)** — the `inapp.*` / `banner.*` event names, props, and idempotency keys.
+
+Server-side, journeys reach these surfaces with standalone helpers from `@hogsend/engine`: `sendFeedItem`, `sendBanner`, and `generateUserToken` (for identified browser sessions).
+
+## Auth, honestly
+
+Browser-direct calls authenticate with a `pk_` publishable key (`Authorization: Bearer pk_…`), minted via the admin API-keys route with `publishable: true` (forces the `ingest-public` scope) and a non-empty `allowedOrigins` list. The `requirePublishableOrIngest` gate enforces the per-key Origin allowlist fail-closed.
+
+<Callout type="warn">
+A `pk_` key with no `allowedOrigins` entry, a request with no `Origin` header, or an `Origin` not in the allowlist all return `403`. The allowlist is required and fail-closed.
+</Callout>
+
+A `pk_` key is anon-only by default. To act on a concrete `userId`, the browser presents a `userToken` minted server-side after your own login via `generateUserToken` and threaded through `createHogsend({ userToken })` / `<HogsendProvider userToken>`.
+
+<Callout type="warn">
+`generateUserToken` is server-only — it signs with `BETTER_AUTH_SECRET` over `node:crypto`. Never call it in a browser or mount it as a route; doing so leaks the signing secret. Return the token from a logged-in endpoint and point `onUserTokenExpiring` at re-hitting that endpoint.
+</Callout>
+
+<Callout type="info">
+Realtime is poll-default: the SDK calls `GET /v1/feed` every 12s over the Bearer header. SSE is implemented behind the same interface but browser-blocked — a native `EventSource` can't send `Authorization`/`Origin`, so the gate `401`s it. Setting `realtime: "sse"` silently falls back to poll. SSE stays an opt-in seam for runtimes whose `EventSource` can set headers.
+</Callout>

@@ -1,0 +1,321 @@
+---
+title: Components
+description: "Pre-built React UI for in-app surfaces — NotificationBell, FeedPopover, NotificationFeed, Banner, Toast — with props, headless escape hatches, and granular imports."
+---
+
+`@hogsend/react` ships opt-in UI components for the feed, banner, and toast surfaces. Each component reads from the same store the hooks read (see [./hooks](./hooks)), emits the same first-party events (see [./events](./events)), and exposes a five-layer override surface: `--hs-*` CSS variables, `className` + per-slot `classNames`, `data-*` state attributes, `asChild` prop-merge via `Slot`, and `render*` full-markup replacement.
+
+All components require a `<HogsendProvider>` ancestor (see [./provider](./provider)).
+
+## CSS
+
+Component CSS is opt-in. Import it once, at your app root:
+
+```tsx
+import "@hogsend/react/styles.css";
+```
+
+A hooks-only or headless usage pulls no CSS. Theming tokens are documented in [./theming](./theming).
+
+## Imports
+
+Components are exported from the barrel and from granular subpaths. Subpath imports keep the bundle to the one component you use:
+
+```tsx
+// barrel
+import { NotificationBell, FeedPopover, NotificationFeed, BannerView, ToastContainer } from "@hogsend/react";
+
+// granular subpaths
+import { NotificationBell } from "@hogsend/react/bell";
+import { FeedPopover } from "@hogsend/react/popover";
+import { NotificationFeed } from "@hogsend/react/feed";
+import { BannerView } from "@hogsend/react/banner";
+import { ToastContainer } from "@hogsend/react/toast";
+```
+
+<Callout type="info">
+  The bare names `Banner`, `FeedItem`, and `Toast` are the re-exported `@hogsend/js` data types. The components are exported as `BannerView`, `FeedItemView`, and `ToastView` to avoid the clash. `NotificationBell`, `NotificationFeed`, `FeedPopover`, and `ToastContainer` keep their names.
+</Callout>
+
+## `<NotificationBell>`
+
+A button with an unread/unseen count badge. `forwardRef<HTMLButtonElement>`.
+
+```tsx
+import { NotificationBell } from "@hogsend/react/bell";
+
+<NotificationBell badgeCountType="unseen" onClick={() => setOpen((o) => !o)} />;
+```
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `feedId` | `string` | `"in_app"` | Feed the count reads from. |
+| `badgeCountType` | `"unread" \| "unseen" \| "none"` | `"unseen"` | Which metadata count drives the badge. |
+| `renderIcon` | `(state: { count: number }) => ReactNode` | — | Replace the bell glyph. |
+| `asChild` | `boolean` | `false` | Merge props onto the single child element via `Slot`. |
+| `onClick` | `() => void` | — | Click handler (toggle a popover). |
+| `isOpen` | `boolean` | — | Sets `aria-expanded`. |
+| `popoverId` | `string` | — | Sets `aria-controls`. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `NotificationBellClassNames` | — | Per-slot: `{ root?, badge?, icon? }`. |
+| `aria-label` | `string` | — | Accessible label. |
+
+The badge renders `99+` when the count exceeds 99. State attributes: `data-unread`, `data-unseen`, `data-has-badge`, `data-state` (`open`/`closed`).
+
+## `<FeedPopover>`
+
+A controlled popover wrapping `<NotificationFeed>`, anchored to a trigger ref. Closes on Escape and outside-click, and restores focus to `buttonRef`.
+
+```tsx
+import { useRef, useState } from "react";
+import { NotificationBell } from "@hogsend/react/bell";
+import { FeedPopover } from "@hogsend/react/popover";
+
+function Inbox() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <NotificationBell
+        ref={buttonRef}
+        isOpen={open}
+        popoverId="hs-feed"
+        onClick={() => setOpen((o) => !o)}
+      />
+      <FeedPopover
+        id="hs-feed"
+        isVisible={open}
+        onClose={() => setOpen(false)}
+        buttonRef={buttonRef}
+        placement="bottom-end"
+      />
+    </>
+  );
+}
+```
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `isVisible` | `boolean` | — | Controlled open state. Required. |
+| `onClose` | `() => void` | — | Called on Escape / outside-click. Required. |
+| `buttonRef` | `RefObject<HTMLElement \| null>` | — | Focus returns here on close. |
+| `placement` | `"bottom-start" \| "bottom-end" \| "top-start" \| "top-end"` | `"bottom-end"` | Anchor placement. |
+| `feedId` | `string` | `"in_app"` | Forwarded to the inner feed. |
+| `renderItem` | `NotificationFeedProps["renderItem"]` | — | Forwarded. |
+| `renderHeader` | `NotificationFeedProps["renderHeader"]` | — | Forwarded. |
+| `renderEmpty` | `NotificationFeedProps["renderEmpty"]` | — | Forwarded. |
+| `onItemClick` | `NotificationFeedProps["onItemClick"]` | — | Forwarded. |
+| `onMarkAllAsReadClick` | `NotificationFeedProps["onMarkAllAsReadClick"]` | — | Forwarded. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `FeedPopoverClassNames` | — | `{ root? }`. |
+| `id` | `string` | — | For `aria-controls` pairing. |
+| `aria-label` | `string` | — | Accessible label. |
+
+Emits `inapp.feed_opened` with props `{ feedId }` on the closed→open transition. The element is `role="dialog" aria-modal="false"`. State attributes: `data-placement`, `data-state="open"`.
+
+## `<NotificationFeed>`
+
+The scrolling feed list with header, optional filter bar, items, and load-more.
+
+```tsx
+import { NotificationFeed } from "@hogsend/react/feed";
+
+<NotificationFeed
+  feedId="in_app"
+  initialFilterStatus="all"
+  onItemClick={(item) => router.push(item.actionUrl ?? "/")}
+/>;
+```
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `feedId` | `string` | `"in_app"` | Feed to render. |
+| `defaultFeedOptions` | `FeedFetchOptions` | — | Initial fetch options. |
+| `initialFilterStatus` | `FeedItemStatus \| "all" \| "unread"` | `"all"` | Starting filter tab. |
+| `renderItem` | `(item: FeedItem, helpers: { onClick: () => void }) => ReactNode` | — | Replace a row. |
+| `renderHeader` | `(state: { metadata; markAllAsRead }) => ReactNode` | — | Replace the header. |
+| `renderEmpty` | `() => ReactNode` | — | Replace the empty state. |
+| `renderFilterBar` | `(state: { status; setStatus }) => ReactNode` | none | No filter bar by default. |
+| `onItemClick` | `(item: FeedItem) => void` | — | Fired AFTER `inapp.item_clicked` + mark-read. |
+| `onItemRead` | `(item: FeedItem) => void` | — | Fired when an item is marked read. |
+| `onMarkAllAsReadClick` | `() => void` | — | Header action handler. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `NotificationFeedClassNames` | — | Slots: `root, header, headerTitle, markAllButton, filterBar, filterTab, list, item, empty, loadMore`. |
+| `aria-label` | `string` | — | Accessible label. |
+
+On item click the feed emits `inapp.item_clicked` (fire-and-forget) with props `{ feedItemId, feedId, actionUrl? }` BEFORE your `onItemClick`, then calls `markAsRead`. State attributes: `data-status` (the network status), `data-empty`.
+
+### `<FeedItemView>`
+
+The single-row component (exported name `FeedItemView`; props type `FeedItemProps`; `forwardRef<HTMLDivElement>`). Use it inside a `renderItem` to keep default markup while overriding behavior.
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `item` | `FeedItem` | — | The item to render. Required. |
+| `onClick` | `(item: FeedItem) => void` | — | Row click handler. |
+| `asChild` | `boolean` | `false` | `Slot` prop-merge. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `FeedItemClassNames` | — | Slots: `root, unreadDot, content, title, body, timestamp, action`. |
+| `formatTimestamp` | `(iso: string) => string` | relative formatter | Override timestamp formatting. |
+
+State attributes: `data-status`, `data-unread`, `data-unseen`. `unread` is true when status is `unseen` or `seen`.
+
+## `<BannerView>`
+
+Renders the single highest-priority non-dismissed banner for a slot. Component name `BannerView`; props type `BannerProps`.
+
+```tsx
+import { BannerView } from "@hogsend/react/banner";
+
+<BannerView slot="default" placement="top" onClick={(b) => router.push(b.actionUrl ?? "/")} />;
+```
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `slot` | `string` | `"default"` | Banner slot (feed category `banner:<slot>`). |
+| `placement` | `"top" \| "bottom" \| "inline"` | `"top"` | Layout placement. |
+| `renderBanner` | `(banner: Banner, helpers: { onClick; onDismiss }) => ReactNode` | — | Full markup replacement. |
+| `onClick` | `(banner: Banner) => void` | — | Fired AFTER `banner.clicked`. |
+| `onDismiss` | `(banner: Banner) => void` | — | Fired AFTER `banner.dismissed`. |
+| `autoCapture` | `boolean` | `true` | Emit `banner.shown` once per banner id on first render. |
+| `asChild` | `boolean` | `false` | `Slot` prop-merge. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `BannerClassNames` | — | Slots: `root, content, title, body, action, dismiss`. |
+| `aria-label` | `string` | — | Accessible label. |
+
+The element is `role="status"`. State attributes: `data-placement`, `data-state` (`visible`/`dismissed`). Author journeys on `banner.shown` / `banner.clicked` / `banner.dismissed` — not the internal `inapp.*` mark events (see [./events](./events)).
+
+## `<ToastView>` and `<ToastContainer>`
+
+Toasts are ephemeral: not persisted and not in `HogsendState`. They originate from explicit `useToast().show(...)` calls or from realtime feed items where `type === "toast"` (routed once `client.connect()` runs). Mount one `<ToastContainer>` at the app root; it renders nothing when there are no toasts.
+
+```tsx
+import { ToastContainer } from "@hogsend/react/toast";
+
+<ToastContainer placement="top-right" onToastClick={(t) => router.push(t.actionUrl ?? "/")} />;
+```
+
+### `<ToastContainer>` props
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `placement` | `"top-left" \| "top-right" \| "bottom-left" \| "bottom-right"` | `"top-right"` | Stack position. |
+| `renderToast` | `(toast: Toast) => ReactNode` | — | Replace each toast's markup. |
+| `onToastClick` | `(toast: Toast) => void` | — | Fired AFTER `inapp.toast_clicked`. |
+| `onToastDismiss` | `(toast: Toast) => void` | — | Fired AFTER `inapp.toast_dismissed`. |
+| `className` | `string` | — | Container class. |
+| `toastClassNames` | `ToastClassNames` | — | Per-toast slots: `root, content, title, body, action, dismiss`. |
+| `aria-label` | `string` | — | Accessible label. |
+
+State attribute: `data-placement`.
+
+### `<ToastView>` props
+
+The single-toast component (exported name `ToastView`; props type `ToastProps`; `forwardRef<HTMLDivElement>`). Used internally by `<ToastContainer>`; render it directly only for a custom container.
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `toast` | `Toast` | — | The toast to render. Required. |
+| `onClick` | `(toast: Toast) => void` | — | Click handler. |
+| `onDismiss` | `(toast: Toast) => void` | — | Dismiss handler. |
+| `renderToast` | `(toast: Toast) => ReactNode` | — | Full markup replacement. |
+| `asChild` | `boolean` | `false` | `Slot` prop-merge. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `ToastClassNames` | — | Slots: `root, content, title, body, action, dismiss`. |
+
+State attribute: `data-type`.
+
+## Minimal pre-built inbox
+
+Bell, popover, banner, and toast container together:
+
+```tsx
+import { useRef, useState } from "react";
+import "@hogsend/react/styles.css";
+import { HogsendProvider } from "@hogsend/react";
+import { NotificationBell } from "@hogsend/react/bell";
+import { FeedPopover } from "@hogsend/react/popover";
+import { BannerView } from "@hogsend/react/banner";
+import { ToastContainer } from "@hogsend/react/toast";
+
+function App() {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <BannerView slot="default" />
+      <NotificationBell
+        ref={buttonRef}
+        isOpen={open}
+        popoverId="hs-feed"
+        onClick={() => setOpen((o) => !o)}
+      />
+      <FeedPopover id="hs-feed" isVisible={open} onClose={() => setOpen(false)} buttonRef={buttonRef} />
+      <ToastContainer placement="top-right" />
+    </>
+  );
+}
+
+export default function Root() {
+  return (
+    <HogsendProvider apiUrl="https://api.acme.com" publishableKey="pk_…" userToken={token}>
+      <App />
+    </HogsendProvider>
+  );
+}
+```
+
+## Headless
+
+Skip the components and drive your own markup from the feed state. `<FeedStateProvider>` is a render-prop wrapper over `useHogsendFeed` (see [./hooks](./hooks)); it runs the initial fetch and opens realtime once per `feedId`.
+
+```tsx
+import { FeedStateProvider } from "@hogsend/react";
+
+<FeedStateProvider feedId="in_app">
+  {({ items, metadata, markAsRead, loading }) => (
+    <ul aria-busy={loading}>
+      <li>{metadata.unread_count} unread</li>
+      {items.map((item) => (
+        <li key={item.id} onClick={() => markAsRead([item.id])}>
+          {item.title}
+        </li>
+      ))}
+    </ul>
+  )}
+</FeedStateProvider>;
+```
+
+`FeedStateProviderProps` is `{ feedId?: string; defaultFeedOptions?: FeedFetchOptions; children: (state: UseHogsendFeed) => ReactNode }`. The `state` argument is the full [`UseHogsendFeed`](./hooks) shape, including every `markAs*` method, `fetchNextPage`, `refetch`, `networkStatus`, and `store`.
+
+The same data is available from the `useHogsendFeed` hook directly when you do not need a wrapping component:
+
+```tsx
+import { useHogsendFeed } from "@hogsend/react";
+
+function Inbox() {
+  const { items, markAllAsRead } = useHogsendFeed({ feedId: "in_app" });
+  return (
+    <div>
+      <button onClick={markAllAsRead}>Mark all read</button>
+      {items.map((i) => (
+        <div key={i.id}>{i.title}</div>
+      ))}
+    </div>
+  );
+}
+```
+
+<Callout type="warn">
+  Realtime runs over **polling** today (`GET /v1/feed` every 12s). A native `EventSource` cannot send `Authorization: Bearer pk_…`, so SSE is a non-default seam; the components and headless hooks work over polling unchanged.
+</Callout>
+
+<Callout type="warn">
+  Identified surfaces (a concrete `userId`) require a `userToken` minted server-side via `generateUserToken` — never in the browser. Anonymous mode works without one. See [./provider](./provider).
+</Callout>
+
+<Callout type="info">
+  `pk_` publishable keys are anon-only without a `userToken` and enforce a per-key origin allowlist fail-closed: a missing allowlist, missing `Origin` header, or unlisted origin returns 403. See [./provider](./provider).
+</Callout>

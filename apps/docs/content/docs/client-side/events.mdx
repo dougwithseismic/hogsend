@@ -1,0 +1,144 @@
+---
+title: Events & the closed loop
+description: "The inapp.* and banner.* events each client interaction emits, how they reach journeys via /v1/events, and the sendFeedItem / sendBanner server sends that deliver."
+---
+
+Every client-side interaction emits a first-party event through `POST /v1/events`. The engine runs it through `ingestEvent()`: it stores the event row, pushes to Hatchet for journey routing, evaluates exit conditions on active journeys, and fans the event to PostHog. The browser SDK and your server share a delivery API, so a feed item sent from a journey shows up in the bell, and a click on that item triggers the next journey.
+
+The `source` is stamped `"inapp"` server-side by the key class — a `pk_` publishable key resolves to scope `ingest-public`, which the ingest pipeline records as `source: "inapp"`. You do not set it from the client.
+
+<Callout type="info">
+  `/v1/events` is the same endpoint documented in [Data API → Events](/docs/data-api/events). The client-side SDK calls it with a `pk_` publishable key over the browser-reachable subset; server-side ingest uses an `ingest`-scoped secret key. Same pipeline, same journey routing.
+</Callout>
+
+## Event names
+
+### `inapp.*` — feed, preferences, toasts
+
+These fire on feed marks, preference writes, and toast lifecycle. They are journey-usable, but the per-item mark events double as internal bookkeeping.
+
+| Event | Emitted by | Props |
+|---|---|---|
+| `inapp.preference_changed` | `setPreference` / `subscribe` / `unsubscribe` | `{ categoryId, subscribed }` |
+| `inapp.item_seen` | `markAsSeen` | `{ feedItemId, feedId }` |
+| `inapp.item_read` | `markAsRead` | `{ feedItemId, feedId }` |
+| `inapp.item_archived` | `markAsArchived` | `{ feedItemId, feedId }` |
+| `inapp.item_unseen` | `markAsUnseen` | `{ feedItemId, feedId }` |
+| `inapp.item_unread` | `markAsUnread` | `{ feedItemId, feedId }` |
+| `inapp.feed_cleared` | `markAllAsRead` (once) | `{ feedId }` |
+| `inapp.item_clicked` | `<NotificationFeed>` item click | `{ feedItemId, feedId, actionUrl? }` |
+| `inapp.feed_opened` | `<FeedPopover>` on open | `{ feedId }` |
+| `inapp.toast_shown` | `toasts().show` | `{ toastId, type }` |
+| `inapp.toast_dismissed` | `toasts().dismiss` | `{ toastId }` |
+| `inapp.toast_clicked` | `toasts().click` | `{ toastId, actionUrl? }` |
+
+### `banner.*` — consumer-facing banner triggers
+
+Author banner journeys on these, not on the `inapp.*` events a `banner:<slot>` feed emits internally.
+
+| Event | Emitted by | Props |
+|---|---|---|
+| `banner.shown` | `<BannerView>` first render of `current` (when `autoCapture`) | `{ slot, bannerId }` |
+| `banner.clicked` | `banners().click` / `<BannerView>` click | `{ slot, bannerId, actionUrl? }` |
+| `banner.dismissed` | `banners().dismiss` / `<BannerView>` dismiss | `{ slot, bannerId }` |
+
+<Callout type="warn">
+  A banner is a feed item in category `banner:<slot>`. Clicking or dismissing one also fires `inapp.item_read` / `inapp.item_archived` as internal feed bookkeeping (keyed `inapp:banner:<slot>:<id>:<type>`). Never trigger journeys on those — trigger on the `banner.*` events.
+</Callout>
+
+## Mark dedup
+
+Feed marks are optimistic: the SDK patches the local store first, persists via `POST /v1/feed/mark`, then captures the `inapp.*` event. To stop the client capture and the server's own emit from producing two events, both use the same idempotency key:
+
+```ts
+// packages/js/src/feed/index.ts
+`inapp:${feedId}:${id}:${eventType}`     // per-item marks
+`inapp:${feedId}:all:inapp.feed_cleared` // markAllAsRead
+```
+
+The server emits the same event with the same key, so `POST /v1/events` dedups one of them. `markAllAsRead` emits exactly one `inapp.feed_cleared` for the whole batch (not one per item).
+
+## Server sends
+
+Two standalone helpers deliver in-app content. Call them from a journey or a route — they are siblings of `sendEmail` / `sendConnectorAction` and import from `@hogsend/engine`, not from `JourneyContext`.
+
+### `sendFeedItem`
+
+```ts
+import { sendFeedItem } from "@hogsend/engine";
+
+const result = await sendFeedItem({
+  recipient: { userId: "user_123" },   // or { email } / { anonymousId }
+  type: "release_note",
+  title: "v2 is live",
+  body: "Realtime feeds now ship in @hogsend/react.",
+  actionUrl: "https://acme.com/changelog",
+  blocks: [{ type: "button", label: "Read more", url: "https://acme.com/changelog" }],
+  category: "in_app",                   // default "in_app"
+});
+// result: { feedItemId, recipientKey, suppressed, createdAt }
+```
+
+The pipeline resolves the recipient to a canonical key, checks `in_app` suppression (governed by the `in_app` list key and `unsubscribedAll`), inserts the `feed_items` row, and publishes to Redis `feed:<recipientKey>` so a connected client sees it. `feedItemId` is `null` when the send was suppressed or deduped. In a journey the send is replay-safe; pass `idempotencyLabel` to disambiguate divergent branches that send the same `type`.
+
+### `sendBanner`
+
+```ts
+import { sendBanner } from "@hogsend/engine";
+
+await sendBanner({
+  recipient: { userId: "user_123" },
+  slot: "default",                      // → category banner:default
+  title: "Trial ends in 3 days",
+  actionUrl: "/billing",
+  metadata: { priority: 10 },           // banner ordering: priority desc, then createdAt desc
+});
+```
+
+`sendBanner` is a thin wrapper over `sendFeedItem` that pins `type: "banner"` and `category: "banner:<slot>"`. Same result shape (`SendFeedItemResult`). Banner priority is read from `metadata.priority`.
+
+## Closing the loop
+
+A client interaction emits an event; a journey triggers on it; the journey sends the next in-app message. This journey reacts to a feed click:
+
+```ts
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendFeedItem } from "@hogsend/engine";
+
+export const onChangelogClick = defineJourney({
+  meta: {
+    id: "changelog-followup",
+    name: "Changelog follow-up",
+    enabled: true,
+    trigger: { event: "inapp.item_clicked" },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: days(7),
+  },
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: hours(1) });
+    await sendFeedItem({
+      recipient: { userId: user.id },
+      type: "followup",
+      title: "More where that came from",
+      actionUrl: "https://acme.com/changelog",
+    });
+  },
+});
+```
+
+`inapp.item_clicked` carries `{ feedItemId, feedId, actionUrl? }` as `eventProperties`, so a `trigger.where` can scope to a specific feed. The same event also fans to PostHog under `source: "inapp"`.
+
+<Callout type="warn">
+  Realtime delivery runs over **polling** today (`GET /v1/feed` every 12s). SSE is a seam: `EventSource` cannot send `Authorization: Bearer pk_…`, so the publishable gate rejects it. Setting `realtime: "sse"` silently falls back to poll. See [Provider](./provider) for config.
+</Callout>
+
+<Callout type="warn">
+  Identity-asserting calls (acting on a concrete `userId`) need a `userToken` minted server-side via `generateUserToken`. It signs an HMAC over `{ userId, exp }` with `BETTER_AUTH_SECRET` — server-only (`node:crypto`). Never call it in a browser or mount it as a route. Anonymous capture works without it.
+</Callout>
+
+<Callout type="warn">
+  A `pk_` publishable key is fail-closed on origin: the `requirePublishableOrIngest` gate requires the key's `allowedOrigins` to list the request `Origin`. No allowlist, no `Origin` header, or an unlisted origin returns `403`.
+</Callout>
+
+See [Hooks](./hooks) for the client-side calls that emit these events and [Components](./components) for the UI that wires them.

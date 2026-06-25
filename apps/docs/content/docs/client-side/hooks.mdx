@@ -1,0 +1,220 @@
+---
+title: Hooks
+description: "@hogsend/react hooks — useHogsend, usePreferences, useHogsendFeed (useInbox), useBanner, useToast: return shapes, usage, and the events each one emits."
+---
+
+Every hook reads from the SDK's reactive store and must be called inside a [`<HogsendProvider>`](./provider). Each throws `"<hook> must be used within <HogsendProvider>"` when no provider is mounted. Reactive data flows through the store via `useSyncExternalStore`, not through React context.
+
+The hooks bind to store slices with `useStoreSelector`. Derived arrays (`items`, `banners`) are built outside the selector from the stable `order`/`byId` pair — a selector that returns a freshly-built object or array on each call causes an infinite re-render loop, so selectors return only scalars or stable references.
+
+Mutations emit first-party events through `POST /v1/events` (source `"inapp"`), which trigger journeys and fan to PostHog. The emission lives in the SDK store mutation, so it fires regardless of which hook or component calls it. See [Events](./events) for the full list and idempotency keys.
+
+<Callout type="warn">
+  Realtime runs over polling. The SDK opens `GET /v1/feed` every 12s; `EventSource` can't send `Authorization`, so SSE silently falls back to poll. Writes (`setPreference`, list subscribe/unsubscribe, marks) require an identified user — a `pk_` publishable key is anon-only until the browser presents a `userToken` minted server-side via `generateUserToken`. See [Provider](./provider) for `userToken` and `userId`.
+</Callout>
+
+## useHogsend
+
+The client handle plus identity and color-mode controls.
+
+```ts
+interface UseHogsend {
+  client: Hogsend;
+  userId: string | null;
+  isIdentified: boolean;
+  identify: (userId: string, traits?: Properties) => Promise<void>;
+  capture: Hogsend["capture"];
+  colorMode: "light" | "dark";
+  setColorMode: (mode: "light" | "dark" | "system") => void;
+}
+```
+
+```tsx
+import { useHogsend } from "@hogsend/react";
+
+function CheckoutButton() {
+  const { capture, isIdentified } = useHogsend();
+  return (
+    <button
+      onClick={() =>
+        capture("checkout_started", { plan: "pro" })
+      }
+      disabled={!isIdentified}
+    >
+      Buy
+    </button>
+  );
+}
+```
+
+`identify(userId, traits)` sets the userId then issues `PUT /v1/contacts` with `{ userId, anonymousId, userToken?, properties }`. `capture(event, properties?, opts?)` enqueues through the single telemetry spine and stamps `source: "inapp"`; `userToken` is sent only when a userId is bound.
+
+## usePreferences
+
+The contact's subscription state plus the list catalog.
+
+```ts
+interface UsePreferences {
+  preferences: PreferencesState;          // { categories: Record<string, boolean>; unsubscribedAll: boolean }
+  lists: ListSummary[];                   // empty in v1 (list-catalog read is a v2 addition)
+  loading: boolean;
+  setPreference: (categoryId: string, subscribed: boolean) => Promise<void>;
+  subscribe: (listId: string) => Promise<void>;
+  unsubscribe: (listId: string) => Promise<void>;
+  refetch: () => Promise<void>;
+}
+```
+
+```tsx
+import { usePreferences } from "@hogsend/react";
+
+function ProductUpdatesToggle() {
+  const { preferences, setPreference } = usePreferences();
+  const on = preferences.categories.product_updates ?? false;
+  return (
+    <input
+      type="checkbox"
+      checked={on}
+      onChange={(e) =>
+        setPreference("product_updates", e.target.checked)
+      }
+    />
+  );
+}
+```
+
+`get()` reads `GET /v1/lists/preferences`; `subscribe`/`unsubscribe` hit `POST /v1/lists/{id}/subscribe` / `unsubscribe`. Every `setPreference`/`subscribe`/`unsubscribe` emits `inapp.preference_changed` with `{ categoryId, subscribed }`. Writes require an identified user; an anonymous caller falls to `anonymousId`, which the engine rejects for list preferences.
+
+## useHogsendFeed (alias useInbox)
+
+The reactive in-app feed: items, pagination, metadata counts, and the full mark surface. `useInbox` is the same hook under a different name.
+
+```ts
+type FeedNetworkStatus = "loading" | "fetchMore" | "ready" | "error";
+
+interface UseHogsendFeedOptions {
+  feedId?: string;                        // overrides context feedId; default "in_app"
+  defaultFeedOptions?: FeedFetchOptions;  // applied only on first construction of the feed client
+}
+
+interface UseHogsendFeed {
+  items: FeedItem[];
+  pageInfo: FeedPageInfo;
+  metadata: FeedMetadata;                 // { total_count, unseen_count, unread_count }
+  loading: boolean;                       // networkStatus === "loading"
+  networkStatus: FeedNetworkStatus;
+  fetch: () => Promise<void>;
+  fetchNextPage: () => Promise<void>;
+  refetch: () => Promise<void>;           // back to page 1, drops the before cursor
+  markAsSeen: (ids: string[]) => Promise<void>;
+  markAsRead: (ids: string[]) => Promise<void>;
+  markAsArchived: (ids: string[]) => Promise<void>;
+  markAsUnseen: (ids: string[]) => Promise<void>;
+  markAsUnread: (ids: string[]) => Promise<void>;
+  markAllAsSeen: () => Promise<void>;
+  markAllAsRead: () => Promise<void>;
+  markAllAsArchived: () => Promise<void>;
+  on: (event: "items" | "metadata", listener: () => void) => () => void;
+  store: Store<HogsendState>;
+}
+```
+
+```tsx
+import { useHogsendFeed } from "@hogsend/react";
+
+function Inbox() {
+  const { items, metadata, markAsRead, fetchNextPage, pageInfo } =
+    useHogsendFeed();
+  return (
+    <ul>
+      <li>{metadata.unread_count} unread</li>
+      {items.map((item) => (
+        <li key={item.id} onClick={() => markAsRead([item.id])}>
+          {item.title}
+        </li>
+      ))}
+      {pageInfo.hasNextPage && (
+        <button onClick={fetchNextPage}>Load more</button>
+      )}
+    </ul>
+  );
+}
+```
+
+The hook runs the initial fetch once per `feedId` and opens realtime (poll) via `client.connect(feedId)`. The selected `feedId` comes from [`<HogsendFeedProvider>`](./provider) and falls back to `"in_app"`. `defaultFeedOptions` is applied only when the feed client is first constructed (one per `feedId`, cached by the SDK).
+
+Each mark delegates to the SDK feed client, which patches the store optimistically, persists via `POST /v1/feed/mark` (or `/mark-all`), then emits the `inapp.*` event keyed `` `inapp:${feedId}:${id}:${eventType}` `` so client and server dedup. `markAllAsRead` emits one `inapp.feed_cleared` keyed `` `inapp:${feedId}:all:inapp.feed_cleared` ``.
+
+## useBanner
+
+The visible banners for a slot, priority-ordered.
+
+```ts
+function useBanner(slot?: string): UseBanner;   // default slot "default"
+
+interface UseBanner {
+  banners: Banner[];           // visible (non-dismissed), priority-ordered
+  current: Banner | null;      // highest-priority visible
+  dismiss: (bannerId: string) => Promise<void>;
+  click: (bannerId: string) => Promise<void>;
+  loading: boolean;
+  store: Store<HogsendState>;
+}
+```
+
+```tsx
+import { useBanner } from "@hogsend/react";
+
+function TopBanner() {
+  const { current, click, dismiss } = useBanner();
+  if (!current) return null;
+  return (
+    <div>
+      <a href={current.actionUrl ?? "#"} onClick={() => click(current.id)}>
+        {current.title}
+      </a>
+      <button onClick={() => dismiss(current.id)}>×</button>
+    </div>
+  );
+}
+```
+
+A banner is a feed item in category `banner:<slot>`, ordered by `metadata.priority` desc then `createdAt` desc. `click(id)` emits `banner.clicked` (and best-effort marks the banner read); `dismiss(id)` archives via `/mark` and emits `banner.dismissed`. Author journeys on the `banner.*` events, never the internal `inapp.*` marks the underlying feed item also fires.
+
+## useToast
+
+Ephemeral toasts. Toasts are not persisted and not part of `HogsendState`; they live in a separate subscribable store.
+
+```ts
+interface UseToast {
+  toasts: Toast[];                           // current visible toasts (stable ref between mutations)
+  show: (toast: ShowToastInput) => string;   // returns id; emits inapp.toast_shown
+  dismiss: (id: string) => void;             // emits inapp.toast_dismissed
+  click: (id: string) => void;               // emits inapp.toast_clicked
+}
+```
+
+```tsx
+import { useToast } from "@hogsend/react";
+
+function SaveButton() {
+  const { show } = useToast();
+  return (
+    <button
+      onClick={() =>
+        show({ type: "success", title: "Saved", duration: 4000 })
+      }
+    >
+      Save
+    </button>
+  );
+}
+```
+
+`show(input)` mints an id when one is omitted and returns it; `duration` is the auto-dismiss in ms (undefined = sticky). Toasts also arrive from realtime feed items where `type === "toast"`, routed by `client.connect()`.
+
+## Color mode and selectors
+
+`useColorMode()` returns `{ colorMode, setColorMode }` where `colorMode` is `"light" | "dark"` and `setColorMode` accepts `"light" | "dark" | "system"`. `resolveSystemColorMode()` reads the OS preference (defaults `"light"`); `watchSystemColorMode(onChange)` subscribes and returns an unsubscribe.
+
+`useStoreSelector<S, T>(store, selector)` is the `useSyncExternalStore` binding the other hooks build on. The selector MUST return a scalar or a stable reference — returning a freshly-built object or array each call loops.
