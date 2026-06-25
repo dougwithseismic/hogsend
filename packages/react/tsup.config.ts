@@ -7,7 +7,17 @@ import { defineConfig } from "tsup";
 //   (iii) the `./styles.css` export + `sideEffects` resolve in a consumer.
 // If it doesn't emit cleanly, fall back to a Vite-lib build for this package.
 export default defineConfig({
-  entry: ["src/index.ts", "src/styles/styles.css"],
+  // Keyed entries → flat, predictable output names. Granular component
+  // subpaths (`./feed`, `./popover`, `./bell`) let consumers `React.lazy` the
+  // heavier feed surfaces without the whole barrel (plan §6/§7 budget). The "."
+  // barrel still re-exports everything (v1 contract preserved).
+  entry: {
+    index: "src/index.ts",
+    feed: "src/components/feed/notification-feed.tsx",
+    popover: "src/components/popover/feed-popover.tsx",
+    bell: "src/components/bell/notification-bell.tsx",
+    "styles/styles": "src/styles/styles.css",
+  },
   format: ["esm", "cjs"],
   // Browser target, NOT "node22".
   target: "es2022",

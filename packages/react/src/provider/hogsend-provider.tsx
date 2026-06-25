@@ -33,6 +33,12 @@ export interface HogsendProviderProps {
   colorMode?: ColorMode | "system";
   ingestPath?: string;
   onUserTokenExpiring?: () => Promise<string>;
+  /**
+   * Injectable `fetch` (SSR / test). Forwarded verbatim to `createHogsend`;
+   * lets a test route the SDK's requests into an in-process engine (and inject
+   * the browser `Origin` header JS cannot set). Omit in production.
+   */
+  fetch?: typeof fetch;
   children: ReactNode;
 }
 
@@ -50,6 +56,7 @@ export function HogsendProvider(props: HogsendProviderProps): ReactNode {
       ...(props.onUserTokenExpiring
         ? { onUserTokenExpiring: props.onUserTokenExpiring }
         : {}),
+      ...(props.fetch ? { fetch: props.fetch } : {}),
     }),
   );
 

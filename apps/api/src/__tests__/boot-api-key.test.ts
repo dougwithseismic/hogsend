@@ -68,6 +68,15 @@ describe("bootstrapApiKeyFromEnv", () => {
   beforeEach(async () => {
     container = createHogsendClient();
     reachable = await dbReachable(container.db);
+    if (reachable) {
+      // Clear any stale bootstrap key a PRIOR run left behind (e.g. a run
+      // killed before its afterEach committed) so the empty/no-op assertions
+      // start from a known state — the suite owns this name exclusively.
+      await container.db
+        .delete(apiKeys)
+        .where(eq(apiKeys.name, BOOTSTRAP_KEY_NAME))
+        .catch(() => {});
+    }
   });
 
   afterEach(async () => {

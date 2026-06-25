@@ -18,7 +18,17 @@ export type {
   FeedPageInfo,
   MarkState,
 } from "./feed/index.js";
-export type { RealtimeChannel, RealtimeTransport } from "./realtime/index.js";
+export type {
+  PollFetcher,
+  PollTransportOptions,
+  RealtimeChannel,
+  RealtimeTransport,
+  SseTransportOptions,
+} from "./realtime/index.js";
+export {
+  createPollTransport,
+  createSseTransport,
+} from "./realtime/index.js";
 export type { Patch, Store } from "./store/external-store.js";
 export { createStore } from "./store/external-store.js";
 export type {

@@ -5,7 +5,13 @@
  */
 
 import type { BannerClient } from "./banner/index.js";
-import type { FeedClient, FeedFetchOptions } from "./feed/index.js";
+import type {
+  FeedClient,
+  FeedFetchOptions,
+  FeedItem,
+  FeedMetadata,
+  FeedPageInfo,
+} from "./feed/index.js";
 import type { RealtimeTransport } from "./realtime/index.js";
 import type { Store } from "./store/external-store.js";
 
@@ -137,9 +143,21 @@ export interface HogsendState {
   banners?: Record<string, BannerSliceState>;
 }
 
-/** Placeholder feed slice shape (v2 fills the body). */
+/**
+ * Feed slice shape (v2). A `byId` map gives O(1) item patches with stable
+ * identity, and a `order` array (createdAt-desc id list) gives the React
+ * selector a STABLE reference to subscribe to — `items[]` is derived OUTSIDE
+ * the selector from `order.map(id => byId[id])` (the infinite-loop guard).
+ */
 export interface FeedSliceState {
-  metadata: { total_count: number; unseen_count: number; unread_count: number };
+  /** O(1) item lookup/patch, keyed by `item.id`. */
+  byId: Record<string, FeedItem>;
+  /** createdAt-desc id list; stable array → derive `items[]` outside selectors. */
+  order: string[];
+  /** Cursor pagination info from the last fetch. */
+  pageInfo: FeedPageInfo;
+  /** Aggregate counters (`total_count`/`unseen_count`/`unread_count`). */
+  metadata: FeedMetadata;
 }
 
 /** Placeholder banner slice shape (v3 fills the body). */
@@ -175,8 +193,12 @@ export interface Hogsend {
   banners(slot?: string): BannerClient;
 
   // ── lifecycle + reactive store ──
-  /** Lazily open realtime (v2). No-op in v1. */
-  connect(): void;
+  /**
+   * Lazily open the realtime transport for `feedId` (default "in_app") and pipe
+   * its item/metadata updates into the feed-store. Idempotent per feedId. POLL
+   * is the working default transport (SSE is browser-blocked today).
+   */
+  connect(feedId?: string): void;
   /** Close sockets, flush queue, remove listeners. */
   teardown(): void;
   /** For `useSyncExternalStore`. */

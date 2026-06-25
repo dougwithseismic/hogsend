@@ -15,13 +15,31 @@ export type {
   PreferencesState,
   Properties,
 } from "@hogsend/js";
-// ── components (v1 shell) ──
+// ── components ──
 export {
   type BadgeCountType,
   NotificationBell,
   type NotificationBellClassNames,
   type NotificationBellProps,
 } from "./components/bell/notification-bell.js";
+export {
+  FeedItem as FeedItemView,
+  type FeedItemClassNames,
+  type FeedItemProps,
+} from "./components/feed/feed-item.js";
+export {
+  type FeedFilterStatus,
+  type FeedHeaderRenderState,
+  NotificationFeed,
+  type NotificationFeedClassNames,
+  type NotificationFeedProps,
+} from "./components/feed/notification-feed.js";
+export {
+  FeedPopover,
+  type FeedPopoverClassNames,
+  type FeedPopoverPlacement,
+  type FeedPopoverProps,
+} from "./components/popover/feed-popover.js";
 export { Slot, type SlotProps } from "./components/primitives/slot.js";
 export {
   VisuallyHidden,
@@ -42,6 +60,7 @@ export { type UseHogsend, useHogsend } from "./hooks/use-hogsend.js";
 export {
   type FeedNetworkStatus,
   type UseHogsendFeed,
+  type UseHogsendFeedOptions,
   useHogsendFeed,
   useInbox,
 } from "./hooks/use-hogsend-feed.js";
@@ -62,6 +81,14 @@ export {
   HogsendContext,
   type HogsendContextValue,
 } from "./provider/context.js";
+export {
+  HogsendFeedContext,
+  type HogsendFeedContextValue,
+} from "./provider/feed-context.js";
+export {
+  HogsendFeedProvider,
+  type HogsendFeedProviderProps,
+} from "./provider/feed-provider.js";
 // ── provider ──
 export {
   HogsendProvider,

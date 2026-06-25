@@ -12,16 +12,31 @@
   },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "sideEffects": [
     "**/*.css",
     "./dist/styles/styles.css"
   ],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./feed": {
+      "types": "./src/components/feed/notification-feed.tsx",
+      "import": "./dist/feed.js",
+      "require": "./dist/feed.cjs"
+    },
+    "./popover": {
+      "types": "./src/components/popover/feed-popover.tsx",
+      "import": "./dist/popover.js",
+      "require": "./dist/popover.cjs"
+    },
+    "./bell": {
+      "types": "./src/components/bell/notification-bell.tsx",
+      "import": "./dist/bell.js",
+      "require": "./dist/bell.cjs"
     },
     "./styles.css": "./dist/styles/styles.css",
     "./package.json": "./package.json"

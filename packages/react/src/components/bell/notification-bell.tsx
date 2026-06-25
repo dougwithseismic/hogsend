@@ -34,6 +34,8 @@ export interface NotificationBellClassNames {
 }
 
 export interface NotificationBellProps {
+  /** Scope the badge to a specific feedId (else provider/default "in_app"). */
+  feedId?: string;
   /** Which count to badge. Default "unseen". */
   badgeCountType?: BadgeCountType;
   /** Replace the icon markup entirely (override layer 5). */
@@ -77,6 +79,7 @@ export const NotificationBell = forwardRef<
   NotificationBellProps
 >(function NotificationBell(props, ref) {
   const {
+    feedId,
     badgeCountType = "unseen",
     renderIcon,
     asChild = false,
@@ -88,7 +91,7 @@ export const NotificationBell = forwardRef<
     "aria-label": ariaLabel,
   } = props;
 
-  const { metadata } = useHogsendFeed();
+  const { metadata } = useHogsendFeed(feedId ? { feedId } : undefined);
   const count =
     badgeCountType === "unread"
       ? metadata.unread_count
