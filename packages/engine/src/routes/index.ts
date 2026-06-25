@@ -11,6 +11,7 @@ import { contactsRouter } from "./contacts/index.js";
 import { emailRouter } from "./email/index.js";
 import { emailsRouter } from "./emails/index.js";
 import { eventsRouter } from "./events/index.js";
+import { feedRouter } from "./feed/index.js";
 import { healthRouter } from "./health.js";
 import { listsRouter } from "./lists/index.js";
 import { trackingRouter } from "./tracking/index.js";
@@ -67,6 +68,13 @@ export function registerRoutes(
   v1.use("/lists/preferences", requirePublishableOrIngest);
   v1.use("/lists/:id/subscribe", requirePublishableOrIngest);
   v1.use("/lists/:id/unsubscribe", requirePublishableOrIngest);
+  // Feed: `GET /feed` list/stream + `POST /feed/mark`/`mark-all` — publishable OR
+  // secret. Both the bare `/feed` (GET list) and the `/feed/*` subtree
+  // (mark/mark-all/stream) are covered (Hono treats them as distinct patterns).
+  // Recipient scoping is enforced server-side in `resolveFeedRecipient`, never
+  // from the request.
+  v1.use("/feed", requirePublishableOrIngest);
+  v1.use("/feed/*", requirePublishableOrIngest);
   // Bare `/contacts` is dual-purpose: PUT/POST = the publishable upsert;
   // DELETE = secret-only. Hono runs ALL matching `use`s, so a single guard must
   // branch by method rather than stacking two guards (which would 403 a valid
@@ -120,6 +128,7 @@ export function registerRoutes(
 
   v1.route("/contacts", contactsRouter);
   v1.route("/events", eventsRouter);
+  v1.route("/feed", feedRouter);
   v1.route("/emails", emailsRouter);
   v1.route("/lists", listsRouter);
   v1.route("/campaigns", campaignsRouter);

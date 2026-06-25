@@ -319,6 +319,13 @@ export type {
 } from "./lib/email-service-types.js";
 // --- Enrollment guards ---
 export { checkEmailPreferences } from "./lib/enrollment-guards.js";
+// --- In-app feed (sendFeedItem — sibling of sendEmail/sendConnectorAction) ---
+export {
+  IN_APP_LIST_ID,
+  type SendFeedItemOptions,
+  type SendFeedItemResult,
+  sendFeedItem,
+} from "./lib/feed.js";
 export { isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { hatchet } from "./lib/hatchet.js";
@@ -510,3 +517,4 @@ export { importContactsTask } from "./workflows/import-contacts.js";
 export { sendCampaignTask } from "./workflows/send-campaign.js";
 // --- Built-in Hatchet workflow tasks ---
 export { sendEmailTask } from "./workflows/send-email.js";
+export { sendFeedTask } from "./workflows/send-feed.js";

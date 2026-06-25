@@ -86,6 +86,13 @@ export function verifyUserToken(opts: {
   if (typeof payload.userId !== "string" || typeof payload.exp !== "number") {
     throw new InvalidUserTokenError("Invalid payload shape");
   }
+  // Reject an empty `userId` — it would yield an empty `recipientKey` (a falsy
+  // value the feed recipient resolver treats as "no contact"), scoping queries to
+  // `WHERE recipient_key = ''`. Defensive: a valid signature over `userId: ""`
+  // should never authorize a feed read/mark.
+  if (payload.userId.length === 0) {
+    throw new InvalidUserTokenError("Empty userId");
+  }
   if (payload.exp < Math.floor(Date.now() / 1000)) {
     throw new InvalidUserTokenError("Token expired");
   }
