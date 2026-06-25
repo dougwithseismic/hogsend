@@ -39,10 +39,18 @@ FROM base AS build
 # variables into Docker builds that declare them as ARGs.
 ARG NEXT_PUBLIC_POSTHOG_KEY
 ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
+# Hogsend client-side layer (the in-app notification bell + the "try it" demo).
+# Both are public + build-time-inlined; the bell no-ops when unset.
+ARG NEXT_PUBLIC_HOGSEND_API_URL
+ENV NEXT_PUBLIC_HOGSEND_API_URL=$NEXT_PUBLIC_HOGSEND_API_URL
+ARG NEXT_PUBLIC_HOGSEND_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_HOGSEND_PUBLISHABLE_KEY=$NEXT_PUBLIC_HOGSEND_PUBLISHABLE_KEY
 COPY --from=fetch /pnpm/store /pnpm/store
 COPY . .
 RUN pnpm install --frozen-lockfile --offline
-RUN pnpm --filter @hogsend/docs build
+# turbo (not a bare `--filter`) so @hogsend/js + @hogsend/react build BEFORE the
+# docs Next build resolves them — apps/docs now depends on the client-side layer.
+RUN pnpm exec turbo run build --filter=@hogsend/docs
 
 # ---------------------------------------------------------------------------
 # runner — slim production image: just the self-contained standalone output.

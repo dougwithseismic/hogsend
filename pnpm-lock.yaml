@@ -199,6 +199,12 @@ importers:
 
   apps/docs:
     dependencies:
+      '@hogsend/js':
+        specifier: workspace:^
+        version: link:../../packages/js
+      '@hogsend/react':
+        specifier: workspace:^
+        version: link:../../packages/react
       clsx:
         specifier: ^2.1.1
         version: 2.1.1

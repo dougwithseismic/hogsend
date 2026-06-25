@@ -1,0 +1,42 @@
+---
+title: Try it live
+description: "Fire a first-party event from this page and watch a journey drop a notification into the bell in the top nav — same anonymous identity, no login."
+---
+
+import { TryItDemo } from "../../../components/hogsend/try-it-demo";
+
+This is the same `@hogsend/js` + `@hogsend/react` you just installed, running on these docs. You are an **anonymous visitor** — no login, no identify call. The bell in the top-right is **your** feed. Fire an event below and watch a journey reach it.
+
+<TryItDemo />
+
+## What just happened
+
+Nothing on this page is faked. The button called `client.capture("demo.welcome", { name })`. That `POST`ed a first-party event (`source: "inapp"`) carrying your anonymous id. The engine resolved it to a canonical contact key, a journey triggered on `demo.welcome`, read your name off the event, and called `sendFeedItem({ recipient: { anonymousId: <your key> } })` — which published to the exact feed the bell polls.
+
+The round-trip uses **one identity the whole way**. The browser never identified itself: a `pk_` publishable key has no user token, so `client.getDistinctId()` stays the anonymous id and `userId` stays `null`. Personalization rides as an event property, not an identify call — the journey reads `user.properties.name` and writes it into the notification title.
+
+The item carries an `actionUrl`, so clicking the row emits `inapp.item_clicked` — another first-party event, one a journey can trigger on. The loop closes on itself.
+
+```ts
+// the demo journey, in full — apps/api/src/journeys/demo-inapp.ts
+export const demoWelcome = defineJourney({
+  meta: {
+    id: "demo-welcome",
+    trigger: { event: DemoEvents.WELCOME }, // "demo.welcome"
+    entryLimit: "unlimited", // re-fire the demo freely
+    suppress: days(0),
+  },
+  run: async (user) => {
+    const n = user.properties.name;
+    const name = typeof n === "string" && n ? n : "there";
+    await sendFeedItem({
+      recipient: { anonymousId: user.id }, // re-resolves to your canonical key
+      type: "welcome",
+      title: `Welcome, ${name} 👋`,
+      body: "You fired an event. A journey ran. This is the result.",
+      actionUrl: "https://hogsend.com/docs/client-side/try",
+      journeyStateId: user.stateId,
+    });
+  },
+});
+```

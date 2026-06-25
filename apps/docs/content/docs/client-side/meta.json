@@ -6,6 +6,7 @@
     "provider",
     "hooks",
     "components",
+    "try",
     "theming",
     "events"
   ]
