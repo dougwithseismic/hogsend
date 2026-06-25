@@ -150,6 +150,14 @@ export const agentStore = {
     commit({ ...state, conversations });
   },
 
+  /** Drop messages from `keepCount` onward and persist (rollback / edit). */
+  truncate(id: string, keepCount: number) {
+    const conversations = state.conversations.map((c) =>
+      c.id === id ? { ...c, messages: c.messages.slice(0, keepCount) } : c,
+    );
+    commit({ ...state, conversations });
+  },
+
   get(id: string | null): Conversation | undefined {
     if (!id) return undefined;
     return state.conversations.find((c) => c.id === id);

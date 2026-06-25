@@ -1,7 +1,9 @@
 import { useChat } from "@ai-sdk/react";
 import { useQuery } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import {
+  ArrowDown,
   Loader2,
   MessageSquarePlus,
   PanelLeft,
@@ -11,7 +13,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   agentStore,
@@ -21,13 +23,13 @@ import {
 import { api } from "@/lib/api";
 import { config } from "@/lib/config";
 import { cn } from "@/lib/utils";
-import { MessageParts } from "./message-parts";
+import { type MessageActions, MessageParts } from "./message-parts";
 
 type AgentConfig = { enabled: boolean; model: string };
 
 const SUGGESTIONS = [
   "How many contacts are there, and what journeys exist?",
-  "Show me the 10 most recent events",
+  "Find contacts matching doug and show one timeline",
   "Which buckets are configured?",
 ];
 
@@ -42,7 +44,7 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
           Ask the co-working agent
         </p>
         <p className="text-white/50 text-xs">
-          It reads your live instance — contacts, events, journeys, buckets.
+          It reads your live instance and can act — every write asks first.
         </p>
       </div>
       <div className="flex w-full flex-col gap-2">
@@ -149,6 +151,153 @@ function Composer({
   );
 }
 
+function EditBar({
+  text,
+  onSave,
+  onCancel,
+}: {
+  text: string;
+  onSave: (t: string) => void;
+  onCancel: () => void;
+}) {
+  const [v, setV] = useState(text);
+  return (
+    <div className="border-hairline-faint border-t p-3">
+      <p className="mb-1.5 px-1 text-[10px] text-accent uppercase tracking-wide">
+        Editing — this truncates the thread below
+      </p>
+      <div className="flex items-end gap-2 rounded-lg border border-hairline-faint bg-white/[0.03] px-3 py-2 focus-within:border-hairline">
+        <textarea
+          // biome-ignore lint/a11y/noAutofocus: focus the edit field when it opens
+          autoFocus
+          value={v}
+          onChange={(e) => setV(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              onSave(v);
+            }
+            if (e.key === "Escape") onCancel();
+          }}
+          rows={1}
+          className="max-h-32 flex-1 resize-none bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
+        />
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => onSave(v)}
+          disabled={!v.trim()}
+        >
+          Save &amp; resend
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function VirtualMessageList({
+  messages,
+  actions,
+  streaming,
+}: {
+  messages: UIMessage[];
+  actions: MessageActions;
+  streaming: boolean;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+  const [showJump, setShowJump] = useState(false);
+
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 80,
+    getItemKey: (i) => messages[i]?.id ?? i,
+    overscan: 6,
+  });
+
+  const onScroll = useCallback(() => {
+    const el = parentRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    pinnedRef.current = dist < 80;
+    setShowJump(!pinnedRef.current);
+  }, []);
+
+  // Autoscroll while pinned. Keyed on messages (token growth changes identity)
+  // + streaming so we track the growing last row; rAF re-call catches the
+  // post-measure layout pass.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: messages/streaming are the triggers
+  useEffect(() => {
+    if (!pinnedRef.current || messages.length === 0) return;
+    const i = messages.length - 1;
+    virtualizer.scrollToIndex(i, { align: "end" });
+    const r = requestAnimationFrame(() =>
+      virtualizer.scrollToIndex(i, { align: "end" }),
+    );
+    return () => cancelAnimationFrame(r);
+  }, [messages, streaming]);
+
+  const items = virtualizer.getVirtualItems();
+
+  return (
+    <div className="relative min-h-0 flex-1">
+      <div
+        ref={parentRef}
+        onScroll={onScroll}
+        className="h-full overflow-y-auto px-4 py-4"
+      >
+        <div
+          style={{
+            height: virtualizer.getTotalSize(),
+            position: "relative",
+            width: "100%",
+          }}
+        >
+          {items.map((vi) => {
+            const m = messages[vi.index];
+            if (!m) return null;
+            return (
+              <div
+                key={vi.key}
+                data-index={vi.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${vi.start}px)`,
+                  paddingBottom: 16,
+                }}
+              >
+                <MessageParts message={m} actions={actions} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {showJump && streaming ? (
+        <button
+          type="button"
+          onClick={() => {
+            pinnedRef.current = true;
+            setShowJump(false);
+            virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+          }}
+          className="-translate-x-1/2 absolute bottom-3 left-1/2 flex items-center gap-1 rounded-full border border-hairline bg-raised px-3 py-1 text-white/70 text-xs shadow-black/40 shadow-lg hover:text-white"
+        >
+          <ArrowDown className="h-3 w-3" /> Jump to latest
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function ChatThread({
   conversationId,
   initialMessages,
@@ -165,26 +314,25 @@ function ChatThread({
     [],
   );
 
-  const { messages, sendMessage, status, error, stop } = useChat({
-    id: conversationId,
-    messages: initialMessages,
-    transport,
-  });
+  const {
+    messages,
+    sendMessage,
+    setMessages,
+    regenerate,
+    status,
+    error,
+    stop,
+  } = useChat({ id: conversationId, messages: initialMessages, transport });
 
   const [input, setInput] = useState("");
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(
+    null,
+  );
+  const busy = status === "submitted" || status === "streaming";
 
   useEffect(() => {
     agentStore.saveMessages(conversationId, messages);
   }, [conversationId, messages]);
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: messages is the scroll trigger, not read in the body
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
-
-  const busy = status === "submitted" || status === "streaming";
 
   const send = (text: string) => {
     const t = text.trim();
@@ -193,30 +341,74 @@ function ChatThread({
     void sendMessage({ text: t });
   };
 
+  // EDIT: truncate from the user msg, resend the edited text.
+  const saveEdit = (id: string, newText: string) => {
+    const t = newText.trim();
+    if (!t) return;
+    const idx = messages.findIndex((m) => m.id === id);
+    if (idx < 0) return;
+    setMessages((prev) => prev.slice(0, idx));
+    setEditing(null);
+    void sendMessage({ text: t });
+  };
+
+  // REGENERATE: v6 truncates to the messageId + re-streams it.
+  const onRegenerate = (id: string) => {
+    if (busy) return;
+    void regenerate({ messageId: id });
+  };
+
+  // ROLLBACK: keep through this msg, drop the tail, persist.
+  const onRollback = (id: string) => {
+    if (busy) return;
+    const idx = messages.findIndex((m) => m.id === id);
+    if (idx < 0) return;
+    setMessages((prev) => prev.slice(0, idx + 1));
+    agentStore.truncate(conversationId, idx + 1);
+  };
+
+  const actions: MessageActions = {
+    busy,
+    onEdit: (id, text) => setEditing({ id, text }),
+    onRegenerate,
+    onRollback,
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div
-        ref={scrollRef}
-        className="flex-1 space-y-4 overflow-y-auto px-4 py-4"
-      >
-        {messages.length === 0 ? (
+      {messages.length === 0 ? (
+        <div className="flex flex-1 flex-col overflow-y-auto px-4 py-4">
           <EmptyState onPick={send} />
-        ) : (
-          messages.map((m) => <MessageParts key={m.id} message={m} />)
-        )}
-        {error ? (
-          <div className="rounded-md border border-accent/40 bg-accent-tint px-3 py-2 text-sm text-white/80">
-            {error.message || "Something went wrong talking to the agent."}
-          </div>
-        ) : null}
-      </div>
-      <Composer
-        value={input}
-        onChange={setInput}
-        onSubmit={() => send(input)}
-        busy={busy}
-        onStop={stop}
-      />
+        </div>
+      ) : (
+        <VirtualMessageList
+          messages={messages}
+          actions={actions}
+          streaming={busy}
+        />
+      )}
+
+      {error ? (
+        <div className="mx-4 mb-2 rounded-md border border-accent/40 bg-accent-tint px-3 py-2 text-sm text-white/80">
+          {error.message || "Something went wrong talking to the agent."}
+        </div>
+      ) : null}
+
+      {editing ? (
+        <EditBar
+          text={editing.text}
+          onCancel={() => setEditing(null)}
+          onSave={(t) => saveEdit(editing.id, t)}
+        />
+      ) : (
+        <Composer
+          value={input}
+          onChange={setInput}
+          onSubmit={() => send(input)}
+          busy={busy}
+          onStop={stop}
+        />
+      )}
     </div>
   );
 }
@@ -351,7 +543,7 @@ export function AgentPanel({
           >
             <PanelLeft className="h-4 w-4" />
           </Button>
-          <span className="flex-1 truncate px-1 font-display text-sm tracking-[-0.02em] text-white">
+          <span className="flex-1 truncate px-1 font-display text-sm text-white tracking-[-0.02em]">
             {active?.title ?? "Agent"}
           </span>
           {model ? (
