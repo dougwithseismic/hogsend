@@ -48,9 +48,13 @@ vi.mock("../lib/redis.js", () => {
   return { getRedis: () => redis, getRedisIfConnected: () => redis };
 });
 
-const { createApp, createHogsendClient } = await import("@hogsend/engine");
-const { mintProposal, verifyAndBurnProposal, InvalidProposalError } =
-  await import("../../../../packages/engine/src/lib/agent/proposals.js");
+const {
+  createApp,
+  createHogsendClient,
+  mintProposal,
+  verifyAndBurnProposal,
+  InvalidProposalError,
+} = await import("@hogsend/engine");
 
 const SECRET = process.env.BETTER_AUTH_SECRET as string;
 const app = createApp(createHogsendClient());
