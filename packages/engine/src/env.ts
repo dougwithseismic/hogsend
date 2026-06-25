@@ -236,6 +236,23 @@ export const env = createEnv({
     // path can never be turned off by misconfiguration. Set this to add the
     // segment/slack presets (credentials still live per-endpoint in `config`).
     ENABLED_DESTINATION_PRESETS: z.string().optional(),
+    // --- Studio co-working agent (GLM-5.2 via OpenRouter) ---
+    // The agent route (`/v1/admin/agent/*`) is FAIL-CLOSED on this key: with no
+    // OPENROUTER_API_KEY the `/config` probe reports `enabled:false` and `/chat`
+    // 503s, so the Studio panel renders a calm "agent not configured" state and
+    // never ships the key to the browser. Get one at openrouter.ai/keys.
+    OPENROUTER_API_KEY: z.string().min(1).optional(),
+    // The OpenRouter model id the agent runs on. Default is GLM-5.2 (z-ai), a
+    // 1M-context agentic-coding model well-suited to tool use; swap freely
+    // (e.g. z-ai/glm-4.6 as a battle-tested fallback) without code changes.
+    AGENT_MODEL: z.string().min(1).default("z-ai/glm-5.2"),
+    // Master switch. Enum (not z.coerce.boolean) so an explicit "false" disables.
+    // EFFECTIVE-enabled also requires OPENROUTER_API_KEY, so this defaults "true"
+    // yet stays zero-cost-off until a key is set.
+    AGENT_ENABLED: z.enum(["true", "false"]).default("true"),
+    // Hard cap on the agent's tool-use loop per chat turn (GLM-5.2 handles long
+    // multi-step loops; this bounds runaway cost). Read in routes/admin/agent.ts.
+    AGENT_MAX_STEPS: z.coerce.number().int().positive().default(24),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

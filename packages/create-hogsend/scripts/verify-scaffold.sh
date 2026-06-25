@@ -195,16 +195,35 @@ echo "==> [5/8] pnpm check-types (scaffolded app)"
 (cd "$APPDIR" && pnpm check-types) || fail "check-types failed"
 
 # --- 6. build -------------------------------------------------------------
-echo "==> [6/8] pnpm build (scaffolded app)"
+echo "==> [6/9] pnpm build (scaffolded app)"
 (cd "$APPDIR" && pnpm build >/dev/null) || fail "build failed"
 [ -f "$APPDIR/dist/index.js" ] || fail "dist/index.js not produced"
 [ -f "$APPDIR/dist/worker.js" ] || fail "dist/worker.js not produced"
 
-# --- 7. lint --------------------------------------------------------------
-echo "==> [7/8] biome check (scaffolded app)"
+# --- 7. boot smoke --------------------------------------------------------
+# The AI-SDK bundling bug ("Dynamic require of X is not supported") throws at
+# MODULE EVAL — before any DB/Redis connection — so a build-only smoke misses
+# it (this is exactly how engine 0.35.0 shipped a consumer-crashing release).
+# We can't assert on exit code: with no .env the app legitimately exits non-zero
+# at env-validation, which is itself PROOF the module graph loaded fine. So we
+# boot each entry (timeout-bounded) and FAIL only on the telltale module-eval
+# signatures — reaching env-validation (or staying up to the timeout) is a PASS.
+echo "==> [7/9] boot smoke (node dist/index.js + dist/worker.js)"
+for entry in index worker; do
+  log="/tmp/hogsend-boot-$entry.log"
+  (cd "$APPDIR" && timeout 8 node "dist/$entry.js" >"$log" 2>&1) || true
+  if grep -qiE 'Dynamic require|is not supported|Cannot use import statement|SyntaxError|ERR_MODULE_NOT_FOUND|ERR_REQUIRE_ESM' "$log"; then
+    echo "----- boot output ($entry) -----" >&2; cat "$log" >&2
+    fail "dist/$entry.js failed at module eval — a CJS dep was bundled into ESM; add it to template/_package.json dependencies so tsup externalizes it"
+  fi
+  echo "    dist/$entry.js loads clean (no module-eval crash)"
+done
+
+# --- 8. lint --------------------------------------------------------------
+echo "==> [8/9] biome check (scaffolded app)"
 (cd "$APPDIR" && pnpm exec biome check .) || fail "biome check failed"
 
-# --- 8. cleanup (trap) ----------------------------------------------------
-echo "==> [8/8] cleanup /tmp dirs"
+# --- 9. cleanup (trap) ----------------------------------------------------
+echo "==> [9/9] cleanup /tmp dirs"
 echo ""
-echo "PASS: scaffold -> install -> check-types -> build -> lint all green."
+echo "PASS: scaffold -> install -> check-types -> build -> boot -> lint all green."

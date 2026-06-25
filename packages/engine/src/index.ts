@@ -204,6 +204,14 @@ export {
   getJourneyRegistrySingleton,
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
+// --- Studio co-working agent (HITL proposal chokepoint) ---
+export {
+  InvalidProposalError,
+  mintProposal,
+  type ProposalPayload,
+  type VerifiedProposal,
+  verifyAndBurnProposal,
+} from "./lib/agent/proposals.js";
 // --- Analytics provider registry (the analytics sibling) ---
 export {
   type IdentityMergeReason,

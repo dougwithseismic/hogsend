@@ -1,5 +1,45 @@
 # hogsend
 
+## 0.35.1
+
+### Patch Changes
+
+- afbfa22: Fix scaffolded apps crashing at boot ("Dynamic require of X is not supported") on engine 0.35.0+
+
+  engine 0.35.0 added `ai` + `@openrouter/ai-sdk-provider` (for the Studio agent), but the `create-hogsend` template's `package.json` never declared them — so a consumer's tsup (which externalizes everything outside `@hogsend/*`) had no node_modules copy to externalize and instead bundled the CJS `ai` tree (transitively `@vercel/oidc`) into the ESM `dist`, which crashes at module-eval. The template now declares `ai`, `@openrouter/ai-sdk-provider`, plus the two other engine runtime deps that were also missing (`svix`, `picocolors`), so tsup externalizes them and they resolve from node_modules at runtime. `verify-scaffold` now boots the built app (api + worker) to catch this class of bundling regression, which a build-only smoke missed.
+
+- Updated dependencies [afbfa22]
+  - @hogsend/cli@0.35.1
+
+## 0.35.0
+
+### Minor Changes
+
+- d510956: Studio co-working AI agent (GLM-5.2 via OpenRouter)
+
+  Adds an in-Studio co-working agent: a bottom-right chat panel that reads the live
+  instance (contacts, events, journeys, buckets, sends) and can act through the
+  existing data plane — every write gated behind a human-in-the-loop confirmation.
+
+  - Engine: streaming `POST /v1/admin/agent/chat` (Vercel AI SDK + OpenRouter,
+    default model `z-ai/glm-5.2`) under the admin auth/rate-limit/audit stack; the
+    OpenRouter key never leaves the server. Read tools auto-run; write tools mint a
+    single-use, encrypted, Redis-burned proposal token that only
+    `POST /v1/admin/agent/confirm` can execute (idempotent, audited,
+    test-mode-aware tier reclassification).
+  - Studio: launcher → slide-over drawer, multi-chat (localStorage), markdown
+    rendering, tool-call cards, a tier-driven confirmation card, and per-message
+    edit / rollback / regenerate over a virtualized thread.
+
+  Opt-in and fail-closed: with no `OPENROUTER_API_KEY` the panel shows a calm
+  "not configured" state and the routes 503. The rest of the engine-line packages
+  move with the engine version line (no functional change in those).
+
+### Patch Changes
+
+- Updated dependencies [d510956]
+  - @hogsend/cli@0.35.0
+
 ## 0.34.0
 
 ### Minor Changes
