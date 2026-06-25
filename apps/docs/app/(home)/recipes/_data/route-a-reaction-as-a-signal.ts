@@ -102,7 +102,7 @@ export const routeAReactionAsASignal: RecipeLander = {
     },
     {
       title: "Identity is resolved server-side",
-      body: "The reaction carries a discord_id (via userId discord:<snowflake>); the run reads the contacts row to learn whether the member has linked an email. A linked member can be emailed; an unlinked one is paged through the Discord channel destination.",
+      body: "The reaction carries a discord_id on the IngestEvent.discordId field, which folds onto the contacts.discord_id column; the run reads the contacts row to learn whether the member has linked an email. A linked member can be emailed; an unlinked one is paged through the Discord channel destination.",
     },
     {
       title: "Re-flagging is rate-limited",

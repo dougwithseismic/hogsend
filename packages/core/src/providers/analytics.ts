@@ -69,6 +69,36 @@ export interface AnalyticsCapabilities {
   identityMerge?: boolean;
 }
 
+/**
+ * Operator policy for mirroring ingested events into the active analytics
+ * provider via {@link AnalyticsProvider.capture}. The engine's ingest spine
+ * (`ingestEvent`) is the ONE place this fires — keyed to the resolved canonical
+ * contact key, on the fresh-insert side of the idempotency guard, never from a
+ * journey task. Default OFF: absent or `enabled:false` ⇒ no `capture()` calls
+ * (DB-only behaviour, exactly as before).
+ *
+ * Events whose `source` is `"posthog"` are NEVER mirrored regardless of config
+ * (they came FROM PostHog — re-capturing them would loop). `allow`/`deny`
+ * refine by event name on top of that.
+ *
+ * NOTE: if the durable PostHog DESTINATION is also enabled
+ * (`ENABLE_POSTHOG_DESTINATION`) it already forwards the email lifecycle events
+ * (`email.opened`/`email.clicked`/…) to PostHog — enabling both with an empty
+ * `deny` double-sends those. Pick one path, or `deny` the destination's events
+ * here (e.g. `deny: ["email.opened", "email.link_clicked", "email.clicked"]`).
+ */
+export interface AnalyticsEventMirrorConfig {
+  /** Master switch. Default false → the ingest spine fires no `capture()`. */
+  enabled: boolean;
+  /**
+   * Allow-list of event names. When set, ONLY these events mirror (applied
+   * before `deny`). Omit ⇒ every event passes the name filter.
+   */
+  allow?: string[];
+  /** Deny-list of event names, applied AFTER `allow`. */
+  deny?: string[];
+}
+
 export interface AnalyticsProviderMeta {
   /** Registry key, e.g. `"posthog"`, `"segment"`. */
   id: string;

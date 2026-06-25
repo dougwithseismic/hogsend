@@ -55,9 +55,10 @@ describe("discordConnector.transform", () => {
     );
     expect(event).not.toBeNull();
     expect(event?.event).toBe(DiscordEvents.MESSAGE_CREATE);
-    expect(event?.userId).toBe("discord:u1");
+    expect(event?.userId).toBeUndefined();
     // discordId is the snowflake (forward-compat IngestEvent field)
     expect(event?.discordId).toBe("u1");
+    expect(event?.eventProperties.authorId).toBe("u1");
     expect(event?.eventProperties.hasContent).toBe(true);
     expect(event?.eventProperties.guildId).toBe("g1");
     // Nested NON-KEY metadata under contactProperties.discord (deep-merged
@@ -124,9 +125,10 @@ describe("discordConnector.transform", () => {
     expect(events).toHaveLength(1);
     const added = events[0] as IngestEvent;
     expect(added.event).toBe(DiscordEvents.MESSAGE_REACTION_ADD);
-    expect(added.userId).toBe("discord:u9");
+    expect(added.userId).toBeUndefined();
     expect(added.eventProperties.emoji).toBe("🔥");
     expect(added.eventProperties.targetAuthorKey).toBeNull();
+    expect(added.eventProperties.reactorId).toBe("u9");
     // :a suffix disambiguates the reactor side from the author (:r) side.
     expect(added.idempotencyKey).toBe("discord:react:m5:u9:🔥:a");
   });
@@ -150,9 +152,10 @@ describe("discordConnector.transform", () => {
     const received = events[1] as IngestEvent & { discordId?: string };
     // Reactor side carries the target author for distinct-people counting.
     expect(added.event).toBe(DiscordEvents.MESSAGE_REACTION_ADD);
-    expect(added.userId).toBe("discord:reactor1");
+    expect(added.userId).toBeUndefined();
     expect(added.eventProperties.targetAuthorId).toBe("author1");
     expect(added.eventProperties.targetAuthorKey).toBe("discord:author1");
+    expect(added.eventProperties.reactorId).toBe("reactor1");
     expect(added.idempotencyKey).toBe("discord:react:m5:reactor1:❤️:a");
     // Author side is keyed by discordId ONLY (attach-only, no canonical flip).
     expect(received.event).toBe(DISCORD_REACTION_RECEIVED);
@@ -199,7 +202,7 @@ describe("discordConnector.transform", () => {
       ),
     );
     expect(event?.event).toBe(DiscordEvents.MESSAGE_REACTION_REMOVE);
-    expect(event?.userId).toBe("discord:u9");
+    expect(event?.userId).toBeUndefined();
     expect(event?.idempotencyKey).toBe("discord:unreact:m5:u9:🔥");
   });
 
@@ -221,7 +224,8 @@ describe("discordConnector.transform", () => {
       ),
     );
     expect(event?.event).toBe(DiscordEvents.GUILD_MEMBER_ADD);
-    expect(event?.userId).toBe("discord:u10");
+    expect(event?.userId).toBeUndefined();
+    expect(event?.eventProperties.memberId).toBe("u10");
     const meta = event?.contactProperties?.discord as Record<string, unknown>;
     expect(meta.id).toBe("u10");
     expect(meta.username).toBe("bob");

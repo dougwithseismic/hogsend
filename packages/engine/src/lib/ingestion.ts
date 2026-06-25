@@ -1,5 +1,8 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
-import type { AnalyticsProvider } from "@hogsend/core";
+import type {
+  AnalyticsEventMirrorConfig,
+  AnalyticsProvider,
+} from "@hogsend/core";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
@@ -9,6 +12,10 @@ import {
   logResidualTwins,
   mergeAnalyticsIdentities,
 } from "./analytics-identity.js";
+import {
+  getAnalytics,
+  getAnalyticsEventMirror,
+} from "./analytics-singleton.js";
 import { resolveOrCreateContact } from "./contacts.js";
 import type { Logger } from "./logger.js";
 
@@ -122,6 +129,20 @@ export async function ingestTransformResult(opts: {
   return { ingested, exits };
 }
 
+/**
+ * Event-name filter for the {@link AnalyticsEventMirrorConfig}: an `allow` list
+ * (when set) gates to those names, then `deny` removes any. The `source` filter
+ * (never mirror `"posthog"`-origin events) is enforced at the call site.
+ */
+function shouldMirrorEvent(
+  eventName: string,
+  cfg: AnalyticsEventMirrorConfig,
+): boolean {
+  if (cfg.allow && !cfg.allow.includes(eventName)) return false;
+  if (cfg.deny?.includes(eventName)) return false;
+  return true;
+}
+
 export async function ingestEvent(opts: {
   db: Database;
   registry: JourneyRegistry;
@@ -137,8 +158,16 @@ export async function ingestEvent(opts: {
    * provider without `identityMerge` no-ops cleanly.
    */
   analytics?: AnalyticsProvider;
+  /**
+   * Operator policy for mirroring THIS event into `analytics` via `capture()`.
+   * Test/advanced override: real call sites omit it and the resolved config is
+   * read from the analytics singleton (installed by `createHogsendClient`), so
+   * the mirror fires on every ingest path without threading. Absent on both ⇒
+   * no mirror.
+   */
+  eventMirror?: AnalyticsEventMirrorConfig;
 }): Promise<IngestResult> {
-  const { db, registry, hatchet, logger, event, analytics } = opts;
+  const { db, registry, hatchet, logger, event, analytics, eventMirror } = opts;
 
   // (1) Resolve identity FIRST (awaited — no longer fire-and-forget). The
   // contact-referencing tables join on a NOT NULL text key, so an email-only /
@@ -228,6 +257,37 @@ export async function ingestEvent(opts: {
         identifiedLoserKeys: mergedIdentifiedKeys,
         contactId,
         logger,
+      });
+    }
+  }
+
+  // (2c) Event mirror — best-effort `capture()` into the active analytics
+  // provider, gated by operator policy. Placed on the fresh-insert side of the
+  // idempotency guard (the duplicate path returned at the early `stored:false`
+  // above), so a same-key retry NEVER double-mirrors — `capture` is NOT
+  // idempotent, and this is the ONLY site that calls it on the ingest spine
+  // (never a journey task). Provider + config fall back to the container
+  // singletons so the mirror fires on EVERY ingest path, not just the routes
+  // that thread `analytics`. `source === "posthog"` events are excluded
+  // unconditionally (they came FROM PostHog — re-capturing them would loop).
+  const mirrorProvider = analytics ?? getAnalytics();
+  const mirrorConfig = eventMirror ?? getAnalyticsEventMirror();
+  if (
+    mirrorConfig?.enabled &&
+    mirrorProvider?.capabilities.personWrites &&
+    event.source !== "posthog" &&
+    shouldMirrorEvent(event.event, mirrorConfig)
+  ) {
+    try {
+      mirrorProvider.capture({
+        distinctId: resolvedKey,
+        event: event.event,
+        properties: event.eventProperties,
+      });
+    } catch (err) {
+      logger.debug("event mirror capture failed (non-fatal)", {
+        event: event.event,
+        error: err instanceof Error ? err.message : String(err),
       });
     }
   }

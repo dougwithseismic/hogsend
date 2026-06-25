@@ -198,9 +198,12 @@ export interface PushLinkClickEventOpts {
   linkUrl: string;
   /**
    * The personal link's canonical contact key (`links.distinct_id`). MUST be the
-   * subject's EXTERNAL canonical key (an app `external_id`, or "discord:<id>" for
-   * a Discord member) — a raw snowflake or anonymous id would fork an orphan
-   * contact. Null ⇒ a broadcast/public link (no person) ⇒ no re-ingest.
+   * subject's EXTERNAL canonical key (an app `external_id`) or the contact's
+   * canonical uuid key — a raw snowflake or anonymous id would fork an orphan
+   * contact. NOTE: a Discord member is keyed by the `discord_id` COLUMN, not an
+   * `external_id`, so a `"discord:<id>"` value here would fork an orphan contact;
+   * reach a discord-keyed contact by its resolved canonical key instead. Null ⇒
+   * a broadcast/public link (no person) ⇒ no re-ingest.
    */
   distinctId: string | null;
   idempotencyKey?: string;

@@ -12,9 +12,23 @@ import { getDb } from "./db.js";
 import { createLogger } from "./logger.js";
 
 /**
- * Resolve a contact for an outbound action by email, external id, or a platform
- * id (e.g. a Discord snowflake). Matches text columns only (NOT the uuid `id`,
- * which would force an invalid-uuid cast error for an email ref). First live
+ * Matches the canonical UUID form of `contacts.id` (8-4-4-4-12 hex). Gates the
+ * `eq(contacts.id, ref)` leg so a uuid comparison only runs for a genuinely
+ * uuid-shaped ref — an email/snowflake ref would otherwise raise a Postgres
+ * `22P02 invalid input syntax for type uuid`.
+ */
+const CONTACT_ID_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve a contact for an outbound action by its canonical key in ANY form:
+ * email, external id, a platform id (a Discord snowflake / anonymous id), or —
+ * when the ref is uuid-shaped — the contact's row `id`. Matching every canonical
+ * key form (the journey subject key is `external_id ?? anonymous_id ?? id`) lets
+ * `member: user.id` resolve a member who has NOT linked (an anonymous Discord
+ * contact keyed by its uuid) or an email-only member. The uuid `id` leg is
+ * shape-gated: `contacts.id` is a uuid column and an unguarded `eq(id, ref)`
+ * against an email/snowflake text ref throws an invalid-uuid cast. First live
  * match wins.
  */
 async function resolveContact(
@@ -38,6 +52,8 @@ async function resolveContact(
           eq(contacts.email, ref),
           eq(contacts.externalId, ref),
           eq(contacts.discordId, ref),
+          eq(contacts.anonymousId, ref),
+          ...(CONTACT_ID_UUID.test(ref) ? [eq(contacts.id, ref)] : []),
         ),
       ),
     )

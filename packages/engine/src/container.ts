@@ -1,5 +1,6 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type {
+  AnalyticsEventMirrorConfig,
   AnalyticsProvider,
   EmailProvider,
   PostHogService,
@@ -47,7 +48,10 @@ import {
 } from "./lib/analytics-adapter.js";
 import { AnalyticsProviderRegistry } from "./lib/analytics-provider-registry.js";
 import { analyticsProvidersFromEnv } from "./lib/analytics-providers-from-env.js";
-import { setAnalytics } from "./lib/analytics-singleton.js";
+import {
+  setAnalytics,
+  setAnalyticsEventMirror,
+} from "./lib/analytics-singleton.js";
 import { type Auth, createAuth } from "./lib/auth.js";
 import {
   createDomainStatusService,
@@ -271,6 +275,7 @@ export interface HogsendClientOptions {
         provider?: AnalyticsProvider;
         providers?: AnalyticsProvider[];
         defaultProvider?: string;
+        eventMirror?: AnalyticsEventMirrorConfig;
       };
   /**
    * Code-defined outbound DESTINATIONS (Phase 3). Each is a
@@ -588,6 +593,7 @@ export function createHogsendClient(
           provider?: AnalyticsProvider;
           providers?: AnalyticsProvider[];
           defaultProvider?: string;
+          eventMirror?: AnalyticsEventMirrorConfig;
         })
       : undefined;
 
@@ -646,6 +652,22 @@ export function createHogsendClient(
   // API and worker, so this is installed before any worker task runs. May be
   // undefined (no provider configured) — the reads stay no-ops.
   setAnalytics(analytics);
+
+  // Event mirror (operator policy): resolve the ingest→analytics capture config
+  // once and install it on the same singleton seam as `analytics`, so
+  // `ingestEvent` mirrors events into the active provider on EVERY ingest path
+  // (not just the routes that thread `analytics`). Off by default. The env flag
+  // is an explicit OVERRIDE in both directions when set ("true"/"false"); unset
+  // ⇒ the code option wins. Allow/deny stay code-only (env is not list config).
+  const eventMirror: AnalyticsEventMirrorConfig = {
+    enabled:
+      env.ANALYTICS_EVENT_MIRROR != null
+        ? env.ANALYTICS_EVENT_MIRROR === "true"
+        : (analyticsGroup?.eventMirror?.enabled ?? false),
+    allow: analyticsGroup?.eventMirror?.allow,
+    deny: analyticsGroup?.eventMirror?.deny,
+  };
+  setAnalyticsEventMirror(eventMirror);
 
   // Identity-attach helper (§7): bound to THIS container's db + resolved
   // analytics provider so a contact-merge outside the `/v1/events` ingest path
