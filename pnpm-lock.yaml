@@ -95,6 +95,12 @@ importers:
       papaparse:
         specifier: ^5.5.3
         version: 5.5.3
+      react:
+        specifier: ^19.2.6
+        version: 19.2.6
+      react-dom:
+        specifier: 19.2.6
+        version: 19.2.6(react@19.2.6)
       react-email:
         specifier: 6.3.2
         version: 6.3.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -138,12 +144,6 @@ importers:
       posthog-node:
         specifier: ^5.35.1
         version: 5.35.1
-      react:
-        specifier: ^19.2.6
-        version: 19.2.6
-      react-dom:
-        specifier: 19.2.6
-        version: 19.2.6(react@19.2.6)
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.15)(tsx@4.22.3)(typescript@5.9.2)(yaml@2.9.0)
