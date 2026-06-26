@@ -36,7 +36,13 @@ export interface ToastProps {
   onClick?: (toast: ToastData) => void;
   /** Dismiss handler (the container wires `inapp.toast_dismissed`). */
   onDismiss?: (toast: ToastData) => void;
-  /** Replace the whole toast markup (override layer 5). */
+  /**
+   * Replace the whole toast markup (override layer 5). Short-circuits BEFORE
+   * the default skin's `dataVariants`/markup, so a custom toast OWNS its own
+   * dismiss/click affordances: the container's `onClick`/`onDismiss` are not
+   * applied to your element. Call back through `useToast().dismiss(toast.id)` /
+   * `useToast().click(toast.id)` to keep the closed loop (`inapp.toast_*`).
+   */
   renderToast?: (toast: ToastData) => ReactNode;
   /** Merge props onto a consumer element (override layer 4). */
   asChild?: boolean;

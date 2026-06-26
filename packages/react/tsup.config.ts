@@ -18,6 +18,7 @@ export default defineConfig({
     bell: "src/components/bell/notification-bell.tsx",
     banner: "src/components/banner/banner.tsx",
     toast: "src/components/toast/toast-container.tsx",
+    preferences: "src/components/preferences/preference-center.tsx",
     "styles/styles": "src/styles/styles.css",
   },
   format: ["esm", "cjs"],

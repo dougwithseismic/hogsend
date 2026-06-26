@@ -26,6 +26,21 @@ const listSummarySchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   defaultOptIn: z.boolean(),
+  // The resolved opt-in state for the identity in the query (`categories[id] ??
+  // defaultOptIn`). An anon / publishable / no-identity read degrades to
+  // `defaultOptIn` (never leaks another contact's state — mirrors the
+  // `/preferences` gate). This makes ONE catalog call power a preference matrix.
+  subscribed: z.boolean(),
+});
+
+// `GET /` accepts the SAME identity query as `/preferences` so a single call can
+// return the catalog WITH each list's resolved `subscribed`. Identity is
+// OPTIONAL here (the catalog itself is always returned); when absent (or on a
+// publishable key) every `subscribed` falls back to `defaultOptIn`.
+const listQuerySchema = z.object({
+  userId: z.string().optional(),
+  email: z.string().optional(),
+  anonymousId: z.string().optional(),
 });
 
 const bodySchema = z.object({
@@ -41,7 +56,8 @@ const listRoute = createRoute({
   tags: ["Lists"],
   summary: "List defined email lists",
   description:
-    "Returns the enabled, code-defined email lists (D3). Membership lives in `email_preferences.categories`; this only enumerates the catalog.",
+    "Returns the enabled, code-defined email lists (D3) with each list's resolved `subscribed` state for the (optional) identity in the query. Membership lives in `email_preferences.categories`; this enumerates the catalog and folds in the contact's opt-in map in one call.",
+  request: { query: listQuerySchema },
   responses: {
     200: {
       content: {
@@ -251,15 +267,44 @@ async function applyListSubscription(opts: {
 // `requireScope("ingest")` to `/v1/lists` (bare + `/*`) before requests reach
 // this router. Mounting auth here too would double the middleware.
 export const listsRouter = new OpenAPIHono<AppEnv>()
-  .openapi(listRoute, (c) => {
-    const lists = getListRegistry()
-      .getEnabled()
-      .map((l) => ({
-        id: l.id,
-        name: l.name,
-        ...(l.description !== undefined ? { description: l.description } : {}),
-        defaultOptIn: l.defaultOptIn,
-      }));
+  .openapi(listRoute, async (c) => {
+    const { db } = c.get("container");
+    const { userId, email } = c.req.valid("query");
+    const enabled = getListRegistry().getEnabled();
+
+    // Best-effort subscription enrichment. ONLY a secret key with a concrete
+    // identity (email/userId) reads another contact's category map; a
+    // publishable key — or an anon / no-identity read — degrades to
+    // `defaultOptIn` (no leak, mirroring the `/preferences` 403 on a publishable
+    // concrete read). Reuses the same `resolveRecipient` + `extId` lookup so the
+    // catalog and the matrix stay one call.
+    let categories: Record<string, boolean> = {};
+    if ((userId || email) && !c.get("publishable")) {
+      const recipient = await resolveRecipient({ db, userId, email });
+      if (recipient) {
+        const extId = recipient.externalId ?? recipient.contactId;
+        const rows = await db
+          .select()
+          .from(emailPreferences)
+          .where(
+            and(
+              eq(emailPreferences.userId, extId),
+              eq(emailPreferences.email, recipient.email),
+            ),
+          )
+          .limit(1);
+        const row = rows[0];
+        if (row) categories = serializePrefs(row).categories;
+      }
+    }
+
+    const lists = enabled.map((l) => ({
+      id: l.id,
+      name: l.name,
+      ...(l.description !== undefined ? { description: l.description } : {}),
+      defaultOptIn: l.defaultOptIn,
+      subscribed: categories[l.id] ?? l.defaultOptIn,
+    }));
 
     return c.json({ lists }, 200);
   })

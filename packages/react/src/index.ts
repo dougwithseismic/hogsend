@@ -44,11 +44,24 @@ export {
   type NotificationFeedProps,
 } from "./components/feed/notification-feed.js";
 export {
+  type SurveyBlock,
+  type SurveyBlockClassNames,
+  type SurveyBlockProps,
+  SurveyBlockView,
+} from "./components/feed/survey-block.js";
+export {
   FeedPopover,
   type FeedPopoverClassNames,
   type FeedPopoverPlacement,
   type FeedPopoverProps,
+  type FeedPopoverTab,
 } from "./components/popover/feed-popover.js";
+export {
+  PreferenceCenter,
+  type PreferenceCenterClassNames,
+  type PreferenceCenterProps,
+  type PreferenceChannel,
+} from "./components/preferences/preference-center.js";
 export { Slot, type SlotProps } from "./components/primitives/slot.js";
 export {
   VisuallyHidden,

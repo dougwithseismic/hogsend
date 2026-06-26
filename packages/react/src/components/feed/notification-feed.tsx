@@ -125,6 +125,7 @@ export function NotificationFeed(props: NotificationFeedProps): ReactNode {
     networkStatus,
     fetchNextPage,
     markAsRead,
+    markAsArchived,
     markAllAsRead,
   } = feed;
 
@@ -152,7 +153,20 @@ export function NotificationFeed(props: NotificationFeedProps): ReactNode {
     await markAllAsRead();
   }, [markAllAsRead, onMarkAllAsReadClick]);
 
-  const isEmpty = items.length === 0 && networkStatus !== "loading";
+  // Soft-archive: `markAsArchived` flips status but KEEPS the row in `items`
+  // (it's a patch, not a removal). The closed-loop `inapp.item_archived`
+  // emission already lives in the SDK store mutation — don't duplicate it here.
+  const handleArchive = useCallback(
+    (item: FeedItemData) => {
+      void markAsArchived([item.id]);
+    },
+    [markAsArchived],
+  );
+
+  // Hide soft-archived rows here (the filtering the `renderItem` seam can't do)
+  // and derive the empty/list state from the visible set.
+  const visible = items.filter((item) => item.status !== "archived");
+  const isEmpty = visible.length === 0 && networkStatus !== "loading";
 
   const stateAttrs = dataVariants({
     status: networkStatus,
@@ -203,12 +217,16 @@ export function NotificationFeed(props: NotificationFeedProps): ReactNode {
           role="feed"
           aria-busy={networkStatus === "loading"}
         >
-          {items.map((item) => (
+          {visible.map((item) => (
             <li key={item.id} className={cn("hsr-feed__row", classNames?.item)}>
               {renderItem ? (
                 renderItem(item, { onClick: () => handleItemClick(item) })
               ) : (
-                <FeedItem item={item} onClick={handleItemClick} />
+                <FeedItem
+                  item={item}
+                  onClick={handleItemClick}
+                  onArchive={handleArchive}
+                />
               )}
             </li>
           ))}

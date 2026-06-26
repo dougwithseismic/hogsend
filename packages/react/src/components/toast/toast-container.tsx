@@ -26,7 +26,13 @@ export type ToastPlacement =
 export interface ToastContainerProps {
   /** Corner placement. Default "top-right". */
   placement?: ToastPlacement;
-  /** Replace a single toast's markup (override layer 5). */
+  /**
+   * Replace a single toast's markup (override layer 5), forwarded per-toast to
+   * each `<Toast>`. A custom render OWNS its dismiss/click affordances — the
+   * `onToastClick`/`onToastDismiss` wiring below only runs for the default
+   * skin, so call back through `useToast().dismiss/click` from inside your
+   * element to keep the `inapp.toast_*` closed loop intact.
+   */
   renderToast?: (toast: ToastData) => ReactNode;
   /** Fired AFTER `inapp.toast_clicked`. */
   onToastClick?: (toast: ToastData) => void;

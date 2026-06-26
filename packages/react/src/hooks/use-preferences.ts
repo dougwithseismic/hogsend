@@ -42,10 +42,11 @@ export function usePreferences(): UsePreferences {
     (s) => s.preferences ?? EMPTY_PREFS,
   );
 
-  // `lists` (summaries with names) are a v2 addition (a list-catalog read
-  // route); v1 surfaces the category map only. Kept in local state so the hook
-  // contract is stable now.
-  const [lists] = useState<ListSummary[]>([]);
+  // The raw list catalog from `GET /v1/lists` (each list's `subscribed` is the
+  // SERVER snapshot at fetch time). Kept raw; the returned `lists` recompute
+  // `subscribed` against the live prefs slice below so a toggle reflects
+  // instantly without a refetch.
+  const [rawLists, setRawLists] = useState<ListSummary[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Memoized per client lifetime so the effect/callback deps are stable and
@@ -55,7 +56,10 @@ export function usePreferences(): UsePreferences {
   const refetch = useCallback(async () => {
     setLoading(true);
     try {
-      await prefsClient.get();
+      await Promise.all([
+        prefsClient.get(),
+        prefsClient.lists().then(setRawLists),
+      ]);
     } finally {
       setLoading(false);
     }
@@ -64,16 +68,33 @@ export function usePreferences(): UsePreferences {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    prefsClient
-      .get()
-      .catch(() => undefined)
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    Promise.all([
+      prefsClient.get().catch(() => undefined),
+      prefsClient
+        .lists()
+        .then((next) => {
+          if (active) setRawLists(next);
+        })
+        .catch(() => undefined),
+    ]).finally(() => {
+      if (active) setLoading(false);
+    });
     return () => {
       active = false;
     };
   }, [prefsClient]);
+
+  // Overlay the live prefs slice onto the catalog so a `setPreference` toggle is
+  // reflected immediately (`categories[id] ?? defaultOptIn`). Stable unless the
+  // catalog or the prefs slice changes.
+  const lists = useMemo<ListSummary[]>(
+    () =>
+      rawLists.map((list) => ({
+        ...list,
+        subscribed: preferences.categories[list.id] ?? list.defaultOptIn,
+      })),
+    [rawLists, preferences],
+  );
 
   return {
     preferences,

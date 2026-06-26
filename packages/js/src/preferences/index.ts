@@ -11,6 +11,7 @@ import type { Transport } from "../spine/transport.js";
 import type { Store } from "../store/external-store.js";
 import type {
   HogsendState,
+  ListSummary,
   PreferencesClient,
   PreferencesState,
 } from "../types.js";
@@ -82,8 +83,17 @@ export function createPreferencesClient(
     });
   }
 
+  async function lists(): Promise<ListSummary[]> {
+    const res = await opts.transport.get<{ lists: ListSummary[] }>(
+      "/v1/lists",
+      identityQuery(opts.identity),
+    );
+    return res.lists;
+  }
+
   return {
     get,
+    lists,
     setPreference: async (categoryId, subscribed) => {
       const path = subscribed
         ? `/v1/lists/${encodeURIComponent(categoryId)}/subscribe`
