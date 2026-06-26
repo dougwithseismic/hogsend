@@ -1,22 +1,16 @@
 import { Bell } from "lucide-react";
 import { PillBadge } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
-import { CodeWindow } from "@/components/ds/code-window";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { isHogsendConfigured } from "@/components/hogsend/config";
-import { InAppDemoLive } from "./in-app-demo-live";
-import { IN_APP_SRC } from "./in-app-demo-src";
+import { InAppDemoBody } from "./in-app-demo-body";
 
 /**
- * InAppDemo — the home-page live-demo section: the product demonstrating itself
- * in real time. Replaces the older email-round-trip `LiveDemo`. A first-party
- * event fires, a deployed journey turns it into an in-app notification, and it
- * lands on the page (and in the nav bell) within seconds — no login.
- *
- * This is a SERVER component: it renders the async `<CodeWindow>` (server-side
- * Shiki) and passes it as a prop into the client `<InAppDemoLive>`, the same
- * interleaving the survey docs page uses to avoid the async-RSC-in-client trap
- * (React #482). The demo journeys it fires are already live on t.hogsend.com.
+ * InAppDemo — the home-page live-demo section: the product demonstrating itself.
+ * One section, two columns (`InAppDemoBody`): a real qualifier+email sign-up
+ * that feeds the dogfood (real welcome series + segmentation + lead alerts), and
+ * the in-app loop it unlocks (fire an event → a journey drops a notification in
+ * the feed + the nav bell). The demo journeys are already live on t.hogsend.com.
  */
 export function InAppDemo() {
   return (
@@ -25,7 +19,7 @@ export function InAppDemo() {
         align="center"
         eyebrow="Live demo"
         title="The product, running on itself"
-        subtitle="Fire a real lifecycle event and watch a journey turn it into a notification in real time — no login, keyed to one identity end to end. The same engine and journey code you scaffold."
+        subtitle="Sign up and a real welcome series lands in your inbox — then fire an event and watch a notification land in your bell. Both run on the same journeys you'd scaffold, one identity end to end."
       />
       <div className="relative mt-10">
         {/* red atmospheric bloom (the CodeWindow idiom) */}
@@ -39,18 +33,7 @@ export function InAppDemo() {
           }}
         />
         <div className="relative">
-          {isHogsendConfigured ? (
-            <InAppDemoLive
-              codePanel={
-                <CodeWindow
-                  filename="src/journeys/docs-inapp-demo.ts"
-                  code={IN_APP_SRC}
-                />
-              }
-            />
-          ) : (
-            <GatedNotice />
-          )}
+          {isHogsendConfigured ? <InAppDemoBody /> : <GatedNotice />}
         </div>
       </div>
     </Section>
