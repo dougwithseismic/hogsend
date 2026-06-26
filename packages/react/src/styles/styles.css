@@ -218,6 +218,9 @@
   display: flex;
   flex-direction: column;
   max-height: var(--hs-feed-max-height);
+  /* Own type baseline so items don't balloon to a large host font-size. */
+  font-size: 14px;
+  line-height: 1.45;
   background: var(--hs-color-surface);
   color: var(--hs-color-text);
 }
@@ -342,10 +345,13 @@
 
 .hsr-feed-item__title {
   font-weight: 600;
+  line-height: 1.3;
 }
 
 .hsr-feed-item__body {
-  color: var(--hs-color-text);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--hs-color-text-muted);
 }
 
 .hsr-feed-item__timestamp {
@@ -755,6 +761,21 @@
 .hsr-survey__thanks {
   font-size: 13px;
   color: var(--hs-survey-thanks-color);
+}
+
+/* Numeric scales (scale/nps) flow as ONE shrink-to-fit row so an 11-point NPS
+   never wraps into a ragged grid — it fits the 380px bell popover and narrower
+   inline feeds alike. Text modes (yesno/choice) keep wrapping (real labels). */
+.hsr-survey[data-mode="nps"] .hsr-survey__options,
+.hsr-survey[data-mode="scale"] .hsr-survey__options {
+  flex-wrap: nowrap;
+}
+
+.hsr-survey[data-mode="nps"] .hsr-survey__option,
+.hsr-survey[data-mode="scale"] .hsr-survey__option {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 2px;
 }
 
 /* ── preference center + switch + tabs (§5) ─────────────────────────────────
