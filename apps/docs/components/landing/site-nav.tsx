@@ -14,6 +14,7 @@ import { DISCORD_INVITE_URL, GITHUB_URL } from "@/lib/site";
 import { Logo } from "./logo";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
+  { label: "Components", href: "/components" },
   { label: "Templates", href: "/emails" },
   { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "/docs" },

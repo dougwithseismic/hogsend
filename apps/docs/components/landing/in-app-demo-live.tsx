@@ -45,7 +45,7 @@ const STEPS = [
   "You fired a first-party event (source: inapp) keyed to your id.",
   "The engine resolved your id to a canonical contact key and routed it.",
   "A journey triggered on the event, read your name, and called sendFeedItem.",
-  "It landed in the feed below — and in the bell ↗ in the top nav.",
+  "It landed in the feed below — the same feed the nav bell ↗ polls.",
 ] as const;
 
 export function InAppDemoLive({
@@ -96,12 +96,12 @@ export function InAppDemoLive({
           </PillBadge>
         </div>
         <h3 className="font-display text-2xl text-white tracking-[-0.02em]">
-          …then fire an event, watch your bell
+          …then fire an event, watch it land in the feed
         </h3>
         <p className="mt-1.5 text-sm text-white/55 leading-6">
           {signedUp
-            ? `You're in${name ? `, ${name}` : ""} — fire a real lifecycle event and a journey turns it into a notification in the feed below and the bell ↗ in the top nav.`
-            : "Sign up on the left, then fire a real lifecycle event — a journey turns it into a notification here and in the bell ↗ in the top nav."}
+            ? `You're in${name ? `, ${name}` : ""} — fire a real lifecycle event and a journey turns it into a notification in the feed below, the same feed the nav bell ↗ polls.`
+            : "Sign up on the left, then fire a real lifecycle event — a journey turns it into a notification here in the feed, the same one the nav bell ↗ shows."}
         </p>
       </div>
 
