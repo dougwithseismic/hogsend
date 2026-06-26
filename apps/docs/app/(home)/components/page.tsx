@@ -20,6 +20,7 @@ import { TabbedShowcase } from "@/components/ds/tabs";
 import { PreferenceCenterDemo } from "@/components/hogsend/preference-center-demo";
 import { SurveyDemo } from "@/components/hogsend/survey-demo";
 import { SURVEY_SRC } from "@/components/hogsend/survey-demo-src";
+import { ToastDemo } from "@/components/hogsend/toast-demo";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL, SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -217,6 +218,23 @@ export default function ComponentsPage() {
         {/* Live: the real preference center reading the list catalog. */}
         <Reveal className="mt-4">
           <PreferenceCenterDemo />
+        </Reveal>
+
+        {/* Live: pop a real toast and re-skin it with tokens. */}
+        <Reveal className="mt-12">
+          <h3 className="font-medium text-2xl text-white leading-[1.2] tracking-[-0.02em]">
+            Toasts, re-skinned with tokens
+          </h3>
+          <p className="mt-3 max-w-xl text-base text-white/60 leading-7">
+            <code className="font-mono text-white/80">Toast</code> and{" "}
+            <code className="font-mono text-white/80">ToastContainer</code> are
+            in the kit too. Pop one and recolor it live — the same{" "}
+            <code className="font-mono text-white/80">--hs-*</code> token
+            surface that themes the feed, the bell and the survey card.
+          </p>
+          <div className="mt-6">
+            <ToastDemo />
+          </div>
         </Reveal>
 
         <Reveal className="mt-14">
