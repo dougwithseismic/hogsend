@@ -47,6 +47,11 @@
       "import": "./dist/toast.js",
       "require": "./dist/toast.cjs"
     },
+    "./preferences": {
+      "types": "./dist/preferences.d.ts",
+      "import": "./dist/preferences.js",
+      "require": "./dist/preferences.cjs"
+    },
     "./styles.css": "./dist/styles/styles.css",
     "./package.json": "./package.json"
   },

@@ -12,13 +12,36 @@ import { timestamps } from "./_shared.js";
 
 /**
  * A renderable content block on a feed item — the typed union behind
- * `feed_items.blocks`. Minimal but real (text / button / image); new kinds are
- * additive (no migration — it's jsonb). Mirrors Knock's block model.
+ * `feed_items.blocks`. Minimal but real (text / button / image / survey); new
+ * kinds are additive (no migration — it's jsonb). Mirrors Knock's block model.
+ *
+ * The `survey` kind is the in-app half of the rating/survey primitive: ONE kind
+ * covers rating (`scale`), `nps`, `yesno`, and `choice`. Answering it emits the
+ * consumer `event` onto the spine (reserved-namespace rules apply), so a journey
+ * reads it via `ctx.waitForEvent → properties` exactly like an email
+ * semantic-click answer, and the reporting aggregate groups on it.
  */
 export type FeedBlock =
   | { type: "text"; text: string }
   | { type: "button"; label: string; url: string }
-  | { type: "image"; url: string; alt?: string };
+  | { type: "image"; url: string; alt?: string }
+  | {
+      type: "survey";
+      /** Consumer event emitted on answer (reserved-namespace rules apply). */
+      event: string;
+      mode: "scale" | "nps" | "yesno" | "choice";
+      /** Scalar key written into the event. Default `"value"`. */
+      property?: string;
+      surveyId?: string;
+      prompt?: string;
+      /** scale/nps bounds (nps forces 0..10). */
+      min?: number;
+      max?: number;
+      minLabel?: string;
+      maxLabel?: string;
+      /** choice/yesno options. */
+      choices?: { label: string; value: string | number }[];
+    };
 
 export const feedItemStatus = pgEnum("feed_item_status", [
   "unseen",

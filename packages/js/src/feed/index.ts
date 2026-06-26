@@ -20,7 +20,24 @@ import type { FeedSliceState, HogsendState } from "../types.js";
 export type FeedBlock =
   | { type: "text"; text: string }
   | { type: "button"; label: string; url: string }
-  | { type: "image"; url: string; alt?: string };
+  | { type: "image"; url: string; alt?: string }
+  | {
+      type: "survey";
+      /** Consumer event emitted on answer (reserved-namespace rules apply). */
+      event: string;
+      mode: "scale" | "nps" | "yesno" | "choice";
+      /** Scalar key written into the event. Default `"value"`. */
+      property?: string;
+      surveyId?: string;
+      prompt?: string;
+      /** scale/nps bounds (nps forces 0..10). */
+      min?: number;
+      max?: number;
+      minLabel?: string;
+      maxLabel?: string;
+      /** choice/yesno options. */
+      choices?: { label: string; value: string | number }[];
+    };
 
 /** Lifecycle status of a single feed item. */
 export type FeedItemStatus = "unseen" | "seen" | "read" | "archived";

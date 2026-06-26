@@ -23,6 +23,8 @@ export {
 } from "./registry.js";
 // Rendering
 export { renderToHtml, renderToPlainText } from "./render.js";
+export type { SurveyProps } from "./survey.js";
+export { Survey } from "./survey.js";
 
 // Types
 export type {

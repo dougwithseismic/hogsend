@@ -435,6 +435,8 @@ export {
   SEMANTIC_BURST_WINDOW_MS,
 } from "./lib/semantic-click.js";
 export { type MountStudioResult, mountStudio } from "./lib/studio.js";
+// --- In-app survey/rating (sendSurvey — producer sugar over sendFeedItem) ---
+export { type SendSurveyOptions, sendSurvey } from "./lib/survey.js";
 export {
   type ResolveTimezoneInput,
   type ResolveTimezoneResult,

@@ -110,6 +110,12 @@ export interface PreferencesClient {
   /** Fetch current preferences from the engine. */
   get(): Promise<PreferencesState>;
   /**
+   * Fetch the list catalog (`GET /v1/lists`) with each list's resolved
+   * `subscribed` state for the current identity. Powers the preference center
+   * matrix from a single call (a publishable/anon read returns `defaultOptIn`).
+   */
+  lists(): Promise<ListSummary[]>;
+  /**
    * Set a single category preference. Emits `inapp.preference_changed`
    * through the spine — the structural closed-loop trigger.
    */

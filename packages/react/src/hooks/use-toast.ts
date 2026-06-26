@@ -16,7 +16,15 @@ import { HogsendContext } from "../provider/context.js";
 export interface UseToast {
   /** Current visible toasts (stable array ref between mutations). */
   toasts: Toast[];
-  /** Show a toast; returns its id. */
+  /**
+   * Show a toast; returns its (minted-if-omitted) id.
+   *
+   * `ShowToastInput = Omit<Toast, "id"> & { id?: string }`:
+   * `{ type: string; title?; body?; actionUrl?; metadata?; duration?: number }`.
+   * `duration` is in ms — omit it for a sticky toast. The SDK emits
+   * `inapp.toast_shown` on `show` (and `inapp.toast_{clicked,dismissed}` via
+   * `click`/`dismiss`); the component never captures.
+   */
   show: (toast: ShowToastInput) => string;
   /** Dismiss a toast (`inapp.toast_dismissed`). */
   dismiss: (id: string) => void;

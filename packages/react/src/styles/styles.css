@@ -40,6 +40,10 @@
   /* ── badge / dot ── */
   --hs-badge-size: 18px;
   --hs-badge-font-size: 11px;
+  --hs-badge-padding: 0 5px;
+  --hs-badge-font-weight: 700;
+  --hs-badge-ring-width: 0;
+  --hs-badge-ring-color: var(--hs-color-surface);
   --hs-unread-dot-size: 8px;
 
   /* ── banner / toast ── */
@@ -55,6 +59,51 @@
   --hs-toast-gap: 8px;
   --hs-toast-width: 360px;
   --hs-toast-offset: 16px;
+
+  /* ── toast type accents (§3) ── */
+  --hs-toast-accent-width: 3px;
+  --hs-toast-shadow: var(--hs-shadow);
+  --hs-toast-color-success: #16a34a;
+  --hs-toast-color-error: #dc2626;
+  --hs-toast-color-warning: #d97706;
+  --hs-toast-color-info: var(--hs-color-accent);
+
+  /* ── swipe-to-archive (§2) ── */
+  --hs-swipe-exit-ms: 220ms; /* MUST equal the JS EXIT_MS constant */
+  --hs-swipe-archive-size: 28px;
+  --hs-swipe-affordance-bg: var(--hs-color-surface-hover);
+  --hs-swipe-affordance-bg-armed: var(--hs-color-accent);
+  --hs-swipe-affordance-text: var(--hs-color-text-muted);
+  --hs-swipe-affordance-text-armed: var(--hs-color-accent-contrast);
+
+  /* ── in-app survey block (§4) ── */
+  --hs-survey-gap: 6px;
+  --hs-survey-option-size: 36px;
+  --hs-survey-option-radius: var(--hs-radius-sm);
+  --hs-survey-option-bg: var(--hs-color-surface);
+  --hs-survey-option-text: var(--hs-color-text);
+  --hs-survey-option-border: var(--hs-color-border);
+  --hs-survey-option-hover-bg: var(--hs-color-surface-hover);
+  --hs-survey-option-selected-bg: var(--hs-color-accent);
+  --hs-survey-option-selected-text: var(--hs-color-accent-contrast);
+  --hs-survey-prompt-weight: 600;
+  --hs-survey-thanks-color: var(--hs-color-text-muted);
+
+  /* ── preference center + switch + tabs (§5) ── */
+  --hs-pref-row-padding: var(--hs-spacing-sm) var(--hs-spacing);
+  --hs-pref-divider: var(--hs-color-border);
+  --hs-pref-label-weight: 500;
+  --hs-pref-desc-color: var(--hs-color-text-muted);
+  --hs-switch-width: 36px;
+  --hs-switch-height: 20px;
+  --hs-switch-thumb: 16px;
+  --hs-switch-radius: 999px;
+  --hs-switch-off-bg: var(--hs-color-border);
+  --hs-switch-on-bg: var(--hs-color-accent);
+  --hs-switch-thumb-bg: #ffffff;
+  --hs-tab-color: var(--hs-color-text-muted);
+  --hs-tab-active-color: var(--hs-color-text);
+  --hs-tab-indicator: var(--hs-color-accent);
 
   color: var(--hs-color-text);
   font-family: var(--hs-font-family);
@@ -73,6 +122,14 @@
   --hs-color-badge-bg: #f87171;
   --hs-color-badge-text: #18181b;
   --hs-color-unread-dot: #a78bfa;
+
+  /* ── toast type accents (§3) ── */
+  --hs-toast-color-success: #4ade80;
+  --hs-toast-color-error: #f87171;
+  --hs-toast-color-warning: #fbbf24;
+
+  /* ── switch thumb (§5) — off-bg/on-bg inherit border/accent which flip ── */
+  --hs-switch-thumb-bg: #fafafa;
 }
 
 /* ── NotificationBell ── */
@@ -104,20 +161,26 @@
 }
 
 .hsr-bell__badge {
+  box-sizing: border-box;
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 0;
+  right: 0;
+  transform: translate(50%, -50%);
   min-width: var(--hs-badge-size);
   height: var(--hs-badge-size);
-  padding: 0 4px;
+  padding: var(--hs-badge-padding);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: var(--hs-badge-font-size);
+  font-weight: var(--hs-badge-font-weight);
+  font-variant-numeric: tabular-nums;
   line-height: 1;
   color: var(--hs-color-badge-text);
   background: var(--hs-color-badge-bg);
   border-radius: 999px;
+  box-shadow: 0 0 0 var(--hs-badge-ring-width) var(--hs-badge-ring-color);
+  pointer-events: none;
 }
 
 /* ── FeedPopover (overlay shell) ── */
@@ -440,4 +503,420 @@
 
 .hsr-toast__dismiss:hover {
   color: var(--hs-color-text);
+}
+
+/* ── toast type accents (§3) ─────────────────────────────────────────────
+ * A token-driven left-border accent keyed off `data-type` (the pure-CSS
+ * targeting seam emitted by `dataVariants({ type })`). Appended after the
+ * base `.hsr-toast` block so the equal-specificity declarations win without
+ * rewriting it. `--hs-toast-shadow` defaults to `--hs-shadow` (no visual
+ * change by default) but is now its own override token. Unknown `data-type`
+ * values fall through to the transparent base border. */
+.hsr-toast {
+  box-shadow: var(--hs-toast-shadow);
+  border-left-width: var(--hs-toast-accent-width);
+  border-left-style: solid;
+  border-left-color: transparent;
+}
+.hsr-toast[data-type="success"] {
+  border-left-color: var(--hs-toast-color-success);
+}
+.hsr-toast[data-type="error"] {
+  border-left-color: var(--hs-toast-color-error);
+}
+.hsr-toast[data-type="warning"] {
+  border-left-color: var(--hs-toast-color-warning);
+}
+.hsr-toast[data-type="info"] {
+  border-left-color: var(--hs-toast-color-info);
+}
+
+/* ── swipe-to-archive (§2) ───────────────────────────────────────────────
+ * Ported from the docs-only SwipeableFeedRow into FeedItem. When `onArchive`
+ * is supplied, FeedItem wraps its row content in a clip → affordance → track
+ * structure: the opaque track translates left under the finger, revealing the
+ * "Archive" affordance behind it; past threshold the affordance arms and a
+ * release archives. A real keyboard/mouse `<button>` (hover/focus-revealed,
+ * always in the tab order) calls the same archive path. Every rule is token-
+ * driven and `:has()`-scoped to swipe-enabled rows, so rows WITHOUT `onArchive`
+ * render exactly as before. */
+
+/* Root becomes the clip parent: drop the row flex/padding (they move onto the
+   track) so the clip child can own the rounded, overflow-clipped frame. */
+.hsr-feed-item:has(> .hsr-feed-item__clip) {
+  display: block;
+  padding: 0;
+}
+
+.hsr-feed-item__clip {
+  position: relative;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/* Sits behind the track; revealed at the right edge as the row slides left. */
+.hsr-feed-item__affordance {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: var(--hs-spacing);
+  background: var(--hs-swipe-affordance-bg);
+  color: var(--hs-swipe-affordance-text);
+  transition:
+    background-color var(--hs-transition),
+    color var(--hs-transition);
+}
+
+.hsr-feed-item__affordance-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hsr-feed-item__affordance[data-armed] {
+  background: var(--hs-swipe-affordance-bg-armed);
+  color: var(--hs-swipe-affordance-text-armed);
+}
+
+/* Opaque so it occludes the affordance until dragged; carries the row's flex
+   layout + padding (moved off the root). `pan-y` keeps vertical scroll with the
+   browser and hands us the horizontal gesture. */
+.hsr-feed-item__track {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--hs-spacing-sm);
+  padding: var(--hs-spacing-sm) var(--hs-spacing);
+  background: var(--hs-color-surface);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform var(--hs-swipe-exit-ms) ease;
+}
+
+/* Reserve a right gutter when the archive button is present so it never lands
+   on top of the item's "Open" action or text. */
+.hsr-feed-item__track:has(> .hsr-feed-item__archive) {
+  padding-right: calc(
+    var(--hs-spacing) +
+    var(--hs-swipe-archive-size) +
+    var(--hs-spacing-sm)
+  );
+}
+
+/* Surface the row's hover/focus tint on the (opaque) track in swipe mode. */
+.hsr-feed-item:has(> .hsr-feed-item__clip)[tabindex]:hover
+.hsr-feed-item__track,
+.hsr-feed-item:has(> .hsr-feed-item__clip)[tabindex]:focus-visible
+  .hsr-feed-item__track {
+  background: var(--hs-color-surface-hover);
+}
+
+/* The a11y fallback: a real button, in the tab order, surfaced on row hover or
+   keyboard focus. `opacity` (not `display`) keeps it focusable; `pointer-events`
+   gates stray mouse hits while hidden. */
+.hsr-feed-item__archive {
+  position: absolute;
+  top: 50%;
+  right: var(--hs-spacing-sm);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hs-swipe-archive-size);
+  height: var(--hs-swipe-archive-size);
+  padding: 0;
+  appearance: none;
+  border: 1px solid var(--hs-color-border);
+  border-radius: var(--hs-radius-sm);
+  background: var(--hs-color-surface);
+  color: var(--hs-color-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--hs-transition),
+    color var(--hs-transition),
+    background-color var(--hs-transition),
+    border-color var(--hs-transition);
+}
+
+.hsr-feed-item__clip:hover .hsr-feed-item__archive,
+.hsr-feed-item:focus-within .hsr-feed-item__archive,
+.hsr-feed-item__archive:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.hsr-feed-item__archive:hover,
+.hsr-feed-item__archive:focus-visible {
+  color: var(--hs-color-accent);
+  border-color: var(--hs-color-accent);
+  background: var(--hs-color-surface-hover);
+}
+
+.hsr-feed-item__archive:focus-visible {
+  outline: 2px solid var(--hs-color-accent);
+  outline-offset: 2px;
+}
+
+/* Row exit: collapse height + eat the flex `gap` as the item archives. Scoped
+   to swipe-capable rows (those containing a clip) so other rows are untouched;
+   the base `max-height` gives the collapse something to animate FROM. */
+.hsr-feed__row:has(.hsr-feed-item__clip) {
+  overflow: hidden;
+  max-height: 320px;
+  transition:
+    max-height var(--hs-swipe-exit-ms) ease,
+    opacity var(--hs-swipe-exit-ms) ease,
+    margin-top var(--hs-swipe-exit-ms) ease;
+}
+
+.hsr-feed__row:has(.hsr-feed-item[data-archiving]) {
+  max-height: 0;
+  opacity: 0;
+  margin-top: calc(-1 * var(--hs-feed-gap));
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hsr-feed-item__track,
+  .hsr-feed__row:has(.hsr-feed-item__clip) {
+    transition: none;
+  }
+}
+
+/* ── in-app survey block (§4) ───────────────────────────────────────────────
+ * The answerable widget rendered for a `survey` FeedBlock. One skin covers
+ * scale / nps / yesno / choice (the `data-mode` attr is the pure-CSS seam); an
+ * answered survey keeps its options visible (disabled, with `data-selected` on
+ * the chosen one) and surfaces the thanks line. Fully token-driven so the
+ * option grid restyles with a single `--hs-survey-*` override. */
+.hsr-survey {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hs-survey-gap);
+  margin-top: 4px;
+}
+
+.hsr-survey__prompt {
+  font-weight: var(--hs-survey-prompt-weight);
+}
+
+.hsr-survey__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hs-survey-gap);
+}
+
+.hsr-survey__option {
+  appearance: none;
+  min-width: var(--hs-survey-option-size);
+  height: var(--hs-survey-option-size);
+  padding: 0 var(--hs-spacing-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--hs-survey-option-text);
+  background: var(--hs-survey-option-bg);
+  border: 1px solid var(--hs-survey-option-border);
+  border-radius: var(--hs-survey-option-radius);
+  cursor: pointer;
+  transition:
+    background-color var(--hs-transition),
+    color var(--hs-transition),
+    border-color var(--hs-transition);
+}
+
+.hsr-survey__option:hover:not(:disabled) {
+  background: var(--hs-survey-option-hover-bg);
+}
+
+.hsr-survey__option:focus-visible {
+  outline: 2px solid var(--hs-color-accent);
+  outline-offset: 2px;
+}
+
+.hsr-survey__option[data-selected] {
+  background: var(--hs-survey-option-selected-bg);
+  color: var(--hs-survey-option-selected-text);
+  border-color: var(--hs-survey-option-selected-bg);
+}
+
+.hsr-survey__option:disabled {
+  cursor: default;
+}
+
+.hsr-survey__thanks {
+  font-size: 13px;
+  color: var(--hs-survey-thanks-color);
+}
+
+/* ── preference center + switch + tabs (§5) ─────────────────────────────────
+ * The list/category opt-in surface. A single token-driven column by default;
+ * supply `channels` for a category×channel matrix realized over the SAME flat
+ * `categories` map (distinct category ids per cell — no schema change). The
+ * in-house `role="switch"` button (no Radix) is keyboard-native and targeted
+ * purely off `data-state`. Root `data-matrix`/`data-loading`/`data-empty` and
+ * row `data-list-id` are the pure-CSS seams. */
+.hsr-pref {
+  display: flex;
+  flex-direction: column;
+  background: var(--hs-color-surface);
+  color: var(--hs-color-text);
+}
+
+.hsr-pref__header {
+  padding: var(--hs-spacing);
+  font-weight: 600;
+  border-bottom: 1px solid var(--hs-pref-divider);
+}
+
+.hsr-pref__matrix-header {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-spacing-sm);
+  padding: var(--hs-pref-row-padding);
+  border-bottom: 1px solid var(--hs-pref-divider);
+  color: var(--hs-pref-desc-color);
+  font-size: 12px;
+}
+
+.hsr-pref__matrix-header-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.hsr-pref__matrix-header-cell {
+  flex: 0 0 var(--hs-switch-width);
+  text-align: center;
+}
+
+.hsr-pref__row {
+  display: flex;
+  align-items: center;
+  gap: var(--hs-spacing-sm);
+  padding: var(--hs-pref-row-padding);
+}
+
+.hsr-pref__row + .hsr-pref__row {
+  border-top: 1px solid var(--hs-pref-divider);
+}
+
+.hsr-pref__row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hsr-pref__label {
+  font-weight: var(--hs-pref-label-weight);
+}
+
+.hsr-pref__desc {
+  font-size: 12px;
+  color: var(--hs-pref-desc-color);
+}
+
+.hsr-pref__control {
+  flex: 0 0 auto;
+}
+
+.hsr-pref__cell {
+  flex: 0 0 var(--hs-switch-width);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hsr-pref__loading,
+.hsr-pref__empty {
+  padding: calc(var(--hs-spacing) * 2) var(--hs-spacing);
+  text-align: center;
+  color: var(--hs-color-text-muted);
+}
+
+/* In-house switch: a `<button role="switch">` styled purely off `data-state`. */
+.hsr-pref-switch {
+  position: relative;
+  flex: 0 0 auto;
+  appearance: none;
+  width: var(--hs-switch-width);
+  height: var(--hs-switch-height);
+  padding: 0;
+  border: none;
+  border-radius: var(--hs-switch-radius);
+  background: var(--hs-switch-off-bg);
+  cursor: pointer;
+  transition: background-color var(--hs-transition);
+}
+
+.hsr-pref-switch[data-state="on"] {
+  background: var(--hs-switch-on-bg);
+}
+
+.hsr-pref-switch:focus-visible {
+  outline: 2px solid var(--hs-color-accent);
+  outline-offset: 2px;
+}
+
+.hsr-pref-switch__thumb {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: var(--hs-switch-thumb);
+  height: var(--hs-switch-thumb);
+  border-radius: 999px;
+  background: var(--hs-switch-thumb-bg);
+  transform: translateY(-50%);
+  transition: transform var(--hs-transition);
+}
+
+.hsr-pref-switch[data-state="on"] .hsr-pref-switch__thumb {
+  transform: translate(
+    calc(var(--hs-switch-width) - var(--hs-switch-thumb) - 4px),
+    -50%
+  );
+}
+
+/* Popover tabs (Feed | Preferences) — only rendered when `preferences` is set. */
+.hsr-popover__tabs {
+  display: flex;
+  gap: var(--hs-spacing);
+  padding: 0 var(--hs-spacing);
+  border-bottom: 1px solid var(--hs-color-border);
+}
+
+.hsr-popover__tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--hs-tab-color);
+  font: inherit;
+  cursor: pointer;
+  padding: var(--hs-spacing-sm) 0;
+  border-bottom: 2px solid transparent;
+}
+
+.hsr-popover__tab[data-active] {
+  color: var(--hs-tab-active-color);
+  border-bottom-color: var(--hs-tab-indicator);
+}
+
+.hsr-popover__tab:focus-visible {
+  outline: 2px solid var(--hs-color-accent);
+  outline-offset: -2px;
+}
+
+.hsr-popover__panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }

@@ -22,7 +22,13 @@
  * focus helpers are exported for consumers who want a modal variant.
  */
 
-import { type ReactNode, type RefObject, useEffect, useRef } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useHogsend } from "../../hooks/use-hogsend.js";
 import { cn } from "../../lib/cn.js";
 import { dataVariants } from "../../lib/variants.js";
@@ -30,6 +36,13 @@ import {
   NotificationFeed,
   type NotificationFeedProps,
 } from "../feed/notification-feed.js";
+import {
+  PreferenceCenter,
+  type PreferenceChannel,
+} from "../preferences/preference-center.js";
+
+/** Which panel the popover shows when `preferences` is enabled. */
+export type FeedPopoverTab = "feed" | "preferences";
 
 /** Where the popover sits relative to its trigger. */
 export type FeedPopoverPlacement =
@@ -41,6 +54,10 @@ export type FeedPopoverPlacement =
 /** Per-slot class overrides for {@link FeedPopover}. */
 export interface FeedPopoverClassNames {
   root?: string;
+  /** The `role="tablist"` header (only rendered when `preferences` is set). */
+  tabs?: string;
+  /** Each tab button. */
+  tab?: string;
 }
 
 /** Props for {@link FeedPopover}. */
@@ -61,6 +78,21 @@ export interface FeedPopoverProps {
   renderEmpty?: NotificationFeedProps["renderEmpty"];
   onItemClick?: NotificationFeedProps["onItemClick"];
   onMarkAllAsReadClick?: NotificationFeedProps["onMarkAllAsReadClick"];
+  /**
+   * Show a `Feed | Preferences` tab switch, bundling `<PreferenceCenter>` into
+   * the popover (the Novu `<Inbox/>` pattern). Default false → feed-only,
+   * unchanged.
+   */
+  preferences?: boolean;
+  /** Channel columns forwarded to the bundled `<PreferenceCenter>`. */
+  preferenceChannels?: PreferenceChannel[];
+  /** Which tab is active on first open. Default "feed". */
+  defaultTab?: FeedPopoverTab;
+  /** Replace the tablist header (override layer 5). */
+  renderTabs?: (state: {
+    tab: FeedPopoverTab;
+    setTab: (t: FeedPopoverTab) => void;
+  }) => ReactNode;
   className?: string;
   classNames?: FeedPopoverClassNames;
   /** id used for `aria-controls` wiring from the bell. */
@@ -80,6 +112,10 @@ export function FeedPopover(props: FeedPopoverProps): ReactNode {
     renderEmpty,
     onItemClick,
     onMarkAllAsReadClick,
+    preferences = false,
+    preferenceChannels,
+    defaultTab = "feed",
+    renderTabs,
     className,
     classNames,
     id,
@@ -89,6 +125,7 @@ export function FeedPopover(props: FeedPopoverProps): ReactNode {
   const { client } = useHogsend();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const wasVisible = useRef(false);
+  const [tab, setTab] = useState<FeedPopoverTab>(defaultTab);
 
   // Emit `inapp.feed_opened` once on the closed→open transition.
   useEffect(() => {
@@ -131,7 +168,66 @@ export function FeedPopover(props: FeedPopoverProps): ReactNode {
   const stateAttrs = dataVariants({
     placement,
     state: "open",
+    ...(preferences ? { tab } : {}),
   });
+
+  const feedNode = (
+    <NotificationFeed
+      {...(feedId ? { feedId } : {})}
+      {...(renderItem ? { renderItem } : {})}
+      {...(renderHeader ? { renderHeader } : {})}
+      {...(renderEmpty ? { renderEmpty } : {})}
+      {...(onItemClick ? { onItemClick } : {})}
+      {...(onMarkAllAsReadClick ? { onMarkAllAsReadClick } : {})}
+    />
+  );
+
+  // Default (no `preferences`): the popover is feed-only, exactly as before.
+  const body = preferences ? (
+    <>
+      {renderTabs ? (
+        renderTabs({ tab, setTab })
+      ) : (
+        <div
+          className={cn("hsr-popover__tabs", classNames?.tabs)}
+          role="tablist"
+          aria-label="Notification panels"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "feed"}
+            data-active={tab === "feed" ? "" : undefined}
+            className={cn("hsr-popover__tab", classNames?.tab)}
+            onClick={() => setTab("feed")}
+          >
+            Inbox
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "preferences"}
+            data-active={tab === "preferences" ? "" : undefined}
+            className={cn("hsr-popover__tab", classNames?.tab)}
+            onClick={() => setTab("preferences")}
+          >
+            Preferences
+          </button>
+        </div>
+      )}
+      <div className="hsr-popover__panel" data-tab={tab} role="tabpanel">
+        {tab === "feed" ? (
+          feedNode
+        ) : (
+          <PreferenceCenter
+            {...(preferenceChannels ? { channels: preferenceChannels } : {})}
+          />
+        )}
+      </div>
+    </>
+  ) : (
+    feedNode
+  );
 
   return (
     <div
@@ -143,14 +239,7 @@ export function FeedPopover(props: FeedPopoverProps): ReactNode {
       aria-modal="false"
       aria-label={ariaLabel ?? "Notifications"}
     >
-      <NotificationFeed
-        {...(feedId ? { feedId } : {})}
-        {...(renderItem ? { renderItem } : {})}
-        {...(renderHeader ? { renderHeader } : {})}
-        {...(renderEmpty ? { renderEmpty } : {})}
-        {...(onItemClick ? { onItemClick } : {})}
-        {...(onMarkAllAsReadClick ? { onMarkAllAsReadClick } : {})}
-      />
+      {body}
     </div>
   );
 }

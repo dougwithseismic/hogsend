@@ -1,4 +1,4 @@
-import { emailSends } from "@hogsend/db";
+import { emailSends, userEvents } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import {
   and,
@@ -143,6 +143,47 @@ const contactActivityRoute = createRoute({
   },
 });
 
+// ---------------------------------------------------------------------------
+// GET /breakdown — aggregate ANY event by a scalar property value (count,
+// average, optional NPS) over user_events.properties. Surveys are one caller.
+// ---------------------------------------------------------------------------
+
+const breakdownRoute = createRoute({
+  method: "get",
+  path: "/breakdown",
+  tags: ["Admin — Reporting"],
+  summary:
+    "Aggregate any event by a property value (count, average, optional NPS)",
+  request: {
+    query: z.object({
+      event: z.string().min(1),
+      property: z.string().default("value"),
+      from: z.string().datetime().optional(),
+      to: z.string().datetime().optional(),
+      metric: z.enum(["nps"]).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            event: z.string(),
+            property: z.string(),
+            total: z.number(),
+            breakdown: z.array(
+              z.object({ answer: z.string(), count: z.number() }),
+            ),
+            average: z.number().nullable(),
+            nps: z.number().nullable(),
+          }),
+        },
+      },
+      description: "Per-answer counts plus computed average / NPS",
+    },
+  },
+});
+
 const MAX_EXPORT_ROWS = 50_000;
 
 function csvCell(value: unknown): string {
@@ -282,6 +323,78 @@ export const reportingRouter = new OpenAPIHono<AppEnv>()
       },
       200,
     );
+  })
+  .openapi(breakdownRoute, async (c) => {
+    const { db } = c.get("container");
+    const { event, property, from, to, metric } = c.req.valid("query");
+
+    // GROUP BY user_events.properties ->> '<property>'. The property key is a
+    // bound parameter (never interpolated); the `::text` cast disambiguates
+    // `->>` from its integer (array-index) overload so Postgres can resolve it.
+    const answerExpr = sql<string>`${userEvents.properties} ->> ${property}::text`;
+
+    const conditions = [
+      eq(userEvents.event, event),
+      sql`${answerExpr} is not null`,
+    ];
+    if (from) conditions.push(gte(userEvents.occurredAt, new Date(from)));
+    if (to) conditions.push(lte(userEvents.occurredAt, new Date(to)));
+
+    // GROUP BY / ORDER BY the first output column by ordinal (the spec's
+    // `GROUP BY 1 ORDER BY 1`) — matching the grouped expression by position
+    // avoids Postgres treating the repeated `->>` param as a distinct column.
+    const rows = await db
+      .select({ answer: answerExpr, count: count() })
+      .from(userEvents)
+      .where(and(...conditions))
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
+
+    const breakdown = rows.map((r) => ({
+      answer: String(r.answer),
+      count: Number(r.count),
+    }));
+    const total = breakdown.reduce((sum, b) => sum + b.count, 0);
+
+    // average = Σ(numeric(answer) * count) / total — only when EVERY answer
+    // parses numeric (else null). NaN/empty short-circuits to non-numeric.
+    let numericSum = 0;
+    let allNumeric = breakdown.length > 0;
+    for (const b of breakdown) {
+      const n = Number(b.answer);
+      if (b.answer === "" || Number.isNaN(n)) {
+        allNumeric = false;
+        break;
+      }
+      numericSum += n * b.count;
+    }
+    const average =
+      allNumeric && total > 0
+        ? Math.round((numericSum / total) * 100) / 100
+        : null;
+
+    // nps = %(answer ∈ 9..10) − %(answer ∈ 0..6), when metric === "nps" or the
+    // answers look like a 0..10 integer scale (else null).
+    const looks0to10 =
+      allNumeric &&
+      breakdown.length > 0 &&
+      breakdown.every((b) => {
+        const n = Number(b.answer);
+        return Number.isInteger(n) && n >= 0 && n <= 10;
+      });
+    let nps: number | null = null;
+    if ((metric === "nps" || looks0to10) && allNumeric && total > 0) {
+      let promoters = 0;
+      let detractors = 0;
+      for (const b of breakdown) {
+        const n = Number(b.answer);
+        if (n >= 9 && n <= 10) promoters += b.count;
+        else if (n >= 0 && n <= 6) detractors += b.count;
+      }
+      nps = Math.round(((promoters - detractors) / total) * 100);
+    }
+
+    return c.json({ event, property, total, breakdown, average, nps }, 200);
   });
 
 // CSV export — plain route (non-JSON response) under the same auth as the rest
