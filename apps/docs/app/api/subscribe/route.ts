@@ -53,6 +53,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   let email: unknown;
   let firstName: string | undefined;
   let posthogDistinctId: string | undefined;
+  let hogsendAnonymousId: string | undefined;
   let termsAccepted = false;
   let productNotes = false;
   try {
@@ -60,12 +61,19 @@ export async function POST(request: Request): Promise<NextResponse> {
       email?: unknown;
       firstName?: unknown;
       posthogDistinctId?: unknown;
+      hogsendAnonymousId?: unknown;
       termsAccepted?: unknown;
       productNotes?: unknown;
     };
     email = body?.email;
     firstName = sanitizeFirstName(body?.firstName);
     posthogDistinctId = sanitizeDistinctId(body?.posthogDistinctId);
+    // The @hogsend/js client's own `hs_anon_id` (the in-app demo's identity).
+    // Rides on the event as the scalar `hsAnonId` so the dogfood's
+    // `docs-link-demo` journey can email a cold-connect confirm link — clicking
+    // it folds this browser id onto the contact (email-verified, not a value
+    // fold from the public signup). See web-link.ts in hogsend-dogfood.
+    hogsendAnonymousId = sanitizeDistinctId(body?.hogsendAnonymousId);
     termsAccepted = body?.termsAccepted === true;
     productNotes = body?.productNotes === true;
   } catch {
@@ -90,7 +98,14 @@ export async function POST(request: Request): Promise<NextResponse> {
         ...(firstName ? { firstName } : {}),
       },
       // termsAccepted is recorded on the event as the consent audit trail.
-      eventProperties: { source: "docs-site", termsAccepted },
+      // hsAnonId (the in-app client's id) rides as a SCALAR event property so
+      // the dogfood's docs-link-demo journey can read it (eventProperties reach
+      // the journey; contactProperties don't) and email the confirm link.
+      eventProperties: {
+        source: "docs-site",
+        termsAccepted,
+        ...(hogsendAnonymousId ? { hsAnonId: hogsendAnonymousId } : {}),
+      },
       // product-updates membership ONLY on the explicit, unticked-by-default
       // checkbox — unbundled consent, recorded at the point of capture.
       ...(productNotes ? { lists: { "product-updates": true } } : {}),
