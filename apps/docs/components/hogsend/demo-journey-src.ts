@@ -25,11 +25,13 @@ export const demoWelcome = defineJourney({
   run: async (user) => {
     const n = user.properties.name;
     const name = typeof n === "string" && n ? n : "there";
+    const greeting = name === "there" ? "Welcome" : \`Welcome, \${name}\`;
     await sendFeedItem({
       recipient: { anonymousId: user.id }, // your canonical key
       type: "welcome",
-      title: \`Welcome, \${name} 👋\`,
-      body: "You fired an event. A journey ran. This is the result.",
+      // Report the event — the site banner already greets by name.
+      title: "Your welcome journey just ran ✅",
+      body: \`\${greeting} — you fired demo.welcome, a journey ran, and it dropped into your bell.\`,
       actionUrl: "https://hogsend.com/docs/client-side/try",
       journeyStateId: user.stateId,
     });
