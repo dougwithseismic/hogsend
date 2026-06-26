@@ -37,6 +37,11 @@
   --hs-feed-padding: 8px;
   --hs-popover-radius: var(--hs-radius);
 
+  /* ── feed item (clamp + reveal) ── */
+  --hs-feed-item-title-lines: 2;
+  --hs-feed-item-body-lines: 2;
+  --hs-feed-item-enter-ms: 220ms;
+
   /* ── badge / dot ── */
   --hs-badge-size: 18px;
   --hs-badge-font-size: 11px;
@@ -312,6 +317,28 @@
   padding: var(--hs-spacing-sm) var(--hs-spacing);
   border-radius: var(--hs-radius-sm);
   transition: background-color var(--hs-transition);
+  /* Subtle entrance as a row mounts (popover open / fresh push). Lives on the
+     row root — independent of the swipe track's transform (a child) and the
+     row-collapse archive exit (on `.hsr-feed__row`) — so it never fights them.
+     Disabled under reduced-motion below. */
+  animation: hsr-feed-item-enter var(--hs-feed-item-enter-ms) ease-out;
+}
+
+@keyframes hsr-feed-item-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hsr-feed-item {
+    animation: none;
+  }
 }
 
 .hsr-feed-item[tabindex]:hover,
@@ -343,15 +370,31 @@
   gap: 2px;
 }
 
+/* Title/body clamp to a clean N-line ellipsis (token-driven line counts) so a
+   long notification truncates instead of being ragged-clipped mid-line. The
+   `-webkit-box` + `line-clamp` pair is the accepted multi-line incantation; it
+   needs the row's `min-width: 0` (above) to take effect in the flex layout. The
+   line-height gives the last line room so descenders aren't shaved. Only the
+   plain title/body are clamped — `.hsr-survey` is a sibling and stays intact. */
 .hsr-feed-item__title {
   font-weight: 600;
   line-height: 1.3;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--hs-feed-item-title-lines);
+  line-clamp: var(--hs-feed-item-title-lines);
+  overflow: hidden;
 }
 
 .hsr-feed-item__body {
   font-size: 13px;
   line-height: 1.45;
   color: var(--hs-color-text-muted);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--hs-feed-item-body-lines);
+  line-clamp: var(--hs-feed-item-body-lines);
+  overflow: hidden;
 }
 
 .hsr-feed-item__timestamp {
