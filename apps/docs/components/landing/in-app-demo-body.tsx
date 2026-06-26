@@ -24,7 +24,11 @@ export function InAppDemoBody() {
   const [name, setName] = useState<string | undefined>(undefined);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    // `lg:items-start` is load-bearing: the in-app column is tall (the feed caps
+    // at 720px), and without it the grid's default `stretch` forces the short
+    // sign-up card to that same height — leaving a huge empty box under the
+    // form. Start-aligning lets each column take its natural height.
+    <div className="grid items-start gap-6 lg:grid-cols-2">
       {/* LEFT — email-first sign-up (feeds the dogfood; qualifier comes after) */}
       <Card className="flex flex-col p-6">
         <span className="kicker mb-3 block">Get the demo</span>
