@@ -21,6 +21,12 @@ export function InAppDemo() {
         title="The product, running on itself"
         subtitle="Sign up and a real welcome series lands in your inbox — then fire an event and watch a notification land in your bell. Both run on the same journeys you'd scaffold, one identity end to end."
       />
+      <p className="mx-auto mt-4 max-w-2xl text-center text-[13px] text-white/45 leading-5">
+        The bell, feed, survey card and preference center are real{" "}
+        <code className="font-mono text-white/65">@hogsend/react</code> +{" "}
+        <code className="font-mono text-white/65">@hogsend/js</code> components
+        — drop them straight into your own app.
+      </p>
       <div className="relative mt-10">
         {/* red atmospheric bloom (the CodeWindow idiom) */}
         <div

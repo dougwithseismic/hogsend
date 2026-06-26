@@ -2,7 +2,7 @@
 
 import { NotificationFeed, useHogsend, useHogsendFeed } from "@hogsend/react";
 import { ArrowRight, Bell, Check } from "lucide-react";
-import { useState } from "react";
+import { type CSSProperties, useState } from "react";
 import { PillBadge, TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { cn } from "@/lib/cn";
@@ -149,7 +149,9 @@ export function InAppDemoLive({
         <p className="mb-3 text-[12px] text-white/40 leading-5">
           Your in-app feed — items land here in real time:
         </p>
-        <NotificationFeed feedId="in_app" aria-label="In-app demo feed" />
+        <div style={{ "--hs-feed-max-height": "600px" } as CSSProperties}>
+          <NotificationFeed feedId="in_app" aria-label="In-app demo feed" />
+        </div>
       </div>
 
       {/* zone 4 — live narration */}

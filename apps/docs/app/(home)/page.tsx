@@ -177,11 +177,11 @@ export default function HomePage() {
       <LogoStrip />
       <ProofStrip />
       <Manifesto />
+      <InAppDemo />
       <WhyThisMatters />
       <UseCases />
       <InTheLoop />
       <UseCasePickerSection />
-      <InAppDemo />
       <MoreOutOfPostHog />
       <BuildingBlocks />
       <FeatureCards />
