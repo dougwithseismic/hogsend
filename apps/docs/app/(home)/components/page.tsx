@@ -1,5 +1,4 @@
 import {
-  BarChart3,
   Code2,
   MessageCircle,
   Palette,
@@ -8,7 +7,6 @@ import {
 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { Clip } from "@/components/clips/clip";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
@@ -16,13 +14,12 @@ import { Card, FeatureCard } from "@/components/ds/card";
 import { CodeWindow } from "@/components/ds/code-window";
 import { CopyButton } from "@/components/ds/copy-button";
 import { AuroraBeam, DotGrid } from "@/components/ds/fx";
-import { MockupFrame } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
+import { TabbedShowcase } from "@/components/ds/tabs";
 import { PreferenceCenterDemo } from "@/components/hogsend/preference-center-demo";
 import { SurveyDemo } from "@/components/hogsend/survey-demo";
 import { SURVEY_SRC } from "@/components/hogsend/survey-demo-src";
-import { cn } from "@/lib/cn";
 import { GITHUB_URL, RAILWAY_DEPLOY_URL, SITE_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -63,41 +60,55 @@ const JSON_LD = {
 };
 
 /**
- * A clip + copy row. The clip sits in a glass MockupFrame on one side, the
- * label and a one-paragraph fact on the other; `reverse` flips the side on
- * large screens so a stack of rows alternates.
+ * Email is three looping clips. They live in a TabbedShowcase (one full-width
+ * glass panel) rather than a half-width grid column: the JourneyTrace clips
+ * switch to their wide side-by-side layout at the `lg` VIEWPORT breakpoint, so
+ * they need a near-full-width container — a half column overflows them.
  */
-function ClipRow({
-  clip,
-  clipTitle,
-  reverse = false,
-  title,
-  children,
-}: {
-  clip: string;
-  clipTitle: string;
-  reverse?: boolean;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <Reveal>
-      <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
-        <MockupFrame className={cn(reverse && "lg:order-2")}>
-          <Clip clip={clip} title={clipTitle} />
-        </MockupFrame>
-        <div className={cn(reverse && "lg:order-1")}>
-          <h3 className="font-medium text-2xl text-white leading-[1.2] tracking-[-0.02em]">
-            {title}
-          </h3>
-          <p className="mt-4 max-w-xl text-base text-white/60 leading-7">
-            {children}
-          </p>
-        </div>
-      </div>
-    </Reveal>
-  );
-}
+const EMAIL_TABS = [
+  {
+    id: "answers",
+    label: "In-email answers",
+    title: "The click is the answer",
+    description:
+      "EmailAction renders a link whose click means something. A yes/no is two of them, an NPS is eleven — each answer fires a real event with its payload, and the journey branches on it. First click per send wins; scanner bursts are filtered before anything is recorded.",
+    tags: ["NPS & yes/no", "Answer = event", "Scanner-safe"],
+    media: (
+      <Clip
+        clip="semantic-links"
+        title="An in-email question where the click is the answer"
+      />
+    ),
+  },
+  {
+    id: "tracking",
+    label: "Tracking",
+    title: "Opens and clicks, first-party",
+    description:
+      "Every send is rewritten for first-party open and click tracking before it reaches your provider. Engagement flows back as email.opened / email.link_clicked — branch on it mid-journey, or fan it out to your destinations.",
+    tags: ["Open tracking", "Click tracking", "First-party"],
+    media: (
+      <Clip
+        clip="first-party-tracking"
+        title="Link rewriting and open tracking, first-party"
+      />
+    ),
+  },
+  {
+    id: "provider",
+    label: "Your provider",
+    title: "Send through your own account",
+    description:
+      "Email goes out through your own Resend or Postmark — your domain, your reputation, your costs. The provider is a dumb wire that takes HTML; swapping it is one env var, and the journey code never changes.",
+    tags: ["Resend · Postmark", "Your domain", "Config, not code"],
+    media: (
+      <Clip
+        clip="byo-provider"
+        title="The engine hands rendered HTML to your own provider"
+      />
+    ),
+  },
+];
 
 export default function ComponentsPage() {
   return (
@@ -229,7 +240,8 @@ export default function ComponentsPage() {
         </Reveal>
       </Section>
 
-      {/* Email */}
+      {/* Email — three clips in a full-width tabbed panel (clips overflow a
+          half-width column at the lg viewport, where they go side-by-side). */}
       <Section>
         <Reveal>
           <SectionHeading
@@ -239,43 +251,9 @@ export default function ComponentsPage() {
           />
         </Reveal>
 
-        <div className="mt-14 flex flex-col gap-16">
-          <ClipRow
-            clip="semantic-links"
-            clipTitle="An in-email question where the click is the answer"
-            title="The click is the answer"
-          >
-            <code className="font-mono text-white/80">EmailAction</code> renders
-            a link whose click means something. A yes/no is two of them, an NPS
-            is eleven — each answer fires a real event with its payload, and the
-            journey branches on it. First click per send wins; scanner bursts
-            are filtered before anything is recorded.
-          </ClipRow>
-
-          <ClipRow
-            clip="first-party-tracking"
-            clipTitle="Link rewriting and open tracking, first-party"
-            reverse
-            title="Opens and clicks, first-party"
-          >
-            Every send is rewritten for first-party open and click tracking
-            before it reaches your provider. Engagement flows back as{" "}
-            <code className="font-mono text-white/80">email.opened</code> /{" "}
-            <code className="font-mono text-white/80">email.link_clicked</code>{" "}
-            — branch on it mid-journey, or fan it out to your destinations.
-          </ClipRow>
-
-          <ClipRow
-            clip="byo-provider"
-            clipTitle="The engine hands rendered HTML to your own provider"
-            title="Send through your own account"
-          >
-            Email goes out through your own Resend or Postmark — your domain,
-            your reputation, your costs. The provider is a dumb wire that takes
-            HTML; swapping it is one env var, and the journey code never
-            changes.
-          </ClipRow>
-        </div>
+        <Reveal className="mt-12">
+          <TabbedShowcase tabs={EMAIL_TABS} />
+        </Reveal>
 
         <Reveal className="mt-12">
           <Link
@@ -293,40 +271,11 @@ export default function ComponentsPage() {
           <SectionHeading
             eyebrow="Connectors"
             title="The channels they already live in"
-            subtitle="Link a member's Discord or Telegram to their contact, and their activity there becomes journey triggers on the same identity as their email and product events."
+            subtitle="Link a member's Discord or Telegram to their contact, and their activity there becomes a journey trigger — a reaction, a server join, a message — on the same identity as their email and product events."
           />
         </Reveal>
 
-        <Reveal className="mt-14">
-          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
-            <MockupFrame>
-              <Clip
-                clip="discord-presence"
-                title="A Discord reaction lands on the same contact as their email"
-              />
-            </MockupFrame>
-            <div>
-              <h3 className="font-medium text-2xl text-white leading-[1.2] tracking-[-0.02em]">
-                Activity is a journey trigger
-              </h3>
-              <p className="mt-4 max-w-xl text-base text-white/60 leading-7">
-                A reaction, a server join, a message — each is a journey trigger
-                (
-                <code className="font-mono text-white/80">
-                  discord.reaction_added
-                </code>
-                ,{" "}
-                <code className="font-mono text-white/80">
-                  discord.member_joined
-                </code>
-                ). Count them in a journey and grant a role, send a DM, or post
-                back to a channel.
-              </p>
-            </div>
-          </div>
-        </Reveal>
-
-        <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2">
+        <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2">
           <Reveal>
             <Card className="flex h-full flex-col gap-4">
               <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-white">
@@ -384,45 +333,34 @@ export default function ComponentsPage() {
           <SectionHeading
             eyebrow="PostHog"
             title="PostHog, both directions"
-            subtitle="Connect it once; reads come in, events fan out, and identities collapse to one person."
-          />
-        </Reveal>
-
-        <Reveal className="mt-14">
-          <div className="grid items-center gap-8 lg:grid-cols-2 lg:gap-14">
-            <div>
-              <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-white/[0.08] bg-white/[0.04] text-white">
-                <BarChart3 className="size-5" strokeWidth={1.5} />
-              </span>
-              <h3 className="mt-5 font-medium text-2xl text-white leading-[1.2] tracking-[-0.02em]">
-                One command, one consent
-              </h3>
-              <p className="mt-4 max-w-xl text-base text-white/60 leading-7">
+            subtitle={
+              <>
                 <code className="font-mono text-white/80">
                   hogsend connect posthog
                 </code>{" "}
                 opens one browser consent. Person reads resolve timezones and
                 property conditions; every email and lifecycle event fans back
                 into PostHog as a captured event; and cross-channel ids —
-                Discord, Telegram, email — fold into one person. The{" "}
-                <code className="font-mono text-white/80">phc_</code> project
-                key is write-only by design, so reads need consent and fall back
-                to contact properties without it.
-              </p>
-              <Link
-                href="/integrations"
-                className="mt-5 inline-block text-sm text-white/80 tracking-[-0.02em] transition-colors hover:text-white"
-              >
-                Integrations →
-              </Link>
-            </div>
-            <MockupFrame className="lg:order-first">
-              <Clip
-                clip="journey-posthog"
-                title="A journey reads a PostHog person and fans events back in"
-              />
-            </MockupFrame>
-          </div>
+                Discord, Telegram, email — fold into one person.
+              </>
+            }
+          />
+        </Reveal>
+
+        <Reveal className="mt-12">
+          <Clip
+            clip="journey-posthog"
+            title="A journey reads a PostHog person and fans events back in"
+          />
+        </Reveal>
+
+        <Reveal className="mt-8">
+          <Link
+            href="/integrations"
+            className="text-base text-white/80 tracking-[-0.02em] transition-colors hover:text-white"
+          >
+            Integrations →
+          </Link>
         </Reveal>
       </Section>
 
