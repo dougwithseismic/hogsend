@@ -8,6 +8,8 @@
     "hooks",
     "components",
     "try",
+    "survey",
+    "preferences",
     "theming",
     "events"
   ]

@@ -1,0 +1,18 @@
+---
+title: Preferences
+description: "A live <PreferenceCenter> read of the dogfood engine's list catalog — each code-defined list at its defaultOptIn state, over GET /v1/lists."
+---
+
+import { PreferenceCenterDemo } from "../../../components/hogsend/preference-center-demo";
+
+`<PreferenceCenter>` renders the contact's list/category opt-in state over `usePreferences()`. The panel below is wired to the dogfood engine at `t.hogsend.com`.
+
+<PreferenceCenterDemo />
+
+## What you're looking at
+
+This is a **live `GET /v1/lists` read** from the dogfood engine. That route is reachable with an anonymous `pk_` publishable key: identity is optional, and an anonymous read returns each list's `subscribed = defaultOptIn` (it never leaks another contact's state). The dogfood defines one list today — `product-updates` ("Product updates", `defaultOptIn: false`) — so that's the row you see.
+
+The toggles **don't persist here**. A write (`setPreference` → `POST /v1/lists/:id/(un)subscribe`) from an anonymous caller sends `{ anonymousId }`, which the engine rejects — anonymous contacts can't set list prefs. A flip renders optimistically, then reverts on the next refetch. Persisting requires an identified user with a server-minted `userToken` (see [identifying-users](./identifying-users)).
+
+Lists are defined in code — `defineList({ id, name, defaultOptIn })` — and surfaced at `GET /v1/lists` + `POST /v1/lists/:id/(un)subscribe`. Toggling emits `inapp.preference_changed` from the SDK store. See the [`<PreferenceCenter>`](./components) reference for the full prop and override surface.

@@ -1,6 +1,6 @@
 ---
 title: Components
-description: "Pre-built React UI for in-app surfaces — NotificationBell, FeedPopover, NotificationFeed, Banner, Toast — with props, headless escape hatches, and granular imports."
+description: "Pre-built React UI for in-app surfaces — NotificationBell, FeedPopover, NotificationFeed, SurveyBlockView, Banner, Toast, PreferenceCenter — with props, headless escape hatches, and granular imports."
 ---
 
 `@hogsend/react` ships opt-in UI components for the feed, banner, and toast surfaces. Each component reads from the same store the hooks read (see [./hooks](./hooks)), emits the same first-party events (see [./events](./events)), and exposes a five-layer override surface: `--hs-*` CSS variables, `className` + per-slot `classNames`, `data-*` state attributes, `asChild` prop-merge via `Slot`, and `render*` full-markup replacement.
@@ -31,6 +31,7 @@ import { FeedPopover } from "@hogsend/react/popover";
 import { NotificationFeed } from "@hogsend/react/feed";
 import { BannerView } from "@hogsend/react/banner";
 import { ToastContainer } from "@hogsend/react/toast";
+import { PreferenceCenter } from "@hogsend/react/preferences";
 ```
 
 <Callout type="info">
@@ -161,6 +162,31 @@ The single-row component (exported name `FeedItemView`; props type `FeedItemProp
 
 State attributes: `data-status`, `data-unread`, `data-unseen`. `unread` is true when status is `unseen` or `seen`.
 
+### `<SurveyBlockView>`
+
+The in-app survey renderer (exported name `SurveyBlockView`; props type `SurveyBlockProps`; `forwardRef<HTMLDivElement>`). One component covers `scale`, `nps`, `yesno`, and `choice`. `FeedItemView` **auto-renders** it for any item whose `blocks` contains a `{ type: "survey" }` member — you rarely mount it directly.
+
+```tsx
+import { SurveyBlockView } from "@hogsend/react";
+
+// inside a custom renderItem, for the first survey block on an item:
+<SurveyBlockView item={item} block={surveyBlock} />;
+```
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `item` | `FeedItem` | — | The host feed item (for its id + mark-read). Required. |
+| `block` | `SurveyBlock` | — | The narrowed `{ type: "survey" }` block to render. Required. |
+| `asChild` | `boolean` | `false` | `Slot` prop-merge. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `SurveyBlockClassNames` | — | Slots: `{ root, prompt, options, option, optionSelected, thanks }`. |
+| `renderSurvey` | `(state: { block; answered; answer?; onAnswer }) => ReactNode` | — | Replace the whole rendered survey. |
+| `onAnswer` | `(answer: string \| number) => void` | — | Fired AFTER capture + optimistic mark. |
+
+On answer it closes the loop on the existing spine: `client.capture(block.event, { [property]: value, surveyId?, feedItemId, source: "in_app" }, { idempotencyKey: "inapp:survey:<itemId>:<event>" })` — `property` defaults to `"value"` (an NPS producer sets `"score"`). The answer lands in `user_events.properties`, so a journey reads it via `ctx.waitForEvent → properties`. State attributes: root `data-mode`, `data-answered`, `data-value`; per option `data-selected` + `data-value`.
+
+Pair it with the engine producer `sendSurvey()` (modes `scale` / `nps` / `yesno` / `choice`), which publishes the feed item carrying the survey block. See the live loop in [./survey](./survey).
+
 ## `<BannerView>`
 
 Renders the single highest-priority non-dismissed banner for a slot. Component name `BannerView`; props type `BannerProps`.
@@ -225,6 +251,34 @@ The single-toast component (exported name `ToastView`; props type `ToastProps`; 
 | `classNames` | `ToastClassNames` | — | Slots: `root, content, title, body, action, dismiss`. |
 
 State attribute: `data-type`.
+
+## `<PreferenceCenter>`
+
+The list/category opt-in surface. Renders one row per code-defined list with an on/off switch; supply `channels` to render a category×channel matrix instead. Usable standalone or as a tab inside `<FeedPopover preferences>`.
+
+```tsx
+import { PreferenceCenter } from "@hogsend/react";
+// or the granular subpath:
+import { PreferenceCenter } from "@hogsend/react/preferences";
+
+<PreferenceCenter title="Email preferences" />;
+```
+
+| Prop | Type | Default | Notes |
+|---|---|---|---|
+| `channels` | `PreferenceChannel[]` | — | Channel columns → a category×channel matrix. Omit → a single switch column. |
+| `resolveCategoryId` | `(listId: string, channelId: string) => string` | `primary → listId`, else `${listId}.${channelId}` | Maps a `(list, channel)` cell to the engine categoryId it toggles. |
+| `title` | `string` | — | Optional header. |
+| `asChild` | `boolean` | `false` | `Slot` prop-merge. |
+| `className` | `string` | — | Root class. |
+| `classNames` | `PreferenceCenterClassNames` | — | Slots: `{ root, header, row, rowLabel, rowDescription, control, switch, switchThumb, cell, matrixHeader, loading, empty }`. |
+| `renderRow` | `(state: { list; channels?; toggle; isOn }) => ReactNode` | — | Replace a whole row. |
+| `renderControl` | `(state: { categoryId; checked; onChange; label }) => ReactNode` | — | Replace a single switch / matrix cell. |
+| `renderEmpty` | `() => ReactNode` | — | Replace the empty state. |
+| `onPreferenceChange` | `(categoryId: string, subscribed: boolean) => void` | — | Fired AFTER the toggle dispatches. |
+| `aria-label` | `string` | — | Accessible label. |
+
+Reads `usePreferences()` → `GET /v1/lists` (the catalog) + `GET /v1/lists/preferences`. Toggling emits `inapp.preference_changed` from the SDK store (do NOT add a capture). State attributes: root `data-loading` / `data-empty` / `data-matrix`; row `data-list-id`; switch `data-state="on|off"`. `GET /v1/lists` is reachable with an anonymous `pk_` key, which degrades each list's `subscribed` to its `defaultOptIn` — **writes** need an identified user with a `userToken` (see [identifying-users](./identifying-users)). The [./preferences](./preferences) page is a live anonymous read.
 
 ## Minimal pre-built inbox
 
