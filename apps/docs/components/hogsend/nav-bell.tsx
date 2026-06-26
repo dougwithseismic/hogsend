@@ -1,9 +1,10 @@
 "use client";
 
-import { FeedPopover, NotificationBell } from "@hogsend/react";
+import { NotificationBell } from "@hogsend/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { isHogsendConfigured } from "./config";
+import { isHogsendConfigured, OPEN_FEED_EVENT } from "./config";
+import { FeedPanel } from "./feed-panel";
 
 const POPOVER_ID = "hs-docs-feed";
 
@@ -17,12 +18,17 @@ const POPOVER_ID = "hs-docs-feed";
  * the badge the moment the popover opens, before the visitor reads the item.
  * The empty state points back at the live demo so the bell is never a dead end.
  *
+ * FEED: we render `<FeedPanel>` (a local drop-in for `@hogsend/react`'s
+ * `<FeedPopover>`) so each row is swipe-left-to-archive. It reuses the package's
+ * `.hsr-popover` / `.hsr-feed*` classes, so styling + positioning are identical;
+ * it filters soft-archived rows the package keeps in `items`.
+ *
  * PORTAL: fumadocs renders this bell inside the narrow, `overflow`-clipped left
- * sidebar. `<FeedPopover>` is `position: absolute` (anchored to its nearest
- * positioned ancestor) with no portal, so placed bare it lands at the bottom of
- * the sidebar scroll area and gets clipped. We anchor it ourselves: a tiny
- * `position: fixed` div pinned to the bell's rect, portaled to `<body>` so it
- * escapes the sidebar's overflow, with the popover opening `bottom-start` (down
+ * sidebar. `<FeedPanel>` (`.hsr-popover`) is `position: absolute` (anchored to
+ * its nearest positioned ancestor) with no portal, so placed bare it lands at
+ * the bottom of the sidebar scroll area and gets clipped. We anchor it ourselves:
+ * a tiny `position: fixed` div pinned to the bell's rect, portaled to `<body>` so
+ * it escapes the sidebar's overflow, with the popover opening `bottom-start` (down
  * and to the right, into the content area where there's room). Follow-up: teach
  * `@hogsend/react`'s FeedPopover to portal + anchor itself so consumers don't
  * have to. Recompute on scroll/resize while open.
@@ -45,6 +51,17 @@ export function NavBell({
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
+
+  // Let the top banner ticker pop this feed open (clicking the live ticker opens
+  // the bell). Only the on-screen bell reacts: a hidden instance (the other
+  // responsive nav, a collapsed sidebar) has no `offsetParent`, so it stays put.
+  useEffect(() => {
+    const onOpen = (): void => {
+      if (buttonRef.current?.offsetParent != null) setOpen(true);
+    };
+    window.addEventListener(OPEN_FEED_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_FEED_EVENT, onOpen);
+  }, []);
 
   // Track the bell's viewport rect while the popover is open so the portaled
   // panel stays pinned to it through scroll/resize.
@@ -89,7 +106,7 @@ export function NavBell({
               zIndex: 1100,
             }}
           >
-            <FeedPopover
+            <FeedPanel
               id={POPOVER_ID}
               isVisible={open}
               onClose={() => setOpen(false)}

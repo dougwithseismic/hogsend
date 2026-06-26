@@ -14,3 +14,11 @@ export const HOGSEND_PUBLISHABLE_KEY =
 /** True only when both the engine URL and a publishable key are configured. */
 export const isHogsendConfigured =
   HOGSEND_API_URL.length > 0 && HOGSEND_PUBLISHABLE_KEY.startsWith("pk_");
+
+/**
+ * Window event the banner ticker dispatches to pop the nav bell's feed open.
+ * Lives here (a plain module) so the banner can fire it without importing the
+ * heavy `@hogsend/react` bell tree. Multiple bells mount per page, so they don't
+ * share an `open` flag — each listens for this and only the on-screen one opens.
+ */
+export const OPEN_FEED_EVENT = "hogsend:open-feed";
