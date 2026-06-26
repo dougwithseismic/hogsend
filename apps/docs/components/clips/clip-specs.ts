@@ -360,44 +360,40 @@ export const CLIP_SPECS: Record<string, ClipSpec> = {
     ],
   },
 
-  // link-discord-to-email — the in-Discord /link modal loop: a single-use
-  // 6-digit code emailed, verified back inside Discord, then the email folds
-  // onto the discord_id so they become one contact.
+  // link-discord-to-email — the in-Discord /link flow: the member types their
+  // email into a private modal, gets a one-click confirm link in their inbox,
+  // and clicking it folds the email onto the discord_id so they become one
+  // contact (and grants the verified role). No typed code.
   "discord-link": {
     id: "discord-link",
     file: "src/discord.ts",
-    code: `// member runs /link inside Discord
+    code: `// member runs /link inside Discord → an email modal opens
 createDiscordConnector({
-  // mint a single-use 6-digit code...
-  mintCode: createLinkCode,
+  // mint a cold-connect token + email a one-click confirm link
+  requestConfirm: ({ discordUserId, email }) =>
+    discordColdConnect.mintConfirm({
+      platformUserId: discordUserId,
+      email,
+    }),
 
-  // ...mail it as a transactional send
-  sendLinkCode: async ({ email, code }) => {
-    await getEmailService().send({
-      template: "transactional/discord-link-code",
-      to: email,
-    });
-  },
-
-  // /verify <code> or the "Enter code" button
-  // ⟦folds the email onto the discord_id⟧
-  redeemCode: redeemLinkCode,
+  // clicking the emailed link ⟦folds discord_id + email onto
+  // one contact⟧, grants the verified role, emits discord.linked
 });`,
     steps: [
       {
         kind: "event",
-        event: "discord.link_requested",
+        event: "/link",
         who: "@member",
         band: [1, 1],
       },
       {
         kind: "send",
-        subject: "Your Discord verification code: 418-203",
+        subject: "Confirm your Discord link — expires in 15 min",
         band: [7, 1],
       },
       {
         kind: "wait",
-        event: "code.verified",
+        event: "discord.linked",
         timeout: "15m",
         resolve: "linked ✓",
         band: [13, 3],

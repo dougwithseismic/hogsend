@@ -105,7 +105,7 @@ const CAPABILITIES: Feature[] = [
   {
     icon: <KeyRound size={ICON_SIZE} strokeWidth={1.5} />,
     title: "Link a Discord account to an email",
-    body: "A member runs /link and types a code from their inbox — now they're emailable too.",
+    body: "A member runs /link and clicks the one-click confirm link from their inbox — now they're emailable too.",
     tag: "/link",
   },
   {
@@ -141,7 +141,7 @@ const DISCORD_RECIPES: Recipe[] = [
   },
   {
     title: "Link Discord to email",
-    body: "Let a member tie their Discord account to an email with a code.",
+    body: "Let a member tie their Discord account to an email with a one-click confirm link.",
     href: "/docs/recipes/link-discord-to-email",
   },
   {
@@ -209,7 +209,7 @@ export default function DiscordPage(): JSX.Element {
           <SectionHeading
             eyebrow="In motion"
             title="Someone joins. Hogsend takes it from there."
-            subtitle="A member joins your server, links their email with a code, and the welcome lands the moment they do — one continuous run."
+            subtitle="A member joins your server, links their email with one click, and the welcome lands the moment they do — one continuous run."
           />
         </Reveal>
 
@@ -233,20 +233,20 @@ export default function DiscordPage(): JSX.Element {
         <FeatureGrid items={CAPABILITIES} />
       </Section>
 
-      {/* Second clip — the /link email-code flow. */}
+      {/* Second clip — the /link one-click email-confirm flow. */}
       <Section id="linking">
         <Reveal>
           <SectionHeading
             eyebrow="Linking"
-            title="Tie a Discord account to an email — without leaving Discord"
-            subtitle="The member runs /link, gets a code in their inbox, types it back, and the two become one contact."
+            title="Tie a Discord account to an email — /link, then one click"
+            subtitle="The member runs /link, types their email into a private modal, and clicks the one-click confirm link in their inbox — the two become one contact, and they get the verified role."
           />
         </Reveal>
 
         <Reveal className="mt-12">
           <Clip
             clip="discord-link"
-            title="Link a Discord account to an email with a code"
+            title="Link a Discord account to an email with a one-click confirm link"
           />
         </Reveal>
       </Section>
