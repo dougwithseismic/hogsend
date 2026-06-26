@@ -66,6 +66,13 @@ type EmailCaptureProps = {
    * in-app loop once you've signed up. Optional + additive; no-op when unset.
    */
   onSubscribed?: (info: { name?: string }) => void;
+  /**
+   * Email-FIRST variant: ask first name + email + terms, then advance INTO the
+   * qualifier questions AFTER sign-up (vs `qualifyFirst`, which asks them
+   * before) and skip the result/offer segments — no pricing/docs/setup CTAs.
+   * The home live demo uses this for a low-friction sign-up with no escape route.
+   */
+  qualifyAfter?: boolean;
 };
 
 /**
@@ -343,6 +350,7 @@ export function EmailCapture({
   placement = "footer",
   qualifyFirst = false,
   onSubscribed,
+  qualifyAfter = false,
 }: EmailCaptureProps): JSX.Element {
   const [step, setStep] = useState<Step>(qualifyFirst ? "q1" : "form");
   const [email, setEmail] = useState("");
@@ -460,7 +468,11 @@ export function EmailCapture({
         });
         onSubscribed?.(trimmedName ? { name: trimmedName } : {});
         setStatus("idle");
-        if (qualifyFirst) {
+        if (qualifyAfter) {
+          // Email-first: now that they've signed up, drop them INTO the
+          // qualifier; each answer flushes to /api/profile in handleQualifier.
+          setStep("q1");
+        } else if (qualifyFirst) {
           // Flush the qualifier answers gathered before the email as contact
           // properties, mirroring the post-signup steps' /api/profile writes.
           // Skipped/unanswered questions stay undefined and are omitted. When
@@ -536,34 +548,43 @@ export function EmailCapture({
 
   /** The result/offer landing once Q4 (or its skip) is past. */
   function afterQuestions(usage: string | undefined): Step {
+    // Email-first variant runs the qualifier AFTER sign-up and skips the
+    // result/offer segments entirely (no escape CTAs) — straight to done.
+    if (qualifyAfter) return "done";
     return usage === "not_yet" ? "offer" : "result";
   }
 
   function handleQualifier(question: string, answer: string) {
     capture(AnalyticsEvent.QUALIFIER_SELECTED, { question, answer, placement });
+    // Email-first runs the qualifier AFTER sign-up, so the email is known and
+    // each answer flushes to /api/profile as it's given (segmentation preserved).
     switch (question) {
       case "posthog_usage": {
         setPosthogUsage(answer);
         // Changing the Q1 answer can invalidate a previously-given Q2 depth.
         if (answer !== "yes") setPosthogDepth(undefined);
+        if (qualifyAfter) postProfile({ posthog_usage: answer });
         setBackStack(["q1"]);
         setStep(afterQ1(answer));
         return;
       }
       case "posthog_depth": {
         setPosthogDepth(answer);
+        if (qualifyAfter) postProfile({ posthog_depth: answer });
         setBackStack((stack) => [...stack, "q2"]);
         setStep("q3");
         return;
       }
       case "lifecycle": {
         setLifecycle(answer);
+        if (qualifyAfter) postProfile({ lifecycle: answer });
         setBackStack((stack) => [...stack, "q3"]);
         setStep("q4");
         return;
       }
       case "building": {
         setBuilding(answer);
+        if (qualifyAfter) postProfile({ building: answer });
         setBackStack((stack) => [...stack, "q4"]);
         setStep(afterQuestions(posthogUsage));
         return;
@@ -1084,7 +1105,7 @@ export function EmailCapture({
               <span>
                 {status === "submitting"
                   ? "Sending…"
-                  : qualifyFirst
+                  : qualifyFirst || qualifyAfter
                     ? "Get the demo"
                     : "Subscribe"}
               </span>
