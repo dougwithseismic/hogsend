@@ -42,7 +42,7 @@ function SurveyDemoLive({ codePanel }: { codePanel?: ReactNode }) {
   }
 
   return (
-    <div className="my-8 grid gap-6 not-prose lg:grid-cols-[1fr_1fr]">
+    <div className="my-8 grid gap-6 not-prose lg:grid-cols-[400px_minmax(0,1fr)]">
       <Card className="flex flex-col gap-5 p-6">
         <button
           type="button"

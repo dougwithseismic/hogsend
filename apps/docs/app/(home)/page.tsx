@@ -9,8 +9,8 @@ import { FeatureCards } from "@/components/landing/feature-cards";
 import { GrowthLessons } from "@/components/landing/growth-lessons";
 import { Hero } from "@/components/landing/hero";
 import { HowItWorks } from "@/components/landing/how-it-works";
+import { InAppDemo } from "@/components/landing/in-app-demo";
 import { InTheLoop } from "@/components/landing/in-the-loop";
-import { LiveDemo } from "@/components/landing/live-demo";
 import { LogoStrip } from "@/components/landing/logo-strip";
 import { Manifesto } from "@/components/landing/manifesto";
 import { MoreOutOfPostHog } from "@/components/landing/more-out-of-posthog";
@@ -181,7 +181,7 @@ export default function HomePage() {
       <UseCases />
       <InTheLoop />
       <UseCasePickerSection />
-      <LiveDemo />
+      <InAppDemo />
       <MoreOutOfPostHog />
       <BuildingBlocks />
       <FeatureCards />
