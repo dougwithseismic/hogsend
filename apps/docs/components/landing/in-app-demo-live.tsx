@@ -122,6 +122,11 @@ export function InAppDemoLive({
               "group inline-flex h-12 items-center justify-between gap-2 rounded-[10px] border px-4 text-left text-sm transition-colors",
               "border-white/[0.08] bg-white/[0.04] text-white hover:border-white/15 hover:bg-white/[0.06]",
               "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-white/[0.08] disabled:hover:bg-white/[0.04]",
+              // Once signed up, glow the primary action — draws the eye to the
+              // now-unlocked in-app loop.
+              signedUp &&
+                action.event === "demo.welcome" &&
+                "border-accent/70 bg-accent/[0.08] shadow-[0_0_22px_-2px_rgba(246,72,56,0.55)] hover:border-accent",
             )}
           >
             <span className="flex min-w-0 flex-col">

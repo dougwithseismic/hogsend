@@ -25,22 +25,22 @@ export function InAppDemoBody() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      {/* LEFT — qualifier + email sign-up (feeds the dogfood) */}
+      {/* LEFT — email-first sign-up (feeds the dogfood; qualifier comes after) */}
       <Card className="flex flex-col p-6">
-        <span className="kicker mb-3 block">Get the welcome series</span>
+        <span className="kicker mb-3 block">Get the demo</span>
         <h3 className="font-display text-2xl text-white tracking-[-0.02em]">
-          Answer four questions. Get a real email.
+          First name, email — get the demo.
         </h3>
         <p className="mt-1.5 text-sm text-white/55 leading-6">
-          Tell us about your stack — PostHog, lifecycle email, what you build —
-          and drop your email. A stock create-hogsend app running in production
-          ingests the event, runs its welcome journey, and sends from
-          hello@hogsend.com a few seconds later. That first email opens a real
-          welcome series over the days that follow.
+          Drop your first name and email and you're in. A stock create-hogsend
+          app running in production ingests the event, runs its welcome journey,
+          and sends from hello@hogsend.com a few seconds later — that first
+          email opens a real welcome series. Then a couple quick questions, if
+          you like.
         </p>
         <EmailCapture
           hideHeading
-          qualifyFirst
+          qualifyAfter
           placement="hero"
           className="mt-6"
           onSubscribed={(info) => {
