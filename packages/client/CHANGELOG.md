@@ -1,5 +1,11 @@
 # @hogsend/client
 
+## 0.37.1
+
+### Patch Changes
+
+- a9b12de: `@hogsend/react`: responsive in-app feed + survey card. The feed now sets its own type baseline so notification items don't balloon to a large host font-size, bodies are sized and muted for readability, and the `scale`/`nps` survey scale flows as a single shrink-to-fit row instead of wrapping into a ragged grid in narrow feeds (including the 380px bell popover).
+
 ## 0.37.0
 
 ### Minor Changes
