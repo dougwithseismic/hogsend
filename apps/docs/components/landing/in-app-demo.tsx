@@ -1,4 +1,5 @@
 import { Bell } from "lucide-react";
+import Link from "next/link";
 import { PillBadge } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { Section, SectionHeading } from "@/components/ds/section";
@@ -9,8 +10,9 @@ import { InAppDemoBody } from "./in-app-demo-body";
  * InAppDemo — the home-page live-demo section: the product demonstrating itself.
  * One section, two columns (`InAppDemoBody`): a real qualifier+email sign-up
  * that feeds the dogfood (real welcome series + segmentation + lead alerts), and
- * the in-app loop it unlocks (fire an event → a journey drops a notification in
- * the feed + the nav bell). The demo journeys are already live on t.hogsend.com.
+ * the in-app loop it unlocks (fire an event → a journey drops a notification
+ * into the in-app feed; the nav bell is one view onto it). The demo journeys
+ * are already live on t.hogsend.com.
  */
 export function InAppDemo() {
   return (
@@ -19,13 +21,18 @@ export function InAppDemo() {
         align="center"
         eyebrow="Live demo"
         title="The product, running on itself"
-        subtitle="Sign up and a real welcome series lands in your inbox — then fire an event and watch a notification land in your bell. Both run on the same journeys you'd scaffold, one identity end to end."
+        subtitle="Sign up and a real welcome series lands in your inbox — then fire an event and watch a journey drop a notification into your in-app feed. Both run on the same journeys you'd scaffold, one identity end to end."
       />
       <p className="mx-auto mt-4 max-w-2xl text-center text-[13px] text-white/45 leading-5">
-        The bell, feed, survey card and preference center are real{" "}
+        The feed, bell, survey card and preference center are real{" "}
         <code className="font-mono text-white/65">@hogsend/react</code> +{" "}
-        <code className="font-mono text-white/65">@hogsend/js</code> components
-        — drop them straight into your own app.
+        <code className="font-mono text-white/65">@hogsend/js</code> components.{" "}
+        <Link
+          href="/components"
+          className="text-white/70 underline decoration-white/20 underline-offset-2 transition-colors hover:text-white"
+        >
+          See the full set →
+        </Link>
       </p>
       <div className="relative mt-10">
         {/* red atmospheric bloom (the CodeWindow idiom) */}
