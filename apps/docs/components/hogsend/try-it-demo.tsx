@@ -48,6 +48,11 @@ const ACTIONS = [
     label: "Send a trial-ending nudge",
     hint: "lifecycle nudge with a CTA",
   },
+  {
+    event: "demo.survey",
+    label: "Send me a survey",
+    hint: "an in-app NPS card you answer in the bell",
+  },
 ] as const;
 
 const STEPS = [

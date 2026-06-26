@@ -1,10 +1,9 @@
 "use client";
 
-import { NotificationBell } from "@hogsend/react";
+import { FeedPopover, NotificationBell } from "@hogsend/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { isHogsendConfigured, OPEN_FEED_EVENT } from "./config";
-import { FeedPanel } from "./feed-panel";
 
 const POPOVER_ID = "hs-docs-feed";
 
@@ -18,20 +17,21 @@ const POPOVER_ID = "hs-docs-feed";
  * the badge the moment the popover opens, before the visitor reads the item.
  * The empty state points back at the live demo so the bell is never a dead end.
  *
- * FEED: we render `<FeedPanel>` (a local drop-in for `@hogsend/react`'s
- * `<FeedPopover>`) so each row is swipe-left-to-archive. It reuses the package's
- * `.hsr-popover` / `.hsr-feed*` classes, so styling + positioning are identical;
- * it filters soft-archived rows the package keeps in `items`.
+ * FEED: we render the package `<FeedPopover>` directly. Its `<NotificationFeed>`
+ * now filters soft-archived rows itself and ships swipe-left-to-archive, so the
+ * previous local `FeedPanel` drop-in is retired. Styling + positioning are
+ * unchanged: FeedPopover renders the same `.hsr-popover` / `.hsr-feed*` shell
+ * inside our fixed-anchor wrapper.
  *
  * PORTAL: fumadocs renders this bell inside the narrow, `overflow`-clipped left
- * sidebar. `<FeedPanel>` (`.hsr-popover`) is `position: absolute` (anchored to
- * its nearest positioned ancestor) with no portal, so placed bare it lands at
- * the bottom of the sidebar scroll area and gets clipped. We anchor it ourselves:
- * a tiny `position: fixed` div pinned to the bell's rect, portaled to `<body>` so
- * it escapes the sidebar's overflow, with the popover opening `bottom-start` (down
- * and to the right, into the content area where there's room). Follow-up: teach
- * `@hogsend/react`'s FeedPopover to portal + anchor itself so consumers don't
- * have to. Recompute on scroll/resize while open.
+ * sidebar. `<FeedPopover>` (`.hsr-popover`) is `position: absolute` (anchored to
+ * its nearest positioned ancestor) with no portal of its own, so placed bare it
+ * lands at the bottom of the sidebar scroll area and gets clipped. We anchor it
+ * ourselves: a tiny `position: fixed` div pinned to the bell's rect, portaled to
+ * `<body>` so it escapes the sidebar's overflow, with the popover opening
+ * `bottom-start` (down and to the right, into the content area where there's
+ * room). Follow-up: teach `@hogsend/react`'s FeedPopover to portal + anchor
+ * itself so consumers don't have to. Recompute on scroll/resize while open.
  */
 export function NavBell({
   align = "start",
@@ -106,7 +106,7 @@ export function NavBell({
               zIndex: 1100,
             }}
           >
-            <FeedPanel
+            <FeedPopover
               id={POPOVER_ID}
               isVisible={open}
               onClose={() => setOpen(false)}

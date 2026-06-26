@@ -1,0 +1,37 @@
+---
+title: In-app surveys
+description: "Fire an event from this page, answer the NPS card it drops in your feed, and watch a second journey read your score back off the spine — one identity, no login."
+---
+
+import { CodeWindow } from "../../../components/ds/code-window";
+import { SurveyDemo } from "../../../components/hogsend/survey-demo";
+import { SURVEY_SRC } from "../../../components/hogsend/survey-demo-src";
+
+This is the same in-app feed surface the nav bell renders — here it's inlined on the page so you can answer a survey without leaving. You are an **anonymous visitor**: no login, no identify call. Fire the event, answer the card, and the answer routes back through a journey.
+
+{/* CodeWindow is an async RSC (server-side Shiki); render it here on the server
+    and pass it into the client SurveyDemo as a prop, never construct it inside
+    the client component (that throws React #482 — async client component). */}
+<SurveyDemo
+  codePanel={
+    <CodeWindow filename="src/journeys/docs-inapp-demo.ts" code={SURVEY_SRC} />
+  }
+/>
+
+## What just happened
+
+The button called `client.capture("demo.survey", {})` — a first-party event keyed to your anonymous id.
+
+A journey triggered on `demo.survey` and called `sendSurvey({ mode: "nps", property: "score", event: "demo.nps_submitted" })`. That published a feed item carrying a `survey` block, which `FeedItemView` auto-renders as an NPS card via `SurveyBlockView`.
+
+Answering the card captured `demo.nps_submitted` with your score under the `score` property (`SurveyBlockView` writes `{ [property]: value, feedItemId, source: "in_app" }` and reuses an `idempotencyKey` so a re-answer is exactly-once). It lands in `user_events.properties` like any other first-party event.
+
+A second journey triggered on `demo.nps_submitted`, read `user.properties.score`, and called `sendFeedItem` — the thank-you item that echoes your number. Same write-back path a real NPS or CSAT loop uses.
+
+The aggregate is queryable off the same events:
+
+```bash
+GET /v1/admin/reporting/breakdown?event=demo.nps_submitted&property=score&metric=nps
+```
+
+The whole round-trip used **one identity**. A `pk_` publishable key has no user token, so `userId` stays `null` and the feed stays keyed to your anonymous id end to end.
