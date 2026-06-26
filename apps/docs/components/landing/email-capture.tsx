@@ -73,6 +73,14 @@ type EmailCaptureProps = {
    * The home live demo uses this for a low-friction sign-up with no escape route.
    */
   qualifyAfter?: boolean;
+  /**
+   * The `@hogsend/js` in-app client's anon id (`hs_anon_id`). When set (the home
+   * demo passes `client.getDistinctId()`), it rides to `/api/subscribe` on the
+   * `docs.subscribed` event so the dogfood can email a cold-connect confirm link
+   * that folds THIS browser's in-app demo activity onto the contact — the secure,
+   * email-verified identity fold. Unset elsewhere (footer/referral) → no link.
+   */
+  hogsendAnonymousId?: string;
 };
 
 /**
@@ -351,6 +359,7 @@ export function EmailCapture({
   qualifyFirst = false,
   onSubscribed,
   qualifyAfter = false,
+  hogsendAnonymousId,
 }: EmailCaptureProps): JSX.Element {
   const [step, setStep] = useState<Step>(qualifyFirst ? "q1" : "form");
   const [email, setEmail] = useState("");
@@ -432,6 +441,9 @@ export function EmailCapture({
           // Step (2): forwarded as the top-level `anonymousId` (the engine keys
           // the contact on it → returned contactKey equals this browser id).
           ...(distinctId ? { posthogDistinctId: distinctId } : {}),
+          // The in-app client's id — lets the dogfood email a cold-connect
+          // confirm link to fold this browser's demo activity onto the contact.
+          ...(hogsendAnonymousId ? { hogsendAnonymousId } : {}),
           termsAccepted,
           productNotes,
         }),

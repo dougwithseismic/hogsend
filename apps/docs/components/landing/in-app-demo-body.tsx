@@ -1,5 +1,6 @@
 "use client";
 
+import { useHogsend } from "@hogsend/react";
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ds/card";
 import { EmailCapture } from "./email-capture";
@@ -33,6 +34,10 @@ export function InAppDemoBody() {
   // is browser-only), so the first paint matches the server (the form) and then
   // hydrates to the "you're in" state for known visitors.
   const [returning, setReturning] = useState(false);
+  // The in-app client's own anon id (hs_anon_id) — handed to EmailCapture so the
+  // sign-up can trigger the email-verified fold of this browser's demo activity
+  // onto the contact (see web-link.ts in hogsend-dogfood).
+  const { client } = useHogsend();
 
   useEffect(() => {
     try {
@@ -105,6 +110,7 @@ export function InAppDemoBody() {
               qualifyAfter
               placement="hero"
               className="mt-6"
+              hogsendAnonymousId={client.getDistinctId()}
               onSubscribed={(info) => {
                 setSignedUp(true);
                 if (info.name) setName(info.name);
