@@ -272,6 +272,13 @@
   outline-offset: 2px;
 }
 
+/* Reserve a right gutter on each row so the (hover-revealed) archive button
+   gets its own space and never lands on top of the item's "Open" action or
+   text. The archive sits at right:8px + 28px wide, so ~40px clears it. */
+.hs-swipe-row .hsr-feed-item {
+  padding-right: 2.5rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .hs-swipe-row,
   .hs-swipe-track {
