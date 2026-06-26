@@ -153,6 +153,132 @@
   font-size: 14px;
 }
 
+/* ── Swipe-to-archive ──────────────────────────────────────────────────────
+   The feed list is rendered by apps/docs (`<FeedPanel>` / `<SwipeableFeedRow>`)
+   instead of the package `<NotificationFeed>`, so soft-archived rows can be
+   filtered out and each row gets a swipe gesture. Rows reuse the package
+   `.hsr-feed*` classes; this scaffold adds the swipe track + affordance + the
+   keyboard-reachable archive button. ── */
+
+/* The row collapses its height as it leaves; the negative margin eats the flex
+   `gap` so siblings don't hold a phantom slot mid-exit. */
+.hs-swipe-row {
+  overflow: hidden;
+  max-height: 320px;
+  transition:
+    max-height 0.22s ease,
+    opacity 0.22s ease,
+    margin-top 0.22s ease;
+}
+.hs-swipe-row[data-removing="true"] {
+  max-height: 0;
+  opacity: 0;
+  margin-top: calc(-1 * var(--hs-feed-gap, 4px));
+  pointer-events: none;
+}
+
+.hs-swipe-clip {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Sits behind the track; revealed at the right edge as the row slides left. */
+.hs-swipe-affordance {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 16px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    rgba(246, 72, 56, 0.06),
+    rgba(246, 72, 56, 0.22)
+  );
+}
+.hs-swipe-affordance__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 0.15s ease;
+}
+.hs-swipe-affordance[data-armed="true"] {
+  background: linear-gradient(
+    90deg,
+    rgba(246, 72, 56, 0.16),
+    rgba(246, 72, 56, 0.42)
+  );
+}
+.hs-swipe-affordance[data-armed="true"] .hs-swipe-affordance__label {
+  color: #ffffff;
+}
+
+/* Opaque so it occludes the affordance until dragged; `pan-y` keeps vertical
+   scroll with the browser and hands us the horizontal gesture. */
+.hs-swipe-track {
+  position: relative;
+  background: var(--hs-color-surface, #0a0606);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.2s ease;
+}
+
+/* The accessibility fallback: a real button, in the tab order, surfaced on row
+   hover or keyboard focus. `opacity` (not `display`/`visibility`) keeps it
+   focusable; `pointer-events` gates stray mouse hits while hidden. */
+.hs-swipe-archive {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(5, 1, 1, 0.85);
+  color: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+.hs-swipe-row:hover .hs-swipe-archive,
+.hs-swipe-row:focus-within .hs-swipe-archive,
+.hs-swipe-archive:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.hs-swipe-archive:hover,
+.hs-swipe-archive:focus-visible {
+  color: #ffffff;
+  border-color: rgba(246, 72, 56, 0.6);
+  background: rgba(246, 72, 56, 0.2);
+}
+.hs-swipe-archive:focus-visible {
+  outline: 2px solid var(--hs-color-accent, #f64838);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hs-swipe-row,
+  .hs-swipe-track {
+    transition: none;
+  }
+}
+
 /* ── Banner ticker — a new notification fades in as it jumps to the front. ── */
 @keyframes hs-ticker-fade {
   from {
