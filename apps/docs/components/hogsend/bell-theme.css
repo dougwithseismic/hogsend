@@ -180,3 +180,13 @@
     animation: none;
   }
 }
+
+/* ── Home live-demo feed height ────────────────────────────────────────────
+   The inline <NotificationFeed> caps at the package default
+   (--hs-feed-max-height: 520px). The feed element carries `.hsr` itself, so that
+   token can't be overridden by an ancestor's inline var (the element's own
+   `.hsr` declaration wins) — set the max-height directly with a section-scoped
+   selector, taller so the survey card's 0–10 row isn't clipped. ── */
+#live-demo .hsr-feed {
+  max-height: 720px;
+}
