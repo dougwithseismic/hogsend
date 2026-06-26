@@ -60,6 +60,12 @@ type EmailCaptureProps = {
    * seat/website follow-ups after signup.
    */
   qualifyFirst?: boolean;
+  /**
+   * Fired once after a successful subscribe (email accepted by the engine).
+   * Lets a host coordinate sign-up state — e.g. the home live demo unlocks its
+   * in-app loop once you've signed up. Optional + additive; no-op when unset.
+   */
+  onSubscribed?: (info: { name?: string }) => void;
 };
 
 /**
@@ -336,6 +342,7 @@ export function EmailCapture({
   hideHeading = false,
   placement = "footer",
   qualifyFirst = false,
+  onSubscribed,
 }: EmailCaptureProps): JSX.Element {
   const [step, setStep] = useState<Step>(qualifyFirst ? "q1" : "form");
   const [email, setEmail] = useState("");
@@ -451,6 +458,7 @@ export function EmailCapture({
           placement,
           product_notes: productNotes,
         });
+        onSubscribed?.(trimmedName ? { name: trimmedName } : {});
         setStatus("idle");
         if (qualifyFirst) {
           // Flush the qualifier answers gathered before the email as contact
