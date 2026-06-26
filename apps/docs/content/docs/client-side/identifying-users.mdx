@@ -1,0 +1,112 @@
+---
+title: Identifying users
+description: "Run anonymous-by-default on a pk_ key, then bind a concrete userId with a server-minted userToken — never an email — and let the engine fold identities server-side."
+---
+
+The browser ships a `pk_` publishable key, which is **anonymous-only by design**. To act as a concrete `userId`, your backend mints a short-lived `userToken` after its own login and the frontend passes it to `<HogsendProvider>`. The token binds a `userId` and nothing else; email and cross-channel ids are folded onto the contact server-side with your secret key. This page is the deep-dive that [Provider & Identity](./provider) and the [Quickstart](./quickstart) point at.
+
+## Anonymous visitors need nothing
+
+The default path requires zero setup. With no `userId`/`userToken`, the client mints and persists an anonymous id; `capture` and feed reads work, and events are stamped `source: "inapp"`. An anonymous visitor's feed shows whatever the engine has written for that anonymous id. You only reach for a `userToken` when you want the browser to act as a known user.
+
+## Why `pk_` is anonymous-only — by design
+
+A `pk_` key is shipped to every browser, so it must be assumed public. If a public key could assert it *is* an arbitrary `userId`, anyone could read another user's feed or write contact-bound traits and list preferences under a guessed id — a pre-seed / impersonation hole. So the engine refuses identity-asserting writes on a bare `pk_` key and falls back to the request's `anonymousId`. This is a **guard, not a limitation**: anonymous-by-default is the secure floor, and a verified `userToken` is the only way up from it.
+
+<Callout type="warn">
+A `pk_` key is also **origin-locked, fail-closed**. No `allowedOrigins` on the key, no `Origin` header on the request, or an `Origin` not in the allowlist all return `403`. Add every browser origin (including `localhost` dev ports) to the key's `allowedOrigins`.
+</Callout>
+
+## Identified users: the `userToken`
+
+To bind a concrete `userId`, the browser presents a `userToken` — a short-lived HMAC over `{ userId, exp }` signed with `BETTER_AUTH_SECRET`. The token is **signed, not encrypted**: it proves integrity (a browser cannot forge another person's `userId`), carries no PII, and the engine verifies it on every publishable-reachable handler. `BETTER_AUTH_SECRET` is the **same trust root** the verify path uses, so a token minted with it is accepted everywhere a `pk_` request can reach.
+
+### 1. Mint it server-side, after your own login
+
+`generateUserToken` lives in `@hogsend/engine` and signs with `node:crypto` + `BETTER_AUTH_SECRET`. Call it **only after you've authenticated the user yourself** — this scaffold ships admin/session auth (better-auth at `/api/auth/*`), not an end-user session, so the authenticated id comes from *your* login (Clerk, Supabase, NextAuth, a session cookie, a JWT — whatever you run).
+
+```ts title="app/api/hogsend-token/route.ts — Next.js App Router"
+import { generateUserToken } from "@hogsend/engine";
+
+export async function GET(req: Request) {
+  const session = await auth(req); // YOUR login — not Hogsend's
+  if (!session) {
+    return Response.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const userToken = generateUserToken({
+    secret: process.env.BETTER_AUTH_SECRET!, // the engine's signing root
+    userId: session.userId, // NEVER a userId read from the request body
+    expiresInSeconds: 3600, // default 3600 (1h)
+  });
+
+  return Response.json({ userToken });
+}
+```
+
+Framework-neutral: any handler works — the only contract is "authenticate first, then mint for *that* user's id." The scaffold ships an equivalent reference route (a Hono `POST /v1/example/user-token` at `src/routes/hogsend-token.ts`, wired into `createApp(client, { routes })`); it's inert (401s) until you replace its `resolveAuthenticatedUserId` stub with your auth. Point `onUserTokenExpiring` at whichever endpoint you expose.
+
+<Callout type="warn">
+`generateUserToken` is **server-only** — it signs over `BETTER_AUTH_SECRET` with `node:crypto`. Never call it in a browser, and never mount it as an unauthenticated route that mints for a `userId` taken from the request body. Either leaks the ability to forge identity. Mint behind your own login, for the id *your* session resolved.
+</Callout>
+
+### 2. Pass it to the provider
+
+Fetch the token from your authenticated endpoint and thread `userId` + `userToken` into `<HogsendProvider>`. The SDK sends the token in the JSON **body** of identity-asserting calls (`/v1/contacts`, `/v1/events`, `/v1/lists/*`); the `Authorization` header stays just the `pk_` key.
+
+```tsx
+<HogsendProvider
+  apiUrl="https://api.example.com"
+  publishableKey={process.env.NEXT_PUBLIC_HOGSEND_PK!}
+  userId={user.id} // the userId your server signed
+  userToken={userToken} // server-minted proof of that userId
+  onUserTokenExpiring={async () => {
+    const res = await fetch("/api/hogsend-token"); // your mint route
+    return (await res.json()).userToken; // MUST be a fresh token string
+  }}
+>
+  {children}
+</HogsendProvider>
+```
+
+The provider re-identifies only when `userId` changes to a new truthy value — a `userToken` prop change does **not** re-identify; token rotation flows through `onUserTokenExpiring`, not prop diffing.
+
+### 3. Refresh on expiry
+
+`onUserTokenExpiring` is a `() => Promise<string>` called **at most once** when a data-plane request `403`s with an expired or invalid token (specifically: a `403` whose `error` message contains `userToken`). It must return a **fresh** token string; the SDK stores it and retries the failed request once. Return a falsy value to give up — the SDK surfaces the original `403` instead of looping. Point it at the same authenticated endpoint that minted the original token.
+
+## A `userToken` binds a `userId` — never an email
+
+The token's only subject is the opaque `userId`. Email is deliberately **not** something a browser can assert: it's guessable and enumerable, and the token is a bearer credential held client-side. The engine enforces this — a publishable caller that sends an `email` (even with a valid `userToken`) gets a `403`:
+
+```jsonc
+// PUT /v1/contacts from a pk_ browser
+{ "userId": "user_123", "userToken": "…", "email": "ada@example.com" }
+// → 403  "userToken does not authorize this identity"
+```
+
+So the browser only ever asserts `{ userId, userToken }` (plus optional `anonymousId` / `properties`). Attach the email server-side.
+
+## Fold an email (and Discord, etc.) onto the contact — server-side
+
+Email→contact linkage and cross-channel ids are a **secret-key, server-side** operation. Your backend (holding the secret data-plane `hsk_` key) does an upsert `PUT /v1/contacts` keyed by the same `userId`; no `userToken` is involved (a secret key is never anon-clamped):
+
+```bash
+curl -X PUT https://api.example.com/v1/contacts \
+  -H "Authorization: Bearer <secret hsk_ key>" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": "user_123", "email": "ada@example.com" }'
+# → 200  { "id": "…", "created": false, "linked": true }
+```
+
+`linked: true` means the existing `user_123` contact just gained its email — same canonical contact, no history split. The body also accepts `anonymousId`, `properties`, and `lists`. The engine, holding the secret, is the only party that resolves and folds the asserted `userId` into an email-bearing contact (and into one canonical PostHog person). Cross-channel ids work the same way — the Discord `/link` flow verifies an email server-side, then merges the `discord_id`-keyed contact into it. See [Data API → Identity](/docs/data-api/identity) for the full create → fill-in-link → merge / alias model.
+
+<Callout type="warn">
+The split is load-bearing: **the browser proves a `userId`; the server, holding `BETTER_AUTH_SECRET` and the `hsk_` key, is the only party that attaches an email or merges identities.** Don't try to assert an email from the browser — it's a `403` by design.
+</Callout>
+
+## Next
+
+- [Provider & Identity](./provider) — every `HogsendProvider` prop, token refresh, BYO-proxy `ingestPath`.
+- [Hooks](./hooks) — `useHogsend` (`identify`, `reset`), `usePreferences`, `useHogsendFeed`.
+- [Data API → Identity](/docs/data-api/identity) — the server-side contact-resolution, merge, and alias model.

@@ -14,6 +14,7 @@ import { destinations } from "./destinations/index.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
 import { lists } from "./lists/index.js";
+import { routes } from "./routes/index.js";
 import { webhookSources } from "./webhook-sources/index.js";
 
 const client = createHogsendClient({
@@ -60,7 +61,7 @@ if (process.env.SKIP_SCHEMA_CHECK !== "true") {
 // HOGSEND_BOOTSTRAP_API_KEY=false. API process only — never the worker.
 await bootstrapApiKeyFromEnv({ client });
 
-const app = createApp(client, { webhookSources });
+const app = createApp(client, { webhookSources, routes });
 const { logger, env } = client;
 
 const server = serve(
