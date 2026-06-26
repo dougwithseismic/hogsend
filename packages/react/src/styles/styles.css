@@ -603,7 +603,11 @@
   overflow: hidden;
 }
 
-/* Sits behind the track; revealed at the right edge as the row slides left. */
+/* Sits behind the track; revealed at the right edge as the row slides left.
+   Kept invisible UNTIL an actual swipe — otherwise a hover-tinted (translucent)
+   track lets the "Archive" label bleed through behind a tall row's content
+   (e.g. a survey's option grid). Only `data-swiping`/`data-armed`/
+   `data-archiving` on the row root reveal it. */
 .hsr-feed-item__affordance {
   position: absolute;
   inset: 0;
@@ -613,9 +617,17 @@
   padding-right: var(--hs-spacing);
   background: var(--hs-swipe-affordance-bg);
   color: var(--hs-swipe-affordance-text);
+  opacity: 0;
   transition:
+    opacity var(--hs-transition),
     background-color var(--hs-transition),
     color var(--hs-transition);
+}
+
+.hsr-feed-item[data-swiping] .hsr-feed-item__affordance,
+.hsr-feed-item[data-armed] .hsr-feed-item__affordance,
+.hsr-feed-item[data-archiving] .hsr-feed-item__affordance {
+  opacity: 1;
 }
 
 .hsr-feed-item__affordance-label {
@@ -669,9 +681,12 @@
    gates stray mouse hits while hidden. */
 .hsr-feed-item__archive {
   position: absolute;
-  top: 50%;
+  /* Pin to the TOP-right (aligned with the title row), not the vertical center.
+     On a tall, dynamic-height row (a survey's option grid, a multi-line body)
+     a centered button lands on top of the content; the title row is always
+     short, so the top corner is the one place it never collides. */
+  top: var(--hs-spacing-sm);
   right: var(--hs-spacing-sm);
-  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;

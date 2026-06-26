@@ -177,6 +177,12 @@ export const FeedItem = forwardRef<HTMLDivElement, FeedItemProps>(
     const archivedOnce = useRef(false);
     const widthRef = useRef(0);
     const exitTimer = useRef<number | null>(null);
+    // True only between pointerdown and pointerup/cancel. `onPointerMove` is
+    // bound to the track and fires on plain HOVER too; without this guard a
+    // hover (no button pressed) computes a large dx off a stale startX, flips
+    // the axis to "horizontal", and sets dragging → a false `data-swiping` that
+    // reveals the archive affordance over the row's content.
+    const pointerDown = useRef(false);
 
     useEffect(
       () => () => {
@@ -204,6 +210,7 @@ export const FeedItem = forwardRef<HTMLDivElement, FeedItemProps>(
     }, [item, onArchive]);
 
     const settle = useCallback(() => {
+      pointerDown.current = false;
       axis.current = "idle";
       setDragging(false);
       setDragX(0);
@@ -214,6 +221,7 @@ export const FeedItem = forwardRef<HTMLDivElement, FeedItemProps>(
       (e: ReactPointerEvent<HTMLDivElement>) => {
         if (archiving || !e.isPrimary) return;
         if (e.pointerType === "mouse" && e.button !== 0) return;
+        pointerDown.current = true;
         startX.current = e.clientX;
         startY.current = e.clientY;
         axis.current = "idle";
@@ -225,7 +233,7 @@ export const FeedItem = forwardRef<HTMLDivElement, FeedItemProps>(
 
     const onPointerMove = useCallback(
       (e: ReactPointerEvent<HTMLDivElement>) => {
-        if (archiving) return;
+        if (archiving || !pointerDown.current) return;
         const dx = e.clientX - startX.current;
         const dy = e.clientY - startY.current;
 
@@ -255,6 +263,7 @@ export const FeedItem = forwardRef<HTMLDivElement, FeedItemProps>(
 
     const endDrag = useCallback(
       (e: ReactPointerEvent<HTMLDivElement>) => {
+        pointerDown.current = false;
         if (axis.current === "horizontal") {
           try {
             e.currentTarget.releasePointerCapture(e.pointerId);
