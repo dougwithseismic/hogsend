@@ -1,11 +1,11 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, ReactNode, Ref } from "react";
 import { glide, interpolate, pop, punchIn } from "./clip-anim";
 import { syntax, theme, typo } from "./clip-theme";
 import { type CodeLine, tokenize } from "./clip-tokenizer";
 import type { ClipSpec, ClipStep } from "./clip-types";
-import { useLoopFrame } from "./use-loop-frame";
+import { useLoopFrame, useShotFrame } from "./use-loop-frame";
 
 // ---------------------------------------------------------------------------
 // Native port of the Remotion JourneyClip engine
@@ -1194,9 +1194,16 @@ function Eyebrow({ frame, text }: { frame: number; text: string }) {
 // The whole clip: bare trace stage with a subtle bottom red glow, looping.
 // ---------------------------------------------------------------------------
 
-export function JourneyTrace({ spec }: { spec: ClipSpec }) {
+function JourneyTraceView({
+  frame,
+  spec,
+  innerRef,
+}: {
+  frame: number;
+  spec: ClipSpec;
+  innerRef: Ref<HTMLDivElement>;
+}) {
   const total = clipDuration(spec.steps);
-  const { ref, frame } = useLoopFrame(total, FPS);
   const times = clipTimes(spec.steps);
   const lines = tokenize(spec.code);
 
@@ -1218,7 +1225,7 @@ export function JourneyTrace({ spec }: { spec: ClipSpec }) {
 
   return (
     <div
-      ref={ref}
+      ref={innerRef}
       className="relative overflow-hidden rounded-xl"
       style={{ backgroundColor: theme.ink }}
     >
@@ -1290,4 +1297,30 @@ export function JourneyTrace({ spec }: { spec: ClipSpec }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Looping clip — the default driver used across the docs (use-cases,
+ * /components, how-it-works, …). Plays forever while on-screen.
+ */
+export function JourneyTrace({ spec }: { spec: ClipSpec }) {
+  const { ref, frame } = useLoopFrame(clipDuration(spec.steps), FPS);
+  return <JourneyTraceView frame={frame} spec={spec} innerRef={ref} />;
+}
+
+/**
+ * One-shot driver for the live home demo — replays the run from the top each
+ * time `playToken` changes (i.e. each time the visitor fires an event), then
+ * holds on the settled final frame. Same visual engine as `JourneyTrace`, just
+ * a different clock.
+ */
+export function JourneyShot({
+  spec,
+  playToken,
+}: {
+  spec: ClipSpec;
+  playToken: number;
+}) {
+  const { ref, frame } = useShotFrame(clipDuration(spec.steps), FPS, playToken);
+  return <JourneyTraceView frame={frame} spec={spec} innerRef={ref} />;
 }

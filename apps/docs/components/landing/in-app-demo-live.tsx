@@ -124,9 +124,12 @@ function ChannelChips({
 export function InAppDemoLive({
   signedUp,
   name,
+  onFire,
 }: {
   signedUp: boolean;
   name?: string;
+  /** Notify the parent which event was just fired so the trace band replays. */
+  onFire?: (event: string) => void;
 }) {
   const { client, capture } = useHogsend();
   const { refetch, metadata } = useHogsendFeed();
@@ -138,6 +141,9 @@ export function InAppDemoLive({
 
   async function fire(event: string) {
     if (!signedUp || firing !== null) return;
+    // Kick the trace band off the instant they click — it animates the journey
+    // shape while the real capture/flush/refetch below lands the live item.
+    onFire?.(event);
     setFiring(event);
     setStep(0);
     try {
