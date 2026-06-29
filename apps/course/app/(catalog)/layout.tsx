@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { UserMenu } from "@/components/auth/user-menu";
 import { PageFrame } from "@/components/ds/page-frame";
-import { GITHUB_URL, HOGSEND_URL } from "@/lib/site";
+import { HOGSEND_URL } from "@/lib/site";
 
 /** Public catalog shell: brand nav + footer + the crimzon page frame. */
 export default function CatalogLayout({ children }: { children: ReactNode }) {
@@ -9,7 +10,7 @@ export default function CatalogLayout({ children }: { children: ReactNode }) {
     <>
       <PageFrame />
       <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="border-hairline-faint border-b">
+        <header className="sticky top-0 z-40 border-hairline-faint border-b bg-ink/80 backdrop-blur-md">
           <div className="container-page flex h-16 items-center justify-between">
             <Link
               href="/"
@@ -23,16 +24,11 @@ export default function CatalogLayout({ children }: { children: ReactNode }) {
               </Link>
               <a
                 href={HOGSEND_URL}
-                className="transition-colors hover:text-white"
+                className="hidden transition-colors hover:text-white sm:inline"
               >
                 Hogsend ↗
               </a>
-              <a
-                href={GITHUB_URL}
-                className="transition-colors hover:text-white"
-              >
-                GitHub ↗
-              </a>
+              <UserMenu />
             </nav>
           </div>
         </header>
