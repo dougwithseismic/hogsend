@@ -1,0 +1,73 @@
+# Dedicated course-site image (course.hogsend.com). Mirrors Dockerfile.docs:
+# the service must NOT use the root /Dockerfile (that builds the API). A dedicated
+# Dockerfile pointed at via dockerfilePath in railway.course.toml removes the
+# ambiguity — this service builds exactly this image.
+#
+# Produces a Next.js standalone server (apps/course/next.config.mjs sets
+# output: "standalone"): a self-contained server.js + bundled minimal
+# node_modules, so the runtime needs no pnpm workspace, install, or corepack.
+
+# syntax=docker/dockerfile:1
+
+# ---------------------------------------------------------------------------
+# base — pinned node + pnpm (matches .node-version + root packageManager).
+# ---------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+ENV PNPM_STORE_DIR="/pnpm/store"
+RUN corepack enable && corepack prepare pnpm@9.0.0 --activate \
+  && pnpm config set store-dir "$PNPM_STORE_DIR" --global
+WORKDIR /app
+
+# ---------------------------------------------------------------------------
+# fetch — warm the pnpm store from the lockfile only (cached on lockfile hash).
+# ---------------------------------------------------------------------------
+FROM base AS fetch
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
+
+# ---------------------------------------------------------------------------
+# build — install the full workspace offline, then build @hogsend/course. The
+# package's `postbuild` (scripts/assemble-standalone.mjs) copies .next/static +
+# public into the standalone tree, which Next does not do automatically.
+# ---------------------------------------------------------------------------
+FROM base AS build
+# NEXT_PUBLIC_* vars are inlined at build time — Railway only passes service
+# variables into Docker builds that declare them as ARGs. The Hogsend client
+# layer (in-app bell, lands in Phase 5) is public + build-time-inlined; it
+# no-ops when unset, so these are safe to declare now.
+ARG NEXT_PUBLIC_POSTHOG_KEY
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
+ARG NEXT_PUBLIC_HOGSEND_API_URL
+ENV NEXT_PUBLIC_HOGSEND_API_URL=$NEXT_PUBLIC_HOGSEND_API_URL
+ARG NEXT_PUBLIC_HOGSEND_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_HOGSEND_PUBLISHABLE_KEY=$NEXT_PUBLIC_HOGSEND_PUBLISHABLE_KEY
+COPY --from=fetch /pnpm/store /pnpm/store
+COPY . .
+RUN pnpm install --frozen-lockfile --offline
+# turbo (not a bare `--filter`) so @hogsend/js + @hogsend/react build BEFORE the
+# course Next build resolves them.
+RUN pnpm exec turbo run build --filter=@hogsend/course
+
+# ---------------------------------------------------------------------------
+# runner — slim production image: just the self-contained standalone output.
+# With outputFileTracingRoot = monorepo root, the standalone tree mirrors the
+# repo layout, so the server entry is apps/course/server.js and the bundled
+# node_modules sit at the standalone root.
+# ---------------------------------------------------------------------------
+FROM base AS runner
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+COPY --from=build /app/apps/course/.next/standalone ./
+# The committed SQL migrations + the self-contained (esbuild-bundled) migrator are
+# not part of the Next standalone trace, so copy them in explicitly for the
+# Railway pre-deploy step. migrate.bundle.mjs inlines drizzle-orm + postgres, so
+# it resolves with no node_modules; the SQL stays external (read at runtime).
+COPY --from=build /app/apps/course/drizzle ./apps/course/drizzle
+COPY --from=build /app/apps/course/scripts/migrate.bundle.mjs ./apps/course/scripts/migrate.bundle.mjs
+USER node
+EXPOSE 3006
+# server.js reads PORT from env (Railway sets it); HOSTNAME=0.0.0.0 (above) lets
+# it accept external connections in the container.
+CMD ["node", "apps/course/server.js"]

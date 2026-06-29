@@ -1,0 +1,23 @@
+# Build the course site (course.hogsend.com) from a DEDICATED Dockerfile
+# (Dockerfile.course), NOT railpack and NOT the root /Dockerfile (which builds
+# the API). Pointing dockerfilePath at Dockerfile.course makes the build
+# deterministic: this service builds exactly the course image. Mirrors
+# railway.docs.toml.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile.course"
+watchPatterns = ["apps/course/**", "Dockerfile.course", "pnpm-lock.yaml", "railway.course.toml"]
+
+[deploy]
+# Apply DB migrations before the new version receives traffic. Runs the bundled
+# programmatic migrator against the dedicated course Postgres (DATABASE_URL).
+preDeployCommand = "node apps/course/scripts/migrate.bundle.mjs"
+# Dockerfile.course ships the Next.js standalone output, so the server entry is
+# the self-contained apps/course/server.js (it bundles its own node_modules — no
+# pnpm, no workspace, no corepack). server.js reads PORT from env; HOSTNAME=0.0.0.0
+# (set in Dockerfile.course) lets it accept external connections.
+startCommand = "node apps/course/server.js"
+healthcheckPath = "/"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

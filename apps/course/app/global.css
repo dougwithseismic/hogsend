@@ -1,0 +1,222 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/* ========================================================================== */
+/*  Hogsend design system — crimzon visual language.                          */
+/*  One dark page (#050101), one red accent (#F64838), a 1200px hairline-     */
+/*  framed layout. Fonts: Inter Display (display) · Inter (body) · mono only  */
+/*  inside code blocks.                                                       */
+/* ========================================================================== */
+
+@theme {
+  /* Fonts (sourced from next/font in app/layout.tsx via lib/fonts.ts) */
+  --font-display: var(--ff-display), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--ff-body), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--ff-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  /* Brand color tokens → utilities: bg-accent, text-accent, border-accent… */
+  --color-accent: #f64838;
+  --color-accent-deep: #b8281c;
+  --color-accent-tint: rgba(246, 72, 56, 0.15);
+  --color-ink: #050101; /* the one page background */
+
+  /* Data-viz semantic tokens — scoped to the /growth-metrics calculators.
+     The page chrome stays one-red-accent crimzon; these only colour live
+     calculator state (good ↑ / bad ↓). "warn" reuses --color-accent. */
+  --color-good: #54d6c4; /* teal — healthy / up / output */
+  --color-good-tint: rgba(84, 214, 196, 0.12);
+  --color-caution: #e8b23a; /* amber — watch it / value */
+  --color-caution-tint: rgba(232, 178, 58, 0.12);
+  /* Legacy "light section" tokens — remapped to dark equivalents so old
+     bg-paper / bg-paper-pure classes keep compiling and render dark. */
+  --color-paper: #050101;
+  --color-paper-pure: #0a0606;
+
+  /* Hairline tokens → border-hairline / border-hairline-faint utilities. */
+  --color-hairline: rgba(255, 255, 255, 0.2); /* page frame */
+  --color-hairline-faint: rgba(255, 255, 255, 0.08); /* cards, dividers */
+
+  /* Content frame width: 1200px (120px gutters at 1440). */
+  --spacing-container: 75rem;
+}
+
+/* --------------------------------------------------------------------------
+   Fumadocs token overrides — repaint the docs UI in the crimzon palette.
+   These run after the fumadocs imports so they win at equal specificity.
+   -------------------------------------------------------------------------- */
+:root,
+.dark {
+  --color-fd-background: #050101;
+  --color-fd-foreground: #ffffff;
+  --color-fd-muted: rgba(255, 255, 255, 0.04);
+  --color-fd-muted-foreground: rgba(255, 255, 255, 0.6);
+  --color-fd-popover: #0a0606;
+  --color-fd-popover-foreground: #ffffff;
+  --color-fd-card: rgba(255, 255, 255, 0.02);
+  --color-fd-card-foreground: #ffffff;
+  --color-fd-border: rgba(255, 255, 255, 0.08);
+  --color-fd-primary: #f64838;
+  --color-fd-primary-foreground: #ffffff;
+  --color-fd-secondary: rgba(255, 255, 255, 0.04);
+  --color-fd-secondary-foreground: #ffffff;
+  --color-fd-accent: rgba(255, 255, 255, 0.06);
+  --color-fd-accent-foreground: #ffffff;
+  --color-fd-ring: #f64838;
+}
+
+html {
+  scrollbar-gutter: stable;
+  background-color: #050101;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
+}
+
+/* Headings render in the display face (Inter Display). Default weight 400 —
+   the hero H1 opts into 500 + the tighter -0.06em tracking explicitly. */
+h1,
+h2,
+h3,
+h4,
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+/* --------------------------------------------------------------------------
+   Reusable design-system helpers (things awkward to express in utilities).
+   -------------------------------------------------------------------------- */
+
+/* Centered 1200px content frame used by every section + the chrome. The page
+   frame's two vertical hairlines sit on this box's outer edges. */
+.container-page {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 75rem; /* 1200px */
+  padding-inline: 1.5rem;
+}
+
+/* Vertical section rhythm (responsive). Lives in the components layer so
+   Tailwind padding utilities (pt-32, pb-20, …) passed via Section's
+   containerClassName can override it — unlayered CSS would always win. */
+@layer components {
+  .section-py {
+    padding-block: 5rem;
+  }
+  @media (min-width: 768px) {
+    .section-py {
+      padding-block: 7.5rem;
+    }
+  }
+}
+
+/* Micro label: 12px UPPERCASE Inter, white/50 — stat captions, "FEATURES". */
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.75rem; /* 12px */
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Section kicker: red 18px sentence-case Inter (the crimzon eyebrow). */
+.kicker {
+  font-size: 1.125rem; /* 18px */
+  line-height: 1.5rem; /* 24px */
+  letter-spacing: -0.02em;
+  color: var(--color-accent);
+}
+
+/* Dark glass panel — product mockups / showcase media frames. */
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background-color: rgba(10, 6, 6, 0.8);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* Faint film-grain noise overlay (~2.5%) — mounted once by PageFrame. */
+.noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  opacity: 0.025;
+}
+
+/* Faint scattered red-dot grid (CTA backdrop). */
+.dot-grid {
+  background-image: radial-gradient(
+    rgba(246, 72, 56, 0.45) 1px,
+    transparent 1px
+  );
+  background-size: 28px 28px;
+}
+
+/* Soft red aurora glow used across dark sections. */
+.aurora {
+  background: radial-gradient(
+    60% 50% at 50% 0%,
+    rgba(246, 72, 56, 0.2),
+    rgba(246, 72, 56, 0) 70%
+  );
+  filter: blur(8px);
+}
+
+/* Flywheel rotor — the /growth-metrics unit-economics widget. Spin duration
+   is set inline by JS (∝ LTV:CAC); the global reduced-motion override above
+   neutralises the animation for users who ask for it. */
+@keyframes hs-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.flywheel-rotor {
+  transform-origin: center;
+  animation: hs-spin linear infinite;
+}
+
+/* Hide horizontal scrollbars on tag/marquee rows. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* --------------------------------------------------------------------------
+   Docs-specific theming (Fumadocs DocsLayout): code blocks keep the fumadocs
+   shiki theme but adopt our mono font. Active links/TOC use the red accent
+   via the --color-fd-primary override above.
+   -------------------------------------------------------------------------- */
+code,
+kbd,
+pre,
+samp {
+  letter-spacing: 0;
+}
+
+#nd-docs-layout pre {
+  font-family: var(--font-mono);
+  letter-spacing: 0;
+}
+
+/* Reduce motion respectfully. The !important is required so these overrides win
+   over inline/animation styles. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must win */
+    animation-duration: 0.001ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must win */
+    animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion override must win */
+    transition-duration: 0.001ms !important;
+  }
+}

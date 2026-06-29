@@ -1,0 +1,180 @@
+# Chapter 9 — Putting it all together
+
+*The whole machine on one page, a 30/60/90-day plan to build it in the right order, and
+the cadence that keeps it running.*
+
+> **In this chapter:** the end-to-end system as a single loop, a sequenced build plan so
+> you never work on the wrong thing, and the daily/weekly/monthly rhythm that turns it
+> from a project into an operation.
+
+---
+
+## 9.1 The whole thing, in one loop
+
+Everything in this course is one loop with the **identity graph** at its hub:
+
+```
+        ┌─────────────────────────────────────────────────────────┐
+        │                                                         │
+   drive traffic (Ch 7)                                           │
+   ads · content · community                                      │
+        │                                                         │
+        ▼                                                         │
+   capture identity (Ch 8)          measure everything (Ch 1–4)   │
+   email verify · link Discord  ───► PostHog: funnels, retention  │
+   /Telegram · perks for linking     the daily dashboard          │
+        │                                  │                      │
+        ▼                                  ▼                      │
+   ┌─────────── IDENTITY GRAPH ───────────┐                       │
+   │ email ↔ Discord ↔ Telegram ↔ anon    │                       │
+   └──────────────────┬───────────────────┘                      │
+                      │                                           │
+                      ▼                                           │
+   keep them (Ch 5–6)                                             │
+   lifecycle journeys in Hogsend ──► fire conversions + audiences ┘
+   welcome · nudge · win-back ·       back to the ads (Ch 7)
+   dunning · referral                 → referrals lower CAC (Ch 8)
+```
+
+Read it as a sentence: **you measure so you can see the leaks; you keep users with
+lifecycle journeys so the bucket holds; then you drive traffic and capture every visitor
+into an audience you own; that audience feeds better ads and a referral loop, which
+lowers your cost of growth — and the whole thing is measurable because every step fires
+an event.**
+
+The reason the order is *measure → keep → grow* and not the reverse is the leaky bucket
+(Chapter 2). Acquisition is the last lever because it's the one that wastes the most
+money when the bucket leaks and pays back the most when it doesn't.
+
+---
+
+## 9.2 Who does what
+
+A quick reference for the division of labour the course is built on:
+
+| Job | Tool | Chapters |
+|---|---|---|
+| Collect events, identify people | PostHog | 1, 3 |
+| See the funnel, retention, leaks | PostHog | 2, 4 |
+| Decide what to measure (AARRR, North Star) | You | 2 |
+| Run lifecycle journeys (email, Discord, Telegram) | Hogsend | 5, 6, 8 |
+| Drive paid traffic | Meta ads | 7 |
+| Track conversions accurately | Pixel + CAPI, via PostHog | 7 |
+| Capture & link identity, referrals | Hogsend connectors | 8 |
+
+**PostHog detects. Hogsend acts. You decide.** Keep that split clear and the system
+stays simple no matter how much you add.
+
+---
+
+## 9.3 A 30/60/90-day plan
+
+Build it in this order. Each phase depends on the one before — resist the urge to jump
+ahead to ads.
+
+### Days 1–30: Measure
+
+Goal: **see the truth about your funnel.**
+
+- [ ] PostHog account on the right region; one project; website + app together (Ch 1).
+- [ ] `posthog-js` installed with `identified_only`; `identify` at login, `reset` at
+      logout (Ch 3).
+- [ ] The starter event kit firing — **signup, subscription, payment server-side** (Ch 3).
+- [ ] Your **one activation event** defined and confirmed firing (Ch 2–3).
+- [ ] Managed reverse proxy set up (Ch 3).
+- [ ] The **daily dashboard** built and pinned; North Star on top; alerts → Slack (Ch 4).
+
+Exit criteria: you can read your **activation funnel** and **retention curve** and say
+out loud where you're losing people.
+
+### Days 31–60: Keep
+
+Goal: **plug the biggest leaks before spending a cent on traffic.**
+
+- [ ] Scaffold a Hogsend app; wire your backend to `POST /v1/ingest` (Ch 6).
+- [ ] Build **welcome + onboarding** first (Ch 5–6).
+- [ ] If you charge: build **dunning** (Ch 6).
+- [ ] Build **win-back** for dormant users (Ch 6).
+- [ ] Put a **holdout** on your first journey; read its lift in PostHog (Ch 5–6).
+- [ ] Set a global **frequency cap** and per-stage cadence (Ch 5).
+
+Exit criteria: your retention curve has moved, or you can measure (via holdout) that the
+journeys are lifting activation/retention. The bucket holds water.
+
+### Days 61–90: Grow
+
+Goal: **open the tap, and make every drop land in an audience you own.**
+
+- [ ] Meta Pixel installed; **PostHog → Meta Ads** destination with the same Pixel ID,
+      conversion events only, EMQ ≥ 6 (Ch 7).
+- [ ] One campaign live, optimising the deepest event you can feed ~50/week (Ch 7).
+- [ ] Opt-in **consent** captured at email collection (Ch 7).
+- [ ] Discord and/or Telegram connector + **`/link` email-verify** flow (Ch 8).
+- [ ] **`discord-linked` / `telegram-linked`** journey granting the perk (Ch 8).
+- [ ] **Referral ask** at the aha milestone; verified referrals rewarded with a role (Ch 8).
+- [ ] Verified emails synced as a **custom audience + lookalike seed** (Ch 7–8).
+
+Exit criteria: traffic is flowing, conversions are tracked accurately, and new users are
+being captured into channels you own and a referral loop that compounds.
+
+---
+
+## 9.4 The operating cadence
+
+Once it's built, it runs on a rhythm, not on heroics:
+
+**Daily (2 minutes):** read the Slack alerts. Open the dashboard only if one fired.
+Glance at the activation funnel and active-users trend.
+
+**Weekly (30 minutes):**
+- Read the retention curve and lifecycle chart — is growth real or churn-and-replace?
+- Check each live journey's send volume and the holdout lift.
+- Review ad performance: cost per conversion, EMQ, which audiences are working.
+- Watch 3–5 session replays of drop-offs. The qualitative "why" behind the week's numbers.
+
+**Monthly:**
+- Re-examine your **activation metric** — is it still the best predictor of retention?
+  Run an experiment if you're unsure (Chapter 2's method).
+- Report **incremental lift** from the lifecycle program (global holdout).
+- Review blended CAC and the referral loop's contribution. Is growth getting cheaper?
+- Prune: kill journeys with no lift, events no one queries, ad sets that don't convert.
+
+---
+
+## 9.5 The mistakes to not make
+
+A short list, each tied to where the course warned you:
+
+- **Scaling acquisition into a leaky bucket** (Ch 2). The most expensive mistake there
+  is. Fix retention first.
+- **Chasing someone else's magic number** (Ch 2). Find *your* activation metric with the
+  correlation-then-experiment method. The famous numbers are rally cries.
+- **Building event names dynamically** (Ch 3). One ruined analytics setup. One fixed
+  event, variables in properties.
+- **Trusting the Pixel alone** (Ch 7). It under-counts by a third or more. Pixel *and*
+  CAPI, deduped, fed from where you have identity.
+- **Treating server-side as a consent loophole** (Ch 7). It isn't. Hashed email is
+  pseudonymous, not anonymous. Capture consent.
+- **Measuring opens instead of lift** (Ch 5). Opens don't prove causation. Use holdouts.
+- **Renting your whole audience** (Ch 8). Capture identity into owned channels so you
+  never have to pay to reach the same person twice.
+
+---
+
+## 9.6 Where to go next
+
+This course is the spine. Each chapter has primary sources at its foot for going deeper.
+Within this repo, the documents that extend it:
+
+- **`docs/tracking.md`** — first-party open/click tracking internals.
+- **`docs/connect-discord.md`, `docs/connector-runtime.md`** — the connector system.
+- **`docs/competitive-positioning.md`** — why code-first, and who Hogsend is for.
+- **`CLAUDE.md`** — the full engine architecture and journey API.
+
+The machine is simple to state and a real amount of work to build: **measure honestly,
+keep the users you earn, then grow into an audience you own.** Do it in that order and
+every dollar of traffic lands in a bucket that holds water.
+
+---
+
+[← Chapter 8](./08-owned-audience-identity-flywheel.md) · [Course index](./README.md)

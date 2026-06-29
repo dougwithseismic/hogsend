@@ -42,13 +42,20 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   let email: unknown;
   let template: SampleTemplate | undefined;
+  let firstName = "";
   try {
     const body = (await request.json()) as {
       email?: unknown;
       template?: unknown;
+      name?: unknown;
     };
     email = body?.email;
     template = sanitizeTemplate(body?.template);
+    // Optional personalization — the home demo forwards the signed-up name so
+    // the sample greets the real person (the gallery sends none → "Sam Sample").
+    if (typeof body?.name === "string") {
+      firstName = body.name.trim().slice(0, 80);
+    }
   } catch {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
@@ -68,7 +75,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     {
       name: "docs.sample_requested",
       email: normalizedEmail,
-      eventProperties: { source: "docs-site", template },
+      eventProperties: {
+        source: "docs-site",
+        template,
+        ...(firstName ? { firstName } : {}),
+      },
     },
     `docs-sample-${templateSlug}-${hour}-${normalizedEmail}`,
   );

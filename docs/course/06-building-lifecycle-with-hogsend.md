@@ -1,0 +1,446 @@
+# Chapter 6 — Building the lifecycle in Hogsend
+
+*The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back,
+dunning, and referral — each triggered by a real event.*
+
+> **In this chapter:** how an event becomes a running journey, the anatomy of
+> `defineJourney`, and working examples for each lifecycle stage. Code here mirrors the
+> real journeys in `apps/api/src/journeys/`.
+
+This chapter assumes a Hogsend app (scaffold one with `pnpm dlx create-hogsend@latest`).
+The full architecture is in the project's `CLAUDE.md`; here we focus on writing
+journeys.
+
+---
+
+## 6.1 The loop: event in, journey runs, event out
+
+Hogsend's whole model is one loop:
+
+1. An event arrives — from your backend (`POST /v1/ingest`), from a webhook source, or
+   from PostHog. The same server-side events you send to PostHog in Chapter 3 are the
+   events you send here.
+2. The engine stores it, then routes it to every journey **subscribed to that event**.
+3. The journey runs — it can wait days, check history, branch, send email, message
+   Discord/Telegram — and fires its own events back (`journey:completed`, `email.*`,
+   etc.) so the loop is measurable in PostHog.
+
+The key property: **a journey is durable TypeScript.** `await ctx.sleep(days(2))` is a
+real two-day pause that survives deploys and restarts — not a cron job, not a flowchart
+approximating control flow. You write normal code; the engine makes it durable.
+
+### Send the trigger events
+
+From your backend, the same place you call `posthog.capture(...)`, also post to Hogsend:
+
+```ts
+await fetch(`${HOGSEND_URL}/v1/ingest`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
+  body: JSON.stringify({
+    event: "user.created",
+    userId: "user_123",
+    userEmail: "sam@example.com",
+    properties: { plan: "free" },
+  }),
+});
+```
+
+That `user.created` event is what triggers the welcome journey below.
+
+---
+
+## 6.2 Anatomy of a journey
+
+Every journey is `defineJourney({ meta, run })`. The `meta` declares *when* it runs and
+the guardrails; `run` is the actual control flow.
+
+```ts
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const example = defineJourney({
+  meta: {
+    id: "example",
+    name: "Example journey",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },     // the event that starts it
+    entryLimit: "once",                            // once | once_per_period | unlimited
+    suppress: hours(12),                           // ignore re-triggers within this window
+    exitOn: [{ event: Events.USER_DELETED }],      // events that end the journey early
+  },
+  run: async (user, ctx) => {
+    // user: { id, email, stateId, journeyName, properties }
+    // ctx:  durable primitives — sleep, history, waitForEvent, trigger, guard
+  },
+});
+```
+
+The pieces that matter for lifecycle work:
+
+- **`trigger.event`** — the event the journey subscribes to. Add **`where`** to filter
+  on properties: `trigger: { event: Events.USER_CREATED, where: (b) => b.prop("plan").eq("free") }`.
+- **`entryLimit`** — `"once"` (a user can only ever enter once), `"once_per_period"`
+  (with `entryPeriod`), or `"unlimited"`. This is your re-enrollment policy and an
+  important correctness control.
+- **`exitOn`** — the events that stop the journey immediately. **This is how you
+  implement suppression from Chapter 5:** exit the upgrade sequence the instant the
+  user upgrades.
+- **`suppress`** — a debounce so a burst of the same trigger doesn't start multiple
+  runs.
+
+Inside `run`, you use the context primitives:
+
+- `ctx.sleep({ duration, label })` — durable pause.
+- `ctx.history.hasEvent({ userId, event, within? })` → `{ found, count }` — did this
+  already happen?
+- `ctx.history.events({ userId, event, within, limit })` — pull the matching events to
+  inspect.
+- `ctx.waitForEvent({ event, timeout })` — pause until *this user* emits an event or the
+  timeout elapses; returns `{ timedOut, properties? }`.
+- `ctx.trigger({ event, userId })` — emit an event back into the pipeline.
+- `ctx.guard.isSubscribed()` — re-check subscription after a long sleep.
+
+And you send with `sendEmail({ to, userId, journeyStateId, template, subject, props? })`,
+where `template` is a key from your `src/emails/` registry.
+
+---
+
+## 6.3 Welcome + onboarding (Activation)
+
+The first journey to build (Chapter 5, §5.3). Trigger on signup, welcome immediately,
+then branch two days later on whether the user reached the aha moment:
+
+```ts
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const activationWelcome = defineJourney({
+  meta: {
+    id: "activation-welcome",
+    name: "Activation — Welcome Series",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ACTIVATION_WELCOME,
+      subject: "Welcome — let's get you set up",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(2), label: "post-welcome" });
+
+    // Branch on behaviour, not on a guess (Chapter 5, §5.6).
+    const { found: activated } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+    });
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: activated ? Templates.ACTIVATION_ADVANCED : Templates.ACTIVATION_NUDGE,
+      subject: activated ? "Nice work — here's what to try next" : "You haven't tried the key feature yet",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+Two things to notice. The journey **reads event history** to decide what to send — that's
+behavioural personalisation in code. And the whole thing **exits the moment
+`user.deleted` fires**, so a churned user never gets the day-2 email.
+
+---
+
+## 6.4 A behavioural nudge series (Activation)
+
+A multi-step version that escalates only when the user *hasn't* progressed, and exits
+as soon as they activate. Note the second `exitOn` event:
+
+```ts
+export const activationNudgeSeries = defineJourney({
+  meta: {
+    id: "activation-nudge-series",
+    name: "Activation — Behavioural Nudges",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    // Exit the instant they activate — no more nudges (suppression in action).
+    exitOn: [{ event: Events.USER_DELETED }, { event: Events.USER_ACTIVATED }],
+  },
+
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: days(2), label: "initial-nudge" });
+
+    const { found: usedFeature } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+      within: days(2),
+    });
+    if (!usedFeature) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.ACTIVATION_NUDGE_SERIES,
+        subject: "You haven't tried the key feature yet",
+        journeyName: user.journeyName,
+      });
+    }
+
+    await ctx.sleep({ duration: days(1), label: "setup-check" });
+
+    const { found: setupDone } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.SETUP_COMPLETED,
+      within: days(3),
+    });
+    if (!setupDone) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.ACTIVATION_QUICKSTART,
+        subject: "Need help getting set up?",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+This is exactly the 3–5 touch behavioural sequence Chapter 5 recommended — except every
+touch is gated on real behaviour, so an active user is left alone and a stuck user gets
+help.
+
+---
+
+## 6.5 Win-back (Retention)
+
+Trigger on a dormancy event (you emit `user.dormant_30d` from a scheduled check, or via
+a PostHog cohort webhook — see §6.9), then re-engage. Give the user a window to come
+back on their own before sending again with `ctx.waitForEvent`:
+
+```ts
+export const reactivationWinback = defineJourney({
+  meta: {
+    id: "reactivation-winback",
+    name: "Reactivation — Win-back",
+    enabled: true,
+    trigger: { event: Events.DORMANT_30D },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    exitOn: [{ event: Events.USER_DELETED }, { event: Events.APP_ACTIVE }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.REACTIVATION_CHECKIN,
+      subject: "We miss you — here's what's new",
+      journeyName: user.journeyName,
+    });
+
+    // Give them 5 days to come back before the final nudge.
+    const { timedOut } = await ctx.waitForEvent({
+      event: Events.APP_ACTIVE,
+      timeout: days(5),
+    });
+
+    if (timedOut) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.REACTIVATION_FINAL_NUDGE,
+        subject: "One last thing before you go",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+`exitOn: [{ event: Events.APP_ACTIVE }]` means if they return at any point, the journey
+stops — they won't get a "we miss you" email the day after they logged back in.
+
+---
+
+## 6.6 Dunning (Revenue)
+
+The highest dollar-ROI journey for a paid product (Chapter 5, §5.3). Trigger on a failed
+charge, exit the moment payment succeeds:
+
+```ts
+export const dunning = defineJourney({
+  meta: {
+    id: "dunning",
+    name: "Revenue — Failed Payment Recovery",
+    enabled: true,
+    trigger: { event: Events.PAYMENT_FAILED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(14),
+    exitOn: [{ event: Events.PAYMENT_SUCCEEDED }, { event: Events.SUBSCRIPTION_CANCELLED }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
+      props: { updateUrl: String(user.properties.updateUrl ?? "") },
+    });
+
+    await ctx.sleep({ duration: days(3), label: "first-retry" });
+    if (await stillFailing(ctx, user)) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.CHURN_PAYMENT_FAILED,
+        subject: "Reminder: update your payment method",
+        journeyName: user.journeyName,
+        props: { updateUrl: String(user.properties.updateUrl ?? "") },
+      });
+    }
+  },
+});
+
+async function stillFailing(ctx, user) {
+  const { found } = await ctx.history.hasEvent({
+    userId: user.id, event: Events.PAYMENT_SUCCEEDED, within: { /* since trigger */ } as any,
+  });
+  return !found;
+}
+```
+
+The `exitOn: PAYMENT_SUCCEEDED` is the whole point — the moment the retry clears (or the
+user fixes their card), the reminders stop. This recovers a meaningful share of the
+20–40% of churn that's involuntary (Chapter 5).
+
+---
+
+## 6.7 Referral (Referral)
+
+Ask at peak satisfaction — trigger off a milestone, and only ask users who are still
+active. This mirrors the shipped `referral-invite` journey:
+
+```ts
+export const referralInvite = defineJourney({
+  meta: {
+    id: "referral-invite",
+    name: "Referral — Post-Achievement Invite",
+    enabled: true,
+    trigger: { event: Events.MILESTONE_REACHED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: days(2),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: hours(2), label: "post-achievement" });
+
+    // Only ask people who are actually engaged.
+    const { found: active30d } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.SESSION_COMPLETED,
+      within: days(30),
+    });
+    if (!active30d) return;
+
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.RETENTION_ACHIEVEMENT,
+      subject: "Share the love — invite a friend",
+      journeyName: user.journeyName,
+      props: { ctaText: "Invite a Friend" },
+    });
+  },
+});
+```
+
+The referral *loop* — turning that invite into a tracked, rewarded conversion on an
+identity graph you own — is Chapter 8. This journey is just the ask.
+
+---
+
+## 6.8 Correctness: exactly-once and re-enrollment
+
+Two things to internalise so you don't accidentally double-send:
+
+- **Replay safety is automatic.** Journeys are durable tasks that can replay from the
+  top after a crash or redeploy. The engine makes `sendEmail()` and `ctx.trigger()`
+  exactly-once across a replay by default — you don't add anything. The *one* authoring
+  rule: if you send the **same template twice** in one journey on different branches that
+  share the same nearest wait label, pass a distinct `idempotencyLabel` to each. The
+  engine throws a loud error if you forget, so you'll catch it in dev.
+- **`entryLimit` is your re-enrollment policy.** `"once"` for a welcome (a user signs up
+  once). `"once_per_period"` for win-back and dunning (they can lapse again, but not be
+  spammed). `"unlimited"` only for counting journeys (e.g. the Discord gamification in
+  Chapter 8, where every reaction must re-count).
+
+---
+
+## 6.9 Where the triggers come from
+
+Your journeys are only as good as the events feeding them. Three sources:
+
+- **Your backend** — `POST /v1/ingest` for product events (signup, payment, milestone).
+  This is the primary source and it's server-side, so ad-blocker-proof (Chapter 3).
+- **Webhook sources** — `defineWebhookSource()` turns any external webhook (Stripe,
+  a form, a CRM) into an event that can trigger a journey.
+- **PostHog** — for *batch* / analytics-defined audiences (e.g. "did signup but not
+  activate in 7 days"), build a PostHog cohort + a workflow webhook that posts to
+  `/v1/ingest`. PostHog decides *who* needs action; Hogsend decides *what* to do. This
+  is the bridge that powers inactivity-based win-back without Hogsend polling anything.
+
+---
+
+## 6.10 The holdout hook
+
+Chapter 5 said: prove lift with a holdout. Because enrollment is just code, you can
+implement a campaign holdout directly — deterministically bucket a small fraction of
+users out of enrollment and compare their downstream events to the enrolled group:
+
+```ts
+run: async (user, ctx) => {
+  // ~10% holdout, deterministic per user so it's stable across replays.
+  if (hashToUnitInterval(user.id) < 0.1) {
+    await ctx.trigger({ event: "journey.held_out", userId: user.id });
+    return; // measured, not messaged
+  }
+  // ...normal journey...
+}
+```
+
+Then in PostHog, compare activation/retention/revenue for `journey.held_out` users vs
+enrolled users. That difference is your real, causal lift.
+
+---
+
+## 6.11 Do this now
+
+1. Wire your backend to `POST /v1/ingest` for `user.created`, `payment.failed`, and your
+   milestone event.
+2. Build **`activation-welcome`** first; add its email templates to `src/emails/`.
+3. Add **dunning** if you charge; then **win-back**.
+4. Add a **holdout** to your first journey and watch the lift in PostHog.
+
+You've now plugged the bucket. The rest of the course opens the tap — and makes sure
+every drop lands in an audience you own.
+
+---
+
+*Reference: this project's `CLAUDE.md` (journey system), `docs/tracking.md`,
+and the real journeys in `apps/api/src/journeys/`.*
+
+---
+
+[← Chapter 5](./05-lifecycle-messaging.md) · [Course index](./README.md) · **Next:** [Chapter 7 — Driving traffic →](./07-driving-traffic.md)

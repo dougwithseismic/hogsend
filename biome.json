@@ -9,7 +9,8 @@
     "includes": [
       "**",
       "!packages/create-hogsend/template",
-      "!packages/db/drizzle"
+      "!packages/db/drizzle",
+      "!apps/course/drizzle"
     ]
   },
   "formatter": {
