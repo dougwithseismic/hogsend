@@ -10,16 +10,15 @@ import { notFound } from "next/navigation";
 import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
 import { getMDXComponents } from "@/components/mdx";
-import {
-  ensureEnrollment,
-  freeLessonParams,
-  getSession,
-  isFreeLesson,
-} from "@/lib/gating";
+import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
 
-// Gated lessons render on demand (only first-lesson params are prerendered).
-export const dynamicParams = true;
+// The gated branch reads headers() (session), which is illegal during a static-
+// generation pass. With generateStaticParams + dynamicParams, gated params were
+// generated through the on-demand STATIC/ISR pipeline and threw DYNAMIC_SERVER_USAGE
+// (that path would also cache a gated render cross-user). Force per-request dynamic
+// SSR for the whole segment: headers() is always legal and nothing is cached to disk.
+export const dynamic = "force-dynamic";
 
 export default async function Page(props: {
   params: Promise<{ slug?: string[] }>;
@@ -30,8 +29,9 @@ export default async function Page(props: {
 
   const slugs = params.slug ?? [];
 
-  // The session is read ONLY on the gated branch, so public first lessons stay
-  // statically generated and indexable. The page RSC is the security boundary.
+  // The session is read ONLY on the gated branch; public first lessons skip it
+  // and SSR their full body to anon (indexable). The page RSC is the security
+  // boundary — an anon gated request returns <LessonGate> before the body is read.
   if (!isFreeLesson(slugs)) {
     const session = await getSession();
     if (!session) {
@@ -72,12 +72,6 @@ export default async function Page(props: {
       </DocsBody>
     </DocsPage>
   );
-}
-
-export function generateStaticParams() {
-  // Only the public first lesson of each course is prerendered; everything else
-  // is dynamic and never baked into a static .html/.rsc file.
-  return freeLessonParams();
 }
 
 export async function generateMetadata(props: {
