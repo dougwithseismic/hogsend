@@ -1,8 +1,9 @@
 "use client";
 
-import { FeedPopover, NotificationBell } from "@hogsend/react";
+import { FeedPopover, NotificationBell, useHogsendFeed } from "@hogsend/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { cn } from "@/lib/cn";
 import { isHogsendConfigured, OPEN_FEED_EVENT } from "./config";
 
 const POPOVER_ID = "hs-docs-feed";
@@ -43,14 +44,47 @@ export function NavBell({
    */
   align?: "start" | "end";
 } = {}) {
+  // Gate BEFORE any provider-dependent hook. When Hogsend isn't configured the
+  // provider is a pass-through (no context), so the live bell — which calls
+  // `useHogsendFeed` (and throws without a provider) — must not mount at all.
+  // Renders nothing, leaving the nav unchanged pre-launch.
+  if (!isHogsendConfigured) return null;
+  return <NavBellLive align={align} />;
+}
+
+function NavBellLive({ align }: { align: "start" | "end" }) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [ringing, setRinging] = useState(false);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(
     null,
   );
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => setMounted(true), []);
+
+  // Ring the bell when a NEW item arrives. The badge alone is easy to miss, so
+  // a genuine increase in the unread count swings the bell + pulses a halo (CSS
+  // `.hs-docs-bell--ring`) for ~1s — the "something just happened" payoff the
+  // live demo is selling. We track the previous count and only ring on a climb,
+  // skipping the first observed value (initial fetch / hydration) so the bell is
+  // calm on load. Re-applied per arrival (toggle off → on next frame) so a rapid
+  // re-fire re-rings rather than sitting on a stale class.
+  const { metadata } = useHogsendFeed();
+  const unread = metadata.unread_count ?? 0;
+  const prevUnread = useRef<number | null>(null);
+  useEffect(() => {
+    const prev = prevUnread.current;
+    prevUnread.current = unread;
+    if (prev === null || unread <= prev) return;
+    setRinging(false);
+    const frame = requestAnimationFrame(() => setRinging(true));
+    const done = window.setTimeout(() => setRinging(false), 1000);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(done);
+    };
+  }, [unread]);
 
   // Let the top banner ticker pop this feed open (clicking the live ticker opens
   // the bell). Only the on-screen bell reacts: a hidden instance (the other
@@ -81,8 +115,6 @@ export function NavBell({
     };
   }, [open, align]);
 
-  if (!isHogsendConfigured) return null;
-
   return (
     <>
       <NotificationBell
@@ -91,7 +123,7 @@ export function NavBell({
         popoverId={POPOVER_ID}
         onClick={() => setOpen((o) => !o)}
         aria-label="Notifications"
-        className="hs-docs-bell"
+        className={cn("hs-docs-bell", ringing && "hs-docs-bell--ring")}
         badgeCountType="unread"
       />
       {mounted &&

@@ -70,6 +70,11 @@ export const AnalyticsEvent = {
    * `answer` is that question's closed value. One event, many properties: it
    * replaces the per-question captures for the qualifyFirst flow only. */
   QUALIFIER_SELECTED: "docs.qualifier_selected",
+  /** "Get your Discord invite" CTA in the live demo — the cross-channel step
+   * (join → /link → a "you linked your Discord" item lands in the same bell),
+   * with `{ placement }`. Anonymous; the actual link match happens server-side
+   * in the dogfood when the visitor runs /link with their signed-up email. */
+  DISCORD_LINK_CLICKED: "docs.discord_link_clicked",
   /** Setup-week hand-raise (non-PostHog offer answered "yes") — fired
    * server-side to the Hogsend ingest API carrying the email, so the dogfood
    * lead alert can route on it. NOT a client `capture()`; the constant lives
