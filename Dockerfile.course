@@ -66,6 +66,12 @@ COPY --from=build /app/apps/course/.next/standalone ./
 # it resolves with no node_modules; the SQL stays external (read at runtime).
 COPY --from=build /app/apps/course/drizzle ./apps/course/drizzle
 COPY --from=build /app/apps/course/scripts/migrate.bundle.mjs ./apps/course/scripts/migrate.bundle.mjs
+# Next writes its runtime cache under .next/cache on dynamic (gated-lesson)
+# renders; the COPYed standalone is root-owned, so make .next writable by the
+# non-root `node` user — otherwise dynamic pages 500 with EACCES on the cache
+# mkdir (static/prerendered pages are unaffected).
+RUN mkdir -p /app/apps/course/.next/cache \
+  && chown -R node:node /app/apps/course/.next
 USER node
 EXPOSE 3006
 # server.js reads PORT from env (Railway sets it); HOSTNAME=0.0.0.0 (above) lets
