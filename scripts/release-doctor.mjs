@@ -6,6 +6,12 @@
  *                                              # invariant; exit 1 on any violation
  *   node scripts/release-doctor.mjs --sync     # auto-fix the mechanical drift
  *                                              # (ENGINE_VERSION <- @hogsend/engine)
+ *   node scripts/release-doctor.mjs --fix-changeset
+ *                                              # write the companion changeset that
+ *                                              # keeps the engine version line
+ *                                              # uniform (run after authoring a
+ *                                              # changeset that touches one
+ *                                              # engine-line package)
  *
  * The release pipeline relies on several invariants that are otherwise tribal
  * knowledge in `docs/RELEASING.md` and the `release` skill — and that have
@@ -67,30 +73,41 @@ function templateHogsendDeps() {
     .map(([k, v]) => [k.slice("@hogsend/".length), v]);
 }
 
+const BUMP_RANK = { patch: 1, minor: 2, major: 3 };
+const RANK_BUMP = ["", "patch", "minor", "major"];
+
 /**
- * Union of package names bumped across every pending changeset. Parses the
- * YAML frontmatter of each `.changeset/*.md` (README excluded) with a plain
- * regex — frontmatter lines are `"pkg-name": patch|minor|major`. The UNION
- * matters: a fix changeset + a separate uniform-line changeset is the blessed
- * pattern, so uniformity is evaluated across all pending changesets together,
- * never per file.
+ * Map of package name -> highest bump type across every pending changeset.
+ * Parses the YAML frontmatter of each `.changeset/*.md` (README excluded) with a
+ * plain regex — frontmatter lines are `"pkg-name": patch|minor|major`. Returns a
+ * Map so callers get the bump TYPE (needed by --fix-changeset to pick a uniform
+ * level), while the legacy `.has(name)` membership check still works unchanged.
+ * The UNION across files matters: a fix changeset + a separate uniform-line
+ * changeset is the blessed pattern, so uniformity is evaluated across all pending
+ * changesets together, never per file. `excludeFile` skips one basename (the
+ * companion file --fix-changeset owns) so it reasons about the OTHER changesets.
  */
-function pendingChangesetBumps() {
+function pendingChangesetBumps(excludeFile) {
   let files = [];
   try {
     files = readdirSync(r(".changeset")).filter(
-      (f) => f.endsWith(".md") && f !== "README.md",
+      (f) => f.endsWith(".md") && f !== "README.md" && f !== excludeFile,
     );
   } catch {
-    return new Set();
+    return new Map();
   }
-  const bumped = new Set();
+  const bumped = new Map();
   for (const f of files) {
     const m = readText(`.changeset/${f}`).match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (!m) continue;
     for (const line of m[1].split(/\r?\n/)) {
-      const pkg = line.match(/^\s*["']?([^"':\s]+)["']?\s*:/);
-      if (pkg) bumped.add(pkg[1]);
+      const entry = line.match(
+        /^\s*["']?([^"':\s]+)["']?\s*:\s*(patch|minor|major)\s*$/,
+      );
+      if (!entry) continue;
+      const [, name, type] = entry;
+      const prev = bumped.get(name);
+      if (!prev || BUMP_RANK[type] > BUMP_RANK[prev]) bumped.set(name, type);
     }
   }
   return bumped;
@@ -274,6 +291,68 @@ const checks = [
   },
 ];
 
+const COMPANION_FILE = "engine-line-uniform.md";
+const COMPANION = `.changeset/${COMPANION_FILE}`;
+
+/**
+ * --fix-changeset: write (or refresh) the companion changeset that keeps the
+ * engine version line uniform, so a contributor who authored a changeset
+ * touching ONE engine-line package (e.g. `@hogsend/react`) doesn't have to
+ * hand-list the other ~15 — the exact foot-gun that broke a release and the
+ * "pending changesets keep the engine version line uniform" check catches.
+ *
+ * It reads the OTHER pending changesets (excluding the file it owns), finds the
+ * highest bump type applied to any engine-line package, and emits
+ * `.changeset/engine-line-uniform.md` raising every still-missing or
+ * lower-ranked engine-line package PLUS `create-hogsend` to that level — the
+ * minimal set that lands the whole line on one number under `changeset version`.
+ * Idempotent (it owns that one filename) and self-correcting on bump-level
+ * changes. No-op when nothing on the line is bumped, or it's already uniform.
+ */
+function fixChangeset() {
+  const bumped = pendingChangesetBumps(COMPANION_FILE);
+  const lineNames = ENGINE_LINE.map(
+    (n) => readJson(`packages/${n}/package.json`).name,
+  );
+  let rank = 0;
+  for (const n of lineNames) {
+    const t = bumped.get(n);
+    if (t && BUMP_RANK[t] > rank) rank = BUMP_RANK[t];
+  }
+  if (rank === 0) {
+    console.log(
+      "release-doctor --fix-changeset: no engine-line package is bumped by a pending changeset — author your fix changeset first, then re-run.",
+    );
+    return;
+  }
+  const type = RANK_BUMP[rank];
+  const targets = [...lineNames, "create-hogsend"];
+  const need = targets.filter((n) => {
+    const t = bumped.get(n);
+    return !t || BUMP_RANK[t] < rank;
+  });
+  if (need.length === 0) {
+    console.log(
+      `release-doctor --fix-changeset: engine line already uniform at ${type} across pending changesets — nothing to write.`,
+    );
+    return;
+  }
+  const body = `${[
+    "---",
+    ...need.map((n) => `"${n}": ${type}`),
+    "---",
+    "",
+    "Keep the engine version line uniform: bump every engine-line package (and the",
+    "`create-hogsend` scaffolder) alongside the change(s) above, so all `@hogsend/*`",
+    "publish on one version and the scaffold's `^{{ENGINE_VERSION}}` caret pins stay",
+    "aligned. Generated by `pnpm release-doctor --fix-changeset`.",
+  ].join("\n")}\n`;
+  writeFileSync(r(COMPANION), body);
+  console.log(
+    `release-doctor --fix-changeset: wrote ${COMPANION} (${need.length} package(s) @ ${type}). Run \`pnpm release-doctor\` to verify.`,
+  );
+}
+
 function sync() {
   const e = engineVersion();
   const text = readText(MANIFEST);
@@ -314,6 +393,8 @@ function runChecks() {
 
 if (process.argv.includes("--sync")) {
   sync();
+} else if (process.argv.includes("--fix-changeset")) {
+  fixChangeset();
 } else {
   runChecks();
 }
