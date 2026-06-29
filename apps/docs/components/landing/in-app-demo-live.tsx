@@ -218,7 +218,11 @@ export function InAppDemoLive({
       const res = await fetch("/api/sample", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, template: "activation/welcome" }),
+        body: JSON.stringify({
+          email,
+          template: "activation/welcome",
+          ...(name ? { name } : {}),
+        }),
       });
       if (res.ok) {
         setLanded("demo.email");
