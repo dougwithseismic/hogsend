@@ -1,5 +1,13 @@
 # hogsend
 
+## 0.37.3
+
+### Patch Changes
+
+- a1faed0: Keep the engine version line uniform: bump every engine-line package (and the `create-hogsend` scaffolder) alongside the `@hogsend/react` feed-archive fix, so all `@hogsend/*` packages publish on one version and the scaffold's `^{{ENGINE_VERSION}}` caret pins stay aligned.
+- Updated dependencies [a1faed0]
+  - @hogsend/cli@0.37.3
+
 ## 0.37.2
 
 ### Patch Changes

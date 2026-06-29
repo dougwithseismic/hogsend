@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/client",
-  "version": "0.37.2",
+  "version": "0.37.3",
   "type": "module",
   "license": "MIT",
   "description": "Typed HTTP client for the Hogsend data plane (contacts, events, emails, lists).",
