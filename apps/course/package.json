@@ -4,31 +4,41 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "postbuild": "node scripts/assemble-standalone.mjs",
+    "postbuild": "node scripts/assemble-standalone.mjs && esbuild scripts/migrate.mjs --bundle --platform=node --format=esm --outfile=scripts/migrate.bundle.mjs",
     "dev": "next dev --port 3006",
     "start": "node .next/standalone/apps/course/server.js",
-    "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)"
+    "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:push": "drizzle-kit push"
   },
   "dependencies": {
     "@hogsend/js": "workspace:^",
     "@hogsend/react": "workspace:^",
+    "better-auth": "^1.6.11",
     "clsx": "^2.1.1",
+    "drizzle-orm": "^0.45.2",
     "fumadocs-core": "^16.9.1",
     "fumadocs-mdx": "^15.0.8",
     "fumadocs-ui": "^16.9.1",
     "lucide-react": "^1.16.0",
     "motion": "^12.40.0",
     "next": "^16.2.6",
+    "postgres": "^3.4.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "resend": "^6.12.3",
     "tailwind-merge": "^3.0.1"
   },
   "devDependencies": {
+    "@better-auth/cli": "^1.4.21",
     "@tailwindcss/postcss": "^4.3.0",
     "@types/mdx": "^2.0.13",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.1",
     "postcss": "^8.5.14",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.2"

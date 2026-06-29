@@ -60,6 +60,12 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 COPY --from=build /app/apps/course/.next/standalone ./
+# The committed SQL migrations + the self-contained (esbuild-bundled) migrator are
+# not part of the Next standalone trace, so copy them in explicitly for the
+# Railway pre-deploy step. migrate.bundle.mjs inlines drizzle-orm + postgres, so
+# it resolves with no node_modules; the SQL stays external (read at runtime).
+COPY --from=build /app/apps/course/drizzle ./apps/course/drizzle
+COPY --from=build /app/apps/course/scripts/migrate.bundle.mjs ./apps/course/scripts/migrate.bundle.mjs
 USER node
 EXPOSE 3006
 # server.js reads PORT from env (Railway sets it); HOSTNAME=0.0.0.0 (above) lets

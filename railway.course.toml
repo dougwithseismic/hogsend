@@ -9,6 +9,9 @@ dockerfilePath = "Dockerfile.course"
 watchPatterns = ["apps/course/**", "Dockerfile.course", "pnpm-lock.yaml", "railway.course.toml"]
 
 [deploy]
+# Apply DB migrations before the new version receives traffic. Runs the bundled
+# programmatic migrator against the dedicated course Postgres (DATABASE_URL).
+preDeployCommand = "node apps/course/scripts/migrate.bundle.mjs"
 # Dockerfile.course ships the Next.js standalone output, so the server entry is
 # the self-contained apps/course/server.js (it bundles its own node_modules — no
 # pnpm, no workspace, no corepack). server.js reads PORT from env; HOSTNAME=0.0.0.0
