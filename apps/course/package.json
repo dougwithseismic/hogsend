@@ -1,0 +1,36 @@
+{
+  "name": "@hogsend/course",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "next build",
+    "postbuild": "node scripts/assemble-standalone.mjs",
+    "dev": "next dev --port 3006",
+    "start": "node .next/standalone/apps/course/server.js",
+    "check-types": "fumadocs-mdx && next typegen && tsc --noEmit || (fumadocs-mdx && tsc --noEmit)"
+  },
+  "dependencies": {
+    "@hogsend/js": "workspace:^",
+    "@hogsend/react": "workspace:^",
+    "clsx": "^2.1.1",
+    "fumadocs-core": "^16.9.1",
+    "fumadocs-mdx": "^15.0.8",
+    "fumadocs-ui": "^16.9.1",
+    "lucide-react": "^1.16.0",
+    "motion": "^12.40.0",
+    "next": "^16.2.6",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/mdx": "^2.0.13",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.2"
+  }
+}

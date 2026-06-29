@@ -1,0 +1,190 @@
+# Chapter 1 — What PostHog is, and why you want it
+
+*The tool you'll measure with, why measuring matters at all, and what it costs.*
+
+> **In this chapter:** the case for measuring, the full PostHog product suite, the
+> US/EU choice, and a realistic read on pricing. By the end you'll know what PostHog
+> is for and have an account on the right cloud.
+
+---
+
+## 1.1 Why measure at all
+
+You can run a product on intuition for a while. The problem is that intuition can't
+tell you *where* you're losing people. You see the top number — signups, traffic —
+and the bottom number — revenue, active users — and everything between them is dark.
+
+Measurement turns that dark middle into a sequence of steps you can see through. When
+1,000 people land on your site, you want to know how many sign up, how many reach the
+moment the product becomes useful, and how many are still around next week. Each of
+those is a place you can lose people, and each is a place you can fix. You cannot fix
+a leak you cannot see.
+
+That is the entire job of a product analytics tool: make the leaks visible so you can
+work on the right one. PostHog is the tool this course uses to do it.
+
+The discipline that goes with the tool — *what* to measure and *why* — is the AARRR
+framework, and it gets its own chapter (Chapter 2). This chapter is about the tool.
+
+---
+
+## 1.2 What PostHog is in 2026
+
+PostHog calls itself an all-in-one platform for building products. In practice it's a
+stack of products that all sit on **one event pipeline and one model of who your users
+are**. That shared foundation is the point: an error links to the session replay that
+links to the user's whole analytics history, because it's all the same data.
+
+You don't need all of it. For this course you'll mainly use **Product Analytics**,
+**Web Analytics**, and **Session Replay**, plus **Data Pipelines** later for sending
+conversions to ad platforms. Here's the whole suite so you know what's there:
+
+- **Product Analytics** — event-based analysis: trends, funnels, retention, paths,
+  stickiness, lifecycle, and raw SQL. Includes *autocapture* (it records clicks and
+  pageviews with no code). This is the core of the course.
+- **Web Analytics** — a Google-Analytics-style dashboard (visitors, sessions, bounce
+  rate, channels, geography) sitting on the same data, with far less setup. Good for
+  the marketing-site view.
+- **Session Replay** — watch real user sessions play back, with console logs and
+  network requests captured. This is how you find the *why* behind a drop-off.
+- **Feature Flags** — turn features on/off for a percentage of users or a targeted
+  cohort, without deploying.
+- **Experiments (A/B testing)** — built on feature flags; measures whether a change
+  actually moved a metric, with statistical significance.
+- **Surveys** — in-app surveys (NPS, feedback) targeted at specific users.
+- **Error Tracking** — captures exceptions, groups them into issues, and links each
+  one to the session where it happened.
+- **LLM Analytics** — PostHog's headline 2026 product: traces of individual LLM calls
+  (tokens, latency, cost), per-user cost attribution, and evals. Relevant if you ship
+  AI features.
+- **Data Warehouse** — connect external sources (Stripe, HubSpot, your database) and
+  join them to your event data with SQL.
+- **Data Pipelines (CDP)** — *Sources* (managed ingestion), *Destinations* (send your
+  events out to Snowflake, ad platforms, Slack, a CRM), and *Transformations* (clean
+  or enrich events in flight). You'll use a Destination in Chapter 7 to send
+  conversions to Meta.
+- **PostHog AI ("Max")** — an in-product assistant that answers questions in plain
+  language, writes SQL for you, and builds insights. Useful when you don't yet know
+  the query language.
+
+> ⚠️ PostHog also ships newer products — **Logs**, **Workflows** (its own messaging
+> layer), and **Inbox** — that are evolving quickly. Treat their exact status and
+> limits as a moving target and check the docs.
+
+### One concept worth internalising now
+
+Everything in PostHog hangs off **events** (a thing that happened) attached to a
+**person** (who it happened to). "User signed up", "project created", "page viewed" —
+each is an event with properties, tied to a person. Get those two things right and
+every chart in the product just works. Chapter 3 is about getting them right.
+
+---
+
+## 1.3 PostHog Workflows vs Hogsend — why this course uses both
+
+PostHog has its own messaging product (PostHog Workflows, formerly the open-source
+Laudspeaker). It's a no-code canvas for marketers, and it's good at what it does:
+batch sends and simple drip campaigns targeted on PostHog data.
+
+This course pairs PostHog with **Hogsend** instead, for the lifecycle layer, because
+the audience here is people who build. The split is deliberate:
+
+| | PostHog Workflows | Hogsend |
+|---|---|---|
+| Authoring | Visual no-code canvas | Code-first TypeScript (`defineJourney`) |
+| Lives in | PostHog cloud | Your repo, your infra, your email provider |
+| Best at | Batch + simple drips, by marketers | Durable multi-step journeys, by developers |
+| Versioned | A config in a UI | A dependency you pin and code-review |
+
+The clean division of labour, which the rest of the course follows:
+
+- **PostHog detects** — event collection, identity, cohorts, the analytics you read.
+- **Hogsend acts** — the journeys that send the emails and Discord/Telegram messages,
+  triggered by events, with the results fired back as events PostHog can measure.
+
+You don't have to choose one forever. The point is that the *measurement* lives in
+PostHog and the *code-first lifecycle automation* lives in Hogsend.
+
+---
+
+## 1.4 US cloud or EU cloud — choose before you start
+
+PostHog Cloud runs in two independent regions:
+
+- **US Cloud** — data hosted in the US (AWS, Virginia).
+- **EU Cloud** — data hosted in the EU (AWS, Frankfurt). New EU projects disable IP
+  capture by default for a stronger privacy posture.
+
+You pick one at signup. This matters because **data does not move between regions and
+you cannot merge across them.** If most of your users (or your compliance obligations)
+are in Europe, start on EU Cloud. If you guess wrong, fixing it later means a
+migration, not a setting.
+
+There's also a **self-hosted** open-source version. It's a real infrastructure
+commitment (it runs on ClickHouse) and PostHog actively steers small teams toward
+Cloud unless data-residency rules force self-hosting. For this course, use Cloud.
+
+> Hogsend, by contrast, is built to be self-hosted — your database, your email
+> provider, your deploy. So a common setup is *PostHog Cloud for analytics +
+> self-hosted Hogsend for messaging*, which keeps the customer data and the sending
+> on your own infrastructure.
+
+---
+
+## 1.5 What it costs
+
+PostHog is **usage-based and free until you're at real scale.** The model:
+
+- Every product has a **monthly free tier that resets each month.** You only pay,
+  per-product, once you exceed it.
+- There's **no charge for storing historical events** — you're billed once when an
+  event is captured, not for keeping it.
+- PostHog says roughly **90% of companies use it for free**, and most early-stage
+  startups run free for 6–12 months.
+
+Approximate monthly free tiers (these change — treat as a guide, confirm on
+[posthog.com/pricing](https://posthog.com/pricing) before relying on them):
+
+| Product | Free per month (approx.) |
+|---|---|
+| Product Analytics | ~1M events |
+| Session Replay | ~5,000 recordings |
+| Feature Flags | ~1M requests |
+| Surveys | ~1,500 responses |
+| Error Tracking | ~100K exceptions |
+| Data Warehouse | ~1M rows |
+
+> ⚠️ Two things to verify rather than take on faith, because they move and they bite:
+> the **exact free-tier numbers and per-unit prices** (they drift), and **Group
+> Analytics** — it's reportedly a paid add-on, and enabling it can cause *all*
+> identified events in the project to bill, not just grouped ones. If you're a B2B
+> product tempted by company-level rollups (Chapter 3), check the current pricing
+> page first.
+
+The practical takeaway: you will not pay anything to follow this course, and you'll
+have a long runway before cost is a question. When it becomes one, the lever is event
+volume — which is exactly why Chapter 3 tells you to be deliberate about what you
+track rather than capturing everything that moves.
+
+---
+
+## 1.6 Do this now
+
+1. Create a PostHog account on the **right region** for your users (US or EU).
+2. Create one project. (Keep your marketing site and your app in the *same* project —
+   you want the whole journey, from first visit to paying user, in one place.)
+3. Find your **project API key** (it starts with `phc_`). You'll need it in Chapter 3.
+   It's safe to expose publicly — it can write events but cannot read your data.
+
+That's all the setup for now. The next chapter is the part most teams skip and then
+regret: deciding *what* to measure before you wire anything up.
+
+---
+
+*Sources for this chapter: [posthog.com/pricing](https://posthog.com/pricing),
+[PostHog product docs](https://posthog.com/docs), [PostHog EU Cloud](https://posthog.com/blog/posthog-cloud-eu),
+[Hogsend competitive positioning](../competitive-positioning.md).*
+
+---
+
+[← Course index](./README.md) · **Next:** [Chapter 2 — AARRR and the leaky bucket →](./02-aarrr-and-the-leaky-bucket.md)

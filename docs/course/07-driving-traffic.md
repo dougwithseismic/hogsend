@@ -1,0 +1,257 @@
+# Chapter 7 — Driving traffic
+
+*Now that the bucket holds water, open the tap: how to run Meta ads, track conversions
+accurately despite ad blockers and iOS, and feed your own data back to make the ads
+smarter.*
+
+> **In this chapter:** the structure of a Meta campaign, the three audience types, why
+> Pixel-and-Conversions-API (not Pixel alone), what server-side tracking does and
+> doesn't fix, and how PostHog/Hogsend feed conversions and audiences back to the ad
+> platform. Accuracy matters here — the privacy landscape is full of half-truths.
+
+A reminder on order: this chapter is deliberately seventh. If your retention curve
+(Chapter 4) still decays to zero, come back later — paid acquisition into a leaky bucket
+is, as Chapter 2 put it, buying churn.
+
+---
+
+## 7.1 The shape of a Meta campaign
+
+Meta (Facebook/Instagram) ads have a fixed three-tier structure. Learn it first because
+everything else hangs off it:
+
+- **Campaign** — sets the **objective** and budget strategy. One objective per campaign.
+- **Ad Set** — the levers: **audience, placements, the optimisation event, budget,
+  schedule**.
+- **Ad** — the creative the user sees (image/video, copy, CTA, destination).
+
+The single most consequential choice is the **campaign objective**, because it tells
+Meta's delivery algorithm *which kind of person to go find*. Meta consolidated its old
+objectives into six (ODAX):
+
+1. **Awareness** — reach/recall, top of funnel.
+2. **Traffic** — cheap clicks to a page. *Not* optimised for conversions — a common
+   beginner trap is to use Traffic and wonder why clicks don't convert.
+3. **Engagement** — interactions, video views, messages.
+4. **Leads** — form fills, newsletter signups.
+5. **App Promotion** — installs and in-app events.
+6. **Sales** — purchases / highest-intent conversions.
+
+**Rule of thumb:** optimise for the event closest to revenue that you can feed Meta
+*enough of*. The algorithm needs roughly **50 conversions per ad set per week** to exit
+its "learning phase" and deliver efficiently. If you can't generate 50 purchases a week
+yet, optimise a higher-funnel event (lead or signup) and pass the deeper conversion
+back server-side (§7.4) so Meta still learns from it.
+
+---
+
+## 7.2 The three audiences
+
+Every ad set targets one of three kinds of audience:
+
+- **Broad / interest ("cold").** Demographics and interests, or — increasingly — fully
+  broad "Advantage+" audiences where you let Meta's ML find people. The 2024–2026 trend
+  is clear: **broad targeting + strong creative + a good conversion signal now beats
+  hand-built interest stacks**, because the algorithm does the targeting. Interest
+  targeting is more of a hint than a filter now.
+- **Custom Audiences ("warm", first-party).** Built from *your* data: a customer-list
+  upload, site/app visitors, or events sent via the Conversions API. These are the
+  highest-signal inputs you can give Meta — and they only exist because you captured
+  first-party identity, which is the whole thesis of Chapter 8.
+- **Lookalike Audiences ("prospecting").** Meta finds new people resembling a **seed**
+  custom audience. **Seed quality dominates the result** — seed it with your *best*
+  customers (recent purchasers, high-LTV), never "everyone who ever signed up." A 1%
+  lookalike is the tightest match; widen to 3–10% for scale.
+
+### The full funnel
+
+A standard structure layers these:
+
+- **Top (cold):** Awareness/Traffic/Video to broad audiences. Cheap short video both
+  earns reach *and* manufactures the video-viewer/engager audiences you'll retarget.
+- **Middle (warm):** retarget site visitors, video viewers, engagers with
+  trust/education content.
+- **Bottom (hot):** retarget pricing-page visitors, trial-starters, cart abandoners
+  with a direct offer.
+
+> A starting split you'll see quoted is ~50–60% cold / 20–30% warm / 15–20% hot
+> *(directional heuristic, not gospel)*. The common mistake for small founders is
+> over-investing in retargeting too early — a tiny warm pool can't scale spend. You
+> earn a bigger warm pool by capturing more first-party identity, which is Chapter 8.
+
+### A note for dev-tool, community, and web3 founders
+
+Meta works well for consumer funnels (indie games, B2C, web3 *consumer* products). For
+**developer tools and B2B it's weaker** — content, community, and product-led growth
+usually out-perform paid social (Supabase is the canonical example). And **web3/crypto
+ads face policy restrictions** on Meta and Google. For both segments, treat paid as
+*fuel for the loop*, not the loop itself — which makes the owned channels in Chapter 8
+disproportionately important.
+
+---
+
+## 7.3 The problem: your conversion tracking is lying to you
+
+Here's the part that trips up everyone who just installs the Meta Pixel and trusts the
+numbers.
+
+The **Meta Pixel** is browser-side JavaScript. It fires from the user's browser and
+depends on cookies and the request actually completing. A stack of things now breaks
+that:
+
+- **iOS App Tracking Transparency** — most iOS users decline cross-app tracking *(opt-in
+  is commonly cited around 20–25%, varies a lot by source and region — directional)*.
+- **Safari/Firefox/Brave** cap or expire the cookies the Pixel relies on.
+- **Ad blockers** drop the Pixel outright for ~10–30% of users (the same blocking you
+  met in Chapter 3).
+- **Third-party cookie deprecation** — the date keeps slipping, but the direction is
+  certain.
+
+The result: the Pixel under-counts conversions, Meta's algorithm optimises on partial
+data, and your reported ROAS is wrong. You can't fix bid strategy on numbers that are
+quietly missing a third of reality.
+
+---
+
+## 7.4 The fix: Pixel *and* Conversions API
+
+The **Conversions API (CAPI)** sends events **server-side** — from your server (or a
+tool/CDP) directly to Meta's endpoint, skipping the browser entirely. Because it never
+touches the user's browser, it survives ad blockers, cookie expiry, and failed Pixel
+loads.
+
+Meta's own guidance is not "CAPI instead of Pixel" — it's **both, deduplicated.** You
+send the same event from the browser (Pixel) and the server (CAPI), and Meta merges
+them. Redundancy plus better matching.
+
+### What server-side **does** fix
+
+- Recovers web conversions lost to blockers, ITP, and failed Pixel loads.
+- **Higher match quality** — your server has the user's hashed email/phone that the
+  browser often doesn't.
+- Lets you send **back-office conversions the browser never sees**: trial→paid,
+  qualified-lead, refunds, LTV, offline events. This is huge — these are usually your
+  *most valuable* conversions, and the Pixel can't see any of them.
+
+### What server-side does **not** fix (be precise — this is where bad courses lie)
+
+- **It is not a consent loophole.** You still need a lawful basis to collect, hash, and
+  share user data (§7.6). A SHA-256-hashed email is **pseudonymous, not anonymous** —
+  same input, same hash, re-identifiable.
+- **It does not restore iOS *app-install* attribution.** That's governed by Apple's
+  SKAdNetwork plus Meta's Aggregated Event Measurement — aggregated, delayed, modelled,
+  *not* user-level. Web CAPI doesn't bring back per-user iOS attribution.
+- **It doesn't fix bad inputs.** CAPI with no email/phone/external_id matches poorly and
+  barely helps. Garbage in, garbage matched.
+- **It doesn't dedupe by magic** — see below.
+
+> ⚠️ **Don't teach the old AEM "8 prioritised events" limit.** Meta removed the
+> 8-event cap and manual configuration around **June 2025** and now auto-aggregates
+> eligible events. Older blogs and courses still teach the cap — it's outdated.
+
+### Deduplication (the thing people get wrong)
+
+If you send an event from both Pixel and CAPI, you must give both the **same `event_id`**
+(and matching `event_name`). Meta dedupes on `event_id` and counts it once. Skip this and
+your hybrid setup **double-counts** conversions — corrupting the very ROAS you set this
+up to measure.
+
+### Event Match Quality (EMQ)
+
+Meta scores each event source 0–10 on how well its data matches real Meta users. Aim
+for **6 or higher** (8+ is better). The score goes up with more and better identifiers,
+roughly weighted:
+
+- **Strongest:** email, the click ID (`fbc`, from the `fbclid` on the landing URL),
+  Facebook Login ID.
+- **Medium:** phone, the browser ID (`fbp`), and your stable **`external_id`** (your
+  user/contact id).
+- **Weaker:** name, city, IP, user agent.
+
+All PII must be normalised (trim, lowercase) and **SHA-256 hashed** before sending. The
+way to raise EMQ is to **feed CAPI from where you actually have identity** — your
+backend/CRM, which holds the email and phone the browser never sees. Which is exactly
+where PostHog and Hogsend come in.
+
+---
+
+## 7.5 Feeding it from PostHog (and Hogsend)
+
+You don't have to hand-build a CAPI integration. PostHog's **Data Pipelines** include a
+**Meta Ads conversions destination**:
+
+- You give it your **Pixel/Dataset ID and access token**. PostHog **SHA-256-hashes**
+  the email/name, and sends `event_name`, a unique `event_id` (enabling Pixel dedup),
+  `event_time`, plus `fbc`/`fbclid` and user agent.
+- Use the **same Pixel ID** for the browser Pixel and the PostHog destination so
+  deduplication works.
+- Filter the destination to **conversion events only** — you don't want every pageview
+  going to Meta.
+
+PostHog also auto-captures `fbclid`/`gclid` and UTMs as person properties and stitches
+anonymous → identified when the user gives an email, so a later server-side conversion
+carries the identifiers Meta needs for a high EMQ.
+
+**Custom audiences without CSVs:** build a PostHog **cohort** (e.g. "closed-won in the
+last 180 days") and sync it as a Meta custom audience — for retargeting, or as a
+lookalike seed. No manual list upload, and it stays fresh.
+
+**Where Hogsend fits:** Hogsend's events are server-side and keyed to its own identity
+graph (email ↔ Discord ↔ Telegram ↔ anonymous). That means Hogsend can fire **enriched,
+deep-funnel conversions** — trial→paid, qualified-lead — **server-side, with strong
+identity**, which is exactly the high-EMQ, browser-invisible conversion that makes CAPI
+worth it. The honest caveat (same as Chapter 3): this makes your *conversions* accurate
+and your *journey triggers* ad-blocker-proof; it does **not** fix the user's client-side
+PostHog analytics loss, and it does not override consent or ATT.
+
+---
+
+## 7.6 Consent — the part you can't skip
+
+Server-side does not mean consent-free, and the rules tightened recently:
+
+- As of **January 2025**, Meta requires **explicit user consent** before you upload
+  contact info for custom audiences or send PII via CAPI.
+- When you upload a list, **you are the data controller** and need a lawful basis
+  (usually consent). A German regulator has ruled list uploads without consent unlawful,
+  and — again — **hashing does not make data anonymous** in law.
+- Use Meta's consent signals / data-processing options, and **don't send events for
+  non-consenting users** in consent regimes.
+- **Minimise data:** send only what you need (hashed email/phone/external_id). As of
+  **September 2025**, Meta blocks custom conversions containing sensitive (health/
+  financial) data.
+
+The strategic point this sets up: an **owned, consented identity graph** — emails
+captured *with opt-in* at signup and verification — is what makes the whole custom-
+audience + CAPI + lookalike machine both *effective* and *compliant*. You can only feed
+Meta good, legal data if you collected it well in the first place. That's Chapter 8.
+
+---
+
+## 7.7 Do this now
+
+1. Install the **Meta Pixel** on your site (browser side).
+2. Add the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
+   conversion events.
+3. Make sure your conversions carry **email + `fbc` + `external_id`** so EMQ ≥ 6.
+4. Start **one campaign**: a Sales/Leads objective, broad audience, strong creative,
+   optimising on the deepest event you can feed 50/week.
+5. Capture **opt-in consent** at the point you collect email.
+
+You can now drive traffic *and* measure it honestly. The last piece is the one that
+compounds: turning that traffic into an audience you never have to pay to reach again.
+
+---
+
+*Sources for this chapter: [Meta — Conversions API](https://developers.facebook.com/docs/marketing-api/conversions-api/),
+[PostHog — Meta Ads destination](https://posthog.com/docs/cdp/destinations/meta-ads),
+[PostHog — performance marketing](https://posthog.com/tutorials/performance-marketing),
+[Pixel vs CAPI](https://www.customerlabs.com/blog/difference-between-meta-pixel-vs-conversions-api/),
+[Event Match Quality](https://easyinsights.ai/blog/how-to-increase-facebook-meta-event-match-quality/),
+[AEM changes](https://www.conversios.io/blog/meta-aggregated-event-measurement/),
+[Meta custom audience terms](https://www.facebook.com/legal/terms/customaudience),
+[Meta consent for GDPR](https://www.adamigo.ai/blog/meta-consent-mode-for-gdpr-compliance).*
+
+---
+
+[← Chapter 6](./06-building-lifecycle-with-hogsend.md) · [Course index](./README.md) · **Next:** [Chapter 8 — The owned-audience flywheel →](./08-owned-audience-identity-flywheel.md)

@@ -1,0 +1,163 @@
+# Chapter 4 — What to look at every day
+
+*The handful of charts a founder should read each morning, what each one is telling
+you, and how to stop logging in to check them.*
+
+> **In this chapter:** the PostHog insight types you'll actually use, a concrete daily
+> checklist with the meaning behind each chart, and how to automate the whole thing
+> with alerts and scheduled reports.
+
+---
+
+## 4.1 The insight types, briefly
+
+PostHog has seven ways to look at your events. You'll lean on four. Know all seven so
+you reach for the right one:
+
+- **Trends** — a metric over time (counts, unique users, formulas), with breakdowns by
+  any property. The workhorse. "Signups per day, by channel."
+- **Funnels** — step-by-step conversion. Shows the drop-off at each step and the time
+  to convert. *Click a step to see — or replay — the users who dropped.* This is where
+  you find leaks.
+- **Retention** — a cohort grid: pick a start event ("signed up") and a return event
+  ("did the core action"). Each row is a cohort, each column a later period. This is
+  the leaky-bucket test made visual.
+- **Lifecycle** — splits your active users each period into **New**, **Returning**,
+  **Resurrecting**, and **Dormant**. Tells you whether growth is real or churn-and-
+  replace.
+- **Stickiness** — *how many times* users did something in a period (depth), as opposed
+  to retention's *whether they came back*.
+- **User Paths** — a flow diagram of how people move through the product; good for
+  discovering unexpected routes and dead ends.
+- **SQL** — write SQL (HogQL) directly when the UI can't express your question.
+  PostHog's AI assistant can write these for you.
+
+The four you'll read daily are **Trends, Funnels, Retention, and Lifecycle.**
+
+---
+
+## 4.2 The daily checklist
+
+You don't need to stare at twenty charts. You need a short, fixed list you read the
+same way every morning. Here it is, with what each one actually means.
+
+### 1. Active users (Trends — unique users on your core action)
+**The pulse.** If this is flat or falling week-over-week, nothing else matters yet.
+Watch the *trend*, not the absolute number — early on, direction is the signal.
+
+### 2. New signups (Trends — count of `user_signed_up`, server-side)
+**Is acquisition working?** A useful number, but a vanity one on its own: a signup
+spike with no matching activation means you attracted the wrong people or overpromised.
+Always read it next to chart 3.
+
+### 3. Activation funnel (Funnel — `signup → your aha event`)
+**The most actionable chart you have.** The drop-off between steps shows you *exactly*
+where onboarding leaks. Click the worst step and pull the list of users who fell out —
+or jump straight to their session replays (chart 7) to see why.
+
+### 4. Signup conversion rate (Web Analytics goal, or a funnel)
+**Is the top of the funnel smooth?** Visitors → signup. A low number here points at
+friction on the landing page or in the signup flow itself.
+
+### 5. Weekly retention curve (Retention — start: signup; return: core action)
+**The single best product-market-fit signal.** Read the *shape*:
+- A curve that **decays toward zero** = a leaky bucket. Acquisition won't save you;
+  go work on activation and retention.
+- A curve that **flattens above zero** = some cohort sticks around forever. That's a
+  product with real pull, and a safe thing to pour traffic into.
+
+### 6. Lifecycle (Lifecycle insight on your core action)
+**Is your growth real?** A healthy chart shows New and Returning growing. A big red
+**Dormant** band underneath modest New growth means you're refilling a leaking bucket —
+the same users churning and being replaced. This is the leaky bucket, drawn for you.
+
+### 7. Session replays of drop-offs and errors
+**The "why" behind the numbers.** Filter replays to users who hit a funnel drop-off, a
+rage-click, or an error, and watch a few. Five minutes of watching real people struggle
+will teach you more than an hour of staring at a chart.
+
+### 8. Errors / exceptions (Error Tracking)
+**Production health.** New or spiking issues. Best piped to Slack (see §4.4) so you
+don't have to remember to look.
+
+### 9. Paid conversion (free → paid %)
+**The strongest value signal there is.** People paying is the hardest proof that the
+problem you solve is worth solving. Track the conversion rate, not just the count.
+
+That's the list. The first time, it'll take you twenty minutes. Once it's a dashboard,
+it's a two-minute glance.
+
+---
+
+## 4.3 Build it as one dashboard
+
+Don't navigate to nine insights every day. Save each as an insight, add them to a
+single **dashboard**, and **pin that dashboard to your project homepage** so it's the
+first thing you see when you log in.
+
+- Put your **North Star metric** (Chapter 2) as the top tile, with its input metrics
+  beneath it.
+- Use dashboard-level date and property filters so you can switch the whole board to
+  "last 7 days" or "paid users only" at once.
+- PostHog ships dashboard templates (web metrics, product health) you can start from
+  instead of building blank.
+
+---
+
+## 4.4 Stop logging in: alerts and subscriptions
+
+The goal is not to *remember* to check these. The goal is for the important ones to
+come to you, and for you to only open PostHog when something's worth investigating.
+
+- **Alerts** fire when an insight crosses a threshold or trips anomaly detection, and
+  notify you in-app, by email, on Slack, or via webhook. Set one on each critical
+  chart: "signups dropped below X today," "errors spiked." Choose how often it checks
+  (hourly/daily/weekly).
+- **Subscriptions** send a scheduled snapshot of an insight or dashboard to email or
+  Slack on a cadence. A weekly snapshot of your North Star dashboard, delivered Monday
+  morning, keeps the team aligned with zero effort.
+
+Set the alerts once and your daily ritual shrinks to: read the Slack alerts, and open
+the dashboard only when one fires.
+
+This is also exactly the seam Hogsend extends. PostHog alerts tell *you* something
+changed; Hogsend journeys tell *the user* something — automatically, when an event
+fires. The next chapter is about that second loop.
+
+---
+
+## 4.5 A note on reading numbers honestly
+
+Two failure modes to avoid as you build the habit:
+
+- **Watching vanity metrics.** Signups, pageviews, and registered-user counts feel
+  good and move easily. Anchor on the metrics that reflect *value delivered* —
+  activation, retention, paid conversion — and treat the vanity numbers as context.
+- **Reacting to noise.** Day-to-day numbers bounce. Look at trends over weeks before
+  concluding something changed. An alert is for "investigate," not "panic."
+
+---
+
+## 4.6 Do this now
+
+1. Create the nine insights from §4.2.
+2. Add them to one dashboard; pin it to your homepage; put your North Star on top.
+3. Set alerts on signups, activation, and errors → Slack.
+4. Schedule a weekly subscription of the dashboard to yourself/your team.
+
+You can now *see* your funnel and your leaks. The rest of the course is about acting on
+them — first by keeping the users you have, then by going to get more.
+
+---
+
+*Sources for this chapter: [PostHog — insights](https://posthog.com/docs/product-analytics/insights),
+[funnels](https://posthog.com/docs/product-analytics/funnels),
+[retention](https://posthog.com/docs/product-analytics/retention),
+[lifecycle](https://posthog.com/docs/product-analytics/lifecycle),
+[dashboards](https://posthog.com/docs/product-analytics/dashboards),
+[alerts](https://posthog.com/docs/alerts),
+[North Star metrics for founders](https://posthog.com/founders/north-star-metrics).*
+
+---
+
+[← Chapter 3](./03-instrument-posthog.md) · [Course index](./README.md) · **Next:** [Chapter 5 — Lifecycle messaging →](./05-lifecycle-messaging.md)

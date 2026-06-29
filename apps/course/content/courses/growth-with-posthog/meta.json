@@ -1,0 +1,14 @@
+{
+  "title": "Measure, Keep, and Grow",
+  "pages": [
+    "01-what-is-posthog",
+    "02-aarrr-and-the-leaky-bucket",
+    "03-instrument-posthog",
+    "04-your-daily-dashboard",
+    "05-lifecycle-messaging",
+    "06-building-lifecycle-with-hogsend",
+    "07-driving-traffic",
+    "08-owned-audience-identity-flywheel",
+    "09-putting-it-all-together"
+  ]
+}
