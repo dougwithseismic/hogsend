@@ -53,6 +53,7 @@
 
 /* ── Bell — sits in the dark nav next to the GitHub / theme icons. ── */
 .hs-docs-bell.hsr-bell {
+  position: relative; /* positions the badge + the arrival halo (::after) */
   color: rgba(255, 255, 255, 0.62);
   border-radius: 10px;
   transition:
@@ -85,6 +86,72 @@
   100% {
     transform: translate(50%, -50%) scale(1);
     opacity: 1;
+  }
+}
+
+/* ── Bell ring — when a NEW item lands, the bell itself swings and a crimzon
+   halo pulses out of it, so "something just happened" reads across the room,
+   not only the small corner badge. `.hs-docs-bell--ring` is toggled for ~1s by
+   nav-bell.tsx whenever the unread count climbs (and re-applied on each fresh
+   arrival so rapid re-fires re-ring). The badge re-pops a touch harder too. ── */
+.hs-docs-bell--ring .hsr-bell__icon {
+  display: inline-flex; /* so the rotate pivots the icon box, not a baseline */
+  transform-origin: 50% 3px; /* swing from the bell's crown, like a real bell */
+  animation: hs-bell-swing 0.9s ease-in-out;
+}
+.hs-docs-bell--ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1.5px solid var(--hs-color-accent, #f64838);
+  pointer-events: none;
+  animation: hs-bell-halo 0.85s ease-out forwards;
+}
+.hs-docs-bell--ring .hsr-bell__badge {
+  animation: hs-badge-pop 0.42s ease-out;
+}
+@keyframes hs-bell-swing {
+  0% {
+    transform: rotate(0);
+  }
+  15% {
+    transform: rotate(-17deg);
+  }
+  30% {
+    transform: rotate(14deg);
+  }
+  45% {
+    transform: rotate(-10deg);
+  }
+  60% {
+    transform: rotate(6deg);
+  }
+  75% {
+    transform: rotate(-3deg);
+  }
+  100% {
+    transform: rotate(0);
+  }
+}
+@keyframes hs-bell-halo {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.95);
+  }
+}
+/* The global reduced-motion block already clamps animation-duration, but kill
+   the swing/halo outright so the bell never tilts or blooms for these users. */
+@media (prefers-reduced-motion: reduce) {
+  .hs-docs-bell--ring .hsr-bell__icon {
+    animation: none;
+  }
+  .hs-docs-bell--ring::after {
+    content: none;
   }
 }
 
