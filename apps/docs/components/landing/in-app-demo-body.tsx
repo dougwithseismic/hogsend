@@ -73,78 +73,86 @@ export function InAppDemoBody() {
     setName(undefined);
   }
 
+  const handleFire = (event: string) =>
+    setFired((prev) => ({ event, nonce: prev.nonce + 1 }));
+
   return (
     <>
-      {/* `lg:items-start` is load-bearing: the in-app column is tall (the feed
-          caps at 720px), and without it the grid's default `stretch` forces the
-          short sign-up card to that same height — leaving a huge empty box
-          under the form. Start-aligning lets each column take its height. */}
-      <div className="grid items-start gap-6 lg:grid-cols-2">
-        {/* LEFT — sign-up, OR a "you're already in" card for return visitors */}
-        <Card className="flex flex-col p-6">
-          {returning ? (
-            <>
-              <span className="kicker mb-3 block">You&rsquo;re in</span>
+      {returning ? (
+        // Identified return visitor: no sign-up column needed, so drop it and
+        // go FULL-WIDTH. The greeting moves into a slim strip; the in-app loop
+        // takes the whole row in its two-up `wide` layout.
+        <>
+          <Card className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <span className="kicker mb-2 block">You&rsquo;re in</span>
               <h3 className="font-display text-2xl text-white tracking-[-0.02em]">
                 {name ? `Welcome back, ${name}.` : "Welcome back."}
               </h3>
-              <p className="mt-1.5 text-sm text-white/55 leading-6">
-                You already signed up — the welcome series is in your inbox, and
-                the in-app loop on the right is unlocked. Fire an event and
-                watch a journey drop a notification into the feed.
+              <p className="mt-1.5 max-w-2xl text-sm text-white/55 leading-6">
+                You already signed up — the welcome series is in your inbox and
+                the live loop below is unlocked. Fire an event, send yourself a
+                real email, and watch the journey run.
               </p>
-              <button
-                type="button"
-                onClick={startOver}
-                className="mt-6 self-start text-[13px] text-white/40 underline decoration-white/20 underline-offset-2 transition-colors hover:text-white/70"
-              >
-                Not you? Start over
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="kicker mb-3 block">Get the demo</span>
-              <h3 className="font-display text-2xl text-white tracking-[-0.02em]">
-                First name, email — get the demo.
-              </h3>
-              <p className="mt-1.5 text-sm text-white/55 leading-6">
-                Drop your first name and email and you&rsquo;re in. A stock
-                create-hogsend app running in production ingests the event, runs
-                its welcome journey, and sends from hello@hogsend.com a few
-                seconds later — that first email opens a real welcome series.
-                Then a couple quick questions, if you like.
-              </p>
-              <EmailCapture
-                hideHeading
-                qualifyAfter
-                placement="hero"
-                className="mt-6"
-                hogsendAnonymousId={client.getDistinctId()}
-                onSubscribed={(info) => {
-                  setSignedUp(true);
-                  if (info.name) setName(info.name);
-                }}
-              />
-              <p className="mt-4 text-[12px] text-white/40 leading-5">
-                Same engine, same journey code you scaffold · unsubscribe is one
-                click.
-              </p>
-            </>
-          )}
-        </Card>
+            </div>
+            <button
+              type="button"
+              onClick={startOver}
+              className="shrink-0 self-start text-[13px] text-white/40 underline decoration-white/20 underline-offset-2 transition-colors hover:text-white/70 sm:self-center"
+            >
+              Not you? Start over
+            </button>
+          </Card>
 
-        {/* RIGHT — the in-app loop, unlocked by the sign-up (not anonymous) */}
-        <InAppDemoLive
-          signedUp={signedUp}
-          name={name}
-          onFire={(event) =>
-            setFired((prev) => ({ event, nonce: prev.nonce + 1 }))
-          }
-        />
-      </div>
+          <div className="mt-6">
+            <InAppDemoLive
+              wide
+              signedUp={signedUp}
+              name={name}
+              onFire={handleFire}
+            />
+          </div>
+        </>
+      ) : (
+        // New visitor: the real sign-up (left) + the in-app loop preview (right).
+        // `lg:items-start` keeps the short sign-up card from stretching to the
+        // tall in-app column.
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+          <Card className="flex flex-col p-6">
+            <span className="kicker mb-3 block">Get the demo</span>
+            <h3 className="font-display text-2xl text-white tracking-[-0.02em]">
+              First name, email — get the demo.
+            </h3>
+            <p className="mt-1.5 text-sm text-white/55 leading-6">
+              Drop your first name and email and you&rsquo;re in. A stock
+              create-hogsend app running in production ingests the event, runs
+              its welcome journey, and sends from hello@hogsend.com a few
+              seconds later — that first email opens a real welcome series. Then
+              a couple quick questions, if you like.
+            </p>
+            <EmailCapture
+              hideHeading
+              qualifyAfter
+              placement="hero"
+              className="mt-6"
+              hogsendAnonymousId={client.getDistinctId()}
+              onSubscribed={(info) => {
+                setSignedUp(true);
+                if (info.name) setName(info.name);
+              }}
+            />
+            <p className="mt-4 text-[12px] text-white/40 leading-5">
+              Same engine, same journey code you scaffold · unsubscribe is one
+              click.
+            </p>
+          </Card>
 
-      {/* The full-width "what just ran" band — replays the journey shape for
-          the last-fired event: event → in-app send → fan-out to PostHog. */}
+          <InAppDemoLive signedUp={signedUp} name={name} onFire={handleFire} />
+        </div>
+      )}
+
+      {/* The full-width "what just ran" band — replays the journey shape for the
+          last-fired event. */}
       <DemoTrace
         event={fired.event}
         nonce={fired.nonce}

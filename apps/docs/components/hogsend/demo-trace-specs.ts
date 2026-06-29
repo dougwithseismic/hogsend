@@ -136,6 +136,18 @@ export const demoNpsAnswered = defineJourney({
   },
 });`;
 
+const SAMPLE_CODE = `export const sampleRequest = defineJourney({
+  meta: { trigger: { event: Events.DOCS_SAMPLE_REQUESTED } },
+  run: async (user) => {
+    const { template } = user.properties;
+    await sendEmail({
+      to: user.email,
+      template, // "activation/welcome"
+      subject: "[Sample] Welcome to Hogsend",
+    });
+  },
+});`;
+
 type DemoSpecConfig = {
   id: string;
   file: string;
@@ -265,6 +277,33 @@ const CONFIGS: Record<string, DemoSpecConfig> = {
         subject: "Thanks — you scored 9 🙏",
         accent: true,
         band: [20, 5],
+      },
+    ],
+  },
+  "demo.email": {
+    id: "sample-request",
+    file: "src/journeys/sample-request.ts",
+    code: SAMPLE_CODE,
+    steps: (name) => [
+      {
+        kind: "event",
+        event: "docs.sample_requested",
+        who: actor(name),
+        band: [1, 1],
+      },
+      {
+        kind: "send",
+        subject: "[Sample] Welcome to Hogsend",
+        clicked: true,
+        accent: true,
+        band: [4, 5],
+      },
+      {
+        kind: "fanout",
+        label: "emit",
+        events: ["docs.sample_requested"],
+        ...POSTHOG,
+        band: [4, 5],
       },
     ],
   },
