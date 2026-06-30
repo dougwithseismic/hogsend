@@ -3,6 +3,11 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
+import { BillingSection } from "@/components/account/billing-section";
+import { DangerZone } from "@/components/account/danger-zone";
+import { ProfileForm } from "@/components/account/profile-form";
+import { SecuritySection } from "@/components/account/security-section";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { auth } from "@/lib/auth";
 import { getCourse } from "@/lib/courses";
@@ -25,6 +30,27 @@ function lessonCount(courseSlug: string): number {
     .filter((p) => p.slugs.length >= 2 && p.slugs[0] === courseSlug).length;
 }
 
+/** Consistent settings-section wrapper: a labelled heading + a hairline divider. */
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="border-white/[0.08] border-t pt-8">
+      <h2 className="font-display text-xl tracking-[-0.02em]">{title}</h2>
+      {description ? (
+        <p className="mt-1 text-sm text-white/50 leading-6">{description}</p>
+      ) : null}
+      <div className="mt-5">{children}</div>
+    </section>
+  );
+}
+
 export default async function AccountPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/sign-in?next=/account");
@@ -45,26 +71,29 @@ export default async function AccountPage() {
 
   return (
     <main className="container-page py-16 md:py-24">
-      <div className="mx-auto max-w-2xl">
-        <p className="kicker">Your account</p>
-        <h1 className="mt-2 font-display text-3xl tracking-[-0.02em]">
-          {user.name || "Profile"}
-        </h1>
-        <p className="mt-1 text-white/50">{user.email}</p>
+      <div className="mx-auto flex max-w-2xl flex-col gap-10">
+        <header>
+          <p className="kicker">Your account</p>
+          <h1 className="mt-2 font-display text-3xl tracking-[-0.02em]">
+            {user.name || "Profile"}
+          </h1>
+          <p className="mt-1 text-white/50">{user.email}</p>
+        </header>
 
-        <section className="mt-12">
-          <h2 className="font-display text-xl tracking-[-0.02em]">
-            Your courses
-          </h2>
+        <Section title="Profile">
+          <ProfileForm initialName={user.name ?? ""} email={user.email} />
+        </Section>
+
+        <Section title="Your courses">
           {enrolls.length === 0 ? (
-            <p className="mt-3 text-sm text-white/50 leading-6">
+            <p className="text-sm text-white/50 leading-6">
               You haven't started a course yet.{" "}
               <Link href="/" className="text-accent hover:underline">
                 Browse courses →
               </Link>
             </p>
           ) : (
-            <ul className="mt-4 flex flex-col gap-3">
+            <ul className="flex flex-col gap-3">
               {enrolls.map((e) => {
                 const total = lessonCount(e.courseSlug);
                 const done = completedByCourse.get(e.courseSlug) ?? 0;
@@ -100,11 +129,27 @@ export default async function AccountPage() {
               })}
             </ul>
           )}
-        </section>
+        </Section>
 
-        <div className="mt-12 border-white/[0.08] border-t pt-8">
-          <SignOutButton />
-        </div>
+        <Section title="Billing & invoices">
+          <BillingSection userId={user.id} />
+        </Section>
+
+        <Section title="Security">
+          <div className="flex flex-col gap-6">
+            <SecuritySection />
+            <div>
+              <SignOutButton />
+            </div>
+          </div>
+        </Section>
+
+        <Section
+          title="Privacy & data"
+          description="Export everything we hold, or permanently delete your account."
+        >
+          <DangerZone />
+        </Section>
       </div>
     </main>
   );

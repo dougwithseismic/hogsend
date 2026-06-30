@@ -49,6 +49,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     client_reference_id: session.user.id,
     customer_email: session.user.email,
     metadata: { courseSlug: course, userId: session.user.id },
+    // Generate a proper invoice (PDF) per purchase so it shows in the account
+    // billing section and the customer gets a receipt.
+    invoice_creation: { enabled: true },
     success_url: `${base}${next}?purchase=success`,
     cancel_url: `${base}${next}?purchase=cancelled`,
   });

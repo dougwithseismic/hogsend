@@ -11,4 +11,12 @@ export const authClient = createAuthClient({
   plugins: [magicLinkClient()],
 });
 
-export const { signIn, signOut, useSession } = authClient;
+export const {
+  signIn,
+  signOut,
+  useSession,
+  updateUser,
+  deleteUser,
+  listSessions,
+  revokeOtherSessions,
+} = authClient;
