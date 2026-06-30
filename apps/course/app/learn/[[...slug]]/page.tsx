@@ -11,7 +11,7 @@ import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
 import { Paywall } from "@/components/auth/paywall";
 import { getMDXComponents } from "@/components/mdx";
-import { hasPurchased, isCoursePaywalled } from "@/lib/entitlements";
+import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
 
@@ -50,7 +50,7 @@ export default async function Page(props: {
     // is derived from the session user id + DB, never from a query param.
     if (
       isCoursePaywalled(slugs[0]) &&
-      !(await hasPurchased(session.user.id, slugs[0]))
+      !(await hasAccess(session.user.id, slugs[0]))
     ) {
       return (
         <Paywall

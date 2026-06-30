@@ -129,7 +129,7 @@ export const lessonProgress = pgTable(
 /**
  * A one-time course purchase (entitlement). One active grant per user × course.
  * Written by the Stripe webhook (checkout.session.completed), read by the gate
- * (hasPurchased). `status` flips to "refunded" on charge.refunded → access is
+ * (hasAccess). `status` flips to "refunded" on charge.refunded → access is
  * revoked. The two unique indexes give: O(1) entitlement lookup, and webhook
  * idempotency (a retried delivery for the same checkout session is a no-op).
  */

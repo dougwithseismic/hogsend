@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import type Stripe from "stripe";
-import { getCourse } from "@/lib/courses";
+import { skuTitle } from "@/lib/courses";
 import { recordPurchase, revokePurchase } from "@/lib/entitlements";
 import { emitPurchased } from "@/lib/events";
 import { getStripe, paywallConfigured, webhookConfigured } from "@/lib/stripe";
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           await emitPurchased(
             { id: userId, email },
             courseSlug,
-            getCourse(courseSlug)?.title ?? courseSlug,
+            skuTitle(courseSlug),
             s.amount_total ?? null,
             s.currency ?? null,
           );
