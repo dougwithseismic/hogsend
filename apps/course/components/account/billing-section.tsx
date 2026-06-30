@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { listInvoices, listPurchases } from "@/lib/billing";
-import { getCourse } from "@/lib/courses";
+import { skuTitle } from "@/lib/courses";
 
 /** Money in minor units → display string. */
 function fmtAmount(amount: number | null, currency: string | null): string {
@@ -53,7 +53,7 @@ export async function BillingSection({ userId }: { userId: string }) {
           >
             <div>
               <p className="font-display text-sm tracking-[-0.02em]">
-                {getCourse(p.courseSlug)?.title ?? p.courseSlug}
+                {skuTitle(p.courseSlug)}
               </p>
               <p className="mt-0.5 text-white/50 text-xs">
                 {fmtDate(p.createdAt)}

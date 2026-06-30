@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { priceIdForCourse } from "@/lib/courses";
+import { ALL_ACCESS_SLUG, priceIdForCourse } from "@/lib/courses";
 import { env } from "@/lib/env";
 import { getStripe, paywallConfigured } from "@/lib/stripe";
 
@@ -23,7 +23,10 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const form = await req.formData();
   const course = String(form.get("course") ?? "");
-  const next = safePath(String(form.get("next") ?? ""), `/${course}`);
+  // All-access isn't a page, so its return path defaults to the account page;
+  // a course returns to its overview.
+  const fallback = course === ALL_ACCESS_SLUG ? "/account" : `/${course}`;
+  const next = safePath(String(form.get("next") ?? ""), fallback);
   // Build redirect URLs from the configured site URL, not the request Host
   // header — Stripe success/cancel must point at our own origin, untrusted-input-free.
   const base = env.BETTER_AUTH_URL.replace(/\/+$/, "");
