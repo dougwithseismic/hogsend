@@ -7,7 +7,7 @@ import { paywallConfigured } from "@/lib/stripe";
 
 /**
  * Entitlement layer for the one-time course paywall. The gate
- * (app/learn/[[...slug]]/page.tsx) reads `isCoursePaywalled` + `hasPurchased`;
+ * (app/learn/[[...slug]]/page.tsx) reads `isCoursePaywalled` + `hasAccess`;
  * the Stripe webhook writes via `recordPurchase` / `revokePurchase`. Access is
  * always DERIVED from the DB row keyed by the SESSION user id — never from a
  * query param.
@@ -24,26 +24,10 @@ export function allAccessConfigured(): boolean {
   return paywallConfigured() && Boolean(priceIdForCourse(ALL_ACCESS_SLUG));
 }
 
-/** Does this user hold a paid (non-refunded) entitlement for the course? */
-export async function hasPurchased(
-  userId: string,
-  courseSlug: string,
-): Promise<boolean> {
-  const rows = await db
-    .select({ status: purchase.status })
-    .from(purchase)
-    .where(
-      and(eq(purchase.userId, userId), eq(purchase.courseSlug, courseSlug)),
-    )
-    .limit(1);
-  return rows.length > 0 && rows[0].status === "paid";
-}
-
 /**
  * Does this user have access to a course — either by owning it directly OR by
  * holding the all-access bundle? Single round-trip (status filter + `inArray`
- * + limit(1)), so the gate stays one query. This is what the lesson gate uses;
- * `hasPurchased` stays for exact per-SKU ownership checks (e.g. upsell copy).
+ * + limit(1)), so the gate stays one query.
  */
 export async function hasAccess(
   userId: string,

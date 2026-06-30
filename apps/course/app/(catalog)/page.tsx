@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import type { JSX } from "react";
+import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
 import { Eyebrow, PillBadge } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
@@ -93,16 +94,11 @@ function AllAccessBanner({ view }: { view: AllAccessView }): JSX.Element {
               course unlocked
             </span>
           ) : view.configured ? (
-            <form method="post" action="/api/checkout">
-              <input type="hidden" name="course" value="all-access" />
-              <input type="hidden" name="next" value="/" />
-              <button
-                type="submit"
-                className="group inline-flex h-12 select-none items-center gap-2 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] text-base tracking-[-0.02em] transition-colors duration-200 hover:bg-white/90"
-              >
-                Get All-Access — {view.priceLabel}
-              </button>
-            </form>
+            <CheckoutButton
+              sku="all-access"
+              next="/"
+              label={`Get All-Access — ${view.priceLabel}`}
+            />
           ) : (
             <Button href="/pricing" variant="accent" icon>
               See pricing

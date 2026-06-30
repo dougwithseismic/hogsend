@@ -1,4 +1,5 @@
 import { Lock } from "lucide-react";
+import { ALL_ACCESS_SLUG } from "@/lib/courses";
 import { isCoursePaywalled } from "@/lib/entitlements";
 import { isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
@@ -10,7 +11,7 @@ type TreeNode = PageTreeRoot["children"][number];
 type FolderNode = Extract<TreeNode, { type: "folder" }>;
 type ItemNode = Extract<TreeNode, { type: "page" }>;
 
-function slugsFromUrl(url: string): string[] {
+export function slugsFromUrl(url: string): string[] {
   return url
     .replace(/^\/learn\//, "")
     .split("/")
@@ -97,28 +98,40 @@ export function getCourseModules(slug: string): CourseModule[] {
 
 const LOCK_ICON = <Lock className="size-3.5 text-white/40" aria-hidden />;
 
-function decorateNode(node: TreeNode): TreeNode {
-  if (node.type === "folder") {
-    return {
-      ...node,
-      index: node.index ? (decorateNode(node.index) as ItemNode) : node.index,
-      children: node.children.map(decorateNode),
-    };
-  }
-  if (node.type === "page") {
-    const slugs = slugsFromUrl(node.url);
-    const gated =
-      slugs.length >= 2 && !isFreeLesson(slugs) && isCoursePaywalled(slugs[0]);
-    return gated ? { ...node, icon: LOCK_ICON } : node;
-  }
-  return node;
-}
-
 /**
  * A CLONE of the page tree (never mutate the memoized one) with a lock icon on
- * every gated lesson — a non-first lesson of a paywalled course. Static
- * "premium" locks (no session read), so the reader layout stays cacheable.
+ * every lesson the viewer can't yet read — a non-first lesson of a paywalled
+ * course they don't own (directly or via all-access). `ownedSlugs` is the
+ * viewer's paid SKUs (empty for signed-out); the lesson reader is already
+ * per-request (force-dynamic), so resolving this against the session is free
+ * and means owners don't see padlocks on courses they've paid for.
  */
-export function decorateTree(tree: PageTreeRoot): PageTreeRoot {
-  return { ...tree, children: tree.children.map(decorateNode) };
+export function decorateTree(
+  tree: PageTreeRoot,
+  ownedSlugs: Set<string>,
+): PageTreeRoot {
+  const hasAllAccess = ownedSlugs.has(ALL_ACCESS_SLUG);
+
+  const decorate = (node: TreeNode): TreeNode => {
+    if (node.type === "folder") {
+      return {
+        ...node,
+        index: node.index ? (decorate(node.index) as ItemNode) : node.index,
+        children: node.children.map(decorate),
+      };
+    }
+    if (node.type === "page") {
+      const slugs = slugsFromUrl(node.url);
+      const course = slugs[0];
+      const gated =
+        slugs.length >= 2 &&
+        !isFreeLesson(slugs) &&
+        isCoursePaywalled(course) &&
+        !(hasAllAccess || ownedSlugs.has(course));
+      return gated ? { ...node, icon: LOCK_ICON } : node;
+    }
+    return node;
+  };
+
+  return { ...tree, children: tree.children.map(decorate) };
 }

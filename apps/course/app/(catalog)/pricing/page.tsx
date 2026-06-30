@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import type { Metadata } from "next";
 import type { JSX, ReactNode } from "react";
+import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
 import { Eyebrow, TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
@@ -102,16 +103,12 @@ function AllAccessCta({ view }: { view: AllAccessView }): JSX.Element {
   }
   if (view.configured) {
     return (
-      <form method="post" action="/api/checkout">
-        <input type="hidden" name="course" value="all-access" />
-        <input type="hidden" name="next" value="/account" />
-        <button
-          type="submit"
-          className="group inline-flex h-12 w-full select-none items-center justify-center gap-2 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] text-base tracking-[-0.02em] transition-colors duration-200 hover:bg-white/90"
-        >
-          Get All-Access — {view.priceLabel}
-        </button>
-      </form>
+      <CheckoutButton
+        sku="all-access"
+        next="/account"
+        label={`Get All-Access — ${view.priceLabel}`}
+        fullWidth
+      />
     );
   }
   return (

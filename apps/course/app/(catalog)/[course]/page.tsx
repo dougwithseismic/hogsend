@@ -4,14 +4,19 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { JSX } from "react";
+import { CheckoutButton } from "@/components/checkout-button";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
-import { getCourseModules } from "@/lib/course-ui";
+import { getCourseModules, slugsFromUrl } from "@/lib/course-ui";
 import { ALL_ACCESS, COURSES, type CourseMeta, getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { lessonProgress } from "@/lib/db/schema";
-import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
+import {
+  allAccessConfigured,
+  hasAccess,
+  isCoursePaywalled,
+} from "@/lib/entitlements";
 import { getSession, isFreeLesson } from "@/lib/gating";
 
 // Reads the session for owned/completed state, so it's per-request.
@@ -29,36 +34,6 @@ export async function generateMetadata(props: {
   const course = getCourse(slug);
   if (!course) return {};
   return { title: course.title, description: course.tagline };
-}
-
-const slugsFromUrl = (url: string): string[] =>
-  url
-    .replace(/^\/learn\//, "")
-    .split("/")
-    .filter(Boolean);
-
-/** Buy form (no client JS) for a single course — primary unlock CTA. */
-function BuyButton({
-  slug,
-  next,
-  priceLabel,
-}: {
-  slug: string;
-  next?: string;
-  priceLabel?: string;
-}): JSX.Element {
-  return (
-    <form method="post" action="/api/checkout">
-      <input type="hidden" name="course" value={slug} />
-      {next ? <input type="hidden" name="next" value={next} /> : null}
-      <button
-        type="submit"
-        className="group inline-flex h-12 select-none items-center gap-2 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] text-base tracking-[-0.02em] transition-colors duration-200 hover:bg-white/90"
-      >
-        {priceLabel ? `Unlock the course — ${priceLabel}` : "Unlock the course"}
-      </button>
-    </form>
-  );
 }
 
 function ComingSoonOverview({ course }: { course: CourseMeta }): JSX.Element {
@@ -139,8 +114,10 @@ export default async function CourseOverview(props: {
       );
     for (const r of rows) completed.add(r.lessonSlug);
   }
-  const done = completed.size;
   const total = allLessons.length;
+  // Clamp: stale lessonProgress rows (a lesson renamed/removed after it was
+  // completed) could otherwise push done past total → >100%.
+  const done = Math.min(completed.size, total);
   const pct = total ? Math.round((done / total) * 100) : 0;
   const nextLesson = allLessons.find((l) => !completed.has(l.slug)) ?? first;
   const locked = paywalled && !owned;
@@ -182,10 +159,14 @@ export default async function CourseOverview(props: {
           ) : null
         ) : (
           <>
-            <BuyButton
-              slug={slug}
+            <CheckoutButton
+              sku={slug}
               next={first?.url}
-              priceLabel={course.priceLabel}
+              label={
+                course.priceLabel
+                  ? `Unlock the course — ${course.priceLabel}`
+                  : "Unlock the course"
+              }
             />
             {first ? (
               <Button href={first.url} variant="outline" icon>
@@ -198,12 +179,17 @@ export default async function CourseOverview(props: {
 
       {locked ? (
         <p className="mt-4 text-sm text-white/50">
-          First lesson free · full course {course.priceLabel}. Or unlock every
-          course with{" "}
-          <Link href="/pricing" className="text-accent hover:underline">
-            All-Access — {ALL_ACCESS.priceLabel}
-          </Link>
-          .
+          First lesson free · full course {course.priceLabel}.
+          {allAccessConfigured() ? (
+            <>
+              {" "}
+              Or unlock every course with{" "}
+              <Link href="/pricing" className="text-accent hover:underline">
+                All-Access — {ALL_ACCESS.priceLabel}
+              </Link>
+              .
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -225,7 +211,9 @@ export default async function CourseOverview(props: {
       {/* Modules */}
       <div className="mt-14 flex flex-col gap-12">
         {modules.map((mod) => (
-          <section key={mod.name ?? "lessons"}>
+          // Key on the module's first lesson URL (globally unique) so duplicate
+          // separator labels can't collide; fall back to the name when empty.
+          <section key={mod.lessons[0]?.url ?? mod.name ?? "module"}>
             {mod.name ? <h2 className="kicker mb-1">{mod.name}</h2> : null}
             <ol className="flex flex-col">
               {mod.lessons.map((lesson) => {
