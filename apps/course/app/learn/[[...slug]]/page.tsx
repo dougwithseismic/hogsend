@@ -9,7 +9,9 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
+import { Paywall } from "@/components/auth/paywall";
 import { getMDXComponents } from "@/components/mdx";
+import { hasPurchased, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
 
@@ -40,6 +42,22 @@ export default async function Page(props: {
           title={page.data.title}
           description={page.data.description}
           lessonUrl={page.url}
+        />
+      );
+    }
+    // Signed in but, for a paywalled course, not yet purchased → the buy wall.
+    // Returned before the MDX body is read, so the body never leaks. Entitlement
+    // is derived from the session user id + DB, never from a query param.
+    if (
+      isCoursePaywalled(slugs[0]) &&
+      !(await hasPurchased(session.user.id, slugs[0]))
+    ) {
+      return (
+        <Paywall
+          course={slugs[0]}
+          lessonUrl={page.url}
+          title={page.data.title}
+          description={page.data.description}
         />
       );
     }

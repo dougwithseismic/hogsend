@@ -1,6 +1,7 @@
 import {
   boolean,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -122,5 +123,36 @@ export const lessonProgress = pgTable(
       t.lessonSlug,
     ),
     index("lesson_progress_user_course_idx").on(t.userId, t.courseSlug),
+  ],
+);
+
+/**
+ * A one-time course purchase (entitlement). One active grant per user × course.
+ * Written by the Stripe webhook (checkout.session.completed), read by the gate
+ * (hasPurchased). `status` flips to "refunded" on charge.refunded → access is
+ * revoked. The two unique indexes give: O(1) entitlement lookup, and webhook
+ * idempotency (a retried delivery for the same checkout session is a no-op).
+ */
+export const purchase = pgTable(
+  "purchase",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    courseSlug: text("course_slug").notNull(),
+    status: text("status").notNull().default("paid"), // paid | refunded
+    stripeCustomerId: text("stripe_customer_id"),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id"),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    amount: integer("amount"), // minor units, for records
+    currency: text("currency"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("purchase_user_course_uq").on(t.userId, t.courseSlug),
+    uniqueIndex("purchase_checkout_session_uq").on(t.stripeCheckoutSessionId),
   ],
 );
