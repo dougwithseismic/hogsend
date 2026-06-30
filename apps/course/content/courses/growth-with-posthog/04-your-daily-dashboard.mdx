@@ -1,36 +1,41 @@
 ---
 title: "Chapter 4 — What to look at every day"
-description: "The handful of charts a founder should read each morning, what each one is telling you, and how to stop logging in to check them."
+description: "The handful of charts a founder should read each morning, what each one is telling you, how to read a retention curve properly, and how to stop logging in to check them."
 ---
 
-> **In this chapter:** the PostHog insight types you'll actually use, a concrete daily
-> checklist with the meaning behind each chart, and how to automate the whole thing
-> with alerts and scheduled reports.
+> **In this chapter:** the PostHog insight types you'll actually use and how to read each,
+> a concrete daily checklist with the meaning behind every chart (and what to do when one
+> goes bad), how to read a retention curve like a growth team, how to automate the whole
+> thing with alerts, and the other ways teams stay on top of the numbers.
 
 ---
 
-## 4.1 The insight types, briefly
+## 4.1 The insight types, and how to read them
 
 PostHog has seven ways to look at your events. You'll lean on four. Know all seven so
-you reach for the right one:
+you reach for the right one — picking the wrong insight type is the most common reason a
+founder stares at a chart that can't answer their question.
 
 - **Trends** — a metric over time (counts, unique users, formulas), with breakdowns by
-  any property. The workhorse. "Signups per day, by channel."
+  any property. The workhorse. *Read it for direction and breakdown:* "signups per day,
+  by channel — which channel is growing?"
 - **Funnels** — step-by-step conversion. Shows the drop-off at each step and the time
-  to convert. *Click a step to see — or replay — the users who dropped.* This is where
-  you find leaks.
+  to convert. *Read it for the worst step:* the biggest drop is your biggest leak. Click
+  a step to see — or replay — the users who fell out.
 - **Retention** — a cohort grid: pick a start event ("signed up") and a return event
-  ("did the core action"). Each row is a cohort, each column a later period. This is
-  the leaky-bucket test made visual.
+  ("did the core action"). Each row is a cohort, each column a later period. *Read it for
+  the shape* (§4.3) — this is the leaky-bucket test made visual.
 - **Lifecycle** — splits your active users each period into **New**, **Returning**,
-  **Resurrecting**, and **Dormant**. Tells you whether growth is real or churn-and-
-  replace.
+  **Resurrecting**, and **Dormant**. *Read it for whether growth is real:* a big Dormant
+  band under modest New growth means churn-and-replace, not growth.
 - **Stickiness** — *how many times* users did something in a period (depth), as opposed
-  to retention's *whether they came back*.
-- **User Paths** — a flow diagram of how people move through the product; good for
-  discovering unexpected routes and dead ends.
+  to retention's *whether they came back*. *Read it to find your power users* and what
+  separates them.
+- **User Paths** — a flow diagram of how people move through the product. *Read it to
+  discover* unexpected routes and dead ends you didn't think to build a funnel for.
 - **SQL** — write SQL (HogQL) directly when the UI can't express your question.
-  PostHog's AI assistant can write these for you.
+  PostHog's AI assistant (Max) can write these for you, which makes SQL approachable even
+  if you don't know HogQL.
 
 The four you'll read daily are **Trends, Funnels, Retention, and Lifecycle.**
 
@@ -39,37 +44,44 @@ The four you'll read daily are **Trends, Funnels, Retention, and Lifecycle.**
 ## 4.2 The daily checklist
 
 You don't need to stare at twenty charts. You need a short, fixed list you read the
-same way every morning. Here it is, with what each one actually means.
+same way every morning. Here it is, with what each one means *and what to do when it
+looks wrong* — because a chart you don't act on is the "dashboard graveyard" failure mode
+from Chapter 0.
 
 ### 1. Active users (Trends — unique users on your core action)
 **The pulse.** If this is flat or falling week-over-week, nothing else matters yet.
 Watch the *trend*, not the absolute number — early on, direction is the signal.
+*If it's falling:* check the lifecycle chart (#6) — is it fewer New, or more Dormant?
 
 ### 2. New signups (Trends — count of `user_signed_up`, server-side)
 **Is acquisition working?** A useful number, but a vanity one on its own: a signup
 spike with no matching activation means you attracted the wrong people or overpromised.
 Always read it next to chart 3.
+*If it spikes but activation doesn't:* you bought the wrong traffic — check the channel
+breakdown.
 
 ### 3. Activation funnel (Funnel — `signup → your aha event`)
 **The most actionable chart you have.** The drop-off between steps shows you *exactly*
 where onboarding leaks. Click the worst step and pull the list of users who fell out —
 or jump straight to their session replays (chart 7) to see why.
+*If the drop is at one step:* that step is your week's work.
 
 ### 4. Signup conversion rate (Web Analytics goal, or a funnel)
 **Is the top of the funnel smooth?** Visitors → signup. A low number here points at
 friction on the landing page or in the signup flow itself.
+*If it's low:* watch replays of the landing page; it's usually copy or a form, not the
+product.
 
 ### 5. Weekly retention curve (Retention — start: signup; return: core action)
-**The single best product-market-fit signal.** Read the *shape*:
-- A curve that **decays toward zero** = a leaky bucket. Acquisition won't save you;
-  go work on activation and retention.
-- A curve that **flattens above zero** = some cohort sticks around forever. That's a
-  product with real pull, and a safe thing to pour traffic into.
+**The single best product-market-fit signal.** Read the *shape* (the full how-to is
+§4.3): a curve that decays to zero is a leaky bucket; one that flattens above zero is a
+product with real pull.
 
 ### 6. Lifecycle (Lifecycle insight on your core action)
 **Is your growth real?** A healthy chart shows New and Returning growing. A big red
 **Dormant** band underneath modest New growth means you're refilling a leaking bucket —
 the same users churning and being replaced. This is the leaky bucket, drawn for you.
+*If Dormant dominates:* stop thinking about acquisition; this is a Chapter 5–6 problem.
 
 ### 7. Session replays of drop-offs and errors
 **The "why" behind the numbers.** Filter replays to users who hit a funnel drop-off, a
@@ -77,8 +89,9 @@ rage-click, or an error, and watch a few. Five minutes of watching real people s
 will teach you more than an hour of staring at a chart.
 
 ### 8. Errors / exceptions (Error Tracking)
-**Production health.** New or spiking issues. Best piped to Slack (see §4.4) so you
-don't have to remember to look.
+**Production health.** New or spiking issues. Best piped to Slack (see §4.5) so you
+don't have to remember to look. *A spike in errors often explains a dip in activation —
+check this before blaming your onboarding copy.*
 
 ### 9. Paid conversion (free → paid %)
 **The strongest value signal there is.** People paying is the hardest proof that the
@@ -89,7 +102,34 @@ it's a two-minute glance.
 
 ---
 
-## 4.3 Build it as one dashboard
+## 4.3 How to read a retention curve (the one chart that matters most)
+
+Most founders glance at retention and move on. Read it properly and it answers your
+single most important strategic question — *am I in the "fix the bucket" or "open the
+tap" phase?* Three things to look at:
+
+- **The shape, not the height.** Three archetypes: a curve that **slides to zero** (no
+  PMF — every cohort eventually leaves), a curve that **declines then flattens** (the
+  "smile" or plateau — some cohort sticks forever, the sign of real product-market fit),
+  and the rare **smiling curve that ticks back up** (resurrection exceeds churn — usually
+  a network-effect or content product). You want, at minimum, a flattening above zero.
+- **Where it flattens.** A curve flattening at 40% means four in ten users become
+  permanent; flattening at 5% means you have a trickle. The flattening *level* is roughly
+  your ceiling without intervention — and lifecycle messaging (Chapter 5) is how you lift
+  it.
+- **Cohort over cohort.** Are *newer* cohorts retaining better than older ones? That's
+  the real signal your product changes are working — each week's improvements should show
+  up as a higher curve for the cohorts that joined after them. PostHog's cohort grid lets
+  you compare rows directly.
+
+A practical benchmark, held loosely: for many B2B SaaS products a flattening D30 in the
+*tens of percent* is healthy; consumer social needs higher; e-commerce thinks in repeat-
+purchase rate instead. *(Benchmarks vary wildly by category — directional. Your own
+cohort-over-cohort trend is a better guide than anyone's benchmark.)*
+
+---
+
+## 4.4 Build it as one dashboard
 
 Don't navigate to nine insights every day. Save each as an insight, add them to a
 single **dashboard**, and **pin that dashboard to your project homepage** so it's the
@@ -102,9 +142,13 @@ first thing you see when you log in.
 - PostHog ships dashboard templates (web metrics, product health) you can start from
   instead of building blank.
 
+This dashboard is a growth team's shared artifact. When everyone opens the same board and
+reads the same nine charts the same way, "how are we doing" stops being a meeting and
+becomes a glance. That's the operating model from Chapter 0 made concrete.
+
 ---
 
-## 4.4 Stop logging in: alerts and subscriptions
+## 4.5 Stop logging in: alerts and subscriptions
 
 The goal is not to *remember* to check these. The goal is for the important ones to
 come to you, and for you to only open PostHog when something's worth investigating.
@@ -126,7 +170,40 @@ fires. The next chapter is about that second loop.
 
 ---
 
-## 4.5 A note on reading numbers honestly
+## 4.6 Other ways teams stay on top of the numbers
+
+The pinned dashboard plus alerts is the default. Some alternatives and when they fit:
+
+- **The weekly metrics email/Slack post.** A human (or a subscription) posts the five
+  headline numbers with one line of commentary every Monday. Lower-tech than a dashboard,
+  higher-signal for a team — the commentary forces interpretation, not just observation.
+- **Warehouse BI (Metabase, Looker, Lightdash).** If you've outgrown PostHog's insights
+  or need to join heavy financial data, a BI tool on your warehouse is more flexible.
+  It's also more setup and another tool to maintain — reach for it when PostHog genuinely
+  can't express the question, not before.
+- **PostHog's home + "Max" AI.** You can ask Max a plain-language question ("what's our
+  D7 retention this month vs last?") instead of building an insight. Good for ad-hoc
+  questions that don't deserve a permanent tile.
+
+The anti-pattern to avoid: **dashboard sprawl.** A team with forty dashboards has none —
+nobody knows which is canonical. One pinned board everyone reads beats a wall of charts
+nobody trusts.
+
+### For your kind of startup
+
+- **Marketplace** — your daily pulse is *liquidity*: track both sides (supply added,
+  demand served) and the match/transaction rate between them. A healthy one side and a
+  starved other is the failure mode.
+- **Consumer app** — DAU/MAU stickiness and the retention curve are the whole game; paid
+  conversion may not even apply.
+- **E-commerce** — repeat-purchase rate and time-between-orders replace "retention curve";
+  the activation chart becomes first → second purchase.
+- **Dev tool** — the activation funnel (docs → first successful call) is your #1 chart;
+  signups without a first call are noise.
+
+---
+
+## 4.7 A note on reading numbers honestly
 
 Two failure modes to avoid as you build the habit:
 
@@ -134,16 +211,18 @@ Two failure modes to avoid as you build the habit:
   good and move easily. Anchor on the metrics that reflect *value delivered* —
   activation, retention, paid conversion — and treat the vanity numbers as context.
 - **Reacting to noise.** Day-to-day numbers bounce. Look at trends over weeks before
-  concluding something changed. An alert is for "investigate," not "panic."
+  concluding something changed. An alert is for "investigate," not "panic." A single bad
+  day is weather; a two-week trend is climate.
 
 ---
 
-## 4.6 Do this now
+## 4.8 Do this now
 
 1. Create the nine insights from §4.2.
 2. Add them to one dashboard; pin it to your homepage; put your North Star on top.
 3. Set alerts on signups, activation, and errors → Slack.
 4. Schedule a weekly subscription of the dashboard to yourself/your team.
+5. Read your **retention curve** with §4.3 in hand and say out loud which phase you're in.
 
 You can now *see* your funnel and your leaks. The rest of the course is about acting on
 them — first by keeping the users you have, then by going to get more.

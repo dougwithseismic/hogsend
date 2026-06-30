@@ -1,6 +1,7 @@
 {
   "title": "Measure, Keep, and Grow",
   "pages": [
+    "00-product-led-growth",
     "01-what-is-posthog",
     "02-aarrr-and-the-leaky-bucket",
     "03-instrument-posthog",

@@ -1,17 +1,20 @@
 ---
 title: "Chapter 8 — The owned-audience flywheel"
-description: "Turn ad clicks and visitors into verified emails and linked Discord/Telegram accounts — an audience you own, can reach for free, and can build a referral loop on."
+description: "Turn ad clicks and visitors into verified emails and linked Discord/Telegram accounts — an audience you own, can reach for free, and can build a referral loop on. Plus the tools you'd otherwise rent."
 ---
 
 > **In this chapter:** why an owned channel beats a rented ad audience, the
 > "link-your-account-for-a-perk" mechanic that captures identity, how email
-> verification and Discord/Telegram linking build an identity graph, and how that graph
-> makes referral loops actually work. Code mirrors Hogsend's real connectors.
+> verification and Discord/Telegram linking build an identity graph, how that graph
+> makes referral loops actually work, and the off-the-shelf tools you could use instead.
+> Code mirrors Hogsend's real connectors.
 
 This is the chapter that answers the original question: *how does a lifecycle tool start
 driving traffic?* The answer is that lifecycle and acquisition meet at **identity** —
 the more channels a person links, the cheaper they are to reach, the better your ads
-perform, and the more your referrals compound.
+perform, and the more your referrals compound. It's also the chapter where the growth
+loop from Chapter 2 finally beats the funnel: an owned audience is an *input* to the next
+turn, not just an output of this one.
 
 ---
 
@@ -37,8 +40,11 @@ and it's the load-bearing argument of this chapter: *a one-time ad spend that ca
 someone into an owned channel converts a rented impression into a reusable asset.* You
 pay once to acquire the contact, then reach them as often as you like for free.
 
-This is why a lifecycle tool is the natural place for acquisition to *land*. Ads bring
-people; lifecycle keeps them; the bridge between the two is the moment you capture their
+This reframes what an ad is *for*. A click that bounces is money spent and gone. A click
+that ends in a verified email or a linked Discord is money spent on an asset you keep —
+the same dollar, but one version evaporates and the other compounds. This is why a
+lifecycle tool is the natural place for acquisition to *land*: ads bring people,
+lifecycle keeps them, and the bridge between the two is the moment you capture their
 identity into a channel you own.
 
 ---
@@ -65,7 +71,9 @@ worth modelling:
   and several tools market it openly as list-building.
 
 The reward should map to your product's value and live *in the owned channel* where
-possible, so claiming it deepens the relationship rather than ending it.
+possible, so claiming it deepens the relationship rather than ending it. A perk the user
+collects and walks away from buys you one email; a perk they collect *inside* your
+community pulls them one step further in.
 
 ---
 
@@ -79,7 +87,8 @@ you can build on.
 The important design principle — and the one that makes the captured email *trustworthy*
 — is that **the typed address is never trusted until the email is clicked.** The
 delivered-and-clicked email *is* the proof. That's what makes the resulting email both
-real and consented (which matters for Chapter 7's ad uploads).
+real and consented (which matters for Chapter 7's ad uploads — an unverified typed
+address is worthless as a custom-audience input and possibly unlawful to upload).
 
 Once `discord.linked` fires, a journey welcomes them and grants the role:
 
@@ -128,7 +137,9 @@ community engagement, which both rewards members and densifies the graph. Hogsen
 real Discord journeys do exactly this: grant a "Hello world" role on a first message, a
 "Resonator" role when a member's post gets reactions from five different people, a "Hype
 hog" role for reacting to five different people's posts. Each engagement is an event;
-each role is a `grantRole` action; each is another edge in the identity graph.
+each role is a `grantRole` action; each is another edge in the identity graph. This is
+the same behavioural-journey machinery from Chapter 6 — the only new thing is that the
+*channel* is Discord instead of email, and the trigger is a reaction instead of a signup.
 
 ---
 
@@ -184,7 +195,7 @@ export const telegramLinkRequest = defineJourney({
 Clicking the link binds `telegram ↔ email` and stitches the analytics identity from the
 client (so you get the real geo/IP). Referrals on Telegram ride the same deep-link
 mechanism: a unique `t.me/<bot>?start=<referrerId>` link lets the bot record who brought
-whom.
+whom — which is the attribution primitive the referral loop (§8.6) is built on.
 
 ---
 
@@ -204,7 +215,7 @@ devices, sessions, and channels. The payoffs stack:
   works on data *you own*, independent of cookies.
 - **Channel choice on reactivation.** A lapsed user isn't reachable only by an ad you
   must re-buy — you can email them, ping them in Discord, or DM them on Telegram. The
-  denser the graph, the more ways back in.
+  denser the graph, the more ways back in, and the lower your cost to re-reach anyone.
 - **Better ads, legally.** Those verified, consented emails are exactly the high-EMQ
   custom-audience and lookalike-seed inputs from Chapter 7. The graph you build here is
   the fuel the ad machine there runs on.
@@ -212,7 +223,10 @@ devices, sessions, and channels. The payoffs stack:
 Hogsend builds this graph on its **own** identity model (it stitches email ↔ channel ↔
 anonymous), and its connectors emit the engagement events — `discord.linked`,
 `reaction_added`, `member.joined`, `link.clicked` — that both trigger journeys *and* add
-edges. The graph is the hub of the flywheel; every channel you link spins it faster.
+edges. The graph is the hub of the flywheel; every channel you link spins it faster. And
+because it's *yours* — not a rented list inside someone else's platform — it's the
+compounding asset a growth team is actually building over time. Features come and go;
+the identity graph only gets denser.
 
 ---
 
@@ -266,9 +280,68 @@ Hogsend ships a referral v1 on exactly this shape: `visited → converted → cr
 journeys plus a Discord role granted at a milestone — all on its own identity graph, no
 cookies required.
 
+### Build vs buy: the referral tooling landscape
+
+You don't have to build referral attribution from scratch, and a growth team should know
+the off-the-shelf options:
+
+- **Rewardful / GrowSurf / Referral Rock / Viral Loops** — hosted referral SaaS, fast to
+  stand up, with dashboards and reward logic out of the box. **Buy when** you want a
+  program live this week and a simple link-based attribution is enough.
+- **PartnerStack / FirstPromoter** — affiliate/partner-program flavoured, for paid
+  referrers and influencers rather than user-to-user.
+- **Build it on your own graph (Hogsend's approach)** — **worth it when** cross-device
+  and cross-channel attribution matters, when the reward lives in your product or
+  community (a role, credits, access), and when you want anti-fraud tied to real verified
+  identity. The hosted tools mostly rely on cookies/links and can't resolve the
+  phone-click → laptop-signup gap; your graph can.
+
+The honest split: a hosted tool is the right first move for a simple cash/credit referral
+on a single channel. The owned-graph build wins precisely when referrals are
+cross-device, community-rewarded, or fraud-prone — which is most of the interesting cases
+for the products this course is written for.
+
 ---
 
-## 8.7 The full funnel, assembled
+## 8.7 Other ways to own an audience
+
+Discord/Telegram-on-your-own-infra is this course's emphasis because it builds the graph
+you own outright. But "owned audience" is a spectrum, and the alternatives are worth
+naming:
+
+- **Newsletter platforms (beehiiv, ConvertKit, Substack).** A hosted email list is a
+  genuinely owned audience in the sense that matters most — you can export it and reach it
+  without an algorithm. beehiiv even has a built-in referral program. **Use one when**
+  email is your whole channel and you don't need the behavioural-journey or identity-graph
+  depth. The trade-off: your list and its data live in their platform, and you don't get
+  the cross-channel graph.
+- **Community platforms (Circle, Slack, Discord, Geneva).** Circle and Slack are
+  higher-polish, more B2B-feeling; Discord is the default for consumer/gaming/web3 and the
+  one with the richest bot ecosystem for the link-for-perk mechanic. Choose by where your
+  audience already is.
+- **The fully-hosted CRM/audience suites (HubSpot, Customer.io audiences).** Convenient,
+  and they own the data model. Fine if you've decided to rent the infrastructure.
+
+The principle that ranks them: **the more of the identity graph you own outright, the more
+the audience compounds and the less you're exposed to a platform's pricing or policy
+changes.** A hosted newsletter is a fine, real owned audience; an identity graph on your
+own infrastructure is the maximal version. Pick the rung that matches how central owned
+growth is to your business.
+
+### For your kind of startup
+
+- **Consumer / gaming / web3** — Discord is the owned channel; the link-for-a-role
+  mechanic is both activation and acquisition. This is your main chapter.
+- **Dev tool** — a mix: a high-quality newsletter (changelog/deep-dives) plus a Discord
+  or Slack for support and community. The docs-to-Discord path is your loop.
+- **B2B SaaS** — email list + maybe a Slack community for customers; referrals are often
+  partner/affiliate-shaped (PartnerStack territory) rather than viral.
+- **E-commerce** — email + SMS list is the owned audience; post-purchase referral
+  (give-get discount) is the canonical loop, and a hosted tool is usually enough.
+
+---
+
+## 8.8 The full funnel, assembled
 
 Putting Chapters 7 and 8 together, this is the complete path — and every stage captures
 an identity edge:
@@ -291,11 +364,12 @@ The feedback loops that make it a flywheel rather than a funnel:
 - Referrals → **growth that lowers blended CAC over time** (this chapter).
 
 The identity graph sits at the hub. Every turn of the loop adds edges, and every edge
-makes the next turn cheaper.
+makes the next turn cheaper. That's the difference between a funnel you keep refilling and
+a loop that compounds — the growth-loop idea from Chapter 2, finally built.
 
 ---
 
-## 8.8 Do this now
+## 8.9 Do this now
 
 1. Pick the **perk** that's worth linking for (a role, access, credits, a whitelist).
 2. Stand up the **Discord and/or Telegram connector** and the `/link` email-verify flow.

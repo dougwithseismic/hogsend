@@ -1,11 +1,12 @@
 ---
 title: "Chapter 9 — Putting it all together"
-description: "The whole machine on one page, a 30/60/90-day plan to build it in the right order, and the cadence that keeps it running."
+description: "The whole machine on one page, a 30/60/90-day plan to build it in the right order, the cadence that keeps it running, and what it means to have become a growth team."
 ---
 
 > **In this chapter:** the end-to-end system as a single loop, a sequenced build plan so
-> you never work on the wrong thing, and the daily/weekly/monthly rhythm that turns it
-> from a project into an operation.
+> you never work on the wrong thing, the daily/weekly/monthly rhythm that turns it from a
+> project into an operation, and a return to the question the course opened with — what it
+> takes to run your startup as a product-led growth team.
 
 ---
 
@@ -44,7 +45,8 @@ an event.**
 
 The reason the order is *measure → keep → grow* and not the reverse is the leaky bucket
 (Chapter 2). Acquisition is the last lever because it's the one that wastes the most
-money when the bucket leaks and pays back the most when it doesn't.
+money when the bucket leaks and pays back the most when it doesn't. That single ordering
+decision, agreed by the team back in Chapter 0, is the most valuable thing in the course.
 
 ---
 
@@ -54,11 +56,11 @@ A quick reference for the division of labour the course is built on:
 
 | Job | Tool | Chapters |
 |---|---|---|
+| Decide what to measure (AARRR, North Star) and own the order | You | 0, 2 |
 | Collect events, identify people | PostHog | 1, 3 |
 | See the funnel, retention, leaks | PostHog | 2, 4 |
-| Decide what to measure (AARRR, North Star) | You | 2 |
 | Run lifecycle journeys (email, Discord, Telegram) | Hogsend | 5, 6, 8 |
-| Drive paid traffic | Meta ads | 7 |
+| Drive paid traffic | Meta ads (or the right channel) | 7 |
 | Track conversions accurately | Pixel + CAPI, via PostHog | 7 |
 | Capture & link identity, referrals | Hogsend connectors | 8 |
 
@@ -72,6 +74,12 @@ stays simple no matter how much you add.
 Build it in this order. Each phase depends on the one before — resist the urge to jump
 ahead to ads.
 
+### Day 0: Commit (Chapter 0)
+
+Before any code: name the **growth owner**, write down what "**activated**" means for
+your product in one sentence, and get the team to agree the order — **retention before
+acquisition**. Five minutes; it prevents the most expensive mistake in the course.
+
 ### Days 1–30: Measure
 
 Goal: **see the truth about your funnel.**
@@ -80,12 +88,13 @@ Goal: **see the truth about your funnel.**
 - [ ] `posthog-js` installed with `identified_only`; `identify` at login, `reset` at
       logout (Ch 3).
 - [ ] The starter event kit firing — **signup, subscription, payment server-side** (Ch 3).
+- [ ] A **tracking plan** written down — even ten rows in a shared doc (Ch 3).
 - [ ] Your **one activation event** defined and confirmed firing (Ch 2–3).
 - [ ] Managed reverse proxy set up (Ch 3).
 - [ ] The **daily dashboard** built and pinned; North Star on top; alerts → Slack (Ch 4).
 
 Exit criteria: you can read your **activation funnel** and **retention curve** and say
-out loud where you're losing people.
+out loud where you're losing people, and which phase you're in (Ch 4, §4.3).
 
 ### Days 31–60: Keep
 
@@ -105,8 +114,10 @@ journeys are lifting activation/retention. The bucket holds water.
 
 Goal: **open the tap, and make every drop land in an audience you own.**
 
-- [ ] Meta Pixel installed; **PostHog → Meta Ads** destination with the same Pixel ID,
-      conversion events only, EMQ ≥ 6 (Ch 7).
+- [ ] Confirm paid is even your channel (Ch 7, §7.3); for dev tools/community, weight to
+      content + Chapter 8 instead.
+- [ ] If running paid: Meta Pixel installed; **PostHog → Meta Ads** destination with the
+      same Pixel ID, conversion events only, EMQ ≥ 6 (Ch 7).
 - [ ] One campaign live, optimising the deepest event you can feed ~50/week (Ch 7).
 - [ ] Opt-in **consent** captured at email collection (Ch 7).
 - [ ] Discord and/or Telegram connector + **`/link` email-verify** flow (Ch 8).
@@ -121,7 +132,8 @@ being captured into channels you own and a referral loop that compounds.
 
 ## 9.4 The operating cadence
 
-Once it's built, it runs on a rhythm, not on heroics:
+Once it's built, it runs on a rhythm, not on heroics. This is the ritual that makes you a
+growth *team* rather than a team that did a growth project once (Chapter 0):
 
 **Daily (2 minutes):** read the Slack alerts. Open the dashboard only if one fired.
 Glance at the activation funnel and active-users trend.
@@ -139,6 +151,9 @@ Glance at the activation funnel and active-users trend.
 - Review blended CAC and the referral loop's contribution. Is growth getting cheaper?
 - Prune: kill journeys with no lift, events no one queries, ad sets that don't convert.
 
+The cadence is the point. A growth system that's checked on a rhythm survives a busy
+quarter; one that depends on someone remembering to look does not.
+
 ---
 
 ## 9.5 The mistakes to not make
@@ -151,6 +166,8 @@ A short list, each tied to where the course warned you:
   correlation-then-experiment method. The famous numbers are rally cries.
 - **Building event names dynamically** (Ch 3). One ruined analytics setup. One fixed
   event, variables in properties.
+- **Installing analytics and never looking** (Ch 0, Ch 4). The dashboard graveyard.
+  Measurement without a ritual and without action is theatre.
 - **Trusting the Pixel alone** (Ch 7). It under-counts by a third or more. Pixel *and*
   CAPI, deduped, fed from where you have identity.
 - **Treating server-side as a consent loophole** (Ch 7). It isn't. Hashed email is
@@ -161,7 +178,35 @@ A short list, each tied to where the course warned you:
 
 ---
 
-## 9.6 Where to go next
+## 9.6 You're a growth team now
+
+Come back to where the course started. The tools were never the hard part — you could
+install PostHog, Hogsend, and a pixel in an afternoon. The thing that actually changed,
+if you did the work, is how your team *operates*:
+
+- You **measure honestly** — decisions cite the funnel, not the loudest opinion, and
+  "activated" means a specific event, not a vibe.
+- You **act automatically** — the messages that pull users back to value are journeys in
+  your repo, triggered by behaviour, code-reviewed like the rest of the product, and
+  proven with holdouts.
+- You **own your audience** — every dollar of acquisition lands in a channel you can reach
+  again for free, on an identity graph that only gets denser.
+
+That's the whole definition of a product-led growth team from Chapter 0, and you'll
+notice none of it required a growth department. It required one owner, one loop, and a
+rhythm. A founder who can read a retention curve and ship a journey *is* the growth team —
+and the system you've built is what lets a team that small operate like one many times its
+size.
+
+It also doesn't matter what your startup is. The tactics flexed by type all the way
+through — activation means a first match for a marketplace, a first deploy for a dev tool,
+a second purchase for e-commerce, a linked Discord for a community — but the operating
+model never changed: instrument, measure, act, own, repeat. That portability is the whole
+point. Growth stops being a thing you hope works and becomes a system you run.
+
+---
+
+## 9.7 Where to go next
 
 This course is the spine. Each chapter has primary sources at its foot for going deeper.
 Within this repo, the documents that extend it:
@@ -172,5 +217,5 @@ Within this repo, the documents that extend it:
 - **`CLAUDE.md`** — the full engine architecture and journey API.
 
 The machine is simple to state and a real amount of work to build: **measure honestly,
-keep the users you earn, then grow into an audience you own.** Do it in that order and
-every dollar of traffic lands in a bucket that holds water.
+keep the users you earn, then grow into an audience you own.** Do it in that order, run it
+on a rhythm, and every dollar of traffic lands in a bucket that holds water.
