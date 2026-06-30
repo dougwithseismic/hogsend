@@ -17,7 +17,7 @@ export default function LearnLayout({ children }: { children: ReactNode }) {
         tree={decorateTree(source.getPageTree())}
         {...baseOptions()}
         themeSwitch={{ enabled: false }}
-        sidebar={{ banner: <SidebarCourseBanner /> }}
+        sidebar={{ banner: <SidebarCourseBanner key="course-banner" /> }}
         containerProps={{
           style: { "--fd-banner-height": "5rem" } as CSSProperties,
         }}
