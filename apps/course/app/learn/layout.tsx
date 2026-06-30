@@ -1,6 +1,8 @@
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import type { CSSProperties, ReactNode } from "react";
+import { SidebarCourseBanner } from "@/components/sidebar-course-banner";
 import { SiteNav } from "@/components/site-nav";
+import { decorateTree } from "@/lib/course-ui";
 import { baseOptions } from "@/lib/layout.shared";
 import { source } from "@/lib/source";
 
@@ -12,9 +14,10 @@ export default function LearnLayout({ children }: { children: ReactNode }) {
           sidebar + mobile subnav so nothing renders under the nav. */}
       <SiteNav />
       <DocsLayout
-        tree={source.getPageTree()}
+        tree={decorateTree(source.getPageTree())}
         {...baseOptions()}
         themeSwitch={{ enabled: false }}
+        sidebar={{ banner: <SidebarCourseBanner /> }}
         containerProps={{
           style: { "--fd-banner-height": "5rem" } as CSSProperties,
         }}

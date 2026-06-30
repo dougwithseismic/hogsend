@@ -19,6 +19,11 @@ export function isCoursePaywalled(courseSlug: string): boolean {
   return paywallConfigured() && Boolean(priceIdForCourse(courseSlug));
 }
 
+/** Is the all-access bundle actually for sale (Stripe on + a price mapped)? */
+export function allAccessConfigured(): boolean {
+  return paywallConfigured() && Boolean(priceIdForCourse(ALL_ACCESS_SLUG));
+}
+
 /** Does this user hold a paid (non-refunded) entitlement for the course? */
 export async function hasPurchased(
   userId: string,

@@ -1,10 +1,9 @@
 /**
  * Course catalog metadata. Lesson titles/descriptions come from each lesson's
  * MDX frontmatter (read via lib/source); this holds only course-LEVEL info that
- * isn't derivable from the lessons.
+ * isn't derivable from the lessons. Pure data — no Stripe/DB imports — so it's
+ * safe to import from client components (e.g. the sidebar course banner).
  */
-
-import { paywallConfigured } from "@/lib/stripe";
 
 /**
  * Reserved SKU for the one-time, lifetime all-access bundle. It is NOT a real
@@ -110,9 +109,4 @@ const PRICE_ENV_BY_SLUG: Record<string, string> = {
 export function priceIdForCourse(slug: string): string | undefined {
   const key = PRICE_ENV_BY_SLUG[slug];
   return key ? process.env[key] : undefined;
-}
-
-/** Is the all-access bundle actually for sale (Stripe on + a price mapped)? */
-export function allAccessConfigured(): boolean {
-  return paywallConfigured() && Boolean(priceIdForCourse(ALL_ACCESS_SLUG));
 }

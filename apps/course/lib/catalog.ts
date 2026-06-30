@@ -1,13 +1,12 @@
 import { count, eq } from "drizzle-orm";
-import {
-  ALL_ACCESS,
-  ALL_ACCESS_SLUG,
-  allAccessConfigured,
-  COURSES,
-} from "@/lib/courses";
+import { ALL_ACCESS, ALL_ACCESS_SLUG, COURSES } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { lessonProgress } from "@/lib/db/schema";
-import { isCoursePaywalled, listOwnedSlugs } from "@/lib/entitlements";
+import {
+  allAccessConfigured,
+  isCoursePaywalled,
+  listOwnedSlugs,
+} from "@/lib/entitlements";
 import { source } from "@/lib/source";
 
 /**
