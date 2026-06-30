@@ -52,10 +52,15 @@ export default async function CourseOverview(props: {
       </p>
 
       {first ? (
-        <div className="mt-8">
+        <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-2">
           <Button href={first.url} variant="accent" icon>
             Start the course
           </Button>
+          {course.priceLabel ? (
+            <span className="text-sm text-white/50">
+              First lesson free · full course {course.priceLabel}
+            </span>
+          ) : null}
         </div>
       ) : null}
 

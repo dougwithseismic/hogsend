@@ -89,3 +89,28 @@ export async function emitCompleted(
     `course-completed-${user.id}-${courseSlug}`,
   );
 }
+
+export async function emitPurchased(
+  user: AuthUser,
+  courseSlug: string,
+  courseTitle: string,
+  amount?: number | null,
+  currency?: string | null,
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.purchased",
+      email: user.email,
+      contactProperties: { courseUserId: user.id },
+      eventProperties: {
+        source: SOURCE,
+        course: courseSlug,
+        courseTitle,
+        ...(typeof amount === "number" ? { amount } : {}),
+        ...(currency ? { currency } : {}),
+      },
+    },
+    `course-purchased-${user.id}-${courseSlug}`,
+  );
+}
