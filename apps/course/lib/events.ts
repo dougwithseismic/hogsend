@@ -114,3 +114,16 @@ export async function emitPurchased(
     `course-purchased-${user.id}-${courseSlug}`,
   );
 }
+
+export async function emitAccountDeleted(user: AuthUser): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.account_deleted",
+      email: user.email,
+      contactProperties: { courseUserId: user.id },
+      eventProperties: { source: SOURCE },
+    },
+    `course-account-deleted-${user.id}`,
+  );
+}
