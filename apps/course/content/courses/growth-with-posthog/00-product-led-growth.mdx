@@ -1,0 +1,244 @@
+---
+title: "Start here — Becoming a product-led growth team"
+description: "What product-led growth actually means, why it's an operating model any startup can adopt, and the map of the system the rest of this course builds."
+---
+
+> **In this chapter:** what product-led growth means in practice, why it's a way of
+> *operating* rather than a tactic you bolt on, how it applies to any startup (not just
+> self-serve SaaS), the four ways teams get it wrong, and the map of the machine the rest
+> of the course builds. No setup yet — this is the mindset the tools serve.
+
+---
+
+## 0.1 The shift this course is really about
+
+The tools in this course — PostHog, Hogsend, a Meta pixel — are the easy part. You can
+install all three in an afternoon. The hard part, and the thing that actually moves the
+business, is a change in how you *operate*: you stop treating growth as a thing the
+marketing person does over there, and you start treating it as a system your whole team
+builds, measures, and improves — the same way you build, measure, and improve the
+product itself.
+
+That is what "product-led growth team" means in this course. Not a job title, not a
+department, not a SaaS category you have to belong to. It's a way of running a startup
+where **the product and its usage data are the engine of growth**, and where growth is an
+engineering discipline — instrumented, measured, iterated — rather than a budget you hand
+to an agency and hope.
+
+The rest of the course is the concrete version of that idea: measure honestly (Chapters
+1–4), keep the users you earn (Chapters 5–6), then grow into an audience you own
+(Chapters 7–8). This chapter is the *why* underneath all of it.
+
+---
+
+## 0.2 What "product-led growth" actually means
+
+The term was popularised around 2016 by the VC firm OpenView (Blake Bartlett gets the
+credit for the label). The strict definition: **the product itself is the primary driver
+of acquisition, activation, retention, and expansion** — people find it, try it, get
+value, and upgrade largely on their own, without a salesperson in the loop. Slack, Figma,
+Notion, Calendly, Zoom, Dropbox are the textbook cases: a free or low-friction entry, a
+fast "aha", and expansion that happens bottom-up as more of a team adopts it.
+
+Set against it are the other go-to-market motions:
+
+- **Sales-led** — a rep drives the deal; the product is demoed, not self-served. Normal
+  for high-price, complex B2B.
+- **Marketing-led** — demand-gen and content fill a pipeline that humans then convert.
+- **Hybrid** — most real companies. A self-serve bottom that feeds a sales-assisted top
+  (this is what Slack and Figma actually became at scale).
+
+Here's the honest part, because this course won't sell you a religion: **not every
+business should be purely product-led.** If you sell a $100k platform to banks, a
+self-serve free tier is not your growth engine, and pretending otherwise is a mistake.
+PLG-as-a-go-to-market is a *choice* that depends on your price, your buyer, and your
+product's time-to-value.
+
+But there is a second, broader thing the same words can mean — and it's the one this
+course is built on.
+
+---
+
+## 0.3 Product-led as an operating model (this is the universal part)
+
+Strip away the SaaS specifics and "product-led" describes a *way of working* that applies
+to almost any startup, **whatever it is**:
+
+> You instrument what users do, you read those signals honestly, you form hypotheses
+> about where you're losing people, you ship changes — in the product *and* in how you
+> message users — and you measure whether the change actually moved the metric. Then you
+> do it again.
+
+That loop doesn't care whether you're self-serve or sales-assisted. A marketplace, a
+consumer app, a dev tool, a Discord-native game, an e-commerce brand, even a productised
+service — all of them have users doing measurable things and a relationship that can be
+deepened. All of them can be run by a team that treats growth as a measurable system
+instead of a vibe.
+
+So when this course says "treat your startup as a product-led growth team," it means:
+adopt the *operating model* — the instrumentation, the honesty about metrics, the
+build-measure-learn loop, the ownership — even if your go-to-market is hybrid or
+sales-assisted. You don't have to be a PLG *company* to work like a PLG *team*.
+
+| Your startup is… | The product-led move that still applies |
+|---|---|
+| A self-serve SaaS | The classic case — free entry, fast aha, bottom-up expansion |
+| A marketplace | Instrument both sides; activation = first successful match/transaction |
+| A consumer app | Retention *is* the business; lifecycle messaging is the whole game |
+| A dev tool | Content + community + a product that proves itself; paid ads are weak (Ch 7) |
+| A community / web3 game | Identity-linking for perks *is* your activation and your moat (Ch 8) |
+| E-commerce | Behavioural flows (cart, browse, post-purchase) over batch blasts (Ch 5) |
+| A productised service | Even here: measure where leads stall, automate the follow-up, own the list |
+
+The tactics shift by type; the operating model doesn't.
+
+---
+
+## 0.4 Growth is an engineering discipline, not a department
+
+The single biggest mindset change is this: **growth work looks like engineering work.**
+
+A growth team doesn't "do marketing." It runs experiments. The unit of work is a
+hypothesis — *"if we email users who haven't created a project within 48 hours, more of
+them will activate"* — and the deliverable is a measured result: it lifted activation by
+N points, or it didn't, and you keep or kill it on the evidence. That is the same loop as
+shipping a feature behind a flag and reading the metric.
+
+Three consequences follow, and they shape everything later in the course:
+
+- **Every feature ships with instrumentation.** If you can't see whether people use it,
+  you didn't finish it. Events are part of "done" (Chapter 3).
+- **Decisions cite the funnel, not opinions.** "I think users are confused" becomes "37%
+  drop between signup and first project; here are five session replays of it happening"
+  (Chapter 4). The funnel is the shared source of truth.
+- **The messaging layer is code, owned by the people who build.** The emails and Discord
+  pings that pull users back to value are journeys in your repo, version-controlled and
+  code-reviewed — not a config someone edits in a SaaS UI that no engineer ever sees
+  (Chapters 5–6). This is the specific reason the course pairs PostHog with Hogsend.
+
+This is also why a tiny team has an *advantage* here. You don't need a growth department.
+You need one loop, instrumented well, run by people who can change both the product and
+the messaging. A founder who can read a retention curve and ship a journey is the whole
+growth team — and that's enough to start.
+
+---
+
+## 0.5 Who owns growth on a small team
+
+"Treat your startup as a growth team" raises an obvious question on a four-person company:
+*who?* The answer is not "hire a growth lead." It's **assign the hat, and make the ritual
+cheap.**
+
+- **Name one owner.** One person is accountable for the funnel being instrumented, the
+  dashboard being read, and the journeys being live. It can be a founder. It's a hat, not
+  a hire.
+- **Make growth a standing ritual, not a project.** The cadence (built in full in Chapter
+  9): a 2-minute daily glance at alerts, a 30-minute weekly read of retention + journeys +
+  ad spend, a monthly review of incremental lift and blended CAC. A system that runs on a
+  rhythm survives; one that runs on heroics dies the first busy week.
+- **Give the whole team the shared language.** Everyone should know the North Star
+  (Chapter 2) and what "activated" means for your product. When the same five numbers mean
+  the same thing to everyone, you've already beaten most companies.
+
+The maturity ladder most startups climb: **flying blind** (no data) → **analytics
+installed but no one looks** → **someone reads a dashboard** → **the team acts on it
+automatically through lifecycle journeys** → **growth compounds through an owned audience
+and referrals**. This course walks that ladder rung by rung; the goal is the top of it.
+
+---
+
+## 0.6 The machine you're going to build
+
+Here's the whole system on one page, so the chapters that follow have somewhere to hang.
+Three layers, one loop:
+
+- **See it — PostHog (Chapters 1–4).** Collect events, identify people, and read the
+  funnel, retention, and the daily dashboard. You can't fix a leak you can't see.
+- **Act on it — Hogsend (Chapters 5–6).** Code-first lifecycle journeys that reach the
+  right user at the right moment — welcome, nudge, win-back, dunning, referral — triggered
+  by the same events you measure, and fired back as events so the loop stays measurable.
+- **Own it — identity + ads (Chapters 7–8).** Drive traffic, then capture every visitor
+  into a channel you own (verified email, linked Discord/Telegram) on an identity graph,
+  so you never pay to reach the same person twice — and so your ads and referrals compound.
+
+The division of labour that keeps it simple no matter how much you add: **PostHog detects,
+Hogsend acts, you decide.** Hold that split and the system stays legible.
+
+| Layer | Tool | Chapters | The question it answers |
+|---|---|---|---|
+| Decide what matters | You (AARRR, North Star) | 0, 2 | What are we even optimising? |
+| See it | PostHog | 1, 3, 4 | Where are we losing people? |
+| Act on it | Hogsend | 5, 6 | How do we pull them back, automatically? |
+| Own & grow it | Ads + Hogsend connectors | 7, 8 | How do we acquire without renting our audience? |
+| Run it | The operating cadence | 9 | How does this become a habit, not a project? |
+
+---
+
+## 0.7 How teams get this wrong
+
+Four failure modes, each one a way of *not* being a growth team. You'll recognise at
+least one from a company you've worked at:
+
+- **The vibes startup — no data at all.** Decisions by intuition and the loudest voice in
+  the room. Fast at first, blind at scale; you can't tell a real improvement from noise.
+  The fix is Chapters 1–4.
+- **The dashboard graveyard — analytics installed, nobody looks.** PostHog is firing, the
+  charts exist, and no decision has ever changed because of them. Measurement without a
+  ritual and without *action* is theatre. The fix is the daily cadence (Ch 4) plus the
+  action layer (Ch 5–6).
+- **The blast list — action without measurement.** A weekly newsletter to everyone, batch
+  sends, no behavioural triggers, no holdouts. It feels like marketing and proves nothing.
+  The fix is triggered journeys and incrementality testing (Ch 5).
+- **The rented-audience trap — growth you don't own.** All acquisition through paid ads,
+  every reach re-bought, nothing captured into a channel you control. The moment you stop
+  paying, the pipeline goes dark. The fix is the owned-audience flywheel (Ch 8).
+
+The through-line: a growth team **measures honestly, acts automatically, and owns its
+audience.** Miss any one of the three and you've got a department, not a system.
+
+---
+
+## 0.8 The one rule: measure → keep → grow
+
+If you take one thing from this whole course, take the order.
+
+Almost every founder's instinct is to reach for acquisition first — run ads, drive
+signups, watch the top number climb. It's the most expensive instinct there is, because
+pouring traffic into a product that can't keep users is, as Chapter 2 will put it, just
+*buying churn*. Acquisition is the **last** lever, not the first.
+
+So the sequence is deliberate, and the course follows it exactly:
+
+1. **Measure** what's actually happening (Chapters 1–4) — so you're working on the real
+   leak, not a guessed one.
+2. **Keep** the users you already earn (Chapters 5–6) — activation and retention, the
+   highest-leverage and cheapest growth you have, because those users are already yours.
+3. **Grow** into an audience you own (Chapters 7–8) — open the tap only once the bucket
+   holds water, and make every drop land somewhere you can reach again for free.
+
+That's the whole philosophy. The next eight chapters are the build.
+
+---
+
+## 0.9 Do this now
+
+You can't install a mindset, but you can commit to it before you touch a line of code:
+
+1. **Name the growth owner** — one person accountable for measure → keep → grow. (On a
+   solo team, that's you; put it in writing anyway.)
+2. **Write down what "activated" means for your product** in one sentence — the moment a
+   new user first gets real value. You'll make it precise in Chapter 2; commit to the
+   concept now.
+3. **Agree the order with your team:** retention before acquisition. The most important
+   line you can get everyone to nod to before you spend a cent on ads.
+
+Then turn the page: Chapter 1 is the tool you'll measure with, and why measuring is the
+job at all.
+
+---
+
+*Sources for this chapter:
+[OpenView — what is product-led growth](https://openviewpartners.com/product-led-growth/),
+[Wes Bush — Product-Led Growth (book)](https://productled.com/book),
+[Reforge — growth loops vs funnels](https://www.reforge.com/blog/growth-loops),
+[Lenny's Newsletter — how the best companies do growth](https://www.lennysnewsletter.com/).*

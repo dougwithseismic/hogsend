@@ -1,11 +1,13 @@
 ---
 title: "Chapter 6 — Building the lifecycle in Hogsend"
-description: "The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back, dunning, and referral — each triggered by a real event."
+description: "The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back, dunning, and referral — each triggered by a real event, each durable by default."
 ---
 
-> **In this chapter:** how an event becomes a running journey, the anatomy of
-> `defineJourney`, and working examples for each lifecycle stage. Code here mirrors the
-> real journeys in `apps/api/src/journeys/`.
+> **In this chapter:** how an event becomes a running journey, why durable execution
+> matters (and what breaks without it), the anatomy of `defineJourney`, working examples
+> for each lifecycle stage, the other ways you could build this, and the correctness rules
+> that stop you double-sending. Code here mirrors the real journeys in
+> `apps/api/src/journeys/`.
 
 This chapter assumes a Hogsend app (scaffold one with `pnpm dlx create-hogsend@latest`).
 The full architecture is in the project's `CLAUDE.md`; here we focus on writing
@@ -29,6 +31,23 @@ The key property: **a journey is durable TypeScript.** `await ctx.sleep(days(2))
 real two-day pause that survives deploys and restarts — not a cron job, not a flowchart
 approximating control flow. You write normal code; the engine makes it durable.
 
+### Why "durable" is the whole game
+
+It's worth understanding what that buys you, because it's the reason a code-first journey
+engine exists at all. A lifecycle journey is mostly *waiting* — send, wait two days,
+check, send, wait five days, check. Naively, you might reach for `setTimeout` or a
+background `sleep`. That works until your server restarts mid-wait (a deploy, a crash, an
+OOM) — and then every in-flight wait is lost, and every user mid-journey is stranded. You
+can't run a messaging program on a process that forgets what it was doing every time you
+ship.
+
+Durable execution solves this: the engine persists the journey's position, so a
+two-day sleep genuinely survives a redeploy on day one and resumes on day two as if
+nothing happened. That's what lets you write a multi-day program as a single, readable
+function instead of a pile of cron jobs and database flags reconstructing the state by
+hand. The alternatives (§6.9) all exist to approximate this; Hogsend gives it to you as
+plain control flow.
+
 ### Send the trigger events
 
 From your backend, the same place you call `posthog.capture(...)`, also post to Hogsend:
@@ -46,7 +65,8 @@ await fetch(`${HOGSEND_URL}/v1/ingest`, {
 });
 ```
 
-That `user.created` event is what triggers the welcome journey below.
+That `user.created` event is what triggers the welcome journey below. One server-side
+emission, two consumers: PostHog measures it, Hogsend acts on it.
 
 ---
 
@@ -105,6 +125,11 @@ Inside `run`, you use the context primitives:
 And you send with `sendEmail({ to, userId, journeyStateId, template, subject, props? })`,
 where `template` is a key from your `src/emails/` registry.
 
+The thing to notice across all of this: it's *just code*. The branching is `if`. The wait
+is `await`. The history check is a function call. There's no DSL to learn and no canvas
+to fight — which is exactly why a journey can express logic a no-code tool can't, and why
+it's reviewable in a pull request like the rest of your product.
+
 ---
 
 ## 6.3 Welcome + onboarding (Activation)
@@ -159,8 +184,11 @@ export const activationWelcome = defineJourney({
 ```
 
 Two things to notice. The journey **reads event history** to decide what to send — that's
-behavioural personalisation in code. And the whole thing **exits the moment
-`user.deleted` fires**, so a churned user never gets the day-2 email.
+behavioural personalisation in code, the §5.6 principle made literal: an activated user
+gets "here's what's next," a stuck user gets "here's how to start," from the same journey.
+And the whole thing **exits the moment `user.deleted` fires**, so a churned user never
+gets the day-2 email. That `exitOn` is the difference between a system that feels
+attentive and one that emails dead accounts.
 
 ---
 
@@ -220,14 +248,15 @@ export const activationNudgeSeries = defineJourney({
 
 This is exactly the 3–5 touch behavioural sequence Chapter 5 recommended — except every
 touch is gated on real behaviour, so an active user is left alone and a stuck user gets
-help.
+help. The pattern generalises: *sleep, check what happened during the sleep, send only if
+needed.* That single shape covers most onboarding programs you'll ever write.
 
 ---
 
 ## 6.5 Win-back (Retention)
 
 Trigger on a dormancy event (you emit `user.dormant_30d` from a scheduled check, or via
-a PostHog cohort webhook — see §6.9), then re-engage. Give the user a window to come
+a PostHog cohort webhook — see §6.10), then re-engage. Give the user a window to come
 back on their own before sending again with `ctx.waitForEvent`:
 
 ```ts
@@ -268,8 +297,12 @@ export const reactivationWinback = defineJourney({
 });
 ```
 
-`exitOn: [{ event: Events.APP_ACTIVE }]` means if they return at any point, the journey
-stops — they won't get a "we miss you" email the day after they logged back in.
+`ctx.waitForEvent` is the primitive that makes win-back feel human: instead of blindly
+sending the second email on a timer, the journey *waits to see if they came back* and
+only sends the final nudge if they didn't. And `exitOn: [{ event: Events.APP_ACTIVE }]`
+means if they return at any point, the journey stops — they won't get a "we miss you"
+email the day after they logged back in. Nothing is more corrosive to trust than a
+win-back email to someone who's already active.
 
 ---
 
@@ -322,7 +355,10 @@ async function stillFailing(ctx, user) {
 
 The `exitOn: PAYMENT_SUCCEEDED` is the whole point — the moment the retry clears (or the
 user fixes their card), the reminders stop. This recovers a meaningful share of the
-20–40% of churn that's involuntary (Chapter 5).
+20–40% of churn that's involuntary (Chapter 5). Wire the trigger to your payment
+provider's failed-charge webhook (a Stripe `invoice.payment_failed` → `defineWebhookSource`
+→ `payment.failed`), and pass the hosted card-update URL through as a prop so the email
+has a one-click fix.
 
 ---
 
@@ -366,8 +402,11 @@ export const referralInvite = defineJourney({
 });
 ```
 
-The referral *loop* — turning that invite into a tracked, rewarded conversion on an
-identity graph you own — is Chapter 8. This journey is just the ask.
+This encodes the Chapter 5 rule "ask at peak satisfaction" precisely: it triggers off a
+*milestone*, waits a beat so the ask rides the good feeling, and the `if (!active30d)
+return` guard means you never ask a disengaged user to vouch for you. The referral
+*loop* — turning that invite into a tracked, rewarded conversion on an identity graph you
+own — is Chapter 8. This journey is just the ask.
 
 ---
 
@@ -386,9 +425,44 @@ Two things to internalise so you don't accidentally double-send:
   spammed). `"unlimited"` only for counting journeys (e.g. the Discord gamification in
   Chapter 8, where every reaction must re-count).
 
+This is the kind of correctness you get *because* the journey is code in a system built
+for it — exactly-once delivery across redeploys is brutally hard to get right by hand,
+and it's the subtlest of the reasons a purpose-built engine beats the roll-your-own
+options in the next section.
+
 ---
 
-## 6.9 Where the triggers come from
+## 6.9 Other ways you could build this (and why durable execution)
+
+A growth team should know what it's choosing instead of. The ways teams build lifecycle
+automation, roughly worst-to-best for this job:
+
+- **`setTimeout` / in-process timers.** Don't. Every wait is lost on the next deploy or
+  crash. Fine for a 30-second debounce, catastrophic for a 3-day sequence.
+- **Cron + a state column.** A nightly job scans the users table and decides who's due
+  for which email. It works, and plenty of companies run on it — but you end up
+  hand-rebuilding state, idempotency, and branching that the engine gives you for free,
+  and the logic smears across cron jobs and SQL until no one can read the program.
+- **A job queue with delayed jobs (BullMQ, Sidekiq).** Better — delays survive restarts.
+  But you're still assembling sequences, exit conditions, and exactly-once yourself, job
+  by job.
+- **Durable-execution platforms (Temporal, Inngest, DBOS, Restate).** The right
+  *category* — they make multi-step, long-running, restart-proof workflows a first-class
+  thing. Hogsend uses one (Hatchet) under the hood. If you're building generic
+  workflows, these are excellent; for lifecycle *messaging* specifically you'd still
+  build the email/preferences/tracking/identity layer on top, which is what Hogsend is.
+- **No-code automation (Zapier, n8n, Make).** Great glue for "when X, do Y" one-shots;
+  weak for stateful multi-day per-user journeys with branching. Useful at the edges.
+
+The summary: lifecycle messaging is a *durable, stateful, per-user* problem, and the
+tools that fit it are the ones that treat long waits and exact-once delivery as solved.
+Hogsend's bet is that giving you that as ordinary TypeScript — plus the email, identity,
+and tracking layers already wired — beats both the roll-your-own stack and the no-code
+canvas for a team that codes.
+
+---
+
+## 6.10 Where the triggers come from
 
 Your journeys are only as good as the events feeding them. Three sources:
 
@@ -401,9 +475,13 @@ Your journeys are only as good as the events feeding them. Three sources:
   `/v1/ingest`. PostHog decides *who* needs action; Hogsend decides *what* to do. This
   is the bridge that powers inactivity-based win-back without Hogsend polling anything.
 
+That last one is the clean expression of "PostHog detects, Hogsend acts" (Chapter 0):
+the thing that's hard to compute in real time (30-day dormancy across all users) is a
+cohort PostHog already maintains; Hogsend just receives the verdict and runs the program.
+
 ---
 
-## 6.10 The holdout hook
+## 6.11 The holdout hook
 
 Chapter 5 said: prove lift with a holdout. Because enrollment is just code, you can
 implement a campaign holdout directly — deterministically bucket a small fraction of
@@ -421,11 +499,12 @@ run: async (user, ctx) => {
 ```
 
 Then in PostHog, compare activation/retention/revenue for `journey.held_out` users vs
-enrolled users. That difference is your real, causal lift.
+enrolled users. That difference is your real, causal lift — the growth-team experiment
+loop (Chapter 0) running continuously, in production, on the journey you just shipped.
 
 ---
 
-## 6.11 Do this now
+## 6.12 Do this now
 
 1. Wire your backend to `POST /v1/ingest` for `user.created`, `payment.failed`, and your
    milestone event.

@@ -1,12 +1,12 @@
 ---
 title: "Chapter 5 — Lifecycle messaging: which emails, in what order"
-description: "The messaging program that plugs the leaky bucket — which journeys to build first, why behavioural beats batch, and how to prove any of it works."
+description: "The messaging program that plugs the leaky bucket — which journeys to build first, why behavioural beats batch, the tools you could use, and how to prove any of it works."
 ---
 
 > **In this chapter:** the lifecycle stages mapped to AARRR, the order to build them
 > in (and why), why triggered messages beat batch-and-blast, how many touch-points is
-> right, and how to measure impact honestly with holdouts. This is the strategy;
-> Chapter 6 is the code.
+> right, the landscape of tools (and when no-code is the right call), and how to measure
+> impact honestly with holdouts. This is the strategy; Chapter 6 is the code.
 
 ---
 
@@ -28,7 +28,10 @@ it:
 
 Lifecycle messaging isn't "marketing email." It's the operational layer that moves
 people between AARRR stages — and the cheapest retention lever you have, because the
-users are already yours.
+users are already yours. For a growth team it's also the *action* half of the operating
+model (Chapter 0): measurement (Chapters 1–4) tells you where the leak is; lifecycle
+messaging is how the team acts on it automatically, every time, without anyone
+remembering to.
 
 ---
 
@@ -51,7 +54,10 @@ which AARRR stage it serves:
 A useful mental model (from Reforge): **retention is an output, not a stage you push
 on directly.** Its inputs are *activation*, *engagement*, and *resurrection* — and
 lifecycle messaging is how you move each of those inputs. The best programs reinforce
-the product's *existing* habit loop rather than inventing new reasons to log in.
+the product's *existing* habit loop rather than inventing new reasons to log in. A
+fitness app's habit is the workout; the message that says "your Tuesday session is
+waiting" works because it strengthens a loop that already exists. A message that invents
+a reason ("check out our blog!") fights the user's attention instead of riding it.
 
 ---
 
@@ -91,8 +97,10 @@ dollar-ROI** journey you'll ever build: it recovers revenue you already earned.
   **30–70%**, with Stripe's own tooling around 57% *(directional, but a credible
   band)*.
 
-A handful of retry-and-remind emails can recover a meaningful slice of your MRR. Build
-it early.
+A handful of retry-and-remind emails can recover a meaningful slice of your MRR. The
+reason it's so high-ROI: these users *want* to keep paying — they're not churning by
+choice, their card just expired. You're removing friction, not persuading. Build it
+early.
 
 ### 3. Win-back / resurrection — next
 
@@ -232,7 +240,45 @@ them.
 
 ---
 
-## 5.8 Prove it works: holdouts
+## 5.8 The tools you could use (and when no-code is the right call)
+
+This course builds journeys in Hogsend, but a growth team should know the landscape and
+choose deliberately. The honest map:
+
+- **Customer.io** — the closest "serious" behavioural-messaging tool: event-triggered,
+  multi-channel, strong segmentation. A genuinely good choice, especially for a
+  marketing-owned program. Trade-off: your lifecycle logic lives in their UI, not your
+  repo.
+- **Loops.so** — clean, developer-friendly transactional + lifecycle email; lovely DX
+  for simple flows. Trade-off: less powerful when your branching gets complex.
+- **Klaviyo** — the e-commerce default; superb for cart/browse/post-purchase flows on
+  Shopify. If you're commerce, start here. Weaker fit for product-event-driven SaaS.
+- **Braze / Iterable** — enterprise-grade multi-channel orchestration. Powerful,
+  expensive, and overkill until you're at real scale with a marketing team.
+- **Intercom** — strong when messaging and support live together (in-app + email +
+  inbox). You pay for the suite.
+- **Resend Broadcasts / Mailchimp / ConvertKit** — broadcast-first. Fine for a
+  newsletter; not built for behavioural, per-user journeys.
+- **PostHog Workflows** — no-code, lives next to your data, good for batch + simple
+  drips (Chapter 1, §1.3).
+
+**When a no-code tool is the right call:** if a non-engineer owns messaging, if your
+flows are simple drips, or if you need to ship something this week without touching the
+codebase — pick Customer.io or Loops and move on. There's no virtue in code for its own
+sake.
+
+**Why this course is code-first (Hogsend):** because for a *product-led growth team*
+(Chapter 0) the messaging layer is part of the product, and it benefits from the same
+things your product code does — version control, code review, real branching logic,
+testing, and exact-once guarantees. When your journey needs to *read* arbitrary event
+history and *branch* on it, a flowchart UI becomes the bottleneck; code doesn't. And the
+identity graph that makes Chapter 8 work is much easier when the messaging engine is
+yours. The trade-off is real and you should make it with eyes open: code-first asks an
+engineer to own lifecycle. For the audience of this course, that's a feature.
+
+---
+
+## 5.9 Prove it works: holdouts
 
 This is the discipline that separates a real lifecycle program from cargo-culting. Open
 and click rates do **not** tell you whether a message *caused* anything — maybe those
@@ -254,19 +300,43 @@ Two kinds:
 A worked example: messaged group upgrades at 18%, held-out group at 11% → **+7
 points** of lift you can credit to the journey. Run a standing holdout on every
 important flow and report monthly lift. This is the same correlation-vs-causation lesson
-from Chapter 2's activation section — only an experiment proves cause.
+from Chapter 2's activation section — only an experiment proves cause, and it's the same
+discipline that made your activation metric trustworthy.
 
 A code-first engine makes this natural: randomly skip enrollment for a held-out cohort
-and compare their downstream events. Chapter 6 notes where that hook lives.
+and compare their downstream events. Chapter 6 notes where that hook lives. This is also
+where lifecycle messaging stops being "marketing" and becomes the growth-team experiment
+loop from Chapter 0 — every important journey is a standing A/B test with a measured
+result, not an act of faith.
 
 ---
 
-## 5.9 Do this now
+## 5.10 Which journeys first, for your kind of startup
+
+The order in §5.3 is the default; here's how it shifts by type:
+
+- **Self-serve SaaS** — welcome/onboarding → dunning → win-back, exactly as written.
+- **E-commerce** — abandoned-cart and browse-abandonment first (highest-ROI flows in
+  commerce), then post-purchase and win-back. Klaviyo territory.
+- **Consumer app** — habit/streak and resurrection dominate; onboarding is about
+  forming the habit, not "setup."
+- **Marketplace** — onboarding has *two* versions (supply and demand), and the key
+  retention message is "your side of the market is active" (a new listing, a new buyer).
+- **Community / web3** — the link-and-verify and gamification journeys (Chapter 8) *are*
+  the lifecycle program; email supports them.
+- **B2B with sales** — onboarding + expansion/upsell matter most; dunning if self-serve
+  billing exists; lifecycle messaging assists the human, it doesn't replace them.
+
+---
+
+## 5.11 Do this now
 
 1. Pick the **first journey**: welcome + onboarding. (Add dunning next if you charge.)
 2. Map each journey to the **event that triggers it** and the **event that exits it**.
 3. Decide your **cadence** per stage and a global **frequency cap**.
-4. Plan a **holdout** for your first journey so you can prove its lift.
+4. Choose your **tool** deliberately (§5.8) — and if it's code-first, the next chapter
+   is the build.
+5. Plan a **holdout** for your first journey so you can prove its lift.
 
 You now know *what* to build and *why*. Next, you build it — in code.
 

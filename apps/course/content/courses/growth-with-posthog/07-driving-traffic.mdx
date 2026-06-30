@@ -1,16 +1,18 @@
 ---
 title: "Chapter 7 — Driving traffic"
-description: "Now that the bucket holds water, open the tap: how to run Meta ads, track conversions accurately despite ad blockers and iOS, and feed your own data back to make the ads smarter."
+description: "Now that the bucket holds water, open the tap: how to run Meta ads, the other channels worth more for some startups, track conversions accurately despite ad blockers and iOS, and feed your own data back to make the ads smarter."
 ---
 
 > **In this chapter:** the structure of a Meta campaign, the three audience types, why
 > Pixel-and-Conversions-API (not Pixel alone), what server-side tracking does and
-> doesn't fix, and how PostHog/Hogsend feed conversions and audiences back to the ad
-> platform. Accuracy matters here — the privacy landscape is full of half-truths.
+> doesn't fix, the other channels (and when paid social is the wrong one), and how
+> PostHog/Hogsend feed conversions and audiences back to the ad platform. Accuracy
+> matters here — the privacy landscape is full of half-truths.
 
 A reminder on order: this chapter is deliberately seventh. If your retention curve
 (Chapter 4) still decays to zero, come back later — paid acquisition into a leaky bucket
-is, as Chapter 2 put it, buying churn.
+is, as Chapter 2 put it, buying churn. A growth team earns the right to spend on traffic
+by first proving the bucket holds.
 
 ---
 
@@ -30,7 +32,8 @@ objectives into six (ODAX):
 
 1. **Awareness** — reach/recall, top of funnel.
 2. **Traffic** — cheap clicks to a page. *Not* optimised for conversions — a common
-   beginner trap is to use Traffic and wonder why clicks don't convert.
+   beginner trap is to use Traffic and wonder why clicks don't convert. Traffic buys you
+   visitors who clicked; Sales buys you visitors who *act*. They are different people.
 3. **Engagement** — interactions, video views, messages.
 4. **Leads** — form fills, newsletter signups.
 5. **App Promotion** — installs and in-app events.
@@ -40,7 +43,9 @@ objectives into six (ODAX):
 *enough of*. The algorithm needs roughly **50 conversions per ad set per week** to exit
 its "learning phase" and deliver efficiently. If you can't generate 50 purchases a week
 yet, optimise a higher-funnel event (lead or signup) and pass the deeper conversion
-back server-side (§7.4) so Meta still learns from it.
+back server-side (§7.4) so Meta still learns from it. This is the most common early
+mistake: optimising for `purchase` when you get five a week starves the algorithm of
+signal, and it never learns who to find.
 
 ---
 
@@ -52,7 +57,8 @@ Every ad set targets one of three kinds of audience:
   broad "Advantage+" audiences where you let Meta's ML find people. The 2024–2026 trend
   is clear: **broad targeting + strong creative + a good conversion signal now beats
   hand-built interest stacks**, because the algorithm does the targeting. Interest
-  targeting is more of a hint than a filter now.
+  targeting is more of a hint than a filter now — which shifts the work from audience-
+  picking to *creative* and *signal quality* (§7.4).
 - **Custom Audiences ("warm", first-party).** Built from *your* data: a customer-list
   upload, site/app visitors, or events sent via the Conversions API. These are the
   highest-signal inputs you can give Meta — and they only exist because you captured
@@ -78,18 +84,48 @@ A standard structure layers these:
 > over-investing in retargeting too early — a tiny warm pool can't scale spend. You
 > earn a bigger warm pool by capturing more first-party identity, which is Chapter 8.
 
+---
+
+## 7.3 The other channels — and when Meta is the wrong one
+
+Meta is the worked example because it's the most common and its tracking story teaches
+the privacy lessons every channel shares. But a growth team picks the channel that fits
+its product, and for many readers of this course Meta is *not* the first choice:
+
+- **Google Ads (Search).** Intent-based — you reach people *already searching* for the
+  solution. For products with clear search demand (someone Googling "invoice software"),
+  this often converts far better than interrupting a feed. Has its own server-side
+  conversion path (Enhanced Conversions, the Google Ads API).
+- **TikTok / Reddit / X ads.** TikTok for consumer and younger demographics; Reddit for
+  niche/technical communities (it can work surprisingly well for dev tools in the right
+  subreddits); X for tech/founder audiences. Each has its own pixel + a server-side
+  events API with the same dedup logic as §7.4.
+- **LinkedIn Ads.** Expensive per click, but the only platform with reliable job-title/
+  company targeting — the B2B choice when your buyer is defined by role.
+- **The non-paid channels that often beat paid for this audience:**
+  - **Content / SEO** — compounding, owned, and the canonical growth engine for dev
+    tools and B2B (it's *why* Supabase, PostHog itself, and others grew). Slow to start,
+    nearly free to sustain.
+  - **Community** — Discord/Reddit/Slack communities, the subject of Chapter 8. For
+    community-led and web3 products this *is* the acquisition channel.
+  - **Partnerships / integrations / marketplaces** — listing in the ecosystem your users
+    already live in (a Shopify app, a Vercel integration, a Raycast extension).
+
 ### A note for dev-tool, community, and web3 founders
 
-Meta works well for consumer funnels (indie games, B2C, web3 *consumer* products). For
-**developer tools and B2B it's weaker** — content, community, and product-led growth
-usually out-perform paid social (Supabase is the canonical example). And **web3/crypto
-ads face policy restrictions** on Meta and Google. For both segments, treat paid as
-*fuel for the loop*, not the loop itself — which makes the owned channels in Chapter 8
-disproportionately important.
+For **developer tools and B2B, paid social is weak** — content, community, and product-
+led growth usually out-perform it (Supabase is the canonical example, and it grew with
+almost no paid spend). And **web3/crypto ads face policy restrictions** on Meta and
+Google. For both segments, treat paid as *fuel for the loop*, not the loop itself — which
+makes the owned channels in Chapter 8 disproportionately important, and means the
+accuracy work in the rest of this chapter applies mostly to whatever *small* paid spend
+you do run. **If you're a dev tool, don't read this chapter as "now go buy Meta ads."
+Read it as "here's how paid works and how to measure it honestly when you do use it" —
+then put your energy into Chapter 8.**
 
 ---
 
-## 7.3 The problem: your conversion tracking is lying to you
+## 7.4 The problem: your conversion tracking is lying to you
 
 Here's the part that trips up everyone who just installs the Meta Pixel and trusts the
 numbers.
@@ -108,11 +144,13 @@ that:
 
 The result: the Pixel under-counts conversions, Meta's algorithm optimises on partial
 data, and your reported ROAS is wrong. You can't fix bid strategy on numbers that are
-quietly missing a third of reality.
+quietly missing a third of reality. This is the same lesson as Chapter 3's ad-blocker
+section, now with money attached: browser-only measurement under-counts, and the fix is
+to move the important events server-side.
 
 ---
 
-## 7.4 The fix: Pixel *and* Conversions API
+## 7.5 The fix: Pixel *and* Conversions API
 
 The **Conversions API (CAPI)** sends events **server-side** — from your server (or a
 tool/CDP) directly to Meta's endpoint, skipping the browser entirely. Because it never
@@ -135,7 +173,7 @@ them. Redundancy plus better matching.
 ### What server-side does **not** fix (be precise — this is where bad courses lie)
 
 - **It is not a consent loophole.** You still need a lawful basis to collect, hash, and
-  share user data (§7.6). A SHA-256-hashed email is **pseudonymous, not anonymous** —
+  share user data (§7.7). A SHA-256-hashed email is **pseudonymous, not anonymous** —
   same input, same hash, re-identifiable.
 - **It does not restore iOS *app-install* attribution.** That's governed by Apple's
   SKAdNetwork plus Meta's Aggregated Event Measurement — aggregated, delayed, modelled,
@@ -174,7 +212,7 @@ where PostHog and Hogsend come in.
 
 ---
 
-## 7.5 Feeding it from PostHog (and Hogsend)
+## 7.6 Feeding it from PostHog (and Hogsend)
 
 You don't have to hand-build a CAPI integration. PostHog's **Data Pipelines** include a
 **Meta Ads conversions destination**:
@@ -203,9 +241,24 @@ worth it. The honest caveat (same as Chapter 3): this makes your *conversions* a
 and your *journey triggers* ad-blocker-proof; it does **not** fix the user's client-side
 PostHog analytics loss, and it does not override consent or ATT.
 
+### Other ways to send server-side conversions
+
+PostHog's destination is the path this course recommends because you're already in
+PostHog, but it's not the only one — know the field:
+
+- **Stape / server-side Google Tag Manager** — a popular dedicated server container that
+  forwards to Meta, Google, TikTok, etc. More control, more setup.
+- **Segment / RudderStack** — if you already run a CDP, it has Meta/Google destinations.
+- **Direct CAPI integration** — call Meta's endpoint from your backend yourself. Most
+  control, most maintenance; only worth it if the managed options can't express what you
+  need.
+
+The principle is the same regardless of tool: **send from where you have identity,
+dedupe on `event_id`, send only consented conversion events.**
+
 ---
 
-## 7.6 Consent — the part you can't skip
+## 7.7 Consent — the part you can't skip
 
 Server-side does not mean consent-free, and the rules tightened recently:
 
@@ -227,15 +280,17 @@ Meta good, legal data if you collected it well in the first place. That's Chapte
 
 ---
 
-## 7.7 Do this now
+## 7.8 Do this now
 
-1. Install the **Meta Pixel** on your site (browser side).
-2. Add the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
+1. Decide whether paid social is even your channel (§7.3). If you're a dev tool or
+   community product, weight toward Chapter 8 and run only small paid tests.
+2. If you're running Meta: install the **Meta Pixel** on your site (browser side).
+3. Add the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
    conversion events.
-3. Make sure your conversions carry **email + `fbc` + `external_id`** so EMQ ≥ 6.
-4. Start **one campaign**: a Sales/Leads objective, broad audience, strong creative,
+4. Make sure your conversions carry **email + `fbc` + `external_id`** so EMQ ≥ 6.
+5. Start **one campaign**: a Sales/Leads objective, broad audience, strong creative,
    optimising on the deepest event you can feed 50/week.
-5. Capture **opt-in consent** at the point you collect email.
+6. Capture **opt-in consent** at the point you collect email.
 
 You can now drive traffic *and* measure it honestly. The last piece is the one that
 compounds: turning that traffic into an audience you never have to pay to reach again.
