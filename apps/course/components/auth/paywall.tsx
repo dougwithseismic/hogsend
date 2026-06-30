@@ -1,5 +1,6 @@
 import { ArrowRight } from "lucide-react";
-import { getCourse } from "@/lib/courses";
+import { ALL_ACCESS, getCourse } from "@/lib/courses";
+import { allAccessConfigured } from "@/lib/entitlements";
 
 /**
  * Wall shown to a SIGNED-IN reader who hasn't purchased the course. Renders the
@@ -58,6 +59,24 @@ export function Paywall({
             />
           </button>
         </form>
+
+        {allAccessConfigured() ? (
+          <div className="mt-5 border-white/[0.08] border-t pt-5">
+            <p className="text-sm text-white/50">
+              Taking more than one course?
+            </p>
+            <form method="post" action="/api/checkout" className="mt-1">
+              <input type="hidden" name="course" value={ALL_ACCESS.slug} />
+              <input type="hidden" name="next" value={lessonUrl} />
+              <button
+                type="submit"
+                className="text-accent text-sm transition-colors hover:underline"
+              >
+                Get All-Access — {ALL_ACCESS.priceLabel} — every course →
+              </button>
+            </form>
+          </div>
+        ) : null}
       </div>
     </div>
   );
