@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import { priceIdForCourse } from "@/lib/courses";
+import { and, eq, inArray } from "drizzle-orm";
+import { ALL_ACCESS_SLUG, priceIdForCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { purchase } from "@/lib/db/schema";
 import { paywallConfigured } from "@/lib/stripe";
@@ -32,6 +32,43 @@ export async function hasPurchased(
     )
     .limit(1);
   return rows.length > 0 && rows[0].status === "paid";
+}
+
+/**
+ * Does this user have access to a course — either by owning it directly OR by
+ * holding the all-access bundle? Single round-trip (status filter + `inArray`
+ * + limit(1)), so the gate stays one query. This is what the lesson gate uses;
+ * `hasPurchased` stays for exact per-SKU ownership checks (e.g. upsell copy).
+ */
+export async function hasAccess(
+  userId: string,
+  courseSlug: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: purchase.id })
+    .from(purchase)
+    .where(
+      and(
+        eq(purchase.userId, userId),
+        eq(purchase.status, "paid"),
+        inArray(purchase.courseSlug, [courseSlug, ALL_ACCESS_SLUG]),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Every paid SKU slug a user holds (courses + maybe "all-access"), as a Set, in
+ * one query — so the catalog can resolve owned/locked across all cards with no
+ * N+1.
+ */
+export async function listOwnedSlugs(userId: string): Promise<Set<string>> {
+  const rows = await db
+    .select({ courseSlug: purchase.courseSlug })
+    .from(purchase)
+    .where(and(eq(purchase.userId, userId), eq(purchase.status, "paid")));
+  return new Set(rows.map((r) => r.courseSlug));
 }
 
 type RecordPurchaseArgs = {
