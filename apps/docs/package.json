@@ -12,6 +12,7 @@
   "dependencies": {
     "@hogsend/js": "workspace:^",
     "@hogsend/react": "workspace:^",
+    "@tanstack/react-devtools": "0.10.8",
     "clsx": "^2.1.1",
     "fumadocs-core": "^16.9.1",
     "fumadocs-mdx": "^15.0.8",
