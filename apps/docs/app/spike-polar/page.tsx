@@ -840,10 +840,11 @@ function PsFanning() {
         </Reveal>
       </Container>
 
-      {/* Scenario carousel — clipped to the content frame. */}
+      {/* Scenario carousel — bleeds to the frame edge; the fade is the
+          scroll affordance, and the lead padding travels with the cards. */}
       <Container className="mt-12 pb-6">
-        <div className="overflow-x-auto [scrollbar-width:none]">
-          <div className="flex w-max gap-4">
+        <div className="-mx-6 overflow-x-auto md:-mx-10 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent,black_32px,black_calc(100%-120px),transparent)]">
+          <div className="flex w-max gap-4 px-6 md:px-10">
             {FAN_SCENARIOS.map((s, i) => (
               <div
                 key={s.lead}
@@ -1750,8 +1751,8 @@ function PsFeatures() {
       </Container>
 
       <Container className="pb-24">
-        <div className="overflow-x-auto [scrollbar-width:none]">
-          <div className="flex w-max gap-4">
+        <div className="-mx-6 overflow-x-auto md:-mx-10 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent,black_32px,black_calc(100%-120px),transparent)]">
+          <div className="flex w-max gap-4 px-6 md:px-10">
             {FEATURE_CARDS.map((c) => (
               <div
                 key={c.lead}
