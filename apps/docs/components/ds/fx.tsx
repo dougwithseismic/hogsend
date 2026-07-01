@@ -10,10 +10,10 @@ type FxProps = { className?: string };
 
 /**
  * GlowField — the hero backdrop: a giant glowing red planet-horizon arc
- * rising from below the fold (rim-lit circle over a near-black field), a thin
- * vertical light streak through the center, and a dark landscape silhouette
- * at the bottom. Built entirely from layered CSS gradients, box-shadow rim
- * light, and blur — recreated, never copied from the reference assets.
+ * rising from below the fold (rim-lit circle over a near-black field) and a
+ * dark landscape silhouette at the bottom. Built entirely from layered CSS
+ * gradients, box-shadow rim light, and blur — recreated, never copied from
+ * the reference assets.
  */
 export function GlowField({ className }: FxProps) {
   return (
@@ -37,21 +37,6 @@ export function GlowField({ className }: FxProps) {
           duration: 10,
           repeat: Number.POSITIVE_INFINITY,
           ease: "easeInOut",
-        }}
-      />
-
-      {/* Thin vertical light streak through the center. */}
-      <div
-        className="-translate-x-1/2 absolute top-0 left-1/2 h-full w-px opacity-70"
-        style={{
-          background: `linear-gradient(to bottom, transparent 4%, rgba(255, 255, 255, 0.45) 38%, rgba(${ACCENT}, 0.85) 68%, transparent 94%)`,
-        }}
-      />
-      <div
-        className="-translate-x-1/2 absolute top-1/4 left-1/2 h-3/4 w-[3px] opacity-40"
-        style={{
-          background: `linear-gradient(to bottom, transparent, rgba(${ACCENT}, 0.7) 55%, transparent)`,
-          filter: "blur(4px)",
         }}
       />
 
