@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { withInspector } from "@hogsend/inspector/next";
 import { createMDX } from "fumadocs-mdx/next";
 
 const withMDX = createMDX();
@@ -174,4 +175,7 @@ const config = {
   },
 };
 
-export default withMDX(config);
+// withInspector adds the dev-only source-stamping loader (no-op in production).
+export default withInspector(withMDX(config), {
+  include: ["/components/landing/"],
+});
