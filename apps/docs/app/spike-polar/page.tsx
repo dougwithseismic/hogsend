@@ -9,6 +9,7 @@ import { LogoMarquee } from "@/components/ds/marquee";
 import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
 import {
+  DISCORD_INVITE_URL,
   ENGINE_VERSION,
   GITHUB_URL,
   NPM_URL,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/site";
 import studioJourneys from "@/public/images/studio/studio-journeys.png";
 import studioSends from "@/public/images/studio/studio-sends.png";
+import { PsBlocksTabs } from "./_components/blocks-tabs";
 import {
   type ProviderValue,
   PsCodePicker,
@@ -159,42 +161,6 @@ function InkLogo({ light }: { light?: boolean }) {
 
 /* ----------------------------------------------------------- decorations -- */
 
-/** Soft gradient tile mosaic — the Flint hero band, re-keyed to our palette
- * (purples/blues with a warm cream accent). Deterministic tile picks. */
-const MOSAIC_TILES = [
-  "linear-gradient(180deg, #fdefec 0%, #f9c9c0 100%)",
-  "linear-gradient(180deg, #eef3fe 0%, #cdddfb 100%)",
-  "linear-gradient(180deg, #fdf7e3 0%, #f4e6bd 100%)",
-  "linear-gradient(180deg, #f5f6fa 0%, #e4e7f2 100%)",
-  "linear-gradient(180deg, #fdeae6 0%, #f5a89b 100%)",
-  "linear-gradient(180deg, #f2f7fe 0%, #d8e6fc 100%)",
-] as const;
-
-function TileMosaic({ className }: { className?: string }) {
-  const tiles = Array.from({ length: 16 }, (_, i) => ({
-    bg: MOSAIC_TILES[(i * 5 + 3) % MOSAIC_TILES.length],
-    tall: (i * 7 + 2) % 3 === 0,
-  }));
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "pointer-events-none grid grid-cols-4 gap-1.5 md:grid-cols-8",
-        className,
-      )}
-    >
-      {tiles.map((t, i) => (
-        <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: static deterministic art
-          key={i}
-          className={cn("rounded-[4px]", t.tall ? "h-32" : "h-24 self-end")}
-          style={{ background: t.bg }}
-        />
-      ))}
-    </div>
-  );
-}
-
 /** Fanned contour lines with a slow dash-drift — the abstract "ad-lib"
  * layer, drawn in code so it stays on-palette. */
 function WaveLines({
@@ -265,6 +231,38 @@ function DotPatch({ className }: { className?: string }) {
   );
 }
 
+/** GitHub mark (inline, from the main SiteNav treatment). */
+function GitHubMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.009-.868-.014-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.523 2 12 2Z"
+      />
+    </svg>
+  );
+}
+
+/** Discord mark (inline, matches the GitHub mark's treatment). */
+function DiscordMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.369a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418Z" />
+    </svg>
+  );
+}
+
 /* ------------------------------------------------------------------ nav -- */
 
 const NAV_LINKS = [
@@ -294,7 +292,7 @@ function PsNav() {
             ))}
           </nav>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2">
           {/* The nav bell — the real site's in-app feed entry point, here as
               a light-system visual (the live feed itself sits in the hero). */}
           <span
@@ -306,11 +304,21 @@ function PsNav() {
           </span>
           <a
             href={GITHUB_URL}
-            className="hidden font-medium text-[#75768a] text-sm tracking-[-0.025em] hover:text-[#040406] md:inline"
+            aria-label="GitHub"
+            className="hidden size-8 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038] transition-colors hover:border-[#c9c9cf] hover:text-[#040406] sm:inline-flex"
           >
-            GitHub
+            <GitHubMark className="size-4" />
           </a>
-          <Btn href="/docs/getting-started">Start building</Btn>
+          <a
+            href={DISCORD_INVITE_URL}
+            aria-label="Discord"
+            className="hidden size-8 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038] transition-colors hover:border-[#c9c9cf] hover:text-[#040406] sm:inline-flex"
+          >
+            <DiscordMark className="size-4" />
+          </a>
+          <Btn href="/docs/getting-started" className="ml-1">
+            Start building
+          </Btn>
         </div>
       </Container>
     </header>
@@ -707,7 +715,7 @@ function PsProblem() {
         <div className="relative mt-16">
           <div
             aria-hidden="true"
-            className="absolute -inset-x-24 -bottom-24 top-12"
+            className="absolute inset-x-0 top-12 bottom-0"
             style={{
               background:
                 "linear-gradient(180deg, transparent 0%, rgba(246,72,56,0.18) 45%, rgba(246,120,80,0.14) 80%, transparent 100%)",
@@ -1442,53 +1450,292 @@ function PsHowItWorks() {
     <section className="relative border-[#f6483826] border-t overflow-hidden">
       <PlusGrid className="top-28 left-0 hidden h-40 w-52 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
       <Container className="relative pt-24 pb-16">
-        <Reveal>
-          <Eyebrow>How it works</Eyebrow>
-          <h2
-            className={cn(
-              "mt-8 max-w-[720px] font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
-              DISPLAY,
-            )}
-          >
-            The whole job is one loop.
-          </h2>
-          <p className="mt-6 max-w-[520px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
-            Activity comes in from PostHog or any webhook, the right emails go
-            out through your provider, and what people do with them fans back
-            out to your tools. Nothing new to buy or keep in sync.
-          </p>
-        </Reveal>
+        {/* Sticky header column — the original ProcessSteps scroll idiom. */}
+        <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,360px)_1fr]">
+          <div className="lg:sticky lg:top-24 lg:self-start">
+            <Eyebrow>How it works</Eyebrow>
+            <h2
+              className={cn(
+                "mt-8 font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[48px] md:leading-[54px]",
+                DISPLAY,
+              )}
+            >
+              The whole job is one loop.
+            </h2>
+            <p className="mt-6 max-w-[420px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+              Activity comes in from PostHog or any webhook, the right emails go
+              out through your provider, and what people do with them fans back
+              out to your tools. Nothing new to buy or keep in sync.
+            </p>
+          </div>
 
-        <div className="mt-16 flex flex-col">
-          {HOW_STEPS.map((step, i) => (
-            <Reveal key={step.n}>
-              <div
-                className={cn(
-                  "grid grid-cols-1 gap-8 py-12 lg:grid-cols-[0.8fr_1.2fr]",
-                  i > 0 && "border-[#ececef] border-t",
-                )}
-              >
-                <div>
+          <div className="flex flex-col">
+            {HOW_STEPS.map((step, i) => (
+              <Reveal key={step.n}>
+                <div
+                  className={cn("py-10", i > 0 && "border-[#ececef] border-t")}
+                >
                   <span className="font-mono text-[#b8281c] text-[13px]">
                     {step.n}
                   </span>
                   <h3
                     className={cn(
-                      "mt-3 text-[#040406] text-[26px] leading-[1.2] tracking-[-0.02em]",
+                      "mt-3 text-[#040406] text-[24px] leading-[1.2] tracking-[-0.02em]",
                       DISPLAY,
                     )}
                   >
                     {step.title}
                   </h3>
-                  <p className="mt-3 max-w-[380px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                  <p className="mt-3 max-w-[520px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
                     {step.body}
                   </p>
+                  <div className="mt-6 min-w-0">{step.media}</div>
                 </div>
-                <div className="min-w-0">{step.media}</div>
-              </div>
-            </Reveal>
-          ))}
+              </Reveal>
+            ))}
+          </div>
         </div>
+      </Container>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------- building blocks -- */
+
+const BLOCK_JOURNEY = `export const welcome = defineJourney({
+  meta: {
+    id: "activation-welcome",
+    trigger: { event: "user_signed_up" },
+    entryLimit: "once",
+  },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "welcome" });
+    await ctx.sleep({ duration: days(2) });
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: "feature_used",
+    });
+    if (!found) {
+      await sendEmail({ to: user.email, template: "nudge" });
+    }
+  },
+});`;
+
+const BLOCK_WAIT = `run: async (user, ctx) => {
+  await sendEmail({ to: user.email, template: "welcome" });
+  // Wait up to 7 days for them to activate — durable, survives deploys.
+  const { timedOut } = await ctx.waitForEvent({
+    event: "feature_used",
+    timeout: days(7),
+  });
+  if (timedOut) {
+    await sendEmail({ to: user.email, template: "nudge" });
+  }
+}`;
+
+const BLOCK_ANSWERS = `// In the email template — the click IS the answer.
+<EmailAction event="nps.answered" properties={{ score: "likely" }}>
+  Very likely
+</EmailAction>
+
+// In the journey — branch on what they clicked.
+const { properties } = await ctx.waitForEvent({
+  event: "nps.answered",
+  timeout: days(3),
+});`;
+
+const BLOCK_TRACKING = `run: async (user, ctx) => {
+  await sendEmail({ to: user.email, template: "welcome" });
+  await ctx.sleep({ duration: days(1) });
+  const { sent, count } = await ctx.history.email({
+    email: user.email,
+    template: "welcome",
+  });
+  if (sent && count > 0) {
+    // Fire a signal that fans out to your destinations.
+    await ctx.trigger({ event: "welcome_email_engaged", userId: user.id });
+  }
+}`;
+
+const BLOCK_PROVIDER = `# .env — provider is config, not journey code
+EMAIL_PROVIDER=postmark   # or resend
+POSTMARK_SERVER_TOKEN=…
+
+# The journey file doesn't change.`;
+
+const BLOCK_BUCKET = `export const wentDormant = defineBucket({
+  meta: {
+    id: "went-dormant",
+    enabled: true,
+    timeBased: true,
+    criteria: (b) =>
+      b.all(
+        b.event("app.active").exists(),
+        b.event("app.active").within(days(7)).notExists(),
+      ),
+  },
+});`;
+
+const BLOCK_DESTINATIONS = `// Fan email + lifecycle events out to PostHog,
+// Segment, Slack, or any signed webhook.
+await hs.webhooks.create({
+  kind: "slack",
+  url: "https://hooks.slack.com/services/…",
+  eventTypes: ["email.bounced", "email.complained"],
+});
+
+// Or define your own destination in code:
+export const crm = defineDestination({
+  meta: { id: "crm", name: "CRM" },
+  events: ["contact.created", "contact.updated"],
+  transform: (envelope, { endpoint }) => ({
+    url: endpoint.url,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(envelope),
+  }),
+});`;
+
+const BLOCK_POSTHOG = `# The scaffold already asked "Are you using PostHog?"
+# → POSTHOG_API_KEY · POSTHOG_HOST · webhook secret minted
+
+# Once deployed, one command finishes the loop:
+$ hogsend connect posthog
+
+→ browser opens · one consent click (OAuth, PKCE)
+→ credential stored encrypted, server-side
+→ person reads wired — timezones, property conditions
+→ PostHog → Hogsend webhook provisioned (idempotent)`;
+
+/** The homepage BuildingBlocks showcase, re-set light: a vertical tab rail
+ * over real-code panels (async Shiki nodes composed into the client tabs). */
+async function PsBuildingBlocks() {
+  const [
+    journeyMedia,
+    waitMedia,
+    answersMedia,
+    trackingMedia,
+    providerMedia,
+    bucketMedia,
+    destinationsMedia,
+    posthogMedia,
+  ] = await Promise.all([
+    CodeHighlight({ code: BLOCK_JOURNEY, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_WAIT, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_ANSWERS, lang: "tsx" }),
+    CodeHighlight({ code: BLOCK_TRACKING, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_PROVIDER, lang: "bash" }),
+    CodeHighlight({ code: BLOCK_BUCKET, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_DESTINATIONS, lang: "ts" }),
+    CodeHighlight({ code: BLOCK_POSTHOG, lang: "bash" }),
+  ]);
+
+  const tabs = [
+    {
+      id: "journeys",
+      label: "Journeys",
+      title: "Emails that play out over time",
+      description:
+        "Trigger on an event, send, sleep, then branch on what happened while you waited. The control flow is plain TypeScript.",
+      tags: ["Trigger on events", "Sleep & branch", "Stop on conversion"],
+      filename: "src/journeys/welcome.ts",
+      media: journeyMedia,
+    },
+    {
+      id: "wait",
+      label: "Wait for event",
+      title: "Wait for what they do next",
+      description:
+        "Pause the journey until the user acts or a timeout wins. The wait is durable, so it survives deploys, and the branch afterwards is an if statement.",
+      tags: ["Durable wait", "Event or timeout", "Survives deploys"],
+      filename: "src/journeys/welcome.ts",
+      media: waitMedia,
+    },
+    {
+      id: "answers",
+      label: "In-email answers",
+      title: "Ask a question inside the email",
+      description:
+        "A yes/no, an NPS score, a one-tap choice — each answer is a link whose click fires a real event with its payload. The journey branches on the answer; PostHog receives it under your event name.",
+      tags: ["NPS & yes/no", "Answer = event", "Scanner-safe"],
+      filename: "src/emails/nps.tsx",
+      media: answersMedia,
+    },
+    {
+      id: "tracking",
+      label: "Tracking",
+      title: "Opens and clicks, first-party",
+      description:
+        "Every send is tracked first-party for opens and link clicks; engagement flows back as events you can branch on mid-journey or fan out to your destinations.",
+      tags: ["Open tracking", "Click tracking", "Any channel"],
+      filename: "src/journeys/welcome.ts",
+      media: trackingMedia,
+    },
+    {
+      id: "provider",
+      label: "Your provider",
+      title: "Send through your own account",
+      description:
+        "Email goes out through your own Resend or Postmark — your domain, your reputation, your costs. Swapping the provider is one env var; the journey code never changes.",
+      tags: ["Resend · Postmark", "Your domain", "Config, not code"],
+      filename: ".env",
+      media: providerMedia,
+    },
+    {
+      id: "buckets",
+      label: "Buckets",
+      title: "Live groups of people",
+      description:
+        "Define who belongs with declarative criteria. Membership updates as events arrive, and joining a bucket can kick off a journey on its own.",
+      tags: ["Live membership", "Time-based", "Kick off journeys"],
+      filename: "src/buckets/went-dormant.ts",
+      media: bucketMedia,
+    },
+    {
+      id: "destinations",
+      label: "Destinations",
+      title: "Fan events out, durably",
+      description:
+        "Send email and lifecycle events out to PostHog, Segment, Slack, or any signed webhook. Each delivery is retried, signed, and dead-lettered for you.",
+      tags: [
+        "PostHog · Segment · Slack",
+        "Signed & retried",
+        "Define your own",
+      ],
+      filename: "src/destinations/crm.ts",
+      media: destinationsMedia,
+    },
+    {
+      id: "posthog",
+      label: "PostHog",
+      title: "Connect PostHog in one command",
+      description:
+        "The scaffold asks if you're using PostHog and writes the keys. Once deployed, hogsend connect posthog opens one browser consent and wires the rest.",
+      tags: ["One command, one click", "Person reads wired", "Round-trip safe"],
+      filename: "terminal",
+      media: posthogMedia,
+    },
+  ];
+
+  return (
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-24">
+        <Reveal>
+          <Eyebrow>Building blocks</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-[#040406]">What it does,</span>{" "}
+            <span className="text-[#9b9ca6]">
+              shown as the code you'd write.
+            </span>
+          </h2>
+        </Reveal>
+        <Reveal delay={0.1} className="mt-12 block">
+          <PsBlocksTabs tabs={tabs} />
+        </Reveal>
       </Container>
     </section>
   );
@@ -1795,7 +2042,98 @@ const LOOP_ITEMS = [
     title: "One profile across everything",
     body: "Email, product activity, Discord and PostHog sit on a single contact.",
   },
+  {
+    title: "Identities stitched together",
+    body: "discord_id, email and anonymous IDs fold into one person as you learn who they are.",
+  },
 ];
+
+/** First-party tracking, animated: event pills travel from the email to the
+ * destinations on a shared clock (spike.css keyframes, deterministic). */
+function PsTrackingAnimation() {
+  const pills = [
+    { label: "email.opened", top: "top-3", delay: 0 },
+    { label: "email.link_clicked", top: "top-[calc(50%-14px)]", delay: 3 },
+    { label: "nps.answered", top: "bottom-3", delay: 6 },
+  ];
+  const dests = [
+    { label: "PostHog", delay: 0 },
+    { label: "Slack #growth", delay: 3 },
+    { label: "posthog.identify()", delay: 6 },
+  ];
+  return (
+    <div className="rounded-2xl border border-[#ececef] bg-white p-6 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+          First-party tracking
+        </span>
+        <span className="flex items-center gap-1.5 font-mono text-[#17805a] text-[11px]">
+          <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
+          live
+        </span>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_minmax(150px,220px)_auto]">
+        {/* The email, links rewritten on send. */}
+        <div className="rounded-lg border border-[#ececef] bg-[#fafafb] p-4">
+          <p className="font-mono text-[#9b9ca6] text-[11px]">
+            from: hello@yourapp.com
+          </p>
+          <p className="mt-1.5 font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+            Welcome — one thing to try first
+          </p>
+          <div className="mt-2.5 space-y-1.5">
+            <div className="h-1.5 w-11/12 rounded bg-[#e9e9ee]" />
+            <div className="h-1.5 w-3/4 rounded bg-[#e9e9ee]" />
+          </div>
+          <p className="mt-3 font-medium text-[13px] text-[#b8281c] underline decoration-[#f64838]/40 underline-offset-2 tracking-[-0.02em]">
+            View your dashboard →
+          </p>
+          <p className="mt-2 font-mono text-[#9b9ca6] text-[10px]">
+            links rewritten on send · opens pixel injected
+          </p>
+        </div>
+
+        {/* Travel lane. */}
+        <div className="relative hidden h-28 [--ps-lane:110px] sm:block md:[--ps-lane:150px]">
+          <div
+            aria-hidden="true"
+            className="absolute inset-y-2 left-1/2 border-[#ececef] border-l border-dashed"
+          />
+          {pills.map((pill) => (
+            <span
+              key={pill.label}
+              className={cn(
+                "ps-travel absolute left-0 rounded-full border border-[#f64838]/30 bg-[#fdeeec] px-2.5 py-1 font-mono text-[#b8281c] text-[10.5px]",
+                pill.top,
+              )}
+              style={{ animationDelay: `${pill.delay}s` }}
+            >
+              {pill.label}
+            </span>
+          ))}
+        </div>
+
+        {/* Destinations. */}
+        <div className="flex flex-row gap-2 sm:flex-col">
+          {dests.map((d) => (
+            <span
+              key={d.label}
+              className="ps-arrive rounded-[6px] border border-[#ececef] bg-white px-3 py-2 font-mono text-[#2e3038] text-[11.5px]"
+              style={{ animationDelay: `${d.delay}s` }}
+            >
+              {d.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <p className="mt-4 font-mono text-[#9b9ca6] text-[10.5px]">
+        durable · signed · retried · dead-lettered
+      </p>
+    </div>
+  );
+}
 
 function PsLoop() {
   return (
@@ -1839,50 +2177,171 @@ function PsLoop() {
             ))}
           </div>
 
-          {/* Outbound fan-out, sketched in the light system. */}
+          {/* The first-party tracking loop, animated. */}
           <Reveal delay={0.1} className="self-center">
-            <div className="rounded-2xl border border-[#ececef] bg-white p-6 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
-                  Outbound — durable, retried
-                </span>
-                <span className="flex items-center gap-1.5 font-mono text-[#17805a] text-[11px]">
-                  <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
-                  live
-                </span>
-              </div>
-              <div className="mt-4 flex flex-col">
-                {[
-                  { event: "email.link_clicked", dest: "PostHog" },
-                  { event: "email.opened", dest: "PostHog" },
-                  { event: "contact.subscribed", dest: "Slack #growth" },
-                  { event: "journey.completed", dest: "Segment" },
-                  { event: "nps.answered", dest: "posthog.identify()" },
-                ].map((row, i) => (
-                  <div
-                    key={row.event}
-                    className={cn(
-                      "flex items-center justify-between gap-6 py-2.5",
-                      i > 0 && "border-[#f2f2f5] border-t",
-                    )}
-                  >
-                    <span className="font-mono text-[#2e3038] text-[12.5px]">
-                      {row.event}
-                    </span>
-                    <span className="flex items-center gap-2 font-mono text-[12.5px] text-[#9b9ca6]">
-                      <span aria-hidden="true" className="text-[#f64838]">
-                        →
-                      </span>
-                      {row.dest}
-                      <span aria-hidden="true" className="text-[#23c489]">
-                        ✓
-                      </span>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <PsTrackingAnimation />
           </Reveal>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ repo -- */
+
+const LESSONS = [
+  {
+    label: "Version control",
+    title: "Every change has a history",
+    body: "Every template and journey has a git history. What the welcome email said in March is one git log away, with who changed it and why.",
+  },
+  {
+    label: "Code review",
+    title: "The same pull request as everything else",
+    body: "A journey ships through the same pull request as the rest of your product. Nothing goes live because someone clicked Save.",
+  },
+  {
+    label: "Experiments",
+    title: "Finished tests stay on the record",
+    body: "Variants are code, so finished A/B tests stay in history — the losing copy, the reasoning, the result.",
+  },
+  {
+    label: "Automation",
+    title: "A dozen lines instead of a canvas",
+    body: "A canvas flow is forty drag-and-drops; the same logic is a dozen lines of TypeScript that fit in a diff.",
+  },
+  {
+    label: "Time to ship",
+    title: "The work starts at editing",
+    body: "The scaffold puts 10 journeys and 13 templates in your repo with one command. The work starts at editing, not building.",
+  },
+  {
+    label: "Cost",
+    title: "Costs scale with infrastructure",
+    body: "Self-hosted software costs the same at 50,000 contacts as at 500. Costs scale with your infrastructure, not your list.",
+  },
+];
+
+function PsRepo() {
+  return (
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="relative pt-16 pb-24">
+        <PlusGrid className="top-12 right-0 hidden h-40 w-64 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
+        <Reveal>
+          <Eyebrow>Why a repo</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-[#040406]">What the repo gives you.</span>{" "}
+            <span className="text-[#9b9ca6]">
+              The habits that make software dependable.
+            </span>
+          </h2>
+        </Reveal>
+        <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {LESSONS.map((lesson, i) => (
+            <Reveal key={lesson.label} delay={(i % 3) * 0.06}>
+              <div className="flex h-full flex-col rounded-lg border border-[#ececef] bg-white p-6">
+                <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
+                  {lesson.label}
+                </span>
+                <h3 className="mt-3 font-medium text-[#040406] text-[15px] tracking-[-0.02em]">
+                  {lesson.title}
+                </h3>
+                <p className="mt-2 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                  {lesson.body}
+                </p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* --------------------------------------------------------------- hatchet -- */
+
+const HATCHET_PILLARS = [
+  {
+    title: "Survives deploys & restarts",
+    body: "A long ctx.sleep keeps running across a deploy and resumes days later, exactly where it left off.",
+  },
+  {
+    title: "Automatic retries & timeouts",
+    body: "Failed steps retry and waits expire on their own — durability you don't have to hand-roll.",
+  },
+  {
+    title: "Self-host it, or use Hatchet Cloud",
+    body: "Run Hatchet-Lite next to your app, or point at Hatchet Cloud. Same engine either way.",
+  },
+];
+
+function PsHatchet() {
+  return (
+    <section className="relative">
+      <Container className="py-20">
+        <div className="relative overflow-hidden rounded-2xl bg-[#060608] p-8 text-white md:p-12">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(60% 80% at 100% 10%, rgba(246,72,56,0.18), rgba(246,72,56,0.04) 45%, transparent 70%)",
+            }}
+          />
+          <WaveLines
+            className="absolute bottom-0 left-0 h-48 w-[55%] opacity-50"
+            stroke="rgba(246,72,56,0.4)"
+            count={6}
+          />
+          <div className="relative">
+            <BrandLogo brand="hatchet" height={32} className="text-white" />
+            <Eyebrow light className="mt-8">
+              Powered by Hatchet
+            </Eyebrow>
+            <h2
+              className={cn(
+                "mt-6 max-w-[640px] font-normal text-[34px] text-white leading-[1.15] tracking-[-0.01em] md:text-[44px] md:leading-[50px]",
+                DISPLAY,
+              )}
+            >
+              Durable execution, by Hatchet.
+            </h2>
+            <p className="mt-5 max-w-[640px] text-sm text-white/60 leading-[22px] tracking-[-0.02em]">
+              Every journey runs on{" "}
+              <a
+                href="https://hatchet.run"
+                target="_blank"
+                rel="noreferrer"
+                className="text-white underline decoration-white/30 underline-offset-4"
+              >
+                Hatchet
+              </a>
+              , the durable execution engine underneath Hogsend. It's what lets
+              a long ctx.sleep survive a deploy and resume two days later
+              exactly where it left off. Hogsend builds on Hatchet rather than
+              rolling its own durability.
+            </p>
+            <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+              {HATCHET_PILLARS.map((pillar) => (
+                <div
+                  key={pillar.title}
+                  className="rounded-lg border border-white/10 bg-white/[0.02] p-5"
+                >
+                  <h3 className="font-medium text-[15px] text-white tracking-[-0.02em]">
+                    {pillar.title}
+                  </h3>
+                  <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                    {pillar.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </Container>
     </section>
@@ -1891,21 +2350,40 @@ function PsLoop() {
 
 /* -------------------------------------------------------------- economics -- */
 
-const RENT_MODELS = [
+const RENT_MODELS: {
+  name: string;
+  model: string;
+  rows: { key: string; value: string }[];
+}[] = [
   {
     name: "Loops",
-    chargesBy: "Subscribed contacts",
-    whenYouGrow: "$249/mo at 50k contacts.*",
+    model: "Subscribed contacts",
+    rows: [
+      { key: "5,000 contacts", value: "$49/mo*" },
+      { key: "50,000 contacts", value: "$249/mo*" },
+      { key: "Sending", value: "their infrastructure" },
+      { key: "Grows with", value: "your list" },
+    ],
   },
   {
     name: "Customer.io",
-    chargesBy: "Profiles + emails + credits",
-    whenYouGrow: "Custom pricing at scale.",
+    model: "Profiles + emails + credits",
+    rows: [
+      { key: "Billing", value: "per profile + volume" },
+      { key: "At scale", value: "custom pricing" },
+      { key: "Sending", value: "their infrastructure" },
+      { key: "Grows with", value: "your list" },
+    ],
   },
   {
     name: "PostHog Workflows",
-    chargesBy: "$0.003/send after 10k free/mo*",
-    whenYouGrow: "Costs scale with send volume.",
+    model: "Per message sent",
+    rows: [
+      { key: "Free tier", value: "10k msgs/mo*" },
+      { key: "After that", value: "$0.003/send*" },
+      { key: "Sending", value: "managed sender" },
+      { key: "Grows with", value: "send volume" },
+    ],
   },
 ];
 
@@ -1934,46 +2412,85 @@ function PsEconomics() {
         </Reveal>
 
         <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Reveal>
-            <div className="relative flex h-full flex-col overflow-hidden rounded-lg border border-[#f64838]/40 bg-[#fef4f2] p-6">
+          {/* Hogsend — the highlighted card, detail rows pinned bottom. */}
+          <Reveal className="h-full">
+            <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-lg border border-[#f64838]/40 bg-[#fef4f2] p-6">
               <span
                 aria-hidden="true"
                 className="absolute top-2 right-2 size-[10px] bg-[#f64838]"
               />
-              <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
-                Hogsend
-              </span>
-              <span
-                className={cn(
-                  "mt-3 text-[#040406] text-[26px] leading-[1.15] tracking-[-0.02em]",
-                  DISPLAY,
-                )}
-              >
-                Self-hosted · $0 software
-              </span>
-              <p className="mt-3 text-[#6b5a56] text-sm leading-[21px] tracking-[-0.02em]">
-                Your infra plus your email account. No per-contact, per-profile,
-                or per-send fees.
-              </p>
-            </div>
-          </Reveal>
-          {RENT_MODELS.map((m, i) => (
-            <Reveal key={m.name} delay={(i + 1) * 0.06}>
-              <div className="flex h-full flex-col rounded-lg border border-[#ececef] bg-white p-6">
-                <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
-                  {m.name}
+              <div>
+                <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
+                  Hogsend
                 </span>
                 <span
                   className={cn(
-                    "mt-3 text-[#2e3038] text-[22px] leading-[1.2] tracking-[-0.02em]",
+                    "mt-3 block text-[#040406] text-[24px] leading-[1.15] tracking-[-0.02em]",
                     DISPLAY,
                   )}
                 >
-                  {m.chargesBy}
+                  Self-hosted · $0 software
                 </span>
-                <p className="mt-3 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
-                  {m.whenYouGrow}
-                </p>
+              </div>
+              <div className="mt-6 flex flex-col">
+                {[
+                  { key: "Software", value: "$0, ELv2" },
+                  { key: "Hosting", value: "your infrastructure" },
+                  { key: "Sending", value: "your Resend / Postmark" },
+                  { key: "Per contact", value: "nothing" },
+                ].map((row, i) => (
+                  <div
+                    key={row.key}
+                    className={cn(
+                      "flex items-baseline justify-between gap-3 py-2",
+                      i > 0 && "border-[#f64838]/15 border-t",
+                    )}
+                  >
+                    <span className="font-mono text-[#9b6f68] text-[11px]">
+                      {row.key}
+                    </span>
+                    <span className="text-right font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+                      {row.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+          {RENT_MODELS.map((m, i) => (
+            <Reveal key={m.name} delay={(i + 1) * 0.06} className="h-full">
+              <div className="flex h-full flex-col justify-between rounded-lg border border-[#ececef] bg-white p-6">
+                <div>
+                  <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+                    {m.name}
+                  </span>
+                  <span
+                    className={cn(
+                      "mt-3 block text-[#2e3038] text-[20px] leading-[1.2] tracking-[-0.02em]",
+                      DISPLAY,
+                    )}
+                  >
+                    {m.model}
+                  </span>
+                </div>
+                <div className="mt-6 flex flex-col">
+                  {m.rows.map((row, j) => (
+                    <div
+                      key={row.key}
+                      className={cn(
+                        "flex items-baseline justify-between gap-3 py-2",
+                        j > 0 && "border-[#f2f2f5] border-t",
+                      )}
+                    >
+                      <span className="font-mono text-[#9b9ca6] text-[11px]">
+                        {row.key}
+                      </span>
+                      <span className="text-right text-[#2e3038] text-[13px] tracking-[-0.02em]">
+                        {row.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </Reveal>
           ))}
@@ -2027,10 +2544,6 @@ function PsUseCases() {
   return (
     <section className="relative border-[#f6483826] border-t">
       <Container className="pt-16 pb-28">
-        {/* Flint's soft gradient-tile band, re-keyed to our palette. */}
-        <Reveal>
-          <TileMosaic className="-mx-6 mb-16 md:-mx-10" />
-        </Reveal>
         <Eyebrow>Use cases</Eyebrow>
         <h2
           className={cn(
@@ -2044,20 +2557,17 @@ function PsUseCases() {
           <span className="text-[#9b9ca6]">— ten ship in the scaffold.</span>
         </h2>
 
-        <div className="mt-14 grid grid-cols-1 gap-x-8 gap-y-12 border-[#ececef] border-t pt-12 sm:grid-cols-2 lg:grid-cols-4">
-          {USE_CASES.map((u) => (
-            <div key={u.title}>
-              <span
-                aria-hidden="true"
-                className="inline-flex size-8 items-center justify-center rounded-full bg-[#fdeeec] font-mono text-[#b8281c] text-[11px]"
-              >
-                ▲
-              </span>
-              <h3 className="mt-4 font-medium text-[#040406] text-[15px] tracking-[-0.02em]">
-                {u.title}
-              </h3>
-              <p className="mt-2 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
-                {u.body}
+        {/* The event-fanning card idiom: tinted panels, lead + gray rest. */}
+        <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {USE_CASES.map((u, i) => (
+            <div
+              key={u.title}
+              className="p-6"
+              style={{ background: i % 2 === 0 ? "#f6f7fb" : "#fdf1ee" }}
+            >
+              <p className="text-[14.5px] leading-[22px] tracking-[-0.02em]">
+                <span className="font-medium text-[#040406]">{u.title}.</span>{" "}
+                <span className="text-[#75768a]">{u.body}</span>
               </p>
             </div>
           ))}
@@ -2182,15 +2692,20 @@ function PsClosingCta() {
             count={9}
           />
           <div className="relative p-8 md:p-14">
+            <Eyebrow light>Get started</Eyebrow>
             <h2
               className={cn(
                 "max-w-[640px] font-normal text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[48px] md:leading-[56px]",
                 DISPLAY,
               )}
             >
-              Ship the welcome series today, and every send after it, from your
-              own repo.
+              First send in minutes.
             </h2>
+            <p className="mt-5 max-w-[560px] text-sm text-white/60 leading-[22px] tracking-[-0.02em]">
+              The scaffold command sets up the app, Docker, env, and ten
+              journeys — the welcome series included. pnpm bootstrap brings the
+              stack up. Or deploy the Railway template in a click.
+            </p>
 
             {/* Every line a fact. */}
             <ul className="mt-8 flex flex-col gap-2.5">
@@ -2255,35 +2770,61 @@ const FOOTER_COLS: {
   {
     title: "Product",
     links: [
+      { label: "Done-for-you setup", href: "/service" },
+      { label: "Growth", href: "/growth-metrics" },
       { label: "Pricing", href: "/pricing" },
       { label: "Templates", href: "/emails" },
       { label: "Integrations", href: "/integrations" },
-      { label: "Changelog", href: "/changelog" },
+      { label: "Recipes", href: "/recipes" },
       { label: "Studio", href: "/docs/operating/studio" },
+      { label: "Changelog", href: "/changelog" },
     ],
   },
   {
-    title: "Resources",
+    title: "Use cases",
+    links: [
+      { label: "Onboarding", href: "/use-cases/onboarding" },
+      { label: "Trial conversion", href: "/use-cases/trial-conversion" },
+      { label: "Win-back", href: "/use-cases/winback" },
+      { label: "Community", href: "/use-cases/community" },
+      {
+        label: "Transactional email",
+        href: "/docs/recipes/transactional-emails",
+      },
+    ],
+  },
+  {
+    title: "Compare",
+    links: [
+      {
+        label: "vs PostHog Workflows",
+        href: "/docs/compare/posthog-workflows",
+      },
+      { label: "vs Loops", href: "/docs/compare/loops" },
+      { label: "vs Customer.io", href: "/docs/compare/customer-io" },
+      { label: "vs Klaviyo", href: "/docs/compare/klaviyo" },
+      { label: "Feature matrix", href: "/docs/compare/feature-matrix" },
+      { label: "Migration guide", href: "/docs/compare/migration" },
+    ],
+  },
+  {
+    title: "Developers",
     links: [
       { label: "Docs", href: "/docs" },
       { label: "Getting started", href: "/docs/getting-started" },
       { label: "Data API", href: "/docs/data-api" },
       { label: "CLI", href: "/docs/cli" },
+      { label: "API reference", href: "/docs/api" },
       { label: "llms.txt", href: "/llms.txt" },
     ],
   },
   {
-    title: "Connect",
+    title: "Company",
     links: [
+      { label: "About", href: "/about" },
       { label: "GitHub", href: GITHUB_URL },
       { label: "npm", href: NPM_URL },
       { label: "Discord", href: "/discord" },
-      { label: "About", href: "/about" },
-    ],
-  },
-  {
-    title: "Legal",
-    links: [
       { label: "License", href: "/pricing#license" },
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },
@@ -2304,7 +2845,7 @@ function PsFooter() {
             © 2026 Hogsend. All rights reserved.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-10 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
           {FOOTER_COLS.map((col) => (
             <div key={col.title}>
               <p className="font-medium text-sm text-white tracking-[-0.02em]">
@@ -2357,9 +2898,12 @@ export default function SpikePolarPage(): JSX.Element {
       <PsSetup />
       <PsCorePlatform />
       <PsHowItWorks />
+      <PsBuildingBlocks />
       <PsOpen />
       <PsFeatures />
       <PsLoop />
+      <PsRepo />
+      <PsHatchet />
       <PsEconomics />
       <PsUseCases />
       <PsFaq />
