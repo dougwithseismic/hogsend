@@ -1,12 +1,27 @@
+import { Bell } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
+import { CodeHighlight } from "@/components/ds/code-highlight";
 import { CopyButton } from "@/components/ds/copy-button";
+import { LogoMarquee } from "@/components/ds/marquee";
+import { Reveal } from "@/components/ds/reveal";
 import { cn } from "@/lib/cn";
-import { GITHUB_URL, NPM_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
+import {
+  ENGINE_VERSION,
+  GITHUB_URL,
+  NPM_URL,
+  RAILWAY_DEPLOY_URL,
+} from "@/lib/site";
 import studioJourneys from "@/public/images/studio/studio-journeys.png";
 import studioSends from "@/public/images/studio/studio-sends.png";
+import {
+  type ProviderValue,
+  PsCodePicker,
+  type UseCaseValue,
+} from "./_components/code-picker";
+import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
 /*  SPIKE — the Hogsend homepage re-set in the Polar Signals design system.   */
@@ -68,7 +83,7 @@ function Eyebrow({
         height="8"
         viewBox="0 0 9 8"
         aria-hidden="true"
-        className="text-[#6f5af6]"
+        className="text-[#f64838]"
       >
         <path d="M4.5 0L9 8H0z" fill="currentColor" />
       </svg>
@@ -144,35 +159,94 @@ function InkLogo({ light }: { light?: boolean }) {
 
 /* ----------------------------------------------------------- decorations -- */
 
-/** Deterministic pixel-bar art (the Polar hero/footer gradient bars). */
-function PixelBars({
-  count = 56,
-  className,
-}: {
-  count?: number;
-  className?: string;
-}) {
-  const bars = Array.from({ length: count }, (_, i) => ({
-    h: 10 + ((i * 53 + 17) % 86),
-    o: 0.3 + ((i * 29 + 7) % 55) / 100,
+/** Soft gradient tile mosaic — the Flint hero band, re-keyed to our palette
+ * (purples/blues with a warm cream accent). Deterministic tile picks. */
+const MOSAIC_TILES = [
+  "linear-gradient(180deg, #fdefec 0%, #f9c9c0 100%)",
+  "linear-gradient(180deg, #eef3fe 0%, #cdddfb 100%)",
+  "linear-gradient(180deg, #fdf7e3 0%, #f4e6bd 100%)",
+  "linear-gradient(180deg, #f5f6fa 0%, #e4e7f2 100%)",
+  "linear-gradient(180deg, #fdeae6 0%, #f5a89b 100%)",
+  "linear-gradient(180deg, #f2f7fe 0%, #d8e6fc 100%)",
+] as const;
+
+function TileMosaic({ className }: { className?: string }) {
+  const tiles = Array.from({ length: 16 }, (_, i) => ({
+    bg: MOSAIC_TILES[(i * 5 + 3) % MOSAIC_TILES.length],
+    tall: (i * 7 + 2) % 3 === 0,
   }));
   return (
     <div
       aria-hidden="true"
       className={cn(
-        "pointer-events-none flex items-end gap-[7px] overflow-hidden",
+        "pointer-events-none grid grid-cols-4 gap-1.5 md:grid-cols-8",
         className,
       )}
     >
-      {bars.map((b, i) => (
+      {tiles.map((t, i) => (
         <div
           // biome-ignore lint/suspicious/noArrayIndexKey: static deterministic art
           key={i}
-          className="w-[11px] shrink-0 bg-white"
-          style={{ height: `${b.h}%`, opacity: b.o }}
+          className={cn("rounded-[4px]", t.tall ? "h-32" : "h-24 self-end")}
+          style={{ background: t.bg }}
         />
       ))}
     </div>
+  );
+}
+
+/** Fanned contour lines with a slow dash-drift — the abstract "ad-lib"
+ * layer, drawn in code so it stays on-palette. */
+function WaveLines({
+  className,
+  stroke = "rgba(255,150,128,0.45)",
+  count = 7,
+}: {
+  className?: string;
+  stroke?: string;
+  count?: number;
+}) {
+  const paths = Array.from({ length: count }, (_, i) => {
+    const y = 16 + i * 26;
+    const lift = 24 + ((i * 13) % 26);
+    return `M-20 ${y} C 180 ${y - lift}, 380 ${y + lift}, 620 ${y - lift / 2} S 980 ${y + lift}, 1240 ${y - lift}`;
+  });
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 1200 200"
+      fill="none"
+      preserveAspectRatio="none"
+      className={cn("pointer-events-none", className)}
+    >
+      {paths.map((d, i) => (
+        <path
+          // biome-ignore lint/suspicious/noArrayIndexKey: static deterministic art
+          key={i}
+          d={d}
+          stroke={stroke}
+          strokeWidth="1"
+          strokeOpacity={0.3 + (i % 4) * 0.16}
+          className="ps-dash"
+          style={{ animationDelay: `${i * -3.5}s` }}
+        />
+      ))}
+    </svg>
+  );
+}
+
+/** Repeating plus-sign pattern (SVG data-URI), crimzon at low alpha. */
+function PlusGrid({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn("pointer-events-none absolute", className)}
+      style={{
+        backgroundImage:
+          "url(\"data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M14 10v8M10 14h8' stroke='%23f64838' stroke-opacity='0.25' stroke-width='1'/%3E%3C/svg%3E\")",
+        backgroundSize: "28px 28px",
+      }}
+    />
   );
 }
 
@@ -184,7 +258,7 @@ function DotPatch({ className }: { className?: string }) {
       className={cn("pointer-events-none absolute", className)}
       style={{
         backgroundImage:
-          "radial-gradient(rgba(111,90,246,0.45) 1.2px, transparent 1.2px)",
+          "radial-gradient(rgba(246,72,56,0.4) 1.2px, transparent 1.2px)",
         backgroundSize: "9px 9px",
       }}
     />
@@ -202,7 +276,7 @@ const NAV_LINKS = [
 
 function PsNav() {
   return (
-    <header className="sticky top-0 z-50 border-[#ececef] border-b bg-white/85 backdrop-blur">
+    <header className="sticky top-0 z-50 border-[#f6483833] border-b bg-white/85 backdrop-blur">
       <Container className="flex h-[54px] items-center justify-between">
         <div className="flex items-center gap-8">
           <Link href="/spike-polar">
@@ -220,16 +294,22 @@ function PsNav() {
             ))}
           </nav>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          {/* The nav bell — the real site's in-app feed entry point, here as
+              a light-system visual (the live feed itself sits in the hero). */}
+          <span
+            aria-hidden="true"
+            className="relative hidden size-8 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038] sm:inline-flex"
+          >
+            <Bell className="size-4" strokeWidth={1.5} />
+            <span className="absolute top-1 right-1 size-1.5 rounded-full bg-[#f64838]" />
+          </span>
           <a
             href={GITHUB_URL}
-            className="hidden font-medium text-[#040406] text-sm tracking-[-0.025em] hover:opacity-70 sm:inline"
+            className="hidden font-medium text-[#75768a] text-sm tracking-[-0.025em] hover:text-[#040406] md:inline"
           >
             GitHub
           </a>
-          <Btn href={RAILWAY_DEPLOY_URL} variant="outline">
-            Deploy on Railway
-          </Btn>
           <Btn href="/docs/getting-started">Start building</Btn>
         </div>
       </Container>
@@ -239,16 +319,143 @@ function PsNav() {
 
 /* ----------------------------------------------------------------- hero -- */
 
+/** The live-demo window, in the light system: the real homepage demo's
+ * two-up (sign-up → in-app notification loop) as hero furniture. On the
+ * production site this is the real @hogsend/react feed; here it's a
+ * design-system-faithful sketch of the same UI. */
+function PsHeroDemo() {
+  const feed = [
+    {
+      title: "Welcome to the demo 👋",
+      body: "You're in — a real welcome series just left hello@hogsend.com.",
+      time: "just now",
+      unread: true,
+    },
+    {
+      title: "You fired demo.milestone",
+      body: "A journey caught it and dropped this notification.",
+      time: "2m",
+      unread: true,
+    },
+  ];
+  return (
+    <div className="mx-auto max-w-[980px] overflow-hidden rounded-xl border border-[#dcdce2] bg-white shadow-2xl">
+      {/* Window chrome */}
+      <div className="flex items-center justify-between border-[#ececef] border-b px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <div aria-hidden="true" className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-[#e4e4e9]" />
+            <span className="size-2.5 rounded-full bg-[#e4e4e9]" />
+            <span className="size-2.5 rounded-full bg-[#e4e4e9]" />
+          </div>
+          <span className="font-mono text-[#9b9ca6] text-[11px] tracking-wide">
+            hogsend.com — live demo
+          </span>
+        </div>
+        <span className="relative inline-flex size-7 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038]">
+          <Bell className="size-3.5" strokeWidth={1.5} />
+          <span className="-top-1 -right-1 absolute inline-flex size-4 items-center justify-center rounded-full bg-[#f64838] font-medium text-[10px] text-white">
+            3
+          </span>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-[#ececef]">
+        {/* Left — the real sign-up */}
+        <div className="p-6 text-left md:p-8">
+          <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+            Get the demo
+          </span>
+          <h3 className="mt-3 font-medium text-[#040406] text-xl tracking-[-0.02em]">
+            First name, email — get the demo.
+          </h3>
+          <p className="mt-2 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+            A stock create-hogsend app running in production ingests the event,
+            runs its welcome journey, and sends from hello@hogsend.com a few
+            seconds later.
+          </p>
+          <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-[#e4e4e9] p-1.5 pl-4">
+            <span className="flex-1 text-[#9b9ca6] text-sm">
+              Your work email
+            </span>
+            <span className="rounded-[4px] bg-[#121317] px-3.5 py-2 font-medium text-sm text-white">
+              Get the demo
+            </span>
+          </div>
+          <p className="mt-4 text-[#9b9ca6] text-[12px] leading-5 tracking-[-0.02em]">
+            Same engine, same journey code you scaffold · unsubscribe is one
+            click
+          </p>
+        </div>
+
+        {/* Right — the in-app loop */}
+        <div className="bg-[#fafafb] p-6 text-left md:p-8">
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+              Live feed
+            </span>
+            <span className="flex items-center gap-1.5 font-mono text-[#17805a] text-[11px]">
+              <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
+              connected
+            </span>
+          </div>
+          <div className="mt-4 flex flex-col gap-2.5">
+            {feed.map((n) => (
+              <div
+                key={n.title}
+                className="rounded-md border border-[#ececef] bg-white px-4 py-3"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+                    {n.title}
+                  </p>
+                  <span className="flex items-center gap-2">
+                    <span className="text-[#9b9ca6] text-[11px]">{n.time}</span>
+                    {n.unread && (
+                      <span className="size-1.5 rounded-full bg-[#f64838]" />
+                    )}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
+                  {n.body}
+                </p>
+              </div>
+            ))}
+            {/* The in-email answer — the click IS the answer. */}
+            <div className="rounded-md border border-[#ececef] bg-white px-4 py-3">
+              <p className="font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+                Quick question
+              </p>
+              <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
+                How likely are you to recommend Hogsend? The click is the answer
+                — the journey branches on it.
+              </p>
+              <div className="mt-2.5 flex items-center gap-2">
+                <span className="rounded-full bg-[#fdeeec] px-3 py-1 font-medium text-[#b8281c] text-[12px]">
+                  Likely
+                </span>
+                <span className="rounded-full border border-[#e4e4e9] px-3 py-1 font-medium text-[#75768a] text-[12px]">
+                  Not yet
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PsHero() {
   return (
     <section className="relative overflow-hidden">
-      <Container className="pt-20 pb-10 md:pt-24">
+      <Container className="relative flex flex-col items-center pt-20 text-center md:pt-24">
         {/* Announcement pill */}
         <Link
           href="/changelog"
-          className="inline-flex items-center gap-2 rounded-full bg-[#f1eefe] py-1 pr-4 pl-1 text-[13px] text-[#2e3038]"
+          className="inline-flex items-center gap-2 rounded-full bg-[#fdeeec] py-1 pr-4 pl-1 text-[13px] text-[#2e3038]"
         >
-          <span className="rounded-full bg-[#6f5af6] px-2.5 py-0.5 font-medium text-[12px] text-white">
+          <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium text-[12px] text-white">
             New
           </span>
           Postmark support — swap providers with one env var
@@ -256,85 +463,155 @@ function PsHero() {
           <span className="font-medium text-[#040406]">Learn more →</span>
         </Link>
 
-        <div className="mt-10 flex flex-col justify-between gap-10 lg:flex-row lg:items-end">
-          <div>
-            <h1
-              className={cn(
-                "max-w-[640px] font-normal text-[#040406] text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[48px] md:leading-[54px]",
-                DISPLAY,
-              )}
-            >
-              What PostHog sees, Hogsend acts on.
-            </h1>
-            <p className="mt-6 max-w-[440px] text-[#2e3038] text-lg leading-[27px] tracking-[-0.025em]">
-              Welcome series, trial nudges, win-backs — lifecycle emails as
-              TypeScript in your repo, sent through your own Resend or Postmark
-              account.
-            </p>
-          </div>
+        <h1
+          className={cn(
+            "mt-9 max-w-[840px] font-normal text-[#040406] text-[44px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
+            DISPLAY,
+          )}
+        >
+          What PostHog sees, Hogsend acts on.
+        </h1>
+        <p className="mt-6 max-w-[560px] text-[#2e3038] text-lg leading-[27px] tracking-[-0.025em]">
+          Welcome series, trial nudges, win-backs — lifecycle emails as
+          TypeScript in your repo, sent through your own Resend or Postmark
+          account.
+        </p>
 
-          <div className="flex shrink-0 flex-col items-start gap-3 lg:items-end">
-            <div className="flex items-center gap-3">
-              <Btn href="/docs/getting-started" size="lg">
-                Start building
-              </Btn>
-              <Btn href={RAILWAY_DEPLOY_URL} variant="outline" size="lg">
-                Deploy on Railway
-              </Btn>
-            </div>
-            <p className="text-[#75768a] text-sm tracking-[-0.025em]">
-              Free to self-host · No per-contact billing
-            </p>
-          </div>
+        <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+          <Btn href="/docs/getting-started" size="lg">
+            Start building
+          </Btn>
+          <Btn href={RAILWAY_DEPLOY_URL} variant="outline" size="lg">
+            Deploy on Railway
+          </Btn>
+        </div>
+
+        {/* Scaffold command — the crimzon hero's command strip, light chrome. */}
+        <div className="mt-7 flex items-center gap-4 rounded-[6px] border border-[#e4e4e9] bg-[#fafafa] py-2.5 pr-3 pl-4">
+          <code className="font-mono text-[13px] text-[#2e3038]">
+            <span className="text-[#f64838]">$</span> {INSTALL_COMMAND}
+          </code>
+          <CopyButton
+            value={INSTALL_COMMAND}
+            className="text-[#9b9ca6] hover:text-[#040406]"
+          />
+        </div>
+        <p className="mt-4 text-[#9b9ca6] text-sm tracking-[-0.025em]">
+          Free to self-host · No per-contact billing
+        </p>
+      </Container>
+
+      {/* Hero canvas — a contained ink panel carrying the crimzon
+          planet-horizon glow; the live demo window floats over it. */}
+      <Container className="relative mt-14">
+        <div className="relative h-[300px] overflow-hidden rounded-2xl bg-[#070303] md:h-[340px]">
+          <WaveLines
+            className="absolute inset-0 h-full w-full opacity-80"
+            stroke="rgba(255,140,118,0.5)"
+            count={8}
+          />
+          <div
+            aria-hidden="true"
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+            }}
+          />
+          {/* The crisp horizon arc. */}
+          <div
+            aria-hidden="true"
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+            }}
+          />
         </div>
       </Container>
 
-      {/* Hero canvas — the pixel-bar gradient band. */}
-      <div className="relative mt-12 h-[300px] w-full overflow-hidden md:h-[380px]">
-        <div
-          aria-hidden="true"
-          className="absolute inset-0"
-          style={{
-            background:
-              "linear-gradient(112deg, #c7d4fb 0%, #7d9bf7 34%, #5f7ef2 55%, #a58ef8 78%, #e9e4fd 100%)",
-          }}
-        />
-        <PixelBars count={96} className="absolute inset-x-0 bottom-0 h-full" />
-        <div
-          aria-hidden="true"
-          className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-white to-transparent"
-        />
-      </div>
+      <Container className="-mt-[210px] relative z-10 pb-14 md:-mt-[230px]">
+        <PsHeroDemo />
+        <p className="mt-5 text-center text-[#9b9ca6] text-[13px] tracking-[-0.02em]">
+          The feed, bell, and survey card are real{" "}
+          <code className="font-mono text-[#2e3038]">@hogsend/react</code>{" "}
+          components — live on hogsend.com.{" "}
+          <Link href="/components" className="font-medium text-[#040406]">
+            See the full set →
+          </Link>
+        </p>
+      </Container>
 
       {/* Works-with strip */}
-      <div className="border-[#ececef] border-b">
+      <div className="border-[#f6483833] border-y">
         <Container className="flex flex-col gap-5 py-9 md:flex-row md:items-center md:gap-12">
           <span className="shrink-0 font-mono text-[#9b9ca6] text-[12px] uppercase tracking-[0.08em]">
             Works with
           </span>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-12 gap-y-6 opacity-70 grayscale">
-            {(
-              [
-                "posthog",
-                "resend",
-                "stripe",
-                "railway",
-                "typescript",
-                "segment",
-                "slack",
-              ] as const satisfies readonly BrandKey[]
-            ).map((brand) => (
-              <BrandLogo
-                key={brand}
-                brand={brand}
-                height={22}
-                className="text-[#75768a]"
-              />
-            ))}
+          <div className="relative min-w-0 flex-1 opacity-70 grayscale">
+            <LogoMarquee
+              items={(
+                [
+                  "posthog",
+                  "resend",
+                  "stripe",
+                  "railway",
+                  "typescript",
+                  "segment",
+                  "slack",
+                ] as const satisfies readonly BrandKey[]
+              ).map((brand) => (
+                <BrandLogo
+                  key={brand}
+                  brand={brand}
+                  height={22}
+                  className="mx-8 text-[#75768a]"
+                />
+              ))}
+            />
           </div>
         </Container>
       </div>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------ proof strip -- */
+
+/** Mintlify's counters band, restated with our verifiable proof inventory —
+ * releases/packages/templates/journeys, never invented usage numbers. */
+function PsProofStrip() {
+  const stats = [
+    { label: "Current release", value: `v${ENGINE_VERSION}` },
+    { label: "Packages on npm", value: "11" },
+    { label: "React Email templates", value: "13" },
+    { label: "Journeys in the scaffold", value: "10" },
+  ];
+  return (
+    <div className="border-[#f6483833] border-b">
+      <Container className="flex flex-wrap items-center gap-x-8 gap-y-3 py-4">
+        <span className="font-mono text-[#9b9ca6] text-[12px] uppercase tracking-[0.08em]">
+          In the open
+        </span>
+        {stats.map((stat) => (
+          <span
+            key={stat.label}
+            className="flex items-center gap-2.5 text-[13px] text-[#75768a] tracking-[-0.02em]"
+          >
+            {stat.label}
+            <span className="rounded-[4px] bg-[#fdeeec] px-1.5 py-0.5 font-mono text-[#b8281c] text-[12px]">
+              {stat.value}
+            </span>
+          </span>
+        ))}
+        <Link
+          href={NPM_URL}
+          className="ml-auto font-medium text-[#040406] text-[13px] tracking-[-0.02em] hover:opacity-70"
+        >
+          npmjs.com/@hogsend →
+        </Link>
+      </Container>
+    </div>
   );
 }
 
@@ -380,7 +657,7 @@ function PillarIcon({ index }: { index: number }) {
 
 function PsProblem() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
       <DotPatch className="top-24 right-0 hidden h-40 w-56 lg:block" />
       <Container className="pt-24 pb-28 md:pt-32">
         <Eyebrow>The problem</Eyebrow>
@@ -388,12 +665,13 @@ function PsProblem() {
         <div className="mt-8 flex flex-col justify-between gap-10 lg:flex-row">
           <h2
             className={cn(
-              "max-w-[560px] font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
+              "max-w-[560px] font-normal text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
               DISPLAY,
             )}
           >
-            PostHog shows you where users drop off. Acting on it meant a second
-            platform.
+            {/* Scroll-linked word reveal — the homepage Manifesto animation,
+                re-keyed to the light palette. */}
+            <WordReveal text="PostHog shows you where users drop off. Acting on it meant a second platform." />
           </h2>
 
           <div className="max-w-[340px] lg:pt-2">
@@ -432,7 +710,7 @@ function PsProblem() {
             className="absolute -inset-x-24 -bottom-24 top-12"
             style={{
               background:
-                "linear-gradient(180deg, transparent 0%, rgba(125,155,247,0.28) 45%, rgba(165,142,248,0.22) 80%, transparent 100%)",
+                "linear-gradient(180deg, transparent 0%, rgba(246,72,56,0.18) 45%, rgba(246,120,80,0.14) 80%, transparent 100%)",
             }}
           />
           <div className="relative overflow-hidden rounded-lg border border-[#1c1d22] bg-[#101014] shadow-2xl">
@@ -468,16 +746,249 @@ function PsProblem() {
   );
 }
 
+/* ---------------------------------------------------------- event fanning -- */
+
+const FAN_SCENARIOS = [
+  {
+    tag: "Onboarding",
+    lead: "The Discord help thread.",
+    rest: "Someone starts a trial, then asks for setup help in Discord. The handle and the trial account are already the same contact — the journey answers with a getting-started email and flags the stuck step to your team in Slack.",
+  },
+  {
+    tag: "Activation",
+    lead: "Watched the demo, did nothing.",
+    rest: "A signup plays the demo twice but never creates a project. The journey waits three days on project.created, then sends the nudge that points at that one action.",
+  },
+  {
+    tag: "Billing",
+    lead: "Card declined.",
+    rest: "A payment fails. The reminder goes out, and the journey stops the instant the payment clears — nobody who already paid gets nagged.",
+  },
+  {
+    tag: "Community",
+    lead: "Quiet in Discord.",
+    rest: "A daily-active member goes silent for two weeks. The drop shows on the same contact as their product usage — a check-in goes out before they fully drift.",
+  },
+  {
+    tag: "Sales",
+    lead: "A prospect logs in.",
+    rest: "A prospect your AE is chasing signs into the product. No email fires — the AE gets a Slack ping with exactly what the prospect did.",
+  },
+  {
+    tag: "Identity",
+    lead: "Anonymous, then known.",
+    rest: "Someone reads pricing anonymously and signs up the next day. The pre-signup events fold onto the new contact; the welcome references what they looked at.",
+  },
+  {
+    tag: "Timing",
+    lead: "Big win at 2am.",
+    rest: "A user hits a milestone in the middle of the night. Their celebration email is scheduled for their morning; the Slack high-five to your team fires now.",
+  },
+  {
+    tag: "Pipelines",
+    lead: "One Stripe event, four destinations.",
+    rest: "payment_succeeded enrolls the customer, updates PostHog, posts to Slack, and starts the receipt journey — one event, no glue code.",
+  },
+  {
+    tag: "Restraint",
+    lead: "Stops the second they convert.",
+    rest: "Every nudge checks the goal first. The moment they pay, the rest of the sequence never sends.",
+  },
+];
+
+const AGENT_READS = [
+  {
+    lead: "Draft the reply, a human sends it.",
+    rest: "An agent drafts the answer from the user's account state; the journey parks on an approval wait. A person edits or approves before anything sends.",
+  },
+  {
+    lead: "Confused vs furious.",
+    rest: "Two people write “this doesn't work.” One is lost — send the how-to. One just lost data — escalate to a human and suppress the automation. Same words, opposite handling.",
+  },
+  {
+    lead: "Cancel reason → the right win-back.",
+    rest: "“Too expensive for a side project” schedules a hobby-tier win-back sixty days out — not a sales call to someone who'd never take it.",
+  },
+];
+
+function PsFanning() {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <DotPatch className="top-24 right-0 hidden h-40 w-52 lg:block" />
+      <Container className="relative pt-24 pb-6">
+        <Reveal>
+          <Eyebrow>Event fanning</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[880px] font-normal text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-[#040406]">
+              Every signal lands on one person.
+            </span>{" "}
+            <span className="text-[#9b9ca6]">
+              Every event can fan back out.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[560px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+            Marketing site, product, Discord, Slack, Stripe — events from every
+            surface land on the same contact. A journey reads the signal and
+            sends whatever fits: an email to the user, a DM in Discord, a ping
+            to your team, an event back to PostHog.
+          </p>
+        </Reveal>
+      </Container>
+
+      {/* Scenario carousel — clipped to the content frame. */}
+      <Container className="mt-12 pb-6">
+        <div className="overflow-x-auto [scrollbar-width:none]">
+          <div className="flex w-max gap-4">
+            {FAN_SCENARIOS.map((s, i) => (
+              <div
+                key={s.lead}
+                className="w-[300px] shrink-0 p-6"
+                style={{ background: i % 2 === 0 ? "#f6f7fb" : "#fdf1ee" }}
+              >
+                <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
+                  {s.tag}
+                </span>
+                <p className="mt-3 text-[14.5px] leading-[22px] tracking-[-0.02em]">
+                  <span className="font-medium text-[#040406]">{s.lead}</span>{" "}
+                  <span className="text-[#75768a]">{s.rest}</span>
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Container>
+
+      {/* Agents read the words, not just the events. */}
+      <Container className="pb-24">
+        <Reveal>
+          <div className="mt-10 grid grid-cols-1 gap-10 border-[#ececef] border-t pt-10 lg:grid-cols-[1fr_1.4fr]">
+            <div>
+              <h3
+                className={cn(
+                  "max-w-[340px] text-[#040406] text-[26px] leading-[1.2] tracking-[-0.02em]",
+                  DISPLAY,
+                )}
+              >
+                Agents read the words, not just the events.
+              </h3>
+              <p className="mt-4 max-w-[360px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                A journey is an async TypeScript function, so you can call an
+                LLM inside run() and branch on its verdict — or park on a
+                durable wait and let an out-of-band agent fire its decision back
+                as one event. Reviewed in a PR, type-checked like everything
+                else.
+              </p>
+            </div>
+            <div className="flex flex-col">
+              {AGENT_READS.map((item, i) => (
+                <div
+                  key={item.lead}
+                  className={cn("py-4", i > 0 && "border-[#ececef] border-t")}
+                >
+                  <p className="text-[15px] leading-[23px] tracking-[-0.02em]">
+                    <span className="font-medium text-[#040406]">
+                      {item.lead}
+                    </span>{" "}
+                    <span className="text-[#75768a]">{item.rest}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ stats -- */
+
+const BENCHMARKS = [
+  {
+    value: "25–95%",
+    claim: "more profit from a 5% lift in retention",
+    source: "Bain & Company",
+  },
+  {
+    value: "~2×",
+    claim: "the engagement of behaviour-triggered email vs. batch sends",
+    source: "Epsilon",
+  },
+  {
+    value: "5–25×",
+    claim: "what acquiring a new customer costs vs. keeping one",
+    source: "Harvard Business Review",
+  },
+];
+
+function PsStats() {
+  return (
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="relative pt-16 pb-24">
+        <PlusGrid className="top-12 right-0 hidden h-44 w-72 [mask-image:linear-gradient(to_left,black,transparent)] lg:block" />
+        <Reveal>
+          <Eyebrow>Why it's worth doing well</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-[#040406]">
+              Lifecycle email is the highest-leverage system
+            </span>{" "}
+            <span className="text-[#9b9ca6]">most teams skip.</span>
+          </h2>
+        </Reveal>
+
+        {/* Flint's stat-card row: big numeral, caption, source chip. */}
+        <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {BENCHMARKS.map((b, i) => (
+            <Reveal key={b.source} delay={i * 0.08}>
+              <div className="flex h-full flex-col rounded-lg border border-[#ececef] bg-white p-6">
+                <span
+                  className={cn(
+                    "text-[#040406] text-[44px] leading-[1.1] tracking-[-0.02em]",
+                    DISPLAY,
+                  )}
+                >
+                  {b.value}
+                </span>
+                <p className="mt-2 max-w-[280px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                  {b.claim}
+                </p>
+                <span className="mt-6 inline-flex w-fit items-center rounded-full bg-[#fdeeec] px-3 py-1 font-mono text-[11px] text-[#b8281c] uppercase tracking-[0.06em]">
+                  {b.source}
+                </span>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
 /* ----------------------------------------------------------- agent cards -- */
 
 const AGENT_CARDS = [
   {
     title: "Plain TypeScript surface",
     body: "Journeys are defineJourney() files. Claude Code, Cursor, or any agent writes and modifies them like any other code.",
-    bg: "radial-gradient(130% 110% at 10% 110%, #3f68f2 0%, #8fb0ff 45%, #f4f7ff 80%)",
-    corner: "#5f7ef2",
+    bg: "radial-gradient(130% 110% at 10% 110%, #f2503c 0%, #f9a394 45%, #fff5f3 80%)",
+    corner: "#f64838",
     mock: (
       <div className="rounded-md bg-[#12131a]/90 p-4 font-mono text-[11.5px] text-white/80 leading-[19px] shadow-xl">
+        <div aria-hidden="true" className="mb-2.5 flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-white/15" />
+          <span className="size-2 rounded-full bg-white/15" />
+          <span className="size-2 rounded-full bg-white/15" />
+        </div>
         <p>
           <span className="text-[#8fb0ff]">export const</span> onboarding ={" "}
           <span className="text-[#8fb0ff]">defineJourney</span>({"{"}
@@ -501,6 +1012,11 @@ const AGENT_CARDS = [
     corner: "#23c489",
     mock: (
       <div className="rounded-md bg-[#12131a]/90 p-4 font-mono text-[11.5px] text-white/80 leading-[19px] shadow-xl">
+        <div aria-hidden="true" className="mb-2.5 flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-white/15" />
+          <span className="size-2 rounded-full bg-white/15" />
+          <span className="size-2 rounded-full bg-white/15" />
+        </div>
         <p className="text-white/50"># pre-push</p>
         <p>$ pnpm check-types</p>
         <p className="text-[#9fe8c4]">✓ journeys/welcome.ts</p>
@@ -511,10 +1027,15 @@ const AGENT_CARDS = [
   {
     title: "A CLI agents can drive",
     body: "hogsend skills plus --json on every command give agents a first-class interface to inspect and operate the running system.",
-    bg: "radial-gradient(130% 110% at 90% 110%, #ef5da8 0%, #f7a8cf 45%, #fef4f9 80%)",
-    corner: "#ef5da8",
+    bg: "radial-gradient(130% 110% at 90% 110%, #3f68f2 0%, #8fb0ff 45%, #f4f7ff 80%)",
+    corner: "#5f7ef2",
     mock: (
       <div className="rounded-md bg-[#12131a]/90 p-4 font-mono text-[11.5px] text-white/80 leading-[19px] shadow-xl">
+        <div aria-hidden="true" className="mb-2.5 flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-white/15" />
+          <span className="size-2 rounded-full bg-white/15" />
+          <span className="size-2 rounded-full bg-white/15" />
+        </div>
         <p>$ hogsend journeys --json</p>
         <p className="text-white/60">
           {"["} {"{"} "id": "onboarding", "status": "registered" {"}"} … {"]"}
@@ -533,8 +1054,8 @@ const AGENT_CHIPS = [
 
 function PsAgents() {
   return (
-    <section className="relative">
-      <Container className="pt-8 pb-24">
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-24">
         <Eyebrow>Agent-native</Eyebrow>
         <h2
           className={cn(
@@ -580,12 +1101,392 @@ function PsAgents() {
               >
                 <span
                   aria-hidden="true"
-                  className="size-2 rounded-full bg-[#6f5af6]"
+                  className="size-2 rounded-full bg-[#f64838]"
                 />
                 {chip}
               </span>
             ))}
           </div>
+        </div>
+
+        {/* The Flint prompt-card idiom: an agent ask, sitting on a soft
+            two-colour blob glow. */}
+        <Reveal delay={0.1}>
+          <div className="relative mx-auto mt-16 max-w-[620px]">
+            <div
+              aria-hidden="true"
+              className="-inset-x-16 -inset-y-10 pointer-events-none absolute"
+              style={{
+                background:
+                  "radial-gradient(45% 60% at 30% 60%, rgba(246,72,56,0.16), transparent 70%), radial-gradient(40% 55% at 75% 40%, rgba(35,196,137,0.14), transparent 70%)",
+                filter: "blur(24px)",
+              }}
+            />
+            <div className="relative rounded-xl border border-[#e4e4e9] bg-white p-5 shadow-lg">
+              <span className="inline-flex items-center gap-2 rounded-md border border-[#d9f2e6] bg-[#f2fcf7] px-2.5 py-1 font-mono text-[11px] text-[#17805a]">
+                <span aria-hidden="true" className="size-2 bg-[#23c489]" />
+                src/journeys/winback.ts
+              </span>
+              <p className="mt-3 text-[#2e3038] text-[17px] leading-[26px] tracking-[-0.02em]">
+                Add a win-back journey: trigger when someone enters the
+                went-dormant bucket, check in, wait 7 days, then send the offer.
+                Exit the moment they come back.
+              </p>
+              <div className="mt-4 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[#9b9ca6]">
+                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-[#e4e4e9] font-mono text-[11px]">
+                    @
+                  </span>
+                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-[#e4e4e9] font-mono text-[11px]">
+                    ⌘
+                  </span>
+                </div>
+                <span className="inline-flex size-8 items-center justify-center rounded-full bg-[#121317] text-white">
+                  ↑
+                </span>
+              </div>
+            </div>
+            <p className="relative mt-4 text-center font-mono text-[#9b9ca6] text-[12px] tracking-[-0.01em]">
+              hogsend skills give agents the context — your type-checker
+              validates the result
+            </p>
+          </div>
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ code -- */
+
+/* Journey samples — shortened from the use-case pages' JOURNEY_CODE
+   constants, faithful to the real API (same source as the homepage picker). */
+const JOURNEY_SAMPLES: Record<UseCaseValue, string> = {
+  onboarding: `import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const onboarding = defineJourney({
+  meta: {
+    id: "onboarding",
+    trigger: { event: "user.signed_up" },
+    entryLimit: "once",
+    exitOn: [{ event: "user.deleted" }],
+  },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "activation-quickstart" });
+
+    // Park durably until THIS user creates a project — or 3 days pass.
+    const { timedOut } = await ctx.waitForEvent({
+      event: "project.created",
+      timeout: days(3),
+    });
+
+    await sendEmail({
+      to: user.email,
+      template: timedOut ? "activation-nudge" : "activation-feature-highlight",
+    });
+  },
+});`,
+  trial_conversion: `import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+
+export const trialConversion = defineJourney({
+  meta: {
+    id: "trial-conversion",
+    trigger: { event: "trial.started" },
+    entryLimit: "once",
+    // Paid? The journey is cancelled — even mid-wait.
+    exitOn: [{ event: "subscription.created" }],
+  },
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: days(3), label: "usage-check" });
+
+    const { found } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: "usage.milestone_reached",
+    });
+    if (found) {
+      // They've found value — ask while it's fresh.
+      await sendEmail({ to: user.email, template: "conversion-usage-milestone" });
+    }
+
+    await ctx.sleep({ duration: days(7), label: "trial-ending" });
+    await sendEmail({ to: user.email, template: "conversion-trial-expiring" });
+  },
+});`,
+  winback: `import { days } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { wentDormant } from "../buckets/went-dormant.js";
+
+export const winback = defineJourney({
+  meta: {
+    id: "winback",
+    trigger: { event: wentDormant.entered }, // typed bucket ref
+    entryLimit: "once_per_period",
+    entryPeriod: days(60),
+    // Came back? Exit immediately — even mid-sleep.
+    exitOn: [{ event: wentDormant.left }],
+  },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user.email, template: "reactivation-checkin" });
+
+    await ctx.sleep({ duration: days(7), label: "offer" });
+    await sendEmail({ to: user.email, template: "conversion-winback-offer" });
+
+    await ctx.sleep({ duration: days(7), label: "final" });
+    await sendEmail({ to: user.email, template: "reactivation-final-nudge" });
+  },
+});`,
+};
+
+/* Provider choice is config, not journey code — the toggle swaps only this. */
+const ENV_SAMPLES: Record<ProviderValue, string> = {
+  resend: `# provider is config, not journey code
+EMAIL_PROVIDER=resend
+RESEND_API_KEY=re_…`,
+  postmark: `# provider is config, not journey code
+EMAIL_PROVIDER=postmark
+POSTMARK_SERVER_TOKEN=…`,
+};
+
+/** Async RSC wrapper: Shiki-highlights the samples server-side and hands the
+ * rendered nodes to the client picker (the homepage composition pattern). */
+async function PsCode() {
+  const [onboarding, trialConversion, winback, resendEnv, postmarkEnv] =
+    await Promise.all([
+      CodeHighlight({ code: JOURNEY_SAMPLES.onboarding, lang: "ts" }),
+      CodeHighlight({ code: JOURNEY_SAMPLES.trial_conversion, lang: "ts" }),
+      CodeHighlight({ code: JOURNEY_SAMPLES.winback, lang: "ts" }),
+      CodeHighlight({ code: ENV_SAMPLES.resend, lang: "bash" }),
+      CodeHighlight({ code: ENV_SAMPLES.postmark, lang: "bash" }),
+    ]);
+
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <DotPatch className="top-20 right-0 hidden h-36 w-48 lg:block" />
+      <Container className="relative pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>The code</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-[#040406]">
+              Pick a use case, read the journey.
+            </span>{" "}
+            <span className="text-[#9b9ca6]">
+              Swap the provider underneath; the journey doesn't change.
+            </span>
+          </h2>
+        </Reveal>
+
+        <Reveal delay={0.1} className="mt-12 block">
+          <PsCodePicker
+            journeys={{
+              onboarding,
+              trial_conversion: trialConversion,
+              winback,
+            }}
+            envs={{ resend: resendEnv, postmark: postmarkEnv }}
+            raw={JOURNEY_SAMPLES}
+          />
+        </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------------------------------------------------------- how it works -- */
+
+const DEPLOY_LINES = [
+  { text: "# One-click Railway template, or your own host", dim: true },
+  { text: "$ git push origin main", dim: false },
+  { text: "→ building hogsend-api …", dim: true },
+  { text: "→ building hogsend-worker …", dim: true },
+  { text: "→ migrations applied · health check /v1/health ✓", dim: false },
+  { text: "# Watch every send in Studio", dim: true },
+];
+
+const SCAFFOLD_LINES = [
+  { text: "$ pnpm dlx create-hogsend@latest my-app", dim: false },
+  { text: "✔ Scaffolding my-app", dim: true },
+  { text: "✔ 10 journeys · 13 templates · Docker + env wired", dim: true },
+  { text: "→ cd my-app && pnpm bootstrap", dim: false },
+];
+
+/** Light journey-trace mock — the crimzon JourneyTrace clip, redrawn in the
+ * light system: trigger → send → durable wait (pulsing) → branch. */
+function PsJourneyTraceMock() {
+  const steps = [
+    { kind: "trigger", label: "user.signed_up", note: "trigger" },
+    { kind: "send", label: "activation-quickstart", note: "sendEmail" },
+    {
+      kind: "wait",
+      label: "project.created — 3d timeout",
+      note: "ctx.waitForEvent · survives deploys",
+    },
+    {
+      kind: "branch",
+      label: "timedOut ? nudge : feature-highlight",
+      note: "branch",
+    },
+  ];
+  return (
+    <div className="rounded-2xl border border-[#ececef] bg-[#fafafb] p-6">
+      <span className="font-mono text-[#9b9ca6] text-[11px] tracking-wide">
+        src/journeys/onboarding.ts — run
+      </span>
+      <div className="mt-4 flex flex-col">
+        {steps.map((s, i) => (
+          <div key={s.label} className="flex gap-4">
+            <div className="flex flex-col items-center">
+              <span
+                className={cn(
+                  "mt-1 inline-flex size-3 shrink-0 rounded-full",
+                  s.kind === "wait"
+                    ? "ps-pulse bg-[#f64838]"
+                    : s.kind === "trigger"
+                      ? "bg-[#040406]"
+                      : "border-2 border-[#c9c9cf] bg-white",
+                )}
+              />
+              {i < steps.length - 1 && (
+                <span className="my-1 w-px flex-1 bg-[#dcdce2]" />
+              )}
+            </div>
+            <div className="pb-5">
+              <p className="font-mono text-[#040406] text-[13px]">{s.label}</p>
+              <p className="mt-0.5 font-mono text-[#9b9ca6] text-[11px]">
+                {s.note}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const HOW_STEPS = [
+  {
+    n: "01",
+    title: "Scaffold your app",
+    body: "pnpm create hogsend@latest emits a thin app that pins @hogsend/engine and holds your content. Pass --domain to wire your sending domain from the start.",
+    media: (
+      <div className="overflow-hidden rounded-2xl bg-[#0a0a0c]">
+        <div className="flex items-center gap-3 border-white/[0.06] border-b px-4 py-2.5">
+          <div aria-hidden="true" className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+          </div>
+          <span className="font-mono text-[11px] text-white/40 tracking-wide">
+            zsh — my-app
+          </span>
+        </div>
+        <div className="p-5 font-mono text-[12.5px] leading-[22px]">
+          {SCAFFOLD_LINES.map((l) => (
+            <p
+              key={l.text}
+              className={l.dim ? "text-white/40" : "text-white/85"}
+            >
+              {l.text}
+            </p>
+          ))}
+        </div>
+      </div>
+    ),
+  },
+  {
+    n: "02",
+    title: "Define journeys & buckets",
+    body: "TypeScript functions that trigger on events, send emails, wait, branch, and adapt.",
+    media: <PsJourneyTraceMock />,
+  },
+  {
+    n: "03",
+    title: "Deploy & watch it run",
+    body: "Host with Docker or one-click Railway. Watch every send in Studio.",
+    media: (
+      <div className="overflow-hidden rounded-2xl bg-[#0a0a0c]">
+        <div className="flex items-center gap-3 border-white/[0.06] border-b px-4 py-2.5">
+          <div aria-hidden="true" className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+          </div>
+          <span className="font-mono text-[11px] text-white/40 tracking-wide">
+            deploy
+          </span>
+        </div>
+        <div className="p-5 font-mono text-[12.5px] leading-[22px]">
+          {DEPLOY_LINES.map((l) => (
+            <p
+              key={l.text}
+              className={l.dim ? "text-white/40" : "text-white/85"}
+            >
+              {l.text}
+            </p>
+          ))}
+        </div>
+      </div>
+    ),
+  },
+];
+
+function PsHowItWorks() {
+  return (
+    <section className="relative border-[#f6483826] border-t overflow-hidden">
+      <PlusGrid className="top-28 left-0 hidden h-40 w-52 [mask-image:linear-gradient(to_right,black,transparent)] lg:block" />
+      <Container className="relative pt-24 pb-16">
+        <Reveal>
+          <Eyebrow>How it works</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[720px] font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
+              DISPLAY,
+            )}
+          >
+            The whole job is one loop.
+          </h2>
+          <p className="mt-6 max-w-[520px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+            Activity comes in from PostHog or any webhook, the right emails go
+            out through your provider, and what people do with them fans back
+            out to your tools. Nothing new to buy or keep in sync.
+          </p>
+        </Reveal>
+
+        <div className="mt-16 flex flex-col">
+          {HOW_STEPS.map((step, i) => (
+            <Reveal key={step.n}>
+              <div
+                className={cn(
+                  "grid grid-cols-1 gap-8 py-12 lg:grid-cols-[0.8fr_1.2fr]",
+                  i > 0 && "border-[#ececef] border-t",
+                )}
+              >
+                <div>
+                  <span className="font-mono text-[#b8281c] text-[13px]">
+                    {step.n}
+                  </span>
+                  <h3
+                    className={cn(
+                      "mt-3 text-[#040406] text-[26px] leading-[1.2] tracking-[-0.02em]",
+                      DISPLAY,
+                    )}
+                  >
+                    {step.title}
+                  </h3>
+                  <p className="mt-3 max-w-[380px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                    {step.body}
+                  </p>
+                </div>
+                <div className="min-w-0">{step.media}</div>
+              </div>
+            </Reveal>
+          ))}
         </div>
       </Container>
     </section>
@@ -596,42 +1497,44 @@ function PsAgents() {
 
 function PsSetup() {
   return (
-    <section className="relative overflow-hidden">
-      {/* Aura backdrop: warm core, blue ring. */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(60% 55% at 50% 42%, #fdf0cf 0%, rgba(253,240,207,0.65) 28%, rgba(147,175,247,0.5) 62%, rgba(147,175,247,0.12) 85%, transparent 100%)",
-        }}
-      />
-      <Container className="relative flex flex-col items-center pt-28 pb-32 text-center">
-        <Eyebrow>Instant setup</Eyebrow>
-        <h2
-          className={cn(
-            "mt-8 max-w-[880px] font-normal text-[#040406] text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[64px] md:leading-[72px]",
-            DISPLAY,
-          )}
-        >
-          Run a single command to ship your first journey immediately.
-        </h2>
+    <section className="relative">
+      <Container className="relative">
+        {/* Aura backdrop: warm core, crimzon ring — contained in the frame. */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(60% 55% at 50% 42%, #fdf0cf 0%, rgba(253,240,207,0.65) 28%, rgba(246,110,88,0.38) 62%, rgba(246,110,88,0.1) 85%, transparent 100%)",
+          }}
+        />
+        <div className="relative flex flex-col items-center pt-28 pb-32 text-center">
+          <Eyebrow>Instant setup</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[880px] font-normal text-[#040406] text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[64px] md:leading-[72px]",
+              DISPLAY,
+            )}
+          >
+            Run a single command to ship your first journey immediately.
+          </h2>
 
-        <div className="mt-12 flex items-center gap-4 rounded-[6px] bg-[#101014] py-3.5 pr-4 pl-5 shadow-xl">
-          <code className="font-mono text-[13.5px] text-white/90">
-            <span className="text-white/40">$ </span>
-            {INSTALL_COMMAND}
-          </code>
-          <CopyButton value={INSTALL_COMMAND} />
+          <div className="mt-12 flex items-center gap-4 rounded-[6px] bg-[#101014] py-3.5 pr-4 pl-5 shadow-xl">
+            <code className="font-mono text-[13.5px] text-white/90">
+              <span className="text-white/40">$ </span>
+              {INSTALL_COMMAND}
+            </code>
+            <CopyButton value={INSTALL_COMMAND} />
+          </div>
+
+          <p className="mt-20 max-w-[760px] text-[#2e3038] text-[22px] leading-[38px] tracking-[-0.02em] md:text-[26px] md:leading-[44px]">
+            A thin TypeScript app that triggers on{" "}
+            <InlinePill>PostHog</InlinePill> events, sends through{" "}
+            <InlinePill>Resend</InlinePill> or <InlinePill>Postmark</InlinePill>
+            , and deploys to <InlinePill>Railway</InlinePill> in one click — ten
+            journeys in the scaffold, first send in minutes.
+          </p>
         </div>
-
-        <p className="mt-20 max-w-[760px] text-[#2e3038] text-[22px] leading-[38px] tracking-[-0.02em] md:text-[26px] md:leading-[44px]">
-          A thin TypeScript app that triggers on{" "}
-          <InlinePill>PostHog</InlinePill> events, sends through{" "}
-          <InlinePill>Resend</InlinePill> or <InlinePill>Postmark</InlinePill>,
-          and deploys to <InlinePill>Railway</InlinePill> in one click — ten
-          journeys in the scaffold, first send in minutes.
-        </p>
       </Container>
     </section>
   );
@@ -641,51 +1544,68 @@ function PsSetup() {
 
 function PsCorePlatform() {
   return (
-    <section className="bg-[#060608] text-white">
-      <Container className="pt-28 pb-28">
-        <Eyebrow light>Core platform</Eyebrow>
-        <h2
-          className={cn(
-            "mt-8 max-w-[720px] font-normal text-[36px] text-white leading-[1.12] tracking-[-0.01em] md:text-[52px] md:leading-[58px]",
-            DISPLAY,
-          )}
-        >
-          Lifecycle infrastructure for the stack you already run.
-        </h2>
+    <section className="relative">
+      <Container className="py-20">
+        <div className="relative overflow-hidden rounded-2xl bg-[#060608] p-8 text-white md:p-12">
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(60% 80% at 0% 20%, rgba(246,72,56,0.2), rgba(246,72,56,0.05) 45%, transparent 70%)",
+            }}
+          />
+          <WaveLines
+            className="-top-8 absolute right-0 h-56 w-[62%] opacity-60"
+            stroke="rgba(246,72,56,0.4)"
+            count={6}
+          />
+          <div className="relative">
+            <Eyebrow light>Core platform</Eyebrow>
+            <h2
+              className={cn(
+                "mt-8 max-w-[720px] font-normal text-[36px] text-white leading-[1.12] tracking-[-0.01em] md:text-[52px] md:leading-[58px]",
+                DISPLAY,
+              )}
+            >
+              Lifecycle infrastructure for the stack you already run.
+            </h2>
 
-        <div className="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-2">
-          <div>
-            <div className="overflow-hidden rounded-md border border-white/10">
-              <Image
-                src={studioJourneys}
-                alt="Hogsend Studio — journey runs"
-                className="w-full"
-              />
+            <div className="mt-16 grid grid-cols-1 gap-10 lg:grid-cols-2">
+              <div>
+                <div className="overflow-hidden rounded-md border border-white/10">
+                  <Image
+                    src={studioJourneys}
+                    alt="Hogsend Studio — journey runs"
+                    className="w-full"
+                  />
+                </div>
+                <h3 className="mt-6 font-medium text-base text-white tracking-[-0.025em]">
+                  Journeys as code, observed live
+                </h3>
+                <p className="mt-2 max-w-[460px] text-sm text-white/60 leading-[21px] tracking-[-0.02em]">
+                  Every journey is one TypeScript file — trigger, durable waits,
+                  branches. Studio shows each run, wait, and send as it happens.
+                </p>
+              </div>
+              <div>
+                <div className="overflow-hidden rounded-md border border-white/10">
+                  <Image
+                    src={studioSends}
+                    alt="Hogsend Studio — sends"
+                    className="w-full"
+                  />
+                </div>
+                <h3 className="mt-6 font-medium text-base text-white tracking-[-0.025em]">
+                  Every send accounted for
+                </h3>
+                <p className="mt-2 max-w-[460px] text-sm text-white/60 leading-[21px] tracking-[-0.02em]">
+                  First-party opens and clicks land back on the contact — and
+                  fan out to PostHog, Segment, or Slack, with retries and a
+                  dead-letter queue.
+                </p>
+              </div>
             </div>
-            <h3 className="mt-6 font-medium text-base text-white tracking-[-0.025em]">
-              Journeys as code, observed live
-            </h3>
-            <p className="mt-2 max-w-[460px] text-sm text-white/60 leading-[21px] tracking-[-0.02em]">
-              Every journey is one TypeScript file — trigger, durable waits,
-              branches. Studio shows each run, wait, and send as it happens.
-            </p>
-          </div>
-          <div>
-            <div className="overflow-hidden rounded-md border border-white/10">
-              <Image
-                src={studioSends}
-                alt="Hogsend Studio — sends"
-                className="w-full"
-              />
-            </div>
-            <h3 className="mt-6 font-medium text-base text-white tracking-[-0.025em]">
-              Every send accounted for
-            </h3>
-            <p className="mt-2 max-w-[460px] text-sm text-white/60 leading-[21px] tracking-[-0.02em]">
-              First-party opens and clicks land back on the contact — and fan
-              out to PostHog, Segment, or Slack, with retries and a dead-letter
-              queue.
-            </p>
           </div>
         </div>
       </Container>
@@ -707,53 +1627,57 @@ const OPEN_ROWS = [
 
 function PsOpen() {
   return (
-    <section className="relative overflow-hidden">
-      <div
-        aria-hidden="true"
-        className="absolute inset-y-0 left-0 w-[46%]"
-        style={{
-          background:
-            "linear-gradient(105deg, #c9b8ff 0%, #e6ddff 55%, rgba(255,255,255,0) 100%)",
-        }}
-      />
-      <DotPatch className="bottom-10 left-8 h-32 w-64 opacity-70" />
-      <Container className="relative grid grid-cols-1 gap-14 py-28 lg:grid-cols-2">
-        <div>
-          <Eyebrow>In the open</Eyebrow>
-          <h2
-            className={cn(
-              "mt-8 max-w-[420px] font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
-              DISPLAY,
-            )}
-          >
-            An engine you can read end to end.
-          </h2>
-        </div>
-
-        <div className="flex flex-col justify-center">
-          {OPEN_ROWS.map((row, i) => (
-            <div
-              key={row.label}
-              className={cn(
-                "flex flex-col gap-6 py-5 md:flex-row md:items-start",
-                i > 0 && "border-[#ececef] border-t",
-              )}
-            >
-              <p
+    <section className="relative">
+      <Container className="py-20">
+        <div className="relative overflow-hidden rounded-2xl border border-[#f6483826]">
+          <div
+            aria-hidden="true"
+            className="absolute inset-y-0 left-0 w-[55%]"
+            style={{
+              background:
+                "linear-gradient(105deg, #f8b8ab 0%, #fde3dc 55%, rgba(255,255,255,0) 100%)",
+            }}
+          />
+          <DotPatch className="bottom-8 left-8 h-28 w-56 opacity-70" />
+          <div className="relative grid grid-cols-1 gap-14 p-8 md:p-12 lg:grid-cols-2">
+            <div>
+              <Eyebrow>In the open</Eyebrow>
+              <h2
                 className={cn(
-                  "min-w-[260px] text-[#040406] text-lg tracking-[-0.025em]",
+                  "mt-8 max-w-[420px] font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
                   DISPLAY,
                 )}
               >
-                {row.label}
-              </p>
-              {row.detail && (
-                <p className="border-[#dcdce2] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em] md:border-l md:pl-6">
-                  {row.detail}
-                </p>
-              )}
+                An engine you can read end to end.
+              </h2>
             </div>
-          ))}
+
+            <div className="flex flex-col justify-center">
+              {OPEN_ROWS.map((row, i) => (
+                <div
+                  key={row.label}
+                  className={cn(
+                    "flex flex-col gap-6 py-5 md:flex-row md:items-start",
+                    i > 0 && "border-[#ececef] border-t",
+                  )}
+                >
+                  <p
+                    className={cn(
+                      "min-w-[260px] text-[#040406] text-lg tracking-[-0.025em]",
+                      DISPLAY,
+                    )}
+                  >
+                    {row.label}
+                  </p>
+                  {row.detail && (
+                    <p className="border-[#dcdce2] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em] md:border-l md:pl-6">
+                      {row.detail}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </Container>
     </section>
@@ -766,7 +1690,7 @@ const FEATURE_CARDS = [
   {
     lead: "Durable waits survive deploys.",
     rest: "A user three days into a seven-day wait keeps waiting through restarts and crashes, and resumes exactly where they were.",
-    tint: "#eef2fd",
+    tint: "#fdf1ee",
   },
   {
     lead: "In-email answers branch the journey.",
@@ -776,7 +1700,7 @@ const FEATURE_CARDS = [
   {
     lead: "First-party opens and clicks.",
     rest: "Links are rewritten on send; engagement lands on your domain and fans back to PostHog as first-party events.",
-    tint: "#eef2fd",
+    tint: "#fdf1ee",
   },
   {
     lead: "Buckets are live groups of people.",
@@ -786,7 +1710,7 @@ const FEATURE_CARDS = [
   {
     lead: "Events fan out, durably.",
     rest: "A fixed 13-event catalog goes back out to PostHog, Segment, Slack, or any signed webhook — with retries, backoff, and a dead-letter queue.",
-    tint: "#eef2fd",
+    tint: "#fdf1ee",
   },
   {
     lead: "Provider is config, not code.",
@@ -797,7 +1721,7 @@ const FEATURE_CARDS = [
 
 function PsFeatures() {
   return (
-    <section className="relative">
+    <section className="relative border-[#f6483826] border-t">
       <Container className="pt-24 pb-10">
         <Eyebrow>Platform features</Eyebrow>
         <div className="mt-8 flex items-end justify-between gap-8">
@@ -825,22 +1749,238 @@ function PsFeatures() {
         </div>
       </Container>
 
-      <div className="overflow-x-auto pb-24 [scrollbar-width:none]">
-        <div className="mx-auto flex w-max gap-4 px-6 md:px-[calc((100vw-1256px)/2+40px)]">
-          {FEATURE_CARDS.map((c) => (
-            <div
-              key={c.lead}
-              className="w-[280px] shrink-0 p-6"
-              style={{ background: c.tint }}
-            >
-              <p className="text-[15px] leading-[22px] tracking-[-0.02em]">
-                <span className="font-medium text-[#040406]">{c.lead}</span>{" "}
-                <span className="text-[#75768a]">{c.rest}</span>
+      <Container className="pb-24">
+        <div className="overflow-x-auto [scrollbar-width:none]">
+          <div className="flex w-max gap-4">
+            {FEATURE_CARDS.map((c) => (
+              <div
+                key={c.lead}
+                className="w-[280px] shrink-0 p-6"
+                style={{ background: c.tint }}
+              >
+                <p className="text-[15px] leading-[22px] tracking-[-0.02em]">
+                  <span className="font-medium text-[#040406]">{c.lead}</span>{" "}
+                  <span className="text-[#75768a]">{c.rest}</span>
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------- built on posthog -- */
+
+const LOOP_ITEMS = [
+  {
+    title: "Engagement becomes PostHog events",
+    body: "Every send, open and click fans back as a first-party event. Build cohorts and funnels on email behaviour.",
+  },
+  {
+    title: "Triggered off events you already have",
+    body: "Journeys react to your PostHog events directly. No reverse-ETL, no sync lag, no second source of truth.",
+  },
+  {
+    title: "Write answers back onto the person",
+    body: "An NPS score, a survey reply, a milestone — written back with identify() onto the PostHog person.",
+  },
+  {
+    title: "Follow people into Discord",
+    body: "See who joins, who's talking, and who's gone quiet — on the same contact as their email and product activity.",
+  },
+  {
+    title: "One profile across everything",
+    body: "Email, product activity, Discord and PostHog sit on a single contact.",
+  },
+];
+
+function PsLoop() {
+  return (
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Built on PostHog</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-[#040406]">
+              Everything here makes PostHog better.
+            </span>{" "}
+            <span className="text-[#9b9ca6]">
+              No second pipeline, no reverse-ETL.
+            </span>
+          </h2>
+        </Reveal>
+
+        <div className="mt-14 grid grid-cols-1 gap-12 lg:grid-cols-2">
+          <div className="flex flex-col">
+            {LOOP_ITEMS.map((item, i) => (
+              <div
+                key={item.title}
+                className={cn("py-5", i > 0 && "border-[#ececef] border-t")}
+              >
+                <h3 className="flex items-center gap-3 font-medium text-[#040406] text-[15px] tracking-[-0.02em]">
+                  <span
+                    aria-hidden="true"
+                    className="size-2 shrink-0 bg-[#f64838]"
+                  />
+                  {item.title}
+                </h3>
+                <p className="mt-1.5 pl-5 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                  {item.body}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Outbound fan-out, sketched in the light system. */}
+          <Reveal delay={0.1} className="self-center">
+            <div className="rounded-2xl border border-[#ececef] bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+                  Outbound — durable, retried
+                </span>
+                <span className="flex items-center gap-1.5 font-mono text-[#17805a] text-[11px]">
+                  <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
+                  live
+                </span>
+              </div>
+              <div className="mt-4 flex flex-col">
+                {[
+                  { event: "email.link_clicked", dest: "PostHog" },
+                  { event: "email.opened", dest: "PostHog" },
+                  { event: "contact.subscribed", dest: "Slack #growth" },
+                  { event: "journey.completed", dest: "Segment" },
+                  { event: "nps.answered", dest: "posthog.identify()" },
+                ].map((row, i) => (
+                  <div
+                    key={row.event}
+                    className={cn(
+                      "flex items-center justify-between gap-6 py-2.5",
+                      i > 0 && "border-[#f2f2f5] border-t",
+                    )}
+                  >
+                    <span className="font-mono text-[#2e3038] text-[12.5px]">
+                      {row.event}
+                    </span>
+                    <span className="flex items-center gap-2 font-mono text-[12.5px] text-[#9b9ca6]">
+                      <span aria-hidden="true" className="text-[#f64838]">
+                        →
+                      </span>
+                      {row.dest}
+                      <span aria-hidden="true" className="text-[#23c489]">
+                        ✓
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------- economics -- */
+
+const RENT_MODELS = [
+  {
+    name: "Loops",
+    chargesBy: "Subscribed contacts",
+    whenYouGrow: "$249/mo at 50k contacts.*",
+  },
+  {
+    name: "Customer.io",
+    chargesBy: "Profiles + emails + credits",
+    whenYouGrow: "Custom pricing at scale.",
+  },
+  {
+    name: "PostHog Workflows",
+    chargesBy: "$0.003/send after 10k free/mo*",
+    whenYouGrow: "Costs scale with send volume.",
+  },
+];
+
+function PsEconomics() {
+  return (
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>Economics</Eyebrow>
+          <h2
+            className={cn(
+              "mt-8 max-w-[820px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-[#040406]">What it costs.</span>{" "}
+            <span className="text-[#9b9ca6]">
+              Contact count appears in neither bill.
+            </span>
+          </h2>
+          <p className="mt-6 max-w-[620px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+            There is no paid tier. You pay for hosting — the Railway template
+            provisions Postgres, Redis, Hatchet, the API, and the worker — and
+            for your own Resend or Postmark account.
+          </p>
+        </Reveal>
+
+        <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Reveal>
+            <div className="relative flex h-full flex-col overflow-hidden rounded-lg border border-[#f64838]/40 bg-[#fef4f2] p-6">
+              <span
+                aria-hidden="true"
+                className="absolute top-2 right-2 size-[10px] bg-[#f64838]"
+              />
+              <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
+                Hogsend
+              </span>
+              <span
+                className={cn(
+                  "mt-3 text-[#040406] text-[26px] leading-[1.15] tracking-[-0.02em]",
+                  DISPLAY,
+                )}
+              >
+                Self-hosted · $0 software
+              </span>
+              <p className="mt-3 text-[#6b5a56] text-sm leading-[21px] tracking-[-0.02em]">
+                Your infra plus your email account. No per-contact, per-profile,
+                or per-send fees.
               </p>
             </div>
+          </Reveal>
+          {RENT_MODELS.map((m, i) => (
+            <Reveal key={m.name} delay={(i + 1) * 0.06}>
+              <div className="flex h-full flex-col rounded-lg border border-[#ececef] bg-white p-6">
+                <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+                  {m.name}
+                </span>
+                <span
+                  className={cn(
+                    "mt-3 text-[#2e3038] text-[22px] leading-[1.2] tracking-[-0.02em]",
+                    DISPLAY,
+                  )}
+                >
+                  {m.chargesBy}
+                </span>
+                <p className="mt-3 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                  {m.whenYouGrow}
+                </p>
+              </div>
+            </Reveal>
           ))}
         </div>
-      </div>
+        <p className="mt-6 text-[#9b9ca6] text-[12px] tracking-[-0.02em]">
+          *Published pricing, checked June 2026.
+        </p>
+      </Container>
     </section>
   );
 }
@@ -884,8 +2024,12 @@ const USE_CASES = [
 
 function PsUseCases() {
   return (
-    <section className="relative">
-      <Container className="pt-8 pb-28">
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-28">
+        {/* Flint's soft gradient-tile band, re-keyed to our palette. */}
+        <Reveal>
+          <TileMosaic className="-mx-6 mb-16 md:-mx-10" />
+        </Reveal>
         <Eyebrow>Use cases</Eyebrow>
         <h2
           className={cn(
@@ -904,7 +2048,7 @@ function PsUseCases() {
             <div key={u.title}>
               <span
                 aria-hidden="true"
-                className="inline-flex size-8 items-center justify-center rounded-full bg-[#f1eefe] font-mono text-[#6f5af6] text-[11px]"
+                className="inline-flex size-8 items-center justify-center rounded-full bg-[#fdeeec] font-mono text-[#b8281c] text-[11px]"
               >
                 ▲
               </span>
@@ -957,22 +2101,42 @@ const FAQ = [
 
 function PsFaq() {
   return (
-    <section className="relative">
-      <Container className="pt-8 pb-32">
-        <Eyebrow>FAQ</Eyebrow>
-        <h2
-          className={cn(
-            "mt-8 font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px]",
-            DISPLAY,
-          )}
-        >
-          <span className="text-[#040406]">Find what you need</span>
-          <span className="text-[#9b9ca6]">.</span>
-        </h2>
+    <section className="relative border-[#f6483826] border-t">
+      <Container className="grid grid-cols-1 gap-12 pt-16 pb-32 lg:grid-cols-[1fr_1.5fr]">
+        {/* Flint's FAQ layout: the heading floats on a soft aura blob. */}
+        <div className="relative">
+          <div
+            aria-hidden="true"
+            className="-inset-x-12 -inset-y-16 pointer-events-none absolute"
+            style={{
+              background:
+                "radial-gradient(45% 45% at 40% 35%, rgba(253,240,207,0.9), transparent 70%), radial-gradient(40% 45% at 65% 65%, rgba(246,72,56,0.22), transparent 70%), radial-gradient(30% 35% at 30% 75%, rgba(246,140,110,0.2), transparent 70%)",
+              filter: "blur(28px)",
+            }}
+          />
+          <div className="relative lg:sticky lg:top-28">
+            <Eyebrow>FAQ</Eyebrow>
+            <h2
+              className={cn(
+                "mt-8 font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px]",
+                DISPLAY,
+              )}
+            >
+              <span className="text-[#040406]">Find what you need</span>
+              <span className="text-[#9b9ca6]">.</span>
+            </h2>
+          </div>
+        </div>
 
-        <div className="mt-12">
-          {FAQ.map((item) => (
-            <details key={item.q} className="group border-[#ececef] border-b">
+        <div>
+          {FAQ.map((item, i) => (
+            <details
+              key={item.q}
+              className={cn(
+                "group border-[#ececef] border-b",
+                i === 0 && "border-t",
+              )}
+            >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-6 [&::-webkit-details-marker]:hidden">
                 <span className="font-medium text-[#040406] text-base tracking-[-0.025em] md:text-lg">
                   {item.q}
@@ -999,41 +2163,82 @@ function PsFaq() {
 
 function PsClosingCta() {
   return (
-    <section className="relative overflow-hidden">
-      <div
-        aria-hidden="true"
-        className="absolute inset-0"
-        style={{
-          background:
-            "linear-gradient(115deg, #8fa8f6 0%, #7d9bf7 35%, #b9c9fb 70%, #e6ecfe 100%)",
-        }}
-      />
-      <PixelBars
-        count={72}
-        className="absolute inset-x-0 bottom-0 h-[70%] justify-end"
-      />
-      <Container className="relative py-32">
-        <h2
-          className={cn(
-            "max-w-[640px] font-normal text-[#0b0c12] text-[36px] leading-[1.15] tracking-[-0.02em] md:text-[48px] md:leading-[56px]",
-            DISPLAY,
-          )}
-        >
-          Ship the welcome series today, and every send after it, from your own
-          repo.
-        </h2>
-        <div className="mt-20 flex flex-wrap items-center gap-3">
-          <Btn href="/docs/getting-started" size="lg">
-            Start building
-          </Btn>
-          <Btn
-            href={RAILWAY_DEPLOY_URL}
-            variant="outline"
-            size="lg"
-            className="border-[#121317]/40 bg-white/80 backdrop-blur"
-          >
-            Deploy on Railway
-          </Btn>
+    <section className="relative">
+      <Container className="py-20">
+        <div className="relative overflow-hidden rounded-2xl bg-[#070303]">
+          {/* Red glow bleeding in from the left edge — the crimzon card. */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(70% 100% at 0% 60%, rgba(246,72,56,0.3), rgba(246,72,56,0.08) 45%, transparent 70%)",
+            }}
+          />
+          <WaveLines
+            className="absolute inset-y-0 right-0 h-full w-[58%] opacity-70"
+            stroke="rgba(255,140,118,0.4)"
+            count={9}
+          />
+          <div className="relative p-8 md:p-14">
+            <h2
+              className={cn(
+                "max-w-[640px] font-normal text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[48px] md:leading-[56px]",
+                DISPLAY,
+              )}
+            >
+              Ship the welcome series today, and every send after it, from your
+              own repo.
+            </h2>
+
+            {/* Every line a fact. */}
+            <ul className="mt-8 flex flex-col gap-2.5">
+              {[
+                "Free to self-host · source-available under ELv2",
+                "Ten journeys in the scaffold, welcome series included",
+                "Sends through your own Resend or Postmark account",
+                "One-click Railway template, 3 required env vars",
+              ].map((line) => (
+                <li
+                  key={line}
+                  className="flex items-center gap-3 text-[15px] text-white/80 tracking-[-0.02em]"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-white/25 text-[11px] text-white/80"
+                  >
+                    ✓
+                  </span>
+                  {line}
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-10 flex flex-wrap items-center gap-4">
+              <Btn
+                href="/docs/getting-started"
+                size="lg"
+                className="bg-white text-[#121317] hover:bg-white/85"
+              >
+                Start building
+              </Btn>
+              <Btn
+                href={RAILWAY_DEPLOY_URL}
+                variant="outline"
+                size="lg"
+                className="border-white/30 bg-transparent text-white hover:bg-white/10"
+              >
+                Deploy on Railway
+              </Btn>
+              <span className="flex items-center gap-3 rounded-[6px] border border-white/10 bg-white/[0.04] py-3 pr-3 pl-4">
+                <code className="font-mono text-[12.5px] text-white/90">
+                  <span className="text-[#f6907f]">$ </span>
+                  {INSTALL_COMMAND}
+                </code>
+                <CopyButton value={INSTALL_COMMAND} />
+              </span>
+            </div>
+          </div>
         </div>
       </Container>
     </section>
@@ -1124,6 +2329,17 @@ function PsFooter() {
   );
 }
 
+/** Full-height vertical hairlines at the content-frame edges — the crimzon
+ * PageFrame idiom, re-keyed to a light red-tint rule. */
+function PsFrame() {
+  return (
+    <div
+      aria-hidden="true"
+      className="-translate-x-1/2 pointer-events-none fixed inset-y-0 left-1/2 z-40 hidden w-full max-w-[1256px] border-[#f6483826] border-x lg:block"
+    />
+  );
+}
+
 /* ----------------------------------------------------------------- page -- */
 
 export default function SpikePolarPage(): JSX.Element {
@@ -1131,16 +2347,24 @@ export default function SpikePolarPage(): JSX.Element {
     <main className="tracking-normal">
       <PsNav />
       <PsHero />
+      <PsProofStrip />
       <PsProblem />
+      <PsFanning />
+      <PsStats />
       <PsAgents />
+      <PsCode />
       <PsSetup />
       <PsCorePlatform />
+      <PsHowItWorks />
       <PsOpen />
       <PsFeatures />
+      <PsLoop />
+      <PsEconomics />
       <PsUseCases />
       <PsFaq />
       <PsClosingCta />
       <PsFooter />
+      <PsFrame />
     </main>
   );
 }

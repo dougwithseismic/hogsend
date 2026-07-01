@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import type { ReactNode } from "react";
+import "./spike.css";
 
 /**
  * SPIKE — Polar Signals design-system exploration (polarsignals.com).

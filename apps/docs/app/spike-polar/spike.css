@@ -1,0 +1,72 @@
+/* SPIKE-scoped animation for the pixel-bar gradient art: a slow, per-bar
+   breathe (scaleY from the baseline) with deterministic stagger set inline.
+   Transform-only, GPU-light, disabled under prefers-reduced-motion. */
+@keyframes ps-bar-breathe {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.78);
+  }
+}
+
+.ps-bar {
+  transform-origin: bottom;
+  animation: ps-bar-breathe 6s ease-in-out infinite;
+}
+
+/* Soft radar pulse for "live"/waiting dots (journey trace, feed status). */
+@keyframes ps-pulse-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(246, 72, 56, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(246, 72, 56, 0);
+  }
+}
+
+.ps-pulse {
+  animation: ps-pulse-ring 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ps-bar,
+  .ps-pulse {
+    animation: none;
+  }
+}
+
+/* Line numbers for Shiki blocks inside .ps-code (shiki emits .line spans). */
+.ps-code pre {
+  counter-reset: ps-line;
+}
+.ps-code .line {
+  counter-increment: ps-line;
+}
+.ps-code .line::before {
+  content: counter(ps-line);
+  display: inline-block;
+  width: 2em;
+  margin-right: 1.25em;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.22);
+}
+
+/* Slow dash-drift for the contour-line decorations. */
+@keyframes ps-dash-drift {
+  to {
+    stroke-dashoffset: -240;
+  }
+}
+.ps-dash {
+  stroke-dasharray: 4 8;
+  animation: ps-dash-drift 26s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-dash {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}
