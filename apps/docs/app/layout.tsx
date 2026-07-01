@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { PageViewTracker } from "@/components/analytics/page-view-tracker";
 import { PosthogBoot } from "@/components/analytics/posthog-boot";
+import { DevTools } from "@/components/devtools";
 import { HogsendDocsProvider } from "@/components/hogsend/provider";
 import {
   OrganizationJsonLd,
@@ -47,6 +48,10 @@ export default function Layout({ children }: { children: ReactNode }) {
         <PageViewTracker />
         <SoftwareApplicationJsonLd />
         <OrganizationJsonLd />
+        {/* Unified TanStack Devtools shell (built-in + product panels). Always
+            on in dev; in production it's opt-in via the `?hs-devtools` URL flag
+            so real visitors never load it (see components/devtools/index.tsx). */}
+        <DevTools />
       </body>
     </html>
   );
