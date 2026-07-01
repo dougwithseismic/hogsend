@@ -1,5 +1,6 @@
 "use client";
 
+import { InspectorOverlay } from "@hogsend/inspector";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 
@@ -66,6 +67,12 @@ export function DevTools() {
     }
   }, []);
 
-  if (!enabled) return null;
-  return <DevtoolsShell />;
+  return (
+    <>
+      {/* Alt-to-inspect click-to-source overlay. Dev only (the source stamps it
+          reads are only injected in dev), and inert until Alt is held. */}
+      {IS_DEV ? <InspectorOverlay /> : null}
+      {enabled ? <DevtoolsShell /> : null}
+    </>
+  );
 }
