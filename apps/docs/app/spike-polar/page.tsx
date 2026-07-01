@@ -1,4 +1,4 @@
-import { Bell } from "lucide-react";
+import { Bell, Mail, MessageSquare, Zap } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
@@ -327,23 +327,26 @@ function PsNav() {
 
 /* ----------------------------------------------------------------- hero -- */
 
-/** The live-demo window, in the light system: the real homepage demo's
- * two-up (sign-up → in-app notification loop) as hero furniture. On the
- * production site this is the real @hogsend/react feed; here it's a
- * design-system-faithful sketch of the same UI. */
+/** The live-demo window, in the light system — animated on a shared 10s
+ * clock: the sign-up email types itself, then the feed cards arrive one by
+ * one (the notification loop the real @hogsend/react feed shows live). */
 function PsHeroDemo() {
   const feed = [
     {
-      title: "Welcome to the demo 👋",
-      body: "You're in — a real welcome series just left hello@hogsend.com.",
+      icon: <Mail className="size-3.5" strokeWidth={1.5} />,
+      title: "Welcome to Hogsend 👋",
+      body: "A real welcome series just left hello@hogsend.com.",
+      journey: "activation-welcome",
       time: "just now",
-      unread: true,
+      delay: 2.2,
     },
     {
+      icon: <Zap className="size-3.5" strokeWidth={1.5} />,
       title: "You fired demo.milestone",
       body: "A journey caught it and dropped this notification.",
+      journey: "retention-milestone",
       time: "2m",
-      unread: true,
+      delay: 4.6,
     },
   ];
   return (
@@ -362,14 +365,14 @@ function PsHeroDemo() {
         </div>
         <span className="relative inline-flex size-7 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038]">
           <Bell className="size-3.5" strokeWidth={1.5} />
-          <span className="-top-1 -right-1 absolute inline-flex size-4 items-center justify-center rounded-full bg-[#f64838] font-medium text-[10px] text-white">
+          <span className="ps-pulse -top-1 -right-1 absolute inline-flex size-4 items-center justify-center rounded-full bg-[#f64838] font-medium text-[10px] text-white">
             3
           </span>
         </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-[#ececef]">
-        {/* Left — the real sign-up */}
+        {/* Left — the real sign-up, typing itself. */}
         <div className="p-6 text-left md:p-8">
           <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
             Get the demo
@@ -383,8 +386,12 @@ function PsHeroDemo() {
             seconds later.
           </p>
           <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-[#e4e4e9] p-1.5 pl-4">
-            <span className="flex-1 text-[#9b9ca6] text-sm">
-              Your work email
+            <span className="flex-1 font-mono text-[#2e3038] text-sm">
+              <span className="ps-type">sam@acme.com</span>
+              <span
+                aria-hidden="true"
+                className="ps-caret -mb-0.5 inline-block h-4 w-px bg-[#f64838]"
+              />
             </span>
             <span className="rounded-[4px] bg-[#121317] px-3.5 py-2 font-medium text-sm text-white">
               Get the demo
@@ -396,7 +403,7 @@ function PsHeroDemo() {
           </p>
         </div>
 
-        {/* Right — the in-app loop */}
+        {/* Right — the in-app loop, notifications arriving live. */}
         <div className="bg-[#fafafb] p-6 text-left md:p-8">
           <div className="flex items-center justify-between">
             <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
@@ -411,40 +418,61 @@ function PsHeroDemo() {
             {feed.map((n) => (
               <div
                 key={n.title}
-                className="rounded-md border border-[#ececef] bg-white px-4 py-3"
+                className="ps-feed-in rounded-md border border-[#ececef] bg-white px-4 py-3"
+                style={{ animationDelay: `${n.delay}s` }}
               >
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
-                    {n.title}
-                  </p>
-                  <span className="flex items-center gap-2">
-                    <span className="text-[#9b9ca6] text-[11px]">{n.time}</span>
-                    {n.unread && (
-                      <span className="size-1.5 rounded-full bg-[#f64838]" />
-                    )}
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-[#fdeeec] text-[#b8281c]">
+                    {n.icon}
                   </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+                        {n.title}
+                      </p>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="text-[#9b9ca6] text-[11px]">
+                          {n.time}
+                        </span>
+                        <span className="size-1.5 rounded-full bg-[#f64838]" />
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
+                      {n.body}
+                    </p>
+                    <p className="mt-1.5 font-mono text-[#9b9ca6] text-[10px]">
+                      via {n.journey}
+                    </p>
+                  </div>
                 </div>
-                <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
-                  {n.body}
-                </p>
               </div>
             ))}
             {/* The in-email answer — the click IS the answer. */}
-            <div className="rounded-md border border-[#ececef] bg-white px-4 py-3">
-              <p className="font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
-                Quick question
-              </p>
-              <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
-                How likely are you to recommend Hogsend? The click is the answer
-                — the journey branches on it.
-              </p>
-              <div className="mt-2.5 flex items-center gap-2">
-                <span className="rounded-full bg-[#fdeeec] px-3 py-1 font-medium text-[#b8281c] text-[12px]">
-                  Likely
+            <div
+              className="ps-feed-in rounded-md border border-[#ececef] bg-white px-4 py-3"
+              style={{ animationDelay: "7s" }}
+            >
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-[#fdeeec] text-[#b8281c]">
+                  <MessageSquare className="size-3.5" strokeWidth={1.5} />
                 </span>
-                <span className="rounded-full border border-[#e4e4e9] px-3 py-1 font-medium text-[#75768a] text-[12px]">
-                  Not yet
-                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+                    Quick question
+                  </p>
+                  <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
+                    How likely are you to recommend Hogsend? The click is the
+                    answer — the journey branches on it.
+                  </p>
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <span className="rounded-full bg-[#fdeeec] px-3 py-1 font-medium text-[#b8281c] text-[12px]">
+                      Likely
+                    </span>
+                    <span className="rounded-full border border-[#e4e4e9] px-3 py-1 font-medium text-[#75768a] text-[12px]">
+                      Not yet
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -458,18 +486,17 @@ function PsHero() {
   return (
     <section className="relative overflow-hidden">
       <Container className="relative flex flex-col items-center pt-20 text-center md:pt-24">
-        {/* Announcement pill */}
-        <Link
-          href="/changelog"
+        {/* Announcement pill — the lifecycle course. */}
+        <a
+          href="https://course.hogsend.com"
           className="inline-flex items-center gap-2 rounded-full bg-[#fdeeec] py-1 pr-4 pl-1 text-[13px] text-[#2e3038]"
         >
           <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium text-[12px] text-white">
-            New
+            Course
           </span>
-          Postmark support — swap providers with one env var
-          <span className="text-[#75768a]">·</span>
-          <span className="font-medium text-[#040406]">Learn more →</span>
-        </Link>
+          Measure → Keep → Grow — lifecycle marketing on PostHog + Hogsend
+          <span className="font-medium text-[#040406]">Take it →</span>
+        </a>
 
         <h1
           className={cn(
@@ -477,12 +504,12 @@ function PsHero() {
             DISPLAY,
           )}
         >
-          What PostHog sees, Hogsend acts on.
+          Hogsend acts on what PostHog sees.
         </h1>
-        <p className="mt-6 max-w-[560px] text-[#2e3038] text-lg leading-[27px] tracking-[-0.025em]">
-          Welcome series, trial nudges, win-backs — lifecycle emails as
-          TypeScript in your repo, sent through your own Resend or Postmark
-          account.
+        <p className="mt-6 max-w-[600px] text-[#2e3038] text-lg leading-[27px] tracking-[-0.025em]">
+          Lifecycle marketing as TypeScript in your repo — the welcome series,
+          trial nudges, and win-backs that keep users, sent through your own
+          Resend or Postmark account.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -679,14 +706,15 @@ function PsProblem() {
           >
             {/* Scroll-linked word reveal — the homepage Manifesto animation,
                 re-keyed to the light palette. */}
-            <WordReveal text="PostHog shows you where users drop off. Acting on it meant a second platform." />
+            <WordReveal text="Hogsend is the lifecycle layer in your repo — the welcome, the nudge, the win-back." />
           </h2>
 
           <div className="max-w-[340px] lg:pt-2">
             <p className="text-[#2e3038] text-base leading-[24px] tracking-[-0.025em]">
-              The welcome, the nudge, the win-back — Hogsend is that layer as
-              code: TypeScript journeys in your repo, triggered by the events
-              you already have.{" "}
+              PostHog shows you where users drop off; acting on it meant buying
+              a second platform and syncing your data into it. Hogsend deletes
+              that step — journeys are TypeScript, triggered by the events you
+              already have.{" "}
               <Link href="/docs" className="font-medium text-[#040406]">
                 Learn more →
               </Link>
@@ -2771,6 +2799,7 @@ const FOOTER_COLS: {
     title: "Product",
     links: [
       { label: "Done-for-you setup", href: "/service" },
+      { label: "Course", href: "https://course.hogsend.com" },
       { label: "Growth", href: "/growth-metrics" },
       { label: "Pricing", href: "/pricing" },
       { label: "Templates", href: "/emails" },
