@@ -588,6 +588,66 @@ That's the whole machine. Chapter 9 turns running it into a weekly rhythm, and C
       explain:
         "Linking captures identity; it doesn't create conversation. The playbook: a mission people join, three channels instead of twenty (density is the product), a weekly ritual, and unscalable personal recruiting until conversation self-sustains.",
     },
+    {
+      q: "A teammate's slide cites 'acquiring costs 5–25× more than retaining' as a precise, sourced fact. How does the chapter say to treat numbers like these?",
+      options: [
+        "As direction, not decimals — the multiples are loosely-sourced folklore, but the load-bearing mechanism is real: an ad spend that captures an owned contact turns a rented impression into a reusable asset",
+        "As reliable benchmarks — they're cited across the industry for a reason",
+        "As irrelevant — cost comparisons don't apply to owned channels",
+        "As underestimates — owned channels are effectively free to build",
+      ],
+      answer: 0,
+      explain:
+        "The chapter flags these multiples as directional folklore with loose sourcing. What it stakes the argument on is the mechanism: pay once to capture the contact, then reach them as often as you like for free — which holds whatever the true multiple is.",
+    },
+    {
+      q: "To boost Discord linking, you raise the perk to $100 of product credit. Link conversions triple. What does the chapter predict comes next?",
+      options: [
+        "Sustainable growth — a stronger perk compounds the flywheel",
+        "Discord will flag the server for incentivised invites",
+        "Nothing changes — perk size only affects the conversion rate",
+        "A wave of perk-hunters who churn the moment the reward lands — the perk should be worth the link and no more, ideally something a genuine user wanted anyway",
+      ],
+      answer: 3,
+      explain:
+        "Over-rewarding means the incentive does the selecting — the same failure mode as referral bounties in §8.7. The best perks (community access, credits a real user would spend, early features) convert the people who wanted the product anyway.",
+    },
+    {
+      q: "Telegram members already have verified phone numbers, so why does the Telegram /link flow still email a single-use confirmation link?",
+      options: [
+        "Telegram's bot API requires email verification before a bot can DM",
+        "Telegram identity is phone-based with no native email field — the deep-link plus email-confirm flow is the same proof-by-clicking pattern as Discord, and it's what binds telegram ↔ email into the graph",
+        "The phone number is captured as the owned contact; the email is just a backup",
+        "To rate-limit how often members can run /link",
+      ],
+      answer: 1,
+      explain:
+        "The asset being captured is the verified email edge, not the phone number. Clicking the emailed link proves inbox ownership and stitches the analytics identity from the client — the same never-trust-the-typed-address standard the Discord flow sets.",
+    },
+    {
+      q: "You want a simple give-get credit referral live this week, on one channel, web only. Per the chapter's build-vs-buy split, what's the right first move?",
+      options: [
+        "A hosted referral tool like Rewardful or GrowSurf — buy when link-based attribution is enough; build on your own graph when referrals go cross-device, live in your community, or attract fraud",
+        "Build it on your identity graph from day one — hosted tools are a dead end",
+        "PartnerStack — it's the standard for user-to-user referral programs",
+        "Skip referrals entirely — under 10% of users ever refer, so the channel rarely pays",
+      ],
+      answer: 0,
+      explain:
+        "The chapter's honest split: hosted SaaS is the right first move for a simple single-channel cash or credit program, while the owned-graph build wins when attribution must survive the phone-click → laptop-signup gap, rewards live in the community, or anti-fraud needs verified identity. PartnerStack is affiliate/partner-shaped, and the under-10% figure describes median programs, not the ceiling.",
+    },
+    {
+      q: "A well-funded competitor ships a feature-for-feature clone of your product in a single quarter. Why does the chapter argue you can still be defensible?",
+      options: [
+        "Feature velocity — you can out-ship them",
+        "Brand loyalty means users ignore clones",
+        "You can't — feature parity means the moat is gone",
+        "The consented identity graph is a hidden network: it has to be earned edge by edge, it's reachable by you and no competitor, and every new link makes the next turn of the loop cheaper",
+      ],
+      answer: 3,
+      explain:
+        "This is the Dixon/a16z layer: the tool earns the user, the network keeps them — and an identity graph is a network effect that doesn't look like one. Features can be copied in a quarter; a dense, consented graph is accumulated one verified link at a time.",
+    },
   ]}
 />
 

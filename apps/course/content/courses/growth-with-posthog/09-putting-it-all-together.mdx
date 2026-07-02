@@ -371,6 +371,66 @@ Three things worth doing while this chapter is fresh:
       explain:
         "Re-validating the activation metric, reporting holdout lift, and reviewing blended CAC move on month timescales. The weekly meeting would just be staring at noise.",
     },
+    {
+      q: "A new teammate proposes flipping the order: run ads first to get traffic data, fix retention later. Per the course's ordering, what's wrong with that?",
+      options: [
+        "Acquisition is the lever that wastes the most money when the bucket leaks — retention work first is what makes later spend pay back",
+        "Ads take longer to set up than analytics, so it's simply slower",
+        "Nothing — the order is arbitrary as long as all three phases eventually happen",
+        "Paid traffic pollutes analytics, so nothing can be measured until the ads are switched off",
+      ],
+      answer: 0,
+      explain:
+        "The leaky bucket from Chapter 2 is why the order is measure → keep → grow and not the reverse. That single ordering decision, agreed as a team on Day 0, is called the most valuable thing in the course.",
+    },
+    {
+      q: "Someone adds 'redesign the pricing page' to the experiment backlog. What does the chapter say it needs before it can be scored?",
+      options: [
+        "A designer's mockup, so the team has something concrete to react to",
+        "Sign-off from the weekly growth review",
+        "A switch from ICE to PIE, which handles design changes better",
+        "Rewriting as a hypothesis — if we [change], [metric] will move [direction] because [reasoning] — then an ICE score",
+      ],
+      answer: 3,
+      explain:
+        "Ideas enter the backlog as hypotheses, not tasks, so 'this would be huge' has to meet 'how confident are we, actually?'. The score's job is ordering the list — and debating ICE vs PIE is named as the only real mistake.",
+    },
+    {
+      q: "The dashboard shows a retention dip and someone asks which tool will fix it. Under the course's division of labour, the right frame is:",
+      options: [
+        "PostHog should fix it — it detected the problem",
+        "Hogsend should fix it automatically — that's what automation is for",
+        "Neither tool decides anything — PostHog detects, Hogsend acts, and a human decides what to do",
+        "Whichever tool the growth department owns",
+      ],
+      answer: 2,
+      explain:
+        "The split — PostHog detects, Hogsend acts, you decide — is what keeps the system simple no matter how much you add to it. Kill-or-scale calls are made by people, out loud, in the weekly review.",
+    },
+    {
+      q: "The team wants to A/B test a fix for an error message that's clearly broken. Per the chapter's honest rules, you should:",
+      options: [
+        "Just ship it — obvious fixes, reversible changes, and changes too small to measure don't earn an experiment's overhead",
+        "Test it anyway — a culture of experimentation means testing everything",
+        "Add it to the backlog and wait for its ICE score to reach the top",
+        "Run it against the global holdout so the lift is provable",
+      ],
+      answer: 0,
+      explain:
+        "Not everything deserves an experiment: experiments earn their overhead on decisions that are expensive to get wrong. At startup traffic that discipline is what keeps tempo honest instead of theatrical.",
+    },
+    {
+      q: "An experiment finishes with no detectable difference and the team moves on without writing anything down. What's the cost the chapter warns about?",
+      options: [
+        "None — only winning experiments are worth documenting",
+        "The result becomes statistically invalid after the fact",
+        "The weekly meeting runs over its 30 minutes",
+        "Someone re-runs the forgotten experiment later — the thirty-second write-up is what stops the team paying a month to re-learn it",
+      ],
+      answer: 3,
+      explain:
+        "A result only counts once it's recorded — hypothesis, what happened, what you'd try differently. 'No detectable difference' is an honest, common outcome, and a learning that lives in one head is one the team usually pays to re-discover.",
+    },
   ]}
 />
 

@@ -50,7 +50,7 @@
         "key": "quiz:growth-with-posthog/00-product-led-growth",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "01-what-is-posthog": [
@@ -99,7 +99,7 @@
         "key": "quiz:growth-with-posthog/01-what-is-posthog",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "02-aarrr-and-the-leaky-bucket": [
@@ -174,7 +174,7 @@
         "key": "quiz:growth-with-posthog/02-aarrr-and-the-leaky-bucket",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "03-instrument-posthog": [
@@ -229,7 +229,7 @@
         "key": "quiz:growth-with-posthog/03-instrument-posthog",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "04-your-daily-dashboard": [
@@ -275,7 +275,7 @@
         "key": "quiz:growth-with-posthog/04-your-daily-dashboard",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "05-lifecycle-messaging": [
@@ -331,7 +331,7 @@
         "key": "quiz:growth-with-posthog/05-lifecycle-messaging",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "06-building-lifecycle-with-hogsend": [
@@ -364,7 +364,7 @@
         "key": "quiz:growth-with-posthog/06-building-lifecycle-with-hogsend",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "07-driving-traffic": [
@@ -429,7 +429,7 @@
         "key": "quiz:growth-with-posthog/07-driving-traffic",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "08-owned-audience-identity-flywheel": [
@@ -478,7 +478,7 @@
         "key": "quiz:growth-with-posthog/08-owned-audience-identity-flywheel",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "09-putting-it-all-together": [
@@ -527,7 +527,7 @@
         "key": "quiz:growth-with-posthog/09-putting-it-all-together",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ],
     "10-your-30-60-90-180-day-plan": [
@@ -665,7 +665,7 @@
         "key": "quiz:growth-with-posthog/10-your-30-60-90-180-day-plan",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 5
+        "itemCount": 10
       }
     ]
   }

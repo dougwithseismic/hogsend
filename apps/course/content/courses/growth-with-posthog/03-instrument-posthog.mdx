@@ -611,6 +611,66 @@ instrumentation into decisions.
       explain:
         "Keep the two mechanisms distinct: the proxy recovers a chunk of browser events by using your own domain, while backend events never touch the user's browser at all — which is why money-critical events and lifecycle triggers belong server-side.",
     },
+    {
+      q: "A security review flags your phc_ project key sitting visible in the shipped JS bundle. What's the right response?",
+      options: [
+        "Nothing to fix — the project key can only write events; reading your data needs a separate personal API key, which you do keep secret",
+        "Rotate the key immediately and move every capture call server-side",
+        "Proxy the key through your backend so it never reaches the browser",
+        "Restrict the key to your domain in PostHog settings before re-shipping",
+      ],
+      answer: 0,
+      explain:
+        "The write/read split is by design, not a leak: the phc_ key in your bundle can send events but cannot query anything back. It's the personal API key — the one that reads data — that must never ship client-side.",
+    },
+    {
+      q: "Autocapture is on and busily recording clicks, pageviews, and rageclicks. Why can't it power your activation funnel by itself?",
+      options: [
+        "Autocapture samples at high volume, so funnels systematically under-count",
+        "Autocapture only works on marketing pages, not inside a logged-in product",
+        "Autocaptured events can't carry properties, so there's nothing to filter on",
+        "It records interface events — 'a button was clicked' — not meaning like 'the user activated'; that signal needs named custom events",
+      ],
+      answer: 3,
+      explain:
+        "Autocapture is the safety net, not the signal: it can't know which click was your aha moment. The mature pattern is autocapture on for discovery plus a small, deliberate set of named events for the funnels you actually report on.",
+    },
+    {
+      q: "PostHog is your only analytics destination, and a teammate proposes routing all events through Segment first 'to do it properly'. What does this chapter advise?",
+      options: [
+        "Skip the CDP for now — with one destination it adds a hop and a bill for nothing, and it earns its keep only once a second destination exists",
+        "Adopt Segment early, because retrofitting a CDP later means re-instrumenting everything",
+        "Route through Google Tag Manager instead, since it needs no deploy",
+        "Split the difference: Segment for client events, PostHog SDKs for server events",
+      ],
+      answer: 0,
+      explain:
+        "A CDP is worth it when the same events fan out to many destinations under one canonical schema. With PostHog as the sole destination, your own front-end and back-end doing the capturing is the cheaper, simpler default.",
+    },
+    {
+      q: "Months in, you discover three differently-named events all mean 'started checkout'. What's the cheapest fix that keeps your history?",
+      options: [
+        "Rename the events in code and backfill the old data with a migration",
+        "Define an Action in PostHog that groups the three events — actions apply retroactively, with no code to ship",
+        "Delete the old events and start over with one clean checkout_started",
+        "Build three parallel funnels and sum the numbers in a spreadsheet",
+      ],
+      answer: 1,
+      explain:
+        "Actions are groupings defined inside PostHog that apply to events you already captured — the escape hatch for the inevitable taxonomy miss. It's why a good taxonomy matters but a perfect one isn't worth blocking on.",
+    },
+    {
+      q: "Your team wants to start A/B testing, but the goal metric project_created currently fires from two places under three names. What's the right order of operations?",
+      options: [
+        "Run the experiment anyway — instrumentation noise averages out across variants",
+        "Use a before/after comparison instead, since it doesn't depend on event quality",
+        "Switch the goal metric to pageviews, which autocapture already tracks cleanly",
+        "Clean the instrumentation first — experiments measure a variant against an event, so dirty events make results measure your tracking, not your product",
+      ],
+      answer: 3,
+      explain:
+        "The dependency runs one direction: instrument first, test second. And before/after comparisons are no refuge — they feel like measurement but can't separate your change from the newsletter that went out the same day.",
+    },
   ]}
 />
 

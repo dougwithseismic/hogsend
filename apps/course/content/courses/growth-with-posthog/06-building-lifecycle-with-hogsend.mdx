@@ -733,6 +733,66 @@ every drop lands in an audience you own.
       explain:
         "A replayed journey must make the same holdout decision it made the first time, and the same user should stay in the same bucket. Randomness at run time would let a crash flip a user between arms — quietly corrupting the experiment.",
     },
+    {
+      q: "You're adding win-back and dunning journeys. A user can lapse (or have a card fail) again months later, but shouldn't be re-enrolled twice in the same week. Which entryLimit fits?",
+      options: [
+        "once_per_period with an entryPeriod — it allows legitimate re-entry after the window while blocking rapid re-enrollment",
+        "once — a user should only ever receive a win-back sequence one time",
+        "unlimited — the exitOn events already prevent duplicate sends",
+        "None — the suppress window is the re-enrollment policy",
+      ],
+      answer: 0,
+      explain:
+        "entryLimit governs legitimate new runs: once fits welcome (you sign up once), once_per_period fits win-back and dunning (users can lapse again, but not be spammed), and unlimited is reserved for counting journeys. suppress is only a short debounce against a burst of the same trigger, not a policy.",
+    },
+    {
+      q: "A user unsubscribes from email while parked in the win-back journey's 5-day wait. What happens?",
+      options: [
+        "The journey exits immediately, exactly like an exitOn event",
+        "The engine cancels every active journey for that user",
+        "The next sendEmail throws and the journey run fails",
+        "The journey keeps running — unsubscribe is a preference the mailer honours at send time, which is why you re-check ctx.guard.isSubscribed() after long waits",
+      ],
+      answer: 3,
+      explain:
+        "An exit event ends a journey; an unsubscribe doesn't — the mailer suppresses the send, but the journey's logic keeps executing. Re-checking ctx.guard.isSubscribed() after a long sleep keeps the program honest about who still wants to hear from you.",
+    },
+    {
+      q: "An LLM picks which of three re-engagement templates a journey sends. Why does the chapter say to wrap that choice in ctx.once?",
+      options: [
+        "ctx.once caches the LLM call so replays run faster",
+        "A crash-and-replay could re-roll the choice and deliver a different-but-duplicate message — ctx.once records the first result and replays it verbatim",
+        "The engine forbids network calls inside run() unless they're wrapped",
+        "ctx.once is required whenever a send takes props",
+      ],
+      answer: 1,
+      explain:
+        "The exactly-once key is derived partly from what you send, so a non-deterministic choice is the one thing automatic replay safety can't cover. Recording the decision keeps a replayed run identical to the original — the same reason to prefer the event's occurredAt over new Date().",
+    },
+    {
+      q: "You want a win-back journey for users who've been inactive for 30 days. How does the chapter recommend detecting that dormancy?",
+      options: [
+        "Build a PostHog cohort for the inactivity condition and have a workflow webhook post to /v1/ingest — PostHog decides who, Hogsend decides what to do",
+        "Start a 30-day ctx.sleep in every journey at signup and check activity when it wakes",
+        "Have the journey poll PostHog's API on an interval until the user goes quiet",
+        "Run a nightly cron inside Hogsend that scans the users table for stale accounts",
+      ],
+      answer: 0,
+      explain:
+        "Thirty-day dormancy across all users is hard to compute in real time, but it's a cohort PostHog already maintains — the bridge is a webhook into the same ingest pipeline. That's the clean split of 'PostHog detects, Hogsend acts', with Hogsend never polling anything.",
+    },
+    {
+      q: "A teammate proposes running lifecycle email on a nightly cron that scans the users table against a state column. What's the chapter's core objection?",
+      options: [
+        "Cron jobs can't send email reliably at scale",
+        "Every in-flight wait is lost the next time the server restarts",
+        "It only works for transactional email, not multi-step sequences",
+        "It works, but you hand-rebuild state, idempotency, and branching — and the logic smears across jobs and SQL until nobody can say what messages a user might get this week",
+      ],
+      answer: 3,
+      explain:
+        "Losing waits on restart is the setTimeout failure, not cron's — cron's failure mode is slower and quieter. The tell the chapter gives: six months in, answering 'what can user X possibly receive this week?' means reading four jobs and a spreadsheet, which is exactly the readability a single durable function preserves.",
+    },
   ]}
 />
 

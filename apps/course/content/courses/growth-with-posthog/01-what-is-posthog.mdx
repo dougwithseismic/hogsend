@@ -441,6 +441,66 @@ wish they hadn't: deciding *what* to measure before wiring anything up.
       explain:
         "The project key is write-only by design, like a mailbox slot: anyone can post through it, nobody can read through it. Reading data requires a personal API key, which never ships to the browser (Chapter 3 returns to this split).",
     },
+    {
+      q: "A teammate proposes adding Segment in front of PostHog 'so we collect events properly'. Per this chapter, what is Segment actually for?",
+      options: [
+        "It's a pipe, not an analytics tool — it collects events once and fans them out to many destinations, and for a small team PostHog's own CDP plus direct capture usually cover it",
+        "It's a direct competitor to PostHog's product analytics",
+        "It's a required layer — PostHog can't ingest events without a CDP in front",
+        "It's a cheaper replacement for PostHog's session replay",
+      ],
+      answer: 0,
+      explain:
+        "Segment and RudderStack are complementary, not competitive — they can even feed PostHog. The chapter's rule: reach for a dedicated CDP when you have many destinations that need one canonical event schema; before that, it's overkill.",
+    },
+    {
+      q: "Your funnel shows 41% of new users drop between signup and first project. What does the chapter suggest as the fastest way to find out why?",
+      options: [
+        "Ship an A/B test on the signup flow immediately",
+        "Add more events to the funnel until the drop explains itself",
+        "Export everything to a warehouse and model it in SQL",
+        "Watch session replays of the users who dropped — the qualitative layer under the quantitative funnel",
+      ],
+      answer: 3,
+      explain:
+        "The funnel tells you where; replay tells you why. Five minutes of watching real sessions behind a drop-off beats an hour of staring at a chart — and in PostHog the jump from data point to recordings is a click, not a project.",
+    },
+    {
+      q: "What is the chapter's core argument for authoring lifecycle journeys in code rather than on a no-code canvas?",
+      options: [
+        "Code executes faster than canvas-based tools at send time",
+        "No-code tools can't trigger on PostHog events",
+        "Branching is ordinary TypeScript, a 48-hour wait is one line, and the whole journey lives in a pull request a colleague reviews — while canvas complexity compounds with every condition you add",
+        "Canvas tools are always more expensive per send",
+      ],
+      answer: 2,
+      explain:
+        "The example journey makes it concrete: an `if` and a `waitForEvent` replace a tangle of boxes, and the logic is versioned as a dependency you pin and code-review. Picture the canvas version with three more branches — that divergence is the whole argument.",
+    },
+    {
+      q: "Which statement matches PostHog's pricing model as the chapter describes it?",
+      options: [
+        "You're billed once when an event is captured, storing historical events costs nothing, and each product's free tier resets every month",
+        "You pay a flat monthly seat price per team member",
+        "Historical events accrue storage charges the longer you keep them",
+        "The free tier is a one-time credit that never renews",
+      ],
+      answer: 0,
+      explain:
+        "The model is usage-based per product, and PostHog says roughly 90% of companies use it for free. When cost eventually arrives, the lever is event volume — which is why Chapter 3 tells you to be deliberate about what you track.",
+    },
+    {
+      q: "You run a B2B product and want Group Analytics to roll events up to the company level. What does the chapter warn you to do first?",
+      options: [
+        "Nothing — Group Analytics is included in every product's free tier",
+        "Switch to the EU cloud, where Group Analytics is cheaper",
+        "Self-host, since Group Analytics isn't available on Cloud",
+        "Check the current pricing page — it's reportedly a paid add-on, and enabling it can cause all identified events in the project to bill, not just the grouped ones",
+      ],
+      answer: 3,
+      explain:
+        "This is one of the two things §1.5 says to verify rather than take on faith, because it bites: the setting can change what your entire identified event volume costs, not merely add a line item for company rollups.",
+    },
   ]}
 />
 

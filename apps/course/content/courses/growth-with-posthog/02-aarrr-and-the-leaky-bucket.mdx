@@ -487,6 +487,66 @@ You now know what to measure and why. Next, you'll wire PostHog up to measure it
       explain:
         "A plateau above zero — at any level — means some users stick indefinitely, which decay-to-zero curves never show. Whether 12% is good depends enormously on category (consumer vs B2B differ wildly), which is why you check operator benchmarks before reacting.",
     },
+    {
+      q: "You acquire 100 mobile app users at $5 each. Going by the dataset Andrew Chen popularised, what does the chapter say you should expect?",
+      options: [
+        "About 77 of them gone within three days — roughly $385 effectively set on fire before you've done anything wrong except scale a leaky bucket",
+        "About half churn in the first month, which is normal and safe to scale through",
+        "Nothing can be said until you have 90 days of retention data",
+        "Most will stick if the ads targeted the right audience",
+      ],
+      answer: 0,
+      explain:
+        "The chapter's math: the average app loses ~77% of daily users in three days and ~90% within 30. The figures are directional (one widely-cited dataset), but the lesson is structural — acquisition and retention multiply, so pouring into a leaky bucket is purchasing churn.",
+    },
+    {
+      q: "A teammate reads about RARRA and declares AARRR obsolete. What's the chapter's actual position on the two?",
+      options: [
+        "AARRR is outdated; RARRA is the modern replacement and you should switch",
+        "RARRA is for mobile apps, AARRR is for SaaS",
+        "They contradict each other, so pick one and stay consistent",
+        "Same five letters, different jobs: AARRR maps the user's journey, RARRA orders your priorities — fix retention and activation first because that's where the leverage is",
+      ],
+      answer: 3,
+      explain:
+        "Petit and Papp reordered the acronym specifically to break the start-with-acquisition habit — 'if you don't have retention, you have nothing.' Nothing about the categories changed; what changed is what you fix first.",
+    },
+    {
+      q: "Your 60 retained users sent 48 invites and 18 converted — a K-factor of 0.3. What does that number mean for your growth?",
+      options: [
+        "The product is viral: each user brings more users, so referral compounds on its own",
+        "The referral program failed and should be cut",
+        "Below 1, referral is a discount on CAC — real value, but each cycle shrinks; only above 1 does it compound into self-sustaining growth",
+        "K-factor only matters for consumer social apps",
+      ],
+      answer: 2,
+      explain:
+        "A K of 0.3 means each cohort brings in 30% of its own size — cheaper effective acquisition, which is genuinely worth having. But the loop decays every cycle, so it can't replace other acquisition until K crosses 1.",
+    },
+    {
+      q: "You've used your funnel to find where users drop off. Now you want growth that sustains itself without constantly refilling the top. Which lens does the chapter hand you?",
+      options: [
+        "Stay with the funnel — loops are just funnels drawn in a circle",
+        "HEART, because it's the most granular framework",
+        "The PMF survey, to confirm fit before designing anything",
+        "Growth loops — a system where one cycle's output (a user creating shareable content) becomes the next cycle's input",
+      ],
+      answer: 3,
+      explain:
+        "Reforge's critique is that a funnel is linear — people fall out the bottom and you're always refilling the top. The funnel is the right lens for seeing leaks; the loop is the right lens for designing growth that feeds itself, like the owned-audience flywheel in Chapter 8.",
+    },
+    {
+      q: "Before sinking months into activation optimisation, the chapter offers a cheap gut-check on whether you have product-market fit at all. What is it?",
+      options: [
+        "Ask users how they'd feel if they could no longer use the product — 40%+ saying 'very disappointed' suggests PMF",
+        "Check whether MRR grew last quarter",
+        "Ask users whether they'd recommend you (NPS above 50)",
+        "Compare your download count against the category average",
+      ],
+      answer: 0,
+      explain:
+        "That's the Sean Ellis test from The Startup Pyramid: above the 40% bar, pour into growth; below it, fix the product first. It complements the retention curve — two independent reads on whether you're in the 'fix the bucket' phase or the 'open the tap' phase.",
+    },
   ]}
 />
 
