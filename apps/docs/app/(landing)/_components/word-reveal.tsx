@@ -28,13 +28,10 @@ function Word({ progress, range, children }: WordProps) {
   return (
     <span className="relative inline-block">
       {/* Static ghost so layout never shifts; the ink copy fades in over it. */}
-      <span aria-hidden="true" className="text-[#d4d4db]">
+      <span aria-hidden="true" className="text-white/20">
         {children}
       </span>
-      <motion.span
-        style={{ opacity }}
-        className="absolute inset-0 text-[#040406]"
-      >
+      <motion.span style={{ opacity }} className="absolute inset-0 text-white">
         {children}
       </motion.span>
     </span>
@@ -70,7 +67,7 @@ export function WordReveal({
         ))}
       </span>
       {/* Reduced-motion fallback: plain ink text. */}
-      <span className="hidden text-[#040406] motion-reduce:inline">{text}</span>
+      <span className="hidden text-white motion-reduce:inline">{text}</span>
     </span>
   );
 }

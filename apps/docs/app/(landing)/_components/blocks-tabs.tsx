@@ -48,8 +48,8 @@ export function PsBlocksTabs({ tabs }: { tabs: BlockTab[] }): JSX.Element {
               className={cn(
                 "select-none rounded-[6px] border px-3.5 py-2 text-left font-medium text-sm tracking-[-0.025em] outline-none transition-colors duration-200",
                 isActive
-                  ? "border-[#f64838]/35 bg-[#fdeeec] text-[#040406]"
-                  : "border-transparent text-[#75768a] hover:bg-[#f6f6f8] hover:text-[#040406]",
+                  ? "border-[#f64838]/35 bg-[#f64838]/[0.08] text-white"
+                  : "border-transparent text-white/55 hover:bg-white/[0.05] hover:text-white",
               )}
             >
               {tab.label}
@@ -71,17 +71,17 @@ export function PsBlocksTabs({ tabs }: { tabs: BlockTab[] }): JSX.Element {
           transition={{ duration: 0.22, ease: "easeOut" }}
           className="min-w-0"
         >
-          <h3 className="font-medium text-[#040406] text-xl tracking-[-0.02em]">
+          <h3 className="font-medium text-white text-xl tracking-[-0.02em]">
             {active.title}
           </h3>
-          <p className="mt-2 max-w-[640px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+          <p className="mt-2 max-w-[640px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
             {active.description}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {active.tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full border border-[#e4e4e9] bg-white px-2.5 py-0.5 font-mono text-[#75768a] text-[11px]"
+                className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-0.5 font-mono text-white/55 text-[11px]"
               >
                 {tag}
               </span>

@@ -1,4 +1,4 @@
-import { Bell, Mail, MessageSquare, Zap } from "lucide-react";
+import { Mail, MessageSquare, Zap } from "lucide-react";
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
@@ -8,6 +8,9 @@ import { CodeHighlight } from "@/components/ds/code-highlight";
 import { CopyButton } from "@/components/ds/copy-button";
 import { LogoMarquee } from "@/components/ds/marquee";
 import { Reveal } from "@/components/ds/reveal";
+import { isHogsendConfigured } from "@/components/hogsend/config";
+import { NavBell } from "@/components/hogsend/nav-bell";
+import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
 import { cn } from "@/lib/cn";
 import {
   DISCORD_INVITE_URL,
@@ -27,20 +30,18 @@ import {
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
-/*  The Hogsend homepage — light crimzon design language.                     */
+/*  The Hogsend homepage — spike-polar layout, dark crimzon scheme.           */
 /*                                                                            */
-/*  Developed as the /spike-polar spike (Polar Signals design-system          */
-/*  exploration), promoted to the homepage 2026-07-02. Base tokens lifted     */
-/*  from polarsignals.com (computed styles, 2026-07-01):                      */
-/*    ink #040406 · body #2e3038 · muted #75768a · hairline #e4e4e9           */
-/*    solid button #121317/#fafafa · outline 1px #2e3038 · radius 6px         */
-/*    accent purple #6f5af6 (eyebrow triangles, pills, pixel art)             */
-/*    display: Articulat CF 400 (stand-in: Montserrat, --ps-display)          */
-/*    body: Inter 18/27 · eyebrows + badges: mono 12px uppercase              */
-/*  Recurring furniture: ▲ MONO EYEBROWS, huge sentence-case display h2s      */
-/*  ending in a period, two-tone headlines (ink → muted), pixel-bar gradient  */
-/*  art, dot-grid decorations, dark full-bleed platform section, black       */
-/*  4-column footer.                                                          */
+/*  Layout/typography developed as the /spike-polar spike (a light Polar      */
+/*  Signals design-system exploration), promoted to the homepage 2026-07-02   */
+/*  and re-set on the crimzon ground: #050101 ink page, #F64838 accent,       */
+/*  white text ramp (white → /75 body → /55 muted → /40 faint), white/10      */
+/*  hairlines, red-tint section rules + page frame, white-fill primary        */
+/*  buttons (the crimzon ds/button idiom).                                    */
+/*  Kept from the spike: Montserrat display (--ps-display), ▲ mono eyebrows,  */
+/*  huge sentence-case display h2s ending in a period, two-tone headlines     */
+/*  (white → faint), contour-line/dot-grid decorations, ink glow panels,      */
+/*  black 4-column footer, radius 6px.                                        */
 /*                                                                            */
 /*  All copy is the real homepage copy — nothing invented, no usage claims.   */
 /* ========================================================================== */
@@ -87,7 +88,7 @@ function Eyebrow({
     <span
       className={cn(
         "inline-flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.08em]",
-        light ? "text-white/80" : "text-[#040406]",
+        light ? "text-white/80" : "text-white",
         className,
       )}
     >
@@ -124,10 +125,10 @@ function Btn({
       className={cn(
         "inline-flex items-center justify-center rounded-[6px] font-medium tracking-[-0.025em] transition-colors",
         size === "sm" ? "px-4 py-2 text-sm" : "px-5 py-3.5 text-base",
-        variant === "solid" && "bg-[#121317] text-[#fafafa] hover:bg-[#2e3038]",
+        variant === "solid" && "bg-white text-[#0a0a0a] hover:bg-white/90",
         variant === "outline" &&
-          "border border-[#2e3038] bg-white text-[#040406] hover:bg-[#f4f4f6]",
-        variant === "ghost" && "text-[#040406] hover:opacity-70",
+          "border border-white/25 text-white hover:bg-white/[0.06]",
+        variant === "ghost" && "text-white hover:opacity-70",
         className,
       )}
     >
@@ -139,21 +140,22 @@ function Btn({
 /** Inline mono pill, as in Polar's "runs on [Kubernetes]" sentence. */
 function InlinePill({ children }: { children: ReactNode }) {
   return (
-    <span className="mx-0.5 inline-flex translate-y-[-1px] items-center gap-1.5 rounded-full border border-[#e4e4e9] bg-white/80 px-3 py-0.5 align-middle font-mono text-[0.72em] text-[#2e3038] shadow-sm">
+    <span className="mx-0.5 inline-flex translate-y-[-1px] items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-0.5 align-middle font-mono text-[0.72em] text-white/75">
       {children}
     </span>
   );
 }
 
-/** Monochrome Hogsend lockup — Polar renders its mark single-colour. */
-function InkLogo({ light }: { light?: boolean }) {
+/** Monochrome Hogsend lockup — rendered single-colour, white on ink. The
+ * `light` prop is vestigial from the light spike (both grounds are dark now). */
+function InkLogo({ light: _light }: { light?: boolean }) {
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex items-center gap-2 text-white">
       <svg
         viewBox="0 0 24 24"
         fill="none"
         aria-hidden="true"
-        className={cn("size-[18px]", light ? "text-white" : "text-[#040406]")}
+        className="size-[18px]"
       >
         <path d="M3.5 12 20 4.5 14 20l-3.2-6.4L3.5 12Z" fill="currentColor" />
       </svg>
@@ -161,7 +163,6 @@ function InkLogo({ light }: { light?: boolean }) {
         className={cn(
           "font-semibold text-[17px] leading-none tracking-[-0.02em]",
           DISPLAY,
-          light ? "text-white" : "text-[#040406]",
         )}
       >
         Hogsend
@@ -285,7 +286,7 @@ const NAV_LINKS = [
 
 function PsNav() {
   return (
-    <header className="sticky top-0 z-50 border-[#f6483833] border-b bg-white/85 backdrop-blur">
+    <header className="sticky top-0 z-50 border-[#f6483833] border-b bg-[#050101]/85 backdrop-blur">
       <Container className="flex h-[54px] items-center justify-between">
         <div className="flex items-center gap-8">
           <Link href="/">
@@ -296,7 +297,7 @@ function PsNav() {
               <Link
                 key={l.label}
                 href={l.href}
-                className="font-medium text-[#040406] text-sm tracking-[-0.025em] hover:opacity-70"
+                className="font-medium text-white text-sm tracking-[-0.025em] hover:opacity-70"
               >
                 {l.label}
               </Link>
@@ -304,26 +305,20 @@ function PsNav() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
-          {/* The nav bell — the real site's in-app feed entry point, here as
-              a light-system visual (the live feed itself sits in the hero). */}
-          <span
-            aria-hidden="true"
-            className="relative hidden size-8 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038] sm:inline-flex"
-          >
-            <Bell className="size-4" strokeWidth={1.5} />
-            <span className="absolute top-1 right-1 size-1.5 rounded-full bg-[#f64838]" />
-          </span>
+          {/* The REAL nav bell — the live in-app feed entry point. Renders
+              nothing when no engine is wired (isHogsendConfigured gate). */}
+          <NavBell align="end" />
           <a
             href={GITHUB_URL}
             aria-label="GitHub"
-            className="hidden size-8 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038] transition-colors hover:border-[#c9c9cf] hover:text-[#040406] sm:inline-flex"
+            className="hidden size-8 items-center justify-center rounded-[6px] border border-white/10 text-white/75 transition-colors hover:border-white/30 hover:text-white sm:inline-flex"
           >
             <GitHubMark className="size-4" />
           </a>
           <a
             href={DISCORD_INVITE_URL}
             aria-label="Discord"
-            className="hidden size-8 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038] transition-colors hover:border-[#c9c9cf] hover:text-[#040406] sm:inline-flex"
+            className="hidden size-8 items-center justify-center rounded-[6px] border border-white/10 text-white/75 transition-colors hover:border-white/30 hover:text-white sm:inline-flex"
           >
             <DiscordMark className="size-4" />
           </a>
@@ -338,10 +333,45 @@ function PsNav() {
 
 /* ----------------------------------------------------------------- hero -- */
 
-/** The live-demo window, in the light system — animated on a shared 10s
- * clock: the sign-up email types itself, then the feed cards arrive one by
- * one (the notification loop the real @hogsend/react feed shows live). */
+/** The hero live-demo window. With an engine wired (isHogsendConfigured) it
+ * hosts the REAL demo — `InAppDemoBody`: a real sign-up that starts the
+ * dogfood welcome series, the live in-app feed it unlocks, and the journey
+ * trace band. Without one (a build missing the NEXT_PUBLIC vars) it falls
+ * back to the animated sketch so the page still renders everywhere. */
 function PsHeroDemo() {
+  return (
+    <div className="mx-auto max-w-[1024px] overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-2xl">
+      {/* Window chrome */}
+      <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <div aria-hidden="true" className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+          </div>
+          <span className="font-mono text-white/40 text-[11px] tracking-wide">
+            hogsend.com — live demo
+          </span>
+        </div>
+        <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
+          <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
+          {isHogsendConfigured ? "live" : "sketch"}
+        </span>
+      </div>
+      {isHogsendConfigured ? (
+        <div className="p-4 text-left md:p-6">
+          <InAppDemoBody />
+        </div>
+      ) : (
+        <HeroDemoSketch />
+      )}
+    </div>
+  );
+}
+
+/** The no-engine fallback: the sign-up + feed loop as a pure-CSS sketch on a
+ * shared 10s clock — the email types itself, feed cards arrive staggered. */
+function HeroDemoSketch() {
   const feed = [
     {
       icon: <Mail className="size-3.5" strokeWidth={1.5} />,
@@ -361,128 +391,105 @@ function PsHeroDemo() {
     },
   ];
   return (
-    <div className="mx-auto max-w-[980px] overflow-hidden rounded-xl border border-[#dcdce2] bg-white shadow-2xl">
-      {/* Window chrome */}
-      <div className="flex items-center justify-between border-[#ececef] border-b px-4 py-2.5">
-        <div className="flex items-center gap-3">
-          <div aria-hidden="true" className="flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full bg-[#e4e4e9]" />
-            <span className="size-2.5 rounded-full bg-[#e4e4e9]" />
-            <span className="size-2.5 rounded-full bg-[#e4e4e9]" />
-          </div>
-          <span className="font-mono text-[#9b9ca6] text-[11px] tracking-wide">
-            hogsend.com — live demo
-          </span>
-        </div>
-        <span className="relative inline-flex size-7 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#2e3038]">
-          <Bell className="size-3.5" strokeWidth={1.5} />
-          <span className="ps-pulse -top-1 -right-1 absolute inline-flex size-4 items-center justify-center rounded-full bg-[#f64838] font-medium text-[10px] text-white">
-            3
-          </span>
+    <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-white/10">
+      {/* Left — the real sign-up, typing itself. */}
+      <div className="p-6 text-left md:p-8">
+        <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
+          Get the demo
         </span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-[#ececef]">
-        {/* Left — the real sign-up, typing itself. */}
-        <div className="p-6 text-left md:p-8">
-          <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+        <h3 className="mt-3 font-medium text-white text-xl tracking-[-0.02em]">
+          First name, email — get the demo.
+        </h3>
+        <p className="mt-2 text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
+          A stock create-hogsend app running in production ingests the event,
+          runs its welcome journey, and sends from hello@hogsend.com a few
+          seconds later.
+        </p>
+        <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-white/10 p-1.5 pl-4">
+          <span className="flex-1 font-mono text-white/75 text-sm">
+            <span className="ps-type">sam@acme.com</span>
+            <span
+              aria-hidden="true"
+              className="ps-caret -mb-0.5 inline-block h-4 w-px bg-[#f64838]"
+            />
+          </span>
+          <span className="rounded-[4px] bg-white px-3.5 py-2 font-medium text-[#0a0a0a] text-sm">
             Get the demo
           </span>
-          <h3 className="mt-3 font-medium text-[#040406] text-xl tracking-[-0.02em]">
-            First name, email — get the demo.
-          </h3>
-          <p className="mt-2 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
-            A stock create-hogsend app running in production ingests the event,
-            runs its welcome journey, and sends from hello@hogsend.com a few
-            seconds later.
-          </p>
-          <div className="mt-6 flex items-center gap-2 rounded-[6px] border border-[#e4e4e9] p-1.5 pl-4">
-            <span className="flex-1 font-mono text-[#2e3038] text-sm">
-              <span className="ps-type">sam@acme.com</span>
-              <span
-                aria-hidden="true"
-                className="ps-caret -mb-0.5 inline-block h-4 w-px bg-[#f64838]"
-              />
-            </span>
-            <span className="rounded-[4px] bg-[#121317] px-3.5 py-2 font-medium text-sm text-white">
-              Get the demo
-            </span>
-          </div>
-          <p className="mt-4 text-[#9b9ca6] text-[12px] leading-5 tracking-[-0.02em]">
-            Same engine, same journey code you scaffold · unsubscribe is one
-            click
-          </p>
         </div>
+        <p className="mt-4 text-white/40 text-[12px] leading-5 tracking-[-0.02em]">
+          Same engine, same journey code you scaffold · unsubscribe is one click
+        </p>
+      </div>
 
-        {/* Right — the in-app loop, notifications arriving live. */}
-        <div className="bg-[#fafafb] p-6 text-left md:p-8">
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
-              Live feed
-            </span>
-            <span className="flex items-center gap-1.5 font-mono text-[#17805a] text-[11px]">
-              <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
-              connected
-            </span>
-          </div>
-          <div className="mt-4 flex flex-col gap-2.5">
-            {feed.map((n) => (
-              <div
-                key={n.title}
-                className="ps-feed-in rounded-md border border-[#ececef] bg-white px-4 py-3"
-                style={{ animationDelay: `${n.delay}s` }}
-              >
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-[#fdeeec] text-[#b8281c]">
-                    {n.icon}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
-                        {n.title}
-                      </p>
-                      <span className="flex shrink-0 items-center gap-2">
-                        <span className="text-[#9b9ca6] text-[11px]">
-                          {n.time}
-                        </span>
-                        <span className="size-1.5 rounded-full bg-[#f64838]" />
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
-                      {n.body}
-                    </p>
-                    <p className="mt-1.5 font-mono text-[#9b9ca6] text-[10px]">
-                      via {n.journey}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {/* The in-email answer — the click IS the answer. */}
+      {/* Right — the in-app loop, notifications arriving live. */}
+      <div className="bg-white/[0.04] p-6 text-left md:p-8">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
+            Live feed
+          </span>
+          <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
+            <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
+            connected
+          </span>
+        </div>
+        <div className="mt-4 flex flex-col gap-2.5">
+          {feed.map((n) => (
             <div
-              className="ps-feed-in rounded-md border border-[#ececef] bg-white px-4 py-3"
-              style={{ animationDelay: "7s" }}
+              key={n.title}
+              className="ps-feed-in rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
+              style={{ animationDelay: `${n.delay}s` }}
             >
               <div className="flex items-start gap-3">
-                <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-[#fdeeec] text-[#b8281c]">
-                  <MessageSquare className="size-3.5" strokeWidth={1.5} />
+                <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-[#f64838]/[0.12] text-[#f64838]">
+                  {n.icon}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
-                    Quick question
-                  </p>
-                  <p className="mt-0.5 text-[#75768a] text-[12px] leading-5 tracking-[-0.02em]">
-                    How likely are you to recommend Hogsend? The click is the
-                    answer — the journey branches on it.
-                  </p>
-                  <div className="mt-2.5 flex items-center gap-2">
-                    <span className="rounded-full bg-[#fdeeec] px-3 py-1 font-medium text-[#b8281c] text-[12px]">
-                      Likely
-                    </span>
-                    <span className="rounded-full border border-[#e4e4e9] px-3 py-1 font-medium text-[#75768a] text-[12px]">
-                      Not yet
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate font-medium text-white text-[13px] tracking-[-0.02em]">
+                      {n.title}
+                    </p>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="text-white/40 text-[11px]">
+                        {n.time}
+                      </span>
+                      <span className="size-1.5 rounded-full bg-[#f64838]" />
                     </span>
                   </div>
+                  <p className="mt-0.5 text-white/55 text-[12px] leading-5 tracking-[-0.02em]">
+                    {n.body}
+                  </p>
+                  <p className="mt-1.5 font-mono text-white/40 text-[10px]">
+                    via {n.journey}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+          {/* The in-email answer — the click IS the answer. */}
+          <div
+            className="ps-feed-in rounded-md border border-white/10 bg-white/[0.04] px-4 py-3"
+            style={{ animationDelay: "7s" }}
+          >
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-[#f64838]/[0.12] text-[#f64838]">
+                <MessageSquare className="size-3.5" strokeWidth={1.5} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-white text-[13px] tracking-[-0.02em]">
+                  Quick question
+                </p>
+                <p className="mt-0.5 text-white/55 text-[12px] leading-5 tracking-[-0.02em]">
+                  How likely are you to recommend Hogsend? The click is the
+                  answer — the journey branches on it.
+                </p>
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-medium text-[#f64838] text-[12px]">
+                    Likely
+                  </span>
+                  <span className="rounded-full border border-white/10 px-3 py-1 font-medium text-white/55 text-[12px]">
+                    Not yet
+                  </span>
                 </div>
               </div>
             </div>
@@ -500,24 +507,24 @@ function PsHero() {
         {/* Announcement pill — the lifecycle course. */}
         <a
           href="https://course.hogsend.com"
-          className="inline-flex items-center gap-2 rounded-full bg-[#fdeeec] py-1 pr-4 pl-1 text-[13px] text-[#2e3038]"
+          className="inline-flex items-center gap-2 rounded-full bg-[#f64838]/[0.08] py-1 pr-4 pl-1 text-[13px] text-white/75"
         >
           <span className="rounded-full bg-[#f64838] px-2.5 py-0.5 font-medium text-[12px] text-white">
             Course
           </span>
           Measure → Keep → Grow — lifecycle marketing on PostHog + Hogsend
-          <span className="font-medium text-[#040406]">Take it →</span>
+          <span className="font-medium text-white">Take it →</span>
         </a>
 
         <h1
           className={cn(
-            "mt-9 max-w-[840px] font-normal text-[#040406] text-[44px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
+            "mt-9 max-w-[840px] font-normal text-white text-[44px] leading-[1.08] tracking-[-0.02em] md:text-[64px] md:leading-[68px]",
             DISPLAY,
           )}
         >
           Hogsend acts on what PostHog sees.
         </h1>
-        <p className="mt-6 max-w-[600px] text-[#2e3038] text-lg leading-[27px] tracking-[-0.025em]">
+        <p className="mt-6 max-w-[600px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
           Lifecycle marketing as TypeScript in your repo — the welcome series,
           trial nudges, and win-backs that keep users, sent through your own
           Resend or Postmark account.
@@ -533,16 +540,16 @@ function PsHero() {
         </div>
 
         {/* Scaffold command — the crimzon hero's command strip, light chrome. */}
-        <div className="mt-7 flex items-center gap-4 rounded-[6px] border border-[#e4e4e9] bg-[#fafafa] py-2.5 pr-3 pl-4">
-          <code className="font-mono text-[13px] text-[#2e3038]">
+        <div className="mt-7 flex items-center gap-4 rounded-[6px] border border-white/10 bg-white/[0.04] py-2.5 pr-3 pl-4">
+          <code className="font-mono text-[13px] text-white/75">
             <span className="text-[#f64838]">$</span> {INSTALL_COMMAND}
           </code>
           <CopyButton
             value={INSTALL_COMMAND}
-            className="text-[#9b9ca6] hover:text-[#040406]"
+            className="text-white/40 hover:text-white"
           />
         </div>
-        <p className="mt-4 text-[#9b9ca6] text-sm tracking-[-0.025em]">
+        <p className="mt-4 text-white/40 text-sm tracking-[-0.025em]">
           Free to self-host · No per-contact billing
         </p>
       </Container>
@@ -578,11 +585,11 @@ function PsHero() {
 
       <Container className="-mt-[210px] relative z-10 pb-14 md:-mt-[230px]">
         <PsHeroDemo />
-        <p className="mt-5 text-center text-[#9b9ca6] text-[13px] tracking-[-0.02em]">
+        <p className="mt-5 text-center text-white/40 text-[13px] tracking-[-0.02em]">
           The feed, bell, and survey card are real{" "}
-          <code className="font-mono text-[#2e3038]">@hogsend/react</code>{" "}
+          <code className="font-mono text-white/75">@hogsend/react</code>{" "}
           components — live on hogsend.com.{" "}
-          <Link href="/components" className="font-medium text-[#040406]">
+          <Link href="/components" className="font-medium text-white">
             See the full set →
           </Link>
         </p>
@@ -591,7 +598,7 @@ function PsHero() {
       {/* Works-with strip */}
       <div className="border-[#f6483833] border-y">
         <Container className="flex flex-col gap-5 py-9 md:flex-row md:items-center md:gap-12">
-          <span className="shrink-0 font-mono text-[#9b9ca6] text-[12px] uppercase tracking-[0.08em]">
+          <span className="shrink-0 font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
             Works with
           </span>
           <div className="relative min-w-0 flex-1 opacity-70 grayscale">
@@ -611,7 +618,7 @@ function PsHero() {
                   key={brand}
                   brand={brand}
                   height={22}
-                  className="mx-8 text-[#75768a]"
+                  className="mx-8 text-white/55"
                 />
               ))}
             />
@@ -636,23 +643,23 @@ function PsProofStrip() {
   return (
     <div className="border-[#f6483833] border-b">
       <Container className="flex flex-wrap items-center gap-x-8 gap-y-3 py-4">
-        <span className="font-mono text-[#9b9ca6] text-[12px] uppercase tracking-[0.08em]">
+        <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
           In the open
         </span>
         {stats.map((stat) => (
           <span
             key={stat.label}
-            className="flex items-center gap-2.5 text-[13px] text-[#75768a] tracking-[-0.02em]"
+            className="flex items-center gap-2.5 text-[13px] text-white/55 tracking-[-0.02em]"
           >
             {stat.label}
-            <span className="rounded-[4px] bg-[#fdeeec] px-1.5 py-0.5 font-mono text-[#b8281c] text-[12px]">
+            <span className="rounded-[4px] bg-[#f64838]/[0.08] px-1.5 py-0.5 font-mono text-[#f64838] text-[12px]">
               {stat.value}
             </span>
           </span>
         ))}
         <Link
           href={NPM_URL}
-          className="ml-auto font-medium text-[#040406] text-[13px] tracking-[-0.02em] hover:opacity-70"
+          className="ml-auto font-medium text-white text-[13px] tracking-[-0.02em] hover:opacity-70"
         >
           npmjs.com/@hogsend →
         </Link>
@@ -686,11 +693,11 @@ function PillarIcon({ index }: { index: number }) {
     <path key="c" d="M7 16h18M16 7v18" />,
   ];
   return (
-    <span className="inline-flex size-[46px] items-center justify-center border border-[#d6d6dc] bg-white">
+    <span className="inline-flex size-[46px] items-center justify-center border border-white/15 bg-white/[0.04]">
       <svg
         viewBox="0 0 32 32"
         fill="none"
-        stroke="#040406"
+        stroke="#ffffff"
         strokeWidth="1.2"
         aria-hidden="true"
         className="size-8"
@@ -721,12 +728,12 @@ function PsProblem() {
           </h2>
 
           <div className="max-w-[340px] lg:pt-2">
-            <p className="text-[#2e3038] text-base leading-[24px] tracking-[-0.025em]">
+            <p className="text-white/75 text-base leading-[24px] tracking-[-0.025em]">
               PostHog shows you where users drop off; acting on it meant buying
               a second platform and syncing your data into it. Hogsend deletes
               that step — journeys are TypeScript, triggered by the events you
               already have.{" "}
-              <Link href="/docs" className="font-medium text-[#040406]">
+              <Link href="/docs" className="font-medium text-white">
                 Learn more →
               </Link>
             </p>
@@ -734,17 +741,13 @@ function PsProblem() {
               <BrandLogo
                 brand="posthog"
                 height={18}
-                className="text-[#2e3038]"
+                className="text-white/75"
               />
-              <BrandLogo
-                brand="resend"
-                height={16}
-                className="text-[#2e3038]"
-              />
+              <BrandLogo brand="resend" height={16} className="text-white/75" />
               <BrandLogo
                 brand="typescript"
                 height={18}
-                className="text-[#2e3038]"
+                className="text-white/75"
               />
             </div>
           </div>
@@ -771,7 +774,7 @@ function PsProblem() {
         </div>
 
         {/* Three line-icon pillars, Polar's under-screenshot feature row. */}
-        <p className="mt-20 max-w-[420px] text-[#040406] text-lg leading-[26px] tracking-[-0.025em]">
+        <p className="mt-20 max-w-[420px] text-white text-lg leading-[26px] tracking-[-0.025em]">
           Build retention without buying and babysitting a second marketing
           platform.
         </p>
@@ -779,10 +782,10 @@ function PsProblem() {
           {PILLARS.map((p, i) => (
             <div key={p.title}>
               <PillarIcon index={i} />
-              <h3 className="mt-5 font-medium text-[#040406] text-base tracking-[-0.025em]">
+              <h3 className="mt-5 font-medium text-white text-base tracking-[-0.025em]">
                 {p.title}
               </h3>
-              <p className="mt-2 max-w-[300px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+              <p className="mt-2 max-w-[300px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
                 {p.body}
               </p>
             </div>
@@ -871,14 +874,12 @@ function PsFanning() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">
+            <span className="text-white">
               Every signal lands on one person.
             </span>{" "}
-            <span className="text-[#9b9ca6]">
-              Every event can fan back out.
-            </span>
+            <span className="text-white/40">Every event can fan back out.</span>
           </h2>
-          <p className="mt-6 max-w-[560px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+          <p className="mt-6 max-w-[560px] text-white/55 text-base leading-[24px] tracking-[-0.02em]">
             Marketing site, product, Discord, Slack, Stripe — events from every
             surface land on the same contact. A journey reads the signal and
             sends whatever fits: an email to the user, a DM in Discord, a ping
@@ -896,14 +897,19 @@ function PsFanning() {
               <div
                 key={s.lead}
                 className="w-[300px] shrink-0 p-6"
-                style={{ background: i % 2 === 0 ? "#f6f7fb" : "#fdf1ee" }}
+                style={{
+                  background:
+                    i % 2 === 0
+                      ? "rgba(255,255,255,0.04)"
+                      : "rgba(246,72,56,0.07)",
+                }}
               >
-                <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
+                <span className="font-mono text-[#f64838] text-[11px] uppercase tracking-[0.08em]">
                   {s.tag}
                 </span>
                 <p className="mt-3 text-[14.5px] leading-[22px] tracking-[-0.02em]">
-                  <span className="font-medium text-[#040406]">{s.lead}</span>{" "}
-                  <span className="text-[#75768a]">{s.rest}</span>
+                  <span className="font-medium text-white">{s.lead}</span>{" "}
+                  <span className="text-white/55">{s.rest}</span>
                 </p>
               </div>
             ))}
@@ -914,17 +920,17 @@ function PsFanning() {
       {/* Agents read the words, not just the events. */}
       <Container className="pb-24">
         <Reveal>
-          <div className="mt-10 grid grid-cols-1 gap-10 border-[#ececef] border-t pt-10 lg:grid-cols-[1fr_1.4fr]">
+          <div className="mt-10 grid grid-cols-1 gap-10 border-white/10 border-t pt-10 lg:grid-cols-[1fr_1.4fr]">
             <div>
               <h3
                 className={cn(
-                  "max-w-[340px] text-[#040406] text-[26px] leading-[1.2] tracking-[-0.02em]",
+                  "max-w-[340px] text-white text-[26px] leading-[1.2] tracking-[-0.02em]",
                   DISPLAY,
                 )}
               >
                 Agents read the words, not just the events.
               </h3>
-              <p className="mt-4 max-w-[360px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+              <p className="mt-4 max-w-[360px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
                 A journey is an async TypeScript function, so you can call an
                 LLM inside run() and branch on its verdict — or park on a
                 durable wait and let an out-of-band agent fire its decision back
@@ -936,13 +942,11 @@ function PsFanning() {
               {AGENT_READS.map((item, i) => (
                 <div
                   key={item.lead}
-                  className={cn("py-4", i > 0 && "border-[#ececef] border-t")}
+                  className={cn("py-4", i > 0 && "border-white/10 border-t")}
                 >
                   <p className="text-[15px] leading-[23px] tracking-[-0.02em]">
-                    <span className="font-medium text-[#040406]">
-                      {item.lead}
-                    </span>{" "}
-                    <span className="text-[#75768a]">{item.rest}</span>
+                    <span className="font-medium text-white">{item.lead}</span>{" "}
+                    <span className="text-white/55">{item.rest}</span>
                   </p>
                 </div>
               ))}
@@ -987,10 +991,10 @@ function PsStats() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">
+            <span className="text-white">
               Lifecycle email is the highest-leverage system
             </span>{" "}
-            <span className="text-[#9b9ca6]">most teams skip.</span>
+            <span className="text-white/40">most teams skip.</span>
           </h2>
         </Reveal>
 
@@ -998,19 +1002,19 @@ function PsStats() {
         <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
           {BENCHMARKS.map((b, i) => (
             <Reveal key={b.source} delay={i * 0.08}>
-              <div className="flex h-full flex-col rounded-lg border border-[#ececef] bg-white p-6">
+              <div className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-6">
                 <span
                   className={cn(
-                    "text-[#040406] text-[44px] leading-[1.1] tracking-[-0.02em]",
+                    "text-white text-[44px] leading-[1.1] tracking-[-0.02em]",
                     DISPLAY,
                   )}
                 >
                   {b.value}
                 </span>
-                <p className="mt-2 max-w-[280px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                <p className="mt-2 max-w-[280px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
                   {b.claim}
                 </p>
-                <span className="mt-6 inline-flex w-fit items-center rounded-full bg-[#fdeeec] px-3 py-1 font-mono text-[11px] text-[#b8281c] uppercase tracking-[0.06em]">
+                <span className="mt-6 inline-flex w-fit items-center rounded-full bg-[#f64838]/[0.08] px-3 py-1 font-mono text-[11px] text-[#f64838] uppercase tracking-[0.06em]">
                   {b.source}
                 </span>
               </div>
@@ -1028,7 +1032,7 @@ const AGENT_CARDS = [
   {
     title: "Plain TypeScript surface",
     body: "Journeys are defineJourney() files. Claude Code, Cursor, or any agent writes and modifies them like any other code.",
-    bg: "radial-gradient(130% 110% at 10% 110%, #f2503c 0%, #f9a394 45%, #fff5f3 80%)",
+    bg: "radial-gradient(130% 110% at 10% 110%, rgba(246,72,56,0.75) 0%, rgba(246,72,56,0.28) 45%, rgba(246,72,56,0.05) 80%)",
     corner: "#f64838",
     mock: (
       <div className="rounded-md bg-[#12131a]/90 p-4 font-mono text-[11.5px] text-white/80 leading-[19px] shadow-xl">
@@ -1056,7 +1060,7 @@ const AGENT_CARDS = [
   {
     title: "Validated by your type-checker",
     body: "No drag-and-drop canvas to drift out of date — the compiler rejects a journey that references a template that doesn't exist.",
-    bg: "radial-gradient(130% 120% at 50% 120%, #23c489 0%, #9fe8c4 45%, #f2fcf7 80%)",
+    bg: "radial-gradient(130% 120% at 50% 120%, rgba(35,196,137,0.6) 0%, rgba(35,196,137,0.22) 45%, rgba(35,196,137,0.04) 80%)",
     corner: "#23c489",
     mock: (
       <div className="rounded-md bg-[#12131a]/90 p-4 font-mono text-[11.5px] text-white/80 leading-[19px] shadow-xl">
@@ -1075,7 +1079,7 @@ const AGENT_CARDS = [
   {
     title: "A CLI agents can drive",
     body: "hogsend skills plus --json on every command give agents a first-class interface to inspect and operate the running system.",
-    bg: "radial-gradient(130% 110% at 90% 110%, #3f68f2 0%, #8fb0ff 45%, #f4f7ff 80%)",
+    bg: "radial-gradient(130% 110% at 90% 110%, rgba(63,104,242,0.6) 0%, rgba(143,176,255,0.22) 45%, rgba(63,104,242,0.05) 80%)",
     corner: "#5f7ef2",
     mock: (
       <div className="rounded-md bg-[#12131a]/90 p-4 font-mono text-[11.5px] text-white/80 leading-[19px] shadow-xl">
@@ -1107,7 +1111,7 @@ function PsAgents() {
         <Eyebrow>Agent-native</Eyebrow>
         <h2
           className={cn(
-            "mt-8 max-w-[860px] font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.01em] md:text-[56px] md:leading-[63px]",
+            "mt-8 max-w-[860px] font-normal text-white text-[38px] leading-[1.12] tracking-[-0.01em] md:text-[56px] md:leading-[63px]",
             DISPLAY,
           )}
         >
@@ -1126,10 +1130,10 @@ function PsAgents() {
                 className="absolute top-2 right-2 size-[10px]"
                 style={{ background: c.corner }}
               />
-              <h3 className="font-medium text-[#040406] text-lg tracking-[-0.025em]">
+              <h3 className="font-medium text-white text-lg tracking-[-0.025em]">
                 {c.title}
               </h3>
-              <p className="mt-2 min-h-[84px] max-w-[330px] text-[#2e3038]/80 text-sm leading-[21px] tracking-[-0.02em]">
+              <p className="mt-2 min-h-[84px] max-w-[330px] text-white/70 text-sm leading-[21px] tracking-[-0.02em]">
                 {c.body}
               </p>
               <div className="mt-8">{c.mock}</div>
@@ -1137,15 +1141,15 @@ function PsAgents() {
           ))}
         </div>
 
-        <div className="mt-10 flex flex-col justify-between gap-6 border-[#ececef] border-t pt-8 lg:flex-row lg:items-center">
-          <p className="max-w-[420px] text-[#2e3038] text-base tracking-[-0.025em]">
+        <div className="mt-10 flex flex-col justify-between gap-6 border-white/10 border-t pt-8 lg:flex-row lg:items-center">
+          <p className="max-w-[420px] text-white/75 text-base tracking-[-0.025em]">
             LLMs write and modify journeys like any other code in your repo
           </p>
           <div className="flex flex-wrap items-center gap-2.5">
             {AGENT_CHIPS.map((chip) => (
               <span
                 key={chip}
-                className="inline-flex items-center gap-2 rounded-[6px] border border-[#e4e4e9] bg-white px-4 py-2 font-medium text-[#040406] text-sm tracking-[-0.025em] shadow-sm"
+                className="inline-flex items-center gap-2 rounded-[6px] border border-white/10 bg-white/[0.06] px-4 py-2 font-medium text-white text-sm tracking-[-0.025em]"
               >
                 <span
                   aria-hidden="true"
@@ -1170,31 +1174,31 @@ function PsAgents() {
                 filter: "blur(24px)",
               }}
             />
-            <div className="relative rounded-xl border border-[#e4e4e9] bg-white p-5 shadow-lg">
-              <span className="inline-flex items-center gap-2 rounded-md border border-[#d9f2e6] bg-[#f2fcf7] px-2.5 py-1 font-mono text-[11px] text-[#17805a]">
+            <div className="relative rounded-xl border border-white/15 bg-[#0a0606] p-5 shadow-lg">
+              <span className="inline-flex items-center gap-2 rounded-md border border-[#23c489]/25 bg-[#23c489]/10 px-2.5 py-1 font-mono text-[11px] text-[#23c489]">
                 <span aria-hidden="true" className="size-2 bg-[#23c489]" />
                 src/journeys/winback.ts
               </span>
-              <p className="mt-3 text-[#2e3038] text-[17px] leading-[26px] tracking-[-0.02em]">
+              <p className="mt-3 text-white/75 text-[17px] leading-[26px] tracking-[-0.02em]">
                 Add a win-back journey: trigger when someone enters the
                 went-dormant bucket, check in, wait 7 days, then send the offer.
                 Exit the moment they come back.
               </p>
               <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-[#9b9ca6]">
-                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-[#e4e4e9] font-mono text-[11px]">
+                <div className="flex items-center gap-2 text-white/40">
+                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-white/10 font-mono text-[11px]">
                     @
                   </span>
-                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-[#e4e4e9] font-mono text-[11px]">
+                  <span className="inline-flex size-7 items-center justify-center rounded-[6px] border border-white/10 font-mono text-[11px]">
                     ⌘
                   </span>
                 </div>
-                <span className="inline-flex size-8 items-center justify-center rounded-full bg-[#121317] text-white">
+                <span className="inline-flex size-8 items-center justify-center rounded-full bg-white/10 text-white">
                   ↑
                 </span>
               </div>
             </div>
-            <p className="relative mt-4 text-center font-mono text-[#9b9ca6] text-[12px] tracking-[-0.01em]">
+            <p className="relative mt-4 text-center font-mono text-white/40 text-[12px] tracking-[-0.01em]">
               hogsend skills give agents the context — your type-checker
               validates the result
             </p>
@@ -1321,10 +1325,10 @@ async function PsCode() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">
+            <span className="text-white">
               Pick a use case, read the journey.
             </span>{" "}
-            <span className="text-[#9b9ca6]">
+            <span className="text-white/40">
               Swap the provider underneath; the journey doesn't change.
             </span>
           </h2>
@@ -1382,8 +1386,8 @@ function PsJourneyTraceMock() {
     },
   ];
   return (
-    <div className="rounded-2xl border border-[#ececef] bg-[#fafafb] p-6">
-      <span className="font-mono text-[#9b9ca6] text-[11px] tracking-wide">
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
+      <span className="font-mono text-white/40 text-[11px] tracking-wide">
         src/journeys/onboarding.ts — run
       </span>
       <div className="mt-4 flex flex-col">
@@ -1396,17 +1400,17 @@ function PsJourneyTraceMock() {
                   s.kind === "wait"
                     ? "ps-pulse bg-[#f64838]"
                     : s.kind === "trigger"
-                      ? "bg-[#040406]"
-                      : "border-2 border-[#c9c9cf] bg-white",
+                      ? "bg-white"
+                      : "border-2 border-white/30 bg-transparent",
                 )}
               />
               {i < steps.length - 1 && (
-                <span className="my-1 w-px flex-1 bg-[#dcdce2]" />
+                <span className="my-1 w-px flex-1 bg-white/15" />
               )}
             </div>
             <div className="pb-5">
-              <p className="font-mono text-[#040406] text-[13px]">{s.label}</p>
-              <p className="mt-0.5 font-mono text-[#9b9ca6] text-[11px]">
+              <p className="font-mono text-white text-[13px]">{s.label}</p>
+              <p className="mt-0.5 font-mono text-white/40 text-[11px]">
                 {s.note}
               </p>
             </div>
@@ -1495,13 +1499,13 @@ function PsHowItWorks() {
             <Eyebrow>How it works</Eyebrow>
             <h2
               className={cn(
-                "mt-8 font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[48px] md:leading-[54px]",
+                "mt-8 font-normal text-white text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[48px] md:leading-[54px]",
                 DISPLAY,
               )}
             >
               The whole job is one loop.
             </h2>
-            <p className="mt-6 max-w-[420px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+            <p className="mt-6 max-w-[420px] text-white/55 text-base leading-[24px] tracking-[-0.02em]">
               Activity comes in from PostHog or any webhook, the right emails go
               out through your provider, and what people do with them fans back
               out to your tools. Nothing new to buy or keep in sync.
@@ -1512,20 +1516,20 @@ function PsHowItWorks() {
             {HOW_STEPS.map((step, i) => (
               <Reveal key={step.n}>
                 <div
-                  className={cn("py-10", i > 0 && "border-[#ececef] border-t")}
+                  className={cn("py-10", i > 0 && "border-white/10 border-t")}
                 >
-                  <span className="font-mono text-[#b8281c] text-[13px]">
+                  <span className="font-mono text-[#f64838] text-[13px]">
                     {step.n}
                   </span>
                   <h3
                     className={cn(
-                      "mt-3 text-[#040406] text-[24px] leading-[1.2] tracking-[-0.02em]",
+                      "mt-3 text-white text-[24px] leading-[1.2] tracking-[-0.02em]",
                       DISPLAY,
                     )}
                   >
                     {step.title}
                   </h3>
-                  <p className="mt-3 max-w-[520px] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                  <p className="mt-3 max-w-[520px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
                     {step.body}
                   </p>
                   <div className="mt-6 min-w-0">{step.media}</div>
@@ -1766,8 +1770,8 @@ async function PsBuildingBlocks() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">What it does,</span>{" "}
-            <span className="text-[#9b9ca6]">
+            <span className="text-white">What it does,</span>{" "}
+            <span className="text-white/40">
               shown as the code you'd write.
             </span>
           </h2>
@@ -1792,14 +1796,14 @@ function PsSetup() {
           className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(60% 55% at 50% 42%, #fdf0cf 0%, rgba(253,240,207,0.65) 28%, rgba(246,110,88,0.38) 62%, rgba(246,110,88,0.1) 85%, transparent 100%)",
+              "radial-gradient(60% 55% at 50% 42%, rgba(253,220,180,0.16) 0%, rgba(246,110,88,0.14) 28%, rgba(246,72,56,0.10) 62%, rgba(246,72,56,0.03) 85%, transparent 100%)",
           }}
         />
         <div className="relative flex flex-col items-center pt-28 pb-32 text-center">
           <Eyebrow>Instant setup</Eyebrow>
           <h2
             className={cn(
-              "mt-8 max-w-[880px] font-normal text-[#040406] text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[64px] md:leading-[72px]",
+              "mt-8 max-w-[880px] font-normal text-white text-[40px] leading-[1.12] tracking-[-0.02em] md:text-[64px] md:leading-[72px]",
               DISPLAY,
             )}
           >
@@ -1814,7 +1818,7 @@ function PsSetup() {
             <CopyButton value={INSTALL_COMMAND} />
           </div>
 
-          <p className="mt-20 max-w-[760px] text-[#2e3038] text-[22px] leading-[38px] tracking-[-0.02em] md:text-[26px] md:leading-[44px]">
+          <p className="mt-20 max-w-[760px] text-white/75 text-[22px] leading-[38px] tracking-[-0.02em] md:text-[26px] md:leading-[44px]">
             A thin TypeScript app that triggers on{" "}
             <InlinePill>PostHog</InlinePill> events, sends through{" "}
             <InlinePill>Resend</InlinePill> or <InlinePill>Postmark</InlinePill>
@@ -1833,7 +1837,7 @@ function PsCorePlatform() {
   return (
     <section className="relative">
       <Container className="py-20">
-        <div className="relative overflow-hidden rounded-2xl bg-[#060608] p-8 text-white md:p-12">
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0a0606] p-8 text-white md:p-12">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0"
@@ -1922,7 +1926,7 @@ function PsOpen() {
             className="absolute inset-y-0 left-0 w-[55%]"
             style={{
               background:
-                "linear-gradient(105deg, #f8b8ab 0%, #fde3dc 55%, rgba(255,255,255,0) 100%)",
+                "linear-gradient(105deg, rgba(246,72,56,0.22) 0%, rgba(246,72,56,0.08) 55%, rgba(255,255,255,0) 100%)",
             }}
           />
           <DotPatch className="bottom-8 left-8 h-28 w-56 opacity-70" />
@@ -1931,7 +1935,7 @@ function PsOpen() {
               <Eyebrow>In the open</Eyebrow>
               <h2
                 className={cn(
-                  "mt-8 max-w-[420px] font-normal text-[#040406] text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
+                  "mt-8 max-w-[420px] font-normal text-white text-[38px] leading-[1.12] tracking-[-0.02em] md:text-[56px] md:leading-[63px]",
                   DISPLAY,
                 )}
               >
@@ -1945,19 +1949,19 @@ function PsOpen() {
                   key={row.label}
                   className={cn(
                     "flex flex-col gap-6 py-5 md:flex-row md:items-start",
-                    i > 0 && "border-[#ececef] border-t",
+                    i > 0 && "border-white/10 border-t",
                   )}
                 >
                   <p
                     className={cn(
-                      "min-w-[260px] text-[#040406] text-lg tracking-[-0.025em]",
+                      "min-w-[260px] text-white text-lg tracking-[-0.025em]",
                       DISPLAY,
                     )}
                   >
                     {row.label}
                   </p>
                   {row.detail && (
-                    <p className="border-[#dcdce2] text-[#75768a] text-sm leading-[21px] tracking-[-0.02em] md:border-l md:pl-6">
+                    <p className="border-white/15 text-white/55 text-sm leading-[21px] tracking-[-0.02em] md:border-l md:pl-6">
                       {row.detail}
                     </p>
                   )}
@@ -1977,32 +1981,32 @@ const FEATURE_CARDS = [
   {
     lead: "Durable waits survive deploys.",
     rest: "A user three days into a seven-day wait keeps waiting through restarts and crashes, and resumes exactly where they were.",
-    tint: "#fdf1ee",
+    tint: "rgba(246,72,56,0.07)",
   },
   {
     lead: "In-email answers branch the journey.",
     rest: "Ask a question inside the email — the click is the answer, and the journey branches on it.",
-    tint: "#f6f7fb",
+    tint: "rgba(255,255,255,0.04)",
   },
   {
     lead: "First-party opens and clicks.",
     rest: "Links are rewritten on send; engagement lands on your domain and fans back to PostHog as first-party events.",
-    tint: "#fdf1ee",
+    tint: "rgba(246,72,56,0.07)",
   },
   {
     lead: "Buckets are live groups of people.",
     rest: "Contacts enter and leave on behaviour — kick off journeys on either edge.",
-    tint: "#f6f7fb",
+    tint: "rgba(255,255,255,0.04)",
   },
   {
     lead: "Events fan out, durably.",
     rest: "A fixed 13-event catalog goes back out to PostHog, Segment, Slack, or any signed webhook — with retries, backoff, and a dead-letter queue.",
-    tint: "#fdf1ee",
+    tint: "rgba(246,72,56,0.07)",
   },
   {
     lead: "Provider is config, not code.",
     rest: "EMAIL_PROVIDER=postmark swaps the wire underneath — the journey doesn't change.",
-    tint: "#f6f7fb",
+    tint: "rgba(255,255,255,0.04)",
   },
 ];
 
@@ -2018,18 +2022,18 @@ function PsFeatures() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">
+            <span className="text-white">
               Your lifecycle logic, however it branches,
             </span>{" "}
-            <span className="text-[#9b9ca6]">
+            <span className="text-white/40">
               supported by primitives built for production.
             </span>
           </h2>
           <div className="hidden shrink-0 items-center gap-2 pb-2 md:flex">
-            <span className="inline-flex size-10 items-center justify-center rounded-[6px] border border-[#e4e4e9] text-[#9b9ca6]">
+            <span className="inline-flex size-10 items-center justify-center rounded-[6px] border border-white/10 text-white/40">
               ←
             </span>
-            <span className="inline-flex size-10 items-center justify-center rounded-[6px] border border-[#c9c9cf] text-[#040406]">
+            <span className="inline-flex size-10 items-center justify-center rounded-[6px] border border-white/30 text-white">
               →
             </span>
           </div>
@@ -2046,8 +2050,8 @@ function PsFeatures() {
                 style={{ background: c.tint }}
               >
                 <p className="text-[15px] leading-[22px] tracking-[-0.02em]">
-                  <span className="font-medium text-[#040406]">{c.lead}</span>{" "}
-                  <span className="text-[#75768a]">{c.rest}</span>
+                  <span className="font-medium text-white">{c.lead}</span>{" "}
+                  <span className="text-white/55">{c.rest}</span>
                 </p>
               </div>
             ))}
@@ -2101,12 +2105,12 @@ function PsTrackingAnimation() {
     { label: "posthog.identify()", delay: 6 },
   ];
   return (
-    <div className="rounded-2xl border border-[#ececef] bg-white p-6 shadow-sm">
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+        <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
           First-party tracking
         </span>
-        <span className="flex items-center gap-1.5 font-mono text-[#17805a] text-[11px]">
+        <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
           <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
           live
         </span>
@@ -2114,21 +2118,21 @@ function PsTrackingAnimation() {
 
       <div className="mt-5 grid grid-cols-1 items-center gap-4 sm:grid-cols-[1fr_minmax(150px,220px)_auto]">
         {/* The email, links rewritten on send. */}
-        <div className="rounded-lg border border-[#ececef] bg-[#fafafb] p-4">
-          <p className="font-mono text-[#9b9ca6] text-[11px]">
+        <div className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
+          <p className="font-mono text-white/40 text-[11px]">
             from: hello@yourapp.com
           </p>
-          <p className="mt-1.5 font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+          <p className="mt-1.5 font-medium text-white text-[13px] tracking-[-0.02em]">
             Welcome — one thing to try first
           </p>
           <div className="mt-2.5 space-y-1.5">
-            <div className="h-1.5 w-11/12 rounded bg-[#e9e9ee]" />
-            <div className="h-1.5 w-3/4 rounded bg-[#e9e9ee]" />
+            <div className="h-1.5 w-11/12 rounded bg-white/10" />
+            <div className="h-1.5 w-3/4 rounded bg-white/10" />
           </div>
-          <p className="mt-3 font-medium text-[13px] text-[#b8281c] underline decoration-[#f64838]/40 underline-offset-2 tracking-[-0.02em]">
+          <p className="mt-3 font-medium text-[13px] text-[#f64838] underline decoration-[#f64838]/40 underline-offset-2 tracking-[-0.02em]">
             View your dashboard →
           </p>
-          <p className="mt-2 font-mono text-[#9b9ca6] text-[10px]">
+          <p className="mt-2 font-mono text-white/40 text-[10px]">
             links rewritten on send · opens pixel injected
           </p>
         </div>
@@ -2137,13 +2141,13 @@ function PsTrackingAnimation() {
         <div className="relative hidden h-28 [--ps-lane:110px] sm:block md:[--ps-lane:150px]">
           <div
             aria-hidden="true"
-            className="absolute inset-y-2 left-1/2 border-[#ececef] border-l border-dashed"
+            className="absolute inset-y-2 left-1/2 border-white/10 border-l border-dashed"
           />
           {pills.map((pill) => (
             <span
               key={pill.label}
               className={cn(
-                "ps-travel absolute left-0 rounded-full border border-[#f64838]/30 bg-[#fdeeec] px-2.5 py-1 font-mono text-[#b8281c] text-[10.5px]",
+                "ps-travel absolute left-0 rounded-full border border-[#f64838]/30 bg-[#f64838]/[0.08] px-2.5 py-1 font-mono text-[#f64838] text-[10.5px]",
                 pill.top,
               )}
               style={{ animationDelay: `${pill.delay}s` }}
@@ -2158,7 +2162,7 @@ function PsTrackingAnimation() {
           {dests.map((d) => (
             <span
               key={d.label}
-              className="ps-arrive rounded-[6px] border border-[#ececef] bg-white px-3 py-2 font-mono text-[#2e3038] text-[11.5px]"
+              className="ps-arrive rounded-[6px] border border-white/10 bg-white/[0.05] px-3 py-2 font-mono text-white/75 text-[11.5px]"
               style={{ animationDelay: `${d.delay}s` }}
             >
               {d.label}
@@ -2167,7 +2171,7 @@ function PsTrackingAnimation() {
         </div>
       </div>
 
-      <p className="mt-4 font-mono text-[#9b9ca6] text-[10.5px]">
+      <p className="mt-4 font-mono text-white/40 text-[10.5px]">
         durable · signed · retried · dead-lettered
       </p>
     </div>
@@ -2186,10 +2190,10 @@ function PsLoop() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">
+            <span className="text-white">
               Everything here makes PostHog better.
             </span>{" "}
-            <span className="text-[#9b9ca6]">
+            <span className="text-white/40">
               No second pipeline, no reverse-ETL.
             </span>
           </h2>
@@ -2200,16 +2204,16 @@ function PsLoop() {
             {LOOP_ITEMS.map((item, i) => (
               <div
                 key={item.title}
-                className={cn("py-5", i > 0 && "border-[#ececef] border-t")}
+                className={cn("py-5", i > 0 && "border-white/10 border-t")}
               >
-                <h3 className="flex items-center gap-3 font-medium text-[#040406] text-[15px] tracking-[-0.02em]">
+                <h3 className="flex items-center gap-3 font-medium text-white text-[15px] tracking-[-0.02em]">
                   <span
                     aria-hidden="true"
                     className="size-2 shrink-0 bg-[#f64838]"
                   />
                   {item.title}
                 </h3>
-                <p className="mt-1.5 pl-5 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                <p className="mt-1.5 pl-5 text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
                   {item.body}
                 </p>
               </div>
@@ -2274,8 +2278,8 @@ function PsRepo() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">What the repo gives you.</span>{" "}
-            <span className="text-[#9b9ca6]">
+            <span className="text-white">What the repo gives you.</span>{" "}
+            <span className="text-white/40">
               The habits that make software dependable.
             </span>
           </h2>
@@ -2283,14 +2287,14 @@ function PsRepo() {
         <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {LESSONS.map((lesson, i) => (
             <Reveal key={lesson.label} delay={(i % 3) * 0.06}>
-              <div className="flex h-full flex-col rounded-lg border border-[#ececef] bg-white p-6">
-                <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
+              <div className="flex h-full flex-col rounded-lg border border-white/10 bg-white/[0.03] p-6">
+                <span className="font-mono text-[#f64838] text-[11px] uppercase tracking-[0.08em]">
                   {lesson.label}
                 </span>
-                <h3 className="mt-3 font-medium text-[#040406] text-[15px] tracking-[-0.02em]">
+                <h3 className="mt-3 font-medium text-white text-[15px] tracking-[-0.02em]">
                   {lesson.title}
                 </h3>
-                <p className="mt-2 text-[#75768a] text-sm leading-[21px] tracking-[-0.02em]">
+                <p className="mt-2 text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
                   {lesson.body}
                 </p>
               </div>
@@ -2323,7 +2327,7 @@ function PsHatchet() {
   return (
     <section className="relative">
       <Container className="py-20">
-        <div className="relative overflow-hidden rounded-2xl bg-[#060608] p-8 text-white md:p-12">
+        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#0a0606] p-8 text-white md:p-12">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0"
@@ -2438,12 +2442,12 @@ function PsEconomics() {
               DISPLAY,
             )}
           >
-            <span className="text-[#040406]">What it costs.</span>{" "}
-            <span className="text-[#9b9ca6]">
+            <span className="text-white">What it costs.</span>{" "}
+            <span className="text-white/40">
               Contact count appears in neither bill.
             </span>
           </h2>
-          <p className="mt-6 max-w-[620px] text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+          <p className="mt-6 max-w-[620px] text-white/55 text-base leading-[24px] tracking-[-0.02em]">
             There is no paid tier. You pay for hosting — the Railway template
             provisions Postgres, Redis, Hatchet, the API, and the worker — and
             for your own Resend or Postmark account.
@@ -2453,18 +2457,18 @@ function PsEconomics() {
         <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {/* Hogsend — the highlighted card, detail rows pinned bottom. */}
           <Reveal className="h-full">
-            <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-lg border border-[#f64838]/40 bg-[#fef4f2] p-6">
+            <div className="relative flex h-full flex-col justify-between overflow-hidden rounded-lg border border-[#f64838]/40 bg-[#f64838]/[0.08] p-6">
               <span
                 aria-hidden="true"
                 className="absolute top-2 right-2 size-[10px] bg-[#f64838]"
               />
               <div>
-                <span className="font-mono text-[#b8281c] text-[11px] uppercase tracking-[0.08em]">
+                <span className="font-mono text-[#f64838] text-[11px] uppercase tracking-[0.08em]">
                   Hogsend
                 </span>
                 <span
                   className={cn(
-                    "mt-3 block text-[#040406] text-[24px] leading-[1.15] tracking-[-0.02em]",
+                    "mt-3 block text-white text-[24px] leading-[1.15] tracking-[-0.02em]",
                     DISPLAY,
                   )}
                 >
@@ -2485,10 +2489,10 @@ function PsEconomics() {
                       i > 0 && "border-[#f64838]/15 border-t",
                     )}
                   >
-                    <span className="font-mono text-[#9b6f68] text-[11px]">
+                    <span className="font-mono text-white/45 text-[11px]">
                       {row.key}
                     </span>
-                    <span className="text-right font-medium text-[#040406] text-[13px] tracking-[-0.02em]">
+                    <span className="text-right font-medium text-white text-[13px] tracking-[-0.02em]">
                       {row.value}
                     </span>
                   </div>
@@ -2498,14 +2502,14 @@ function PsEconomics() {
           </Reveal>
           {RENT_MODELS.map((m, i) => (
             <Reveal key={m.name} delay={(i + 1) * 0.06} className="h-full">
-              <div className="flex h-full flex-col justify-between rounded-lg border border-[#ececef] bg-white p-6">
+              <div className="flex h-full flex-col justify-between rounded-lg border border-white/10 bg-white/[0.03] p-6">
                 <div>
-                  <span className="font-mono text-[#9b9ca6] text-[11px] uppercase tracking-[0.08em]">
+                  <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
                     {m.name}
                   </span>
                   <span
                     className={cn(
-                      "mt-3 block text-[#2e3038] text-[20px] leading-[1.2] tracking-[-0.02em]",
+                      "mt-3 block text-white/75 text-[20px] leading-[1.2] tracking-[-0.02em]",
                       DISPLAY,
                     )}
                   >
@@ -2518,13 +2522,13 @@ function PsEconomics() {
                       key={row.key}
                       className={cn(
                         "flex items-baseline justify-between gap-3 py-2",
-                        j > 0 && "border-[#f2f2f5] border-t",
+                        j > 0 && "border-white/10 border-t",
                       )}
                     >
-                      <span className="font-mono text-[#9b9ca6] text-[11px]">
+                      <span className="font-mono text-white/40 text-[11px]">
                         {row.key}
                       </span>
-                      <span className="text-right text-[#2e3038] text-[13px] tracking-[-0.02em]">
+                      <span className="text-right text-white/75 text-[13px] tracking-[-0.02em]">
                         {row.value}
                       </span>
                     </div>
@@ -2534,7 +2538,7 @@ function PsEconomics() {
             </Reveal>
           ))}
         </div>
-        <p className="mt-6 text-[#9b9ca6] text-[12px] tracking-[-0.02em]">
+        <p className="mt-6 text-white/40 text-[12px] tracking-[-0.02em]">
           *Published pricing, checked June 2026.
         </p>
       </Container>
@@ -2590,10 +2594,10 @@ function PsUseCases() {
             DISPLAY,
           )}
         >
-          <span className="text-[#040406]">
+          <span className="text-white">
             The emails every product should send
           </span>{" "}
-          <span className="text-[#9b9ca6]">— ten ship in the scaffold.</span>
+          <span className="text-white/40">— ten ship in the scaffold.</span>
         </h2>
 
         {/* The event-fanning card idiom: tinted panels, lead + gray rest. */}
@@ -2602,11 +2606,16 @@ function PsUseCases() {
             <div
               key={u.title}
               className="p-6"
-              style={{ background: i % 2 === 0 ? "#f6f7fb" : "#fdf1ee" }}
+              style={{
+                background:
+                  i % 2 === 0
+                    ? "rgba(255,255,255,0.04)"
+                    : "rgba(246,72,56,0.07)",
+              }}
             >
               <p className="text-[14.5px] leading-[22px] tracking-[-0.02em]">
-                <span className="font-medium text-[#040406]">{u.title}.</span>{" "}
-                <span className="text-[#75768a]">{u.body}</span>
+                <span className="font-medium text-white">{u.title}.</span>{" "}
+                <span className="text-white/55">{u.body}</span>
               </p>
             </div>
           ))}
@@ -2675,7 +2684,7 @@ function PsFaq() {
             className="-inset-x-12 -inset-y-16 pointer-events-none absolute"
             style={{
               background:
-                "radial-gradient(45% 45% at 40% 35%, rgba(253,240,207,0.9), transparent 70%), radial-gradient(40% 45% at 65% 65%, rgba(246,72,56,0.22), transparent 70%), radial-gradient(30% 35% at 30% 75%, rgba(246,140,110,0.2), transparent 70%)",
+                "radial-gradient(45% 45% at 40% 35%, rgba(253,220,180,0.14), transparent 70%), radial-gradient(40% 45% at 65% 65%, rgba(246,72,56,0.18), transparent 70%), radial-gradient(30% 35% at 30% 75%, rgba(246,140,110,0.12), transparent 70%)",
               filter: "blur(28px)",
             }}
           />
@@ -2687,8 +2696,8 @@ function PsFaq() {
                 DISPLAY,
               )}
             >
-              <span className="text-[#040406]">Find what you need</span>
-              <span className="text-[#9b9ca6]">.</span>
+              <span className="text-white">Find what you need</span>
+              <span className="text-white/40">.</span>
             </h2>
           </div>
         </div>
@@ -2698,22 +2707,22 @@ function PsFaq() {
             <details
               key={item.q}
               className={cn(
-                "group border-[#ececef] border-b",
+                "group border-white/10 border-b",
                 i === 0 && "border-t",
               )}
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-6 py-6 [&::-webkit-details-marker]:hidden">
-                <span className="font-medium text-[#040406] text-base tracking-[-0.025em] md:text-lg">
+                <span className="font-medium text-white text-base tracking-[-0.025em] md:text-lg">
                   {item.q}
                 </span>
                 <span
                   aria-hidden="true"
-                  className="shrink-0 text-[#9b9ca6] text-xl transition-transform group-open:rotate-45"
+                  className="shrink-0 text-white/40 text-xl transition-transform group-open:rotate-45"
                 >
                   +
                 </span>
               </summary>
-              <p className="max-w-[820px] pb-6 text-[#75768a] text-base leading-[24px] tracking-[-0.02em]">
+              <p className="max-w-[820px] pb-6 text-white/55 text-base leading-[24px] tracking-[-0.02em]">
                 {item.a}
               </p>
             </details>
@@ -2785,19 +2794,10 @@ function PsClosingCta() {
             </ul>
 
             <div className="mt-10 flex flex-wrap items-center gap-4">
-              <Btn
-                href="/docs/getting-started"
-                size="lg"
-                className="bg-white text-[#121317] hover:bg-white/85"
-              >
+              <Btn href="/docs/getting-started" size="lg">
                 Start building
               </Btn>
-              <Btn
-                href={RAILWAY_DEPLOY_URL}
-                variant="outline"
-                size="lg"
-                className="border-white/30 bg-transparent text-white hover:bg-white/10"
-              >
+              <Btn href={RAILWAY_DEPLOY_URL} variant="outline" size="lg">
                 Deploy on Railway
               </Btn>
               <span className="flex items-center gap-3 rounded-[6px] border border-white/10 bg-white/[0.04] py-3 pr-3 pl-4">
@@ -2889,7 +2889,7 @@ const FOOTER_COLS: {
 
 function PsFooter() {
   return (
-    <footer className="bg-[#060608] text-white">
+    <footer className="border-white/10 border-t bg-[#060608] text-white">
       <Container className="grid grid-cols-1 gap-14 py-20 lg:grid-cols-[1.2fr_2fr]">
         <div>
           <InkLogo light />

@@ -89,8 +89,8 @@ export function PsCodePicker({
               className={cn(
                 "select-none rounded-[6px] border px-4 py-2 font-medium text-sm tracking-[-0.025em] outline-none transition-colors duration-200",
                 isActive
-                  ? "border-[#121317] bg-[#121317] text-white"
-                  : "border-[#e4e4e9] bg-white text-[#2e3038] hover:border-[#c9c9cf]",
+                  ? "border-white bg-white text-[#0a0a0a]"
+                  : "border-white/10 bg-white/[0.04] text-white/75 hover:border-white/30",
               )}
             >
               {USE_CASES[value].label}
@@ -183,13 +183,13 @@ export function PsCodePicker({
 
       {/* Footer row — caption left, deep link right. */}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[#75768a] text-sm tracking-[-0.02em]">
+        <p className="text-white/55 text-sm tracking-[-0.02em]">
           Shortened from the full journey — the API is real, the provider lives
           in config.
         </p>
         <Link
           href={active.href}
-          className="font-medium text-[#040406] text-sm tracking-[-0.025em] hover:opacity-70"
+          className="font-medium text-white text-sm tracking-[-0.025em] hover:opacity-70"
         >
           Read the use case →
         </Link>
