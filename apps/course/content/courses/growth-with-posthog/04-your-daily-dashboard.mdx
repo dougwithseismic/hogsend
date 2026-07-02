@@ -1,6 +1,7 @@
 ---
 title: "Chapter 4 — What to look at every day"
 description: "The handful of charts a founder should read each morning, what each one is telling you, how to read a retention curve properly, how to use session replay as the 'why' behind the numbers, and how to stop logging in to check any of it."
+workbook: "The handful of charts to read every morning, and how to read a retention curve properly. Here you record how often you actually look at your product data today, and watch the funnel, production-debugging, and daily-process walkthroughs."
 ---
 
 > **In this chapter:** the PostHog insight types you'll actually use and how to read each,
@@ -218,6 +219,45 @@ numbers on "good" and "great" by category if you want to calibrate — but your 
 cohort-over-cohort trend is a better guide than anyone's benchmark, and retention is
 still [the single best PMF signal you
 have](https://posthog.com/founders/measure-product-market-fit).
+
+<Flashcards
+  id="cards-dashboard"
+  title="Key ideas — your daily dashboard"
+  cards={[
+    {
+      prompt: "The daily four:",
+      cloze: "Of PostHog's seven insight types, the four you'll read daily are {{Trends}}, {{Funnels}}, {{Retention}}, and {{Lifecycle}}.",
+    },
+    {
+      front: "What is the Trends failure mode?",
+      back: "Counting events when you mean people: ten pageviews from one user and one pageview from ten users look identical until you switch the series to unique users.",
+    },
+    {
+      front: "Which two funnel settings do people commonly miss?",
+      back: "The conversion window (a day-15 convert in a 7-day window counts as dropped) and exclusion steps. If conversion looks impossibly low, check User Paths — your steps may not match the order users follow.",
+    },
+    {
+      front: "What does a big Dormant band under modest New growth mean?",
+      back: "Churn-and-replace, not growth — the same users leaving and being replaced. It's the leaky bucket drawn for you; acquisition can wait, retention (Chapters 5–6) is the work.",
+    },
+    {
+      prompt: "The three retention-curve shapes:",
+      cloze: "A curve that {{slides to zero}} means no PMF, one that {{declines then flattens above zero}} is the product-market-fit signal, and the rare one that {{ticks back up}} means resurrection exceeds churn — the flattening level is roughly your ceiling without intervention.",
+    },
+    {
+      front: "Why do small cohorts lie?",
+      back: "In a 12-user cohort a 40% to 25% swing is three people — not roadmap material. The signal worth acting on is the trend across several cohorts, not one noisy row.",
+    },
+    {
+      front: "How do you keep session replay cheap and diagnostic?",
+      back: "Arrive from a chart — a funnel drop-off, error, or rage-click filter — so every replay is pre-selected to show a problem. What you're looking for is the moment of hesitation.",
+    },
+    {
+      front: "Why know your funnel baseline by heart?",
+      back: "So a change registers as a change, not a guess (say, 62% reach step 2, 31% activate). The fixed list read the same way every morning is what makes a deviation register instantly.",
+    },
+  ]}
+/>
 
 ---
 

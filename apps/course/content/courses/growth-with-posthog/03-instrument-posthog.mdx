@@ -1,6 +1,7 @@
 ---
 title: "Chapter 3 — Instrument PostHog from zero"
 description: "Install the SDK, identify your users, capture the events that matter, write a tracking plan your team shares, make your setup experiment-ready, and make sure ad blockers can't blind you."
+workbook: "Instrumentation from zero: install, identify, capture, and a tracking plan your team shares. Here you draft the first rows of that tracking plan — event name, trigger, properties — and record your testing culture so the experimentation chapters know where you're starting."
 ---
 
 > **In this chapter:** the snippet vs npm vs server/mobile SDKs, what autocapture gives
@@ -256,6 +257,45 @@ Two gotchas worth knowing going in: unlike `identify`, the group has to ride alo
 **every** relevant event or you lose the rollup — and group analytics is often a paid
 add-on with billing implications (Chapter 1, §1.5), so it's worth a look at the pricing
 page before switching it on.
+
+<Flashcards
+  id="cards-instrumentation"
+  title="Key ideas — instrumentation"
+  cards={[
+    {
+      front: "Where do money- and decision-critical events fire?",
+      back: "Server-side (posthog-node): signup, activation, subscription, purchase. It's reliable and ad-blocker-immune — and the source of truth for subscription_started is the payment webhook, not the checkout success page.",
+    },
+    {
+      front: "What does autocapture give you, and where does it stop?",
+      back: "Pageviews, clicks, form submits, rageclicks, and automatic properties (UTMs, ad-click IDs) with no code — but it records interface events, not meaning. Your funnels need a deliberate set of named custom events.",
+    },
+    {
+      front: "What actually happens when you call posthog.identify?",
+      back: "The browser's anonymous person merges into the identified one, so pre- and post-signup activity become one timeline. Merges are effectively permanent — unstable or shared ids are the expensive mistakes.",
+    },
+    {
+      front: "Why call posthog.reset() on logout?",
+      back: "Without it, the next person on a shared machine gets merged into the previous user's profile — and merges don't cleanly undo. It's the pair to identify() that keeps identities whole.",
+    },
+    {
+      prompt: "The single biggest cost decision in the whole setup:",
+      cloze: "Set person_profiles to {{\"identified_only\"}} on day one — anonymous events are roughly {{4× cheaper}} than identified ones, so logged-out traffic bills at the cheap rate until you call {{identify}}.",
+    },
+    {
+      front: "What naming rule most reliably saves an analytics setup?",
+      back: "Never build event names dynamically. capture(`page_viewed_${page}`) mints thousands of un-queryable event types; capture(\"page_viewed\", { page_name }) keeps one event with the variable in a property.",
+    },
+    {
+      prompt: "A tracking plan is a short, shared spec of every event:",
+      cloze: "Its {{name}}, {{trigger}}, {{source}}, and {{key properties}} — owned, not vibes. Keep it in the repo so a new event and its plan row land in the same PR; eight rows is a real plan for an early product.",
+    },
+    {
+      front: "How do you beat ad blockers eating 10–30% of events?",
+      back: "Two fixes together: a reverse proxy on your own subdomain recovers blocked client-side analytics, and server-side events never touch the browser at all. The proxy mitigates analytics; server-side fixes the triggers.",
+    },
+  ]}
+/>
 
 ---
 

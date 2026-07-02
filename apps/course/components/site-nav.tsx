@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import Link from "next/link";
 import { type JSX, useEffect, useState } from "react";
 import { UserMenu } from "@/components/auth/user-menu";
+import { NavBell } from "@/components/hogsend/nav-bell";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/cn";
 import { GITHUB_URL, HOGSEND_URL } from "@/lib/site";
@@ -37,8 +38,9 @@ function GitHubMark({ className }: { className?: string }): JSX.Element {
  * Course site navigation — the simplified sibling of the docs SiteNav. Sticky in
  * normal flow (h-20 / 5rem) so the catalog layout AND the Fumadocs lesson reader
  * share one chrome; the reader offsets its sticky sidebar with a matching
- * --fd-banner-height. No mega-menus / NavBell / downloads — just Courses,
- * Pricing, a link back to hogsend.com, GitHub, and the session control.
+ * --fd-banner-height. No mega-menus / downloads — Courses, Pricing, a link
+ * back to hogsend.com, GitHub, the notification bell (signed-in readers get
+ * their identified Hogsend feed), and the session control.
  */
 export function SiteNav({ className }: { className?: string }): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -99,7 +101,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
           </li>
         </ul>
 
-        {/* Right: GitHub + session (desktop) */}
+        {/* Right: GitHub + notifications + session (desktop) */}
         <div className="hidden items-center justify-end gap-4 md:flex">
           <a
             href={GITHUB_URL}
@@ -110,11 +112,13 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
           >
             <GitHubMark className="size-5" />
           </a>
+          <NavBell align="end" />
           <UserMenu />
         </div>
 
-        {/* Mobile: hamburger */}
+        {/* Mobile: bell + hamburger */}
         <div className="flex items-center gap-1 md:hidden">
+          <NavBell align="end" />
           <button
             type="button"
             aria-label={menuOpen ? "Close menu" : "Open menu"}

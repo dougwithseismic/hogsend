@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { celebrate } from "@/components/course/celebrate";
 import { useLesson } from "@/components/course/lesson-context";
 import { useWorkbookResponse } from "@/components/course/workbook-state";
@@ -15,9 +15,11 @@ export type QuizQuestion = {
 };
 
 /**
- * End-of-lesson knowledge check, one question at a time: pick an answer and
- * the verdict + explanation land immediately; a not-yet-answered question can
- * be swapped for a fresh one from the pool. Each run samples `count` questions
+ * End-of-lesson knowledge check, one question at a time: no start gate — the
+ * first question is just there as part of the lesson (sampled in a mount
+ * effect, so the server render stays deterministic). Pick an answer and the
+ * verdict + explanation land immediately; a not-yet-answered question can be
+ * swapped for a fresh one from the pool. Each run samples `count` questions
  * from the authored pool (so retakes get fresh questions), and the finale
  * celebrates with confetti and persists the score for signed-in readers
  * (retakes overwrite; fired to Hogsend as course.quiz_completed).
@@ -67,12 +69,19 @@ export function Quiz({
 
   const runLength = Math.min(count, questions.length);
 
-  const [stage, setStage] = useState<"intro" | "run" | "done">("intro");
+  const [stage, setStage] = useState<"run" | "done">("run");
   const [slots, setSlots] = useState<Slot[]>([]);
   const [current, setCurrent] = useState(0);
   /** Pool indices used this run (sampled or swapped in) — no repeats. */
   const [used, setUsed] = useState<Set<number>>(new Set());
   const [saveFailed, setSaveFailed] = useState(false);
+
+  // Sample on mount (client-only — Math.random in render would break
+  // hydration). Until then the block renders its header + a placeholder.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sample once per mount
+  useEffect(() => {
+    start();
+  }, []);
 
   const score = slots.reduce(
     (acc, slot) =>
@@ -145,23 +154,14 @@ export function Quiz({
         ) : null}
       </div>
 
-      {stage === "intro" ? (
-        <div className="mt-5">
-          <p className="text-sm text-white/55 leading-relaxed">
-            {runLength} questions, one at a time, instant feedback
-            {questions.length > runLength
-              ? ` — drawn from a pool of ${questions.length}, so every run is different`
-              : ""}
-            .
-          </p>
-          <button
-            type="button"
-            onClick={start}
-            className="mt-4 h-10 rounded-[10px] bg-accent px-5 font-medium text-sm text-white transition-colors hover:bg-accent-deep"
-          >
-            {lastScore ? "Take it again →" : "Start the quiz →"}
-          </button>
-        </div>
+      {stage === "run" ? (
+        <p className="mt-1 text-white/40 text-xs">
+          {runLength} questions, instant feedback
+          {questions.length > runLength
+            ? ` — drawn from a pool of ${questions.length}, so every run is different`
+            : ""}
+          .
+        </p>
       ) : null}
 
       {stage === "run" && slots[current] ? (

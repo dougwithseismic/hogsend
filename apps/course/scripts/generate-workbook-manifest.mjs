@@ -1,6 +1,6 @@
 // Generates lib/workbook-manifest.generated.json — the per-lesson inventory of
-// interactive blocks (WorkbookPrompt / CheckIn / Checklist / Quiz / VideoEmbed /
-// PodcastLink) parsed straight from the course MDX. The manifest is what lets
+// interactive blocks (WorkbookPrompt / CheckIn / Checklist / Quiz / Flashcards /
+// VideoEmbed / PodcastLink) parsed straight from the course MDX. The manifest is what lets
 // the chapter callout, the end-of-chapter recap, and /workbook know which
 // answers COULD exist (and ghost the ones that don't yet), without shipping an
 // MDX parser to the server. Runs before build / check-types (see package.json),
@@ -120,6 +120,24 @@ function extractItems(filePath, course, lesson) {
           anchor: "wb-quiz",
           label: attr(node, "title", filePath) ?? "Check your understanding",
           itemCount: Array.isArray(questions) ? questions.length : 0,
+        });
+        break;
+      }
+      case "Flashcards": {
+        const id = requireAttr(node, "id", filePath);
+        const cards = requireAttr(node, "cards", filePath);
+        if (!Array.isArray(cards)) {
+          throw new Error(
+            `${filePath}: <Flashcards ${id}> cards is not an array`,
+          );
+        }
+        items.push({
+          kind: "flashcards",
+          id,
+          key: `flashcards:${id}`,
+          anchor: `wb-${id}`,
+          label: attr(node, "title", filePath) ?? "Flashcards",
+          itemCount: cards.length,
         });
         break;
       }

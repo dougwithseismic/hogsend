@@ -1,6 +1,7 @@
 ---
 title: "Chapter 1 — What PostHog is, and why you want it"
 description: "The tool you'll measure with, why measuring is the first job of a growth team, how event-based analytics differs from GA4, what else is on the market, and what it really costs."
+workbook: "Why measuring is the first job of a growth team, and what PostHog gives you on day one. Here you record what's actually running on your product today — the honest baseline the instrumentation chapters start from — and watch the three short demos: analytics, AI insights, session replay."
 ---
 
 > **In this chapter:** the case for measuring at all, the full PostHog product suite and
@@ -40,6 +41,17 @@ The discipline that goes *with* the tool — *what* to measure and *why* — is 
 framework, and it gets its own chapter (Chapter 2). This chapter is about the instrument.
 
 ---
+
+<CheckIn
+  id="teamSize"
+  question="Who's on the team that will act on these numbers?"
+  options={[
+    "Just me",
+    "Me + a cofounder",
+    "A small team (3–10)",
+    "10+ people",
+  ]}
+/>
 
 ## 1.2 What PostHog is in 2026
 
@@ -216,6 +228,45 @@ You don't have to choose one forever. The point is that the *measurement* lives 
 PostHog and the *code-first lifecycle automation* lives in Hogsend — and Chapters 5 and 6
 are entirely about why a code-first journey beats a flowchart once your logic gets real
 (behavioural branching, exact-once sends, holdouts you can prove).
+
+<Flashcards
+  id="cards-posthog"
+  title="Key ideas — PostHog"
+  cards={[
+    {
+      front: "What structural advantage does PostHog have over stitching point tools together?",
+      back: "One event pipeline and one identity model under everything: the error links to the replay, the funnel, and the flag. Across four tools that join is a data-engineering project; in PostHog it's a click.",
+    },
+    {
+      front: "The funnel tells you where you lose people — what tells you why?",
+      back: "Session replay — real sessions behind a drop-off, with console logs and network requests captured. Five minutes of replay beats an hour of staring at a chart; the jump from a data point to its recordings is a click.",
+    },
+    {
+      front: "Why can't GA4 run your activation funnel?",
+      back: "GA4 answers aggregated, session-centric marketing questions (channels, campaigns). User-level funnels, N-day retention cohorts, and jump-to-replay need events keyed to durable persons — the product-analytics data model.",
+    },
+    {
+      front: "How does this course split the work between PostHog and Hogsend?",
+      back: "PostHog detects: event collection, identity, cohorts, the analytics you read. Hogsend acts: code-first TypeScript journeys in your repo — versioned, code-reviewed — triggered by the same events, results fired back as events.",
+    },
+    {
+      front: "Which decision at PostHog signup is hard to undo?",
+      back: "US vs EU cloud region. Data does not move between regions and you cannot merge across them — guessing wrong means a migration, not a setting. Pick where your users and compliance obligations are.",
+    },
+    {
+      front: "Your phc_ project key is visible in the shipped JS bundle. Problem?",
+      back: "No — by design it can write events but cannot read your data, like a mailbox slot. Reading requires a personal API key, which never ships to the browser.",
+    },
+    {
+      prompt: "PostHog's pricing model in three facts:",
+      cloze: "Usage-based per product, with monthly free tiers that {{reset each month}}; you're billed once {{at capture}} — storing history is {{free}}; roughly {{90% of companies}} use it for free. When cost arrives, the lever is event volume.",
+    },
+    {
+      front: "Why PostHog Cloud for analytics but self-hosted Hogsend for messaging?",
+      back: "The asymmetry is deliberate: analytics is read-heavy and fine to delegate; the messaging spine and the identity graph are assets you want on your own infrastructure.",
+    },
+  ]}
+/>
 
 ---
 

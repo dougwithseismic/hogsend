@@ -200,7 +200,7 @@ export default async function CourseOverview(props: {
       ) : null}
 
       {/* Progress */}
-      {userId && done > 0 ? (
+      {userId ? (
         <div className="mt-8 max-w-md">
           <ProgressBar
             value={done}
@@ -211,7 +211,7 @@ export default async function CourseOverview(props: {
           <p className="mt-2 text-sm text-white/40">
             {done}/{total} lessons · {pct}% ·{" "}
             <Link
-              href="/workbook"
+              href={`/workbook#wb-${slug}`}
               className="underline transition-colors hover:text-white"
             >
               your workbook

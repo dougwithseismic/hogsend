@@ -1,6 +1,7 @@
 ---
 title: "Chapter 9 — Putting it all together"
 description: "The whole machine on one page, the operating cadence that keeps it running, the experimentation program that makes it compound, and what it means to have become a growth team."
+workbook: "The whole machine on one page, and the cadence that runs it. Your first three ICE-scored hypotheses get written here — the experiment backlog your first growth week runs on — plus which piece of the machine would unblock you most right now."
 ---
 
 > **In this chapter:** the end-to-end system as a single loop, the daily/weekly/monthly
@@ -161,6 +162,45 @@ quarter; one that depends on someone remembering to look does not.
   title="How to Build a Culture of Experimentation on Your Growth Team"
   channel="Andrew Capland"
   note="An ex-Wistia head of growth on the weekly ritual in practice — and how teams drift back into shipping without learning."
+/>
+
+<Flashcards
+  id="cards-operating-system"
+  title="Key ideas — the operating system"
+  cards={[
+    {
+      prompt: "The ordering agreed on Day 0 — the most valuable decision in the course:",
+      cloze: "{{Measure}} → {{keep}} → {{grow}}: acquisition goes last because it {{wastes the most money when the bucket leaks}} and pays back the most when it doesn't.",
+    },
+    {
+      prompt: "The division of labour that keeps the system simple:",
+      cloze: "PostHog {{detects}} (events, funnels, retention). Hogsend {{acts}} (lifecycle journeys across email, Discord, Telegram). You {{decide}}.",
+    },
+    {
+      front: "What's the daily job in the operating cadence?",
+      back: "Two minutes of noticing, not analysing: glance at the Slack alerts, the activation funnel, and the active-users trend — dig only if an alert fired. A glance over five minutes means the alerts need tuning.",
+    },
+    {
+      front: "What does the weekly growth review look like?",
+      back: "30 minutes, fixed agenda: metrics read, journeys and spend (kill-or-scale, out loud), experiments. It reviews learnings and decisions, not status — anomalies get an owner, not live group debugging.",
+    },
+    {
+      front: "Which questions are monthly, not weekly?",
+      back: "Is activation still the best predictor of retention; incremental lift from the global holdout; blended CAC and the referral loop's contribution; and a prune of no-lift journeys, unqueried events, dead ad sets.",
+    },
+    {
+      prompt: "The growth-hypothesis format — every backlog idea enters this way, ICE-scored (impact, confidence, ease, 1–10):",
+      cloze: "If we {{make this specific change}}, {{this named metric}} will move {{in this direction}}, because {{this reasoning}}.",
+    },
+    {
+      front: "What's Sean Ellis's high-tempo testing argument?",
+      back: "The compounding asset is your velocity of tests — learning compounds even when individual tests fail. For a startup, one experiment a week, every week, beats a burst of ten followed by a quarter of nothing.",
+    },
+    {
+      front: "What are the three honest rules of an experimentation program?",
+      back: "Not everything deserves an experiment (obvious, reversible, or too-small changes just ship); sample size decides what you can learn — big swings beat button colours at startup traffic; write the losers down too.",
+    },
+  ]}
 />
 
 ---

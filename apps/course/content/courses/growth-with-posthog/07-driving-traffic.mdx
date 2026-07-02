@@ -1,6 +1,7 @@
 ---
 title: "Chapter 7 — Driving traffic"
 description: "Once the bucket holds water, it's time to open the tap: how to choose the channel that actually fits your product, the CAC and payback maths that tell you whether it's working, how Meta ads work if paid is your channel, and how to keep conversion tracking honest despite ad blockers and iOS."
+workbook: "Choosing the channel that actually fits your product, and the CAC and payback maths that tell you whether it's working. Here you record your acquisition mix and which channels genuinely work for you today — the honest starting point this chapter argues from."
 ---
 
 > **In this chapter:** how to choose an acquisition channel deliberately (and why paid
@@ -267,6 +268,45 @@ previews for your Next.js app" finds developers because only developers watch it
 practical implication: you'll likely need more creative variants than feels natural
 (winners fatigue in weeks), and the first three seconds are where the qualification
 happens.
+
+<Flashcards
+  id="cards-traffic"
+  title="Key ideas — driving traffic"
+  cards={[
+    {
+      front: "What is the law of shitty clickthroughs?",
+      back: "Every channel's performance degrades as it saturates — banner ads fell from 78% CTR in 1994 to ~0.05%. The counter is capturing what the channel brings into something you own, not channel-hopping.",
+    },
+    {
+      front: "Should a dev tool lead with paid social?",
+      back: "Mostly no — developers block ads at the highest rate and discover tools through content, GitHub, HN, docs, and each other. Treat paid as fuel for the loop and point most energy at owned channels (Chapter 8).",
+    },
+    {
+      front: "How do you compute CAC honestly?",
+      back: "Fully loaded spend — ads plus the content, tools, and people behind them — divided by paying customers, not signups. Per-channel CAC is the operating metric; blended CAC can hide an unprofitable channel.",
+    },
+    {
+      prompt: "The LTV:CAC maths:",
+      cloze: "LTV is the {{gross-margin}} contribution over a customer's lifetime — roughly monthly margin ÷ {{monthly churn}}, never revenue — and the folk benchmark is LTV:CAC of at least {{3}} with payback (months of margin to recover CAC) inside {{about 12 months}}.",
+    },
+    {
+      front: "What's the most consequential choice in a Meta campaign?",
+      back: "The objective — it tells the delivery algorithm which kind of person to go find. Traffic buys visitors who click; Sales buys visitors who act. They are different people.",
+    },
+    {
+      prompt: "The 50-conversions rule:",
+      cloze: "Meta's algorithm needs roughly {{50 conversions}} per ad set per {{week}} to exit the {{learning phase}} — optimise the deepest event you can feed at that volume, pass deeper conversions back server-side, and change things weekly, since {{edits reset learning}}.",
+    },
+    {
+      front: "Why is creative now the targeting?",
+      back: "With broad and Advantage+ audiences the ad itself selects the audience — only developers watch a video about deploy previews. Winners fatigue in weeks, and the first three seconds are where qualification happens.",
+    },
+    {
+      front: "What makes a good lookalike seed?",
+      back: "Seed quality dominates the result: your best customers — recent purchasers, high-LTV — beat 'everyone who ever signed up.' A 1% lookalike is the tightest match; widening to 3–10% trades match for scale.",
+    },
+  ]}
+/>
 
 ---
 

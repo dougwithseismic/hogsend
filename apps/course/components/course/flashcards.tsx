@@ -1,0 +1,269 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { celebrate } from "@/components/course/celebrate";
+import { useMounted } from "@/components/course/use-mounted";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
+import { useSession } from "@/lib/auth-client";
+
+export type FlashCard = {
+  /** The prompt side — a plain question. Unused when `cloze` is set. */
+  front?: string;
+  /** The answer side — the fact, dense and complete. Unused with `cloze`. */
+  back?: string;
+  /**
+   * Fill-in-the-blank card: one sentence with `{{key term}}` markers. The
+   * unflipped side renders each marked term as a width-true underlined blank;
+   * flipping reveals the real words in the accent colour. For answers that
+   * ARE a structure (the hypothesis format, an ordering, exit criteria).
+   */
+  cloze?: string;
+  /** Optional short lead-in above a cloze sentence ("The hypothesis format:"). */
+  prompt?: string;
+};
+
+/** `start` = the segment's char offset in the cloze source — a stable,
+ *  content-derived React key (segment texts can repeat). */
+type ClozeSegment = { text: string; blank: boolean; start: number };
+
+function parseCloze(cloze: string): ClozeSegment[] {
+  const segments: ClozeSegment[] = [];
+  const marker = /\{\{(.+?)\}\}/g;
+  let last = 0;
+  let match = marker.exec(cloze);
+  while (match) {
+    if (match.index > last) {
+      segments.push({
+        text: cloze.slice(last, match.index),
+        blank: false,
+        start: last,
+      });
+    }
+    segments.push({ text: match[1], blank: true, start: match.index });
+    last = marker.lastIndex;
+    match = marker.exec(cloze);
+  }
+  if (last < cloze.length) {
+    segments.push({ text: cloze.slice(last), blank: false, start: last });
+  }
+  return segments;
+}
+
+/** A cloze sentence: blanks stay width-true (transparent text + underline) so
+ *  nothing shifts when the flip recolours them. */
+function ClozeText({ cloze, revealed }: { cloze: string; revealed: boolean }) {
+  return (
+    <>
+      {parseCloze(cloze).map((segment) =>
+        segment.blank ? (
+          <span
+            key={segment.start}
+            className={
+              revealed
+                ? "font-medium text-accent transition-colors"
+                : "select-none border-white/40 border-b text-transparent"
+            }
+          >
+            {segment.text}
+          </span>
+        ) : (
+          <span key={segment.start}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * A chapter's key facts as a flip-deck: tap to reveal the back, then "Got it"
+ * retires the card and "Again" sends it to the back of the queue. Mastered
+ * card indices persist for signed-in readers (`flashcards:<id>`), so a
+ * half-studied deck resumes where it left off, and mastering the whole deck
+ * celebrates + fires course.flashcards_completed. Signed-out readers get the
+ * full study loop, local-only, with a sign-in hint.
+ */
+export function Flashcards({
+  id,
+  title = "Flashcards",
+  cards,
+}: {
+  id: string;
+  title?: string;
+  cards: FlashCard[];
+}) {
+  const mounted = useMounted();
+  const { data: session } = useSession();
+  const { value, save } = useWorkbookResponse<{
+    mastered?: number[];
+    total?: number;
+    title?: string;
+  }>("flashcards", id, `flashcards:${id}`);
+
+  // The ONLY study state: the unmastered indices in study order (null until
+  // the saved value is restored). Mastered = every index not in the queue.
+  const [queue, setQueue] = useState<number[] | null>(null);
+  const [flipped, setFlipped] = useState(false);
+
+  // Restore mastered cards once on mount (the store is server-fed, so the
+  // saved value is available synchronously; indices are re-validated in case
+  // the deck was edited since).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restore once per mount
+  useEffect(() => {
+    const restored = new Set(
+      (value?.mastered ?? []).filter(
+        (n) => Number.isInteger(n) && n >= 0 && n < cards.length,
+      ),
+    );
+    setQueue(cards.map((_, i) => i).filter((i) => !restored.has(i)));
+  }, []);
+
+  const ready = queue !== null;
+  const current = queue?.[0];
+  const masteredCount = ready ? cards.length - queue.length : 0;
+  const allDone = ready && queue.length === 0 && cards.length > 0;
+
+  function persist(nextQueue: number[]) {
+    if (!session) return;
+    const remaining = new Set(nextQueue);
+    void save({
+      mastered: cards.map((_, i) => i).filter((i) => !remaining.has(i)),
+      total: cards.length,
+      title,
+    });
+  }
+
+  function gotIt() {
+    if (!queue || current === undefined) return;
+    const nextQueue = queue.slice(1);
+    setQueue(nextQueue);
+    setFlipped(false);
+    persist(nextQueue);
+    if (nextQueue.length === 0) celebrate();
+  }
+
+  function again() {
+    if (!queue || current === undefined) return;
+    setQueue([...queue.slice(1), current]);
+    setFlipped(false);
+  }
+
+  function reset() {
+    const fullQueue = cards.map((_, i) => i);
+    setQueue(fullQueue);
+    setFlipped(false);
+    persist(fullQueue);
+  }
+
+  return (
+    <div
+      id={`wb-${id}`}
+      className="not-prose my-8 scroll-mt-28 rounded-md border border-white/[0.08] bg-white/[0.015] p-5"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div>
+          <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
+            Flashcards
+          </p>
+          <p className="mt-2 font-medium text-base text-white">{title}</p>
+        </div>
+        <span className="whitespace-nowrap text-sm text-white/50">
+          {masteredCount}/{cards.length} mastered
+        </span>
+      </div>
+
+      {!ready ? (
+        <p className="mt-4 text-sm text-white/40">
+          {cards.length} cards — tap to flip.
+        </p>
+      ) : allDone ? (
+        <div className="mt-5 rounded-md border border-good/30 bg-good-tint p-4 text-center">
+          <p className="font-medium text-good text-sm">
+            Deck mastered — all {cards.length} cards ✓
+          </p>
+          <button
+            type="button"
+            onClick={reset}
+            className="mt-3 h-9 rounded-[10px] border border-white/[0.12] bg-white/[0.03] px-4 font-medium text-sm text-white transition-colors hover:border-white/30"
+          >
+            Study again
+          </button>
+        </div>
+      ) : current !== undefined ? (
+        <div className="mt-5">
+          <button
+            type="button"
+            onClick={() => setFlipped((f) => !f)}
+            aria-pressed={flipped}
+            className="block min-h-28 w-full rounded-md border border-white/[0.1] bg-white/[0.02] p-5 text-left transition-colors hover:border-white/25"
+          >
+            {cards[current].cloze ? (
+              <>
+                <p className="font-medium text-[10px] text-white/35 uppercase tracking-[0.14em]">
+                  {flipped ? "Answer" : "Fill the blanks — tap to reveal"}
+                </p>
+                {cards[current].prompt ? (
+                  <p className="mt-2 text-sm text-white/55">
+                    {cards[current].prompt}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-base text-white/85 leading-relaxed">
+                  <ClozeText cloze={cards[current].cloze} revealed={flipped} />
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-[10px] text-white/35 uppercase tracking-[0.14em]">
+                  {flipped ? "Answer" : "Tap to flip"}
+                </p>
+                <p
+                  className={
+                    flipped
+                      ? "mt-2 text-sm text-white/85 leading-relaxed"
+                      : "mt-2 font-medium text-base text-white leading-relaxed"
+                  }
+                >
+                  {flipped ? cards[current].back : cards[current].front}
+                </p>
+              </>
+            )}
+          </button>
+          {flipped ? (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={gotIt}
+                className="h-9 rounded-[10px] bg-accent px-4 font-medium text-sm text-white transition-colors hover:bg-accent-deep"
+              >
+                Got it ✓
+              </button>
+              <button
+                type="button"
+                onClick={again}
+                className="h-9 rounded-[10px] border border-white/[0.12] bg-white/[0.03] px-4 font-medium text-sm text-white/80 transition-colors hover:border-white/30"
+              >
+                Again ↻
+              </button>
+              <span className="ml-auto text-white/35 text-xs">
+                {queue.length} to go
+              </span>
+            </div>
+          ) : (
+            <p className="mt-3 text-white/35 text-xs">
+              Think of the answer, then tap the card.
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {mounted && !session ? (
+        <p className="mt-4 text-white/45 text-xs">
+          <Link href="/sign-in" className="underline hover:text-white">
+            Sign in free
+          </Link>{" "}
+          to save your progress across visits.
+        </p>
+      ) : null}
+    </div>
+  );
+}

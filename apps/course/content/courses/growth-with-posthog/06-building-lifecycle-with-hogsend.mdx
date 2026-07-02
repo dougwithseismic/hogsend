@@ -1,6 +1,7 @@
 ---
 title: "Chapter 6 — Building the lifecycle in Hogsend"
 description: "The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back, dunning, and referral — each triggered by a real event, each durable by default — plus email templates as React components and the correctness rules that stop double-sends."
+workbook: "The Chapter 5 journeys, written as code — welcome, nudge, win-back, dunning, referral. Nothing to draft here: watch the three React Email pieces and take the check; the patterns land in your plan in Chapter 10."
 ---
 
 > **In this chapter:** how an event becomes a running journey, why durable execution
@@ -75,6 +76,17 @@ server-side, it's ad-blocker-proof (Chapter 3) — your lifecycle program never 
 on a browser script that a third of your users block.
 
 ---
+
+<CheckIn
+  id="engineeringBandwidth"
+  question="Who would write these journeys on your team?"
+  options={[
+    "Me — I write the code",
+    "A teammate would",
+    "We'd need to borrow or hire help",
+    "No one technical yet",
+  ]}
+/>
 
 ## 6.2 Anatomy of a journey
 
@@ -354,6 +366,45 @@ checks gate *sends at known points*; the exit kills the journey *at any point*,
 including mid-sleep. Both layers matter. The `if` makes each message conditional; the
 exit guarantees the whole program stops the moment its goal is met — Chapter 5's
 suppression rule enforced by the engine rather than by your discipline.
+
+<Flashcards
+  id="cards-hogsend"
+  title="Key ideas — journeys as code"
+  cards={[
+    {
+      prompt: "The Hogsend loop:",
+      cloze: "An event arrives — backend ingest, webhook source, or PostHog — the engine stores it and routes it to every journey {{subscribed to that event}}, and the journey runs and {{fires its own events back}}, so the loop is {{measurable in PostHog}}.",
+    },
+    {
+      front: "What does durable execution buy you?",
+      back: "The engine persists the journey's position, so a two-day sleep genuinely survives deploys and crashes — a multi-day program stays one readable function instead of cron jobs and database flags rebuilding state by hand.",
+    },
+    {
+      prompt: "A journey's meta guardrails:",
+      cloze: "The meta declares {{trigger}} (the subscribing event, filterable with where), {{entryLimit}} (the re-enrollment policy), {{exitOn}} (events that end the journey immediately), and {{suppress}} (a debounce against bursts of the same trigger).",
+    },
+    {
+      front: "What's the difference between an if-check and exitOn?",
+      back: "An if gates one send at a known point; exitOn stops the whole journey at any point, including mid-sleep or mid-wait — Chapter 5's suppression rule enforced by the engine rather than your discipline.",
+    },
+    {
+      prompt: "The shape that covers most onboarding programs:",
+      cloze: "The pattern is {{sleep}}, {{check what happened during the sleep}}, then {{send only if needed}} — every touch gated on real behaviour, so an active user is left alone and a stuck user gets help.",
+    },
+    {
+      front: "What does ctx.waitForEvent do that a plain ctx.sleep doesn't?",
+      back: "waitForEvent races the user's own behaviour against a timeout and returns { timedOut }, so the code branches on what actually happened — a program that listens, not a timer that fires regardless.",
+    },
+    {
+      front: "How do email templates work in a Hogsend app?",
+      back: "React components (React Email) that render to the table-based HTML email clients tolerate, versioned in git with your code. Journeys never concatenate HTML; templates never decide who gets mail.",
+    },
+    {
+      front: "What does ctx.when add over a raw sleep?",
+      back: "Timezone-aware scheduling: sleepUntil(ctx.when.in(days(2)).at(\"09:00\")) lands the day-2 email at 9am in the user's own timezone and respects your send window — not exactly 48 hours after a 2am signup.",
+    },
+  ]}
+/>
 
 ---
 

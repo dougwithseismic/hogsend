@@ -220,6 +220,39 @@ export async function emitMediaCompleted(
   );
 }
 
+/**
+ * A flashcard deck fully mastered (every card marked "Got it"). Fired only at
+ * the moment mastery completes — re-studying and re-mastering fires again.
+ */
+export async function emitFlashcardsCompleted(
+  user: AuthUser,
+  input: {
+    id: string;
+    total: number;
+    title?: string;
+    course?: string;
+    lesson?: string;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.flashcards_completed",
+      email: user.email,
+      contactProperties: { courseUserId: user.id },
+      eventProperties: {
+        source: SOURCE,
+        deckId: input.id,
+        total: input.total,
+        ...(input.title ? { title: input.title } : {}),
+        ...(input.course ? { course: input.course } : {}),
+        ...(input.lesson ? { lesson: input.lesson } : {}),
+      },
+    },
+    `course-flashcards-${user.id}-${input.id}-${Date.now()}`,
+  );
+}
+
 /** An end-of-lesson quiz submission (score out of total, both integers). */
 export async function emitQuizCompleted(
   user: AuthUser,

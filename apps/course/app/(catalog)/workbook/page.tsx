@@ -6,21 +6,26 @@ import { redirect } from "next/navigation";
 import { CheckIn } from "@/components/course/check-in";
 import { Checklist } from "@/components/course/checklist";
 import { LessonProvider } from "@/components/course/lesson-context";
+import { CopyLinkButton } from "@/components/course/share-link";
 import {
+  WorkbookChapterMeter,
   WorkbookCourseProgress,
-  WorkbookMediaRow,
+  WorkbookFlashcardsRow,
+  WorkbookJumpNav,
+  WorkbookMediaCluster,
   WorkbookQuizRow,
 } from "@/components/course/workbook-extras";
 import { WorkbookPrompt } from "@/components/course/workbook-prompt";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { auth } from "@/lib/auth";
+import { getCourseModules } from "@/lib/course-ui";
 import { getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { enrollment, response } from "@/lib/db/schema";
 import { source } from "@/lib/source";
 import {
-  courseWorkbookLessons,
   itemState,
+  lessonWorkbookItems,
   type SavedValue,
   WORKBOOK_MANIFEST,
   type WorkbookItem,
@@ -36,49 +41,74 @@ export const metadata: Metadata = {
 
 /**
  * The reader's workbook: every interactive item each course will ask of them,
- * grouped per course → chapter in course order, with the FULL structure shown —
- * filled answers editable right here (the same blocks the lessons render),
- * unfilled ones ghosted in with a jump link to where they live. A per-course
- * progress meter and a "continue where you left off" pointer keep the next
+ * structured the way the course is — module groups (Measure/Keep/Grow/Run) →
+ * chapter sections, each with its own intro (the `workbook` frontmatter), live
+ * done-count, share anchor, and the chapter's items. Notes, check-ins, and
+ * checklists are the REAL lesson blocks, editable in place; videos/podcasts
+ * collapse into one "Watch & listen" card per chapter; quizzes link out. A
+ * sticky jump-nav with live per-chapter counts keeps the whole thing
+ * navigable, and a "continue where you left off" pointer keeps the next
  * action obvious.
  */
+
+type ChapterEntry = {
+  lesson: string;
+  title: string;
+  url: string;
+  anchor: string;
+  /** Chapter number pill label, from the slug's numeric prefix ("Ch 3"). */
+  num: string;
+  intro?: string;
+  items: WorkbookItem[]; // deduped against earlier chapters
+};
+
+type ModuleGroup = { name: string | null; chapters: ChapterEntry[] };
 
 type CourseSection = {
   slug: string;
   title: string;
-  items: WorkbookItem[]; // deduped, course order — for progress
-  lessons: Array<{
-    lesson: string;
-    title: string;
-    url: string;
-    items: WorkbookItem[]; // deduped against earlier lessons
-  }>;
+  items: WorkbookItem[]; // all chapters, course order — for progress
+  modules: ModuleGroup[];
+  chapters: ChapterEntry[]; // flattened, for the jump-nav + continue pointer
 };
 
 function buildCourseSection(slug: string): CourseSection {
   const seen = new Set<string>();
-  const lessons: CourseSection["lessons"] = [];
-  for (const { lesson, items } of courseWorkbookLessons(slug)) {
-    const fresh = items.filter((item) => {
-      if (seen.has(item.key)) return false;
-      seen.add(item.key);
-      return true;
-    });
-    if (fresh.length === 0) continue;
-    const page = source.getPage([slug, lesson]);
-    lessons.push({
-      lesson,
-      title: page?.data.title ?? lesson,
-      url: page?.url ?? `/learn/${slug}/${lesson}`,
-      items: fresh,
-    });
+  const modules: ModuleGroup[] = [];
+
+  for (const courseModule of getCourseModules(slug)) {
+    const chapters: ChapterEntry[] = [];
+    for (const lesson of courseModule.lessons) {
+      const fresh = lessonWorkbookItems(slug, lesson.slug).filter((item) => {
+        if (seen.has(item.key)) return false;
+        seen.add(item.key);
+        return true;
+      });
+      if (fresh.length === 0) continue;
+      const page = source.getPage([slug, lesson.slug]);
+      const numeric = lesson.slug.match(/^(\d+)/)?.[1];
+      chapters.push({
+        lesson: lesson.slug,
+        title: lesson.title,
+        url: lesson.url,
+        anchor: `wb-ch-${slug}-${lesson.slug}`,
+        num: numeric ? `Ch ${Number.parseInt(numeric, 10)}` : lesson.slug,
+        intro: page?.data.workbook ?? page?.data.description,
+        items: fresh,
+      });
+    }
+    if (chapters.length > 0) {
+      modules.push({ name: courseModule.name, chapters });
+    }
   }
-  const items = lessons.flatMap((l) => l.items);
+
+  const chapters = modules.flatMap((m) => m.chapters);
   return {
     slug,
     title: getCourse(slug)?.title ?? slug,
-    items,
-    lessons,
+    items: chapters.flatMap((c) => c.items),
+    modules,
+    chapters,
   };
 }
 
@@ -87,13 +117,13 @@ function nextOpenItem(
   section: CourseSection,
   values: Record<string, SavedValue>,
 ): { item: WorkbookItem; lessonTitle: string; href: string } | null {
-  for (const lesson of section.lessons) {
-    for (const item of lesson.items) {
+  for (const chapter of section.chapters) {
+    for (const item of chapter.items) {
       if (itemState(item, values[item.key] ?? null).status !== "done") {
         return {
           item,
-          lessonTitle: lesson.title,
-          href: `${lesson.url}#${item.anchor}`,
+          lessonTitle: chapter.title,
+          href: `${chapter.url}#${item.anchor}`,
         };
       }
     }
@@ -101,21 +131,23 @@ function nextOpenItem(
   return null;
 }
 
-function LessonItems({
+/**
+ * One chapter's items: the real editable blocks in lesson order, with the
+ * media items pulled out into the compact "Watch & listen" cluster at the end.
+ */
+function ChapterItems({
   courseSlug,
-  lesson,
-  url,
-  items,
+  chapter,
 }: {
   courseSlug: string;
-  lesson: string;
-  url: string;
-  items: WorkbookItem[];
+  chapter: ChapterEntry;
 }) {
+  const media = chapter.items.filter((item) => item.kind === "media");
+  const rest = chapter.items.filter((item) => item.kind !== "media");
   return (
-    <LessonProvider course={courseSlug} lesson={lesson}>
-      {items.map((item) => {
-        const href = `${url}#${item.anchor}`;
+    <LessonProvider course={courseSlug} lesson={chapter.lesson}>
+      {rest.map((item) => {
+        const href = `${chapter.url}#${item.anchor}`;
         switch (item.kind) {
           case "note":
             return (
@@ -149,12 +181,15 @@ function LessonItems({
             );
           case "quiz":
             return <WorkbookQuizRow key={item.key} item={item} href={href} />;
-          case "media":
-            return <WorkbookMediaRow key={item.key} item={item} href={href} />;
+          case "flashcards":
+            return (
+              <WorkbookFlashcardsRow key={item.key} item={item} href={href} />
+            );
           default:
             return null;
         }
       })}
+      <WorkbookMediaCluster items={media} url={chapter.url} />
     </LessonProvider>
   );
 }
@@ -196,9 +231,10 @@ export default async function WorkbookPage() {
         Your workbook
       </h1>
       <p className="mt-2 text-sm text-white/55 leading-6">
-        Every exercise your courses ask of you, in one place — what you've
-        written and answered is editable right here, and what you haven't yet is
-        waiting with a link to the chapter it lives in.
+        Every exercise your courses ask of you, in one place — completable start
+        to finish right here. Each chapter opens with what it covers and what
+        you'll produce; what you've written is editable in place, and everything
+        links back to the chapter it lives in.
       </p>
 
       {sections.length === 0 ? (
@@ -220,7 +256,7 @@ export default async function WorkbookPage() {
             {sections.map((section) => {
               const next = nextOpenItem(section, values);
               return (
-                <section key={section.slug}>
+                <section key={section.slug} id={`wb-${section.slug}`}>
                   <div className="border-white/[0.08] border-b pb-4">
                     <div className="flex items-baseline justify-between gap-3">
                       <h2 className="font-display text-white text-xl tracking-[-0.02em]">
@@ -252,26 +288,59 @@ export default async function WorkbookPage() {
                     ) : null}
                   </div>
 
-                  <div className="mt-2 flex flex-col gap-10">
-                    {section.lessons.map((lesson) => (
-                      <div key={lesson.lesson}>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <h3 className="font-medium text-base text-white tracking-[-0.01em]">
-                            {lesson.title}
-                          </h3>
-                          <Link
-                            href={lesson.url}
-                            className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
-                          >
-                            Revisit chapter →
-                          </Link>
+                  <WorkbookJumpNav
+                    chapters={section.chapters.map((chapter) => ({
+                      anchor: chapter.anchor,
+                      num: chapter.num,
+                      items: chapter.items,
+                    }))}
+                  />
+
+                  <div className="mt-4 flex flex-col gap-12">
+                    {section.modules.map((courseModule) => (
+                      <div key={courseModule.name ?? "ungrouped"}>
+                        {courseModule.name ? (
+                          <p className="font-medium text-[11px] text-accent uppercase tracking-[0.18em]">
+                            {courseModule.name}
+                          </p>
+                        ) : null}
+                        <div className="mt-4 flex flex-col gap-10">
+                          {courseModule.chapters.map((chapter) => (
+                            <section
+                              key={chapter.lesson}
+                              id={chapter.anchor}
+                              className="scroll-mt-36"
+                            >
+                              <div className="flex items-baseline justify-between gap-3">
+                                <h3 className="min-w-0 font-medium text-base text-white tracking-[-0.01em]">
+                                  {chapter.title}
+                                </h3>
+                                <div className="flex shrink-0 items-baseline gap-3">
+                                  <WorkbookChapterMeter items={chapter.items} />
+                                  <Link
+                                    href={chapter.url}
+                                    className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
+                                  >
+                                    Revisit chapter →
+                                  </Link>
+                                  <CopyLinkButton
+                                    url={`/workbook#${chapter.anchor}`}
+                                    label="Share"
+                                  />
+                                </div>
+                              </div>
+                              {chapter.intro ? (
+                                <p className="mt-2 text-sm text-white/55 leading-6">
+                                  {chapter.intro}
+                                </p>
+                              ) : null}
+                              <ChapterItems
+                                courseSlug={section.slug}
+                                chapter={chapter}
+                              />
+                            </section>
+                          ))}
                         </div>
-                        <LessonItems
-                          courseSlug={section.slug}
-                          lesson={lesson.lesson}
-                          url={lesson.url}
-                          items={lesson.items}
-                        />
                       </div>
                     ))}
                   </div>

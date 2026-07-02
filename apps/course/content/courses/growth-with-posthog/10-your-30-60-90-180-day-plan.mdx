@@ -1,6 +1,7 @@
 ---
 title: "Chapter 10 — Your 30/60/90/180-day plan"
 description: "The whole course as a sequenced operating plan: what to build in each phase, the exit criteria that gate the next one, realistic milestones, and the checklists to run it — from day 0 to day 180."
+workbook: "The whole course as a sequenced plan with exit criteria. Name the growth owner, firm up your activation sentence (pre-filled from Chapter 2), commit to a start date, and work the five phase checklists — day 0 through day 180. This chapter IS the workbook."
 ---
 
 > **In this chapter:** the course turned into a plan you can actually run — day 0
@@ -44,6 +45,17 @@ few rules about how to read it:
 
 ---
 
+<CheckIn
+  id="hoursPerWeek"
+  question="How much time can you honestly give this plan each week?"
+  options={[
+    "A couple of hours",
+    "Half a day",
+    "A full day",
+    "It's my main job",
+  ]}
+/>
+
 ## 10.2 Day 0 — commit (one hour, no code)
 
 Chapter 0's commitments, now as a checklist. They're best done in one sitting with the
@@ -84,6 +96,45 @@ in the course, linked back to the lesson it came from.
   prompt="Your activation sentence — if you drafted it in Chapter 2, it's pre-filled here. Make it final."
   placeholder="A user is activated when they… (one sentence, one observable event)"
   rows={2}
+/>
+
+<Flashcards
+  id="cards-plan"
+  title="Key ideas — the 30/60/90/180 plan"
+  cards={[
+    {
+      front: "How rigid are the 30/60/90/180 timings?",
+      back: "Phases are gates, not dates — the numbers assume roughly a founder-day per week; compress or stretch freely. Protect the order: each phase's exit criteria are the next phase's entry requirements.",
+    },
+    {
+      prompt: "The day-30 gate — three sayable sentences, with numbers:",
+      cloze: "Where {{the funnel loses the most people}}, roughly what {{week-4 retention}} is, and which {{phase of product-market fit}} you're in. Chart volume doesn't count.",
+    },
+    {
+      front: "What's the Measure phase's named anti-pattern?",
+      back: "Instrumenting forever. Thirty days is enough to measure a funnel honestly, not to build a data platform — a schema registry in week three is growth work quietly traded for tooling work.",
+    },
+    {
+      prompt: "The Keep-phase build order, by expected impact:",
+      cloze: "{{Welcome + onboarding nudge}} first (signup→activation is nearly always the biggest leak), then {{dunning}} (the fastest revenue win in the course), then {{win-back}} for users inactive 14+ days.",
+    },
+    {
+      front: "What's the day-60 gate — when does the bucket hold?",
+      back: "Holdout-measured lift on activation or early retention — opens and clicks are activity, lift is proof. The bucket holds water well enough that pouring traffic into it isn't waste.",
+    },
+    {
+      front: "What does the day-90 gate require?",
+      back: "Traffic flows from a channel you chose on purpose; conversions are tracked accurately enough to optimise on; and a visible share of new users land in a channel you own — verified email or linked Discord/Telegram.",
+    },
+    {
+      front: "What's the Grow phase's anti-pattern?",
+      back: "Scaling spend before measurement is trustworthy — with low EMQ or missing events the platform optimises on noise, and the tuition comes out of your budget. A day on conversion quality beats a week of creative testing.",
+    },
+    {
+      front: "What gates day 180 — and what's the real finish line?",
+      back: "Lift and blended CAC reported monthly; major paid step-ups gated on PMF evidence (the Sean Ellis 40% test). The finish line: the plan dissolves into an operating rhythm that no longer needs this chapter.",
+    },
+  ]}
 />
 
 ---

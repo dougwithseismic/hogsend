@@ -1,6 +1,7 @@
 ---
 title: "Chapter 5 — Lifecycle messaging: which emails, in what order"
 description: "The messaging program that plugs the leaky bucket — which journeys to build first, why behavioural beats batch, deliverability, the tools you could use, and how to prove any of it works with holdouts."
+workbook: "The messaging program that plugs the leaky bucket — which journeys to build first, and why behavioural beats batch. Here you record what you're sending with today, and watch the four pieces on lifecycle tactics, dunning, deliverability, and incrementality."
 ---
 
 > **In this chapter:** the lifecycle stages mapped to AARRR, the order to build them
@@ -85,6 +86,17 @@ months in, that they've built a newsletter and called it lifecycle.
 />
 
 ---
+
+<CheckIn
+  id="emailVolume"
+  question="How much email does your product send today?"
+  options={[
+    "None yet",
+    "Transactional only (receipts, resets)",
+    "A newsletter, now and then",
+    "Lifecycle emails already running",
+  ]}
+/>
 
 ## 5.3 The order to build them — and why
 
@@ -287,6 +299,45 @@ Two practices become load-bearing the moment you run more than one journey:
   was individually justified; the pile-up is what gets you marked as spam.
 - **Suppression** — stop a sequence the instant its goal is met, and respect an opt-out
   on *every* channel, not just the one they unsubscribed from.
+
+<Flashcards
+  id="cards-lifecycle"
+  title="Key ideas — lifecycle messaging"
+  cards={[
+    {
+      front: "What is lifecycle messaging?",
+      back: "The right message, triggered by the right behaviour, at the right time — the operational layer that moves users between AARRR stages, and the cheapest retention lever because the users are already yours.",
+    },
+    {
+      prompt: "The Reforge retention model:",
+      cloze: "Retention is an {{output}}, not a stage you push on directly — its inputs are {{activation}}, {{engagement}}, and {{resurrection}}, and lifecycle messaging is how you move each one.",
+    },
+    {
+      front: "Why build welcome + onboarding first?",
+      back: "Peak intent — welcome opens commonly run 35–50% — the signup-to-activation gap is the biggest leak, and activated users retain roughly 2× better. Dunning comes next if you charge, then win-back.",
+    },
+    {
+      front: "Why is dunning the highest dollar-ROI journey?",
+      back: "Involuntary churn (failed cards, expirations) is 20–40% of SaaS churn, and these users want to keep paying — you're removing friction, not persuading. Exit the instant a payment succeeds.",
+    },
+    {
+      prompt: "Triggered vs batch, the benchmark:",
+      cloze: "Automated flows are roughly {{5% of sends}} but about {{40% of email revenue}} (directional) — a batch send's relevance is the list's average, while a triggered send's is pinned to a moment of intent.",
+    },
+    {
+      front: "What role may time play in a trigger?",
+      back: "Only as a window on behaviour — 'not done in 24–72h' — never as the reason to send. A trigger column filling with durations is the time-based drip quietly creeping back in.",
+    },
+    {
+      front: "What's the honest signal that you're over-messaging?",
+      back: "Engagement per send drops as you add messages — opens, clicks, or revenue-per-email falling with volume is the program telling you it's reached the useful maximum.",
+    },
+    {
+      front: "What is frequency capping, and why is it load-bearing?",
+      back: "A ceiling on total messages per user across all journeys and channels. It prevents the pile-up where several individually-justified journeys fire in the same bad week — the pattern that gets you marked as spam.",
+    },
+  ]}
+/>
 
 ---
 

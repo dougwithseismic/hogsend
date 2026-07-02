@@ -1,6 +1,7 @@
 ---
 title: "Chapter 8 — The owned-audience flywheel"
 description: "How ad clicks and visitors become verified emails and linked Discord/Telegram accounts — an audience you own, can reach for free, and can build a referral loop on. Plus what it takes to run the community itself, and the tools you'd otherwise rent."
+workbook: "Turning ad clicks and visitors into an audience you own — verified emails, linked Discord/Telegram accounts, a referral loop on top. Here you record where your audience gathers today, and watch the three pieces on owned audiences and running a community."
 ---
 
 > **In this chapter:** why an owned channel beats a rented ad audience, the
@@ -73,6 +74,17 @@ An owned audience of a few thousand engaged, reachable people is a real business
 foundation; a hundred thousand rented impressions is a receipt.
 
 ---
+
+<CheckIn
+  id="audienceSize"
+  question="How big is the audience you own today — email list plus linked accounts?"
+  options={[
+    "Zero — starting from scratch",
+    "Under 500",
+    "500–5,000",
+    "5,000+",
+  ]}
+/>
 
 ## 8.2 The capture mechanic: a perk for linking
 
@@ -329,6 +341,45 @@ edges. The graph is the hub of the flywheel; every channel you link spins it fas
 because it's *yours* — not a rented list inside someone else's platform — it's the
 compounding asset a growth team is actually building over time. Features come and go;
 the identity graph only gets denser.
+
+<Flashcards
+  id="cards-owned-audience"
+  title="Key ideas — the owned-audience flywheel"
+  cards={[
+    {
+      front: "What's the difference between an owned audience and a rented one?",
+      back: "Ad audiences and social followings are rented: you pay, or the algorithm taxes, every reach. A verified email or linked Discord/Telegram is owned — no algorithm tax, near-free reactivation, and portable.",
+    },
+    {
+      front: "How should you treat \"acquiring costs 5–25× more than retaining\"?",
+      back: "As direction, not decimals — the multiples are loosely-sourced folklore. The load-bearing mechanism is real: an ad spend that captures a contact into an owned channel turns a rented impression into a reusable asset.",
+    },
+    {
+      prompt: "The capture mechanic:",
+      cloze: "\"Link your account or verify your email → get {{a perk}}\" — the perk is {{the conversion event}}, and the conversion is {{the identity capture}}.",
+    },
+    {
+      front: "How valuable should the linking perk be?",
+      back: "Worth the link and no more — over-rewarding harvests perk-hunters who churn once the reward lands. The best perks are things a genuine user wanted anyway: community access, product credits, early features.",
+    },
+    {
+      front: "Why is the typed email never trusted in the /link flow?",
+      back: "The delivered-and-clicked email IS the proof of inbox ownership, making the address real and consented. An unverified typed address is worthless as an ad-audience input — possibly unlawful to upload.",
+    },
+    {
+      front: "What is the identity graph?",
+      back: "Every link event writes an edge: email ↔ Discord ↔ Telegram ↔ wallet ↔ anon id ↔ PostHog person. Enough edges give one profile across devices and channels: retroactive stitching, cheaper reactivation, better ads.",
+    },
+    {
+      prompt: "The community playbook — the part the tooling can't do:",
+      cloze: "Start with {{a mission}}, not a server; {{fewer channels}} than feels right (three active beat twenty empty); recurring {{rituals}}; and a {{hand-recruited}} first 100 members, until conversation self-sustains.",
+    },
+    {
+      front: "What do referral programs deliver when done right — and what do they need to work?",
+      back: "Done right, referrals drive 15–50% of new-user growth, yet most programs see under 10% of users ever refer (Lenny Rachitsky's survey). And a program only works if you can attribute it — exactly what the owned identity graph provides.",
+    },
+  ]}
+/>
 
 ---
 

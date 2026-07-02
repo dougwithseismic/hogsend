@@ -18,6 +18,14 @@
         "media": "video"
       },
       {
+        "kind": "flashcards",
+        "id": "cards-plg",
+        "key": "flashcards:cards-plg",
+        "anchor": "wb-cards-plg",
+        "label": "Key ideas — product-led growth",
+        "itemCount": 8
+      },
+      {
         "kind": "profile",
         "id": "role",
         "key": "profile:role",
@@ -63,6 +71,19 @@
     ],
     "01-what-is-posthog": [
       {
+        "kind": "profile",
+        "id": "teamSize",
+        "key": "profile:teamSize",
+        "anchor": "wb-teamSize",
+        "label": "Who's on the team that will act on these numbers?",
+        "options": [
+          "Just me",
+          "Me + a cofounder",
+          "A small team (3–10)",
+          "10+ people"
+        ]
+      },
+      {
         "kind": "media",
         "id": "1FZji2L-LmM",
         "key": "media:1FZji2L-LmM",
@@ -85,6 +106,14 @@
         "anchor": "wb-media-ALR9iuXQVqg",
         "label": "Solve support tickets 10x faster with Session Replay – PostHog Session Replay Demo",
         "media": "video"
+      },
+      {
+        "kind": "flashcards",
+        "id": "cards-posthog",
+        "key": "flashcards:cards-posthog",
+        "anchor": "wb-cards-posthog",
+        "label": "Key ideas — PostHog",
+        "itemCount": 8
       },
       {
         "kind": "profile",
@@ -118,6 +147,14 @@
         "anchor": "wb-media-irjgfW0BIrw",
         "label": "Startup Metrics for Pirates: AARRR! - Dave McClure",
         "media": "video"
+      },
+      {
+        "kind": "flashcards",
+        "id": "cards-aarrr",
+        "key": "flashcards:cards-aarrr",
+        "anchor": "wb-cards-aarrr",
+        "label": "Key ideas — AARRR",
+        "itemCount": 8
       },
       {
         "kind": "profile",
@@ -211,6 +248,14 @@
         "media": "video"
       },
       {
+        "kind": "flashcards",
+        "id": "cards-instrumentation",
+        "key": "flashcards:cards-instrumentation",
+        "anchor": "wb-cards-instrumentation",
+        "label": "Key ideas — instrumentation",
+        "itemCount": 8
+      },
+      {
         "kind": "media",
         "id": "RkCg1cgZzHc",
         "key": "media:RkCg1cgZzHc",
@@ -279,6 +324,14 @@
         "media": "video"
       },
       {
+        "kind": "flashcards",
+        "id": "cards-dashboard",
+        "key": "flashcards:cards-dashboard",
+        "anchor": "wb-cards-dashboard",
+        "label": "Key ideas — your daily dashboard",
+        "itemCount": 8
+      },
+      {
         "kind": "media",
         "id": "EQMPvqpRPuQ",
         "key": "media:EQMPvqpRPuQ",
@@ -304,12 +357,33 @@
         "media": "video"
       },
       {
+        "kind": "profile",
+        "id": "emailVolume",
+        "key": "profile:emailVolume",
+        "anchor": "wb-emailVolume",
+        "label": "How much email does your product send today?",
+        "options": [
+          "None yet",
+          "Transactional only (receipts, resets)",
+          "A newsletter, now and then",
+          "Lifecycle emails already running"
+        ]
+      },
+      {
         "kind": "media",
         "id": "vp4SwMY-QrM",
         "key": "media:vp4SwMY-QrM",
         "anchor": "wb-media-vp4SwMY-QrM",
         "label": "How to Recover 89% of Failed Payments (SaaS Dunning Strategy)",
         "media": "video"
+      },
+      {
+        "kind": "flashcards",
+        "id": "cards-lifecycle",
+        "key": "flashcards:cards-lifecycle",
+        "anchor": "wb-cards-lifecycle",
+        "label": "Key ideas — lifecycle messaging",
+        "itemCount": 8
       },
       {
         "kind": "media",
@@ -352,6 +426,19 @@
     ],
     "06-building-lifecycle-with-hogsend": [
       {
+        "kind": "profile",
+        "id": "engineeringBandwidth",
+        "key": "profile:engineeringBandwidth",
+        "anchor": "wb-engineeringBandwidth",
+        "label": "Who would write these journeys on your team?",
+        "options": [
+          "Me — I write the code",
+          "A teammate would",
+          "We'd need to borrow or hire help",
+          "No one technical yet"
+        ]
+      },
+      {
         "kind": "media",
         "id": "xlA5XD8CSdo",
         "key": "media:xlA5XD8CSdo",
@@ -374,6 +461,14 @@
         "anchor": "wb-media-d4UZg3l8JvQ",
         "label": "react.email now tests your emails",
         "media": "video"
+      },
+      {
+        "kind": "flashcards",
+        "id": "cards-hogsend",
+        "key": "flashcards:cards-hogsend",
+        "anchor": "wb-cards-hogsend",
+        "label": "Key ideas — journeys as code",
+        "itemCount": 8
       },
       {
         "kind": "quiz",
@@ -441,6 +536,14 @@
         "media": "video"
       },
       {
+        "kind": "flashcards",
+        "id": "cards-traffic",
+        "key": "flashcards:cards-traffic",
+        "anchor": "wb-cards-traffic",
+        "label": "Key ideas — driving traffic",
+        "itemCount": 8
+      },
+      {
         "kind": "quiz",
         "key": "quiz:growth-with-posthog/07-driving-traffic",
         "anchor": "wb-quiz",
@@ -456,6 +559,19 @@
         "anchor": "wb-media-7zZ8LIOWFd8",
         "label": "Why 90% of B2B Brands Are Wasting Money on Rented Audiences (And What Works Instead)",
         "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "audienceSize",
+        "key": "profile:audienceSize",
+        "anchor": "wb-audienceSize",
+        "label": "How big is the audience you own today — email list plus linked accounts?",
+        "options": [
+          "Zero — starting from scratch",
+          "Under 500",
+          "500–5,000",
+          "5,000+"
+        ]
       },
       {
         "kind": "media",
@@ -490,6 +606,14 @@
         "multi": true
       },
       {
+        "kind": "flashcards",
+        "id": "cards-owned-audience",
+        "key": "flashcards:cards-owned-audience",
+        "anchor": "wb-cards-owned-audience",
+        "label": "Key ideas — the owned-audience flywheel",
+        "itemCount": 8
+      },
+      {
         "kind": "quiz",
         "key": "quiz:growth-with-posthog/08-owned-audience-identity-flywheel",
         "anchor": "wb-quiz",
@@ -520,6 +644,14 @@
         "anchor": "wb-media-6nkAn0xDNG4",
         "label": "How to Build a Culture of Experimentation on Your Growth Team",
         "media": "video"
+      },
+      {
+        "kind": "flashcards",
+        "id": "cards-operating-system",
+        "key": "flashcards:cards-operating-system",
+        "anchor": "wb-cards-operating-system",
+        "label": "Key ideas — the operating system",
+        "itemCount": 8
       },
       {
         "kind": "media",
@@ -556,6 +688,19 @@
         "media": "video"
       },
       {
+        "kind": "profile",
+        "id": "hoursPerWeek",
+        "key": "profile:hoursPerWeek",
+        "anchor": "wb-hoursPerWeek",
+        "label": "How much time can you honestly give this plan each week?",
+        "options": [
+          "A couple of hours",
+          "Half a day",
+          "A full day",
+          "It's my main job"
+        ]
+      },
+      {
         "kind": "checklist",
         "id": "plan-day0",
         "key": "checklist:plan-day0",
@@ -586,6 +731,14 @@
         "label": "Your activation sentence — if you drafted it in Chapter 2, it's pre-filled here. Make it final.",
         "placeholder": "A user is activated when they… (one sentence, one observable event)",
         "rows": 2
+      },
+      {
+        "kind": "flashcards",
+        "id": "cards-plan",
+        "key": "flashcards:cards-plan",
+        "anchor": "wb-cards-plan",
+        "label": "Key ideas — the 30/60/90/180 plan",
+        "itemCount": 8
       },
       {
         "kind": "checklist",
