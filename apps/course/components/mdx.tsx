@@ -4,6 +4,7 @@ import { CheckIn } from "@/components/course/check-in";
 import { Checklist } from "@/components/course/checklist";
 import { Quiz } from "@/components/course/quiz";
 import { VideoEmbed } from "@/components/course/video-embed";
+import { WorkbookPrompt } from "@/components/course/workbook-prompt";
 
 /** MDX component map for lesson rendering: Fumadocs defaults plus the
  *  interactive course blocks (quiz, profiling check-in, plan checklist,
@@ -15,6 +16,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Checklist,
     Quiz,
     VideoEmbed,
+    WorkbookPrompt,
     ...components,
   } satisfies MDXComponents;
 }

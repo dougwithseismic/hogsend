@@ -16,7 +16,7 @@ export async function getResponse<T>(key: string): Promise<T | null> {
 }
 
 export async function saveResponse(
-  kind: "profile" | "quiz" | "checklist",
+  kind: "profile" | "quiz" | "checklist" | "note",
   id: string,
   value: unknown,
   lesson: LessonRef | null,

@@ -1,13 +1,15 @@
 ---
 title: "Chapter 7 — Driving traffic"
-description: "Now that the bucket holds water, open the tap: how to run Meta ads, the other channels worth more for some startups, track conversions accurately despite ad blockers and iOS, and feed your own data back to make the ads smarter."
+description: "Now that the bucket holds water, open the tap: pick the channel that actually fits your product, know your CAC and payback maths, run Meta ads properly if paid is your channel, and track conversions accurately despite ad blockers and iOS."
 ---
 
-> **In this chapter:** the structure of a Meta campaign, the three audience types, why
-> Pixel-and-Conversions-API (not Pixel alone), what server-side tracking does and
-> doesn't fix, the other channels (and when paid social is the wrong one), and how
-> PostHog/Hogsend feed conversions and audiences back to the ad platform. Accuracy
-> matters here — the privacy landscape is full of half-truths.
+> **In this chapter:** how to choose an acquisition channel deliberately (and why paid
+> social is the wrong first channel for many readers of this course), the CAC/LTV maths
+> that decides whether a channel is working, the structure of a Meta campaign, the three
+> audience types, why Pixel-and-Conversions-API (not Pixel alone), what server-side
+> tracking does and doesn't fix, and how PostHog/Hogsend feed conversions and audiences
+> back to the ad platform. Accuracy matters here — the privacy landscape is full of
+> half-truths.
 
 A reminder on order: this chapter is deliberately seventh. If your retention curve
 (Chapter 4) still decays to zero, come back later — paid acquisition into a leaky bucket
@@ -16,10 +18,171 @@ by first proving the bucket holds.
 
 ---
 
-## 7.1 The shape of a Meta campaign
+## 7.1 Where are you starting from?
 
-Meta (Facebook/Instagram) ads have a fixed three-tier structure. Learn it first because
-everything else hangs off it:
+Before the tactics, be honest about your current mix — because the rest of this chapter
+reads differently depending on the answer. A team that's all-organic needs to know
+whether paid is worth *starting*; a team that's mostly-paid needs the measurement and
+owned-audience work urgently, because every tracking gap and every rented audience is
+already costing them money.
+
+<CheckIn
+  id="acquisitionMix"
+  question="What's your acquisition mix today?"
+  options={["All organic", "Mostly organic", "About 50–50", "Mostly paid", "All paid"]}
+/>
+
+Two facts frame everything that follows:
+
+- **Channels decay.** Andrew Chen's
+  [law of shitty clickthroughs](https://andrewchen.com/the-law-of-shitty-clickthroughs/)
+  is the empirical observation that every marketing channel's performance degrades as
+  it saturates — banner ads went from 78% CTR in 1994 to ~0.05%, and every channel
+  since has followed the same curve. Whatever works for you now will work less well
+  per dollar next year. The counter isn't channel-hopping; it's capturing what a
+  channel brings you into something you own (Chapter 8) while the channel still works.
+- **Early traction rarely comes from paid at all.** Paul Graham's
+  [Do Things that Don't Scale](https://paulgraham.com/ds.html) is the canonical
+  argument: almost all startups get their first users manually — recruiting one at a
+  time, launching in communities, doing unscalable favours — and the founders who wait
+  for ads to do it stall. If you're pre-revenue, this chapter's job is mostly to stop
+  you spending money you shouldn't spend yet.
+
+---
+
+## 7.2 The channel menu — and how to choose
+
+Meta is this chapter's worked example because it's the most common paid channel and its
+tracking story teaches the privacy lessons every channel shares. But a growth team picks
+the channel that fits its product, and for many readers of this course Meta is *not*
+the first choice:
+
+- **Google Ads (Search).** Intent-based — you reach people *already searching* for the
+  solution. For products with clear search demand (someone Googling "invoice software"),
+  this often converts far better than interrupting a feed. Has its own server-side
+  conversion path (Enhanced Conversions, the Google Ads API).
+- **TikTok / Reddit / X ads.** TikTok for consumer and younger demographics; Reddit for
+  niche/technical communities (it can work surprisingly well for dev tools in the right
+  subreddits); X for tech/founder audiences. Each has its own pixel + a server-side
+  events API with the same dedup logic as §7.7.
+- **LinkedIn Ads.** Expensive per click, but the only platform with reliable job-title/
+  company targeting — the B2B choice when your buyer is defined by role.
+- **The non-paid channels that often beat paid for this audience:**
+  - **Content / SEO** — compounding, owned, and the canonical growth engine for dev
+    tools and B2B (it's *why* Supabase, PostHog itself, and others grew). Slow to
+    start, nearly free to sustain. Rob Walling's rule of thumb for bootstrapped SaaS
+    is that content is a 6–12-month investment before it pays — budget the patience,
+    not just the writing.
+  - **Launches** — [Show HN](https://news.ycombinator.com/showhn.html) (read the actual
+    rules: no marketing-speak, the thing must be tryable), Product Hunt, and the
+    subreddit/newsletter/Discord ecosystem of your niche. Launches are spikes, not
+    engines — their real value is seeding the loop: every launch visitor you capture
+    into an owned channel (Chapter 8) keeps paying after the spike dies.
+  - **Community** — Discord/Reddit/Slack communities, the subject of Chapter 8. For
+    community-led and web3 products this *is* the acquisition channel.
+  - **Partnerships / integrations / marketplaces** — listing in the ecosystem your
+    users already live in (a Shopify app, a Vercel integration, a Raycast extension).
+    You inherit the platform's traffic and its trust.
+
+<VideoEmbed
+  id="Sxn1ji7vYzU"
+  title="If I Started SaaS in 2026, Here's My B2B Content Strategy for $1M ARR"
+  channel="Rob Walling"
+  duration="28:34"
+  note="A credible bootstrapper's content/SEO channel strategy — the realistic timelines and effort levels, not the 'content is free' myth."
+/>
+
+### A note for dev-tool, community, and web3 founders
+
+For **developer tools and B2B, paid social is weak** — content, community, and product-
+led growth usually out-perform it. Developers install ad blockers at the highest rate
+of any audience, distrust interruption marketing, and discover tools through
+[GitHub, Hacker News, docs, and each other](https://www.heavybit.com/library/article/developer-marketing-guide/)
+rather than feeds. Heavybit's
+[developer-first go-to-market material](https://www.heavybit.com/devguild/developer-first-go-to-market)
+and First Round's
+[Retool case study](https://review.firstround.com/retools-path-to-product-market-fit-lessons-for-getting-to-100-happy-customers-faster/)
+both land on the same shape: bottom-up, user-to-user distribution, seeded by content
+and community, with paid as (at most) an amplifier.
+
+<VideoEmbed
+  id="MWwH-12N5TA"
+  title="The Ultimate Guide to Developer Marketing | Lee Robinson (Vercel)"
+  channel="Peter Yang"
+  duration="45:09"
+  note="Vercel's former VP of DevRel on what actually moves developers: docs, templates, examples, community — and why paid ads mostly don't."
+/>
+
+And **web3/crypto ads face policy restrictions** on Meta and Google. For both segments,
+treat paid as *fuel for the loop*, not the loop itself — which makes the owned channels
+in Chapter 8 disproportionately important, and means the accuracy work in the rest of
+this chapter applies mostly to whatever *small* paid spend you do run. **If you're a
+dev tool, don't read this chapter as "now go buy Meta ads." Read it as "here's how paid
+works and how to measure it honestly when you do use it" — then put your energy into
+Chapter 8.**
+
+<CheckIn
+  id="whatsWorking"
+  question="Which channels are actually working for you today?"
+  options={["Content or SEO", "Paid ads", "Community", "Launches (Product Hunt, HN)", "Referrals or word of mouth", "Outbound", "Nothing reliably yet"]}
+  multi
+  freeText
+  notePlaceholder="And what's NOT working?"
+/>
+
+---
+
+## 7.3 The maths that decides: CAC, LTV, payback
+
+Whatever the channel, the same three numbers decide whether it's working. The
+definitions matter — a16z's
+[16 Startup Metrics](https://a16z.com/16-startup-metrics/) exists because founders
+routinely get them wrong in ways that flatter the business:
+
+- **CAC (customer acquisition cost)** — *fully loaded* spend to acquire one paying
+  customer: ad spend plus the content, tools, and people behind it, divided by
+  customers acquired. The classic self-deception is reporting CAC on ad spend alone,
+  or on signups instead of customers.
+- **LTV (lifetime value)** — the **gross-margin** contribution of a customer over their
+  lifetime, where lifetime comes from your churn rate (roughly, monthly margin ÷
+  monthly churn). Computing LTV on revenue instead of margin is the second classic
+  self-deception — a16z calls both out by name.
+- **Payback period** — months of gross margin to recover CAC. For a cash-constrained
+  startup this is often the number that matters most: an LTV:CAC of 5 is cold comfort
+  if payback takes three years and the bank account empties in one.
+
+The folk benchmark you'll hear is **LTV:CAC ≥ 3 and payback under ~12 months** for
+SaaS — treat it as a sanity range, not a law; the honest version is "know your numbers
+and their trend." Two operational rules follow:
+
+- **Compute CAC per channel, not blended.** A blended CAC averages your free organic
+  users into the paid number and hides a channel that's quietly unprofitable. Blended
+  CAC is a board metric; per-channel CAC is an operating metric. (Chapter 9's monthly
+  ritual reviews blended CAC precisely to see whether owned/referral growth is pulling
+  it down over time.)
+- **Segment LTV by cohort and source.** Users from different channels retain
+  differently — paid-social users commonly churn faster than organic (they had less
+  intent). If paid cohorts' LTV is half your organic LTV, your real paid LTV:CAC may
+  be under water while the blended number looks fine.
+
+<VideoEmbed
+  id="zo3QHrXiprs"
+  title="11 essential SaaS metrics explained in 11 minutes"
+  channel="ChartMogul"
+  duration="11:04"
+  note="A fast, straight primer on CAC, LTV, churn, and the rest of the vocabulary this section leans on."
+/>
+
+Where do the numbers come from? The machine you already built: revenue events are
+server-side in PostHog (Chapter 3), source/UTM landed as person properties (§7.8), so
+"LTV by acquisition source" is a PostHog insight, not a spreadsheet safari.
+
+---
+
+## 7.4 The shape of a Meta campaign
+
+From here to §7.9, the paid-social worked example. Meta (Facebook/Instagram) ads have a
+fixed three-tier structure. Learn it first because everything else hangs off it:
 
 - **Campaign** — sets the **objective** and budget strategy. One objective per campaign.
 - **Ad Set** — the levers: **audience, placements, the optimisation event, budget,
@@ -43,13 +206,22 @@ objectives into six (ODAX):
 *enough of*. The algorithm needs roughly **50 conversions per ad set per week** to exit
 its "learning phase" and deliver efficiently. If you can't generate 50 purchases a week
 yet, optimise a higher-funnel event (lead or signup) and pass the deeper conversion
-back server-side (§7.4) so Meta still learns from it. This is the most common early
+back server-side (§7.7) so Meta still learns from it. This is the most common early
 mistake: optimising for `purchase` when you get five a week starves the algorithm of
 signal, and it never learns who to find.
 
+Two practical corollaries of the learning phase:
+
+- **Don't fiddle.** Every significant edit (budget, audience, creative) can reset
+  learning. The beginner pattern — check daily, panic, edit — keeps the ad set
+  permanently in learning and permanently expensive. Change things weekly, on the
+  cadence from Chapter 9, not daily on nerves.
+- **Consolidate.** Five ad sets splitting 10 conversions a week will all starve; one
+  ad set receiving all 50 can learn. Fewer, bigger ad sets is the modern default.
+
 ---
 
-## 7.2 The three audiences
+## 7.5 The three audiences
 
 Every ad set targets one of three kinds of audience:
 
@@ -58,7 +230,7 @@ Every ad set targets one of three kinds of audience:
   is clear: **broad targeting + strong creative + a good conversion signal now beats
   hand-built interest stacks**, because the algorithm does the targeting. Interest
   targeting is more of a hint than a filter now — which shifts the work from audience-
-  picking to *creative* and *signal quality* (§7.4).
+  picking to *creative* and *signal quality* (§7.7).
 - **Custom Audiences ("warm", first-party).** Built from *your* data: a customer-list
   upload, site/app visitors, or events sent via the Conversions API. These are the
   highest-signal inputs you can give Meta — and they only exist because you captured
@@ -84,48 +256,15 @@ A standard structure layers these:
 > over-investing in retargeting too early — a tiny warm pool can't scale spend. You
 > earn a bigger warm pool by capturing more first-party identity, which is Chapter 8.
 
----
-
-## 7.3 The other channels — and when Meta is the wrong one
-
-Meta is the worked example because it's the most common and its tracking story teaches
-the privacy lessons every channel shares. But a growth team picks the channel that fits
-its product, and for many readers of this course Meta is *not* the first choice:
-
-- **Google Ads (Search).** Intent-based — you reach people *already searching* for the
-  solution. For products with clear search demand (someone Googling "invoice software"),
-  this often converts far better than interrupting a feed. Has its own server-side
-  conversion path (Enhanced Conversions, the Google Ads API).
-- **TikTok / Reddit / X ads.** TikTok for consumer and younger demographics; Reddit for
-  niche/technical communities (it can work surprisingly well for dev tools in the right
-  subreddits); X for tech/founder audiences. Each has its own pixel + a server-side
-  events API with the same dedup logic as §7.4.
-- **LinkedIn Ads.** Expensive per click, but the only platform with reliable job-title/
-  company targeting — the B2B choice when your buyer is defined by role.
-- **The non-paid channels that often beat paid for this audience:**
-  - **Content / SEO** — compounding, owned, and the canonical growth engine for dev
-    tools and B2B (it's *why* Supabase, PostHog itself, and others grew). Slow to start,
-    nearly free to sustain.
-  - **Community** — Discord/Reddit/Slack communities, the subject of Chapter 8. For
-    community-led and web3 products this *is* the acquisition channel.
-  - **Partnerships / integrations / marketplaces** — listing in the ecosystem your users
-    already live in (a Shopify app, a Vercel integration, a Raycast extension).
-
-### A note for dev-tool, community, and web3 founders
-
-For **developer tools and B2B, paid social is weak** — content, community, and product-
-led growth usually out-perform it (Supabase is the canonical example, and it grew with
-almost no paid spend). And **web3/crypto ads face policy restrictions** on Meta and
-Google. For both segments, treat paid as *fuel for the loop*, not the loop itself — which
-makes the owned channels in Chapter 8 disproportionately important, and means the
-accuracy work in the rest of this chapter applies mostly to whatever *small* paid spend
-you do run. **If you're a dev tool, don't read this chapter as "now go buy Meta ads."
-Read it as "here's how paid works and how to measure it honestly when you do use it" —
-then put your energy into Chapter 8.**
+And a word on the part this course can't do for you: **creative is now the targeting.**
+With broad audiences, the ad itself selects the audience — a video about "deploy
+previews for your Next.js app" finds developers because only developers watch it. The
+practical implication: produce more creative variants than feels natural (winners
+fatigue in weeks), and make the first three seconds carry the qualification.
 
 ---
 
-## 7.4 The problem: your conversion tracking is lying to you
+## 7.6 The problem: your conversion tracking is lying to you
 
 Here's the part that trips up everyone who just installs the Meta Pixel and trusts the
 numbers.
@@ -148,9 +287,14 @@ quietly missing a third of reality. This is the same lesson as Chapter 3's ad-bl
 section, now with money attached: browser-only measurement under-counts, and the fix is
 to move the important events server-side.
 
+The knock-on effect is worse than bad reporting: **the algorithm optimises on what it
+sees.** If the Pixel disproportionately loses conversions from privacy-conscious,
+ad-blocking users (it does), Meta learns to find *fewer people like them* — a silent
+bias in delivery, not just a counting error. Signal quality is targeting quality.
+
 ---
 
-## 7.5 The fix: Pixel *and* Conversions API
+## 7.7 The fix: Pixel *and* Conversions API
 
 The **Conversions API (CAPI)** sends events **server-side** — from your server (or a
 tool/CDP) directly to Meta's endpoint, skipping the browser entirely. Because it never
@@ -173,7 +317,7 @@ them. Redundancy plus better matching.
 ### What server-side does **not** fix (be precise — this is where bad courses lie)
 
 - **It is not a consent loophole.** You still need a lawful basis to collect, hash, and
-  share user data (§7.7). A SHA-256-hashed email is **pseudonymous, not anonymous** —
+  share user data (§7.9). A SHA-256-hashed email is **pseudonymous, not anonymous** —
   same input, same hash, re-identifiable.
 - **It does not restore iOS *app-install* attribution.** That's governed by Apple's
   SKAdNetwork plus Meta's Aggregated Event Measurement — aggregated, delayed, modelled,
@@ -183,8 +327,9 @@ them. Redundancy plus better matching.
 - **It doesn't dedupe by magic** — see below.
 
 > ⚠️ **Don't teach the old AEM "8 prioritised events" limit.** Meta removed the
-> 8-event cap and manual configuration around **June 2025** and now auto-aggregates
-> eligible events. Older blogs and courses still teach the cap — it's outdated.
+> 8-event cap and manual configuration around **June 2025** and now
+> [auto-aggregates eligible events](https://www.conversios.io/blog/meta-aggregated-event-measurement/).
+> Older blogs and courses still teach the cap — it's outdated.
 
 ### Deduplication (the thing people get wrong)
 
@@ -212,7 +357,7 @@ where PostHog and Hogsend come in.
 
 ---
 
-## 7.6 Feeding it from PostHog (and Hogsend)
+## 7.8 Feeding it from PostHog (and Hogsend)
 
 You don't have to hand-build a CAPI integration. PostHog's **Data Pipelines** include a
 **Meta Ads conversions destination**:
@@ -258,15 +403,17 @@ dedupe on `event_id`, send only consented conversion events.**
 
 ---
 
-## 7.7 Consent — the part you can't skip
+## 7.9 Consent — the part you can't skip
 
 Server-side does not mean consent-free, and the rules tightened recently:
 
 - As of **January 2025**, Meta requires **explicit user consent** before you upload
   contact info for custom audiences or send PII via CAPI.
-- When you upload a list, **you are the data controller** and need a lawful basis
-  (usually consent). A German regulator has ruled list uploads without consent unlawful,
-  and — again — **hashing does not make data anonymous** in law.
+- When you upload a list, **you are the data controller** —
+  [Meta's custom-audience terms](https://www.facebook.com/legal/terms/customaudience)
+  say so explicitly — and need a lawful basis (usually consent). A German regulator has
+  ruled list uploads without consent unlawful, and — again — **hashing does not make
+  data anonymous** in law.
 - Use Meta's consent signals / data-processing options, and **don't send events for
   non-consenting users** in consent regimes.
 - **Minimise data:** send only what you need (hashed email/phone/external_id). As of
@@ -280,28 +427,102 @@ Meta good, legal data if you collected it well in the first place. That's Chapte
 
 ---
 
-## 7.8 Do this now
+## 7.10 Do this now
 
-1. Decide whether paid social is even your channel (§7.3). If you're a dev tool or
+1. Decide whether paid social is even your channel (§7.2). If you're a dev tool or
    community product, weight toward Chapter 8 and run only small paid tests.
-2. If you're running Meta: install the **Meta Pixel** on your site (browser side).
-3. Add the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
+2. Write down your **per-channel CAC and payback** for whatever you're doing today
+   (§7.3), even if the numbers are rough. You can't judge a new channel without a
+   baseline.
+3. If you're running Meta: install the **Meta Pixel** on your site (browser side).
+4. Add the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
    conversion events.
-4. Make sure your conversions carry **email + `fbc` + `external_id`** so EMQ ≥ 6.
-5. Start **one campaign**: a Sales/Leads objective, broad audience, strong creative,
+5. Make sure your conversions carry **email + `fbc` + `external_id`** so EMQ ≥ 6.
+6. Start **one campaign**: a Sales/Leads objective, broad audience, strong creative,
    optimising on the deepest event you can feed 50/week.
-6. Capture **opt-in consent** at the point you collect email.
+7. Capture **opt-in consent** at the point you collect email.
 
 You can now drive traffic *and* measure it honestly. The last piece is the one that
 compounds: turning that traffic into an audience you never have to pay to reach again.
 
 ---
 
-*Sources for this chapter: [Meta — Conversions API](https://developers.facebook.com/docs/marketing-api/conversions-api/),
-[PostHog — Meta Ads destination](https://posthog.com/docs/cdp/destinations/meta-ads),
-[PostHog — performance marketing](https://posthog.com/tutorials/performance-marketing),
-[Pixel vs CAPI](https://www.customerlabs.com/blog/difference-between-meta-pixel-vs-conversions-api/),
-[Event Match Quality](https://easyinsights.ai/blog/how-to-increase-facebook-meta-event-match-quality/),
-[AEM changes](https://www.conversios.io/blog/meta-aggregated-event-measurement/),
-[Meta custom audience terms](https://www.facebook.com/legal/terms/customaudience),
-[Meta consent for GDPR](https://www.adamigo.ai/blog/meta-consent-mode-for-gdpr-compliance).*
+<Quiz
+  questions={[
+    {
+      q: "You're a dev tool with $2k/month to spend on growth. Based on this chapter, the best default allocation is:",
+      options: [
+        "All of it on Meta ads with broad targeting",
+        "Mostly content, docs, and community — with paid (if any) as a small, honestly-measured test",
+        "All of it on LinkedIn, since developers are professionals",
+        "Split evenly across every channel to A/B test them",
+      ],
+      answer: 1,
+      explain:
+        "Developers block ads, distrust interruption, and discover tools through content, GitHub, HN, and each other. Paid social is weak for dev tools — the chapter's advice is to learn how paid works but put the energy into owned channels (Chapter 8).",
+    },
+    {
+      q: "Your blended CAC looks healthy, but you spend heavily on paid. What's the trap?",
+      options: [
+        "Blended CAC double-counts organic users",
+        "Blended averages free organic acquisition into the paid number — a per-channel CAC could reveal paid is unprofitable on its own",
+        "CAC should never include ad spend",
+        "There is no trap; blended CAC is the standard",
+      ],
+      answer: 1,
+      explain:
+        "Blended CAC is a board metric; per-channel CAC is the operating metric. Paid-social cohorts also tend to retain worse than organic, so segment LTV by source too before declaring a channel profitable.",
+    },
+    {
+      q: "You get ~10 purchases a week but optimised your Meta ad set for Purchase anyway. What happens?",
+      options: [
+        "Meta refunds under-delivered budget",
+        "The ad set stays starved in the learning phase and never finds the right people — optimise a higher-funnel event and send the purchase back via CAPI instead",
+        "Nothing — the algorithm works the same at any volume",
+        "Meta automatically switches your objective to Traffic",
+      ],
+      answer: 1,
+      explain:
+        "The delivery algorithm needs roughly 50 conversions per ad set per week to learn. Below that, optimise for an event you CAN feed at volume (signup, lead) and pass the deeper conversion server-side so the system still learns from it.",
+    },
+    {
+      q: "You've set up CAPI alongside the Pixel and conversions doubled overnight. Most likely explanation?",
+      options: [
+        "CAPI recovered conversions ad blockers were hiding",
+        "The campaign hit its learning-phase exit",
+        "You're double-counting: Pixel and CAPI events need the same event_id so Meta can deduplicate",
+        "EMQ improved, so Meta found more buyers",
+      ],
+      answer: 2,
+      explain:
+        "Recovered conversions from blockers/ITP are real but incremental (think a fifth, not a doubling). A sudden 2× is the classic missing-event_id dedup failure — and it corrupts the ROAS you built the setup to measure.",
+    },
+    {
+      q: "Which of these does server-side tracking genuinely fix?",
+      options: [
+        "The need for user consent when sharing PII with ad platforms",
+        "Per-user iOS app-install attribution",
+        "Sending high-value back-office conversions (trial→paid, qualified-lead) that the browser never sees",
+        "Low-quality events that carry no email, phone, or external_id",
+      ],
+      answer: 2,
+      explain:
+        "Back-office conversions are CAPI's biggest genuine win — your most valuable events, invisible to any pixel. It is NOT a consent loophole (hashed email is pseudonymous, not anonymous), doesn't restore iOS install attribution (SKAdNetwork territory), and can't match events that carry no identifiers.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [a16z — 16 Startup Metrics](https://a16z.com/16-startup-metrics/) — the canonical CAC/LTV definitions, including the exact ways founders fool themselves.
+- [Andrew Chen — The Law of Shitty Clickthroughs](https://andrewchen.com/the-law-of-shitty-clickthroughs/) — why every channel decays, and what that implies for owning your audience.
+- [Paul Graham — Do Things that Don't Scale](https://paulgraham.com/ds.html) — the case that early traction is manual, not paid.
+- [Heavybit — Developer Marketing Guide](https://www.heavybit.com/library/article/developer-marketing-guide/) — where developers actually discover tools, from the fund that specialises in them.
+- [Heavybit — Developer-First Go-to-Market](https://www.heavybit.com/devguild/developer-first-go-to-market) — bottom-up distribution mechanics for dev tools.
+- [First Round — Retool's Path to Product-Market Fit](https://review.firstround.com/retools-path-to-product-market-fit-lessons-for-getting-to-100-happy-customers-faster/) — a real dev-tool's first-100-customers playbook, no paid ads in sight.
+- [First Round Review — Go-to-Market hub](https://review.firstround.com/articles/go-to-market/) — a library of channel and positioning essays worth raiding.
+- [Show HN — the official rules](https://news.ycombinator.com/showhn.html) — read before launching; the norms are the strategy.
+- [Meta — Conversions API docs](https://developers.facebook.com/docs/marketing-api/conversions-api/) — the primary source for §7.7.
+- [PostHog — Meta Ads destination](https://posthog.com/docs/cdp/destinations/meta-ads) — the managed CAPI path this course recommends.

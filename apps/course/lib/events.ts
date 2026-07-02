@@ -155,6 +155,38 @@ export async function emitProfileAnswered(
   );
 }
 
+/**
+ * A workbook note saved from a lesson `<WorkbookPrompt>` (activation sentence,
+ * tracking-plan draft, hypotheses, …). The full text lives in the course DB;
+ * only a capped preview rides on the event stream.
+ */
+export async function emitNoteSaved(
+  user: AuthUser,
+  input: {
+    field: string;
+    preview: string;
+    course?: string;
+    lesson?: string;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.note_saved",
+      email: user.email,
+      contactProperties: { courseUserId: user.id },
+      eventProperties: {
+        source: SOURCE,
+        field: input.field,
+        preview: input.preview,
+        ...(input.course ? { course: input.course } : {}),
+        ...(input.lesson ? { lesson: input.lesson } : {}),
+      },
+    },
+    `course-note-${user.id}-${input.field}-${Date.now()}`,
+  );
+}
+
 /** An end-of-lesson quiz submission (score out of total, both integers). */
 export async function emitQuizCompleted(
   user: AuthUser,

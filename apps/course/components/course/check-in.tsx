@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useLesson } from "@/components/course/lesson-context";
 import { getResponse, saveResponse } from "@/components/course/responses";
+import { useMounted } from "@/components/course/use-mounted";
 import { useSession } from "@/lib/auth-client";
 
 /**
@@ -29,6 +30,7 @@ export function CheckIn({
   freeText?: boolean;
   notePlaceholder?: string;
 }) {
+  const mounted = useMounted();
   const { data: session, isPending } = useSession();
   const lesson = useLesson();
   const [choices, setChoices] = useState<string[]>([]);
@@ -65,7 +67,7 @@ export function CheckIn({
     const ok = await saveResponse(
       "profile",
       id,
-      { choices, ...(note.trim() ? { note: note.trim() } : {}) },
+      { choices, ...(note.trim() ? { note: note.trim() } : {}), question },
       lesson,
     );
     setStatus(ok ? "saved" : "error");
@@ -121,7 +123,7 @@ export function CheckIn({
       ) : null}
 
       <div className="mt-4 flex items-center gap-3">
-        {isPending ? null : session ? (
+        {!mounted || isPending ? null : session ? (
           <>
             <button
               type="button"

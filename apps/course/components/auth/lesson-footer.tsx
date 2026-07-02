@@ -1,11 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useMounted } from "@/components/course/use-mounted";
 import { useSession } from "@/lib/auth-client";
 
 /** "Mark lesson complete" — shown only to signed-in readers (client session
  *  read, so free/static lessons stay static). POSTs to /api/progress, which
- *  records progress and fires course.lesson_completed / course.completed. */
+ *  records progress and fires course.lesson_completed / course.completed.
+ *  Renders nothing until mounted: the session store can resolve before React
+ *  hydrates, and branching on it during hydration mismatches the SSR HTML. */
 export function LessonFooter({
   course,
   lesson,
@@ -13,12 +16,13 @@ export function LessonFooter({
   course: string;
   lesson: string;
 }) {
+  const mounted = useMounted();
   const { data: session, isPending } = useSession();
   const [state, setState] = useState<"idle" | "saving" | "done" | "error">(
     "idle",
   );
 
-  if (isPending || !session) return null;
+  if (!mounted || isPending || !session) return null;
 
   async function mark() {
     setState("saving");
@@ -51,6 +55,12 @@ export function LessonFooter({
       {state === "error" ? (
         <span className="text-accent text-sm">Couldn't save — try again.</span>
       ) : null}
+      <a
+        href="/workbook"
+        className="ml-auto text-sm text-white/50 underline transition-colors hover:text-white"
+      >
+        Your workbook →
+      </a>
     </div>
   );
 }

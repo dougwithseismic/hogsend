@@ -5,7 +5,11 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { response } from "@/lib/db/schema";
-import { emitProfileAnswered, emitQuizCompleted } from "@/lib/events";
+import {
+  emitNoteSaved,
+  emitProfileAnswered,
+  emitQuizCompleted,
+} from "@/lib/events";
 import { PROFILE_FIELDS, PROFILE_LIMITS } from "@/lib/profile";
 import { source } from "@/lib/source";
 
@@ -53,6 +57,16 @@ function parseBody(body: unknown): Saved | { error: string } {
       : null;
   if (!value) return { error: "bad_request" };
 
+  // Optional display context (the question/prompt/title as authored in the
+  // lesson) rides along in `value` so the workbook page can show each answer
+  // with the words it was asked in, without re-parsing MDX.
+  const context = (field: string, max: number) => {
+    const v = value[field];
+    return typeof v === "string" && v.trim()
+      ? { [field]: v.trim().slice(0, max) }
+      : {};
+  };
+
   if (kind === "profile") {
     if (!PROFILE_FIELDS[id]) return { error: "unknown_field" };
     const choices =
@@ -71,7 +85,23 @@ function parseBody(body: unknown): Saved | { error: string } {
     return {
       key: `profile:${id}`,
       kind,
-      value: { choices, ...(note ? { note } : {}) },
+      value: {
+        choices,
+        ...(note ? { note } : {}),
+        ...context("question", 300),
+      },
+    };
+  }
+
+  if (kind === "note") {
+    if (!ID_PATTERN.test(id)) return { error: "bad_request" };
+    const text =
+      typeof value.text === "string" ? value.text.trim().slice(0, 2000) : "";
+    if (!text) return { error: "bad_request" };
+    return {
+      key: `note:${id}`,
+      kind,
+      value: { text, ...context("prompt", 300) },
     };
   }
 
@@ -97,7 +127,11 @@ function parseBody(body: unknown): Saved | { error: string } {
     if (!ID_PATTERN.test(id)) return { error: "bad_request" };
     const checked = cleanStrings(value.checked ?? [], 40, 160);
     if (!checked) return { error: "bad_request" };
-    return { key: `checklist:${id}`, kind, value: { checked } };
+    return {
+      key: `checklist:${id}`,
+      kind,
+      value: { checked, ...context("title", 160) },
+    };
   }
 
   return { error: "bad_request" };
@@ -169,6 +203,14 @@ export async function POST(req: Request) {
   } else if (parsed.kind === "quiz") {
     const v = parsed.value as { score: number; total: number };
     await emitQuizCompleted(user, course, lesson, v.score, v.total);
+  } else if (parsed.kind === "note") {
+    const v = parsed.value as { text: string };
+    await emitNoteSaved(user, {
+      field: (raw?.id as string) ?? "",
+      preview: v.text.slice(0, 300),
+      course: page ? course : undefined,
+      lesson: page ? lesson : undefined,
+    });
   }
 
   return NextResponse.json({ ok: true });

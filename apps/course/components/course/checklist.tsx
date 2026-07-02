@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useLesson } from "@/components/course/lesson-context";
 import { getResponse, saveResponse } from "@/components/course/responses";
+import { useMounted } from "@/components/course/use-mounted";
 import { useSession } from "@/lib/auth-client";
 
 /**
@@ -19,10 +20,10 @@ export function Checklist({
   title?: string;
   items: string[];
 }) {
-  const { data: session } = useSession();
+  const mounted = useMounted();
+  const { data: session, isPending } = useSession();
   const lesson = useLesson();
   const [checked, setChecked] = useState<string[]>([]);
-  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     if (!session) return;
@@ -32,7 +33,6 @@ export function Checklist({
       if (saved?.checked) {
         setChecked(saved.checked.filter((c) => items.includes(c)));
       }
-      setHydrated(true);
     });
     return () => {
       cancelled = true;
@@ -45,7 +45,12 @@ export function Checklist({
       : [...checked, item];
     setChecked(next);
     if (session) {
-      void saveResponse("checklist", id, { checked: next }, lesson);
+      void saveResponse(
+        "checklist",
+        id,
+        { checked: next, ...(title ? { title } : {}) },
+        lesson,
+      );
     }
   }
 
@@ -96,7 +101,7 @@ export function Checklist({
           );
         })}
       </ul>
-      {!session && !hydrated ? (
+      {mounted && !isPending && !session ? (
         <p className="mt-3 text-sm text-white/40">
           Sign in free to keep your progress across visits.
         </p>
