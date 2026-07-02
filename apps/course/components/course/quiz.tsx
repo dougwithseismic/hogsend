@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLesson } from "@/components/course/lesson-context";
-import { getResponse, saveResponse } from "@/components/course/responses";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
 
 export type QuizQuestion = {
@@ -30,23 +30,10 @@ export function Quiz({
   const lesson = useLesson();
   const [picked, setPicked] = useState<Record<number, number>>({});
   const [graded, setGraded] = useState(false);
-  const [lastScore, setLastScore] = useState<{
+  const { value: lastScore, save: persist } = useWorkbookResponse<{
     score: number;
     total: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!session || !lesson) return;
-    let cancelled = false;
-    getResponse<{ score: number; total: number }>(
-      `quiz:${lesson.course}/${lesson.lesson}`,
-    ).then((saved) => {
-      if (!cancelled && saved) setLastScore(saved);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, lesson]);
+  }>("quiz", "quiz", lesson ? `quiz:${lesson.course}/${lesson.lesson}` : "");
 
   const allAnswered = questions.every((_, i) => picked[i] !== undefined);
   const score = questions.reduce(
@@ -57,9 +44,7 @@ export function Quiz({
   async function check() {
     setGraded(true);
     if (session && lesson) {
-      const value = { score, total: questions.length };
-      const ok = await saveResponse("quiz", "quiz", value, lesson);
-      if (ok) setLastScore(value);
+      await persist({ score, total: questions.length });
     }
   }
 

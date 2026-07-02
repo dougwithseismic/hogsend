@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLesson } from "@/components/course/lesson-context";
-import { getResponse, saveResponse } from "@/components/course/responses";
 import { useMounted } from "@/components/course/use-mounted";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
 
 /**
@@ -33,28 +33,31 @@ export function CheckIn({
   const mounted = useMounted();
   const { data: session, isPending } = useSession();
   const lesson = useLesson();
-  const [choices, setChoices] = useState<string[]>([]);
-  const [note, setNote] = useState("");
+  const { value: saved, save: persist } = useWorkbookResponse<{
+    choices?: string[];
+    note?: string;
+    question?: string;
+  }>("profile", id, `profile:${id}`);
+
+  const [choices, setChoices] = useState<string[]>(saved?.choices ?? []);
+  const [note, setNote] = useState(saved?.note ?? "");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
-    "idle",
+    (saved?.choices?.length ?? 0) > 0 || saved?.note ? "saved" : "idle",
   );
 
-  const key = `profile:${id}`;
+  // Late-arriving saved value (fallback fetch outside a provider) hydrates the
+  // pills — but never over the reader's in-progress edits.
+  const touched = useRef(false);
   useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
-    getResponse<{ choices?: string[]; note?: string }>(key).then((saved) => {
-      if (cancelled || !saved) return;
-      setChoices(saved.choices ?? []);
-      setNote(saved.note ?? "");
-      setStatus("saved");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, key]);
+    if (touched.current || !saved) return;
+    if ((saved.choices?.length ?? 0) === 0 && !saved.note) return;
+    setChoices(saved.choices ?? []);
+    setNote(saved.note ?? "");
+    setStatus("saved");
+  }, [saved]);
 
   function toggle(option: string) {
+    touched.current = true;
     setStatus("idle");
     setChoices((prev) => {
       if (prev.includes(option)) return prev.filter((c) => c !== option);
@@ -64,12 +67,11 @@ export function CheckIn({
 
   async function save() {
     setStatus("saving");
-    const ok = await saveResponse(
-      "profile",
-      id,
-      { choices, ...(note.trim() ? { note: note.trim() } : {}), question },
-      lesson,
-    );
+    const ok = await persist({
+      choices,
+      ...(note.trim() ? { note: note.trim() } : {}),
+      question,
+    });
     setStatus(ok ? "saved" : "error");
   }
 
@@ -115,6 +117,7 @@ export function CheckIn({
         <textarea
           value={note}
           onChange={(e) => {
+            touched.current = true;
             setNote(e.target.value);
             setStatus("idle");
           }}
@@ -141,7 +144,12 @@ export function CheckIn({
                   : "Save answer"}
             </button>
             {status === "saved" ? (
-              <span className="text-good text-sm">✓ Saved to your profile</span>
+              <span className="text-good text-sm">
+                ✓ Saved to your profile —{" "}
+                <a href="/workbook" className="underline">
+                  view your workbook
+                </a>
+              </span>
             ) : null}
             {status === "error" ? (
               <span className="text-accent text-sm">

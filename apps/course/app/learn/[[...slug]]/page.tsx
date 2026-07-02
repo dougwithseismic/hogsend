@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import {
   DocsBody,
   DocsDescription,
@@ -11,10 +12,14 @@ import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
 import { Paywall } from "@/components/auth/paywall";
 import { LessonProvider } from "@/components/course/lesson-context";
+import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { getMDXComponents } from "@/components/mdx";
+import { db } from "@/lib/db";
+import { response } from "@/lib/db/schema";
 import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
+import type { SavedValue } from "@/lib/workbook";
 
 // The gated branch reads headers() (session), which is illegal during a static-
 // generation pass. With generateStaticParams + dynamicParams, gated params were
@@ -32,11 +37,14 @@ export default async function Page(props: {
 
   const slugs = params.slug ?? [];
 
-  // The session is read ONLY on the gated branch; public first lessons skip it
-  // and SSR their full body to anon (indexable). The page RSC is the security
-  // boundary — an anon gated request returns <LessonGate> before the body is read.
+  // The session is read for every lesson request (the segment is force-dynamic
+  // SSR either way): gated lessons gate on it, and signed-in readers get their
+  // saved workbook answers server-fed into the interactive blocks. The page RSC
+  // stays the security boundary — an anon gated request returns <LessonGate>
+  // before the body is read.
+  const session = slugs.length >= 2 ? await getSession() : null;
+
   if (!isFreeLesson(slugs)) {
-    const session = await getSession();
     if (!session) {
       return (
         <LessonGate
@@ -83,6 +91,22 @@ export default async function Page(props: {
     />
   );
 
+  // The signed-in reader's saved answers, keyed by response key — fed to the
+  // client store so blocks render filled in the SSR HTML and the chapter
+  // callout/recap know what's done. All rows, not just this lesson's: profile
+  // answers and cross-lesson notes (chapter 10 re-renders chapter-2 prompts)
+  // are keyed globally.
+  let initialResponses: Record<string, SavedValue> = {};
+  if (session && slugs.length >= 2) {
+    const rows = await db
+      .select({ key: response.key, value: response.value })
+      .from(response)
+      .where(eq(response.userId, session.user.id));
+    initialResponses = Object.fromEntries(
+      rows.map((row) => [row.key, row.value as SavedValue]),
+    );
+  }
+
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsTitle>{page.data.title}</DocsTitle>
@@ -91,8 +115,10 @@ export default async function Page(props: {
         {slugs.length >= 2 ? (
           // Interactive blocks (Quiz/CheckIn/Checklist) read their lesson here.
           <LessonProvider course={slugs[0]} lesson={lessonSlug}>
-            {body}
-            <LessonFooter course={slugs[0]} lesson={lessonSlug} />
+            <WorkbookStateProvider initial={initialResponses}>
+              {body}
+              <LessonFooter course={slugs[0]} lesson={lessonSlug} />
+            </WorkbookStateProvider>
           </LessonProvider>
         ) : (
           body

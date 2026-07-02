@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLesson } from "@/components/course/lesson-context";
-import { getResponse, saveResponse } from "@/components/course/responses";
 import { useMounted } from "@/components/course/use-mounted";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
 
 /**
@@ -27,33 +27,29 @@ export function WorkbookPrompt({
   const mounted = useMounted();
   const { data: session, isPending } = useSession();
   const lesson = useLesson();
-  const [text, setText] = useState("");
+  const { value: saved, save: persist } = useWorkbookResponse<{
+    text?: string;
+    prompt?: string;
+  }>("note", id, `note:${id}`);
+
+  const [text, setText] = useState(saved?.text ?? "");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
-    "idle",
+    saved?.text ? "saved" : "idle",
   );
 
-  const key = `note:${id}`;
+  // Late-arriving saved value (fallback fetch outside a provider) hydrates the
+  // field — but never over the reader's in-progress edits.
+  const touched = useRef(false);
+  const savedText = saved?.text;
   useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
-    getResponse<{ text?: string }>(key).then((saved) => {
-      if (cancelled || !saved?.text) return;
-      setText(saved.text);
-      setStatus("saved");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, key]);
+    if (touched.current || !savedText) return;
+    setText(savedText);
+    setStatus("saved");
+  }, [savedText]);
 
   async function save() {
     setStatus("saving");
-    const ok = await saveResponse(
-      "note",
-      id,
-      { text: text.trim(), prompt },
-      lesson,
-    );
+    const ok = await persist({ text: text.trim(), prompt });
     setStatus(ok ? "saved" : "error");
   }
 
@@ -74,6 +70,7 @@ export function WorkbookPrompt({
       <textarea
         value={text}
         onChange={(e) => {
+          touched.current = true;
           setText(e.target.value);
           setStatus("idle");
         }}

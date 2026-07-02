@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useLesson } from "@/components/course/lesson-context";
-import { getResponse, saveResponse } from "@/components/course/responses";
+import { useEffect, useRef, useState } from "react";
 import { useMounted } from "@/components/course/use-mounted";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
 
 /**
@@ -22,35 +21,32 @@ export function Checklist({
 }) {
   const mounted = useMounted();
   const { data: session, isPending } = useSession();
-  const lesson = useLesson();
-  const [checked, setChecked] = useState<string[]>([]);
+  const { value: saved, save: persist } = useWorkbookResponse<{
+    checked?: string[];
+    title?: string;
+  }>("checklist", id, `checklist:${id}`);
 
+  const [checked, setChecked] = useState<string[]>(() =>
+    (saved?.checked ?? []).filter((c) => items.includes(c)),
+  );
+
+  // Late-arriving saved value (fallback fetch outside a provider) hydrates the
+  // ticks — but never over the reader's in-progress toggling.
+  const touched = useRef(false);
+  const savedChecked = saved?.checked;
   useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
-    getResponse<{ checked?: string[] }>(`checklist:${id}`).then((saved) => {
-      if (cancelled) return;
-      if (saved?.checked) {
-        setChecked(saved.checked.filter((c) => items.includes(c)));
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, id, items]);
+    if (touched.current || !savedChecked) return;
+    setChecked(savedChecked.filter((c) => items.includes(c)));
+  }, [savedChecked, items]);
 
   function toggle(item: string) {
+    touched.current = true;
     const next = checked.includes(item)
       ? checked.filter((c) => c !== item)
       : [...checked, item];
     setChecked(next);
     if (session) {
-      void saveResponse(
-        "checklist",
-        id,
-        { checked: next, ...(title ? { title } : {}) },
-        lesson,
-      );
+      void persist({ checked: next, ...(title ? { title } : {}) });
     }
   }
 
