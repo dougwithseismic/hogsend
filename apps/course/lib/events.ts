@@ -187,6 +187,39 @@ export async function emitNoteSaved(
   );
 }
 
+/**
+ * A media block (lesson video / podcast) checked off as watched/listened.
+ * Fired only on done=true — unchecking updates the row without an event.
+ */
+export async function emitMediaCompleted(
+  user: AuthUser,
+  input: {
+    id: string;
+    media: string;
+    title?: string;
+    course?: string;
+    lesson?: string;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.media_completed",
+      email: user.email,
+      contactProperties: { courseUserId: user.id },
+      eventProperties: {
+        source: SOURCE,
+        mediaId: input.id,
+        media: input.media,
+        ...(input.title ? { title: input.title } : {}),
+        ...(input.course ? { course: input.course } : {}),
+        ...(input.lesson ? { lesson: input.lesson } : {}),
+      },
+    },
+    `course-media-${user.id}-${input.id}-${Date.now()}`,
+  );
+}
+
 /** An end-of-lesson quiz submission (score out of total, both integers). */
 export async function emitQuizCompleted(
   user: AuthUser,

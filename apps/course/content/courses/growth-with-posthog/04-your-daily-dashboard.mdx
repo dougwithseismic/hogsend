@@ -429,6 +429,66 @@ them — first by keeping the users you have, then by going to get more.
       explain:
         "Alert fatigue is the failure mode of §4.5: every fired alert gets acted on or re-tuned, no third option. Few loud alerts that always mean something beat many quiet ones that never do.",
     },
+    {
+      q: "Your pageviews Trend doubled overnight, but signups and activation are flat. Before celebrating, what should you check first?",
+      options: [
+        "Whether a new marketing channel just kicked in",
+        "Whether the dashboard date filter got changed",
+        "Whether autocapture is double-counting pageviews",
+        "Whether the series counts events instead of unique users — ten pageviews from one user look identical to one pageview from ten",
+      ],
+      answer: 3,
+      explain:
+        "The Trends failure mode is counting events when you mean people. Switching the series to unique users tells you whether more humans actually showed up or the same ones just clicked more.",
+    },
+    {
+      q: "A weekly retention cohort of 12 users drops from 40% to 25%, and a teammate wants to re-plan the roadmap. The right response is:",
+      options: [
+        "That swing is about three people — wait for a trend across several cohorts before concluding anything",
+        "Act now: a 15-point drop is a crisis at any cohort size",
+        "Switch the grid to unbounded retention, which is more forgiving",
+        "Widen the return-event definition so more users count as retained",
+      ],
+      answer: 0,
+      explain:
+        "Small cohorts lie: in a 12-user cohort each person is worth over eight points, so 40% to 25% is three people. The signal worth acting on is the trend across several cohorts, not one noisy row.",
+    },
+    {
+      q: "Your activation funnel reads 24% against the 31% baseline you know by heart. Following the chapter's Monday read, what comes next?",
+      options: [
+        "Rewrite the onboarding copy on the worst step",
+        "Increase acquisition spend to compensate for lost activations",
+        "Check Error Tracking for new exceptions, then watch replays of the drop-off — an error spike often explains an activation dip",
+        "Wait a few weeks to see whether the number recovers on its own",
+      ],
+      answer: 2,
+      explain:
+        "In the worked example, the 31%-to-24% dip traced to a new validation exception, not bad copy — errors get checked before blaming onboarding. Knowing the baseline by heart is what made the deviation register at all.",
+    },
+    {
+      q: "You want to know what separates your power users — the ones who fire the core action five days a week — from everyone else. Which insight fits?",
+      options: [
+        "Retention — it shows whether users came back",
+        "Stickiness — it measures how many times users did something in a period, and what the deep-usage group shares is an activation-bar candidate",
+        "User Paths — it maps every route through the product",
+        "Funnels — the biggest drop is your biggest leak",
+      ],
+      answer: 1,
+      explain:
+        "Retention asks whether users returned; Stickiness asks how often. The chapter's example: if five-day-a-week users all created three projects in week one, 'three projects' becomes an activation bar worth testing with Chapter 2's method.",
+    },
+    {
+      q: "A teammate proposes a dedicated dashboard per feature — forty boards, so nothing gets missed. The chapter's position is:",
+      options: [
+        "Good idea — more visibility always beats less",
+        "Fine, as long as each board has a named owner",
+        "Split the difference with one dashboard per team",
+        "Dashboard sprawl means none is canonical — one pinned board everyone reads the same way beats a wall of charts nobody trusts",
+      ],
+      answer: 3,
+      explain:
+        "A team with forty dashboards has none, because nobody knows which one is canonical. The daily read works precisely because it's one fixed list read against a known baseline — sprawl dissolves that baseline.",
+    },
   ]}
 />
 

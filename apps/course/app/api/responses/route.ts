@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { response } from "@/lib/db/schema";
 import {
+  emitMediaCompleted,
   emitNoteSaved,
   emitProfileAnswered,
   emitQuizCompleted,
@@ -26,6 +27,8 @@ import { source } from "@/lib/source";
 type Saved = { key: string; kind: string; value: unknown };
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+/** Media ids are YouTube video ids / podcast slugs — underscores allowed. */
+const MEDIA_ID_PATTERN = /^[a-z0-9_-]{1,64}$/i;
 
 function cleanStrings(
   input: unknown,
@@ -123,6 +126,16 @@ function parseBody(body: unknown): Saved | { error: string } {
     return { key: "", kind, value: { score, total } }; // key built from lesson below
   }
 
+  if (kind === "media") {
+    if (!MEDIA_ID_PATTERN.test(id)) return { error: "bad_request" };
+    const media = value.media === "podcast" ? "podcast" : "video";
+    return {
+      key: `media:${id}`,
+      kind,
+      value: { done: value.done === true, media, ...context("title", 200) },
+    };
+  }
+
   if (kind === "checklist") {
     if (!ID_PATTERN.test(id)) return { error: "bad_request" };
     const checked = cleanStrings(value.checked ?? [], 40, 160);
@@ -211,6 +224,17 @@ export async function POST(req: Request) {
       course: page ? course : undefined,
       lesson: page ? lesson : undefined,
     });
+  } else if (parsed.kind === "media") {
+    const v = parsed.value as { done: boolean; media: string; title?: string };
+    if (v.done) {
+      await emitMediaCompleted(user, {
+        id: (raw?.id as string) ?? "",
+        media: v.media,
+        title: v.title,
+        course: page ? course : undefined,
+        lesson: page ? lesson : undefined,
+      });
+    }
   }
 
   return NextResponse.json({ ok: true });

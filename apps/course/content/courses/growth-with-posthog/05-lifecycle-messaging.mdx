@@ -577,6 +577,66 @@ You now know *what* to build and *why*. Next, you build it — in code.
       explain:
         "Opens and even conversions among messaged users can't distinguish 'the email worked' from 'these users would have upgraded anyway.' Only the difference against a randomly held-out group is causal — that's the incrementality discipline.",
     },
+    {
+      q: "A user's card fails the same week they go dormant and approach a plan limit — and three separate journeys each send twice. Every message was individually justified. What practice prevents this?",
+      options: [
+        "Better subject lines so the messages feel less repetitive",
+        "Pausing all journeys whenever a payment fails",
+        "Merging everything into one mega-journey",
+        "A frequency cap — a ceiling on total messages per user across all journeys and channels",
+      ],
+      answer: 3,
+      explain:
+        "Each journey can be correct in isolation and still produce a spam-worthy pile-up in combination — that's exactly the failure frequency capping exists for. It becomes load-bearing the moment you run more than one journey.",
+    },
+    {
+      q: "Reviewing your journey table, you notice the trigger column filling up with entries like 'it's been 7 days since email #2'. What does the chapter say about this?",
+      options: [
+        "Time should appear only as a window on behaviour ('not done in 24–72h'), never as the reason to send — this is the drip you were escaping, creeping back in",
+        "It's fine, since the welcome cadence is every 2–3 days anyway",
+        "Time-based triggers are preferable because they're easier to test",
+        "It's fine as long as open rates stay healthy",
+      ],
+      answer: 0,
+      explain:
+        "The core argument of §5.4 is that triggered beats batch because relevance is pinned to a behavioural moment. When durations replace behaviours as the reason to send, you've rebuilt the rigid time-based drip the chapter says to drop.",
+    },
+    {
+      q: "You're writing the first touch of a win-back for users of a tax product who've been idle 30 days. What's the chapter-aligned move?",
+      options: [
+        "Send 'we miss you' with a discount — incentives drive the highest reactivation",
+        "Treat 30 days idle as churned and send a final-notice offer immediately",
+        "Check your own usage interval first — 30 days idle in a tax product may be normal — and lead with what changed since they left",
+        "Skip win-back entirely; reactivation is more expensive than acquiring new users",
+      ],
+      answer: 2,
+      explain:
+        "Dormancy thresholds come from your retention curve, not a template — 30 days idle in a daily-use product is churn, in a tax product it's Tuesday. And 'we miss you' answers no question the user has; 'here's what's new' does, with incentives held for last.",
+    },
+    {
+      q: "A journey enrolls about 200 users a month. You set a 5% holdout, and after one week the messaged group looks clearly ahead, so you call it a win. What went wrong?",
+      options: [
+        "The holdout is too small for the volume (use 20–50% until it grows), and peeking early biases the read — the read date should be decided in advance",
+        "Nothing — a week is enough when the lift looks that large",
+        "You should have compared against last month's cohort instead of a holdout",
+        "5% is the right size, but the test needed to run a full quarter regardless of volume",
+      ],
+      answer: 0,
+      explain:
+        "A 5% holdout of 200 users is ~10 people — far too few to detect anything — and stopping the moment numbers look good is the peeking mistake §5.10 warns about. Both errors make the 'lift' you report indistinguishable from noise.",
+    },
+    {
+      q: "Which of these messages passes the chapter's test for real personalisation — 'could this exact message have been sent to a user in a different state?'",
+      options: [
+        "'Hi {first name}, here are five tips for getting started'",
+        "A weekly product digest sent to the whole list",
+        "'Hi {first name}, welcome to the community!'",
+        "'You created 3 projects but haven't invited a teammate yet'",
+      ],
+      answer: 3,
+      explain:
+        "Real personalisation branches on what the user did or didn't do — a message tied to their actual product state couldn't be sent to anyone else. First-name merge fields and generic tips fail the test, and fake personalisation quietly teaches users your emails aren't worth opening.",
+    },
   ]}
 />
 

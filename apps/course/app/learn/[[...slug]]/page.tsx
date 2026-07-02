@@ -1,3 +1,4 @@
+import { and, eq, inArray } from "drizzle-orm";
 import {
   DocsBody,
   DocsDescription,
@@ -10,11 +11,33 @@ import { notFound } from "next/navigation";
 import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
 import { Paywall } from "@/components/auth/paywall";
+import {
+  ChapterRecap,
+  ChapterWorkbook,
+} from "@/components/course/chapter-workbook";
 import { LessonProvider } from "@/components/course/lesson-context";
+import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { getMDXComponents } from "@/components/mdx";
+import { db } from "@/lib/db";
+import { lessonProgress, response } from "@/lib/db/schema";
 import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
+import { lessonWorkbookItems, type SavedValue } from "@/lib/workbook";
+
+/** The following lesson in course order (numeric slug prefixes sort), or null. */
+function nextLessonOf(
+  course: string,
+  lesson: string,
+): { url: string; title: string } | null {
+  const pages = source
+    .getPages()
+    .filter((p) => p.slugs.length >= 2 && p.slugs[0] === course)
+    .sort((a, b) => a.slugs.join("/").localeCompare(b.slugs.join("/")));
+  const idx = pages.findIndex((p) => p.slugs[1] === lesson);
+  const nextPage = idx >= 0 ? pages[idx + 1] : undefined;
+  return nextPage ? { url: nextPage.url, title: nextPage.data.title } : null;
+}
 
 // The gated branch reads headers() (session), which is illegal during a static-
 // generation pass. With generateStaticParams + dynamicParams, gated params were
@@ -32,11 +55,15 @@ export default async function Page(props: {
 
   const slugs = params.slug ?? [];
 
-  // The session is read ONLY on the gated branch; public first lessons skip it
-  // and SSR their full body to anon (indexable). The page RSC is the security
-  // boundary — an anon gated request returns <LessonGate> before the body is read.
-  if (!isFreeLesson(slugs)) {
-    const session = await getSession();
+  // The session is read for every lesson request (the segment is force-dynamic
+  // SSR either way): gated lessons gate on it, and signed-in readers get their
+  // saved workbook answers server-fed into the interactive blocks. The page RSC
+  // stays the security boundary — an anon gated request returns <LessonGate>
+  // before the body is read.
+  const session = slugs.length >= 2 ? await getSession() : null;
+  const free = isFreeLesson(slugs);
+
+  if (!free) {
     if (!session) {
       return (
         <LessonGate
@@ -62,14 +89,6 @@ export default async function Page(props: {
         />
       );
     }
-    await ensureEnrollment(
-      {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name,
-      },
-      slugs[0],
-    );
   }
 
   const MDX = page.data.body;
@@ -83,6 +102,48 @@ export default async function Page(props: {
     />
   );
 
+  // The signed-in reader's saved answers for THIS lesson's blocks (the manifest
+  // lists every key the page can render, including cross-lesson reuse like the
+  // chapter-2 prompt chapter 10 re-renders), fed to the client store so blocks
+  // render filled in the SSR HTML. Fetched alongside the idempotent enrollment
+  // upsert — the two are independent DB round-trips.
+  let initialResponses: Record<string, SavedValue> = {};
+  let lessonCompleted = false;
+  if (session && slugs.length >= 2) {
+    const user = {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    };
+    const keys = lessonWorkbookItems(slugs[0], lessonSlug).map((i) => i.key);
+    const [rows, progressRows] = await Promise.all([
+      keys.length > 0
+        ? db
+            .select({ key: response.key, value: response.value })
+            .from(response)
+            .where(
+              and(eq(response.userId, user.id), inArray(response.key, keys)),
+            )
+        : Promise.resolve([]),
+      db
+        .select({ id: lessonProgress.id })
+        .from(lessonProgress)
+        .where(
+          and(
+            eq(lessonProgress.userId, user.id),
+            eq(lessonProgress.courseSlug, slugs[0]),
+            eq(lessonProgress.lessonSlug, lessonSlug),
+          ),
+        )
+        .limit(1),
+      free ? Promise.resolve() : ensureEnrollment(user, slugs[0]),
+    ]);
+    initialResponses = Object.fromEntries(
+      rows.map((row) => [row.key, row.value as SavedValue]),
+    );
+    lessonCompleted = progressRows.length > 0;
+  }
+
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsTitle>{page.data.title}</DocsTitle>
@@ -90,9 +151,25 @@ export default async function Page(props: {
       <DocsBody>
         {slugs.length >= 2 ? (
           // Interactive blocks (Quiz/CheckIn/Checklist) read their lesson here.
-          <LessonProvider course={slugs[0]} lesson={lessonSlug}>
-            {body}
-            <LessonFooter course={slugs[0]} lesson={lessonSlug} />
+          // Keyed by lesson: App Router soft navigation keeps same-position
+          // client components MOUNTED across param changes, so without the key
+          // the store/footer would hold the previous lesson's state.
+          <LessonProvider
+            key={`${slugs[0]}/${lessonSlug}`}
+            course={slugs[0]}
+            lesson={lessonSlug}
+          >
+            <WorkbookStateProvider initial={initialResponses}>
+              <ChapterWorkbook signedIn={session !== null} />
+              {body}
+              <ChapterRecap signedIn={session !== null} />
+              <LessonFooter
+                course={slugs[0]}
+                lesson={lessonSlug}
+                completed={lessonCompleted}
+                next={nextLessonOf(slugs[0], lessonSlug)}
+              />
+            </WorkbookStateProvider>
           </LessonProvider>
         ) : (
           body

@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useLesson } from "@/components/course/lesson-context";
-import { getResponse, saveResponse } from "@/components/course/responses";
+import { useState } from "react";
 import { useMounted } from "@/components/course/use-mounted";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
 
 /**
@@ -22,22 +21,14 @@ export function Checklist({
 }) {
   const mounted = useMounted();
   const { data: session, isPending } = useSession();
-  const lesson = useLesson();
-  const [checked, setChecked] = useState<string[]>([]);
+  const { value: saved, save: persist } = useWorkbookResponse<{
+    checked?: string[];
+    title?: string;
+  }>("checklist", id, `checklist:${id}`);
 
-  useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
-    getResponse<{ checked?: string[] }>(`checklist:${id}`).then((saved) => {
-      if (cancelled) return;
-      if (saved?.checked) {
-        setChecked(saved.checked.filter((c) => items.includes(c)));
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, id, items]);
+  const [checked, setChecked] = useState<string[]>(() =>
+    (saved?.checked ?? []).filter((c) => items.includes(c)),
+  );
 
   function toggle(item: string) {
     const next = checked.includes(item)
@@ -45,19 +36,17 @@ export function Checklist({
       : [...checked, item];
     setChecked(next);
     if (session) {
-      void saveResponse(
-        "checklist",
-        id,
-        { checked: next, ...(title ? { title } : {}) },
-        lesson,
-      );
+      void persist({ checked: next, ...(title ? { title } : {}) });
     }
   }
 
   const done = checked.length;
 
   return (
-    <div className="not-prose my-8 rounded-md border border-white/[0.08] bg-white/[0.015] p-5">
+    <div
+      id={`wb-${id}`}
+      className="not-prose my-8 scroll-mt-28 rounded-md border border-white/[0.08] bg-white/[0.015] p-5"
+    >
       <div className="flex items-baseline justify-between gap-3">
         <p className="font-medium text-base text-white">
           {title ?? "Checklist"}

@@ -1,0 +1,696 @@
+{
+  "growth-with-posthog": {
+    "00-product-led-growth": [
+      {
+        "kind": "media",
+        "id": "JSMvq9dXKxA",
+        "key": "media:JSMvq9dXKxA",
+        "anchor": "wb-media-JSMvq9dXKxA",
+        "label": "The Evolution of Product-Led Growth: PLG x AI",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "IHwS2By9UKM",
+        "key": "media:IHwS2By9UKM",
+        "anchor": "wb-media-IHwS2By9UKM",
+        "label": "10 growth tactics that never work | Elena Verna (Amplitude, Miro, Dropbox, SurveyMonkey)",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "role",
+        "key": "profile:role",
+        "anchor": "wb-role",
+        "label": "Who's reading this — what's your role right now?",
+        "options": [
+          "Founder",
+          "Engineer",
+          "Product or design",
+          "Marketing or growth",
+          "Consultant or agency"
+        ]
+      },
+      {
+        "kind": "profile",
+        "id": "stage",
+        "key": "profile:stage",
+        "anchor": "wb-stage",
+        "label": "Where is your product right now?",
+        "options": [
+          "Pre-launch",
+          "Launched, pre-revenue",
+          "Early revenue",
+          "Scaling",
+          "Side project"
+        ]
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/00-product-led-growth",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      },
+      {
+        "kind": "media",
+        "id": "lenny-verna-ai-growth-playbook",
+        "key": "media:lenny-verna-ai-growth-playbook",
+        "anchor": "wb-media-lenny-verna-ai-growth-playbook",
+        "label": "The new AI growth playbook for 2026: how Lovable hit $200M ARR in one year",
+        "media": "podcast"
+      }
+    ],
+    "01-what-is-posthog": [
+      {
+        "kind": "media",
+        "id": "1FZji2L-LmM",
+        "key": "media:1FZji2L-LmM",
+        "anchor": "wb-media-1FZji2L-LmM",
+        "label": "What is PostHog? (Official Demo & Tutorial)",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "WPjJLpNxI6s",
+        "key": "media:WPjJLpNxI6s",
+        "anchor": "wb-media-WPjJLpNxI6s",
+        "label": "How PostHog AI makes product analytics EASY! – PostHog Product Analytics Demo",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "ALR9iuXQVqg",
+        "key": "media:ALR9iuXQVqg",
+        "anchor": "wb-media-ALR9iuXQVqg",
+        "label": "Solve support tickets 10x faster with Session Replay – PostHog Session Replay Demo",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "analyticsStack",
+        "key": "profile:analyticsStack",
+        "anchor": "wb-analyticsStack",
+        "label": "What's actually running on your product today?",
+        "options": [
+          "Nothing yet",
+          "Google Analytics",
+          "PostHog",
+          "Mixpanel or Amplitude",
+          "Plausible or Fathom",
+          "Something homegrown"
+        ],
+        "multi": true
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/01-what-is-posthog",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "02-aarrr-and-the-leaky-bucket": [
+      {
+        "kind": "media",
+        "id": "irjgfW0BIrw",
+        "key": "media:irjgfW0BIrw",
+        "anchor": "wb-media-irjgfW0BIrw",
+        "label": "Startup Metrics for Pirates: AARRR! - Dave McClure",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "productType",
+        "key": "profile:productType",
+        "anchor": "wb-productType",
+        "label": "Which of these is closest to what you're building?",
+        "options": [
+          "SaaS",
+          "Dev tool",
+          "Marketplace",
+          "Consumer app",
+          "E-commerce",
+          "Community or game",
+          "Service or agency"
+        ]
+      },
+      {
+        "kind": "note",
+        "id": "activation-sentence",
+        "key": "note:activation-sentence",
+        "anchor": "wb-activation-sentence",
+        "label": "Write your activation sentence — the one user action that means they got real value.",
+        "placeholder": "A user is activated when they… (one sentence, one observable event)",
+        "rows": 2
+      },
+      {
+        "kind": "note",
+        "id": "north-star",
+        "key": "note:north-star",
+        "anchor": "wb-north-star",
+        "label": "Write your North Star Metric candidate — and the causal chain that justifies it.",
+        "placeholder": "NSM: … It measures value because… Its inputs are…",
+        "rows": 3
+      },
+      {
+        "kind": "media",
+        "id": "0LNQxT9LvM0",
+        "key": "media:0LNQxT9LvM0",
+        "anchor": "wb-media-0LNQxT9LvM0",
+        "label": "David Rusenko - How To Find Product Market Fit",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "biggestLeak",
+        "key": "profile:biggestLeak",
+        "anchor": "wb-biggestLeak",
+        "label": "Where does your bucket leak most today?",
+        "options": [
+          "Getting traffic",
+          "Signup → activation",
+          "Week-1 retention",
+          "Long-term retention",
+          "Monetisation",
+          "Honestly, no idea yet"
+        ],
+        "freeText": true
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/02-aarrr-and-the-leaky-bucket",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      },
+      {
+        "kind": "media",
+        "id": "lenny-sean-ellis-hacking-growth",
+        "key": "media:lenny-sean-ellis-hacking-growth",
+        "anchor": "wb-media-lenny-sean-ellis-hacking-growth",
+        "label": "The original growth hacker reveals his secrets",
+        "media": "podcast"
+      }
+    ],
+    "03-instrument-posthog": [
+      {
+        "kind": "media",
+        "id": "FFgzJYi4GQA",
+        "key": "media:FFgzJYi4GQA",
+        "anchor": "wb-media-FFgzJYi4GQA",
+        "label": "Understanding PostHog Events: From Auto-Capture to Backend Integration",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "3afzkLS-zQA",
+        "key": "media:3afzkLS-zQA",
+        "anchor": "wb-media-3afzkLS-zQA",
+        "label": "PostHog identify and alias",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "RkCg1cgZzHc",
+        "key": "media:RkCg1cgZzHc",
+        "anchor": "wb-media-RkCg1cgZzHc",
+        "label": "How to Create an Effective Tracking Plan (Mixpanel, Segment.com, Amplitude and more)",
+        "media": "video"
+      },
+      {
+        "kind": "note",
+        "id": "tracking-plan-draft",
+        "key": "note:tracking-plan-draft",
+        "anchor": "wb-tracking-plan-draft",
+        "label": "Draft the first rows of your tracking plan: event name, what triggers it, and the two or three properties that matter.",
+        "placeholder": "signup_completed — user submits the signup form — plan, source\nproject_created — first project saved — template, team_size\n…",
+        "rows": 6
+      },
+      {
+        "kind": "profile",
+        "id": "abTesting",
+        "key": "profile:abTesting",
+        "anchor": "wb-abTesting",
+        "label": "What does your testing culture look like today?",
+        "options": [
+          "Never tested anything",
+          "Occasionally, informally",
+          "Regularly, without holdouts",
+          "Regularly, with holdouts or experiments"
+        ]
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/03-instrument-posthog",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "04-your-daily-dashboard": [
+      {
+        "kind": "media",
+        "id": "cMFz_xFlHaE",
+        "key": "media:cMFz_xFlHaE",
+        "anchor": "wb-media-cMFz_xFlHaE",
+        "label": "Conversion funnels: building, analyzing, and optimizing - PostHog tutorial",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "dataHabit",
+        "key": "profile:dataHabit",
+        "anchor": "wb-dataHabit",
+        "label": "How often do you actually look at your product data today?",
+        "options": [
+          "Rarely or never",
+          "When something feels off",
+          "Weekly",
+          "Daily"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "IJJKLxhcsIA",
+        "key": "media:IJJKLxhcsIA",
+        "anchor": "wb-media-IJJKLxhcsIA",
+        "label": "How we debug production issues at PostHog (Complete Walkthrough)",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "EQMPvqpRPuQ",
+        "key": "media:EQMPvqpRPuQ",
+        "anchor": "wb-media-EQMPvqpRPuQ",
+        "label": "My app analytics process (real numbers 👀+ quick tutorial)",
+        "media": "video"
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/04-your-daily-dashboard",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "05-lifecycle-messaging": [
+      {
+        "kind": "media",
+        "id": "iGzVM8ygjTk",
+        "key": "media:iGzVM8ygjTk",
+        "anchor": "wb-media-iGzVM8ygjTk",
+        "label": "Mastering Lifecycle Marketing: Real-World Tactics from Leading B2B Teams",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "vp4SwMY-QrM",
+        "key": "media:vp4SwMY-QrM",
+        "anchor": "wb-media-vp4SwMY-QrM",
+        "label": "How to Recover 89% of Failed Payments (SaaS Dunning Strategy)",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "eDoHvKiB2Lc",
+        "key": "media:eDoHvKiB2Lc",
+        "anchor": "wb-media-eDoHvKiB2Lc",
+        "label": "Best Email Deliverability Tips for 2025",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "messagingStack",
+        "key": "profile:messagingStack",
+        "anchor": "wb-messagingStack",
+        "label": "What are you sending with today?",
+        "options": [
+          "None yet",
+          "Batch newsletters (Mailchimp-style)",
+          "Lifecycle tool (Customer.io, Loops, …)",
+          "Transactional only (Resend, Postmark, SES)",
+          "In-house code"
+        ],
+        "multi": true
+      },
+      {
+        "kind": "media",
+        "id": "DeSdoaLOOoM",
+        "key": "media:DeSdoaLOOoM",
+        "anchor": "wb-media-DeSdoaLOOoM",
+        "label": "Incrementality 101: Everything You Need to Know",
+        "media": "video"
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/05-lifecycle-messaging",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "06-building-lifecycle-with-hogsend": [
+      {
+        "kind": "media",
+        "id": "xlA5XD8CSdo",
+        "key": "media:xlA5XD8CSdo",
+        "anchor": "wb-media-xlA5XD8CSdo",
+        "label": "Send emails with React components (with Zeno from Resend)",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "cQy24szSsBw",
+        "key": "media:cQy24szSsBw",
+        "anchor": "wb-media-cQy24szSsBw",
+        "label": "Modern emails using React",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "d4UZg3l8JvQ",
+        "key": "media:d4UZg3l8JvQ",
+        "anchor": "wb-media-d4UZg3l8JvQ",
+        "label": "react.email now tests your emails",
+        "media": "video"
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/06-building-lifecycle-with-hogsend",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "07-driving-traffic": [
+      {
+        "kind": "profile",
+        "id": "acquisitionMix",
+        "key": "profile:acquisitionMix",
+        "anchor": "wb-acquisitionMix",
+        "label": "What's your acquisition mix today?",
+        "options": [
+          "All organic",
+          "Mostly organic",
+          "About 50–50",
+          "Mostly paid",
+          "All paid"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "Sxn1ji7vYzU",
+        "key": "media:Sxn1ji7vYzU",
+        "anchor": "wb-media-Sxn1ji7vYzU",
+        "label": "If I Started SaaS in 2026, Here's My B2B Content Strategy for $1M ARR",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "MWwH-12N5TA",
+        "key": "media:MWwH-12N5TA",
+        "anchor": "wb-media-MWwH-12N5TA",
+        "label": "The Ultimate Guide to Developer Marketing | Lee Robinson (Vercel)",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "whatsWorking",
+        "key": "profile:whatsWorking",
+        "anchor": "wb-whatsWorking",
+        "label": "Which channels are actually working for you today?",
+        "options": [
+          "Content or SEO",
+          "Paid ads",
+          "Community",
+          "Launches (Product Hunt, HN)",
+          "Referrals or word of mouth",
+          "Outbound",
+          "Nothing reliably yet"
+        ],
+        "multi": true,
+        "freeText": true
+      },
+      {
+        "kind": "media",
+        "id": "zo3QHrXiprs",
+        "key": "media:zo3QHrXiprs",
+        "anchor": "wb-media-zo3QHrXiprs",
+        "label": "11 essential SaaS metrics explained in 11 minutes",
+        "media": "video"
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/07-driving-traffic",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "08-owned-audience-identity-flywheel": [
+      {
+        "kind": "media",
+        "id": "7zZ8LIOWFd8",
+        "key": "media:7zZ8LIOWFd8",
+        "anchor": "wb-media-7zZ8LIOWFd8",
+        "label": "Why 90% of B2B Brands Are Wasting Money on Rented Audiences (And What Works Instead)",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "waU5Cm1FENA",
+        "key": "media:waU5Cm1FENA",
+        "anchor": "wb-media-waU5Cm1FENA",
+        "label": "Build a Movement, Not a Discord (A Community Guide)",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "SJi469BuU6g",
+        "key": "media:SJi469BuU6g",
+        "anchor": "wb-media-SJi469BuU6g",
+        "label": "30 PROVEN Discord Hacks For Building Communities",
+        "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "community",
+        "key": "profile:community",
+        "anchor": "wb-community",
+        "label": "Where does your audience gather today?",
+        "options": [
+          "Discord",
+          "Slack",
+          "Telegram",
+          "A newsletter",
+          "X or social only",
+          "No community yet"
+        ],
+        "multi": true
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/08-owned-audience-identity-flywheel",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "09-putting-it-all-together": [
+      {
+        "kind": "profile",
+        "id": "biggestNeed",
+        "key": "profile:biggestNeed",
+        "anchor": "wb-biggestNeed",
+        "label": "Which piece would unblock you the most right now?",
+        "options": [
+          "A dashboard the team reads",
+          "Lifecycle messaging live",
+          "Paid ads that track properly",
+          "A referral loop",
+          "Convincing my team to work this way"
+        ],
+        "freeText": true
+      },
+      {
+        "kind": "media",
+        "id": "6nkAn0xDNG4",
+        "key": "media:6nkAn0xDNG4",
+        "anchor": "wb-media-6nkAn0xDNG4",
+        "label": "How to Build a Culture of Experimentation on Your Growth Team",
+        "media": "video"
+      },
+      {
+        "kind": "media",
+        "id": "whoQtu9Vhnw",
+        "key": "media:whoQtu9Vhnw",
+        "anchor": "wb-media-whoQtu9Vhnw",
+        "label": "Sean Ellis on why \"a high velocity of tests\" is crucial for finding product/market fit",
+        "media": "video"
+      },
+      {
+        "kind": "note",
+        "id": "first-hypotheses",
+        "key": "note:first-hypotheses",
+        "anchor": "wb-first-hypotheses",
+        "label": "Write your first three hypotheses, ICE-scored. Use the format: if we [change], [metric] will move [direction] because [reasoning] — I/C/E.",
+        "placeholder": "1. If we…, … will move up because… — I7 C5 E8\n2. …\n3. …",
+        "rows": 6
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/09-putting-it-all-together",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      }
+    ],
+    "10-your-30-60-90-180-day-plan": [
+      {
+        "kind": "media",
+        "id": "rBCdgcFZ0uA",
+        "key": "media:rBCdgcFZ0uA",
+        "anchor": "wb-media-rBCdgcFZ0uA",
+        "label": "Your first 90 Days as a Growth Marketer: A Practical Blueprint",
+        "media": "video"
+      },
+      {
+        "kind": "checklist",
+        "id": "plan-day0",
+        "key": "checklist:plan-day0",
+        "anchor": "wb-plan-day0",
+        "label": "Day 0 — commitments",
+        "items": [
+          "Name the growth owner — one person accountable for measure → keep → grow (a hat, not a hire)",
+          "Write the activation sentence: the one user action that means 'got real value', in one sentence",
+          "Get the team to agree the order out loud: retention before acquisition",
+          "Book the weekly 30-minute growth review, recurring, starting next week",
+          "Pick where growth work lives: the same backlog/repo as product work, not a separate doc nobody opens"
+        ]
+      },
+      {
+        "kind": "note",
+        "id": "growth-owner",
+        "key": "note:growth-owner",
+        "anchor": "wb-growth-owner",
+        "label": "Who owns growth? Name the person (and write it like it's a real assignment, because it is).",
+        "placeholder": "Growth owner: … — accountable for the funnel being instrumented, the dashboard being read, and the journeys being live.",
+        "rows": 2
+      },
+      {
+        "kind": "note",
+        "id": "activation-sentence",
+        "key": "note:activation-sentence",
+        "anchor": "wb-activation-sentence",
+        "label": "Your activation sentence — if you drafted it in Chapter 2, it's pre-filled here. Make it final.",
+        "placeholder": "A user is activated when they… (one sentence, one observable event)",
+        "rows": 2
+      },
+      {
+        "kind": "checklist",
+        "id": "plan-30",
+        "key": "checklist:plan-30",
+        "anchor": "wb-plan-30",
+        "label": "Days 1–30 — Measure",
+        "items": [
+          "PostHog account on the right region; one project; website + app tracked together",
+          "posthog-js installed with identified_only; identify at login, reset at logout",
+          "Starter event kit firing — signup client-side; subscription + payment server-side",
+          "Tracking plan written down and shared — even ten rows in a doc beats zero",
+          "Your one activation event defined, instrumented, and confirmed firing",
+          "Managed reverse proxy set up so tracking survives ad-blockers",
+          "Daily dashboard built and pinned: North Star, activation funnel, retention, alerts → Slack",
+          "First data QA pass: watch 5 session replays and confirm the events match what you see"
+        ]
+      },
+      {
+        "kind": "checklist",
+        "id": "plan-60",
+        "key": "checklist:plan-60",
+        "anchor": "wb-plan-60",
+        "label": "Days 31–60 — Keep",
+        "items": [
+          "Hogsend app scaffolded; backend wired to POST /v1/ingest",
+          "Welcome + onboarding journey live, triggered by the signup event",
+          "Activation nudge at +48h, skipped automatically if the activation event fired",
+          "Dunning journey live (if you charge) — failed payment → retry prompt sequence",
+          "Win-back journey live for users inactive 14+ days",
+          "A holdout on your first journey, and you know how to read its lift in PostHog",
+          "Global frequency cap set so overlapping journeys can't spam one user",
+          "Unsubscribe/preferences verified working end-to-end (send yourself every email)"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "nYTSIuC3ScY",
+        "key": "media:nYTSIuC3ScY",
+        "anchor": "wb-media-nYTSIuC3ScY",
+        "label": "Your First 90 Days as Head of Growth (The Exact Plan I Give Every Client)",
+        "media": "video"
+      },
+      {
+        "kind": "checklist",
+        "id": "plan-90",
+        "key": "checklist:plan-90",
+        "anchor": "wb-plan-90",
+        "label": "Days 61–90 — Grow",
+        "items": [
+          "Channel decision made deliberately: is paid even your channel, or is it content/launches/community? (Ch 7)",
+          "If paid: Meta Pixel + PostHog → Meta CAPI destination, same Pixel ID, deduped, EMQ ≥ 6",
+          "One campaign live, optimising the deepest conversion event you can feed ~50/week",
+          "Consent captured at email collection; no dark-pattern pre-ticks",
+          "Discord and/or Telegram connector live with the /link email-verify flow (Ch 8)",
+          "Linking perk journey live — linked identity gets something real within a minute",
+          "Referral ask placed at the aha milestone, not before; verified referrals rewarded",
+          "Verified emails synced as a custom audience + lookalike seed"
+        ]
+      },
+      {
+        "kind": "checklist",
+        "id": "plan-180",
+        "key": "checklist:plan-180",
+        "anchor": "wb-plan-180",
+        "label": "Days 91–180 — Compound",
+        "items": [
+          "Experiment backlog exists, ICE-scored, groomed in the weekly growth review",
+          "Steady test tempo: every week at least one experiment launches or reports",
+          "Every experiment ships with a hypothesis, a primary metric, and a written result — including the losers",
+          "Global holdout on the lifecycle program; incremental lift reported monthly",
+          "Blended CAC reviewed monthly, with the referral loop's contribution broken out",
+          "PMF check run (40% test) before any major step-up in paid spend",
+          "Quarterly prune: kill journeys with no lift, events nobody queries, ad sets that don't convert",
+          "The activation metric re-validated — still the best predictor of retention you have?"
+        ]
+      },
+      {
+        "kind": "profile",
+        "id": "planCommitment",
+        "key": "profile:planCommitment",
+        "anchor": "wb-planCommitment",
+        "label": "When are you actually starting this plan?",
+        "options": [
+          "Starting this week",
+          "Starting this month",
+          "Next quarter",
+          "Just learning for now"
+        ]
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/10-your-30-60-90-180-day-plan",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      },
+      {
+        "kind": "media",
+        "id": "lenny-kohavi-ab-testing",
+        "key": "media:lenny-kohavi-ab-testing",
+        "anchor": "wb-media-lenny-kohavi-ab-testing",
+        "label": "The ultimate guide to A/B testing",
+        "media": "podcast"
+      }
+    ]
+  }
+}

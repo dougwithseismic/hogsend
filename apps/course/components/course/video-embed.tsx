@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { MediaDoneToggle } from "@/components/course/media-toggle";
+import { CopyLinkButton } from "@/components/course/share-link";
 
 /**
  * Privacy-light YouTube embed: renders the static thumbnail with a play
  * affordance and only mounts the (youtube-nocookie) iframe on click, so a
  * lesson with several videos loads no third-party script until the reader
  * opts in. Caption carries the verified title/channel so the block is useful
- * even unplayed.
+ * even unplayed. Signed-in readers can tick it watched (persisted to the
+ * workbook, counts in the chapter recap); everyone gets share links.
  */
 export function VideoEmbed({
   id,
@@ -27,7 +30,7 @@ export function VideoEmbed({
   const [playing, setPlaying] = useState(false);
 
   return (
-    <figure className="not-prose my-8">
+    <figure id={`wb-media-${id}`} className="not-prose my-8 scroll-mt-28">
       <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
         {playing ? (
           <iframe
@@ -79,6 +82,21 @@ export function VideoEmbed({
           </span>
         ) : null}
       </figcaption>
+
+      <div className="mt-2.5 flex items-center gap-4">
+        <MediaDoneToggle id={id} media="video" title={title} />
+        <span className="ml-auto flex items-center gap-4">
+          <CopyLinkButton url={`https://youtu.be/${id}`} label="Share" />
+          <a
+            href={`https://www.youtube.com/watch?v=${id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-white/50 text-xs transition-colors hover:text-white"
+          >
+            YouTube ↗
+          </a>
+        </span>
+      </div>
     </figure>
   );
 }

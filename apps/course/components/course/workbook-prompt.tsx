@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLesson } from "@/components/course/lesson-context";
-import { getResponse, saveResponse } from "@/components/course/responses";
 import { useMounted } from "@/components/course/use-mounted";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
 
 /**
@@ -27,33 +27,19 @@ export function WorkbookPrompt({
   const mounted = useMounted();
   const { data: session, isPending } = useSession();
   const lesson = useLesson();
-  const [text, setText] = useState("");
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
-    "idle",
-  );
+  const { value: saved, save: persist } = useWorkbookResponse<{
+    text?: string;
+    prompt?: string;
+  }>("note", id, `note:${id}`);
 
-  const key = `note:${id}`;
-  useEffect(() => {
-    if (!session) return;
-    let cancelled = false;
-    getResponse<{ text?: string }>(key).then((saved) => {
-      if (cancelled || !saved?.text) return;
-      setText(saved.text);
-      setStatus("saved");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, key]);
+  const [text, setText] = useState(saved?.text ?? "");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
+    saved?.text ? "saved" : "idle",
+  );
 
   async function save() {
     setStatus("saving");
-    const ok = await saveResponse(
-      "note",
-      id,
-      { text: text.trim(), prompt },
-      lesson,
-    );
+    const ok = await persist({ text: text.trim(), prompt });
     setStatus(ok ? "saved" : "error");
   }
 
@@ -62,7 +48,10 @@ export function WorkbookPrompt({
   )}`;
 
   return (
-    <div className="not-prose my-8 rounded-md border border-white/[0.08] bg-white/[0.015] p-5">
+    <div
+      id={`wb-${id}`}
+      className="not-prose my-8 scroll-mt-28 rounded-md border border-white/[0.08] bg-white/[0.015] p-5"
+    >
       <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
         Workbook
       </p>

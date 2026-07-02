@@ -378,12 +378,83 @@ And if you're happy to share it — where are you starting from?
       explain:
         "The finish line is cultural, not numeric: the machine runs on a cadence that no longer needs the plan. Checklists and hires are means; the operating rhythm is the outcome.",
     },
+    {
+      q: "It's day 20 of the Measure phase. An engineer proposes pausing the dashboard to build a schema registry and event pipeline 'so the data is right forever'. The plan's read:",
+      options: [
+        "That's tooling work quietly traded for growth work — thirty days is enough to measure a funnel honestly, not to build a data platform",
+        "Good call — trustworthy data is the phase's whole goal, so more infrastructure is better",
+        "Fine, as long as the registry ships before the day-30 gate",
+        "Skip the dashboard entirely — replays and alerts are enough to exit the phase",
+      ],
+      answer: 0,
+      explain:
+        "The Measure phase's named anti-pattern is instrumenting forever. The exit criteria need a trusted funnel read, not a data platform — a schema registry in week three delays the read without improving it.",
+    },
+    {
+      q: "You're starting the Keep phase with time for exactly one journey this week. For almost every product, the plan says build:",
+      options: [
+        "Win-back first — dormant users are the most neglected segment",
+        "Dunning first — it's the fastest revenue win in the whole course",
+        "Welcome + onboarding nudge first — the signup-to-activation gap is nearly always the biggest leak",
+        "Whichever journey is easiest to ship, to build momentum",
+      ],
+      answer: 2,
+      explain:
+        "Journeys are ordered by expected impact, and the biggest leak for almost every product sits between signup and activation. Dunning really is the fastest revenue win — which is why it's second, not first.",
+    },
+    {
+      q: "Day 75: your Meta campaign is live, but EMQ is sitting at 3 and some conversion events aren't arriving. Your cofounder wants to triple the budget while momentum is high. The plan says:",
+      options: [
+        "Triple it — more volume will raise EMQ on its own",
+        "Hold spend flat and shift the week to fresh creative testing",
+        "Kill paid entirely and pivot to content and launches",
+        "Fix conversion quality first — with low EMQ the platform optimises on noise, and the tuition comes out of your budget",
+      ],
+      answer: 3,
+      explain:
+        "The Grow phase's anti-pattern is scaling spend before the measurement is trustworthy. A day spent on conversion quality routinely beats a week of creative testing, because the algorithm can only optimise on what it can see.",
+    },
+    {
+      q: "You're pre-launch with no users yet. How does the plan change?",
+      options: [
+        "Same sequence — phase 1 becomes 'instrument before launch' and phase 3 becomes launch channels rather than paid scaling",
+        "Skip straight to phase 3 — measurement means nothing until you have users",
+        "Run phases 1 and 3 in parallel, then add retention work after launch",
+        "It doesn't apply until you have product-market fit",
+      ],
+      answer: 0,
+      explain:
+        "The plan is stage-agnostic even though the targets aren't: the one thing worth protecting is the order, because each phase's exit criteria are the next phase's entry requirements.",
+    },
+    {
+      q: "At the day-30 gate review, which of these tells you you're ready to leave the Measure phase?",
+      options: [
+        "The dashboard has a chart for every event in the tracking plan",
+        "You can say, with numbers, where the funnel loses the most people, roughly what week-4 retention is, and which PMF phase you're in",
+        "PostHog has collected a full 30 days of data",
+        "Every teammate has logged into PostHog at least once",
+      ],
+      answer: 1,
+      explain:
+        "The gate is three sayable sentences, not chart volume — echoing YC's point that a startup's first analytics problem is trusting what the few important charts say, not producing more of them.",
+    },
   ]}
 />
 
 ---
 
 ## Go deeper
+
+<PodcastLink
+  id="lenny-kohavi-ab-testing"
+  title="The ultimate guide to A/B testing"
+  show="Lenny's Podcast"
+  guest="Ronny Kohavi"
+  note="The Compound phase's experimentation rigor, from the person who ran experimentation at Microsoft, Amazon, and Airbnb — trust, invalid results, and when not to test at all."
+  spotify="https://open.spotify.com/episode/3vD3c87FT7RKnvZUJRwOb4"
+  youtube="https://youtu.be/hEzpiDuYFoE"
+  apple="https://podcasts.apple.com/us/podcast/the-ultimate-guide-to-a-b-testing-ronny-kohavi/id1627920305?i=1000622516586"
+/>
 
 - [Reforge — Succeed in your new growth leadership role](https://www.reforge.com/guides/succeed-in-your-new-growth-leadership-role) — the professional version of this plan: learn the data, early wins, then scale.
 - [Delivering Value — the Head of Growth 90-day plan](https://deliveringvalue.co/growth-essays/head-of-growth) — an operator's 30/60/90 with milestones, good for calibrating yours.
