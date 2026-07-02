@@ -20,11 +20,11 @@ const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Docs", href: "/docs" },
 ];
 
-type MenuItem = { label: string; description: string; href: string };
-type MenuFooter = { label: string; href: string };
+export type MenuItem = { label: string; description: string; href: string };
+export type MenuFooter = { label: string; href: string };
 
 /** Items in the "Use cases" dropdown (and the mobile panel's second group). */
-const USE_CASE_LINKS: MenuItem[] = [
+export const USE_CASE_LINKS: MenuItem[] = [
   {
     label: "Onboarding",
     description: "Welcome flows that branch on what new users actually do.",
@@ -58,7 +58,7 @@ const USE_CASE_LINKS: MenuItem[] = [
 ];
 
 /** Items in the "Recipes" dropdown — the eight catalog categories. */
-const RECIPE_LINKS: MenuItem[] = [
+export const RECIPE_LINKS: MenuItem[] = [
   {
     label: "Onboarding",
     description: "Welcome series, activation milestones, waitlists.",
@@ -174,23 +174,31 @@ function DownloadNavLink({
 /**
  * A center-nav item that opens a hover/focus mega panel. The trigger itself
  * still navigates (to the section or index), so it works without a pointer.
+ * `triggerClassName` lets a host nav (the landing PsNav) restyle the trigger
+ * to its own link idiom without forking the panel.
  */
-function NavDropdown({
+export function NavDropdown({
   label,
   triggerHref,
   items,
   footer,
+  triggerClassName,
 }: {
   label: string;
   triggerHref: string;
   items: MenuItem[];
   footer: MenuFooter;
+  triggerClassName?: string;
 }): JSX.Element {
   return (
     <li className="group relative">
       <Link
         href={triggerHref}
-        className="flex items-center gap-1 rounded text-[15px] tracking-[-0.02em] text-white/90 outline-none transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-accent"
+        className={cn(
+          "flex items-center gap-1 rounded outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          triggerClassName ??
+            "text-[15px] tracking-[-0.02em] text-white/90 transition-colors hover:text-white",
+        )}
       >
         {label}
         <ChevronDown
@@ -325,7 +333,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             <GitHubMark className="size-5" />
           </a>
           <DownloadNavLink size="size-9" />
-          <NavBell align="end" />
+          <NavBell align="end" variant="plain" />
           <Button href="/docs/getting-started" variant="outline" icon>
             Start building
           </Button>
@@ -352,7 +360,7 @@ export function SiteNav({ className }: { className?: string }): JSX.Element {
             <GitHubMark className="size-5" />
           </a>
           <DownloadNavLink size="size-10" />
-          <NavBell align="end" />
+          <NavBell align="end" variant="plain" />
           <button
             type="button"
             aria-label={menuOpen ? "Close menu" : "Open menu"}

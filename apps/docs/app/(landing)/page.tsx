@@ -9,11 +9,9 @@ import { CopyButton } from "@/components/ds/copy-button";
 import { LogoMarquee } from "@/components/ds/marquee";
 import { Reveal } from "@/components/ds/reveal";
 import { isHogsendConfigured } from "@/components/hogsend/config";
-import { NavBell } from "@/components/hogsend/nav-bell";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
 import { cn } from "@/lib/cn";
 import {
-  DISCORD_INVITE_URL,
   ENGINE_VERSION,
   GITHUB_URL,
   NPM_URL,
@@ -22,11 +20,13 @@ import {
 import studioJourneys from "@/public/images/studio/studio-journeys.png";
 import studioSends from "@/public/images/studio/studio-sends.png";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
+import { InkLogo } from "./_components/brand";
 import {
   type ProviderValue,
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { PsNav } from "./_components/nav";
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
@@ -48,10 +48,10 @@ import { WordReveal } from "./_components/word-reveal";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Hogsend — The lifecycle email layer PostHog doesn't have yet",
+    absolute: "Hogsend — Marketing automation for teams that code",
   },
   description:
-    "Welcome series, trial nudges, win-backs, payment saves — running from your repo on PostHog and product events, sent through your own Resend or Postmark account. Free to self-host.",
+    "Lifecycle marketing as TypeScript in your repo — welcome series, trial nudges, win-backs, payment saves — triggered by PostHog and product events, sent across email, Discord, Slack, and in-app. Free to self-host.",
 };
 
 const DISPLAY = "[font-family:var(--ps-display)]";
@@ -146,31 +146,6 @@ function InlinePill({ children }: { children: ReactNode }) {
   );
 }
 
-/** Monochrome Hogsend lockup — rendered single-colour, white on ink. The
- * `light` prop is vestigial from the light spike (both grounds are dark now). */
-function InkLogo({ light: _light }: { light?: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-2 text-white">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        className="size-[18px]"
-      >
-        <path d="M3.5 12 20 4.5 14 20l-3.2-6.4L3.5 12Z" fill="currentColor" />
-      </svg>
-      <span
-        className={cn(
-          "font-semibold text-[17px] leading-none tracking-[-0.02em]",
-          DISPLAY,
-        )}
-      >
-        Hogsend
-      </span>
-    </span>
-  );
-}
-
 /* ----------------------------------------------------------- decorations -- */
 
 /** Fanned contour lines with a slow dash-drift — the abstract "ad-lib"
@@ -240,94 +215,6 @@ function DotPatch({ className }: { className?: string }) {
         backgroundSize: "9px 9px",
       }}
     />
-  );
-}
-
-/** GitHub mark (inline, from the main SiteNav treatment). */
-function GitHubMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-      className={className}
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.009-.868-.014-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.31.678.921.678 1.856 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.523 2 12 2Z"
-      />
-    </svg>
-  );
-}
-
-/** Discord mark (inline, matches the GitHub mark's treatment). */
-function DiscordMark({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden="true"
-      className={className}
-    >
-      <path d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.369a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03ZM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418Zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418Z" />
-    </svg>
-  );
-}
-
-/* ------------------------------------------------------------------ nav -- */
-
-const NAV_LINKS = [
-  { label: "Use Cases", href: "/use-cases/onboarding" },
-  { label: "Pricing", href: "/pricing" },
-  { label: "Docs", href: "/docs" },
-  { label: "Changelog", href: "/changelog" },
-];
-
-function PsNav() {
-  return (
-    <header className="sticky top-0 z-50 border-[#f6483833] border-b bg-[#050101]/85 backdrop-blur">
-      <Container className="flex h-[54px] items-center justify-between">
-        <div className="flex items-center gap-8">
-          <Link href="/">
-            <InkLogo />
-          </Link>
-          <nav className="hidden items-center gap-5 md:flex">
-            {NAV_LINKS.map((l) => (
-              <Link
-                key={l.label}
-                href={l.href}
-                className="font-medium text-white text-sm tracking-[-0.025em] hover:opacity-70"
-              >
-                {l.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* The REAL nav bell — the live in-app feed entry point. Renders
-              nothing when no engine is wired (isHogsendConfigured gate). */}
-          <NavBell align="end" />
-          <a
-            href={GITHUB_URL}
-            aria-label="GitHub"
-            className="hidden size-8 items-center justify-center rounded-[6px] border border-white/10 text-white/75 transition-colors hover:border-white/30 hover:text-white sm:inline-flex"
-          >
-            <GitHubMark className="size-4" />
-          </a>
-          <a
-            href={DISCORD_INVITE_URL}
-            aria-label="Discord"
-            className="hidden size-8 items-center justify-center rounded-[6px] border border-white/10 text-white/75 transition-colors hover:border-white/30 hover:text-white sm:inline-flex"
-          >
-            <DiscordMark className="size-4" />
-          </a>
-          <Btn href="/docs/getting-started" className="ml-1">
-            Start building
-          </Btn>
-        </div>
-      </Container>
-    </header>
   );
 }
 
@@ -524,10 +411,11 @@ function PsHero() {
         >
           Hogsend acts on what PostHog sees.
         </h1>
-        <p className="mt-6 max-w-[600px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
+        <p className="mt-6 max-w-[640px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
           Lifecycle marketing as TypeScript in your repo — the welcome series,
-          trial nudges, and win-backs that keep users, sent through your own
-          Resend or Postmark account.
+          trial nudges, and win-backs that keep users. Email goes through your
+          own Resend or Postmark; the same journeys reach Discord, Slack, and
+          the in-app feed.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -788,6 +676,120 @@ function PsProblem() {
               <p className="mt-2 max-w-[300px] text-white/55 text-sm leading-[21px] tracking-[-0.02em]">
                 {p.body}
               </p>
+            </div>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------- playbook -- */
+
+/** The lifecycle loop, spelled out as the four things you actually do. Each
+ * step links to the lander that goes deep on it. */
+const PLAYBOOK_STEPS = [
+  {
+    title: "Name the moments",
+    body: (
+      <>
+        <code className="font-mono text-[13px] text-white/75">signed_up</code>,{" "}
+        <code className="font-mono text-[13px] text-white/75">
+          project.created
+        </code>
+        ,{" "}
+        <code className="font-mono text-[13px] text-white/75">
+          invoice.payment_failed
+        </code>
+        , quiet for 14 days. PostHog and your product emit most of these
+        already; buckets detect the quiet ones.
+      </>
+    ),
+    link: { label: "Event naming guide →", href: "/event-naming" },
+  },
+  {
+    title: "Write the responses",
+    body: (
+      <>
+        Each response is a journey — a TypeScript function that sends what the
+        moment calls for: an email to the user, a DM in Discord, a Slack ping to
+        your team, an item in the in-app feed. One journey can do all four.
+      </>
+    ),
+    link: { label: "Browse 35 recipes →", href: "/recipes" },
+  },
+  {
+    title: "Watch it work",
+    body: (
+      <>
+        Every send, open, click, and answer lands back on the contact and in
+        PostHog, so a journey charts like any other funnel — you can look at
+        last month&rsquo;s welcome series and see what it converted.
+      </>
+    ),
+    link: { label: "Growth metrics guide →", href: "/growth-metrics" },
+  },
+  {
+    title: "Tweak and re-run",
+    body: (
+      <>
+        A journey is a few dozen lines, so a change is a small diff — move the
+        nudge from day 3 to day 5, rewrite the subject, add a branch. Git keeps
+        every version that ever ran, and an agent can write the diff; your
+        review process still applies.
+      </>
+    ),
+    link: { label: "Built for agents →", href: "/fire-and-forget" },
+  },
+];
+
+function PsPlaybook() {
+  return (
+    <section id="lifecycle" className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-28">
+        <Eyebrow>Lifecycle marketing</Eyebrow>
+
+        <div className="mt-8 flex flex-col justify-between gap-10 lg:flex-row">
+          <h2
+            className={cn(
+              "max-w-[620px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">Lifecycle marketing, spelled out</span>{" "}
+            <span className="text-white/40">
+              — the loop a growth team runs.
+            </span>
+          </h2>
+
+          <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
+            A user signs up, tries the product, and either sticks or drifts.
+            Each of those moments has a right response — a welcome minutes after
+            signup, a nudge when a trial stalls, a win-back when a regular goes
+            quiet. Sending the response automatically, per person, on the right
+            channel is the whole discipline. PostHog already records the
+            moments; Hogsend is where you write what happens next.
+          </p>
+        </div>
+
+        <div className="mt-14 grid grid-cols-1 gap-x-10 gap-y-12 md:grid-cols-2 lg:grid-cols-4">
+          {PLAYBOOK_STEPS.map((step, i) => (
+            <div key={step.title} className="border-white/10 border-t pt-6">
+              <span className="font-mono text-[#f64838] text-[13px]">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <h3 className="mt-3 font-medium text-base text-white tracking-[-0.025em]">
+                {step.title}
+              </h3>
+              <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                {step.body}
+              </p>
+              <Link
+                href={step.link.href}
+                className="mt-3 inline-block text-[13px] text-white/75 tracking-[-0.02em] transition-colors hover:text-white"
+              >
+                {step.link.label}
+              </Link>
             </div>
           ))}
         </div>
@@ -2552,40 +2554,72 @@ const USE_CASES = [
   {
     title: "Welcome / onboarding",
     body: "Greet people the moment they sign up, then branch on whether they've actually tried anything yet.",
+    href: "/use-cases/onboarding",
   },
   {
     title: "Activation nudge",
     body: "Drive the one action most correlated with sticking around — before the trial clock runs out.",
+    href: "/recipes/category/onboarding",
   },
   {
     title: "Feature adoption",
     body: "Most churn is a feature users never found. Surface the one they're missing.",
+    href: "/recipes/category/onboarding",
   },
   {
     title: "Trials that convert",
     body: "Match the ask to how much they've really used, not the day on the calendar.",
+    href: "/use-cases/trial-conversion",
   },
   {
     title: "Payment saves",
     body: "Involuntary churn is the biggest leak you can plug. Remind, and stop the moment it clears.",
+    href: "/recipes/category/conversion",
   },
   {
     title: "Win-backs",
     body: "You already paid to acquire them once — winning them back costs a fraction of a new signup.",
+    href: "/use-cases/winback",
   },
   {
     title: "Milestones",
     body: "Celebrate progress and reinforce the habit at the moments value actually lands.",
+    href: "/recipes/category/retention",
   },
   {
     title: "Referrals",
     body: "Ask for the referral at the moment value lands, when they're most likely to say yes.",
+    href: "/recipes",
+  },
+];
+
+/** The four full landers, surfaced. Descriptions are the nav mega-panel's. */
+const USE_CASE_DEEP_DIVES = [
+  {
+    title: "Onboarding",
+    body: "Welcome flows that branch on what new users actually do.",
+    href: "/use-cases/onboarding",
+  },
+  {
+    title: "Trial conversion",
+    body: "Usage-driven nudges that stop the moment they pay.",
+    href: "/use-cases/trial-conversion",
+  },
+  {
+    title: "Win-back",
+    body: "Spot who's gone quiet and bring them back.",
+    href: "/use-cases/winback",
+  },
+  {
+    title: "Community",
+    body: "Read Discord activity off the same contact as your product.",
+    href: "/use-cases/community",
   },
 ];
 
 function PsUseCases() {
   return (
-    <section className="relative border-[#f6483826] border-t">
+    <section id="use-cases" className="relative border-[#f6483826] border-t">
       <Container className="pt-16 pb-28">
         <Eyebrow>Use cases</Eyebrow>
         <h2
@@ -2595,17 +2629,22 @@ function PsUseCases() {
           )}
         >
           <span className="text-white">
-            The emails every product should send
+            The messages every product should send
           </span>{" "}
-          <span className="text-white/40">— ten ship in the scaffold.</span>
+          <span className="text-white/40">
+            — ten journeys ship in the scaffold.
+          </span>
         </h2>
 
-        {/* The event-fanning card idiom: tinted panels, lead + gray rest. */}
+        {/* The event-fanning card idiom: tinted panels, lead + gray rest —
+            each card now links to the lander or recipe category that covers
+            it. */}
         <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {USE_CASES.map((u, i) => (
-            <div
+            <Link
               key={u.title}
-              className="p-6"
+              href={u.href}
+              className="group p-6 transition-colors hover:bg-white/[0.07]"
               style={{
                 background:
                   i % 2 === 0
@@ -2615,11 +2654,56 @@ function PsUseCases() {
             >
               <p className="text-[14.5px] leading-[22px] tracking-[-0.02em]">
                 <span className="font-medium text-white">{u.title}.</span>{" "}
-                <span className="text-white/55">{u.body}</span>
+                <span className="text-white/55">{u.body}</span>{" "}
+                <span
+                  aria-hidden="true"
+                  className="text-white/40 transition-colors group-hover:text-white"
+                >
+                  →
+                </span>
               </p>
-            </div>
+            </Link>
           ))}
         </div>
+
+        {/* The four deep-dive landers — full pages, one per use case. */}
+        <div className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {USE_CASE_DEEP_DIVES.map((d) => (
+            <Link
+              key={d.href}
+              href={d.href}
+              className="group rounded-[6px] border border-white/10 p-6 transition-colors hover:border-[#f64838]/60"
+            >
+              <span className="font-mono text-[11px] text-white/40 uppercase tracking-[0.08em]">
+                Deep dive
+              </span>
+              <h3 className="mt-2 font-medium text-base text-white tracking-[-0.025em]">
+                {d.title}{" "}
+                <span
+                  aria-hidden="true"
+                  className="text-white/40 transition-colors group-hover:text-[#f64838]"
+                >
+                  →
+                </span>
+              </h3>
+              <p className="mt-1.5 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                {d.body}
+              </p>
+            </Link>
+          ))}
+        </div>
+
+        <p className="mt-10 text-sm text-white/55 tracking-[-0.02em]">
+          Every journey here sends one of{" "}
+          <Link href="/emails" className="font-medium text-white">
+            13 React Email templates in the scaffold →
+          </Link>{" "}
+          <span className="text-white/30">·</span> copy-paste variants for all
+          of these live in the{" "}
+          <Link href="/recipes" className="font-medium text-white">
+            35-recipe cookbook →
+          </Link>
+        </p>
       </Container>
     </section>
   );
@@ -2951,8 +3035,11 @@ export default function HomePage(): JSX.Element {
       <PsHero />
       <PsProofStrip />
       <PsProblem />
+      <PsPlaybook />
       <PsFanning />
+      <PsUseCases />
       <PsStats />
+      <PsRepo />
       <PsAgents />
       <PsCode />
       <PsSetup />
@@ -2962,10 +3049,8 @@ export default function HomePage(): JSX.Element {
       <PsOpen />
       <PsFeatures />
       <PsLoop />
-      <PsRepo />
       <PsHatchet />
       <PsEconomics />
-      <PsUseCases />
       <PsFaq />
       <PsClosingCta />
       <PsFooter />
