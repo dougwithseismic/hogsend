@@ -33,7 +33,8 @@
     "react-dom": "^19.2.7",
     "resend": "^6.12.3",
     "stripe": "^22.3.0",
-    "tailwind-merge": "^3.0.1"
+    "tailwind-merge": "^3.0.1",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",

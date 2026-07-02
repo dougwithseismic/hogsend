@@ -10,10 +10,11 @@ import { itemState, type WorkbookItem, workbookProgress } from "@/lib/workbook";
 
 /**
  * The /workbook-page companions to the real lesson blocks: a live per-course
- * progress header, a quiz row (scores are earned in the lesson, not edited
- * here), and a media row with an inline watched/listened toggle. All read the
- * shared workbook store, so inline edits elsewhere on the page tick them over
- * immediately.
+ * progress header, a sticky chapter jump-nav with live per-chapter counts, a
+ * per-chapter meter, a quiz row (scores are earned in the lesson, not edited
+ * here), and the "Watch & listen" media cluster with inline toggles. All read
+ * the shared workbook store, so inline edits elsewhere on the page tick them
+ * over immediately.
  */
 
 export function WorkbookCourseProgress({ items }: { items: WorkbookItem[] }) {
@@ -31,6 +32,58 @@ export function WorkbookCourseProgress({ items }: { items: WorkbookItem[] }) {
       </div>
       <ProgressBar value={done} max={total} className="mt-2" />
     </div>
+  );
+}
+
+/**
+ * Sticky chapter strip under the site nav: one pill per chapter with its live
+ * done-count, linking to the chapter's section anchor. The chapter number is
+ * enough at this size — the full titles live in the sections themselves.
+ */
+export function WorkbookJumpNav({
+  chapters,
+}: {
+  chapters: Array<{ anchor: string; num: string; items: WorkbookItem[] }>;
+}) {
+  const values = useWorkbookValues();
+  return (
+    <nav
+      aria-label="Workbook chapters"
+      className="-mx-6 sticky top-20 z-30 border-white/[0.08] border-y bg-black/80 px-6 py-2 backdrop-blur"
+    >
+      <div className="flex items-center gap-1.5 overflow-x-auto">
+        {chapters.map((chapter) => {
+          const { done, total } = workbookProgress(chapter.items, values);
+          const complete = done === total && total > 0;
+          return (
+            <a
+              key={chapter.anchor}
+              href={`#${chapter.anchor}`}
+              className="flex shrink-0 items-baseline gap-1.5 rounded-[8px] border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-xs transition-colors hover:border-white/25"
+            >
+              <span className="font-medium text-white/80">{chapter.num}</span>
+              <span className={complete ? "text-good" : "text-white/40"}>
+                {complete ? "✓" : `${done}/${total}`}
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+/** Compact live "n/m done" for a chapter-section header. */
+export function WorkbookChapterMeter({ items }: { items: WorkbookItem[] }) {
+  const values = useWorkbookValues();
+  const { done, total } = workbookProgress(items, values);
+  if (total === 0) return null;
+  return done === total ? (
+    <span className="whitespace-nowrap text-good text-xs">All done ✓</span>
+  ) : (
+    <span className="whitespace-nowrap text-white/40 text-xs">
+      {done}/{total} done
+    </span>
   );
 }
 
@@ -70,13 +123,38 @@ export function WorkbookQuizRow({
   );
 }
 
-export function WorkbookMediaRow({
-  item,
-  href,
+/**
+ * A chapter's videos + podcasts as one compact card — a third of the workbook
+ * is media, so these render as tight check-off rows instead of full blocks.
+ * Must render inside a `LessonProvider` (the toggle saves need the lesson).
+ */
+export function WorkbookMediaCluster({
+  items,
+  url,
 }: {
-  item: WorkbookItem;
-  href: string;
+  items: WorkbookItem[];
+  url: string;
 }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="not-prose my-4 rounded-md border border-white/[0.08] bg-white/[0.015]">
+      <p className="border-white/[0.06] border-b px-4 py-2.5 font-medium text-[11px] text-white/45 uppercase tracking-[0.14em]">
+        Watch &amp; listen
+      </p>
+      <div className="divide-y divide-white/[0.06]">
+        {items.map((item) => (
+          <MediaClusterRow
+            key={item.key}
+            item={item}
+            href={`${url}#${item.anchor}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MediaClusterRow({ item, href }: { item: WorkbookItem; href: string }) {
   const { value, save } = useWorkbookResponse<{
     done?: boolean;
     media?: "video" | "podcast";
@@ -86,7 +164,7 @@ export function WorkbookMediaRow({
   const verb = item.media === "podcast" ? "Listened" : "Watched";
 
   return (
-    <div className="not-prose my-4 flex items-center gap-3 rounded-md border border-white/[0.08] bg-white/[0.015] p-4">
+    <div className="flex items-center gap-3 px-4 py-3">
       <button
         type="button"
         aria-pressed={done}
