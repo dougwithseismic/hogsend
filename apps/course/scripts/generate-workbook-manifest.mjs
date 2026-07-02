@@ -1,0 +1,160 @@
+// Generates lib/workbook-manifest.generated.json — the per-lesson inventory of
+// interactive blocks (WorkbookPrompt / CheckIn / Checklist / Quiz / VideoEmbed /
+// PodcastLink) parsed straight from the course MDX. The manifest is what lets
+// the chapter callout, the end-of-chapter recap, and /workbook know which
+// answers COULD exist (and ghost the ones that don't yet), without shipping an
+// MDX parser to the server. Runs before build / check-types (see package.json),
+// so it can't drift from the content; it THROWS on any block it can't parse
+// rather than silently omitting it.
+//
+// Keys mirror /api/responses exactly:
+//   note:<id> · profile:<id> · checklist:<id> · quiz:<course>/<lesson> · media:<id>
+// Anchors mirror the DOM ids the block components render (wb-…).
+
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { remark } from "remark";
+import remarkMdx from "remark-mdx";
+import { visit } from "unist-util-visit";
+
+const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const contentDir = join(appDir, "content/courses");
+const outFile = join(appDir, "lib/workbook-manifest.generated.json");
+
+const parser = remark().use(remarkMdx);
+
+/** Read a JSX attribute off an mdxJsxFlowElement: string literals as-is,
+ *  expression values ({[…]}, {2}) evaluated — build-time, our own content. */
+function attr(node, name, file) {
+  const found = (node.attributes ?? []).find(
+    (a) => a.type === "mdxJsxAttribute" && a.name === name,
+  );
+  if (!found || found.value == null) return undefined;
+  if (typeof found.value === "string") return found.value;
+  if (found.value.type === "mdxJsxAttributeValueExpression") {
+    try {
+      // eslint-disable-next-line no-new-func
+      return new Function(`return (${found.value.value});`)();
+    } catch (err) {
+      throw new Error(
+        `${file}: could not evaluate <${node.name} ${name}={…}>: ${err}`,
+      );
+    }
+  }
+  return undefined;
+}
+
+function requireAttr(node, name, file) {
+  const value = attr(node, name, file);
+  if (value === undefined) {
+    throw new Error(`${file}: <${node.name}> is missing required "${name}"`);
+  }
+  return value;
+}
+
+/** One lesson MDX file → its ordered workbook items. */
+function extractItems(filePath, course, lesson) {
+  const tree = parser.parse(readFileSync(filePath, "utf8"));
+  const items = [];
+
+  visit(tree, "mdxJsxFlowElement", (node) => {
+    switch (node.name) {
+      case "WorkbookPrompt": {
+        const id = requireAttr(node, "id", filePath);
+        items.push({
+          kind: "note",
+          key: `note:${id}`,
+          anchor: `wb-${id}`,
+          label: requireAttr(node, "prompt", filePath),
+        });
+        break;
+      }
+      case "CheckIn": {
+        const id = requireAttr(node, "id", filePath);
+        items.push({
+          kind: "profile",
+          key: `profile:${id}`,
+          anchor: `wb-${id}`,
+          label: requireAttr(node, "question", filePath),
+        });
+        break;
+      }
+      case "Checklist": {
+        const id = requireAttr(node, "id", filePath);
+        const list = requireAttr(node, "items", filePath);
+        items.push({
+          kind: "checklist",
+          key: `checklist:${id}`,
+          anchor: `wb-${id}`,
+          label: attr(node, "title", filePath) ?? "Checklist",
+          itemCount: Array.isArray(list) ? list.length : 0,
+        });
+        break;
+      }
+      case "Quiz": {
+        const questions = requireAttr(node, "questions", filePath);
+        items.push({
+          kind: "quiz",
+          key: `quiz:${course}/${lesson}`,
+          anchor: "wb-quiz",
+          label: attr(node, "title", filePath) ?? "Check your understanding",
+          itemCount: Array.isArray(questions) ? questions.length : 0,
+        });
+        break;
+      }
+      case "VideoEmbed": {
+        const id = requireAttr(node, "id", filePath);
+        items.push({
+          kind: "media",
+          key: `media:${id}`,
+          anchor: `wb-media-${id}`,
+          label: requireAttr(node, "title", filePath),
+          media: "video",
+        });
+        break;
+      }
+      case "PodcastLink": {
+        const id = requireAttr(node, "id", filePath);
+        items.push({
+          kind: "media",
+          key: `media:${id}`,
+          anchor: `wb-media-${id}`,
+          label: requireAttr(node, "title", filePath),
+          media: "podcast",
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  });
+
+  return items;
+}
+
+const manifest = {};
+for (const course of readdirSync(contentDir).sort()) {
+  const courseDir = join(contentDir, course);
+  if (!statSync(courseDir).isDirectory()) continue;
+  const lessons = {};
+  for (const file of readdirSync(courseDir).sort()) {
+    if (!file.endsWith(".mdx")) continue;
+    const lesson = file.replace(/\.mdx$/, "");
+    const items = extractItems(join(courseDir, file), course, lesson);
+    if (items.length > 0) lessons[lesson] = items;
+  }
+  if (Object.keys(lessons).length > 0) manifest[course] = lessons;
+}
+
+// Note: the same key MAY appear in more than one lesson on purpose — chapter 10
+// re-renders note:activation-sentence so the chapter-2 draft pre-fills there.
+// Display surfaces dedupe by key; the manifest records every render site.
+
+writeFileSync(outFile, `${JSON.stringify(manifest, null, 2)}\n`);
+const total = Object.values(manifest)
+  .flatMap((lessons) => Object.values(lessons))
+  .reduce((n, items) => n + items.length, 0);
+console.log(
+  `workbook manifest: ${total} items across ${Object.keys(manifest).length} course(s) -> ${outFile}`,
+);

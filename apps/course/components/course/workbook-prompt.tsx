@@ -62,7 +62,10 @@ export function WorkbookPrompt({
   )}`;
 
   return (
-    <div className="not-prose my-8 rounded-md border border-white/[0.08] bg-white/[0.015] p-5">
+    <div
+      id={`wb-${id}`}
+      className="not-prose my-8 scroll-mt-28 rounded-md border border-white/[0.08] bg-white/[0.015] p-5"
+    >
       <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
         Workbook
       </p>

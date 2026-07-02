@@ -27,7 +27,7 @@ export function VideoEmbed({
   const [playing, setPlaying] = useState(false);
 
   return (
-    <figure className="not-prose my-8">
+    <figure id={`wb-media-${id}`} className="not-prose my-8 scroll-mt-28">
       <div className="relative aspect-video overflow-hidden rounded-md border border-white/[0.08] bg-black">
         {playing ? (
           <iframe

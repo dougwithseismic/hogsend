@@ -57,7 +57,10 @@ export function Checklist({
   const done = checked.length;
 
   return (
-    <div className="not-prose my-8 rounded-md border border-white/[0.08] bg-white/[0.015] p-5">
+    <div
+      id={`wb-${id}`}
+      className="not-prose my-8 scroll-mt-28 rounded-md border border-white/[0.08] bg-white/[0.015] p-5"
+    >
       <div className="flex items-baseline justify-between gap-3">
         <p className="font-medium text-base text-white">
           {title ?? "Checklist"}
