@@ -162,3 +162,88 @@ export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
     </section>
   );
 }
+
+/**
+ * End-of-chapter recap: what got done and what's still open, each open item a
+ * jump-back link. All-done flips to a celebratory strip. Lives with the lesson
+ * footer, so "what's left" is the last thing a reader sees before moving on.
+ */
+export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
+  const lesson = useLesson();
+  const values = useWorkbookValues();
+  if (!lesson) return null;
+
+  const items = dedupeByKey(lessonWorkbookItems(lesson.course, lesson.lesson));
+  if (items.length === 0) return null;
+
+  const map = new Map(Object.entries(values ?? {}));
+  const open = items.filter(
+    (item) => itemState(item, map.get(item.key) ?? null).status !== "done",
+  );
+  const doneCount = items.length - open.length;
+  const allDone = signedIn && open.length === 0;
+
+  return (
+    <section
+      aria-label="Chapter recap"
+      className={
+        allDone
+          ? "not-prose mt-12 rounded-md border border-good/40 bg-good-tint p-5"
+          : "not-prose mt-12 rounded-md border border-white/[0.08] bg-white/[0.015] p-5"
+      }
+    >
+      {allDone ? (
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+          <p className="font-medium text-base text-white">
+            ✓ Chapter workbook complete — all {items.length} items done
+          </p>
+          <a
+            href="/workbook"
+            className="text-sm text-white/70 underline transition-colors hover:text-white"
+          >
+            Review it in your workbook →
+          </a>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
+              Before you move on
+            </p>
+            {signedIn ? (
+              <span className="whitespace-nowrap text-sm text-white/50">
+                {doneCount}/{items.length} done
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-2 text-sm text-white/55 leading-relaxed">
+            {signedIn
+              ? "Still open in this chapter — each one saves to your workbook:"
+              : "This chapter's workbook items — sign in free and they save as you go:"}
+          </p>
+          <ul className="mt-3 flex flex-col">
+            {open.map((item) => (
+              <WorkbookItemRow
+                key={item.key}
+                item={item}
+                value={map.get(item.key) ?? null}
+                href={`#${item.anchor}`}
+              />
+            ))}
+          </ul>
+          {signedIn && doneCount > 0 ? (
+            <p className="mt-3 text-sm text-white/40">
+              ✓ {doneCount} already done —{" "}
+              <a
+                href="/workbook"
+                className="underline transition-colors hover:text-white/70"
+              >
+                see them in your workbook
+              </a>
+            </p>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}

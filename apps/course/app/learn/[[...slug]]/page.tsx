@@ -11,7 +11,10 @@ import { notFound } from "next/navigation";
 import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
 import { Paywall } from "@/components/auth/paywall";
-import { ChapterWorkbook } from "@/components/course/chapter-workbook";
+import {
+  ChapterRecap,
+  ChapterWorkbook,
+} from "@/components/course/chapter-workbook";
 import { LessonProvider } from "@/components/course/lesson-context";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { getMDXComponents } from "@/components/mdx";
@@ -119,6 +122,7 @@ export default async function Page(props: {
             <WorkbookStateProvider initial={initialResponses}>
               <ChapterWorkbook signedIn={session !== null} />
               {body}
+              <ChapterRecap signedIn={session !== null} />
               <LessonFooter course={slugs[0]} lesson={lessonSlug} />
             </WorkbookStateProvider>
           </LessonProvider>
