@@ -356,6 +356,45 @@ including mid-sleep. Both layers matter. The `if` makes each message conditional
 exit guarantees the whole program stops the moment its goal is met — Chapter 5's
 suppression rule enforced by the engine rather than by your discipline.
 
+<Flashcards
+  id="cards-hogsend"
+  title="Key ideas — journeys as code"
+  cards={[
+    {
+      front: "The Hogsend loop",
+      back: "An event arrives (backend ingest, webhook source, or PostHog); the engine stores it and routes it to every journey subscribed to that event; the journey runs and fires events back, so the loop is measurable in PostHog.",
+    },
+    {
+      front: "What does durable execution buy you?",
+      back: "The engine persists the journey's position, so a two-day sleep genuinely survives deploys and crashes — a multi-day program stays one readable function instead of cron jobs and database flags rebuilding state by hand.",
+    },
+    {
+      front: "The guardrails in a journey's meta",
+      back: "trigger (the subscribing event, filterable with where), entryLimit (the re-enrollment policy), exitOn (events that end the journey immediately), and suppress (a debounce against bursts of the same trigger).",
+    },
+    {
+      front: "if-check vs exitOn",
+      back: "An if gates one send at a known point; exitOn stops the whole journey at any point, including mid-sleep or mid-wait — Chapter 5's suppression rule enforced by the engine rather than your discipline.",
+    },
+    {
+      front: "The shape that covers most onboarding programs",
+      back: "Sleep, check what happened during the sleep, send only if needed. Every touch is gated on real behaviour, so an active user is left alone and a stuck user gets help.",
+    },
+    {
+      front: "ctx.waitForEvent vs a plain ctx.sleep",
+      back: "waitForEvent races the user's own behaviour against a timeout and returns { timedOut }, so the code branches on what actually happened — a program that listens, not a timer that fires regardless.",
+    },
+    {
+      front: "How do email templates work in a Hogsend app?",
+      back: "React components (React Email) that render to the table-based HTML email clients tolerate, versioned in git with your code. Journeys never concatenate HTML; templates never decide who gets mail.",
+    },
+    {
+      front: "What does ctx.when add over a raw sleep?",
+      back: "Timezone-aware scheduling: sleepUntil(ctx.when.in(days(2)).at(\"09:00\")) lands the day-2 email at 9am in the user's own timezone and respects your send window — not exactly 48 hours after a 2am signup.",
+    },
+  ]}
+/>
+
 ---
 
 ## 6.6 Win-back (Retention)

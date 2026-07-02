@@ -124,6 +124,57 @@ export function WorkbookQuizRow({
 }
 
 /**
+ * Flashcard decks are studied in the lesson (the deck content is chapter
+ * content, which stays behind the paywall) — the workbook shows the live
+ * mastered-count and links out, mirroring the quiz row.
+ */
+export function WorkbookFlashcardsRow({
+  item,
+  href,
+}: {
+  item: WorkbookItem;
+  href: string;
+}) {
+  const values = useWorkbookValues();
+  const value = values?.[item.key] ?? null;
+  const state = itemState(item, value);
+
+  return (
+    <div className="not-prose my-4 flex items-center justify-between gap-4 rounded-md border border-white/[0.08] bg-white/[0.015] p-4">
+      <div className="min-w-0">
+        <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
+          Flashcards
+        </p>
+        <p className="mt-1 truncate text-sm text-white/85">{item.label}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        {state.status === "empty" ? (
+          <span className="text-sm text-white/40">
+            {item.itemCount ? `${item.itemCount} cards` : "Not studied yet"}
+          </span>
+        ) : (
+          <span
+            className={
+              state.status === "done"
+                ? "font-medium text-good text-sm"
+                : "font-medium text-sm text-white"
+            }
+          >
+            {state.detail}
+          </span>
+        )}
+        <Link
+          href={href}
+          className="whitespace-nowrap text-sm text-white/60 underline transition-colors hover:text-white"
+        >
+          {state.status === "done" ? "Review →" : "Study →"}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/**
  * A chapter's videos + podcasts as one compact card — a third of the workbook
  * is media, so these render as tight check-off rows instead of full blocks.
  * Must render inside a `LessonProvider` (the toggle saves need the lesson).

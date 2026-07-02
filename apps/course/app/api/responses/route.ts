@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { response } from "@/lib/db/schema";
 import {
+  emitFlashcardsCompleted,
   emitMediaCompleted,
   emitNoteSaved,
   emitProfileAnswered,
@@ -147,6 +148,31 @@ function parseBody(body: unknown): Saved | { error: string } {
     };
   }
 
+  if (kind === "flashcards") {
+    if (!ID_PATTERN.test(id)) return { error: "bad_request" };
+    const total = value.total;
+    const mastered = value.mastered;
+    if (
+      typeof total !== "number" ||
+      !Number.isInteger(total) ||
+      total < 1 ||
+      total > 60 ||
+      !Array.isArray(mastered) ||
+      mastered.length > total ||
+      !mastered.every(
+        (n) =>
+          typeof n === "number" && Number.isInteger(n) && n >= 0 && n < total,
+      )
+    ) {
+      return { error: "bad_request" };
+    }
+    return {
+      key: `flashcards:${id}`,
+      kind,
+      value: { mastered, total, ...context("title", 160) },
+    };
+  }
+
   return { error: "bad_request" };
 }
 
@@ -230,6 +256,21 @@ export async function POST(req: Request) {
       await emitMediaCompleted(user, {
         id: (raw?.id as string) ?? "",
         media: v.media,
+        title: v.title,
+        course: page ? course : undefined,
+        lesson: page ? lesson : undefined,
+      });
+    }
+  } else if (parsed.kind === "flashcards") {
+    const v = parsed.value as {
+      mastered: number[];
+      total: number;
+      title?: string;
+    };
+    if (v.mastered.length === v.total) {
+      await emitFlashcardsCompleted(user, {
+        id: (raw?.id as string) ?? "",
+        total: v.total,
         title: v.title,
         course: page ? course : undefined,
         lesson: page ? lesson : undefined,

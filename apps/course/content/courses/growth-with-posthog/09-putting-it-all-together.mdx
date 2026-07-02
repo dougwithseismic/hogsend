@@ -164,6 +164,45 @@ quarter; one that depends on someone remembering to look does not.
   note="An ex-Wistia head of growth on the weekly ritual in practice — and how teams drift back into shipping without learning."
 />
 
+<Flashcards
+  id="cards-operating-system"
+  title="Key ideas — the operating system"
+  cards={[
+    {
+      front: "Why measure → keep → grow, in that order?",
+      back: "The leaky bucket: acquisition wastes the most money when the bucket leaks and pays back the most when it doesn't, so it goes last. That ordering decision, agreed on Day 0, is the most valuable thing in the course.",
+    },
+    {
+      front: "The division of labour",
+      back: "PostHog detects (events, funnels, retention). Hogsend acts (lifecycle journeys across email, Discord, Telegram). You decide. Held onto, that split keeps the system simple no matter how much you add to it.",
+    },
+    {
+      front: "What's the daily job in the operating cadence?",
+      back: "Two minutes of noticing, not analysing: glance at the Slack alerts, the activation funnel, and the active-users trend — dig only if an alert fired. A glance over five minutes means the alerts need tuning.",
+    },
+    {
+      front: "The weekly growth review",
+      back: "30 minutes, fixed agenda: metrics read, journeys and spend (kill-or-scale, out loud), experiments. It reviews learnings and decisions, not status — anomalies get an owner, not live group debugging.",
+    },
+    {
+      front: "Which questions are monthly, not weekly?",
+      back: "Is activation still the best predictor of retention; incremental lift from the global holdout; blended CAC and the referral loop's contribution; and a prune of no-lift journeys, unqueried events, dead ad sets.",
+    },
+    {
+      front: "How does an idea enter the experiment backlog?",
+      back: "As a hypothesis, not a task — \"if we [change], [metric] will move [direction] because [reasoning]\" — ICE-scored (impact, confidence, ease, 1–10) so the meeting pulls from the top of the list, not the loudest idea.",
+    },
+    {
+      front: "Sean Ellis's high-tempo testing argument",
+      back: "The compounding asset is your velocity of tests — learning compounds even when individual tests fail. For a startup, one experiment a week, every week, beats a burst of ten followed by a quarter of nothing.",
+    },
+    {
+      front: "The three honest rules of an experimentation program",
+      back: "Not everything deserves an experiment (obvious, reversible, or too-small changes just ship); sample size decides what you can learn — big swings beat button colours at startup traffic; write the losers down too.",
+    },
+  ]}
+/>
+
 ---
 
 ## 9.5 The experimentation program

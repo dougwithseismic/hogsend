@@ -12,6 +12,7 @@ export type WorkbookItemKind =
   | "profile"
   | "checklist"
   | "quiz"
+  | "flashcards"
   | "media";
 
 export type WorkbookItem = {
@@ -24,7 +25,7 @@ export type WorkbookItem = {
   anchor: string;
   /** The authored prompt / question / title. */
   label: string;
-  /** quiz: pool size. */
+  /** quiz: pool size; flashcards: deck size. */
   itemCount?: number;
   /** Only for kind "media". */
   media?: "video" | "podcast";
@@ -71,6 +72,8 @@ export type SavedValue = {
   score?: number;
   total?: number;
   done?: boolean;
+  /** flashcards: mastered card indices. */
+  mastered?: number[];
 };
 
 export type ItemStatus = "empty" | "partial" | "done";
@@ -107,6 +110,15 @@ export function itemState(
       return typeof value.total === "number"
         ? { status: "done", detail: `${value.score}/${value.total}` }
         : { status: "empty" };
+    case "flashcards": {
+      const mastered = value.mastered?.length ?? 0;
+      const total = value.total ?? item.itemCount ?? 0;
+      if (mastered === 0) return { status: "empty" };
+      const detail = `${mastered}/${total} mastered`;
+      return mastered >= total && total > 0
+        ? { status: "done", detail }
+        : { status: "partial", detail };
+    }
     case "media":
       return value.done
         ? {

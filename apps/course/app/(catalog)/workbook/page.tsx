@@ -10,6 +10,7 @@ import { CopyLinkButton } from "@/components/course/share-link";
 import {
   WorkbookChapterMeter,
   WorkbookCourseProgress,
+  WorkbookFlashcardsRow,
   WorkbookJumpNav,
   WorkbookMediaCluster,
   WorkbookQuizRow,
@@ -180,6 +181,10 @@ function ChapterItems({
             );
           case "quiz":
             return <WorkbookQuizRow key={item.key} item={item} href={href} />;
+          case "flashcards":
+            return (
+              <WorkbookFlashcardsRow key={item.key} item={item} href={href} />
+            );
           default:
             return null;
         }

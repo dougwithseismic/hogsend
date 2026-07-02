@@ -220,6 +220,45 @@ cohort-over-cohort trend is a better guide than anyone's benchmark, and retentio
 still [the single best PMF signal you
 have](https://posthog.com/founders/measure-product-market-fit).
 
+<Flashcards
+  id="cards-dashboard"
+  title="Key ideas — your daily dashboard"
+  cards={[
+    {
+      front: "Which four insight types will you read daily?",
+      back: "Trends, Funnels, Retention, and Lifecycle. PostHog has seven in all — and picking the wrong type is the most common reason a founder stares at a chart that can't answer their question.",
+    },
+    {
+      front: "The Trends failure mode",
+      back: "Counting events when you mean people: ten pageviews from one user and one pageview from ten users look identical until you switch the series to unique users.",
+    },
+    {
+      front: "The two funnel settings people miss",
+      back: "The conversion window (a day-15 convert in a 7-day window counts as dropped) and exclusion steps. If conversion looks impossibly low, check User Paths — your steps may not match the order users follow.",
+    },
+    {
+      front: "A big Dormant band under modest New growth means…",
+      back: "Churn-and-replace, not growth — the same users leaving and being replaced. It's the leaky bucket drawn for you; acquisition can wait, retention (Chapters 5–6) is the work.",
+    },
+    {
+      front: "The three retention-curve shapes",
+      back: "Slides to zero = no PMF. Declines then flattens above zero = real product pull — the PMF signal. Ticks back up = resurrection exceeds churn. The flattening level is roughly your ceiling without intervention.",
+    },
+    {
+      front: "Why do small cohorts lie?",
+      back: "In a 12-user cohort a 40% to 25% swing is three people — not roadmap material. The signal worth acting on is the trend across several cohorts, not one noisy row.",
+    },
+    {
+      front: "How do you keep session replay cheap and diagnostic?",
+      back: "Arrive from a chart — a funnel drop-off, error, or rage-click filter — so every replay is pre-selected to show a problem. What you're looking for is the moment of hesitation.",
+    },
+    {
+      front: "Why know your funnel baseline by heart?",
+      back: "So a change registers as a change, not a guess (say, 62% reach step 2, 31% activate). The fixed list read the same way every morning is what makes a deviation register instantly.",
+    },
+  ]}
+/>
+
 ---
 
 ## 4.4 Build it as one dashboard

@@ -218,6 +218,45 @@ PostHog and the *code-first lifecycle automation* lives in Hogsend — and Chapt
 are entirely about why a code-first journey beats a flowchart once your logic gets real
 (behavioural branching, exact-once sends, holdouts you can prove).
 
+<Flashcards
+  id="cards-posthog"
+  title="Key ideas — PostHog"
+  cards={[
+    {
+      front: "PostHog's structural advantage over stitching point tools together",
+      back: "One event pipeline and one identity model under everything: the error links to the replay, the funnel, and the flag. Across four tools that join is a data-engineering project; in PostHog it's a click.",
+    },
+    {
+      front: "The funnel tells you where you lose people — what tells you why?",
+      back: "Session replay — real sessions behind a drop-off, with console logs and network requests captured. Five minutes of replay beats an hour of staring at a chart; the jump from a data point to its recordings is a click.",
+    },
+    {
+      front: "Why can't GA4 run your activation funnel?",
+      back: "GA4 answers aggregated, session-centric marketing questions (channels, campaigns). User-level funnels, N-day retention cohorts, and jump-to-replay need events keyed to durable persons — the product-analytics data model.",
+    },
+    {
+      front: "PostHog Workflows vs Hogsend — the split this course runs on",
+      back: "PostHog detects: event collection, identity, cohorts, the analytics you read. Hogsend acts: code-first TypeScript journeys in your repo — versioned, code-reviewed — triggered by the same events, results fired back as events.",
+    },
+    {
+      front: "The one signup decision that's hard to undo",
+      back: "US vs EU cloud region. Data does not move between regions and you cannot merge across them — guessing wrong means a migration, not a setting. Pick where your users and compliance obligations are.",
+    },
+    {
+      front: "Your phc_ project key is visible in the shipped JS bundle. Problem?",
+      back: "No — by design it can write events but cannot read your data, like a mailbox slot. Reading requires a personal API key, which never ships to the browser.",
+    },
+    {
+      front: "PostHog's pricing model in three facts",
+      back: "Usage-based per product, with monthly free tiers that reset; billed once at capture, storing history is free; roughly 90% of companies use it for free. When cost arrives, the lever is event volume.",
+    },
+    {
+      front: "Why PostHog Cloud for analytics but self-hosted Hogsend for messaging?",
+      back: "The asymmetry is deliberate: analytics is read-heavy and fine to delegate; the messaging spine and the identity graph are assets you want on your own infrastructure.",
+    },
+  ]}
+/>
+
 ---
 
 ## 1.4 US cloud or EU cloud — the one choice worth making first

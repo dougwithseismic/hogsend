@@ -15,7 +15,13 @@ export async function getResponse<T>(key: string): Promise<T | null> {
   }
 }
 
-export type ResponseKind = "profile" | "quiz" | "checklist" | "note" | "media";
+export type ResponseKind =
+  | "profile"
+  | "quiz"
+  | "checklist"
+  | "note"
+  | "media"
+  | "flashcards";
 
 export async function saveResponse(
   kind: ResponseKind,
