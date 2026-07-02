@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { JSX } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
+import { FounderNote } from "@/components/course/founder-note";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
@@ -149,6 +150,10 @@ export default async function CourseOverview(props: {
       <p className="mt-5 max-w-2xl text-lg text-white/60 leading-7">
         {course.summary}
       </p>
+
+      <div className="max-w-2xl">
+        <FounderNote />
+      </div>
 
       {/* Primary CTA */}
       <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-3">
