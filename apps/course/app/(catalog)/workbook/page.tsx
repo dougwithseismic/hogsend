@@ -20,7 +20,6 @@ import { enrollment, response } from "@/lib/db/schema";
 import { source } from "@/lib/source";
 import {
   courseWorkbookLessons,
-  dedupeByKey,
   itemState,
   type SavedValue,
   WORKBOOK_MANIFEST,
@@ -183,15 +182,13 @@ export default async function WorkbookPage() {
   // saved answer for one of its items (free-lesson answers precede enrollment).
   const enrolled = new Set(enrollments.map((e) => e.courseSlug));
   const savedKeys = new Set(Object.keys(values));
-  const courseSlugs = Object.keys(WORKBOOK_MANIFEST).filter(
-    (slug) =>
-      enrolled.has(slug) ||
-      dedupeByKey(courseWorkbookLessons(slug).flatMap((l) => l.items)).some(
-        (item) => savedKeys.has(item.key),
-      ),
-  );
-
-  const sections = courseSlugs.map(buildCourseSection);
+  const sections = Object.keys(WORKBOOK_MANIFEST)
+    .map(buildCourseSection)
+    .filter(
+      (section) =>
+        enrolled.has(section.slug) ||
+        section.items.some((item) => savedKeys.has(item.key)),
+    );
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
