@@ -11,6 +11,7 @@ import { notFound } from "next/navigation";
 import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
 import { Paywall } from "@/components/auth/paywall";
+import { ChapterWorkbook } from "@/components/course/chapter-workbook";
 import { LessonProvider } from "@/components/course/lesson-context";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { getMDXComponents } from "@/components/mdx";
@@ -116,6 +117,7 @@ export default async function Page(props: {
           // Interactive blocks (Quiz/CheckIn/Checklist) read their lesson here.
           <LessonProvider course={slugs[0]} lesson={lessonSlug}>
             <WorkbookStateProvider initial={initialResponses}>
+              <ChapterWorkbook signedIn={session !== null} />
               {body}
               <LessonFooter course={slugs[0]} lesson={lessonSlug} />
             </WorkbookStateProvider>
