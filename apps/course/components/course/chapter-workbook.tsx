@@ -1,6 +1,7 @@
 "use client";
 
 import { useLesson } from "@/components/course/lesson-context";
+import { CopyLinkButton } from "@/components/course/share-link";
 import { useWorkbookValues } from "@/components/course/workbook-state";
 import { ProgressBar } from "@/components/ds/progress-bar";
 import {
@@ -174,7 +175,8 @@ export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
 export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
   const chapter = useChapterItems();
   if (!chapter) return null;
-  const { items, values } = chapter;
+  const { lesson, items, values } = chapter;
+  const lessonPath = `/learn/${lesson.course}/${lesson.lesson}`;
 
   const open = items.filter(
     (item) => itemState(item, values?.[item.key] ?? null).status !== "done",
@@ -196,12 +198,15 @@ export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
           <p className="font-medium text-base text-white">
             ✓ Chapter workbook complete — all {items.length} items done
           </p>
-          <a
-            href="/workbook"
-            className="text-sm text-white/70 underline transition-colors hover:text-white"
-          >
-            Review it in your workbook →
-          </a>
+          <span className="flex items-center gap-4">
+            <CopyLinkButton url={lessonPath} label="Share chapter" />
+            <a
+              href="/workbook"
+              className="text-sm text-white/70 underline transition-colors hover:text-white"
+            >
+              Review it in your workbook →
+            </a>
+          </span>
         </div>
       ) : (
         <>
@@ -209,11 +214,14 @@ export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
             <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
               Before you move on
             </p>
-            {signedIn ? (
-              <span className="whitespace-nowrap text-sm text-white/50">
-                {doneCount}/{items.length} done
-              </span>
-            ) : null}
+            <span className="flex items-center gap-4">
+              {signedIn ? (
+                <span className="whitespace-nowrap text-sm text-white/50">
+                  {doneCount}/{items.length} done
+                </span>
+              ) : null}
+              <CopyLinkButton url={lessonPath} label="Share chapter" />
+            </span>
           </div>
           <p className="mt-2 text-sm text-white/55 leading-relaxed">
             {signedIn

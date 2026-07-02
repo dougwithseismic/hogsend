@@ -6,8 +6,10 @@ import { cn } from "@/lib/cn";
 
 /**
  * Copy-a-share-link button for course surfaces (videos, podcasts, lessons).
- * Transient "Copied" feedback, styled for the dark card chrome. Distinct from
- * ds/CopyButton, which is code-copy (mono font + code_copied analytics).
+ * Transient "Copied" feedback, styled for the dark card chrome. Relative URLs
+ * resolve against the current origin at copy time (click is client-only, so
+ * window is always available there). Distinct from ds/CopyButton, which is
+ * code-copy (mono font + code_copied analytics).
  */
 export function CopyLinkButton({
   url,
@@ -22,7 +24,8 @@ export function CopyLinkButton({
 
   function copy() {
     if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(url).then(() => {
+    const absolute = new URL(url, window.location.origin).href;
+    navigator.clipboard.writeText(absolute).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     });
