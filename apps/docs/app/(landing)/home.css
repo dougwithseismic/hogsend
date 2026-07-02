@@ -1,4 +1,4 @@
-/* SPIKE-scoped animation for the pixel-bar gradient art: a slow, per-bar
+/* Homepage animation for the pixel-bar gradient art: a slow, per-bar
    breathe (scaleY from the baseline) with deterministic stagger set inline.
    Transform-only, GPU-light, disabled under prefers-reduced-motion. */
 @keyframes ps-bar-breathe {

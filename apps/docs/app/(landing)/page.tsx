@@ -1,4 +1,5 @@
 import { Bell, Mail, MessageSquare, Zap } from "lucide-react";
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
@@ -26,9 +27,11 @@ import {
 import { WordReveal } from "./_components/word-reveal";
 
 /* ========================================================================== */
-/*  SPIKE — the Hogsend homepage re-set in the Polar Signals design system.   */
+/*  The Hogsend homepage — light crimzon design language.                     */
 /*                                                                            */
-/*  Tokens lifted from polarsignals.com (computed styles, 2026-07-01):        */
+/*  Developed as the /spike-polar spike (Polar Signals design-system          */
+/*  exploration), promoted to the homepage 2026-07-02. Base tokens lifted     */
+/*  from polarsignals.com (computed styles, 2026-07-01):                      */
 /*    ink #040406 · body #2e3038 · muted #75768a · hairline #e4e4e9           */
 /*    solid button #121317/#fafafa · outline 1px #2e3038 · radius 6px         */
 /*    accent purple #6f5af6 (eyebrow triangles, pills, pixel art)             */
@@ -41,6 +44,14 @@ import { WordReveal } from "./_components/word-reveal";
 /*                                                                            */
 /*  All copy is the real homepage copy — nothing invented, no usage claims.   */
 /* ========================================================================== */
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Hogsend — The lifecycle email layer PostHog doesn't have yet",
+  },
+  description:
+    "Welcome series, trial nudges, win-backs, payment saves — running from your repo on PostHog and product events, sent through your own Resend or Postmark account. Free to self-host.",
+};
 
 const DISPLAY = "[font-family:var(--ps-display)]";
 const INSTALL_COMMAND = "pnpm dlx create-hogsend@latest my-app";
@@ -277,7 +288,7 @@ function PsNav() {
     <header className="sticky top-0 z-50 border-[#f6483833] border-b bg-white/85 backdrop-blur">
       <Container className="flex h-[54px] items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link href="/spike-polar">
+          <Link href="/">
             <InkLogo />
           </Link>
           <nav className="hidden items-center gap-5 md:flex">
@@ -2077,7 +2088,7 @@ const LOOP_ITEMS = [
 ];
 
 /** First-party tracking, animated: event pills travel from the email to the
- * destinations on a shared clock (spike.css keyframes, deterministic). */
+ * destinations on a shared clock (home.css keyframes, deterministic). */
 function PsTrackingAnimation() {
   const pills = [
     { label: "email.opened", top: "top-3", delay: 0 },
@@ -2638,6 +2649,21 @@ const FAQ = [
   },
 ];
 
+// FAQPage structured data mirrors the visible FAQ copy verbatim (it reads
+// from the same FAQ array the accordion renders).
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: FAQ.map((item) => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: item.a,
+    },
+  })),
+};
+
 function PsFaq() {
   return (
     <section className="relative border-[#f6483826] border-t">
@@ -2913,9 +2939,14 @@ function PsFrame() {
 
 /* ----------------------------------------------------------------- page -- */
 
-export default function SpikePolarPage(): JSX.Element {
+export default function HomePage(): JSX.Element {
   return (
     <main className="tracking-normal">
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD built from our own constants
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
       <PsNav />
       <PsHero />
       <PsProofStrip />

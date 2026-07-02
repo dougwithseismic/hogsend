@@ -62,6 +62,12 @@ const config = {
         permanent: true,
       },
       {
+        // The light-crimzon homepage spike, promoted to the homepage itself.
+        source: "/spike-polar",
+        destination: "/",
+        permanent: true,
+      },
+      {
         source: "/docs/installation",
         destination: "/docs/getting-started/installation",
         permanent: true,
