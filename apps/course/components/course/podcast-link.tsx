@@ -1,10 +1,8 @@
 "use client";
 
 import { Headphones } from "lucide-react";
+import { MediaDoneToggle } from "@/components/course/media-toggle";
 import { CopyLinkButton } from "@/components/course/share-link";
-import { useMounted } from "@/components/course/use-mounted";
-import { useWorkbookResponse } from "@/components/course/workbook-state";
-import { useSession } from "@/lib/auth-client";
 
 /**
  * A recommended podcast episode: title/show/why-it's-worth-it plus outbound
@@ -37,14 +35,6 @@ export function PodcastLink({
   youtube?: string;
   apple?: string;
 }) {
-  const mounted = useMounted();
-  const { data: session } = useSession();
-  const { value, save } = useWorkbookResponse<{ done?: boolean }>(
-    "media",
-    id,
-    `media:${id}`,
-  );
-  const listened = value?.done === true;
   const shareUrl = spotify ?? youtube ?? apple;
 
   const links = [
@@ -94,28 +84,7 @@ export function PodcastLink({
               </a>
             ))}
             <span className="ml-auto flex items-center gap-4">
-              {mounted && session ? (
-                <button
-                  type="button"
-                  aria-pressed={listened}
-                  onClick={() => void save({ done: !listened })}
-                  className="inline-flex items-center gap-2 text-xs transition-colors"
-                >
-                  <span
-                    aria-hidden
-                    className={
-                      listened
-                        ? "flex h-4.5 w-4.5 items-center justify-center rounded border border-good/60 bg-good-tint text-[10px] text-good"
-                        : "flex h-4.5 w-4.5 items-center justify-center rounded border border-white/25 text-transparent hover:border-white/45"
-                    }
-                  >
-                    ✓
-                  </span>
-                  <span className={listened ? "text-good" : "text-white/50"}>
-                    {listened ? "Listened" : "Mark as listened"}
-                  </span>
-                </button>
-              ) : null}
+              <MediaDoneToggle id={id} media="podcast" />
               {shareUrl ? (
                 <CopyLinkButton url={shareUrl} label="Share" />
               ) : null}

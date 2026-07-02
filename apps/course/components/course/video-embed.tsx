@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { MediaDoneToggle } from "@/components/course/media-toggle";
 import { CopyLinkButton } from "@/components/course/share-link";
-import { useMounted } from "@/components/course/use-mounted";
-import { useWorkbookResponse } from "@/components/course/workbook-state";
-import { useSession } from "@/lib/auth-client";
 
 /**
  * Privacy-light YouTube embed: renders the static thumbnail with a play
@@ -30,14 +28,6 @@ export function VideoEmbed({
   note?: string;
 }) {
   const [playing, setPlaying] = useState(false);
-  const mounted = useMounted();
-  const { data: session } = useSession();
-  const { value, save } = useWorkbookResponse<{ done?: boolean }>(
-    "media",
-    id,
-    `media:${id}`,
-  );
-  const watched = value?.done === true;
 
   return (
     <figure id={`wb-media-${id}`} className="not-prose my-8 scroll-mt-28">
@@ -94,28 +84,7 @@ export function VideoEmbed({
       </figcaption>
 
       <div className="mt-2.5 flex items-center gap-4">
-        {mounted && session ? (
-          <button
-            type="button"
-            aria-pressed={watched}
-            onClick={() => void save({ done: !watched })}
-            className="inline-flex items-center gap-2 text-xs transition-colors"
-          >
-            <span
-              aria-hidden
-              className={
-                watched
-                  ? "flex h-4.5 w-4.5 items-center justify-center rounded border border-good/60 bg-good-tint text-[10px] text-good"
-                  : "flex h-4.5 w-4.5 items-center justify-center rounded border border-white/25 text-transparent hover:border-white/45"
-              }
-            >
-              ✓
-            </span>
-            <span className={watched ? "text-good" : "text-white/50"}>
-              {watched ? "Watched" : "Mark as watched"}
-            </span>
-          </button>
-        ) : null}
+        <MediaDoneToggle id={id} media="video" />
         <span className="ml-auto flex items-center gap-4">
           <CopyLinkButton url={`https://youtu.be/${id}`} label="Share" />
           <a
