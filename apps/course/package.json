@@ -19,6 +19,7 @@
     "@hogsend/js": "workspace:^",
     "@hogsend/react": "workspace:^",
     "better-auth": "^1.6.11",
+    "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
     "fumadocs-core": "^16.9.1",
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@better-auth/cli": "^1.4.21",
     "@tailwindcss/postcss": "^4.3.0",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/mdx": "^2.0.13",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.14",
