@@ -1,0 +1,259 @@
+/* ──────────────────────────────────────────────────────────────────────────
+   @hogsend/react — repaint the bell + feed into the crimzon dark skin.
+
+   Imported by provider.tsx IMMEDIATELY AFTER `@hogsend/react/styles.css`, so
+   these equal-specificity `.hsr` rules win on source order. The provider sets
+   data-hs-color-mode="dark", so the package's dark color block is already live
+   — we only repaint it to the Hogsend brand (bg-ink #050101, white text, the
+   one red accent #f64838, inter / inter-display / geist-mono).
+
+   Slot class names below are verified against
+   packages/react/src/styles/styles.css (BEM-ish `block__element`).
+   ────────────────────────────────────────────────────────────────────────── */
+
+.hsr {
+  /* scalars (mode-independent) */
+  --hs-font-family: var(--ff-body), ui-sans-serif, system-ui, sans-serif;
+  --hs-radius: 12px;
+  --hs-radius-sm: 8px;
+  --hs-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --hs-feed-width: 384px;
+  --hs-feed-max-height: 520px;
+  --hs-z-index: 1100; /* clear the fumadocs sticky nav (z ~ 50) */
+
+  /* color — crimzon dark */
+  --hs-color-surface: #0a0606; /* popover / feed bg = raised surface */
+  --hs-color-surface-hover: rgba(255, 255, 255, 0.045);
+  --hs-color-text: #ffffff;
+  --hs-color-text-muted: rgba(255, 255, 255, 0.5);
+  --hs-color-border: rgba(255, 255, 255, 0.08); /* hairline-faint */
+  --hs-color-accent: #f64838; /* crimzon red */
+  --hs-color-accent-contrast: #ffffff;
+  --hs-color-badge-bg: #f64838;
+  --hs-color-badge-text: #ffffff;
+  --hs-color-unread-dot: #f64838;
+}
+
+/* The package's dark block (`.hsr[data-hs-color-mode="dark"]`) has HIGHER
+   specificity than a bare `.hsr`, so its violet/zinc colors would win. Repaint
+   the color tokens at the same selector to take them back. */
+.hsr[data-hs-color-mode="dark"],
+[data-hs-color-mode="dark"] .hsr {
+  --hs-color-surface: #0a0606;
+  --hs-color-surface-hover: rgba(255, 255, 255, 0.045);
+  --hs-color-text: #ffffff;
+  --hs-color-text-muted: rgba(255, 255, 255, 0.5);
+  --hs-color-border: rgba(255, 255, 255, 0.08);
+  --hs-color-accent: #f64838;
+  --hs-color-accent-contrast: #ffffff;
+  --hs-color-badge-bg: #f64838;
+  --hs-color-badge-text: #ffffff;
+  --hs-color-unread-dot: #f64838;
+}
+
+/* ── Bell — sits in the dark nav next to the GitHub / theme icons. ── */
+.hs-docs-bell.hsr-bell {
+  position: relative; /* positions the badge + the arrival halo (::after) */
+  color: rgba(255, 255, 255, 0.62);
+  border-radius: 10px;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease;
+}
+.hs-docs-bell.hsr-bell:hover,
+.hs-docs-bell.hsr-bell[data-state="open"] {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Badge — a red pill punched out of the ink nav with a 2px ink ring, so it
+   reads as a sticker on the bar rather than a flat dot. A short pop on arrival
+   says "new" without being a toy. ── */
+.hs-docs-bell .hsr-bell__badge {
+  box-shadow: 0 0 0 2px #050101;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  animation: hs-badge-pop 0.28s ease-out;
+}
+@keyframes hs-badge-pop {
+  0% {
+    transform: translate(50%, -50%) scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: translate(50%, -50%) scale(1.12);
+  }
+  100% {
+    transform: translate(50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+/* ── Bell ring — when a NEW item lands, the bell itself swings and a crimzon
+   halo pulses out of it, so "something just happened" reads across the room,
+   not only the small corner badge. `.hs-docs-bell--ring` is toggled for ~1s by
+   nav-bell.tsx whenever the unread count climbs (and re-applied on each fresh
+   arrival so rapid re-fires re-ring). The badge re-pops a touch harder too. ── */
+.hs-docs-bell--ring .hsr-bell__icon {
+  display: inline-flex; /* so the rotate pivots the icon box, not a baseline */
+  transform-origin: 50% 3px; /* swing from the bell's crown, like a real bell */
+  animation: hs-bell-swing 0.9s ease-in-out;
+}
+.hs-docs-bell--ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1.5px solid var(--hs-color-accent, #f64838);
+  pointer-events: none;
+  animation: hs-bell-halo 0.85s ease-out forwards;
+}
+.hs-docs-bell--ring .hsr-bell__badge {
+  animation: hs-badge-pop 0.42s ease-out;
+}
+@keyframes hs-bell-swing {
+  0% {
+    transform: rotate(0);
+  }
+  15% {
+    transform: rotate(-17deg);
+  }
+  30% {
+    transform: rotate(14deg);
+  }
+  45% {
+    transform: rotate(-10deg);
+  }
+  60% {
+    transform: rotate(6deg);
+  }
+  75% {
+    transform: rotate(-3deg);
+  }
+  100% {
+    transform: rotate(0);
+  }
+}
+@keyframes hs-bell-halo {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.7);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.95);
+  }
+}
+/* The global reduced-motion block already clamps animation-duration, but kill
+   the swing/halo outright so the bell never tilts or blooms for these users. */
+@media (prefers-reduced-motion: reduce) {
+  .hs-docs-bell--ring .hsr-bell__icon {
+    animation: none;
+  }
+  .hs-docs-bell--ring::after {
+    content: none;
+  }
+}
+
+/* ── Popover frame — hairline-glass, matches .glass-panel on the site. ── */
+.hsr-popover {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 6, 6, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow: hidden;
+}
+
+/* ── Feed header — quieter title in the display face, crimzon "mark all". ── */
+.hsr-feed__header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.hsr-feed__header-title {
+  font-family: var(--ff-display), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+.hsr-feed__mark-all {
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 0.15s ease;
+}
+.hsr-feed__mark-all:not(:disabled):hover {
+  color: #f64838;
+  text-decoration: none;
+}
+
+/* ── Item rows — hairline dividers, brighten on hover, crimzon unread dot. ── */
+.hsr-feed__list {
+  padding: 6px;
+}
+.hsr-feed-item {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px;
+  transition: background-color 0.15s ease;
+}
+.hsr-feed-item[tabindex]:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.hsr-feed-item[data-unread="true"] {
+  background: rgba(246, 72, 56, 0.04);
+}
+.hsr-feed-item__title {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.hsr-feed-item__timestamp {
+  font-family: var(--ff-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: rgba(255, 255, 255, 0.38);
+}
+.hsr-feed-item__action {
+  color: #f64838;
+}
+.hsr-feed-item__unread-dot {
+  box-shadow: 0 0 8px rgba(246, 72, 56, 0.5);
+}
+
+/* ── Empty state — calm, on-register. ── */
+.hsr-feed__empty {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 14px;
+}
+
+/* ── Swipe-to-archive ──────────────────────────────────────────────────────
+   Swipe + soft-archive filtering now ship in the package's own
+   `<NotificationFeed>` (rendered via `<FeedPopover>`); its swipe CSS
+   (`.hsr-feed-item__clip/__track/__affordance/__archive`) is token-driven and
+   already inherits the crimzon tokens set above, so the previous hand-rolled
+   `.hs-swipe-*` rules are dead and removed. ── */
+
+/* ── Banner ticker — a new notification fades in as it jumps to the front. ── */
+@keyframes hs-ticker-fade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hs-ticker-item {
+  display: inline-block;
+  animation: hs-ticker-fade 0.45s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hs-ticker-item {
+    animation: none;
+  }
+}
+
+/* ── Home live-demo feed height ────────────────────────────────────────────
+   The inline <NotificationFeed> caps at the package default
+   (--hs-feed-max-height: 520px). The feed element carries `.hsr` itself, so that
+   token can't be overridden by an ancestor's inline var (the element's own
+   `.hsr` declaration wins) — set the max-height directly with a section-scoped
+   selector, taller so the survey card's 0–10 row isn't clipped. ── */
+#live-demo .hsr-feed {
+  max-height: 720px;
+}
