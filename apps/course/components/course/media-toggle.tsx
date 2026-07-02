@@ -12,17 +12,19 @@ import { useSession } from "@/lib/auth-client";
 export function MediaDoneToggle({
   id,
   media,
+  title,
 }: {
   id: string;
   media: "video" | "podcast";
+  title?: string;
 }) {
   const mounted = useMounted();
   const { data: session } = useSession();
-  const { value, save } = useWorkbookResponse<{ done?: boolean }>(
-    "media",
-    id,
-    `media:${id}`,
-  );
+  const { value, save } = useWorkbookResponse<{
+    done?: boolean;
+    media?: string;
+    title?: string;
+  }>("media", id, `media:${id}`);
   const done = value?.done === true;
   if (!mounted || !session) return null;
 
@@ -34,7 +36,9 @@ export function MediaDoneToggle({
     <button
       type="button"
       aria-pressed={done}
-      onClick={() => void save({ done: !done })}
+      onClick={() =>
+        void save({ done: !done, media, ...(title ? { title } : {}) })
+      }
       className="inline-flex items-center gap-2 text-xs transition-colors"
     >
       <span

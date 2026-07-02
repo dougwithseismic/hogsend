@@ -84,7 +84,7 @@ export function PodcastLink({
               </a>
             ))}
             <span className="ml-auto flex items-center gap-4">
-              <MediaDoneToggle id={id} media="podcast" />
+              <MediaDoneToggle id={id} media="podcast" title={title} />
               {shareUrl ? (
                 <CopyLinkButton url={shareUrl} label="Share" />
               ) : null}

@@ -151,7 +151,14 @@ export default async function Page(props: {
       <DocsBody>
         {slugs.length >= 2 ? (
           // Interactive blocks (Quiz/CheckIn/Checklist) read their lesson here.
-          <LessonProvider course={slugs[0]} lesson={lessonSlug}>
+          // Keyed by lesson: App Router soft navigation keeps same-position
+          // client components MOUNTED across param changes, so without the key
+          // the store/footer would hold the previous lesson's state.
+          <LessonProvider
+            key={`${slugs[0]}/${lessonSlug}`}
+            course={slugs[0]}
+            lesson={lessonSlug}
+          >
             <WorkbookStateProvider initial={initialResponses}>
               <ChapterWorkbook signedIn={session !== null} />
               {body}

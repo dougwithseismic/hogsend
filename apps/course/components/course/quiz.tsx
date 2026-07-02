@@ -72,6 +72,7 @@ export function Quiz({
   const [current, setCurrent] = useState(0);
   /** Pool indices used this run (sampled or swapped in) — no repeats. */
   const [used, setUsed] = useState<Set<number>>(new Set());
+  const [saveFailed, setSaveFailed] = useState(false);
 
   const score = slots.reduce(
     (acc, slot) =>
@@ -87,6 +88,7 @@ export function Quiz({
     setSlots(picked.map((qi) => ({ qi, picked: null })));
     setUsed(new Set(picked));
     setCurrent(0);
+    setSaveFailed(false);
     setStage("run");
   }
 
@@ -116,7 +118,8 @@ export function Quiz({
     setStage("done");
     celebrate();
     if (session && lesson) {
-      await persist({ score, total: slots.length });
+      const ok = await persist({ score, total: slots.length });
+      setSaveFailed(!ok);
     }
   }
 
@@ -185,7 +188,9 @@ export function Quiz({
           </p>
           <p className="mt-1 text-sm text-white/50">
             {session
-              ? "Score saved to your workbook."
+              ? saveFailed
+                ? "Couldn't save your score — it will save on your next run."
+                : "Score saved to your workbook."
               : "Sign in free to save your score."}
           </p>
           <div className="mt-5 flex items-center justify-center gap-3">

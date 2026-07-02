@@ -84,7 +84,7 @@ export function VideoEmbed({
       </figcaption>
 
       <div className="mt-2.5 flex items-center gap-4">
-        <MediaDoneToggle id={id} media="video" />
+        <MediaDoneToggle id={id} media="video" title={title} />
         <span className="ml-auto flex items-center gap-4">
           <CopyLinkButton url={`https://youtu.be/${id}`} label="Share" />
           <a
