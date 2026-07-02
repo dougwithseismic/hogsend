@@ -27,6 +27,12 @@ export const PROFILE_FIELDS: Record<string, ProfileField> = {
   acquisitionMix: { contactProperty: "profileAcquisitionMix" },
   community: { contactProperty: "profileCommunity" },
   biggestNeed: { contactProperty: "profileBiggestNeed" },
+  /** Team + capacity (chapter check-ins woven through the course). */
+  teamSize: { contactProperty: "profileTeamSize" },
+  emailVolume: { contactProperty: "profileEmailVolume" },
+  engineeringBandwidth: { contactProperty: "profileEngineeringBandwidth" },
+  audienceSize: { contactProperty: "profileAudienceSize" },
+  hoursPerWeek: { contactProperty: "profileHoursPerWeek" },
   /** Commitment at the end of the course. */
   planCommitment: { contactProperty: "profilePlanCommitment" },
 };

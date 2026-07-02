@@ -71,6 +71,19 @@
     ],
     "01-what-is-posthog": [
       {
+        "kind": "profile",
+        "id": "teamSize",
+        "key": "profile:teamSize",
+        "anchor": "wb-teamSize",
+        "label": "Who's on the team that will act on these numbers?",
+        "options": [
+          "Just me",
+          "Me + a cofounder",
+          "A small team (3–10)",
+          "10+ people"
+        ]
+      },
+      {
         "kind": "media",
         "id": "1FZji2L-LmM",
         "key": "media:1FZji2L-LmM",
@@ -344,6 +357,19 @@
         "media": "video"
       },
       {
+        "kind": "profile",
+        "id": "emailVolume",
+        "key": "profile:emailVolume",
+        "anchor": "wb-emailVolume",
+        "label": "How much email does your product send today?",
+        "options": [
+          "None yet",
+          "Transactional only (receipts, resets)",
+          "A newsletter, now and then",
+          "Lifecycle emails already running"
+        ]
+      },
+      {
         "kind": "media",
         "id": "vp4SwMY-QrM",
         "key": "media:vp4SwMY-QrM",
@@ -399,6 +425,19 @@
       }
     ],
     "06-building-lifecycle-with-hogsend": [
+      {
+        "kind": "profile",
+        "id": "engineeringBandwidth",
+        "key": "profile:engineeringBandwidth",
+        "anchor": "wb-engineeringBandwidth",
+        "label": "Who would write these journeys on your team?",
+        "options": [
+          "Me — I write the code",
+          "A teammate would",
+          "We'd need to borrow or hire help",
+          "No one technical yet"
+        ]
+      },
       {
         "kind": "media",
         "id": "xlA5XD8CSdo",
@@ -522,6 +561,19 @@
         "media": "video"
       },
       {
+        "kind": "profile",
+        "id": "audienceSize",
+        "key": "profile:audienceSize",
+        "anchor": "wb-audienceSize",
+        "label": "How big is the audience you own today — email list plus linked accounts?",
+        "options": [
+          "Zero — starting from scratch",
+          "Under 500",
+          "500–5,000",
+          "5,000+"
+        ]
+      },
+      {
         "kind": "media",
         "id": "waU5Cm1FENA",
         "key": "media:waU5Cm1FENA",
@@ -634,6 +686,19 @@
         "anchor": "wb-media-rBCdgcFZ0uA",
         "label": "Your first 90 Days as a Growth Marketer: A Practical Blueprint",
         "media": "video"
+      },
+      {
+        "kind": "profile",
+        "id": "hoursPerWeek",
+        "key": "profile:hoursPerWeek",
+        "anchor": "wb-hoursPerWeek",
+        "label": "How much time can you honestly give this plan each week?",
+        "options": [
+          "A couple of hours",
+          "Half a day",
+          "A full day",
+          "It's my main job"
+        ]
       },
       {
         "kind": "checklist",
