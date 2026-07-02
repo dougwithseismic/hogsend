@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { ALL_ACCESS_SLUG, priceIdForCourse } from "@/lib/courses";
 import { env } from "@/lib/env";
+import { EMAIL_PATTERN } from "@/lib/ingest";
 import { getStripe, paywallConfigured } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -11,6 +12,10 @@ export const runtime = "nodejs";
  * POST /api/checkout — create a Stripe Checkout Session for a one-time course
  * purchase and 303-redirect the browser to Stripe's hosted page. Driven by the
  * <Paywall> form (course + next as fields). No client JS, no card handling.
+ *
+ * Gift mode (`gift=1`, optional `recipientEmail`): the buyer pays full price
+ * but gets NO entitlement — the webhook mints a single-use 100%-off code
+ * instead (see lib/gifts.ts) and the lifecycle emails deliver it.
  */
 
 /** Only allow same-site relative return paths (no open redirect). */
@@ -23,6 +28,12 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const form = await req.formData();
   const course = String(form.get("course") ?? "");
+  const isGift = form.get("gift") === "1";
+  const recipientRaw = String(form.get("recipientEmail") ?? "")
+    .trim()
+    .toLowerCase();
+  const recipientEmail =
+    isGift && EMAIL_PATTERN.test(recipientRaw) ? recipientRaw : "";
   // All-access isn't a page, so its return path defaults to the account page;
   // a course returns to its overview.
   const fallback = course === ALL_ACCESS_SLUG ? "/account" : `/${course}`;
@@ -51,7 +62,12 @@ export async function POST(req: NextRequest): Promise<Response> {
     line_items: [{ price: priceId, quantity: 1 }],
     client_reference_id: session.user.id,
     customer_email: session.user.email,
-    metadata: { courseSlug: course, userId: session.user.id },
+    metadata: {
+      courseSlug: course,
+      userId: session.user.id,
+      ...(isGift ? { gift: "true" } : {}),
+      ...(recipientEmail ? { recipientEmail } : {}),
+    },
     // Discount codes (including single-use 100%-off gift/free copies) are
     // entered on Stripe's hosted page; a fully-discounted session still
     // completes and the webhook grants the entitlement unchanged.
@@ -59,8 +75,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     // Generate a proper invoice (PDF) per purchase so it shows in the account
     // billing section and the customer gets a receipt.
     invoice_creation: { enabled: true },
-    success_url: `${base}${next}?purchase=success`,
-    cancel_url: `${base}${next}?purchase=cancelled`,
+    success_url: `${base}${next}?${isGift ? "gift" : "purchase"}=success`,
+    cancel_url: `${base}${next}?${isGift ? "gift" : "purchase"}=cancelled`,
   });
 
   if (!checkout.url) {
