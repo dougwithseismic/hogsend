@@ -10,6 +10,7 @@ import { GITHUB_URL, HOGSEND_URL } from "@/lib/site";
 
 const NAV_LINKS: Array<{ label: string; href: string }> = [
   { label: "Courses", href: "/" },
+  { label: "Workbook", href: "/workbook" },
   { label: "Pricing", href: "/pricing" },
 ];
 
