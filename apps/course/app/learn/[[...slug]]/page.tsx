@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   DocsBody,
   DocsDescription,
@@ -23,7 +23,7 @@ import { response } from "@/lib/db/schema";
 import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
-import type { SavedValue } from "@/lib/workbook";
+import { lessonWorkbookItems, type SavedValue } from "@/lib/workbook";
 
 // The gated branch reads headers() (session), which is illegal during a static-
 // generation pass. With generateStaticParams + dynamicParams, gated params were
@@ -47,8 +47,9 @@ export default async function Page(props: {
   // stays the security boundary — an anon gated request returns <LessonGate>
   // before the body is read.
   const session = slugs.length >= 2 ? await getSession() : null;
+  const free = isFreeLesson(slugs);
 
-  if (!isFreeLesson(slugs)) {
+  if (!free) {
     if (!session) {
       return (
         <LessonGate
@@ -74,14 +75,6 @@ export default async function Page(props: {
         />
       );
     }
-    await ensureEnrollment(
-      {
-        id: session.user.id,
-        email: session.user.email,
-        name: session.user.name,
-      },
-      slugs[0],
-    );
   }
 
   const MDX = page.data.body;
@@ -95,17 +88,30 @@ export default async function Page(props: {
     />
   );
 
-  // The signed-in reader's saved answers, keyed by response key — fed to the
-  // client store so blocks render filled in the SSR HTML and the chapter
-  // callout/recap know what's done. All rows, not just this lesson's: profile
-  // answers and cross-lesson notes (chapter 10 re-renders chapter-2 prompts)
-  // are keyed globally.
+  // The signed-in reader's saved answers for THIS lesson's blocks (the manifest
+  // lists every key the page can render, including cross-lesson reuse like the
+  // chapter-2 prompt chapter 10 re-renders), fed to the client store so blocks
+  // render filled in the SSR HTML. Fetched alongside the idempotent enrollment
+  // upsert — the two are independent DB round-trips.
   let initialResponses: Record<string, SavedValue> = {};
   if (session && slugs.length >= 2) {
-    const rows = await db
-      .select({ key: response.key, value: response.value })
-      .from(response)
-      .where(eq(response.userId, session.user.id));
+    const user = {
+      id: session.user.id,
+      email: session.user.email,
+      name: session.user.name,
+    };
+    const keys = lessonWorkbookItems(slugs[0], lessonSlug).map((i) => i.key);
+    const [rows] = await Promise.all([
+      keys.length > 0
+        ? db
+            .select({ key: response.key, value: response.value })
+            .from(response)
+            .where(
+              and(eq(response.userId, user.id), inArray(response.key, keys)),
+            )
+        : Promise.resolve([]),
+      free ? Promise.resolve() : ensureEnrollment(user, slugs[0]),
+    ]);
     initialResponses = Object.fromEntries(
       rows.map((row) => [row.key, row.value as SavedValue]),
     );

@@ -2,6 +2,7 @@
 
 import { useLesson } from "@/components/course/lesson-context";
 import { useWorkbookValues } from "@/components/course/workbook-state";
+import { ProgressBar } from "@/components/ds/progress-bar";
 import {
   dedupeByKey,
   itemState,
@@ -90,16 +91,26 @@ export function WorkbookItemRow({
   );
 }
 
-export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
+/** Shared prologue of both chapter surfaces: this lesson's items + answers. */
+function useChapterItems(): {
+  lesson: { course: string; lesson: string };
+  items: WorkbookItem[];
+  values: Record<string, SavedValue> | null;
+} | null {
   const lesson = useLesson();
   const values = useWorkbookValues();
   if (!lesson) return null;
-
   const items = dedupeByKey(lessonWorkbookItems(lesson.course, lesson.lesson));
   if (items.length === 0) return null;
+  return { lesson, items, values };
+}
 
-  const map = new Map(Object.entries(values ?? {}));
-  const { done, total } = workbookProgress(items, map);
+export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
+  const chapter = useChapterItems();
+  if (!chapter) return null;
+  const { lesson, items, values } = chapter;
+
+  const { done, total } = workbookProgress(items, values);
 
   return (
     <section
@@ -124,15 +135,7 @@ export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
       </div>
 
       {signedIn ? (
-        <div
-          aria-hidden
-          className="mt-3 h-1 overflow-hidden rounded-full bg-white/[0.06]"
-        >
-          <div
-            className="h-full rounded-full bg-good transition-[width] duration-500"
-            style={{ width: `${total > 0 ? (done / total) * 100 : 0}%` }}
-          />
-        </div>
+        <ProgressBar value={done} max={total} className="mt-3" />
       ) : (
         <p className="mt-2 text-sm text-white/55 leading-relaxed">
           Everything you write, answer, and tick below saves to your personal
@@ -154,7 +157,7 @@ export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
           <WorkbookItemRow
             key={item.key}
             item={item}
-            value={map.get(item.key) ?? null}
+            value={values?.[item.key] ?? null}
             href={`#${item.anchor}`}
           />
         ))}
@@ -169,16 +172,12 @@ export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
  * footer, so "what's left" is the last thing a reader sees before moving on.
  */
 export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
-  const lesson = useLesson();
-  const values = useWorkbookValues();
-  if (!lesson) return null;
+  const chapter = useChapterItems();
+  if (!chapter) return null;
+  const { items, values } = chapter;
 
-  const items = dedupeByKey(lessonWorkbookItems(lesson.course, lesson.lesson));
-  if (items.length === 0) return null;
-
-  const map = new Map(Object.entries(values ?? {}));
   const open = items.filter(
-    (item) => itemState(item, map.get(item.key) ?? null).status !== "done",
+    (item) => itemState(item, values?.[item.key] ?? null).status !== "done",
   );
   const doneCount = items.length - open.length;
   const allDone = signedIn && open.length === 0;
@@ -226,7 +225,7 @@ export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
               <WorkbookItemRow
                 key={item.key}
                 item={item}
-                value={map.get(item.key) ?? null}
+                value={values?.[item.key] ?? null}
                 href={`#${item.anchor}`}
               />
             ))}

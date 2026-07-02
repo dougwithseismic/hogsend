@@ -111,23 +111,19 @@ export function itemState(
 export type WorkbookProgress = {
   /** Fully done items. */
   done: number;
-  /** Done or partially-done items. */
-  started: number;
   total: number;
 };
 
 export function workbookProgress(
   items: WorkbookItem[],
-  values: ReadonlyMap<string, SavedValue>,
+  values: Record<string, SavedValue> | null,
 ): WorkbookProgress {
   let done = 0;
-  let started = 0;
   for (const item of items) {
-    const { status } = itemState(item, values.get(item.key) ?? null);
+    const { status } = itemState(item, values?.[item.key] ?? null);
     if (status === "done") done += 1;
-    if (status !== "empty") started += 1;
   }
-  return { done, started, total: items.length };
+  return { done, total: items.length };
 }
 
 /** First render site wins — chapter 10 re-renders some chapter-2 prompts. */

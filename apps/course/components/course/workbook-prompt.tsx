@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useLesson } from "@/components/course/lesson-context";
 import { useMounted } from "@/components/course/use-mounted";
 import { useWorkbookResponse } from "@/components/course/workbook-state";
@@ -37,16 +37,6 @@ export function WorkbookPrompt({
     saved?.text ? "saved" : "idle",
   );
 
-  // Late-arriving saved value (fallback fetch outside a provider) hydrates the
-  // field — but never over the reader's in-progress edits.
-  const touched = useRef(false);
-  const savedText = saved?.text;
-  useEffect(() => {
-    if (touched.current || !savedText) return;
-    setText(savedText);
-    setStatus("saved");
-  }, [savedText]);
-
   async function save() {
     setStatus("saving");
     const ok = await persist({ text: text.trim(), prompt });
@@ -70,7 +60,6 @@ export function WorkbookPrompt({
       <textarea
         value={text}
         onChange={(e) => {
-          touched.current = true;
           setText(e.target.value);
           setStatus("idle");
         }}

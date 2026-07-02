@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useMounted } from "@/components/course/use-mounted";
 import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
@@ -30,17 +30,7 @@ export function Checklist({
     (saved?.checked ?? []).filter((c) => items.includes(c)),
   );
 
-  // Late-arriving saved value (fallback fetch outside a provider) hydrates the
-  // ticks — but never over the reader's in-progress toggling.
-  const touched = useRef(false);
-  const savedChecked = saved?.checked;
-  useEffect(() => {
-    if (touched.current || !savedChecked) return;
-    setChecked(savedChecked.filter((c) => items.includes(c)));
-  }, [savedChecked, items]);
-
   function toggle(item: string) {
-    touched.current = true;
     const next = checked.includes(item)
       ? checked.filter((c) => c !== item)
       : [...checked, item];
