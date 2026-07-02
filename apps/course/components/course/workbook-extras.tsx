@@ -87,6 +87,62 @@ export function WorkbookChapterMeter({ items }: { items: WorkbookItem[] }) {
   );
 }
 
+/**
+ * The shared link-out card for items EARNED in the lesson rather than edited
+ * here (quiz scores, flashcard mastery): kind label + authored title on the
+ * left, the live state + a jump link on the right.
+ */
+function LinkOutRow({
+  kindLabel,
+  item,
+  href,
+  emptyText,
+  doneCta,
+  openCta,
+  doneDetailClass = "text-white",
+}: {
+  kindLabel: string;
+  item: WorkbookItem;
+  href: string;
+  emptyText: string;
+  doneCta: string;
+  openCta: string;
+  doneDetailClass?: string;
+}) {
+  const values = useWorkbookValues();
+  const state = itemState(item, values?.[item.key] ?? null);
+
+  return (
+    <div className="not-prose my-4 flex items-center justify-between gap-4 rounded-md border border-white/[0.08] bg-white/[0.015] p-4">
+      <div className="min-w-0">
+        <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
+          {kindLabel}
+        </p>
+        <p className="mt-1 truncate text-sm text-white/85">{item.label}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        {state.status === "empty" ? (
+          <span className="text-sm text-white/40">{emptyText}</span>
+        ) : (
+          <span
+            className={`font-medium text-sm ${
+              state.status === "done" ? doneDetailClass : "text-white"
+            }`}
+          >
+            {state.detail}
+          </span>
+        )}
+        <Link
+          href={href}
+          className="whitespace-nowrap text-sm text-white/60 underline transition-colors hover:text-white"
+        >
+          {state.status === "done" ? doneCta : openCta}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 export function WorkbookQuizRow({
   item,
   href,
@@ -94,32 +150,15 @@ export function WorkbookQuizRow({
   item: WorkbookItem;
   href: string;
 }) {
-  const values = useWorkbookValues();
-  const value = values?.[item.key] ?? null;
-  const state = itemState(item, value);
-
   return (
-    <div className="not-prose my-4 flex items-center justify-between gap-4 rounded-md border border-white/[0.08] bg-white/[0.015] p-4">
-      <div className="min-w-0">
-        <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
-          Quiz
-        </p>
-        <p className="mt-1 truncate text-sm text-white/85">{item.label}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        {state.status === "done" ? (
-          <span className="font-medium text-sm text-white">{state.detail}</span>
-        ) : (
-          <span className="text-sm text-white/40">Not taken yet</span>
-        )}
-        <Link
-          href={href}
-          className="whitespace-nowrap text-sm text-white/60 underline transition-colors hover:text-white"
-        >
-          {state.status === "done" ? "Retake →" : "Take it →"}
-        </Link>
-      </div>
-    </div>
+    <LinkOutRow
+      kindLabel="Quiz"
+      item={item}
+      href={href}
+      emptyText="Not taken yet"
+      doneCta="Retake →"
+      openCta="Take it →"
+    />
   );
 }
 
@@ -135,42 +174,16 @@ export function WorkbookFlashcardsRow({
   item: WorkbookItem;
   href: string;
 }) {
-  const values = useWorkbookValues();
-  const value = values?.[item.key] ?? null;
-  const state = itemState(item, value);
-
   return (
-    <div className="not-prose my-4 flex items-center justify-between gap-4 rounded-md border border-white/[0.08] bg-white/[0.015] p-4">
-      <div className="min-w-0">
-        <p className="font-medium text-[11px] text-accent uppercase tracking-[0.14em]">
-          Flashcards
-        </p>
-        <p className="mt-1 truncate text-sm text-white/85">{item.label}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        {state.status === "empty" ? (
-          <span className="text-sm text-white/40">
-            {item.itemCount ? `${item.itemCount} cards` : "Not studied yet"}
-          </span>
-        ) : (
-          <span
-            className={
-              state.status === "done"
-                ? "font-medium text-good text-sm"
-                : "font-medium text-sm text-white"
-            }
-          >
-            {state.detail}
-          </span>
-        )}
-        <Link
-          href={href}
-          className="whitespace-nowrap text-sm text-white/60 underline transition-colors hover:text-white"
-        >
-          {state.status === "done" ? "Review →" : "Study →"}
-        </Link>
-      </div>
-    </div>
+    <LinkOutRow
+      kindLabel="Flashcards"
+      item={item}
+      href={href}
+      emptyText={item.itemCount ? `${item.itemCount} cards` : "Not studied yet"}
+      doneCta="Review →"
+      openCta="Study →"
+      doneDetailClass="text-good"
+    />
   );
 }
 

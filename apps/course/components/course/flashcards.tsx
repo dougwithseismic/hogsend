@@ -39,10 +39,10 @@ export function Flashcards({
     title?: string;
   }>("flashcards", id, `flashcards:${id}`);
 
-  const [queue, setQueue] = useState<number[]>([]);
-  const [mastered, setMastered] = useState<Set<number>>(new Set());
+  // The ONLY study state: the unmastered indices in study order (null until
+  // the saved value is restored). Mastered = every index not in the queue.
+  const [queue, setQueue] = useState<number[] | null>(null);
   const [flipped, setFlipped] = useState(false);
-  const [ready, setReady] = useState(false);
 
   // Restore mastered cards once on mount (the store is server-fed, so the
   // saved value is available synchronously; indices are re-validated in case
@@ -54,47 +54,44 @@ export function Flashcards({
         (n) => Number.isInteger(n) && n >= 0 && n < cards.length,
       ),
     );
-    setMastered(restored);
     setQueue(cards.map((_, i) => i).filter((i) => !restored.has(i)));
-    setReady(true);
   }, []);
 
-  const current = queue[0];
+  const ready = queue !== null;
+  const current = queue?.[0];
+  const masteredCount = ready ? cards.length - queue.length : 0;
   const allDone = ready && queue.length === 0 && cards.length > 0;
 
-  function persist(nextMastered: Set<number>) {
+  function persist(nextQueue: number[]) {
     if (!session) return;
+    const remaining = new Set(nextQueue);
     void save({
-      mastered: [...nextMastered].sort((a, b) => a - b),
+      mastered: cards.map((_, i) => i).filter((i) => !remaining.has(i)),
       total: cards.length,
       title,
     });
   }
 
   function gotIt() {
-    if (current === undefined) return;
-    const nextMastered = new Set(mastered).add(current);
+    if (!queue || current === undefined) return;
     const nextQueue = queue.slice(1);
-    setMastered(nextMastered);
     setQueue(nextQueue);
     setFlipped(false);
-    persist(nextMastered);
+    persist(nextQueue);
     if (nextQueue.length === 0) celebrate();
   }
 
   function again() {
-    if (current === undefined) return;
+    if (!queue || current === undefined) return;
     setQueue([...queue.slice(1), current]);
     setFlipped(false);
   }
 
   function reset() {
-    setMastered(new Set());
-    setQueue(cards.map((_, i) => i));
+    const fullQueue = cards.map((_, i) => i);
+    setQueue(fullQueue);
     setFlipped(false);
-    if (session) {
-      void save({ mastered: [], total: cards.length, title });
-    }
+    persist(fullQueue);
   }
 
   return (
@@ -110,7 +107,7 @@ export function Flashcards({
           <p className="mt-2 font-medium text-base text-white">{title}</p>
         </div>
         <span className="whitespace-nowrap text-sm text-white/50">
-          {mastered.size}/{cards.length} mastered
+          {masteredCount}/{cards.length} mastered
         </span>
       </div>
 

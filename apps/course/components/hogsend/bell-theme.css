@@ -226,34 +226,3 @@
    (`.hsr-feed-item__clip/__track/__affordance/__archive`) is token-driven and
    already inherits the crimzon tokens set above, so the previous hand-rolled
    `.hs-swipe-*` rules are dead and removed. ── */
-
-/* ── Banner ticker — a new notification fades in as it jumps to the front. ── */
-@keyframes hs-ticker-fade {
-  from {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.hs-ticker-item {
-  display: inline-block;
-  animation: hs-ticker-fade 0.45s ease;
-}
-@media (prefers-reduced-motion: reduce) {
-  .hs-ticker-item {
-    animation: none;
-  }
-}
-
-/* ── Home live-demo feed height ────────────────────────────────────────────
-   The inline <NotificationFeed> caps at the package default
-   (--hs-feed-max-height: 520px). The feed element carries `.hsr` itself, so that
-   token can't be overridden by an ancestor's inline var (the element's own
-   `.hsr` declaration wins) — set the max-height directly with a section-scoped
-   selector, taller so the survey card's 0–10 row isn't clipped. ── */
-#live-demo .hsr-feed {
-  max-height: 720px;
-}
