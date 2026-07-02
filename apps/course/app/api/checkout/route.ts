@@ -75,7 +75,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     // Generate a proper invoice (PDF) per purchase so it shows in the account
     // billing section and the customer gets a receipt.
     invoice_creation: { enabled: true },
-    success_url: `${base}${next}?${isGift ? "gift" : "purchase"}=success`,
+    // Non-gift buyers land on the /welcome tour (which re-validates `next`
+    // itself); gift buyers return to the overview's GiftBanner unchanged.
+    // `paid=1` marks a completed purchase redirect so /welcome shows the
+    // "unlocking" hint only to real buyers (not to anyone who lands with ?course).
+    success_url: isGift
+      ? `${base}${next}?gift=success`
+      : `${base}/welcome?course=${encodeURIComponent(course)}&next=${encodeURIComponent(next)}&paid=1`,
     cancel_url: `${base}${next}?${isGift ? "gift" : "purchase"}=cancelled`,
   });
 

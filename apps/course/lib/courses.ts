@@ -81,6 +81,18 @@ export const ALL_ACCESS = {
   priceLabel: "$99",
 } as const;
 
+/**
+ * Canonical headline content facts for the flagship course — the numbers that
+ * appear in the fact strip, the catalog stat band, and marketing prose. One
+ * source so the trio can't drift between surfaces. Secondary prose numbers
+ * (check-ins, prompts, flashcards, plan items) stay literal at their call site.
+ */
+export const FLAGSHIP_CONTENT_FACTS = {
+  quizQuestions: 110,
+  workbookItems: 84,
+  dayPlan: "30/60/90/180",
+} as const;
+
 export function getCourse(slug: string): CourseMeta | undefined {
   return COURSES.find((c) => c.slug === slug);
 }

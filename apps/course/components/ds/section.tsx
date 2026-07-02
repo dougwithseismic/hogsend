@@ -48,6 +48,14 @@ export function Section({
   );
 }
 
+/**
+ * The shared section-heading type scale (Inter Display 36/44, tight tracking).
+ * One constant so every hand-rolled H2 — SectionHeading, ProcessSteps' intro,
+ * CtaPanel — stays on the same scale. Sites add their own extras (e.g. max-w).
+ */
+export const H2_CLASS =
+  "font-display text-[36px] leading-[1.05] tracking-[-0.035em] text-white md:text-[44px]";
+
 type SectionHeadingProps = {
   eyebrow?: string;
   title: ReactNode;
@@ -59,7 +67,7 @@ type SectionHeadingProps = {
 };
 
 /**
- * Standard section header: red sentence-case kicker, a 40/48 Inter Display
+ * Standard section header: red sentence-case kicker, a 36/44 Inter Display
  * heading (usually 2 lines max), and an optional 16px white/60 subtitle.
  */
 export function SectionHeading({
@@ -82,9 +90,7 @@ export function SectionHeading({
     >
       {eyebrow ? <Eyebrow className="mb-4">{eyebrow}</Eyebrow> : null}
 
-      <h2 className="max-w-3xl font-display text-[32px] text-white leading-[1.2] tracking-[-0.02em] md:text-[40px] md:leading-[48px]">
-        {title}
-      </h2>
+      <h2 className={cn(H2_CLASS, "max-w-3xl")}>{title}</h2>
 
       {subtitle ? (
         <p className="mt-5 max-w-2xl text-base text-white/60 leading-6">

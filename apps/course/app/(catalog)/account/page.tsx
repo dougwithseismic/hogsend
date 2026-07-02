@@ -9,6 +9,10 @@ import { DangerZone } from "@/components/account/danger-zone";
 import { ProfileForm } from "@/components/account/profile-form";
 import { SecuritySection } from "@/components/account/security-section";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import {
+  GettingStarted,
+  loadGettingStarted,
+} from "@/components/getting-started";
 import { auth } from "@/lib/auth";
 import { getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
@@ -56,9 +60,10 @@ export default async function AccountPage() {
   if (!session) redirect("/sign-in?next=/account");
   const user = session.user;
 
-  const [enrolls, progress] = await Promise.all([
+  const [enrolls, progress, gettingStarted] = await Promise.all([
     db.select().from(enrollment).where(eq(enrollment.userId, user.id)),
     db.select().from(lessonProgress).where(eq(lessonProgress.userId, user.id)),
+    loadGettingStarted(user.id),
   ]);
 
   const completedByCourse = new Map<string, number>();
@@ -79,6 +84,16 @@ export default async function AccountPage() {
           </h1>
           <p className="mt-1 text-white/50">{user.email}</p>
         </header>
+
+        {!gettingStarted.dismissed && !gettingStarted.complete ? (
+          <Section title="Getting started">
+            <GettingStarted
+              state={gettingStarted}
+              returnTo="/account"
+              dismissable
+            />
+          </Section>
+        ) : null}
 
         <Section title="Profile">
           <ProfileForm initialName={user.name ?? ""} email={user.email} />

@@ -11,7 +11,13 @@ import { Card } from "@/components/ds/card";
 import { ProgressBar } from "@/components/ds/progress-bar";
 import { GiftBanner, GiftCourse } from "@/components/gift-course";
 import { getCourseModules, slugsFromUrl } from "@/lib/course-ui";
-import { ALL_ACCESS, COURSES, type CourseMeta, getCourse } from "@/lib/courses";
+import {
+  ALL_ACCESS,
+  COURSES,
+  type CourseMeta,
+  FLAGSHIP_CONTENT_FACTS,
+  getCourse,
+} from "@/lib/courses";
 import { db } from "@/lib/db";
 import { lessonProgress } from "@/lib/db/schema";
 import {
@@ -23,6 +29,23 @@ import { getSession, isFreeLesson } from "@/lib/gating";
 
 // Reads the session for owned/completed state, so it's per-request.
 export const dynamic = "force-dynamic";
+
+const FLAGSHIP_SLUG = "growth-with-posthog";
+
+// Fact-strip stats authored per course, not in lib/courses — pinned to the
+// flagship slug so a future course can't inherit the wrong numbers. The
+// chapter count is derived from the lesson list at render time.
+const FLAGSHIP_FACTS = [
+  {
+    value: String(FLAGSHIP_CONTENT_FACTS.quizQuestions),
+    label: "Quiz questions",
+  },
+  {
+    value: String(FLAGSHIP_CONTENT_FACTS.workbookItems),
+    label: "Workbook items",
+  },
+  { value: FLAGSHIP_CONTENT_FACTS.dayPlan, label: "Day plan" },
+] as const;
 
 export function generateStaticParams() {
   // Coming-soon courses have no content; don't try to prerender them.
@@ -55,7 +78,7 @@ function ComingSoonOverview({ course }: { course: CourseMeta }): JSX.Element {
           soon
         </TagPill>
       </div>
-      <h1 className="mt-3 max-w-3xl font-display text-[36px] leading-[1.1] tracking-[-0.03em] md:text-[48px]">
+      <h1 className="mt-3 max-w-3xl font-display text-[44px] leading-[1.0] tracking-[-0.045em] md:text-[64px]">
         {course.title}
       </h1>
       <p className="mt-5 max-w-2xl text-lg text-white/60 leading-7">
@@ -135,7 +158,7 @@ export default async function CourseOverview(props: {
         ← All courses
       </Link>
 
-      <div className="mt-8 flex items-center gap-3">
+      <div className="mt-10 flex items-center gap-3">
         <p className="kicker">
           {course.level} · {course.estimate}
         </p>
@@ -146,17 +169,17 @@ export default async function CourseOverview(props: {
           </TagPill>
         ) : null}
       </div>
-      <h1 className="mt-3 max-w-3xl font-display text-[36px] leading-[1.1] tracking-[-0.03em] md:text-[48px]">
+      <h1 className="mt-6 max-w-3xl font-display text-[44px] leading-[1.0] tracking-[-0.045em] md:text-[64px]">
         {course.title}
       </h1>
-      <p className="mt-5 max-w-2xl text-lg text-white/60 leading-7">
+      <p className="mt-6 max-w-2xl text-lg text-white/70 leading-7">
         {course.summary}
       </p>
 
       <GiftBanner status={giftStatus} />
 
       {/* Primary CTA */}
-      <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-3">
+      <div className="mt-9 flex flex-wrap items-center gap-x-4 gap-y-3">
         {owned || !locked ? (
           nextLesson ? (
             <Button href={nextLesson.url} variant="accent" icon>
@@ -199,6 +222,25 @@ export default async function CourseOverview(props: {
         </p>
       ) : null}
 
+      {/* Fact strip */}
+      {course.slug === FLAGSHIP_SLUG ? (
+        <div className="mt-10 flex flex-wrap gap-x-6 gap-y-4">
+          {[{ value: String(total), label: "Chapters" }, ...FLAGSHIP_FACTS].map(
+            (fact) => (
+              <div
+                key={fact.label}
+                className="border-white/[0.08] border-l pl-6 first:border-l-0 first:pl-0"
+              >
+                <p className="font-display text-2xl tracking-[-0.02em]">
+                  {fact.value}
+                </p>
+                <p className="eyebrow mt-1.5 text-white/50">{fact.label}</p>
+              </div>
+            ),
+          )}
+        </div>
+      ) : null}
+
       {/* Progress */}
       {userId ? (
         <div className="mt-8 max-w-md">
@@ -229,8 +271,12 @@ export default async function CourseOverview(props: {
           // separator labels can't collide; fall back to the name when empty.
           <section key={mod.lessons[0]?.url ?? mod.name ?? "module"}>
             {mod.name ? (
-              <div className="mb-1 flex items-baseline justify-between gap-3">
-                <h2 className="kicker">{mod.name}</h2>
+              <div className="mb-2 flex items-baseline justify-between gap-3">
+                {/* .kicker scaled to 20px — the class is unlayered CSS, so a
+                    text-xl utility can't override its font-size. */}
+                <h2 className="text-accent text-xl leading-7 tracking-[-0.02em]">
+                  {mod.name}
+                </h2>
                 {userId ? (
                   <span className="whitespace-nowrap text-sm text-white/40">
                     {mod.lessons.filter((l) => completed.has(l.slug)).length}/
@@ -249,9 +295,9 @@ export default async function CourseOverview(props: {
                   <li key={lesson.url}>
                     <Link
                       href={lesson.url}
-                      className="group flex items-baseline gap-4 border-hairline-faint border-t py-5 transition-colors hover:bg-white/[0.02]"
+                      className="group flex items-baseline gap-4 border-hairline-faint border-t py-5 transition-colors hover:bg-white/[0.03]"
                     >
-                      <span className="w-8 shrink-0 font-mono text-sm text-white/30">
+                      <span className="w-8 shrink-0 font-display text-lg text-white/25">
                         {String(n).padStart(2, "0")}
                       </span>
                       <span className="flex-1">
