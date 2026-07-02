@@ -2,6 +2,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -123,6 +124,39 @@ export const lessonProgress = pgTable(
       t.lessonSlug,
     ),
     index("lesson_progress_user_course_idx").on(t.userId, t.courseSlug),
+  ],
+);
+
+/**
+ * A reader's saved answer to an interactive lesson block — a quiz result, a
+ * profile check-in, or a plan checklist. One row per user × block key; the
+ * latest answer wins (upsert on the unique index). `key` is namespaced by the
+ * block kind (e.g. "profile:role", "quiz:growth-with-posthog/02-aarrr…"), and
+ * `value` is the block-shaped JSON payload. courseSlug/lessonSlug record where
+ * the answer was given, for context — the key alone identifies the block.
+ */
+export const response = pgTable(
+  "response",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    kind: text("kind").notNull(), // profile | quiz | checklist
+    value: jsonb("value").notNull(),
+    courseSlug: text("course_slug"),
+    lessonSlug: text("lesson_slug"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("response_user_key_uq").on(t.userId, t.key),
+    index("response_user_idx").on(t.userId),
   ],
 );
 
