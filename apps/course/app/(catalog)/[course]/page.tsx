@@ -8,6 +8,7 @@ import { CheckoutButton } from "@/components/checkout-button";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
+import { ProgressBar } from "@/components/ds/progress-bar";
 import { getCourseModules, slugsFromUrl } from "@/lib/course-ui";
 import { ALL_ACCESS, COURSES, type CourseMeta, getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
@@ -154,7 +155,7 @@ export default async function CourseOverview(props: {
         {owned || !locked ? (
           nextLesson ? (
             <Button href={nextLesson.url} variant="accent" icon>
-              {done > 0 ? "Continue" : "Start the course"}
+              {done > 0 ? `Continue: ${nextLesson.title}` : "Start the course"}
             </Button>
           ) : null
         ) : (
@@ -196,14 +197,20 @@ export default async function CourseOverview(props: {
       {/* Progress */}
       {userId && done > 0 ? (
         <div className="mt-8 max-w-md">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-            <div
-              className="h-full rounded-full bg-accent transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          <ProgressBar
+            value={done}
+            max={total}
+            className="h-1.5"
+            barClassName="bg-accent"
+          />
           <p className="mt-2 text-sm text-white/40">
-            {done}/{total} lessons · {pct}%
+            {done}/{total} lessons · {pct}% ·{" "}
+            <Link
+              href="/workbook"
+              className="underline transition-colors hover:text-white"
+            >
+              your workbook
+            </Link>
           </p>
         </div>
       ) : null}
@@ -214,7 +221,17 @@ export default async function CourseOverview(props: {
           // Key on the module's first lesson URL (globally unique) so duplicate
           // separator labels can't collide; fall back to the name when empty.
           <section key={mod.lessons[0]?.url ?? mod.name ?? "module"}>
-            {mod.name ? <h2 className="kicker mb-1">{mod.name}</h2> : null}
+            {mod.name ? (
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <h2 className="kicker">{mod.name}</h2>
+                {userId ? (
+                  <span className="whitespace-nowrap text-sm text-white/40">
+                    {mod.lessons.filter((l) => completed.has(l.slug)).length}/
+                    {mod.lessons.length} done
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
             <ol className="flex flex-col">
               {mod.lessons.map((lesson) => {
                 const n = (indexBySlug.get(lesson.slug) ?? 0) + 1;
