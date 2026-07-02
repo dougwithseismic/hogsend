@@ -43,9 +43,9 @@ export const COURSES: CourseMeta[] = [
     tagline:
       "A start-to-finish growth program with PostHog + Hogsend — for the people who build it.",
     summary:
-      "Most teams grow by pouring more traffic into a leaky bucket. This course teaches the opposite order: measure what's happening (PostHog) so you can see the leaks, keep the users you already have (lifecycle messaging with Hogsend), then drive traffic and capture every visitor into an audience you own. Nine lessons, start to finish, written for technical founders and the consultants who set this up for them.",
+      "Most teams grow by pouring more traffic into a leaky bucket. This course teaches the opposite order: measure what's happening (PostHog) so you can see the leaks, keep the users you already have (lifecycle messaging with Hogsend), then drive traffic and capture every visitor into an audience you own — and run it all on a 30/60/90/180-day plan. Eleven lessons with quizzes, videos, and interactive checklists, written for technical founders and the consultants who set this up for them.",
     level: "Beginner → Intermediate",
-    estimate: "~2.5 hours",
+    estimate: "~4.5 hours",
     priceLabel: "$49",
   },
   {

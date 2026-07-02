@@ -25,7 +25,6 @@ export const PROFILE_FIELDS: Record<string, ProfileField> = {
   biggestLeak: { contactProperty: "profileBiggestLeak" },
   whatsWorking: { contactProperty: "profileWhatsWorking" },
   acquisitionMix: { contactProperty: "profileAcquisitionMix" },
-  channels: { contactProperty: "profileChannels" },
   community: { contactProperty: "profileCommunity" },
   biggestNeed: { contactProperty: "profileBiggestNeed" },
   /** Commitment at the end of the course. */
