@@ -10,6 +10,7 @@ import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { ProgressBar } from "@/components/ds/progress-bar";
+import { GiftBanner, GiftCourse } from "@/components/gift-course";
 import { getCourseModules, slugsFromUrl } from "@/lib/course-ui";
 import { ALL_ACCESS, COURSES, type CourseMeta, getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
@@ -86,8 +87,10 @@ function ComingSoonOverview({ course }: { course: CourseMeta }): JSX.Element {
 
 export default async function CourseOverview(props: {
   params: Promise<{ course: string }>;
+  searchParams: Promise<{ gift?: string }>;
 }) {
   const { course: slug } = await props.params;
+  const { gift: giftStatus } = await props.searchParams;
   const course = getCourse(slug);
   if (!course) notFound();
 
@@ -150,6 +153,8 @@ export default async function CourseOverview(props: {
       <p className="mt-5 max-w-2xl text-lg text-white/60 leading-7">
         {course.summary}
       </p>
+
+      <GiftBanner status={giftStatus} />
 
       <div className="max-w-2xl">
         <FounderNote />
@@ -219,6 +224,8 @@ export default async function CourseOverview(props: {
           </p>
         </div>
       ) : null}
+
+      {paywalled ? <GiftCourse course={course} /> : null}
 
       {/* Modules */}
       <div className="mt-14 flex flex-col gap-12">
