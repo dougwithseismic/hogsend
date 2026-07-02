@@ -141,12 +141,17 @@ export async function mintPromotionCode(
 export async function markGiftRedeemed(
   giftId: string,
   redeemedByUserId: string,
-): Promise<{ buyerUserId: string; courseSlug: string } | null> {
+): Promise<{
+  buyerUserId: string;
+  courseSlug: string;
+  recipientEmail: string | null;
+} | null> {
   const [row] = await db
     .select({
       id: gift.id,
       buyerUserId: gift.buyerUserId,
       courseSlug: gift.courseSlug,
+      recipientEmail: gift.recipientEmail,
       redeemedAt: gift.redeemedAt,
     })
     .from(gift)
@@ -158,7 +163,11 @@ export async function markGiftRedeemed(
     .update(gift)
     .set({ redeemedByUserId, redeemedAt: new Date() })
     .where(eq(gift.id, giftId));
-  return { buyerUserId: row.buyerUserId, courseSlug: row.courseSlug };
+  return {
+    buyerUserId: row.buyerUserId,
+    courseSlug: row.courseSlug,
+    recipientEmail: row.recipientEmail,
+  };
 }
 
 /**

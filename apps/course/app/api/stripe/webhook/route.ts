@@ -103,11 +103,17 @@ async function handlePossibleRedemption(
 
   const redeemed = await markGiftRedeemed(giftId, redeemedByUserId);
   if (!redeemed) return; // already marked (retry) or unknown gift
-  const buyer = await userById(redeemed.buyerUserId);
+  const [buyer, redeemer] = await Promise.all([
+    userById(redeemed.buyerUserId),
+    userById(redeemedByUserId),
+  ]);
   if (buyer) {
     await emitGiftRedeemed(buyer, {
       courseSlug: redeemed.courseSlug,
       courseTitle: skuTitle(redeemed.courseSlug),
+      redeemerName: redeemer?.name ?? null,
+      redeemerEmail: redeemer?.email ?? null,
+      recipientEmail: redeemed.recipientEmail,
     });
   }
 }

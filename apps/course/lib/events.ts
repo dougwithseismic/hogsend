@@ -315,10 +315,20 @@ export async function emitGifted(
   );
 }
 
-/** The buyer's notification event when their gift code gets redeemed. */
+/**
+ * The buyer's notification event when their gift code gets redeemed — carries
+ * WHO claimed it (name + email of the redeeming account, plus the address the
+ * gift was originally sent to) so the email can say so.
+ */
 export async function emitGiftRedeemed(
   buyer: AuthUser,
-  input: { courseSlug: string; courseTitle: string },
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    redeemerName?: string | null;
+    redeemerEmail?: string | null;
+    recipientEmail?: string | null;
+  },
 ): Promise<void> {
   if (!ingestConfigured()) return;
   await forwardToIngest(
@@ -330,6 +340,11 @@ export async function emitGiftRedeemed(
         source: SOURCE,
         course: input.courseSlug,
         courseTitle: input.courseTitle,
+        ...(input.redeemerName ? { redeemerName: input.redeemerName } : {}),
+        ...(input.redeemerEmail ? { redeemerEmail: input.redeemerEmail } : {}),
+        ...(input.recipientEmail
+          ? { recipientEmail: input.recipientEmail }
+          : {}),
       },
     },
     `course-gift-redeemed-${buyer.id}-${input.courseSlug}-${Date.now()}`,
