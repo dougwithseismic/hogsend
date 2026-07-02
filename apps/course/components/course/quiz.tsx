@@ -1,7 +1,7 @@
 "use client";
 
-import confetti from "canvas-confetti";
 import { useState } from "react";
+import { celebrate } from "@/components/course/celebrate";
 import { useLesson } from "@/components/course/lesson-context";
 import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
@@ -38,20 +38,6 @@ function sample(poolSize: number, count: number): number[] {
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
   return indices.slice(0, count);
-}
-
-function celebrate() {
-  const bursts = [
-    { particleCount: 90, spread: 70, origin: { y: 0.7 } },
-    { particleCount: 60, spread: 110, origin: { y: 0.65 } },
-  ];
-  for (const burst of bursts) {
-    confetti({
-      ...burst,
-      colors: ["#f64838", "#54d6c4", "#e8b23a", "#ffffff"],
-      disableForReducedMotion: true,
-    });
-  }
 }
 
 function scoreLine(score: number, total: number): string {

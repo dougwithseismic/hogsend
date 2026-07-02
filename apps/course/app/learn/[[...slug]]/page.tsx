@@ -19,11 +19,25 @@ import { LessonProvider } from "@/components/course/lesson-context";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { getMDXComponents } from "@/components/mdx";
 import { db } from "@/lib/db";
-import { response } from "@/lib/db/schema";
+import { lessonProgress, response } from "@/lib/db/schema";
 import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
 import { source } from "@/lib/source";
 import { lessonWorkbookItems, type SavedValue } from "@/lib/workbook";
+
+/** The following lesson in course order (numeric slug prefixes sort), or null. */
+function nextLessonOf(
+  course: string,
+  lesson: string,
+): { url: string; title: string } | null {
+  const pages = source
+    .getPages()
+    .filter((p) => p.slugs.length >= 2 && p.slugs[0] === course)
+    .sort((a, b) => a.slugs.join("/").localeCompare(b.slugs.join("/")));
+  const idx = pages.findIndex((p) => p.slugs[1] === lesson);
+  const nextPage = idx >= 0 ? pages[idx + 1] : undefined;
+  return nextPage ? { url: nextPage.url, title: nextPage.data.title } : null;
+}
 
 // The gated branch reads headers() (session), which is illegal during a static-
 // generation pass. With generateStaticParams + dynamicParams, gated params were
@@ -94,6 +108,7 @@ export default async function Page(props: {
   // render filled in the SSR HTML. Fetched alongside the idempotent enrollment
   // upsert — the two are independent DB round-trips.
   let initialResponses: Record<string, SavedValue> = {};
+  let lessonCompleted = false;
   if (session && slugs.length >= 2) {
     const user = {
       id: session.user.id,
@@ -101,7 +116,7 @@ export default async function Page(props: {
       name: session.user.name,
     };
     const keys = lessonWorkbookItems(slugs[0], lessonSlug).map((i) => i.key);
-    const [rows] = await Promise.all([
+    const [rows, progressRows] = await Promise.all([
       keys.length > 0
         ? db
             .select({ key: response.key, value: response.value })
@@ -110,11 +125,23 @@ export default async function Page(props: {
               and(eq(response.userId, user.id), inArray(response.key, keys)),
             )
         : Promise.resolve([]),
+      db
+        .select({ id: lessonProgress.id })
+        .from(lessonProgress)
+        .where(
+          and(
+            eq(lessonProgress.userId, user.id),
+            eq(lessonProgress.courseSlug, slugs[0]),
+            eq(lessonProgress.lessonSlug, lessonSlug),
+          ),
+        )
+        .limit(1),
       free ? Promise.resolve() : ensureEnrollment(user, slugs[0]),
     ]);
     initialResponses = Object.fromEntries(
       rows.map((row) => [row.key, row.value as SavedValue]),
     );
+    lessonCompleted = progressRows.length > 0;
   }
 
   return (
@@ -129,7 +156,12 @@ export default async function Page(props: {
               <ChapterWorkbook signedIn={session !== null} />
               {body}
               <ChapterRecap signedIn={session !== null} />
-              <LessonFooter course={slugs[0]} lesson={lessonSlug} />
+              <LessonFooter
+                course={slugs[0]}
+                lesson={lessonSlug}
+                completed={lessonCompleted}
+                next={nextLessonOf(slugs[0], lessonSlug)}
+              />
             </WorkbookStateProvider>
           </LessonProvider>
         ) : (
