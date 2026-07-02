@@ -3,12 +3,13 @@ import type { ReactNode } from "react";
 import "./home.css";
 
 /**
- * Homepage layout — the light crimzon design language (adapted from the
- * Polar Signals system explored in the /spike-polar spike, now promoted).
+ * Homepage layout — the spike-polar layout re-set in the dark crimzon scheme
+ * (#050101 ink ground, #F64838 accent; the layout/typography came from the
+ * /spike-polar Polar Signals exploration, now promoted).
  *
- * Standalone by design: deliberately opts out of the dark SiteNav /
+ * Standalone by design: deliberately opts out of the shared SiteNav /
  * SiteFooter / PageFrame chrome the rest of the marketing pages use — the
- * homepage carries its own nav, footer, and frame in the light system.
+ * homepage carries its own nav, footer, and frame.
  *
  * Display face: Montserrat 400 (a freely-licensed Proxima-adjacent geometric
  * grotesque), loaded only on this route as --ps-display.
@@ -22,7 +23,7 @@ const display = Montserrat({
 
 export default function LandingLayout({ children }: { children: ReactNode }) {
   return (
-    <div className={`${display.variable} min-h-screen bg-white text-[#2e3038]`}>
+    <div className={`${display.variable} min-h-screen bg-ink text-white/75`}>
       {children}
     </div>
   );
