@@ -6,11 +6,14 @@ import { CourseCard } from "@/components/course-card";
 import { Eyebrow, TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
+import { PlanVignette } from "@/components/ds/course-vignettes";
+import { CtaPanel } from "@/components/ds/cta-panel";
 import { FaqAccordion } from "@/components/ds/faq";
-import { AuroraBeam, DotGrid } from "@/components/ds/fx";
+import { AuroraBeam } from "@/components/ds/fx";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { type AllAccessView, getCatalog } from "@/lib/catalog";
+import { cn } from "@/lib/cn";
 import { getCourse } from "@/lib/courses";
 import { getSession } from "@/lib/gating";
 
@@ -24,6 +27,12 @@ export const metadata: Metadata = {
 
 const FLAGSHIP_PRICE = getCourse("growth-with-posthog")?.priceLabel ?? "$49";
 
+const SINGLE_INCLUDES: ReactNode[] = [
+  "That course on your account, forever",
+  "All 11 chapters, quizzes, and the workbook",
+  "First lesson free before you buy",
+];
+
 const ALL_ACCESS_INCLUDES: ReactNode[] = [
   "Every course on the site today",
   "Every future course, unlocked automatically",
@@ -31,10 +40,10 @@ const ALL_ACCESS_INCLUDES: ReactNode[] = [
   "All updates and new lessons",
 ];
 
-const SINGLE_INCLUDES: ReactNode[] = [
-  "One full course, every lesson",
-  "Lifetime access on your account",
-  "First lesson free to try before you buy",
+const GIFT_INCLUDES: ReactNode[] = [
+  "You get the receipt; they get the code",
+  "They redeem it on their own account",
+  "The code never expires",
 ];
 
 const FAQ_ITEMS = [
@@ -118,6 +127,69 @@ function AllAccessCta({ view }: { view: AllAccessView }): JSX.Element {
   );
 }
 
+/**
+ * One pricing card: name row (chip on the popular tier), a huge numeral,
+ * FEATURES label + check rows, and a bottom-pinned CTA above a hairline.
+ * The popular tier gets the accent border and a warm glow from the bottom.
+ */
+function PlanCard({
+  name,
+  badge,
+  price,
+  priceSuffix,
+  description,
+  features,
+  cta,
+  popular = false,
+}: {
+  name: string;
+  badge?: ReactNode;
+  price: string;
+  priceSuffix: string;
+  description: string;
+  features: ReactNode[];
+  cta: ReactNode;
+  popular?: boolean;
+}): JSX.Element {
+  return (
+    <Card
+      className={cn(
+        "relative h-full overflow-hidden p-8",
+        popular && "border-accent/40",
+      )}
+    >
+      {popular ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{
+            background:
+              "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.25), transparent 70%)",
+          }}
+        />
+      ) : null}
+      <div className="relative flex h-full flex-col">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-base text-white">{name}</span>
+          {badge}
+        </div>
+        <div className="mt-6 flex items-baseline gap-1.5">
+          <span className="font-display text-[56px] text-white leading-none tracking-[-0.02em]">
+            {price}
+          </span>
+          <span className="text-base text-white/60">{priceSuffix}</span>
+        </div>
+        <p className="mt-4 text-base text-white/70 leading-6">{description}</p>
+        <p className="eyebrow mt-8 text-white/50">Features</p>
+        <CheckList items={features} />
+        <div className="mt-8 flex flex-1 flex-col justify-end">
+          <div className="border-white/[0.08] border-t pt-6">{cta}</div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default async function PricingPage() {
   const session = await getSession();
   const { courses, allAccess } = await getCatalog(session?.user.id ?? null);
@@ -130,7 +202,7 @@ export default async function PricingPage() {
         <div className="container-page relative z-10 pt-28 pb-20 text-center">
           <Reveal className="flex flex-col items-center">
             <Eyebrow className="mb-4">Pricing</Eyebrow>
-            <h1 className="max-w-3xl font-display text-[36px] leading-[1.15] tracking-[-0.02em] md:text-[48px]">
+            <h1 className="max-w-3xl font-display text-[40px] leading-[1.15] tracking-[-0.04em] md:text-[56px]">
               One price. Every course. Forever.
             </h1>
             <p className="mt-5 max-w-2xl text-base text-white/60 leading-6">
@@ -142,75 +214,66 @@ export default async function PricingPage() {
         </div>
       </section>
 
-      {/* Two-tier offer grid */}
+      {/* Three-tier offer grid */}
       <Section divider={false}>
-        <div className="grid items-start justify-center gap-6 lg:grid-cols-[minmax(0,30rem)_minmax(0,26rem)]">
-          {/* All-Access */}
-          <Reveal>
-            <Card className="relative w-full overflow-hidden border-accent/40 p-8">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  background:
-                    "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.22), transparent 70%)",
-                }}
-              />
-              <div className="relative flex flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">All-Access</span>
-                  <TagPill accent>Best value</TagPill>
-                </div>
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    {allAccess.priceLabel}
-                  </span>
-                  <span className="text-base text-white/60">
-                    /one-time · lifetime
-                  </span>
-                </div>
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  Every course, now and later, unlocked on your account for one
-                  payment.
-                </p>
-                <CheckList items={ALL_ACCESS_INCLUDES} />
-                <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <AllAccessCta view={allAccess} />
-                </div>
-              </div>
-            </Card>
+        <div className="grid items-stretch gap-6 md:grid-cols-3">
+          <Reveal className="h-full">
+            <PlanCard
+              name="Single course"
+              price={FLAGSHIP_PRICE}
+              priceSuffix="/one-time"
+              description="Just want one? Unlock a single course forever — try the first lesson free first."
+              features={SINGLE_INCLUDES}
+              cta={
+                <Button
+                  href="/"
+                  variant="outline"
+                  icon
+                  className="w-full justify-center"
+                >
+                  Browse courses
+                </Button>
+              }
+            />
           </Reveal>
 
-          {/* Single course */}
-          <Reveal delay={0.08}>
-            <Card className="relative w-full overflow-hidden p-8">
-              <div className="relative flex flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">Single course</span>
-                  <TagPill>Pay per course</TagPill>
-                </div>
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    {FLAGSHIP_PRICE}
-                  </span>
-                  <span className="text-base text-white/60">
-                    /course · lifetime
-                  </span>
-                </div>
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  Just want one? Unlock a single course forever — try the first
-                  lesson free first.
-                </p>
-                <CheckList items={SINGLE_INCLUDES} />
-                <div className="mt-8 border-white/[0.08] border-t pt-6">
-                  <Button href="/" variant="outline" icon>
-                    Browse courses
-                  </Button>
-                </div>
-              </div>
-            </Card>
+          <Reveal delay={0.08} className="h-full">
+            <PlanCard
+              popular
+              name="All-Access"
+              badge={<TagPill accent>Best value</TagPill>}
+              price={allAccess.priceLabel}
+              priceSuffix="/one-time · lifetime"
+              description="Every course, now and later, unlocked on your account for one payment."
+              features={ALL_ACCESS_INCLUDES}
+              cta={<AllAccessCta view={allAccess} />}
+            />
+          </Reveal>
+
+          <Reveal delay={0.16} className="h-full">
+            <PlanCard
+              name="Gift a course"
+              price={FLAGSHIP_PRICE}
+              priceSuffix="/one-time"
+              description="Pay for one copy and we mint a single-use unlock code — emailed to them, or to you to forward."
+              features={GIFT_INCLUDES}
+              cta={
+                <Button
+                  href="/growth-with-posthog#gift"
+                  variant="outline"
+                  icon
+                  className="w-full justify-center"
+                >
+                  Gift a course
+                </Button>
+              }
+            />
           </Reveal>
         </div>
+        <p className="mt-10 text-center text-sm text-white/50">
+          One-time payments. No subscription. The first lesson of every course
+          is free.
+        </p>
       </Section>
 
       {/* Course list */}
@@ -252,26 +315,17 @@ export default async function PricingPage() {
       </Section>
 
       {/* Closing CTA */}
-      <Section>
-        <DotGrid />
-        <div className="relative z-10 flex flex-col items-center text-center">
-          <Reveal className="flex flex-col items-center">
-            <Eyebrow className="mb-4">Start now</Eyebrow>
-            <h2 className="max-w-2xl font-display text-[32px] leading-[1.2] tracking-[-0.02em] md:text-[40px]">
-              The first lesson is free
-            </h2>
-            <p className="mt-5 max-w-2xl text-base text-white/60 leading-6">
-              Read before you buy. Start the first lesson now — no account
-              needed.
-            </p>
-          </Reveal>
-          <Reveal delay={0.12} className="mt-9">
-            <Button href="/" variant="accent" icon>
-              Browse courses
-            </Button>
-          </Reveal>
-        </div>
-      </Section>
+      <CtaPanel
+        eyebrow="Start now"
+        title="The first lesson is free"
+        body="Read before you buy. Start the first lesson now — no account needed."
+        actions={
+          <Button href="/" variant="accent" icon>
+            Browse courses
+          </Button>
+        }
+        media={<PlanVignette />}
+      />
     </main>
   );
 }

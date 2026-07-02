@@ -3,6 +3,10 @@ import Link from "next/link";
 import type { JSX } from "react";
 import { PillBadge, TagPill } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
+import {
+  ChapterListVignette,
+  GlowMedia,
+} from "@/components/ds/course-vignettes";
 import type { CourseCardView } from "@/lib/catalog";
 import { cn } from "@/lib/cn";
 
@@ -35,6 +39,29 @@ function StateBadge({ view }: { view: CourseCardView }): JSX.Element {
 }
 
 /**
+ * Decorative media header: a red radial glow rising from below the frame,
+ * with a DOM vignette inside — the chapter list for a published course, a
+ * glass "Coming soon" panel for an unpublished one. aria-hidden because
+ * everything it shows is repeated accessibly in the card body.
+ */
+function CardMedia({ view }: { view: CourseCardView }): JSX.Element {
+  return (
+    <GlowMedia className="min-h-[180px]">
+      {view.state === "coming-soon" ? (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="rounded-md border border-white/[0.1] bg-white/[0.04] px-4 py-2 text-sm text-white/70 backdrop-blur-sm">
+            Coming soon
+          </span>
+        </div>
+      ) : (
+        // Anchored past the bottom edge so it crops like a screenshot.
+        <ChapterListVignette className="absolute inset-x-6 top-6 rounded-b-none border-b-0" />
+      )}
+    </GlowMedia>
+  );
+}
+
+/**
  * A catalog course card showing its lock/owned/free/coming-soon state, price,
  * lesson count, estimate, and a progress bar once the reader has started it.
  * Always a link to the course overview (coming-soon links to its teaser).
@@ -46,47 +73,51 @@ export function CourseCard({ view }: { view: CourseCardView }): JSX.Element {
     : 0;
 
   return (
-    <Link href={view.href} className="group block">
+    <Link href={view.href} className="group block h-full">
       <Card
         className={cn(
-          "flex h-full flex-col gap-4 group-hover:border-white/15",
+          "flex h-full flex-col overflow-hidden p-0 group-hover:border-white/15",
           isComingSoon && "opacity-70",
         )}
       >
-        <div className="flex items-center justify-between gap-2">
-          <PillBadge>{view.level}</PillBadge>
-          <StateBadge view={view} />
-        </div>
+        <CardMedia view={view} />
 
-        <h2 className="font-display text-2xl leading-tight tracking-[-0.02em]">
-          {view.title}
-        </h2>
-        <p className="text-base text-white/60 leading-6">{view.tagline}</p>
-
-        {view.progress ? (
-          <div className="mt-1">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
-              <div
-                className="h-full rounded-full bg-accent transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <p className="mt-2 text-white/40 text-xs">
-              {view.progress.done}/{view.progress.total} lessons · {pct}%
-            </p>
+        <div className="flex flex-1 flex-col gap-4 p-6">
+          <div className="flex items-center justify-between gap-2">
+            <PillBadge>{view.level}</PillBadge>
+            <StateBadge view={view} />
           </div>
-        ) : null}
 
-        <div className="mt-auto flex items-center gap-3 pt-4 text-sm text-white/40">
-          {isComingSoon ? (
-            <span>In production</span>
-          ) : (
-            <>
-              <span>{view.lessonCount} lessons</span>
-              <span aria-hidden>·</span>
-              <span>{view.estimate}</span>
-            </>
-          )}
+          <h2 className="font-display text-2xl leading-tight tracking-[-0.02em]">
+            {view.title}
+          </h2>
+          <p className="text-base text-white/60 leading-6">{view.tagline}</p>
+
+          {view.progress ? (
+            <div className="mt-1">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                <div
+                  className="h-full rounded-full bg-accent transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <p className="mt-2 text-white/40 text-xs">
+                {view.progress.done}/{view.progress.total} lessons · {pct}%
+              </p>
+            </div>
+          ) : null}
+
+          <div className="mt-auto flex items-center gap-3 pt-4 text-sm text-white/40">
+            {isComingSoon ? (
+              <span>In production</span>
+            ) : (
+              <>
+                <span>{view.lessonCount} lessons</span>
+                <span aria-hidden>·</span>
+                <span>{view.estimate}</span>
+              </>
+            )}
+          </div>
         </div>
       </Card>
     </Link>

@@ -1,15 +1,27 @@
 import { Check } from "lucide-react";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
 import { Eyebrow, PillBadge } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
-import { Card } from "@/components/ds/card";
+import { Card, FeatureCard } from "@/components/ds/card";
+import {
+  FlashcardVignette,
+  GlowMedia,
+  PlanVignette,
+  QuizVignette,
+  WorkbookVignette,
+} from "@/components/ds/course-vignettes";
+import { CtaPanel } from "@/components/ds/cta-panel";
 import { FaqAccordion } from "@/components/ds/faq";
-import { DotGrid, GlowField } from "@/components/ds/fx";
+import { GlowField } from "@/components/ds/fx";
+import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
+import { StatBand } from "@/components/ds/stat-band";
+import { WordReveal } from "@/components/ds/word-reveal";
 import { type AllAccessView, getCatalog } from "@/lib/catalog";
+import { FLAGSHIP_CONTENT_FACTS } from "@/lib/courses";
 import { getSession } from "@/lib/gating";
 import { source } from "@/lib/source";
 
@@ -33,6 +45,9 @@ const PILLARS = [
     body: "Drive traffic that compounds, and capture every visitor into an audience you own — not one you rent.",
   },
 ];
+
+const MANIFESTO =
+  "Most teams grow by pouring more traffic into a leaky bucket. These courses teach the opposite order: measure what is actually happening, keep the users you already won, then grow on top of a product that holds.";
 
 const FAQ_ITEMS = [
   {
@@ -110,6 +125,42 @@ function AllAccessBanner({ view }: { view: AllAccessView }): JSX.Element {
   );
 }
 
+/** Glow-backed media header for a FeatureCard — a vignette cropped like a
+ *  screenshot over the red radial treatment (matches the course cards). */
+function VignetteMedia({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <GlowMedia className="min-h-[200px]">
+      <div className="absolute inset-x-5 top-5">{children}</div>
+    </GlowMedia>
+  );
+}
+
+const INSIDE_CARDS = [
+  {
+    title: "The workbook",
+    description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items — 18 profiling check-ins, 6 free-text prompts — everything you type saves to your account.`,
+    media: <WorkbookVignette />,
+  },
+  {
+    title: "Quizzes & flashcards",
+    description: `11 quizzes pooling ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus 64 flashcards across 11 decks.`,
+    // A flashcard peeking behind the quiz, cropped by the media area — both
+    // halves of the card title in one stack.
+    media: (
+      <div className="relative">
+        <FlashcardVignette className="-rotate-2 absolute inset-x-0 top-0 bg-[#0f0808]" />
+        <QuizVignette className="relative top-6 mx-2 shadow-2xl shadow-black/50" />
+      </div>
+    ),
+  },
+  {
+    title: `Your ${FLAGSHIP_CONTENT_FACTS.dayPlan} plan`,
+    description:
+      "Chapter 10 assembles your answers into a 37-item plan you run after the course.",
+    media: <PlanVignette />,
+  },
+];
+
 export default async function CatalogPage() {
   const session = await getSession();
   const { courses, allAccess } = await getCatalog(session?.user.id ?? null);
@@ -127,18 +178,18 @@ export default async function CatalogPage() {
       {/* Hero */}
       <section className="relative overflow-hidden">
         <GlowField className="opacity-70" />
-        <div className="container-page relative z-10 py-24 md:py-32">
-          <Reveal className="flex flex-col items-start">
+        <div className="container-page relative z-10 py-28 md:py-40">
+          <Reveal className="flex flex-col items-center text-center">
             <PillBadge className="mb-6">Code-first growth courses</PillBadge>
-            <h1 className="max-w-3xl font-display text-[40px] leading-[1.05] tracking-[-0.03em] md:text-[64px]">
+            <h1 className="mx-auto max-w-4xl text-center font-display text-[48px] leading-[1.0] tracking-[-0.05em] md:text-[76px]">
               Build your growth in code.
             </h1>
-            <p className="mt-6 max-w-2xl text-lg text-white/60 leading-7">
+            <p className="mx-auto mt-6 max-w-2xl text-center text-lg text-white/70 leading-7">
               Start-to-finish courses on PostHog, lifecycle messaging, and
               turning traffic into an audience you own — written for the people
               who build it. The first lesson of every course is free.
             </p>
-            <div className="mt-9 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <div className="mt-9 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
               <Button href={flagshipFirstLesson} variant="accent" icon>
                 Start learning free
               </Button>
@@ -149,6 +200,26 @@ export default async function CatalogPage() {
           </Reveal>
         </div>
       </section>
+
+      {/* Stat band */}
+      <Section>
+        <Reveal>
+          <StatBand
+            label="One course today, built to be worked, not just read."
+            stats={[
+              { value: "11", caption: "Chapters" },
+              {
+                value: String(FLAGSHIP_CONTENT_FACTS.quizQuestions),
+                caption: "Quiz questions",
+              },
+              {
+                value: String(FLAGSHIP_CONTENT_FACTS.workbookItems),
+                caption: "Workbook exercises",
+              },
+            ]}
+          />
+        </Reveal>
+      </Section>
 
       {/* Course grid */}
       <Section>
@@ -169,27 +240,49 @@ export default async function CatalogPage() {
         </Reveal>
       </Section>
 
-      {/* Value: Measure / Keep / Grow */}
+      {/* Manifesto — WordReveal is its own scroll-linked entry, so no Reveal. */}
       <Section>
-        <SectionHeading
+        <div className="mx-auto flex max-w-4xl flex-col items-center">
+          <Eyebrow className="mb-6">Why this order</Eyebrow>
+          <p className="text-center font-display text-[28px] leading-[1.25] tracking-[-0.03em] md:text-[40px] md:leading-[1.2]">
+            <WordReveal text={MANIFESTO} className="[&>span]:justify-center" />
+          </p>
+        </div>
+      </Section>
+
+      {/* The method — sticky left column; no Reveal/transform wrapper (it
+          would break position: sticky inside ProcessSteps). */}
+      <Section>
+        <ProcessSteps
           eyebrow="The method"
           title="Measure, keep, then grow"
-          subtitle="Most teams grow by pouring more traffic into a leaky bucket. These courses teach the opposite order."
+          subtitle="The flagship course runs in this order: five chapters on measurement, two on retention, two on growth, and two on running it week to week."
+          steps={PILLARS.map((pillar, i) => ({
+            n: String(i + 1).padStart(2, "0"),
+            title: pillar.name,
+            description: pillar.body,
+          }))}
         />
+      </Section>
+
+      {/* What's inside */}
+      <Section>
+        <Reveal>
+          <SectionHeading
+            eyebrow="What's inside"
+            title="Quizzes, flashcards, a workbook, and a plan"
+            subtitle="Every chapter has a quiz and a flashcard deck; the workbook runs through the whole course."
+          />
+        </Reveal>
         <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {PILLARS.map((pillar, i) => (
-            <Reveal key={pillar.name} delay={i * 0.08}>
-              <Card className="h-full">
-                <span className="font-mono text-sm text-white/30">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <h3 className="mt-3 font-display text-xl tracking-[-0.02em]">
-                  {pillar.name}
-                </h3>
-                <p className="mt-2.5 text-base text-white/60 leading-6">
-                  {pillar.body}
-                </p>
-              </Card>
+          {INSIDE_CARDS.map((card, i) => (
+            <Reveal key={card.title} delay={i * 0.08}>
+              <FeatureCard
+                title={card.title}
+                description={card.description}
+                media={<VignetteMedia>{card.media}</VignetteMedia>}
+                className="h-full"
+              />
             </Reveal>
           ))}
         </div>
@@ -217,32 +310,23 @@ export default async function CatalogPage() {
         />
       </Section>
 
-      {/* Closing CTA */}
-      <Section>
-        <DotGrid />
-        <div className="relative z-10 flex flex-col items-center text-center">
-          <Reveal className="flex flex-col items-center">
-            <Eyebrow className="mb-4">Start now</Eyebrow>
-            <h2 className="max-w-2xl font-display text-[32px] leading-[1.2] tracking-[-0.02em] md:text-[40px]">
-              The first lesson is free
-            </h2>
-            <p className="mt-5 max-w-2xl text-base text-white/60 leading-6">
-              No account needed to start. Read the first lesson, then unlock the
-              rest when you're ready.
-            </p>
-          </Reveal>
-          <Reveal delay={0.12} className="mt-9">
-            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
-              <Button href={flagshipFirstLesson} variant="accent" icon>
-                Start learning free
-              </Button>
-              <Button href="/pricing" variant="outline" icon>
-                See pricing
-              </Button>
-            </div>
-          </Reveal>
-        </div>
-      </Section>
+      {/* Closing CTA — CtaPanel renders its own full section. */}
+      <CtaPanel
+        eyebrow="Start now"
+        title="The first lesson is free"
+        body="No account needed to start. Read the first lesson, then unlock the rest when you're ready."
+        actions={
+          <>
+            <Button href={flagshipFirstLesson} variant="accent" icon>
+              Start learning free
+            </Button>
+            <Button href="/pricing" variant="outline" icon>
+              See pricing
+            </Button>
+          </>
+        }
+        media={<PlanVignette className="bg-[#0d0707]" />}
+      />
     </>
   );
 }

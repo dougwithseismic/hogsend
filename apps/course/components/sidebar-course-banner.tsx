@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, NotebookPen } from "lucide-react";
+import { ArrowLeft, ListChecks, NotebookPen } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type JSX, useEffect, useState } from "react";
@@ -29,6 +29,12 @@ export function SidebarCourseBanner(): JSX.Element | null {
     done: number;
     total: number;
   } | null>(null);
+  const [gettingStarted, setGettingStarted] = useState<{
+    done: number;
+    total: number;
+    dismissed: boolean;
+    next: { id: string; label: string } | null;
+  } | null>(null);
 
   // Depends on the full pathname (not just the slug) so moving between
   // lessons of the same course refreshes the counts after in-lesson saves.
@@ -51,7 +57,29 @@ export function SidebarCourseBanner(): JSX.Element | null {
     };
   }, [session, pathname]);
 
+  // Getting-started summary (five "firsts", derived server-side): one fetch
+  // per session — its state changes far less often than workbook progress.
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    fetch("/api/getting-started")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: typeof gettingStarted) => {
+        if (cancelled || !body || typeof body.done !== "number") return;
+        setGettingStarted(body);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
   if (!course) return null;
+
+  const showGettingStarted =
+    gettingStarted &&
+    !gettingStarted.dismissed &&
+    gettingStarted.done < gettingStarted.total;
 
   return (
     <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] p-3">
@@ -87,6 +115,26 @@ export function SidebarCourseBanner(): JSX.Element | null {
           />
         ) : null}
       </div>
+
+      {showGettingStarted ? (
+        <div className="mt-3 border-white/[0.08] border-t pt-3">
+          <Link
+            href="/welcome"
+            className="group flex items-center gap-1.5 text-white/60 text-xs transition-colors hover:text-white"
+          >
+            <ListChecks className="size-3" aria-hidden />
+            <span>Getting started</span>
+            <span className="ml-auto text-white/40 group-hover:text-white/60">
+              {gettingStarted.done}/{gettingStarted.total}
+            </span>
+          </Link>
+          {gettingStarted.next ? (
+            <p className="mt-1.5 truncate text-[11px] text-white/35">
+              Next: {gettingStarted.next.label}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

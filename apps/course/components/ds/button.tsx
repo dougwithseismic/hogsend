@@ -8,7 +8,7 @@ type ButtonProps = {
   href?: string;
   /**
    * "accent" and "solid" render the primary white button; "outline" renders
-   * the secondary plain-text link. (No outlined/mono button exists anymore.)
+   * the secondary hairline-bordered button (same geometry, ghost fill).
    */
   variant?: "accent" | "outline" | "solid";
   /** Accepted for compatibility — every tone renders the dark crimzon style. */
@@ -26,8 +26,8 @@ const BASE =
 
 function variantClasses(variant: NonNullable<ButtonProps["variant"]>): string {
   if (variant === "outline") {
-    // Secondary: plain white text link — no border, no fill.
-    return "h-10 px-1 text-white hover:text-white/80";
+    // Secondary: white/15 hairline, ghost fill on hover, primary geometry.
+    return "h-12 rounded-[10px] border border-white/15 px-5 text-white hover:border-white/30 hover:bg-white/[0.04]";
   }
   // Primary ("accent" and "solid"): white fill, near-black text, 10px radius.
   return "h-12 rounded-[10px] bg-white px-5 text-[#0a0a0a] hover:bg-white/90";

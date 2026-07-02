@@ -23,10 +23,7 @@ export default async function SignInPage(props: {
       <PageFrame />
       <main className="relative z-10 flex min-h-screen items-center justify-center px-6">
         <div className="w-full max-w-sm">
-          <Link
-            href="/"
-            className="font-display font-medium text-white tracking-[-0.02em]"
-          >
+          <Link href="/" className="font-display text-white tracking-[-0.02em]">
             Hogsend <span className="text-white/40">Courses</span>
           </Link>
           <h1 className="mt-8 font-display text-2xl tracking-[-0.02em]">

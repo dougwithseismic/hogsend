@@ -76,15 +76,16 @@ body {
   letter-spacing: -0.02em;
 }
 
-/* Headings render in the display face (Inter Display). Default weight 400 —
-   the hero H1 opts into 500 + the tighter -0.06em tracking explicitly. */
+/* Headings render in the display face (Inter Display). Default weight 500 —
+   Inter Display Medium, the crimzon heading weight (loaded in lib/fonts.ts;
+   heavier weights are not). Pages opt into tighter tracking explicitly. */
 h1,
 h2,
 h3,
 h4,
 .font-display {
   font-family: var(--font-display);
-  font-weight: 400;
+  font-weight: 500;
   letter-spacing: -0.02em;
 }
 
