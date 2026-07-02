@@ -1,12 +1,13 @@
 ---
 title: "Chapter 5 — Lifecycle messaging: which emails, in what order"
-description: "The messaging program that plugs the leaky bucket — which journeys to build first, why behavioural beats batch, the tools you could use, and how to prove any of it works."
+description: "The messaging program that plugs the leaky bucket — which journeys to build first, why behavioural beats batch, deliverability, the tools you could use, and how to prove any of it works with holdouts."
 ---
 
 > **In this chapter:** the lifecycle stages mapped to AARRR, the order to build them
 > in (and why), why triggered messages beat batch-and-blast, how many touch-points is
-> right, the landscape of tools (and when no-code is the right call), and how to measure
-> impact honestly with holdouts. This is the strategy; Chapter 6 is the code.
+> right, how to stay out of the spam folder, the landscape of tools (and when no-code is
+> the right call), and how to measure impact honestly with holdouts. This is the
+> strategy; Chapter 6 is the code.
 
 ---
 
@@ -17,8 +18,8 @@ thing you do in the product code alone — a lot of it is *reaching the user at 
 moment* and pulling them back toward value. That's lifecycle messaging: the right
 message, triggered by the right behaviour, at the right time.
 
-Tie it directly to the leaky bucket. Each hole in the bucket has a message that plugs
-it:
+It's worth tying this directly to the leaky bucket, because each hole in the bucket
+has a message that plugs it:
 
 - A user signs up but never reaches value → an **onboarding** sequence pulls them to
   the aha moment.
@@ -32,6 +33,14 @@ users are already yours. For a growth team it's also the *action* half of the op
 model (Chapter 0): measurement (Chapters 1–4) tells you where the leak is; lifecycle
 messaging is how the team acts on it automatically, every time, without anyone
 remembering to.
+
+One more framing before the mechanics, because it changes how you'll design every
+message: lifecycle messaging is a *service to the user*, not a broadcast at them. Every
+good lifecycle message answers a question the user has at that moment — "what do I do
+first?", "why did my payment fail?", "what changed since I left?" A message with no
+answer behind it is noise, and users bill you for noise in unsubscribes and spam
+complaints (§5.6). The whole discipline of this chapter — triggers, cadence, exit
+conditions, holdouts — exists to keep the program on the right side of that line.
 
 ---
 
@@ -53,37 +62,66 @@ which AARRR stage it serves:
 
 A useful mental model (from Reforge): **retention is an output, not a stage you push
 on directly.** Its inputs are *activation*, *engagement*, and *resurrection* — and
-lifecycle messaging is how you move each of those inputs. The best programs reinforce
-the product's *existing* habit loop rather than inventing new reasons to log in. A
-fitness app's habit is the workout; the message that says "your Tuesday session is
-waiting" works because it strengthens a loop that already exists. A message that invents
-a reason ("check out our blog!") fights the user's attention instead of riding it.
+lifecycle messaging is how you move each of those inputs.
+[Customer.io's lifecycle guide](https://customer.io/learn/lifecycle-marketing/automation-and-personalization-guide)
+frames the same program as a five-step arc — capture, activate, retain, win back,
+expand — which is a decent sanity check that your table above covers the whole
+relationship, not just the first week of it.
+
+The best programs reinforce the product's *existing* habit loop rather than inventing
+new reasons to log in. A fitness app's habit is the workout; the message that says
+"your Tuesday session is waiting" works because it strengthens a loop that already
+exists. A message that invents a reason ("check out our blog!") fights the user's
+attention instead of riding it. Before writing any sequence, it's worth naming the
+habit loop you're reinforcing — teams that can't name one usually discover, a few
+months in, that they've built a newsletter and called it lifecycle.
+
+<VideoEmbed
+  id="iGzVM8ygjTk"
+  title="Mastering Lifecycle Marketing: Real-World Tactics from Leading B2B Teams"
+  channel="Exit Five"
+  duration="54:21"
+  note="Practitioners walking real lifecycle programs end to end — useful for hearing how teams decide which stage to work on next, which is exactly the §5.3 question."
+/>
 
 ---
 
 ## 5.3 The order to build them — and why
 
-You can't build all eight at once, and you shouldn't. Build in this order:
+You can't build all eight at once — and you don't need to. Here's the order most
+programs converge on, and the reasoning behind it, so you can adapt it rather than
+follow it blindly:
 
 ### 1. Welcome + onboarding — first, and most important
 
-This is non-negotiable as your starting point, for three reasons:
+It's hard to justify starting anywhere else, for three reasons:
 
 - **Peak intent.** A new user is more engaged the moment after signup than they will
   ever be again. Welcome and onboarding emails consistently post the highest open and
   click rates of any automated message — welcome-email open rates commonly land around
   **35–50%** *(well-attested across benchmark reports; the high end is SaaS-blog
-  territory)*.
+  territory — [Litmus's State of Email reports](https://www.litmus.com/state-of-email-reports)
+  are the least salesy place to calibrate)*.
 - **It plugs the biggest hole.** Most early churn happens in the gap between signup and
   activation. That's the widest leak in the bucket, and onboarding is the patch.
-- **It's the highest-leverage growth lever you have.** Activated users retain at least
-  ~2× better than non-activated ones (Lenny Rachitsky). Doubling activation can beat
-  doubling signups — at zero acquisition cost. Onboarding email is the cheapest way to
-  move activation.
+- **It's the highest-leverage growth lever you have.** Activated users retain roughly
+  ~2× better than non-activated ones
+  ([Lenny Rachitsky's activation benchmarks](https://www.lennysnewsletter.com/p/what-is-a-good-activation-rate)).
+  Doubling activation can beat doubling signups — at zero acquisition cost. Onboarding
+  email is the cheapest way to move activation.
 
 > ⚠️ You'll see "poor onboarding causes 40–60% of early churn" repeated everywhere.
 > It's directional folklore with no single solid study behind it — believe the
 > direction (onboarding matters enormously), not the decimal.
+
+What a good welcome sequence actually contains, since "send a welcome series" hides all
+the craft: **message one** delivers the single next action (not five features — the
+first action from your activation funnel, Chapter 4); **message two**, a day or two
+later, either celebrates progress or unblocks the stall, branching on behaviour
+(Chapter 6 shows the code); **message three** introduces the second habit only once the
+first stuck. Every message earns the next; none of them fires if the user has already
+moved past it. That last property — *not sending* — is what separates lifecycle from a
+drip.
 
 ### 2. Dunning / failed-payment recovery — early, if you charge
 
@@ -92,37 +130,62 @@ subscription product it belongs near the top, because it's often the **highest
 dollar-ROI** journey you'll ever build: it recovers revenue you already earned.
 
 - **Involuntary churn** (failed cards, expirations) is **20–40% of total SaaS churn**
-  *(well-attested — consistent across many independent sources)*.
-- Well-run dunning recovers a large share of it — commonly cited recovery rates run
-  **30–70%**, with Stripe's own tooling around 57% *(directional, but a credible
-  band)*.
+  *(well-attested — consistent across many independent sources, including
+  [Baremetrics' dunning writeup](https://baremetrics.com/blog/dunning-management))*.
+- Well-run dunning recovers a large share of it.
+  [Stripe's Smart Retries documentation](https://docs.stripe.com/billing/revenue-recovery/smart-retries)
+  is the primary source worth reading: machine-timed retries plus reminder emails are
+  the whole mechanism, and Stripe publishes how its retry timing is chosen. Vendor
+  case studies claim recovery rates well above half of failed payments — treat the
+  precise percentages as marketing, the mechanism as real.
+
+<VideoEmbed
+  id="vp4SwMY-QrM"
+  title="How to Recover 89% of Failed Payments (SaaS Dunning Strategy)"
+  channel="Churnkey"
+  duration="3:23"
+  note="Three minutes on the retry + reminder mechanics. The 89% in the title is a vendor's best case — watch it for the playbook, not the number."
+/>
 
 A handful of retry-and-remind emails can recover a meaningful slice of your MRR. The
 reason it's so high-ROI: these users *want* to keep paying — they're not churning by
-choice, their card just expired. You're removing friction, not persuading. Build it
-early.
+choice, their card just expired. You're removing friction, not persuading — which is
+why this one rewards being built early. The sequence itself is short: an immediate "your payment didn't go through" with
+a one-click card-update link, a reminder a few days later if the retry hasn't cleared,
+and a final "your account is about to pause" — all of it exiting the instant a payment
+succeeds (Chapter 6, §6.7 builds exactly this).
 
 ### 3. Win-back / resurrection — next
 
 Reactivating a lapsed user is cheaper than acquiring a new one, and they already
 understand the value. Reactivation rates of **10–30% of lapsed users** are the commonly
-cited band *(directional)*.
+cited band *(directional)*. The structure that works —
+[Klaviyo's win-back examples](https://www.klaviyo.com/blog/winback-email-campaign-examples)
+are e-commerce but the shape transfers — is a gentle "here's what's new" first touch,
+a concrete-value second touch, and only then an incentive if you use one at all.
+Leading with what changed since they left works because "we miss you" answers no
+question the user has. Dormancy is also worth segmenting honestly: 30 days idle in a
+daily-use product is churn; in a tax product it's Tuesday. Your dormancy threshold
+comes from *your* usage interval (Chapter 2's retention curve), not from a template.
 
 ### 4. Engagement + retention/habit — once the above are stable
 
 Feature-adoption nudges and habit reinforcement, tuned to your product's natural usage
-rhythm.
+rhythm. These are the journeys that most reward the behavioural branching of §5.7 —
+"you've never tried X" is only a good email if it's true.
 
 ### 5. Referral — after you have a reliable activation milestone
 
-You need a real "aha" to ask from. Don't ask for a referral before the user has felt
-the value (more in Chapter 8).
+You need a real "aha" to ask from — the ask only lands once the user has felt the
+value, which is why this waits for a reliable activation milestone (more in Chapter 8).
 
 ### 6. Expansion / upsell — as monetisation matures
 
 > One thing to **drop**, not build: rigid, time-based lead-nurture drips that ignore
-> what the user is actually doing. They underperform behavioural triggers and a plain
-> newsletter does the relationship-building job better.
+> what the user is actually doing. They underperform behavioural triggers
+> ([MarTech's lifecycle-programs piece](https://martech.org/5-email-lifecycle-programs-you-need-and-one-to-drop/)
+> makes the same call), and a plain newsletter does the relationship-building job
+> better.
 
 ---
 
@@ -144,6 +207,14 @@ in their journey. The performance gap is large and consistent:
 > conversion"). They're uncited SEO bait. The honest version: multi-touch behavioural
 > sequences materially outperform single batch sends. You don't need invented decimals
 > to make the case.
+
+Why the gap exists is worth internalising, because it predicts where triggered wins
+biggest. A batch send's relevance is the *average* relevance across your whole list —
+necessarily mediocre. A triggered send's relevance is pinned to a moment: the user
+*just* signed up, *just* hit a milestone, *just* had a card fail. The bigger the spread
+in your users' states, the bigger triggered's advantage — which is why it dominates in
+SaaS onboarding (users are wildly spread) and matters less for a weekly content digest
+(everyone's in the same state: it's Thursday).
 
 ### How a product event becomes a message
 
@@ -170,6 +241,11 @@ A few reliable trigger → message pairs to model yours on:
 | Payment failed | Dunning: retry + update-card CTA |
 | Subscription cancelled | Win-back / save offer |
 
+Note what's *absent* from the table: "it's been 7 days since email #2." Time appears
+only as a window on behaviour ("not done in 24–72h"), never as the reason to send. If the
+trigger column starts filling with durations instead of behaviours, that's usually the
+drip you were escaping, quietly creeping back in.
+
 ---
 
 ## 5.5 Why touch-points matter (and how many)
@@ -187,40 +263,91 @@ But messaging is a dial you can turn too far in either direction:
   built by showing up predictably.
 - **Over-messaging** burns the relationship: fatigue, unsubscribes, spam complaints,
   and damaged sender reputation. *(One survey claims ~56% of people unsubscribe after
-  4 marketing emails in 30 days — directional, but the effect is real.)*
+  4 marketing emails in 30 days — directional, but the effect is real.)* The spam
+  complaint is the expensive one — it doesn't just lose that user, it degrades
+  delivery to everyone else (§5.6).
 
 A workable default cadence:
 
 - **Welcome series:** every 2–3 days for the first few touches, while intent is high.
 - **Active users:** 1–3 per week, depending on your product's rhythm.
-- **Dormant users:** slow and value-led — don't carpet-bomb someone who's already
-  drifting.
+- **Dormant users:** slow and value-led — a user who's already drifting is the last
+  person a barrage will win back.
 
-The signal that tells you you've gone too far: **engagement per send drops with each
-added message.** When opens/clicks/revenue-per-email fall as you add sends, stop adding.
+The signal that tells you the dial has gone too far: **engagement per send drops with
+each added message.** Opens, clicks, or revenue-per-email falling as you add sends is
+the program telling you it's reached the useful maximum.
 
-Two practices that aren't optional once you have more than one journey:
+Two practices become load-bearing the moment you run more than one journey:
 
 - **Frequency capping** — a ceiling on total messages per user across all journeys and
-  channels, so two journeys don't both fire on the same bad day.
+  channels, so two journeys don't both fire on the same bad day. The failure mode it
+  prevents is real and common: a user's card fails the same week they go dormant and
+  hit a plan limit, and three well-intentioned journeys each send twice. Every message
+  was individually justified; the pile-up is what gets you marked as spam.
 - **Suppression** — stop a sequence the instant its goal is met, and respect an opt-out
   on *every* channel, not just the one they unsubscribed from.
 
 ---
 
-## 5.6 Personalise on behaviour, not just name
+## 5.6 Deliverability: none of this works if you don't land
+
+Everything above assumes the message reaches the inbox. That's earned, not given —
+and since early 2024 it's also *specified*. Gmail and Yahoo's bulk-sender rules
+([Google's sender guidelines](https://support.google.com/mail/answer/81126) are the
+primary source;
+[Resend's summary](https://resend.com/blog/gmail-and-yahoo-bulk-sending-requirements-for-2024)
+is the readable version) made the previously-soft best practices hard requirements:
+
+- **Authenticate everything: SPF, DKIM, and DMARC.** These are DNS records proving
+  your mail actually comes from your domain. No auth, no inbox — it's that binary now
+  for senders above trivial volume.
+- **One-click unsubscribe** (the `List-Unsubscribe` header), honoured within two days.
+  Making people hunt for the link doesn't retain them; it converts unsubscribes into
+  spam complaints.
+- **Spam complaint rate below 0.3%** — and realistically well below it. This is the
+  metric the cadence discipline in §5.5 protects.
+
+<VideoEmbed
+  id="eDoHvKiB2Lc"
+  title="Best Email Deliverability Tips for 2025"
+  channel="Resend"
+  duration="3:50"
+  note="Four minutes from an email provider on auth + reputation basics — the minimum viable deliverability briefing before your first journey sends."
+/>
+
+Beyond the hard rules, three habits keep a young domain healthy: **send from a
+subdomain** (e.g. `mail.yourapp.com`) so lifecycle reputation is insulated from your
+transactional mail; **warm up volume gradually** rather than blasting a cold list on
+day one; and **prune non-engagers** — continuing to mail people who never open is how
+good lists rot into spam-trap territory. None of this is busywork. A lifecycle program
+with a damaged sender domain is a program that silently stopped existing; you'll keep
+"sending" for months before anyone notices nothing lands.
+
+---
+
+## 5.7 Personalise on behaviour, not just name
 
 `Hi {{first_name}}` is not personalisation. Real lifecycle personalisation branches on
 **what the user did or didn't do in the product** — their plan, which features they've
 touched, how many projects they've created, whether they hit the aha moment. Behavioural
 triggers reportedly drive several times the engagement of time-based sends
-*(directional)*, and it's the thing a code-first engine does well: your journey can read
-event history and person properties and take a different path for each user. Chapter 6
-shows exactly that.
+*(directional —
+[Userlist's trigger catalogue](https://userlist.com/blog/behavior-email-campaign-triggers/)
+is a good idea-bank)*, and it's the thing a code-first engine does well: your journey
+can read event history and person properties and take a different path for each user.
+Chapter 6 shows exactly that.
+
+The test for whether personalisation is real: **could this exact message have been sent
+to a user in a different state?** "You created 3 projects but haven't invited a
+teammate" passes. "Here are five tips for getting started," sent to someone who
+finished setup a week ago, fails — and quietly teaches the user your emails aren't
+worth opening. The damage of fake personalisation is cumulative and invisible in any
+single send's metrics.
 
 ---
 
-## 5.7 Multi-channel: email is the workhorse, not the only horse
+## 5.8 Multi-channel: email is the workhorse, not the only horse
 
 Different channels do different jobs at different stages:
 
@@ -236,11 +363,14 @@ Different channels do different jobs at different stages:
 
 The principle: **one trigger can branch across channels**, on unified data, evaluated in
 real time — with frequency capping and cross-channel suppression applied across all of
-them.
+them. The mistake to avoid is running channels as separate programs with separate
+tools and separate opt-out lists: that's how a user who muted your emails gets the
+same campaign by push, and how nobody on the team can answer "how many times did we
+contact this person this week?"
 
 ---
 
-## 5.8 The tools you could use (and when no-code is the right call)
+## 5.9 The tools you could use (and when no-code is the right call)
 
 This course builds journeys in Hogsend, but a growth team should know the landscape and
 choose deliberately. The honest map:
@@ -262,15 +392,22 @@ choose deliberately. The honest map:
 - **PostHog Workflows** — no-code, lives next to your data, good for batch + simple
   drips (Chapter 1, §1.3).
 
+<CheckIn
+  id="messagingStack"
+  question="What are you sending with today?"
+  options={["None yet", "Batch newsletters (Mailchimp-style)", "Lifecycle tool (Customer.io, Loops, …)", "Transactional only (Resend, Postmark, SES)", "In-house code"]}
+  multi
+/>
+
 **When a no-code tool is the right call:** if a non-engineer owns messaging, if your
 flows are simple drips, or if you need to ship something this week without touching the
-codebase — pick Customer.io or Loops and move on. There's no virtue in code for its own
-sake.
+codebase — Customer.io or Loops will serve you well, and there's no virtue in code for
+its own sake.
 
 **Why this course is code-first (Hogsend):** because for a *product-led growth team*
 (Chapter 0) the messaging layer is part of the product, and it benefits from the same
 things your product code does — version control, code review, real branching logic,
-testing, and exact-once guarantees. When your journey needs to *read* arbitrary event
+testing, and exactly-once guarantees. When your journey needs to *read* arbitrary event
 history and *branch* on it, a flowchart UI becomes the bottleneck; code doesn't. And the
 identity graph that makes Chapter 8 work is much easier when the messaging engine is
 yours. The trade-off is real and you should make it with eyes open: code-first asks an
@@ -278,7 +415,7 @@ engineer to own lifecycle. For the audience of this course, that's a feature.
 
 ---
 
-## 5.9 Prove it works: holdouts
+## 5.10 Prove it works: holdouts
 
 This is the discipline that separates a real lifecycle program from cargo-culting. Open
 and click rates do **not** tell you whether a message *caused* anything — maybe those
@@ -293,25 +430,50 @@ with a **holdout**:
 Two kinds:
 
 - **Global holdout** — a small % of users excluded from *all* lifecycle messaging.
-  Measures the whole program's lift.
+  Measures the whole program's lift. This is the number that justifies the program's
+  existence in the monthly review (Chapter 9).
 - **Campaign holdout** — users excluded from one specific journey. Measures that
-  journey's lift.
+  journey's lift, and powers the kill-or-keep decision per journey.
 
 A worked example: messaged group upgrades at 18%, held-out group at 11% → **+7
-points** of lift you can credit to the journey. Run a standing holdout on every
-important flow and report monthly lift. This is the same correlation-vs-causation lesson
+points** of lift you can credit to the journey. A standing holdout on every important
+flow, with lift reported monthly, is the habit that keeps the whole program honest.
+This is the same correlation-vs-causation lesson
 from Chapter 2's activation section — only an experiment proves cause, and it's the same
 discipline that made your activation metric trustworthy.
+[Eppo's incrementality primer](https://www.geteppo.com/blog/marketing-incrementality-101)
+covers the standard designs (user-level holdout, geo holdout, PSA tests) if you want
+the fuller statistical picture, and
+[Reforge's lock-down incrementality method](https://www.reforge.com/guides/method-run-a-lock-down-incrementality-test-on-meta-ads)
+shows the same logic applied to a paid channel — worth reading now because Chapter 7
+will ask you to apply it there too.
 
-A code-first engine makes this natural: randomly skip enrollment for a held-out cohort
-and compare their downstream events. Chapter 6 notes where that hook lives. This is also
-where lifecycle messaging stops being "marketing" and becomes the growth-team experiment
+<VideoEmbed
+  id="DeSdoaLOOoM"
+  title="Incrementality 101: Everything You Need to Know"
+  channel="Common Thread Collective"
+  duration="16:45"
+  note="A clear conceptual walkthrough of incrementality vs attribution. Ad-world framing, but the holdout logic is identical to your lifecycle program's."
+/>
+
+Common holdout mistakes, so you don't relearn them expensively: **too-small holdouts**
+on low-volume journeys (a 5% holdout of 200 users tells you nothing — use 20–50% until
+volume grows); **peeking early** and stopping the moment the numbers look good
+(decide the read date in advance); and **quietly excluding the holdout from only some
+messages** (the comparison is only clean if the held-out group's *entire* experience
+differs by exactly the thing you're measuring).
+
+A code-first engine makes holdouts natural: randomly skip enrollment for a held-out
+cohort and compare their downstream events. Chapter 6 shows where that hook lives
+([Blueshift's holdout writeup](https://blueshift.com/blog/product-spotlight-understand-the-true-impact-of-your-campaigns-with-holdout-testing/)
+shows the same idea in a no-code tool, if that's your stack). This is also where
+lifecycle messaging stops being "marketing" and becomes the growth-team experiment
 loop from Chapter 0 — every important journey is a standing A/B test with a measured
 result, not an act of faith.
 
 ---
 
-## 5.10 Which journeys first, for your kind of startup
+## 5.11 Which journeys first, for your kind of startup
 
 The order in §5.3 is the default; here's how it shifts by type:
 
@@ -329,23 +491,107 @@ The order in §5.3 is the default; here's how it shifts by type:
 
 ---
 
-## 5.11 Do this now
+## 5.12 Before you move on
 
-1. Pick the **first journey**: welcome + onboarding. (Add dunning next if you charge.)
-2. Map each journey to the **event that triggers it** and the **event that exits it**.
-3. Decide your **cadence** per stage and a global **frequency cap**.
-4. Choose your **tool** deliberately (§5.8) — and if it's code-first, the next chapter
-   is the build.
-5. Plan a **holdout** for your first journey so you can prove its lift.
+A few things worth settling while this chapter is fresh — each one makes the build in
+Chapter 6 noticeably smoother:
+
+1. **Pick the first journey** — welcome + onboarding, for the §5.3 reasons (with
+   dunning next if you charge; it's the fastest revenue win in the list).
+2. **Map each journey to its events** — the one that triggers it and the one that
+   exits it. If the exit event is hard to name, that's usually a sign the journey
+   doesn't have a clear goal yet.
+3. **Sketch your cadence** per stage and a global frequency cap, so the pile-up
+   failure from §5.5 can't happen by accident.
+4. **Check the deliverability basics** — SPF/DKIM/DMARC on a sending subdomain and
+   one-click unsubscribe (§5.6). Cheap to set up now; expensive to retrofit once a
+   domain's reputation is damaged.
+5. **Choose your tool deliberately** (§5.9) — and if it's code-first, the next
+   chapter is the build.
+6. **Plan a holdout** for that first journey, so its lift is measured from day one
+   rather than argued about later.
 
 You now know *what* to build and *why*. Next, you build it — in code.
 
 ---
 
-*Sources for this chapter: [Customer.io — pirate metrics & lifecycle email](https://customer.io/blog/pirate-metrics-lifecycle-email/),
-[MarTech — 5 email lifecycle programs you need](https://martech.org/5-email-lifecycle-programs-you-need-and-one-to-drop/),
-[Reforge — lifecycle marketing strategy](https://www.reforge.com/guides/build-your-lifecycle-marketing-strategy),
-[Lenny's Newsletter — what is a good activation rate](https://www.lennysnewsletter.com/p/what-is-a-good-activation-rate),
-[Baremetrics — dunning management](https://baremetrics.com/blog/dunning-management),
-[Blueshift — holdout testing](https://blueshift.com/blog/product-spotlight-understand-the-true-impact-of-your-campaigns-with-holdout-testing/),
-[Userlist — behavioural email triggers](https://userlist.com/blog/behavior-email-campaign-triggers/).*
+<Quiz
+  questions={[
+    {
+      q: "Why does the build order start with welcome + onboarding rather than win-back or referral?",
+      options: [
+        "Welcome emails are the easiest to write",
+        "New users are at peak intent, and the signup→activation gap is the biggest leak in the bucket",
+        "Win-back requires a paid email tool",
+        "Referral programs are illegal in some jurisdictions",
+      ],
+      answer: 1,
+      explain:
+        "Engagement is never higher than right after signup, and most early churn happens before activation — so the first journey targets the widest hole at the moment of highest attention. Everything else compounds off users who activated.",
+    },
+    {
+      q: "A subscription user's card expires and their payment fails. Which is true?",
+      options: [
+        "This is voluntary churn and should get a win-back offer",
+        "This is involuntary churn — commonly 20–40% of SaaS churn — and a dunning sequence recovers it by removing friction, not persuading",
+        "Nothing can be done until the user notices",
+        "The correct response is a discount",
+      ],
+      answer: 1,
+      explain:
+        "Dunning is the highest dollar-ROI journey for a paid product precisely because the user already wants to pay. Retries plus a one-click card-update link recover revenue you'd otherwise silently lose.",
+    },
+    {
+      q: "What's the honest signal that you're over-messaging?",
+      options: [
+        "Any unsubscribes at all",
+        "Sending more than one email per week",
+        "Engagement per send drops as you add messages",
+        "Your open rate is below 50%",
+      ],
+      answer: 2,
+      explain:
+        "Cadence has no universal right answer — the dial is calibrated per product by watching whether each added touch still earns engagement. Falling opens/clicks/revenue-per-email as volume rises is the stop signal.",
+    },
+    {
+      q: "Since 2024, which of these is a hard requirement for bulk senders to reach Gmail/Yahoo inboxes?",
+      options: [
+        "A minimum open rate of 20%",
+        "SPF, DKIM and DMARC authentication plus one-click unsubscribe, with spam complaints under 0.3%",
+        "Sending only on weekdays",
+        "Using a dedicated IP address",
+      ],
+      answer: 1,
+      explain:
+        "Google and Yahoo turned the old soft best-practices into enforced rules: authenticate your domain, honour one-click unsubscribe within two days, and keep complaint rates under 0.3% — or your mail simply doesn't land.",
+    },
+    {
+      q: "Your welcome journey shows a 45% open rate and the upgrade rate of messaged users is 18%. What do you still not know?",
+      options: [
+        "Whether the subject lines are good",
+        "Whether the emails render on mobile",
+        "Whether the journey caused any of those upgrades — you need a holdout comparison to measure incremental lift",
+        "Whether users read to the end",
+      ],
+      answer: 2,
+      explain:
+        "Opens and even conversions among messaged users can't distinguish 'the email worked' from 'these users would have upgraded anyway.' Only the difference against a randomly held-out group is causal — that's the incrementality discipline.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [Customer.io — lifecycle automation & personalization guide](https://customer.io/learn/lifecycle-marketing/automation-and-personalization-guide) — the whole program as a five-step arc, from a tool built for exactly this.
+- [Reforge — build your lifecycle marketing strategy](https://www.reforge.com/guides/build-your-lifecycle-marketing-strategy) — the retention-as-output framing §5.2 leans on.
+- [Lenny Rachitsky — what is a good activation rate](https://www.lennysnewsletter.com/p/what-is-a-good-activation-rate) — the activation benchmarks behind the "build onboarding first" argument.
+- [Stripe — Smart Retries and revenue recovery](https://docs.stripe.com/billing/revenue-recovery/smart-retries) — the primary source on dunning mechanics.
+- [Klaviyo — win-back email examples](https://www.klaviyo.com/blog/winback-email-campaign-examples) — flow structure and timing for resurrection, transferable beyond e-commerce.
+- [Google — email sender guidelines](https://support.google.com/mail/answer/81126) — the actual inbox rules; everything else is commentary.
+- [Resend — Gmail & Yahoo bulk sending requirements](https://resend.com/blog/gmail-and-yahoo-bulk-sending-requirements-for-2024) — the readable version of those rules.
+- [Litmus — State of Email reports](https://www.litmus.com/state-of-email-reports) — benchmark data for calibrating open/click expectations without vendor spin.
+- [Eppo — marketing incrementality 101](https://www.geteppo.com/blog/marketing-incrementality-101) — holdout test designs, one level deeper than §5.10.
+- [Reforge — run a lock-down incrementality test](https://www.reforge.com/guides/method-run-a-lock-down-incrementality-test-on-meta-ads) — the same holdout logic applied to paid channels, previewing Chapter 7.
+- [Userlist — behavioural email triggers](https://userlist.com/blog/behavior-email-campaign-triggers/) — an idea-bank of trigger → message pairs.

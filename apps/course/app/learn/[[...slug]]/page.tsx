@@ -10,6 +10,7 @@ import { notFound } from "next/navigation";
 import { LessonFooter } from "@/components/auth/lesson-footer";
 import { LessonGate } from "@/components/auth/lesson-gate";
 import { Paywall } from "@/components/auth/paywall";
+import { LessonProvider } from "@/components/course/lesson-context";
 import { getMDXComponents } from "@/components/mdx";
 import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
@@ -74,19 +75,28 @@ export default async function Page(props: {
   const MDX = page.data.body;
   const lessonSlug = slugs[slugs.length - 1] ?? "";
 
+  const body = (
+    <MDX
+      components={getMDXComponents({
+        a: createRelativeLink(source, page),
+      })}
+    />
+  );
+
   return (
     <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription>{page.data.description}</DocsDescription>
       <DocsBody>
-        <MDX
-          components={getMDXComponents({
-            a: createRelativeLink(source, page),
-          })}
-        />
         {slugs.length >= 2 ? (
-          <LessonFooter course={slugs[0]} lesson={lessonSlug} />
-        ) : null}
+          // Interactive blocks (Quiz/CheckIn/Checklist) read their lesson here.
+          <LessonProvider course={slugs[0]} lesson={lessonSlug}>
+            {body}
+            <LessonFooter course={slugs[0]} lesson={lessonSlug} />
+          </LessonProvider>
+        ) : (
+          body
+        )}
       </DocsBody>
     </DocsPage>
   );

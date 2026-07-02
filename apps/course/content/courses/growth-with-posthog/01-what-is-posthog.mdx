@@ -1,14 +1,14 @@
 ---
 title: "Chapter 1 — What PostHog is, and why you want it"
-description: "The tool you'll measure with, why measuring is the first job of a growth team, what else is on the market, and what it really costs."
+description: "The tool you'll measure with, why measuring is the first job of a growth team, how event-based analytics differs from GA4, what else is on the market, and what it really costs."
 ---
 
 > **In this chapter:** the case for measuring at all, the full PostHog product suite and
-> why each piece matters to a growth team, an honest comparison with the alternatives
-> (Mixpanel, Amplitude, GA4, Segment, and the build-your-own stack), the US/EU choice, and
-> a realistic read on pricing. By the end you'll know what PostHog is for, why it's the
-> default for a small team running the operating model from Chapter 0, and you'll have an
-> account on the right cloud.
+> why each piece matters to a growth team, the event-based data model that makes it all
+> work, an honest comparison with the alternatives (Mixpanel, Amplitude, GA4, Segment, and
+> the build-your-own stack), the US/EU choice, and a realistic read on pricing. By the end
+> you'll know what PostHog is for, why it's the default for a small team running the
+> operating model from Chapter 0, and you'll have an account on the right cloud.
 
 ---
 
@@ -54,27 +54,38 @@ For most analytics setups, "join the error to the session to the funnel" is a da
 engineering project. In PostHog it's a click. For a small team, that collapse of five
 tools into one is most of the value.
 
+<VideoEmbed
+  id="1FZji2L-LmM"
+  title="What is PostHog? (Official Demo & Tutorial)"
+  channel="PostHog"
+  duration="8:50"
+  note="The official nine-minute tour. Worth watching before reading on — the suite list below will map onto things you've now seen on screen."
+/>
+
 You don't need all of it. For this course you'll mainly use **Product Analytics**,
 **Web Analytics**, and **Session Replay**, plus **Data Pipelines** later for sending
 conversions to ad platforms. Here's the whole suite so you know what's there, and what
 each piece does for a growth team specifically:
 
 - **Product Analytics** — event-based analysis: trends, funnels, retention, paths,
-  stickiness, lifecycle, and raw SQL. Includes *autocapture* (it records clicks and
-  pageviews with no code). This is the core of the course — it's where you find the leaks.
+  stickiness, lifecycle, and raw SQL ([docs](https://posthog.com/docs/product-analytics)).
+  Includes *autocapture* (it records clicks and pageviews with no code). This is the core
+  of the course — it's where you find the leaks.
 - **Web Analytics** — a Google-Analytics-style dashboard (visitors, sessions, bounce
   rate, channels, geography) sitting on the same data, with far less setup. The
   marketing-site view, for the acquisition numbers in Chapter 2.
 - **Session Replay** — watch real user sessions play back, with console logs and
-  network requests captured. This is how you find the *why* behind a drop-off — the
-  qualitative layer under the quantitative funnel. Five minutes of replay beats an hour of
-  staring at a chart.
+  network requests captured ([docs](https://posthog.com/docs/session-replay)). This is
+  how you find the *why* behind a drop-off — the qualitative layer under the quantitative
+  funnel. Five minutes of replay beats an hour of staring at a chart.
 - **Feature Flags** — turn features on/off for a percentage of users or a targeted
-  cohort, without deploying. The "ship behind a flag" half of the growth-as-engineering
-  loop (Chapter 0).
+  cohort, without deploying ([docs](https://posthog.com/docs/feature-flags)). The "ship
+  behind a flag" half of the growth-as-engineering loop (Chapter 0).
 - **Experiments (A/B testing)** — built on feature flags; measures whether a change
-  actually moved a metric, with statistical significance. This is how a hypothesis becomes
-  a *measured* result rather than a hunch.
+  actually moved a metric, with statistical significance
+  ([docs](https://posthog.com/docs/experiments)). This is how a hypothesis becomes a
+  *measured* result rather than a hunch — and the instrument behind the experimentation
+  program you'll run in Chapter 9.
 - **Surveys** — in-app surveys (NPS, feedback) targeted at specific users. The cheapest
   way to get the *why* straight from the user.
 - **Error Tracking** — captures exceptions, groups them into issues, and links each
@@ -97,12 +108,52 @@ each piece does for a growth team specifically:
 > layer), and **Inbox** — that are evolving quickly. Treat their exact status and
 > limits as a moving target and check the docs.
 
-### One concept worth internalising now
+Of that list, two products are where a growth team actually *lives*, so it's worth
+seeing each one work for three minutes before you move on. Product analytics is the
+quantitative half — funnels, trends, retention, increasingly with the AI assistant
+doing the query-writing:
+
+<VideoEmbed
+  id="WPjJLpNxI6s"
+  title="How PostHog AI makes product analytics EASY! – PostHog Product Analytics Demo"
+  channel="PostHog"
+  duration="5:51"
+  note="Six minutes of the analytics workflow you'll use daily from Chapter 4 on — including the AI assistant writing the queries you don't know how to write yet."
+/>
+
+And session replay is the qualitative half — the tape you watch to understand *why* the
+number you just saw is what it is:
+
+<VideoEmbed
+  id="ALR9iuXQVqg"
+  title="Solve support tickets 10x faster with Session Replay – PostHog Session Replay Demo"
+  channel="PostHog"
+  duration="3:18"
+  note="Three minutes on the replay workflow. The framing is support tickets, but the mechanics — jump from a data point to the recordings behind it — is exactly the drop-off debugging you'll do in Chapter 4."
+/>
+
+### The data model: events, persons, and why it isn't GA4
 
 Everything in PostHog hangs off **events** (a thing that happened) attached to a
 **person** (who it happened to). "User signed up", "project created", "page viewed" —
-each is an event with properties, tied to a person. Get those two things right and
-every chart in the product just works. Chapter 3 is about getting them right.
+each is an event with properties, tied to a person
+([capture docs](https://posthog.com/docs/product-analytics/capture-events)). Get those
+two things right and every chart in the product just works. Chapter 3 is about getting
+them right.
+
+This sounds obvious, but it's the exact place where **web analytics and product
+analytics part ways**, and the reason "we already have Google Analytics" isn't an
+answer. GA4 does technically have
+[an event model](https://developers.google.com/analytics/devguides/collection/ga4/events)
+now, but the product is built to answer *marketing* questions — sessions, channels,
+campaign attribution — aggregated, sampled at scale, and reported around anonymous
+traffic. What it can't honestly answer is the question every chapter of this course
+turns on: *what did this specific user do next, and do users who did X retain better
+than users who didn't?* User-level funnels, N-day retention cohorts, and jump-to-the-
+replay-of-that-drop-off all require events keyed to durable persons — which is the
+whole design of a product analytics tool
+([PostHog's side-by-side with GA4](https://posthog.com/blog/posthog-vs-ga4) is candid
+about what each is for).
 
 For a growth team, events are also the team's **shared language**. "Activated" stops
 being a vibe and becomes `project_created` fired within seven days of signup. When
@@ -138,6 +189,29 @@ The clean division of labour, which the rest of the course follows:
 - **Hogsend acts** — the journeys that send the emails and Discord/Telegram messages,
   triggered by events, with the results fired back as events PostHog can measure.
 
+To make "code-first" concrete before Chapter 6 builds it properly — this is a real
+journey shape, abbreviated:
+
+```ts
+defineJourney({
+  meta: { id: "activation-nudge", trigger: { event: "user.signed_up" } },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user, template: "welcome" });
+    const { timedOut } = await ctx.waitForEvent({
+      event: "project.created",
+      timeout: hours(48),
+    });
+    if (timedOut) await sendEmail({ to: user, template: "activation-nudge" });
+  },
+});
+```
+
+Read what that buys you: the branching is ordinary TypeScript (`if`), the "wait up to
+48 hours for the activation event" is one line, and the whole thing lives in a pull
+request a colleague reviews. Now picture maintaining the same logic as boxes on a
+canvas — then picture the version with three more branches. That divergence is the
+whole argument, and it compounds with every condition you add.
+
 You don't have to choose one forever. The point is that the *measurement* lives in
 PostHog and the *code-first lifecycle automation* lives in Hogsend — and Chapters 5 and 6
 are entirely about why a code-first journey beats a flowchart once your logic gets real
@@ -145,13 +219,15 @@ are entirely about why a code-first journey beats a flowchart once your logic ge
 
 ---
 
-## 1.4 US cloud or EU cloud — choose before you start
+## 1.4 US cloud or EU cloud — the one choice worth making first
 
 PostHog Cloud runs in two independent regions:
 
 - **US Cloud** — data hosted in the US (AWS, Virginia).
 - **EU Cloud** — data hosted in the EU (AWS, Frankfurt). New EU projects disable IP
-  capture by default for a stronger privacy posture.
+  capture by default for a stronger privacy posture
+  ([the EU cloud announcement](https://posthog.com/blog/posthog-cloud-eu) has the
+  background).
 
 You pick one at signup. This matters because **data does not move between regions and
 you cannot merge across them.** If most of your users (or your compliance obligations)
@@ -160,9 +236,9 @@ migration, not a setting.
 
 There's also a **self-hosted** open-source version. It's a real infrastructure
 commitment (it runs on ClickHouse) and PostHog actively steers small teams toward
-Cloud unless data-residency rules force self-hosting. For this course, use Cloud — the
-free tier (§1.7) means there's no cost argument for self-hosting at your stage, and the
-operational cost of running ClickHouse yourself is real.
+Cloud unless data-residency rules force self-hosting. For this course, Cloud is the
+sensible choice — the free tier (§1.5) means there's no cost argument for self-hosting
+at your stage, and the operational cost of running ClickHouse yourself is real.
 
 > Hogsend, by contrast, is built to be self-hosted — your database, your email
 > provider, your deploy. So a common setup is *PostHog Cloud for analytics +
@@ -220,17 +296,21 @@ landscape and where PostHog wins and loses.
 
 - **Mixpanel / Amplitude** — the incumbents of product analytics, and genuinely
   excellent at the analytics itself (Amplitude's behavioural cohorts and Mixpanel's
-  reports are mature). What they're *not* is all-in-one: no session replay, no feature
-  flags, no CDP, no error tracking in the same bill — you'd stitch those from other
-  tools. **Choose them over PostHog if** deep, polished analytics is the only thing you
-  need and you already have replay/flags elsewhere. **Choose PostHog if** you want one
-  pipeline under everything, which is most small teams.
+  reports are mature; on several individual analysis features they remain ahead). What
+  they're *not* is all-in-one: no session replay, no feature flags, no CDP, no error
+  tracking in the same bill — you'd stitch those from other tools, each with its own
+  identity model to reconcile ([PostHog's own comparison](https://posthog.com/blog/posthog-vs-mixpanel)
+  is more even-handed than you'd expect from a vendor, and worth reading for the
+  feature-by-feature truth). **Choose them over PostHog if** deep, polished analytics is
+  the only thing you need and you already have replay/flags elsewhere. **Choose PostHog
+  if** you want one pipeline under everything, which is most small teams.
 - **Google Analytics 4 (GA4)** — free and ubiquitous, but it's *web* analytics, not
   product analytics: aggregated, sampled at scale, session-centric, and not built for
-  user-level funnels or retention cohorts. It will tell you traffic by channel; it will
-  not honestly answer "do users who create a project in week one retain better." **Keep
-  GA4 for marketing-channel reporting if you like; do not try to run your activation
-  funnel on it.**
+  user-level funnels or retention cohorts (§1.2 covered why the data model itself is the
+  difference). It will tell you traffic by channel; it will not honestly answer "do
+  users who create a project in week one retain better." **Keeping GA4 around for
+  marketing-channel reporting is fine — asking it to run your activation funnel is the
+  part that won't work.**
 - **Segment / RudderStack** — these are a *pipe*, not an analytics tool. They collect
   events once and fan them out to many destinations (including PostHog). Complementary,
   not competitive — and for a small team, often overkill: PostHog's own CDP (§1.2) and a
@@ -242,6 +322,11 @@ landscape and where PostHog wins and loses.
 - **Statsig / LaunchDarkly** — best-in-class experimentation and flags, but single-
   purpose. If A/B testing is your core discipline they're stronger than PostHog's
   experiments; you'd pair them with an analytics tool.
+- **Plausible / Fathom** — privacy-first, cookieless *web* analytics. Lovely for a
+  content site or a landing page where all you want is traffic and referrers without a
+  consent banner. They are not product analytics at all — no persons, no funnels, no
+  retention — so they answer a different question than this course asks. Fine to keep
+  one running on the marketing site alongside PostHog.
 - **The build-your-own stack** — Snowflake/BigQuery + dbt + a BI tool (Looker, Metabase)
   fed by Segment. This is where bigger data teams end up, and it's genuinely more
   powerful and flexible than any packaged tool. It's also a team and a budget you don't
@@ -253,6 +338,13 @@ The one-line summary: **PostHog wins on "one event pipeline under everything plu
 generous free tier," which is exactly the shape a small growth team needs.** It loses to
 single-purpose tools on depth-in-one-area, and to a warehouse stack on ultimate
 flexibility. For the team this course is written for, the trade is clearly worth it.
+
+<CheckIn
+  id="analyticsStack"
+  question="What's actually running on your product today?"
+  options={["Nothing yet", "Google Analytics", "PostHog", "Mixpanel or Amplitude", "Plausible or Fathom", "Something homegrown"]}
+  multi
+/>
 
 ### A note for your kind of startup
 
@@ -266,23 +358,101 @@ PostHog for on-site behaviour. Pick the tool once; tune the emphasis to your fun
 
 ---
 
-## 1.7 Do this now
+## 1.7 Before you move on
 
-1. Create a PostHog account on the **right region** for your users (US or EU).
-2. Create one project. (Keep your marketing site and your app in the *same* project —
-   you want the whole journey, from first visit to paying user, in one place.)
-3. Find your **project API key** (it starts with `phc_`). You'll need it in Chapter 3.
-   It's safe to expose publicly — it can write events but cannot read your data.
-4. If you evaluated alternatives, **write down in one line why you chose PostHog** (or
-   didn't). A growth team can always answer "why this tool" — and you'll want the note
-   when someone asks in six months.
+Four small things are worth doing while this chapter is fresh — together they take
+about ten minutes:
 
-That's all the setup for now. The next chapter is the part most teams skip and then
-regret: deciding *what* to measure before you wire anything up.
+1. Create a PostHog account on the **right region** for your users (US or EU) — it's
+   the one decision here that's hard to undo (§1.4).
+2. Create one project, keeping your marketing site and your app in the *same* one —
+   the payoff is seeing the whole journey, from first visit to paying user, in one
+   place.
+3. Find your **project API key** (it starts with `phc_`) — you'll want it in Chapter
+   3, and it's safe to expose publicly: it can write events but not read your data.
+4. If you evaluated alternatives, consider **writing one line on why you chose PostHog**
+   (or didn't). A growth team can always answer "why this tool" — and the note earns
+   its keep when someone asks in six months.
+
+That's all the setup for now. The next chapter is the part most teams skip and later
+wish they hadn't: deciding *what* to measure before wiring anything up.
 
 ---
 
-*Sources for this chapter: [posthog.com/pricing](https://posthog.com/pricing),
-[PostHog product docs](https://posthog.com/docs), [PostHog EU Cloud](https://posthog.com/blog/posthog-cloud-eu),
-[PostHog vs the alternatives](https://posthog.com/blog/posthog-vs-amplitude),
-[Hogsend competitive positioning](https://github.com/dougwithseismic/hogsend/blob/main/docs/competitive-positioning.md).*
+<Quiz
+  questions={[
+    {
+      q: "What's the single biggest structural advantage PostHog has over stitching Mixpanel + Hotjar + LaunchDarkly + Sentry together?",
+      options: [
+        "It's cheaper at every scale",
+        "Its individual products are each best-in-class",
+        "One event pipeline and one identity model under everything — the error, the replay, the funnel, and the flag are the same data about the same person",
+        "It's open source",
+      ],
+      answer: 2,
+      explain:
+        "Point tools can each be deeper in their niche. What they can't do is join: 'show me the replay behind this funnel drop-off' is a click in PostHog and a data-engineering project across four tools with four identity models.",
+    },
+    {
+      q: "You already run GA4. Why can't it answer 'do users who create a project in week one retain better'?",
+      options: [
+        "GA4 has no event tracking at all",
+        "It's built for aggregated, session-centric marketing questions — not user-level funnels and retention cohorts keyed to durable persons",
+        "GA4 only works on mobile apps",
+        "It can, but only on the paid tier",
+      ],
+      answer: 1,
+      explain:
+        "GA4 technically has events, but the product answers channel/campaign questions over aggregated (and at scale, sampled) traffic. Retention-by-behaviour questions need every event tied to a durable person — the product-analytics data model, not the web-analytics one.",
+    },
+    {
+      q: "Why does the course run analytics in PostHog Cloud but messaging in self-hosted Hogsend?",
+      options: [
+        "PostHog can't be self-hosted",
+        "Analytics is read-heavy and fine to delegate; the messaging spine and identity graph are assets you want on your own infrastructure",
+        "Hogsend doesn't offer a cloud version, so there's no choice",
+        "To avoid paying for two clouds",
+      ],
+      answer: 1,
+      explain:
+        "The asymmetry is deliberate. Losing an analytics vendor costs you charts; the identity graph and the ability to reach your users are the business. Own the assets, delegate the instruments.",
+    },
+    {
+      q: "The most consequential decision in this chapter that you can't easily undo later is:",
+      options: [
+        "Which free-tier products to enable",
+        "US vs EU cloud region — data never moves or merges between them",
+        "Whether to install autocapture",
+        "Which dashboard template to start from",
+      ],
+      answer: 1,
+      explain:
+        "Nearly everything in PostHog is reversible — except the region. Getting it wrong means a migration, not a setting. Choose where your users (and your compliance obligations) are.",
+    },
+    {
+      q: "Your `phc_` project API key ends up visible in your site's JavaScript. What's the risk?",
+      options: [
+        "An attacker can read your analytics data with it",
+        "Your account can be billed for someone else's events unless you rotate it weekly",
+        "Essentially none by design — it can write events but cannot read data; it's meant to be public",
+        "Session replays become publicly viewable",
+      ],
+      answer: 2,
+      explain:
+        "The project key is write-only by design, like a mailbox slot: anyone can post through it, nobody can read through it. Reading data requires a personal API key, which never ships to the browser (Chapter 3 returns to this split).",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [PostHog — Product analytics docs](https://posthog.com/docs/product-analytics) — the reference for the half of the tool this course lives in.
+- [PostHog — the product analytics overview](https://posthog.com/product-analytics) — the shorter framing of the same, with the current feature surface.
+- [PostHog vs GA4](https://posthog.com/blog/posthog-vs-ga4) — the candid side-by-side; useful ammunition for the "we already have GA" conversation.
+- [Google — the GA4 event model](https://developers.google.com/analytics/devguides/collection/ga4/events) — read Google's own docs to see the difference from a product-analytics event model first-hand.
+- [PostHog vs Mixpanel](https://posthog.com/blog/posthog-vs-mixpanel) — the all-in-one vs point-tool trade, feature by feature.
+- [PostHog — Session replay docs](https://posthog.com/docs/session-replay) — setup and the debugging workflow you'll use in Chapter 4.
+- [PostHog — Feature flags docs](https://posthog.com/docs/feature-flags) and [Experiments docs](https://posthog.com/docs/experiments) — the ship-behind-a-flag half of the loop, and the instrument behind Chapter 9's experimentation program.
+- [posthog.com/pricing](https://posthog.com/pricing) — the current free-tier numbers; verify before you rely on the table in §1.5.

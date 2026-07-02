@@ -1,17 +1,16 @@
 ---
 title: "Chapter 6 — Building the lifecycle in Hogsend"
-description: "The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back, dunning, and referral — each triggered by a real event, each durable by default."
+description: "The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back, dunning, and referral — each triggered by a real event, each durable by default — plus email templates as React components and the correctness rules that stop double-sends."
 ---
 
 > **In this chapter:** how an event becomes a running journey, why durable execution
-> matters (and what breaks without it), the anatomy of `defineJourney`, working examples
-> for each lifecycle stage, the other ways you could build this, and the correctness rules
-> that stop you double-sending. Code here mirrors the real journeys in
-> `apps/api/src/journeys/`.
+> matters (and what breaks without it), the anatomy of `defineJourney`, email templates
+> as code, working examples for each lifecycle stage, the other ways you could build
+> this, and the correctness rules that stop you double-sending. Code here mirrors real
+> production journeys.
 
-This chapter assumes a Hogsend app (scaffold one with `pnpm dlx create-hogsend@latest`).
-The full architecture is in the project's `CLAUDE.md`; here we focus on writing
-journeys.
+If you'd like to follow along, the examples assume a Hogsend app —
+`pnpm dlx create-hogsend@latest` scaffolds one in a minute.
 
 ---
 
@@ -27,7 +26,7 @@ Hogsend's whole model is one loop:
    Discord/Telegram — and fires its own events back (`journey:completed`, `email.*`,
    etc.) so the loop is measurable in PostHog.
 
-The key property: **a journey is durable TypeScript.** `await ctx.sleep(days(2))` is a
+The key property: **a journey is durable TypeScript.** `await ctx.sleep(...)` is a
 real two-day pause that survives deploys and restarts — not a cron job, not a flowchart
 approximating control flow. You write normal code; the engine makes it durable.
 
@@ -45,8 +44,13 @@ Durable execution solves this: the engine persists the journey's position, so a
 two-day sleep genuinely survives a redeploy on day one and resumes on day two as if
 nothing happened. That's what lets you write a multi-day program as a single, readable
 function instead of a pile of cron jobs and database flags reconstructing the state by
-hand. The alternatives (§6.9) all exist to approximate this; Hogsend gives it to you as
+hand. The alternatives (§6.10) all exist to approximate this; Hogsend gives it to you as
 plain control flow.
+
+There's a subtlety inside "durable" that §6.9 returns to: durability is achieved by
+being able to *replay* a journey from the top after a crash and fast-forward through
+the parts that already ran. That replay model is why exactly-once sending needs engine
+support rather than hope — hold the thought.
 
 ### Send the trigger events
 
@@ -66,7 +70,9 @@ await fetch(`${HOGSEND_URL}/v1/ingest`, {
 ```
 
 That `user.created` event is what triggers the welcome journey below. One server-side
-emission, two consumers: PostHog measures it, Hogsend acts on it.
+emission, two consumers: PostHog measures it, Hogsend acts on it. And because it's
+server-side, it's ad-blocker-proof (Chapter 3) — your lifecycle program never depends
+on a browser script that a third of your users block.
 
 ---
 
@@ -106,24 +112,35 @@ The pieces that matter for lifecycle work:
   important correctness control.
 - **`exitOn`** — the events that stop the journey immediately. **This is how you
   implement suppression from Chapter 5:** exit the upgrade sequence the instant the
-  user upgrades.
+  user upgrades. An exit fires even mid-wait — a journey parked on a 5-day
+  `waitForEvent` aborts cleanly the moment an exit event arrives, so no post-wait
+  side effects run.
 - **`suppress`** — a debounce so a burst of the same trigger doesn't start multiple
   runs.
 
 Inside `run`, you use the context primitives:
 
 - `ctx.sleep({ duration, label })` — durable pause.
+- `ctx.sleepUntil(at, { label })` — durable pause until an absolute instant.
+- `ctx.when` — a timezone-aware scheduler for computing that instant: e.g.
+  `ctx.when.tomorrow().at("09:00")` resolves 9am *in the user's own timezone* and
+  respects your configured send window, so "send the day-2 email at breakfast, not at
+  3am" is one line instead of timezone arithmetic.
 - `ctx.history.hasEvent({ userId, event, within? })` → `{ found, count }` — did this
   already happen?
 - `ctx.history.events({ userId, event, within, limit })` — pull the matching events to
   inspect.
-- `ctx.waitForEvent({ event, timeout })` — pause until *this user* emits an event or the
-  timeout elapses; returns `{ timedOut, properties? }`.
-- `ctx.trigger({ event, userId })` — emit an event back into the pipeline.
+- `ctx.waitForEvent({ event, timeout, label? })` — pause until *this user* emits an
+  event or the timeout elapses; returns `{ timedOut, properties? }` (the matched
+  event's payload, so you can branch on the answer). An optional `lookback` first
+  checks recent history, covering the gap where the event fired a moment *before* the
+  wait was established.
+- `ctx.trigger({ event, userId, properties? })` — emit an event back into the pipeline.
 - `ctx.guard.isSubscribed()` — re-check subscription after a long sleep.
+- `ctx.checkpoint(label)` — mark progress so operators can see where users sit.
 
 And you send with `sendEmail({ to, userId, journeyStateId, template, subject, props? })`,
-where `template` is a key from your `src/emails/` registry.
+where `template` is a key from your `src/emails/` registry (next section).
 
 The thing to notice across all of this: it's *just code*. The branching is `if`. The wait
 is `await`. The history check is a function call. There's no DSL to learn and no canvas
@@ -132,7 +149,83 @@ it's reviewable in a pull request like the rest of your product.
 
 ---
 
-## 6.3 Welcome + onboarding (Activation)
+## 6.3 Templates: email as code
+
+The journeys decide *when* and *who*; templates decide *what lands in the inbox*. In a
+Hogsend app, templates are **React components** — the
+[React Email](https://react.email/docs/introduction) model, where an email is a
+component tree (`<Container>`, `<Button>`, `<Text>`) that renders to the
+table-based HTML that email clients actually tolerate. If you've ever hand-written
+`<td>` soup for Outlook, this is the upgrade: components, props, type-checked data, and
+your design system's tokens — compiled to HTML that works in clients stuck in 2009.
+
+<VideoEmbed
+  id="xlA5XD8CSdo"
+  title="Send emails with React components (with Zeno from Resend)"
+  channel="Vercel"
+  duration="23:54"
+  note="Resend's founder building and sending a React Email template end to end — the exact authoring model your src/emails/ folder uses."
+/>
+
+A template in your app is a component plus a registry entry:
+
+```tsx
+// src/emails/activation-welcome.tsx
+export function ActivationWelcome({ firstName, ctaUrl }: Props) {
+  return (
+    <EmailLayout preview="Let's get you set up">
+      <Text>Welcome{firstName ? `, ${firstName}` : ""} 👋</Text>
+      <Text>One thing to do today: create your first project.</Text>
+      <EmailButton href={ctaUrl}>Create a project</EmailButton>
+    </EmailLayout>
+  );
+}
+```
+
+The engine owns the pipeline from there: when a journey calls `sendEmail({ template:
+Templates.ACTIVATION_WELCOME, props })`, the engine renders the component to HTML,
+checks the user's preferences/unsubscribe state, rewrites links for first-party click
+tracking, records the send, and only then hands plain HTML to the delivery provider
+(Resend by default — [their docs](https://resend.com/docs/introduction) cover the wire;
+[Vercel's guide](https://vercel.com/kb/guide/sending-emails-from-an-application-on-vercel)
+shows the same stack outside Hogsend). Two consequences worth noticing:
+
+- **Templates version with your code.** The welcome email that shipped with v1.4 is in
+  the v1.4 git history — reviewable, revertable, diffable
+  ([Resend's templates post](https://resend.com/blog/introducing-templates) makes the
+  same versioning argument even for their hosted flavour).
+- **Content vs plumbing stays split.** Journeys never concatenate HTML; templates never
+  decide who gets mail. The same separation your product keeps between logic and view.
+
+<VideoEmbed
+  id="cQy24szSsBw"
+  title="Modern emails using React"
+  channel="React Conf"
+  duration="11:18"
+  note="A 2026 conference take on why the React component model fits email's brutal rendering constraints — good background before you build your EmailLayout."
+/>
+
+**Test emails like code, too.** A template is about to sit in front of thousands of
+sends, so it's worth actually looking at it first:
+React Email's dev server previews every template with sample props; send-to-yourself
+against [test addresses](https://resend.com/docs/dashboard/emails/send-test-emails)
+(or a capture sandbox — [Mailtrap's testing guide](https://mailtrap.io/blog/how-to-test-email/)
+covers the methodology) before pointing at real users; and keep
+[transactional-email conventions](https://postmarkapp.com/guides/transactional-email-best-practices)
+in mind — a lifecycle email is closer to a receipt than a brochure: one job, one CTA,
+plain and fast.
+
+<VideoEmbed
+  id="d4UZg3l8JvQ"
+  title="react.email now tests your emails"
+  channel="Resend"
+  duration="4:14"
+  note="The linting/compatibility side of the toolchain — catching the Outlook-breaks-this class of bug before it ships."
+/>
+
+---
+
+## 6.4 Welcome + onboarding (Activation)
 
 The first journey to build (Chapter 5, §5.3). Trigger on signup, welcome immediately,
 then branch two days later on whether the user reached the aha moment:
@@ -165,7 +258,7 @@ export const activationWelcome = defineJourney({
 
     await ctx.sleep({ duration: days(2), label: "post-welcome" });
 
-    // Branch on behaviour, not on a guess (Chapter 5, §5.6).
+    // Branch on behaviour, not on a guess (Chapter 5, §5.7).
     const { found: activated } = await ctx.history.hasEvent({
       userId: user.id,
       event: Events.FEATURE_USED,
@@ -184,15 +277,20 @@ export const activationWelcome = defineJourney({
 ```
 
 Two things to notice. The journey **reads event history** to decide what to send — that's
-behavioural personalisation in code, the §5.6 principle made literal: an activated user
+behavioural personalisation in code, the §5.7 principle made literal: an activated user
 gets "here's what's next," a stuck user gets "here's how to start," from the same journey.
 And the whole thing **exits the moment `user.deleted` fires**, so a churned user never
 gets the day-2 email. That `exitOn` is the difference between a system that feels
 attentive and one that emails dead accounts.
 
+One refinement worth adding once the basic journey works: replace the raw
+`ctx.sleep(days(2))` with `ctx.sleepUntil(ctx.when.in(days(2)).at("09:00"))` so the
+day-2 email lands at 9am in *the user's* timezone instead of exactly 48 hours after a
+2am signup. Small change, visibly more human program.
+
 ---
 
-## 6.4 A behavioural nudge series (Activation)
+## 6.5 A behavioural nudge series (Activation)
 
 A multi-step version that escalates only when the user *hasn't* progressed, and exits
 as soon as they activate. Note the second `exitOn` event:
@@ -251,12 +349,18 @@ touch is gated on real behaviour, so an active user is left alone and a stuck us
 help. The pattern generalises: *sleep, check what happened during the sleep, send only if
 needed.* That single shape covers most onboarding programs you'll ever write.
 
+Notice also what the `exitOn: USER_ACTIVATED` buys over the `if` checks alone: the
+checks gate *sends at known points*; the exit kills the journey *at any point*,
+including mid-sleep. Both layers matter. The `if` makes each message conditional; the
+exit guarantees the whole program stops the moment its goal is met — Chapter 5's
+suppression rule enforced by the engine rather than by your discipline.
+
 ---
 
-## 6.5 Win-back (Retention)
+## 6.6 Win-back (Retention)
 
 Trigger on a dormancy event (you emit `user.dormant_30d` from a scheduled check, or via
-a PostHog cohort webhook — see §6.10), then re-engage. Give the user a window to come
+a PostHog cohort webhook — see §6.11), then re-engage. Give the user a window to come
 back on their own before sending again with `ctx.waitForEvent`:
 
 ```ts
@@ -283,6 +387,7 @@ export const reactivationWinback = defineJourney({
     const { timedOut } = await ctx.waitForEvent({
       event: Events.APP_ACTIVE,
       timeout: days(5),
+      label: "comeback-window",
     });
 
     if (timedOut) {
@@ -304,9 +409,14 @@ means if they return at any point, the journey stops — they won't get a "we mi
 email the day after they logged back in. Nothing is more corrosive to trust than a
 win-back email to someone who's already active.
 
+One habit for any journey with long waits: after the wait, re-check
+`ctx.guard.isSubscribed()` before sending. An exit event ends a journey; an unsubscribe
+doesn't — it's a preference the mailer honours at send time — but checking first keeps
+your journey's *logic* honest about who still wants to hear from you.
+
 ---
 
-## 6.6 Dunning (Revenue)
+## 6.7 Dunning (Revenue)
 
 The highest dollar-ROI journey for a paid product (Chapter 5, §5.3). Trigger on a failed
 charge, exit the moment payment succeeds:
@@ -332,40 +442,46 @@ export const dunning = defineJourney({
       props: { updateUrl: String(user.properties.updateUrl ?? "") },
     });
 
-    await ctx.sleep({ duration: days(3), label: "first-retry" });
-    if (await stillFailing(ctx, user)) {
+    // Wait 3 days for the retry (or the user) to fix it. If PAYMENT_SUCCEEDED
+    // fires in the window, the wait resolves early — and the exitOn above ends
+    // the journey anyway. Only the true timeout path sends the reminder.
+    const { timedOut } = await ctx.waitForEvent({
+      event: Events.PAYMENT_SUCCEEDED,
+      timeout: days(3),
+      label: "first-retry",
+    });
+
+    if (timedOut) {
       await sendEmail({
         to: user.email, userId: user.id, journeyStateId: user.stateId,
         template: Templates.CHURN_PAYMENT_FAILED,
         subject: "Reminder: update your payment method",
         journeyName: user.journeyName,
         props: { updateUrl: String(user.properties.updateUrl ?? "") },
+        idempotencyLabel: "dunning-reminder",
       });
     }
   },
 });
-
-async function stillFailing(ctx, user) {
-  const { found } = await ctx.history.hasEvent({
-    userId: user.id, event: Events.PAYMENT_SUCCEEDED, within: { /* since trigger */ } as any,
-  });
-  return !found;
-}
 ```
 
 The `exitOn: PAYMENT_SUCCEEDED` is the whole point — the moment the retry clears (or the
 user fixes their card), the reminders stop. This recovers a meaningful share of the
-20–40% of churn that's involuntary (Chapter 5). Wire the trigger to your payment
+20–40% of churn that's involuntary (Chapter 5). The trigger comes from your payment
 provider's failed-charge webhook (a Stripe `invoice.payment_failed` → `defineWebhookSource`
-→ `payment.failed`), and pass the hosted card-update URL through as a prop so the email
-has a one-click fix.
+→ `payment.failed`), with the hosted card-update URL passed through as a prop so the
+email has a one-click fix.
+
+Note the `idempotencyLabel` on the second send: this journey sends the **same template
+twice** on one run, so each send site declares a distinct label for the engine's
+exactly-once bookkeeping — §6.9 explains the rule.
 
 ---
 
-## 6.7 Referral (Referral)
+## 6.8 Referral (Referral)
 
 Ask at peak satisfaction — trigger off a milestone, and only ask users who are still
-active. This mirrors the shipped `referral-invite` journey:
+active:
 
 ```ts
 export const referralInvite = defineJourney({
@@ -410,20 +526,38 @@ own — is Chapter 8. This journey is just the ask.
 
 ---
 
-## 6.8 Correctness: exactly-once and re-enrollment
+## 6.9 Correctness: exactly-once and re-enrollment
 
-Two things to internalise so you don't accidentally double-send:
+The failure mode that kills trust in a lifecycle program isn't a missed email — it's a
+**double send**. Here's why it's a real risk and how the engine closes it.
 
-- **Replay safety is automatic.** Journeys are durable tasks that can replay from the
-  top after a crash or redeploy. The engine makes `sendEmail()` and `ctx.trigger()`
-  exactly-once across a replay by default — you don't add anything. The *one* authoring
-  rule: if you send the **same template twice** in one journey on different branches that
-  share the same nearest wait label, pass a distinct `idempotencyLabel` to each. The
-  engine throws a loud error if you forget, so you'll catch it in dev.
-- **`entryLimit` is your re-enrollment policy.** `"once"` for a welcome (a user signs up
-  once). `"once_per_period"` for win-back and dunning (they can lapse again, but not be
-  spammed). `"unlimited"` only for counting journeys (e.g. the Discord gamification in
-  Chapter 8, where every reaction must re-count).
+Remember §6.1: durability works by *replaying* a crashed journey from the top and
+fast-forwarding through completed steps. Now imagine a worker dies **after** the
+provider accepted your welcome email but **before** the engine recorded that step as
+complete. The replay re-runs the send line. Without engine support, that user gets two
+welcomes — and at scale, every deploy is a small chance of embarrassing some slice of
+your users. Three things worth internalising:
+
+- **Replay safety is automatic.** The engine derives a deterministic idempotency key
+  for every `sendEmail()` and `ctx.trigger()` from the run's identity plus the nearest
+  authored wait label, and dedupes on it — so a replayed send collapses into the
+  original instead of delivering twice. You write nothing extra.
+- **The one authoring rule:** if you send the **same template twice in one journey**
+  (like the dunning reminder in §6.7), give each site a distinct `idempotencyLabel` so
+  their keys can't collide. Forgetting isn't silent — the engine throws a loud
+  key-collision error in dev, which is exactly when you want to find out.
+- **Keep the run deterministic where it matters.** If a *non-deterministic* choice
+  picks what to send — an LLM choosing a template, a random variant — wrap it in
+  `ctx.once(label, compute)`: the engine records the first result and replays it
+  verbatim, so a crash can't re-roll the dice into a different-but-duplicate message.
+  Same logic for timestamps: prefer the event's own `occurredAt` (from
+  `ctx.waitForEvent`'s returned properties) over `new Date()`.
+
+And separately from replays, **`entryLimit` is your re-enrollment policy** — it governs
+legitimate *new* runs, not crashed ones. `"once"` for a welcome (a user signs up once).
+`"once_per_period"` for win-back and dunning (they can lapse again, but not be spammed).
+`"unlimited"` only for counting journeys (e.g. the Discord gamification in Chapter 8,
+where every reaction must re-count).
 
 This is the kind of correctness you get *because* the journey is code in a system built
 for it — exactly-once delivery across redeploys is brutally hard to get right by hand,
@@ -432,20 +566,23 @@ options in the next section.
 
 ---
 
-## 6.9 Other ways you could build this (and why durable execution)
+## 6.10 Other ways you could build this (and why durable execution)
 
 A growth team should know what it's choosing instead of. The ways teams build lifecycle
 automation, roughly worst-to-best for this job:
 
-- **`setTimeout` / in-process timers.** Don't. Every wait is lost on the next deploy or
-  crash. Fine for a 30-second debounce, catastrophic for a 3-day sequence.
+- **`setTimeout` / in-process timers.** The tempting first reach, and the one that
+  hurts: every wait is lost on the next deploy or crash. Fine for a 30-second
+  debounce, catastrophic for a 3-day sequence.
 - **Cron + a state column.** A nightly job scans the users table and decides who's due
   for which email. It works, and plenty of companies run on it — but you end up
   hand-rebuilding state, idempotency, and branching that the engine gives you for free,
   and the logic smears across cron jobs and SQL until no one can read the program.
+  The tell: six months in, nobody can answer "what messages can user X possibly
+  receive this week?" without reading four jobs and a spreadsheet.
 - **A job queue with delayed jobs (BullMQ, Sidekiq).** Better — delays survive restarts.
   But you're still assembling sequences, exit conditions, and exactly-once yourself, job
-  by job.
+  by job. Each journey becomes a distributed state machine you maintain by hand.
 - **Durable-execution platforms (Temporal, Inngest, DBOS, Restate).** The right
   *category* — they make multi-step, long-running, restart-proof workflows a first-class
   thing. Hogsend uses one (Hatchet) under the hood. If you're building generic
@@ -455,21 +592,24 @@ automation, roughly worst-to-best for this job:
   weak for stateful multi-day per-user journeys with branching. Useful at the edges.
 
 The summary: lifecycle messaging is a *durable, stateful, per-user* problem, and the
-tools that fit it are the ones that treat long waits and exact-once delivery as solved.
+tools that fit it are the ones that treat long waits and exactly-once delivery as solved.
 Hogsend's bet is that giving you that as ordinary TypeScript — plus the email, identity,
 and tracking layers already wired — beats both the roll-your-own stack and the no-code
 canvas for a team that codes.
 
 ---
 
-## 6.10 Where the triggers come from
+## 6.11 Where the triggers come from
 
 Your journeys are only as good as the events feeding them. Three sources:
 
 - **Your backend** — `POST /v1/ingest` for product events (signup, payment, milestone).
   This is the primary source and it's server-side, so ad-blocker-proof (Chapter 3).
 - **Webhook sources** — `defineWebhookSource()` turns any external webhook (Stripe,
-  a form, a CRM) into an event that can trigger a journey.
+  a form, a CRM) into an event that can trigger a journey. Declare the auth header,
+  optionally validate the payload, and write one `transform()` that maps the
+  provider's shape onto your event names — from then on a Stripe invoice failure is
+  just another event in the same pipeline.
 - **PostHog** — for *batch* / analytics-defined audiences (e.g. "did signup but not
   activate in 7 days"), build a PostHog cohort + a workflow webhook that posts to
   `/v1/ingest`. PostHog decides *who* needs action; Hogsend decides *what* to do. This
@@ -481,7 +621,7 @@ cohort PostHog already maintains; Hogsend just receives the verdict and runs the
 
 ---
 
-## 6.11 The holdout hook
+## 6.12 The holdout hook
 
 Chapter 5 said: prove lift with a holdout. Because enrollment is just code, you can
 implement a campaign holdout directly — deterministically bucket a small fraction of
@@ -498,24 +638,112 @@ run: async (user, ctx) => {
 }
 ```
 
+Two details are load-bearing. The bucketing is a **hash of the user id**, not
+`Math.random()` — deterministic, so a replay makes the same decision and the same user
+is always in the same bucket across every journey version. And the held-out path still
+**fires an event** — the control group must be *visible* in PostHog, or you'll have
+nothing to compare against.
+
 Then in PostHog, compare activation/retention/revenue for `journey.held_out` users vs
 enrolled users. That difference is your real, causal lift — the growth-team experiment
 loop (Chapter 0) running continuously, in production, on the journey you just shipped.
+When Chapter 9's monthly review asks "what's the lifecycle program actually worth?",
+this hook is where the answer comes from.
 
 ---
 
-## 6.12 Do this now
+## 6.13 Before you move on
 
-1. Wire your backend to `POST /v1/ingest` for `user.created`, `payment.failed`, and your
-   milestone event.
-2. Build **`activation-welcome`** first; add its email templates to `src/emails/`.
-3. Add **dunning** if you charge; then **win-back**.
-4. Add a **holdout** to your first journey and watch the lift in PostHog.
+The build order that tends to work, if you want a checklist for the week:
+
+1. **Wire your backend** to `POST /v1/ingest` for `user.created`, `payment.failed`,
+   and your milestone event — every journey below hangs off these three.
+2. **Build `activation-welcome` first**; add its templates to `src/emails/` and
+   preview them in the React Email dev server before they send (§6.3) — a broken
+   layout is much cheaper to catch in the preview than in a customer's inbox.
+3. **Add dunning if you charge**, then **win-back** — the same order as Chapter 5,
+   for the same reasons.
+4. **Put a holdout on that first journey** and watch the lift in PostHog — so when
+   someone asks whether the program works, there's a number instead of a feeling.
 
 You've now plugged the bucket. The rest of the course opens the tap — and makes sure
 every drop lands in an audience you own.
 
 ---
 
-*Reference: this project's `CLAUDE.md` (journey system), `docs/tracking.md`,
-and the real journeys in `apps/api/src/journeys/`.*
+<Quiz
+  questions={[
+    {
+      q: "Your journey does: send welcome → sleep 2 days → send nudge. The server redeploys on day 1. What happens with durable execution?",
+      options: [
+        "The journey restarts and the user gets a second welcome email",
+        "The sleep is lost and the nudge never sends",
+        "The journey resumes exactly where it was — the sleep completes on day 2 and the nudge sends once",
+        "The journey fails and moves to a dead-letter queue",
+      ],
+      answer: 2,
+      explain:
+        "Durability means the engine persists the journey's position and replays past a restart without re-executing completed side effects — the two-day pause genuinely survives the deploy. This is the property every alternative (cron, setTimeout, job queues) makes you rebuild by hand.",
+    },
+    {
+      q: "What's the difference between an `if (!activated)` check before a send and an `exitOn: USER_ACTIVATED` entry?",
+      options: [
+        "They're equivalent — pick whichever reads better",
+        "The if-check gates one send at a known point; exitOn stops the whole journey at any point, including mid-sleep or mid-wait",
+        "exitOn only works for deletion events",
+        "if-checks are faster",
+      ],
+      answer: 1,
+      explain:
+        "Both layers matter: conditions personalise individual sends, while exit events are the engine-enforced suppression rule from Chapter 5 — the instant the goal event fires, the journey ends, even if it's parked in the middle of a 5-day wait.",
+    },
+    {
+      q: "The dunning journey sends the CHURN_PAYMENT_FAILED template twice on one run. What does the engine require?",
+      options: [
+        "Nothing — every send is automatically unique",
+        "A distinct idempotencyLabel on the sends that share a template, so their exactly-once keys can't collide (it throws in dev if you forget)",
+        "Setting entryLimit to unlimited",
+        "Wrapping both sends in ctx.once()",
+      ],
+      answer: 1,
+      explain:
+        "Exactly-once keys are derived automatically from the run + nearest wait label + template. Two sends of the SAME template can collide, so each site declares a label — and the engine fails loudly at authoring time rather than silently dropping the second email.",
+    },
+    {
+      q: "Why does the win-back journey use ctx.waitForEvent({ event: APP_ACTIVE, timeout: days(5) }) instead of ctx.sleep(days(5))?",
+      options: [
+        "waitForEvent is more efficient for the worker",
+        "sleep can't run for 5 days",
+        "It reacts to the user: if they come back inside the window the journey knows immediately (and exitOn ends it), while a plain sleep would blindly wait out the timer",
+        "waitForEvent automatically sends the follow-up email",
+      ],
+      answer: 2,
+      explain:
+        "waitForEvent races the user's own behaviour against a timeout and returns { timedOut } so the code branches on what actually happened — the difference between a program that listens and a timer that fires regardless.",
+    },
+    {
+      q: "In the holdout hook, why hash the user id instead of calling Math.random()?",
+      options: [
+        "Hashing is faster than random number generation",
+        "Math.random() isn't available inside journeys",
+        "The bucket decision must be deterministic — stable across replays and consistent for the same user — or the holdout assignment (and your measurement) breaks",
+        "Hashes distribute more evenly than random numbers",
+      ],
+      answer: 2,
+      explain:
+        "A replayed journey must make the same holdout decision it made the first time, and the same user should stay in the same bucket. Randomness at run time would let a crash flip a user between arms — quietly corrupting the experiment.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [React Email — documentation](https://react.email/docs/introduction) — the component model your `src/emails/` templates use.
+- [Resend — documentation](https://resend.com/docs/introduction) — the delivery API underneath the default provider.
+- [Vercel — sending emails from an application](https://vercel.com/kb/guide/sending-emails-from-an-application-on-vercel) — the same React Email + Resend stack assembled outside Hogsend, useful for seeing what the engine automates.
+- [Resend — introducing Templates](https://resend.com/blog/introducing-templates) — the version-controlled-templates argument, from the provider's side.
+- [Postmark — transactional email best practices](https://postmarkapp.com/guides/transactional-email-best-practices) — the one-job-one-CTA discipline lifecycle emails should copy.
+- [Resend — send test emails](https://resend.com/docs/dashboard/emails/send-test-emails) — sandbox addresses for exercising flows safely.
+- [Mailtrap — how to test email](https://mailtrap.io/blog/how-to-test-email/) — capture-sandbox methodology for staging environments.

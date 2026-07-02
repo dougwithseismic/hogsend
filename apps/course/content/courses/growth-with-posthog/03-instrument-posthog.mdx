@@ -1,27 +1,31 @@
 ---
 title: "Chapter 3 — Instrument PostHog from zero"
-description: "Install the SDK, identify your users, capture the events that matter, write a tracking plan your team shares, and make sure ad blockers can't blind you."
+description: "Install the SDK, identify your users, capture the events that matter, write a tracking plan your team shares, make your setup experiment-ready, and make sure ad blockers can't blind you."
 ---
 
 > **In this chapter:** the snippet vs npm vs server/mobile SDKs, what autocapture gives
 > you free, how to identify users and set properties, the small set of events to track
 > first, the tracking plan that keeps a team honest, the other ways to pipe events in
-> (Segment, GTM, reverse-ETL), events vs actions, and the two techniques that beat ad
-> blockers. Code included.
+> (Segment, GTM, reverse-ETL), events vs actions, why clean events are the price of
+> admission to A/B testing, and the two techniques that beat ad blockers. Code included.
 
 ---
 
 ## 3.1 Ways to install
 
-PostHog has an SDK for wherever your code runs. Pick by where the event happens, not by
-habit — and most real products use two or three of these together.
+PostHog has an SDK for wherever your code runs. The useful way to choose is by where
+the event actually happens rather than by habit — and most real products end up using
+two or three of these together, so this is less "pick one" than "know what each is
+for".
 
 **The browser snippet** — paste a `<script>` into your `<head>`. No build step, works on
-any site, good for a marketing page or a quick start.
+any site, good for a marketing page or a quick start. Its weakness is the same as its
+strength: because it's copy-paste, it tends to drift — different pages get different
+versions, and nobody code-reviews a snippet.
 
 **Browser via npm** — `npm install posthog-js`. Better for a real app: types,
-tree-shaking, and framework wrappers (`posthog-js/react`, Next.js helpers). Use this for
-your product front-end.
+tree-shaking, and framework wrappers (`posthog-js/react`, Next.js helpers). This is
+the natural home for your product front-end.
 
 ```js
 import posthog from "posthog-js";
@@ -38,18 +42,30 @@ half most beginner setups skip. A server SDK needs the user's id passed explicit
 because there's no browser cookie to read it from.
 
 **Mobile** — React Native, iOS (Swift), Android (Kotlin), and Flutter SDKs, with their
-own autocapture and session-replay support. If you ship an app, instrument it with the
-native SDK rather than trying to route everything through a webview.
+own autocapture and session-replay support. If you ship an app, the native SDK is the
+better route — piping everything through a webview tends to lose events and replay
+quality.
+
+A decision table, since "which SDK" is really "which events live where":
+
+| You're capturing… | Use | Why |
+|---|---|---|
+| Marketing-site pageviews, UTM landings | Snippet or npm | Anonymous, high-volume, loss-tolerant |
+| Product UI interactions, journey steps | npm (`posthog-js`) | Typed, reviewable, framework-aware |
+| Signup, subscription, payment, activation | `posthog-node` (server) | Reliable, ad-blocker-immune (§3.7) |
+| Back-office facts (refunds, fulfilment) | Server SDK or reverse-ETL (§3.6) | They never happen in a browser |
 
 That `phc_` key is your **project API key**. It's safe in client-side code: it can
 *write* events but cannot *read* your data. (Reading data needs a separate personal API
-key, which you keep secret.)
+key, which you keep secret.) This split surprises engineers regularly — shipping the
+`phc_` key in your bundle is by design, not a leak.
 
 ---
 
 ## 3.2 Autocapture: what you get for free
 
-The moment `init()` runs, `posthog-js` starts recording a lot with no further code:
+The moment `init()` runs, `posthog-js` starts recording a lot with no further code
+([autocapture docs](https://posthog.com/docs/product-analytics/autocapture)):
 
 - **`$pageview`** and **`$pageleave`** — every navigation, with URL, referrer, and UTM
   parameters.
@@ -62,7 +78,8 @@ The moment `init()` runs, `posthog-js` starts recording a lot with no further co
 
 Autocapture has sane privacy defaults: it records input *names* and *ids*, never input
 *values*, and excludes password fields. You can suppress capture on any element by
-giving it the class `ph-no-autocapture`.
+giving it the class `ph-no-autocapture`, and narrow what's collected with an element
+allowlist if volume becomes a problem.
 
 Autocapture is your safety net — it means you're never *not* collecting data while you
 decide what matters. Its limit is that it captures *interface* events ("a button was
@@ -75,13 +92,22 @@ the difference between data and signal.
 > actually report on. Some teams turn autocapture off in production once their custom
 > events are solid; most leave it on for the replay/debugging value.
 
+<VideoEmbed
+  id="FFgzJYi4GQA"
+  title="Understanding PostHog Events: From Auto-Capture to Backend Integration"
+  channel="Vision Labs"
+  duration="14:36"
+  note="A hands-on walk from autocapture through custom events to server-side capture — the exact arc of §3.2–3.3, shown live."
+/>
+
 ---
 
 ## 3.3 Custom events: the signal you must add yourself
 
 Autocapture records that someone clicked *a button*. It does not know that the click
 meant "user signed up" or "project created" — the events that define your funnels.
-Those you capture explicitly.
+Those you capture explicitly
+([capturing events docs](https://posthog.com/docs/product-analytics/capture-events)).
 
 In the browser:
 
@@ -102,11 +128,37 @@ client.capture({
 });
 ```
 
-The rule that decides where to fire an event: **anything money- or
-decision-critical** — signup, activation, subscription, purchase — **should be
-captured from your backend, not the browser.** It's more reliable (no dropped requests)
-and, as §3.7 explains, ad blockers cannot touch it. Capture UI interactions and
-journey steps client-side, where some loss is acceptable.
+If you're wondering where a given event should fire, one question settles most cases:
+is it money- or decision-critical? **Signup, activation, subscription, purchase — these
+belong on your backend, not in the browser.** It's more reliable (no dropped requests)
+and, as §3.7 explains, ad blockers can't touch it. UI interactions and journey steps
+can stay client-side, where some loss is acceptable.
+
+A worked example of why this matters. The naive place to fire `subscription_started`
+is the checkout success page. But users close the tab before the redirect lands, the
+success page double-fires on refresh, and an ad blocker may eat the request entirely.
+The correct source is the **payment provider's webhook** — Stripe tells your server the
+charge succeeded, and your server captures the event:
+
+```js
+// In your Stripe webhook handler, after verifying the signature:
+if (event.type === "checkout.session.completed") {
+  const session = event.data.object;
+  posthog.capture({
+    distinctId: session.client_reference_id, // your user id, set at checkout
+    event: "subscription_started",
+    properties: {
+      plan: session.metadata.plan,
+      amount: session.amount_total / 100,
+      interval: session.metadata.interval,
+    },
+  });
+}
+```
+
+One webhook, one capture, exactly once, regardless of what the browser did. Every
+revenue event in your product has an equivalent server-side source of truth like this —
+it's worth taking a minute to find each one and firing from there.
 
 This server-side rule is also the seam where Hogsend lives: the same backend events
 that you send to PostHog can be sent to Hogsend's ingest endpoint to trigger lifecycle
@@ -120,7 +172,7 @@ ad-blocker-proof journey triggers from the same line of code (Chapter 6).
 
 Out of the box, events are tied to an anonymous id (a random UUID the SDK stores in the
 browser). To connect a person's activity to *who they are*, call `identify` — typically
-right after login:
+right after login ([identify docs](https://posthog.com/docs/getting-started/identify-users)):
 
 ```js
 posthog.identify("user_123", {     // your stable user id (DB id or email)
@@ -130,8 +182,30 @@ posthog.identify("user_123", {     // your stable user id (DB id or email)
 ```
 
 This links all the prior anonymous activity from that browser to the identified person,
-so the pre-signup and post-signup history becomes one timeline. Call it early and pass
-the properties you know each time.
+so the pre-signup and post-signup history becomes one timeline. It works best called
+early, with whatever properties you know at the time — each call can add more.
+
+What's actually happening underneath is worth thirty seconds of your attention, because
+identity bugs are the hardest analytics bugs to undo. Each browser starts with an
+anonymous distinct id. When you `identify`, PostHog *merges* that anonymous person into
+the identified one — the anonymous id becomes an alias of `user_123`, and every past
+and future event on either id lands on one person. Merges are effectively permanent, so
+two mistakes are expensive:
+
+- **Identifying with an unstable id** (a session id, a device id, an email that can
+  change) — you'll mint multiple "people" for one human, and their funnel steps will be
+  split across them.
+- **Identifying two different humans with the same id** (a shared demo account, a
+  hardcoded test id that ships to production) — you'll weld strangers into one person,
+  and no filter can cleanly separate them again.
+
+<VideoEmbed
+  id="3afzkLS-zQA"
+  title="PostHog identify and alias"
+  channel="PostHog"
+  duration="10:15"
+  note="The official explainer on how anonymous and identified events merge into one person — ten minutes that are much cheaper before your first identify call ships than after."
+/>
 
 **Person properties** come in two flavours, and the difference matters:
 
@@ -146,10 +220,10 @@ posthog.capture("user_signed_up", {
 });
 ```
 
-Two things people forget:
+Two things that tend to get forgotten:
 
-- **Call `posthog.reset()` on logout.** Otherwise the next person on a shared machine
-  gets merged into the previous user's profile.
+- **`posthog.reset()` on logout.** Without it, the next person on a shared machine
+  gets merged into the previous user's profile — and merges don't cleanly undo.
 - **`$set_once` checks whether the key exists, not which event is newest.** With
   out-of-order delivery, the first event *ingested* wins.
 
@@ -164,9 +238,10 @@ The `person_profiles` setting controls this:
 - **`always`** — every event creates a profile. More expensive; only if you genuinely
   need person data on everything.
 
-For a typical SaaS, `identified_only` is correct and can cut your bill significantly.
-This is the single biggest cost decision in the whole setup (Chapter 1, §1.5) — get it
-right on day one.
+For a typical SaaS, `identified_only` is the sane default and can cut your bill
+significantly. It's the single biggest cost decision in the whole setup (Chapter 1,
+§1.5), and it's much easier to set on day one than to untangle later — which is why
+it's in the very first code sample of this chapter.
 
 ### B2B: group analytics
 
@@ -177,16 +252,18 @@ user, so you can ask "how many *companies* are active" and run account-level fun
 posthog.group("company", "company_456", { name: "Acme", plan: "enterprise" });
 ```
 
-Two gotchas: unlike `identify`, you must send the group with **every** relevant event
-or you lose the rollup — and group analytics is often a paid add-on with billing
-implications (Chapter 1, §1.5). Check before you switch it on.
+Two gotchas worth knowing going in: unlike `identify`, the group has to ride along with
+**every** relevant event or you lose the rollup — and group analytics is often a paid
+add-on with billing implications (Chapter 1, §1.5), so it's worth a look at the pricing
+page before switching it on.
 
 ---
 
 ## 3.5 The events to track first
 
-You do not need a hundred events. You need a small, deliberately named set that lets
-you build the AARRR charts from Chapter 2. A good starter kit:
+You don't need a hundred events — a small, deliberately named set is enough to build
+every AARRR chart from Chapter 2, and it's a lot easier to keep clean. A good starter
+kit looks like this:
 
 ```
 user_signed_up          # Acquisition  — fire server-side
@@ -199,15 +276,20 @@ payment_succeeded       # Revenue      — fire server-side
 <your_core_action>      # Retention    — the thing users do repeatedly
 ```
 
-The one most teams forget is the explicit **activation event**. If you don't fire
-`project_created` (or whatever your aha action is), you'll later try to reverse-engineer
-it from autocaptured button clicks — and your activation funnel, retention cohorts, and
-LTV analysis all break. Define it now (you found *which* action it should be in Chapter
-2, §2.3).
+The one most teams forget is the explicit **activation event**. Teams that skip firing
+`project_created` (or whatever their aha action is) usually end up trying to
+reverse-engineer it later from autocaptured button clicks — at which point the
+activation funnel, retention cohorts, and LTV analysis are all built on guesswork.
+Since Chapter 2 (§2.3) already helped you decide *which* action it is, this is the
+moment to give it a name and a capture call.
 
 ### Naming: the rules that keep this usable
 
-PostHog recommends an `object_action` shape with snake_case and present-tense verbs:
+PostHog recommends an `object_action` shape with snake_case and present-tense verbs —
+the same **object-action framework** Segment's data teams
+[standardised years ago](https://www.twilio.com/en-us/resource-center/naming-conventions-for-clean-data)
+and practitioner tools like [Avo](https://www.avo.app/docs/data-design/best-practices/naming-conventions)
+enforce:
 
 - ✅ `project_created`, `invite_sent`, `pricing_page_viewed`
 - ❌ `ProjectCreated`, `user-signed-up`, `Sent Invite`
@@ -215,8 +297,16 @@ PostHog recommends an `object_action` shape with snake_case and present-tense ve
 Properties follow `object_adjective`, with `is_`/`has_` for booleans and `_date`/
 `_timestamp` for times: `item_price`, `is_subscribed`, `last_login_timestamp`.
 
-**The single most important rule: never build event names dynamically.** This is the
-mistake that ruins an analytics setup:
+The deeper point behind the pedantry —
+[Amplitude calls it taxonomy](https://amplitude.com/blog/event-taxonomy),
+[RudderStack calls it schema discipline](https://www.rudderstack.com/knowledge-base/data-collection-best-practices/) —
+is that events are an API between the people who fire them and the people who query
+them. Casing and verb-tense conventions aren't style preferences; they're what makes
+`user_signed_up` findable by someone who didn't write it, six months later, in a list
+of 80 event types.
+
+If you take one rule from this section, make it this one: **event names are never built
+dynamically.** It's the single mistake that most reliably ruins an analytics setup:
 
 ```js
 // ❌ Don't — this creates thousands of un-queryable event types
@@ -233,19 +323,55 @@ more and you've built a dictionary no one can read.
 
 The thing that separates a team's analytics from a mess is a **tracking plan** — a short,
 shared spec of every event you fire, its properties, and where it fires. It's a Google
-Sheet or a Markdown file in the repo, and it's owned, not vibes:
+Sheet or a Markdown file in the repo, and it's owned, not vibes. Segment's guide to
+[creating a tracking plan](https://www.twilio.com/en-us/resource-center/how-to-create-a-tracking-plan)
+frames it exactly right: the plan is a *contract between teams*, not documentation
+written after the fact.
 
 | Event | When it fires | Where | Key properties |
 |---|---|---|---|
 | `user_signed_up` | account created | server | `plan`, `signup_method`, `$set_once: signup_date` |
+| `user_logged_in` | session start | client | `login_method` |
 | `project_created` | first project saved | server | `template`, `is_first` |
+| `invite_sent` | invite email queued | server | `invitee_role` |
 | `subscription_started` | checkout success | server (Stripe webhook) | `plan`, `amount`, `interval` |
+| `subscription_cancelled` | cancellation effective | server (webhook) | `reason`, `tenure_days` |
+| `payment_succeeded` | charge captured | server (webhook) | `amount`, `is_renewal` |
+| `page_viewed` | route change | client | `page_name` |
+
+Eight rows. That's a real, working tracking plan for an early-stage product — not a
+40-tab spreadsheet, and emphatically not nothing.
 
 Why it earns its keep: it stops two engineers inventing `signup` and `user_signed_up` for
 the same thing; it makes "events are part of done" (Chapter 0) enforceable in code review;
 and it's the reference Chapter 6's journeys and Chapter 7's ad conversions both read from.
-Tools exist for this at scale (Avo, Iteratively, RudderStack's tracking plans) but a
-single shared doc beats nothing by a mile — start there.
+Two habits make it stick:
+
+- **The plan lives where code review happens.** A Markdown file in the repo means a new
+  event and its plan row land in the same pull request, and a reviewer can reject an
+  event that isn't in the plan. A spreadsheet nobody diffs will drift within a month.
+- **Every row has the same four columns** — event, trigger, source, properties. If you
+  can't fill in "where it fires," you haven't decided yet, and that ambiguity is
+  exactly what the plan exists to catch.
+
+Tools exist for this at scale (Avo, Segment Protocols, RudderStack's tracking plans),
+but a single shared doc beats nothing by a mile — and it's a perfectly good place to
+stay until the doc itself starts hurting.
+
+<VideoEmbed
+  id="RkCg1cgZzHc"
+  title="How to Create an Effective Tracking Plan (Mixpanel, Segment.com, Amplitude and more)"
+  channel="Ruben Ugarte"
+  duration="11:35"
+  note="A tool-agnostic method for the plan itself — core events, properties, and how to keep the doc from dying. Everything transfers to PostHog directly."
+/>
+
+<WorkbookPrompt
+  id="tracking-plan-draft"
+  prompt="Draft the first rows of your tracking plan: event name, what triggers it, and the two or three properties that matter."
+  placeholder={"signup_completed — user submits the signup form — plan, source\nproject_created — first project saved — template, team_size\n…"}
+  rows={6}
+/>
 
 ---
 
@@ -269,8 +395,9 @@ alternatives so you choose deliberately:
 - **PostHog managed Sources.** PostHog's own CDP can pull from Stripe, Hubspot, and
   others directly — useful for joining revenue to behaviour without writing the pipe.
 
-For most teams this course is written for, the answer is: **capture from your own
-front-end and back-end, skip the CDP until you have a reason, keep GTM off the product.**
+For most teams this course is written for, the deliberate choice comes out the same
+way: **your own front-end and back-end do the capturing, the CDP waits until you have a
+second destination, and GTM stays on the marketing site.**
 
 ---
 
@@ -279,6 +406,8 @@ front-end and back-end, skip the CDP until you have a reason, keep GTM off the p
 This is the part that surprises people: **10–30% of your events can simply vanish**
 because ad blockers maintain blocklists of analytics domains and drop any browser
 request to `*.posthog.com`. Your charts under-count, and you don't know by how much.
+Worse, the loss is *biased* — technical audiences block more, so a dev tool's charts
+under-count precisely the users it cares about most.
 
 Two fixes, used together:
 
@@ -309,9 +438,9 @@ This is also a genuine, defensible positioning point worth understanding: **the 
 that drive your lifecycle journeys are server-side and therefore ad-blocker-proof.**
 Your client-side product *analytics* still take the ~10–30% hit (only a proxy mitigates
 that), but the events that *trigger your emails and Discord messages* are sovereign —
-they fire from your server regardless of what's running in the user's browser. Keep
-that distinction precise: server-side fixes the *triggers*, a proxy mitigates the
-*analytics*.
+they fire from your server regardless of what's running in the user's browser. The
+distinction is worth keeping precise: server-side fixes the *triggers*, a proxy
+mitigates the *analytics*.
 
 ---
 
@@ -332,7 +461,40 @@ matters but a *perfect* one isn't worth blocking on.
 
 ---
 
-## 3.9 Keep it clean
+## 3.9 Clean events are the price of admission to experiments
+
+There's a payoff to all this discipline that most teams only discover later:
+**everything you just instrumented is also your A/B testing infrastructure.**
+PostHog's [experiments](https://posthog.com/docs/experiments) measure a variant against
+a goal metric — and the goal metric is one of your events. If `project_created` fires
+reliably and means one thing, you can test onboarding changes against it this
+afternoon. If it's three differently-named events fired from two places, every
+experiment you run inherits that mess, and your "results" measure your instrumentation
+as much as your product.
+
+The dependency runs in one direction: **instrument first, test second.** Teams that
+adopt an experimentation tool before their events are clean end up debugging data
+instead of learning — which is a big part of why Chapter 9 puts the experimentation
+*program* in the Run phase, months after this chapter. The maturity ladder looks like:
+no testing → informal before/after comparisons ("we shipped it and signups went up") →
+regular A/B tests → tests with proper holdouts and written-up results (Chapter 9, §9.5).
+Before/after comparisons are the rung most teams get stuck on — they feel like
+measurement but can't separate your change from the newsletter that went out the same
+day.
+
+<CheckIn
+  id="abTesting"
+  question="What does your testing culture look like today?"
+  options={["Never tested anything", "Occasionally, informally", "Regularly, without holdouts", "Regularly, with holdouts or experiments"]}
+/>
+
+Wherever you are on that ladder, the path up runs through the same place: this
+chapter's event kit firing cleanly. Once it does, the experiments in Chapters 5 and 9
+become cheap.
+
+---
+
+## 3.10 Keep it clean
 
 A few habits that prevent the most common messes:
 
@@ -344,6 +506,10 @@ A few habits that prevent the most common messes:
   changing a name's meaning.
 - **Keep the website and app in one project** so you see the full journey from first
   anonymous visit to paying customer.
+- **QA instrumentation like code.** After shipping an event, it's worth watching it
+  arrive in PostHog's activity view, checking its properties, and watching one session
+  replay of the flow to confirm it fires when you think it does. The trade is ten
+  minutes now against a quarter's worth of subtly wrong funnels later.
 
 ### For your kind of startup
 
@@ -360,25 +526,103 @@ A few habits that prevent the most common messes:
 
 ---
 
-## 3.10 Do this now
+## 3.11 Before you move on
 
-1. Install `posthog-js` with `person_profiles: "identified_only"`.
-2. Add `posthog.identify()` at login and `posthog.reset()` at logout.
-3. Add the starter events from §3.5 — **fire signup, subscription, and payment from
-   your backend.**
-4. Write the **tracking plan** (§3.5) — even ten rows in a shared doc.
-5. Set up the managed reverse proxy.
-6. Decide your one **activation event** and make sure it's firing.
+Six things worth having in place before the next chapter — roughly an afternoon of
+work, and everything later builds on them:
+
+1. `posthog-js` installed with `person_profiles: "identified_only"` — the cost default
+   that's painful to change later.
+2. `posthog.identify()` at login and `posthog.reset()` at logout — the pair that keeps
+   identities whole and unmixed.
+3. The starter events from §3.5, with **signup, subscription, and payment firing from
+   your backend** — webhook sources of truth, so the numbers stay honest.
+4. A **tracking plan** (§3.5), even if it's ten rows in a Markdown file in the repo —
+   the doc that stops two engineers inventing two names for one thing.
+5. The managed reverse proxy — a few minutes of DNS that recovers the blocked slice of
+   your client-side events.
+6. Your one **activation event** firing, QA'd against a session replay — the event the
+   whole next chapter's funnel hangs off.
 
 With data flowing, the next chapter is the daily habit that turns all this
 instrumentation into decisions.
 
 ---
 
-*Sources for this chapter: [PostHog — capture events](https://posthog.com/docs/product-analytics/capture-events),
-[identify users](https://posthog.com/docs/getting-started/identify-users),
-[anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events),
-[autocapture](https://posthog.com/docs/product-analytics/autocapture),
-[reverse proxy](https://posthog.com/docs/advanced/proxy),
-[product analytics best practices](https://posthog.com/docs/product-analytics/best-practices),
-[PostHog SDKs](https://posthog.com/docs/libraries).*
+<Quiz
+  questions={[
+    {
+      q: "Where should subscription_started fire, and from what trigger?",
+      options: [
+        "Client-side, on the checkout success page",
+        "Client-side, when the user clicks 'Subscribe'",
+        "Server-side, from the payment provider's webhook after signature verification",
+        "Both client and server, so you're covered either way",
+      ],
+      answer: 2,
+      explain:
+        "Success pages get closed early, refreshed (double-firing), and ad-blocked. The webhook is the source of truth: it fires exactly once, server-side, regardless of what the browser did. Firing from both sides double-counts revenue.",
+    },
+    {
+      q: "What does person_profiles: 'identified_only' actually do?",
+      options: [
+        "Blocks anonymous visitors from being tracked at all",
+        "Keeps events anonymous (≈4× cheaper) until you call identify, then builds full person profiles",
+        "Hides personal data from the PostHog UI",
+        "Only tracks users who accepted the cookie banner",
+      ],
+      answer: 1,
+      explain:
+        "It's a cost lever, not a privacy switch: logged-out traffic stays at the cheap anonymous rate, and profiles are only created once you identify someone. For a typical SaaS it's the single biggest billing decision in the setup.",
+    },
+    {
+      q: "An engineer ships posthog.capture(`export_clicked_${format}`) with format taking 30 values. What's wrong?",
+      options: [
+        "Nothing — more granular events mean better analytics",
+        "It creates 30 un-queryable event types; the format belongs in a property of one export_clicked event",
+        "Template literals aren't supported by posthog-js",
+        "Client-side capture should never carry variables",
+      ],
+      answer: 1,
+      explain:
+        "Dynamic event names are the classic taxonomy-ruining mistake: you can't build one funnel or trend across 30 spellings. One fixed event name with { format } as a property keeps it queryable and keeps your event dictionary readable.",
+    },
+    {
+      q: "You forgot posthog.reset() on logout. What's the failure mode?",
+      options: [
+        "Sessions expire early for logged-out users",
+        "Events stop being captured after logout",
+        "The next person to log in on that browser gets merged into the previous user's profile",
+        "The anonymous id is regenerated on every pageview",
+      ],
+      answer: 2,
+      explain:
+        "identify merges the browser's current distinct id into the identified person — and merges are effectively permanent. Without reset(), a shared or second-hand browser welds two humans into one person, and no filter cleanly separates them again.",
+    },
+    {
+      q: "Ad blockers are eating client-side events. Which statement is precise?",
+      options: [
+        "A reverse proxy makes all your tracking immune to blockers",
+        "Server-side capture recovers your client-side analytics too",
+        "A proxy mitigates client-side analytics loss; server-side events (your journey triggers) were never blockable in the first place",
+        "There's no fix — accept the 10–30% loss",
+      ],
+      answer: 2,
+      explain:
+        "Keep the two mechanisms distinct: the proxy recovers a chunk of browser events by using your own domain, while backend events never touch the user's browser at all — which is why money-critical events and lifecycle triggers belong server-side.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [PostHog — capturing events](https://posthog.com/docs/product-analytics/capture-events) — the canonical reference for custom events, client and server.
+- [PostHog — identify users](https://posthog.com/docs/getting-started/identify-users) — distinct ids, merging, and the identify lifecycle in full.
+- [PostHog — autocapture](https://posthog.com/docs/product-analytics/autocapture) — exactly what's collected automatically and how to tune it.
+- [Segment — naming conventions for clean data](https://www.twilio.com/en-us/resource-center/naming-conventions-for-clean-data) — the object-action framework this chapter's rules come from.
+- [Segment — how to create a tracking plan](https://www.twilio.com/en-us/resource-center/how-to-create-a-tracking-plan) — the plan as a cross-team contract, with templates.
+- [Avo — naming conventions](https://www.avo.app/docs/data-design/best-practices/naming-conventions) — practitioner-grade event/property naming, opinionated in the right places.
+- [Amplitude — great analytics needs a great taxonomy](https://amplitude.com/blog/event-taxonomy) — why taxonomy quality decides analytics quality, vendor-neutral.
+- [RudderStack — behavioral data collection best practices](https://www.rudderstack.com/knowledge-base/data-collection-best-practices/) — the engineering-side rules (schemas, naming, QA) before you instrument.

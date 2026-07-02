@@ -1,0 +1,397 @@
+---
+title: "Chapter 10 — Your 30/60/90/180-day plan"
+description: "The whole course as a sequenced operating plan: what to build in each phase, the exit criteria that gate the next one, realistic milestones, and the checklists to run it — from day 0 to day 180."
+---
+
+> **In this chapter:** the course turned into a plan you can actually run — day 0
+> commitments, then four phases (measure, keep, grow, compound) each with a goal, a
+> checklist, exit criteria, and the anti-patterns that blow it up. The checklists and
+> writing exercises below are interactive: everything you tick or write saves to
+> [your workbook](/workbook) and is here when you come back.
+
+---
+
+## 10.1 How to use this plan
+
+Everything before this chapter taught the machine; this chapter sequences the build. A
+few rules about how to read it:
+
+- **The phases are gates, not dates.** "30/60/90/180" assumes roughly a founder-day per
+  week of focused growth work. With more time you can compress; with less, stretch —
+  the one thing worth protecting is the *order*, because each phase's exit criteria
+  are the entry requirements for the next. Shipping ads (phase 3) before retention
+  work (phase 2) is the leaky-bucket pattern from Chapter 2, now with a budget
+  attached.
+- **The plan is stage-agnostic, the targets aren't.** A pre-launch product runs the same
+  sequence but treats phase 1 as "instrument before launch" and phase 3 as launch
+  channels rather than paid scaling. Where a number matters, this chapter says what it
+  gates rather than pretending one benchmark fits every product — Chapter 2's warning
+  about chasing someone else's magic number applies to plans too.
+- **This is the same first-90-days shape growth operators run when they land in a new
+  role** — learn the data first, find early wins in activation/retention, only then
+  scale acquisition ([Reforge's first-90-days
+  guide](https://www.reforge.com/guides/succeed-in-your-new-growth-leadership-role),
+  [Delivering Value's head-of-growth
+  plan](https://deliveringvalue.co/growth-essays/head-of-growth)). You're running it on
+  your own company.
+
+<VideoEmbed
+  id="rBCdgcFZ0uA"
+  title="Your first 90 Days as a Growth Marketer: A Practical Blueprint"
+  channel="Andrew Capland"
+  note="A 2026 operator's version of the same shape this chapter runs: diagnose from the data first, earn early wins, then scale. Watch for how much of the first month is just *looking*."
+/>
+
+---
+
+## 10.2 Day 0 — commit (one hour, no code)
+
+Chapter 0's commitments, now as a checklist. They're best done in one sitting with the
+whole team present — an hour, and it tends to prevent the two most expensive patterns
+in the course: nobody owning the loop, and acquisition before retention.
+
+<Checklist
+  id="plan-day0"
+  title="Day 0 — commitments"
+  items={[
+    "Name the growth owner — one person accountable for measure → keep → grow (a hat, not a hire)",
+    "Write the activation sentence: the one user action that means 'got real value', in one sentence",
+    "Get the team to agree the order out loud: retention before acquisition",
+    "Book the weekly 30-minute growth review, recurring, starting next week",
+    "Pick where growth work lives: the same backlog/repo as product work, not a separate doc nobody opens",
+  ]}
+/>
+
+The last two matter more than they look. A recurring 30-minute meeting is the smallest
+possible container for a growth *ritual* — the thing Chapter 9 argues separates a
+growth team from a team that did a growth project once. And putting growth work in the
+same backlog as product work is what makes "growth is an engineering discipline"
+(Chapter 0) real rather than aspirational.
+
+Two of those commitments are *writing* commitments, so there's space for them right
+here. Both save to [your workbook](/workbook) alongside everything else you put down
+in the course, linked back to the lesson it came from.
+
+<WorkbookPrompt
+  id="growth-owner"
+  prompt="Who owns growth? Name the person (and write it like it's a real assignment, because it is)."
+  placeholder="Growth owner: … — accountable for the funnel being instrumented, the dashboard being read, and the journeys being live."
+  rows={2}
+/>
+
+<WorkbookPrompt
+  id="activation-sentence"
+  prompt="Your activation sentence — if you drafted it in Chapter 2, it's pre-filled here. Make it final."
+  placeholder="A user is activated when they… (one sentence, one observable event)"
+  rows={2}
+/>
+
+---
+
+## 10.3 Days 1–30 — Measure
+
+**Goal: see the truth about your funnel.** Nothing in this phase grows the business
+directly. All of it determines whether the next five months of work target the real
+leak or a guessed one.
+
+Week by week, the shape most teams follow:
+
+| Week | Focus | Chapters |
+|---|---|---|
+| 1 | PostHog live: SDK installed, `identify`/`reset` wired, starter events firing | 1, 3 |
+| 2 | Tracking plan written; activation event defined; server-side revenue events | 2, 3 |
+| 3 | Reverse proxy; data QA — watch replays, check identities merge correctly | 3 |
+| 4 | The daily dashboard built and pinned; alerts to Slack; first honest read | 4 |
+
+<Checklist
+  id="plan-30"
+  title="Days 1–30 — Measure"
+  items={[
+    "PostHog account on the right region; one project; website + app tracked together",
+    "posthog-js installed with identified_only; identify at login, reset at logout",
+    "Starter event kit firing — signup client-side; subscription + payment server-side",
+    "Tracking plan written down and shared — even ten rows in a doc beats zero",
+    "Your one activation event defined, instrumented, and confirmed firing",
+    "Managed reverse proxy set up so tracking survives ad-blockers",
+    "Daily dashboard built and pinned: North Star, activation funnel, retention, alerts → Slack",
+    "First data QA pass: watch 5 session replays and confirm the events match what you see",
+  ]}
+/>
+
+**Exit criteria.** You can open the dashboard and say, with numbers: *where* in the
+funnel you lose the most people, *what* your week-4 retention roughly is, and *which*
+phase of product-market fit you're in (Chapter 4, §4.3). If those three sentences
+aren't sayable yet, that's the signal to stay in this phase a little longer —
+[YC's analytics-for-startups
+guidance](https://www.ycombinator.com/library/8H-analytics-for-startups) is blunt that
+most startups' first analytics problem is not volume of charts but trusting what the
+few important ones say.
+
+**The pattern to watch for here** is instrumenting forever. Thirty days is enough to
+measure a funnel honestly; it is not enough to build a data platform — a schema
+registry in week three is usually growth work quietly traded for tooling work.
+
+---
+
+## 10.4 Days 31–60 — Keep
+
+**Goal: plug the biggest leaks before spending a cent on traffic.** This is the phase
+with the highest return per hour in the whole plan — the users it saves are users you
+already paid (in money or effort) to acquire.
+
+Journeys are best built in the order of expected impact, which for almost every
+product looks like:
+
+1. **Welcome + onboarding nudge** — the gap between signup and activation is nearly
+   always the biggest leak (Chapter 5). One journey: welcome on signup, a nudge at
+   +48h if the activation event hasn't fired.
+2. **Dunning** — if you charge money, failed payments are pure, recoverable churn
+   (Chapter 6). This tends to be the fastest revenue win in the whole course.
+3. **Win-back** — dormant-user re-engagement, triggered by an inactivity window, with
+   something concrete to come back to.
+
+<Checklist
+  id="plan-60"
+  title="Days 31–60 — Keep"
+  items={[
+    "Hogsend app scaffolded; backend wired to POST /v1/ingest",
+    "Welcome + onboarding journey live, triggered by the signup event",
+    "Activation nudge at +48h, skipped automatically if the activation event fired",
+    "Dunning journey live (if you charge) — failed payment → retry prompt sequence",
+    "Win-back journey live for users inactive 14+ days",
+    "A holdout on your first journey, and you know how to read its lift in PostHog",
+    "Global frequency cap set so overlapping journeys can't spam one user",
+    "Unsubscribe/preferences verified working end-to-end (send yourself every email)",
+  ]}
+/>
+
+**Exit criteria.** Either your activation or early-retention number has visibly moved,
+or — more honestly — your **holdout comparison** shows the journeys lifting it
+(Chapter 5's incrementality argument: opens and clicks are activity, lift is proof).
+The bucket holds water well enough that pouring into it isn't waste.
+
+**The pattern to watch for** is building all eight journeys you can imagine instead of
+the three that matter — volume of automation isn't the goal; measured lift is. A
+second, subtler one: declaring victory off open rates. Without a holdout, what got
+measured was sending, not keeping.
+
+---
+
+## 10.5 Days 61–90 — Grow
+
+**Goal: open the tap, and make every drop land in an audience you own.** Only now does
+acquisition spend make sense — and for some products (dev tools especially, Chapter 7)
+"the tap" is content, launches, and community rather than paid ads at all.
+
+<VideoEmbed
+  id="nYTSIuC3ScY"
+  title="Your First 90 Days as Head of Growth (The Exact Plan I Give Every Client)"
+  channel="Andrew Capland"
+  note="The 90-day mark is where an operator would zoom out and re-plan. Useful cross-check that your first two phases produced what a growth lead would need to scale from."
+/>
+
+<Checklist
+  id="plan-90"
+  title="Days 61–90 — Grow"
+  items={[
+    "Channel decision made deliberately: is paid even your channel, or is it content/launches/community? (Ch 7)",
+    "If paid: Meta Pixel + PostHog → Meta CAPI destination, same Pixel ID, deduped, EMQ ≥ 6",
+    "One campaign live, optimising the deepest conversion event you can feed ~50/week",
+    "Consent captured at email collection; no dark-pattern pre-ticks",
+    "Discord and/or Telegram connector live with the /link email-verify flow (Ch 8)",
+    "Linking perk journey live — linked identity gets something real within a minute",
+    "Referral ask placed at the aha milestone, not before; verified referrals rewarded",
+    "Verified emails synced as a custom audience + lookalike seed",
+  ]}
+/>
+
+**Exit criteria.** Traffic is flowing from a channel you chose on purpose;
+conversions are tracked accurately enough to optimise on (not Pixel-alone guesswork);
+and a visible share of new users end up in a channel you own — a verified email, a
+linked Discord or Telegram — rather than only in an ad platform's audience you rent.
+
+**The pattern to watch for** is scaling spend before the measurement is trustworthy.
+When EMQ is low or events are missing, the ad platform optimises on noise — and the
+tuition comes out of your budget. A day spent on conversion quality routinely beats a
+week of creative testing.
+
+---
+
+## 10.6 Days 91–180 — Compound
+
+The first 90 days build the machine. The next 90 turn it into a *culture* — the
+difference between a system that ran once and one that gets a little better every
+week. Three threads run in parallel:
+
+**1. An experimentation program, not occasional experiments.** Keep a scored backlog
+of growth hypotheses — Sean Ellis's
+[ICE](https://www.productplan.com/glossary/ice-scoring-model) (impact, confidence,
+ease) is the standard scoring scheme, [PIE](https://conversion.com/framework/pie-framework/)
+a close alternative — and run a steady tempo of tests from the top of it. Ellis's
+[high-tempo testing](https://www.saastr.com/sean-ellis-founder-ceo-of-growthhackers-building-a-company-wide-growth-culture-video-transcript/)
+argument is that learning rate, not any single win, is what compounds; Reforge's
+[experiment management system](https://www.reforge.com/blog/growth-experiment-management-system)
+is the same idea with a template and a velocity metric attached. Temper the tempo with
+discipline: [not everything deserves an experiment](https://www.lennysnewsletter.com/p/not-running-an-experiment),
+and an underpowered test that "wins" is [worse than no test](https://www.lennysnewsletter.com/p/the-ultimate-guide-to-ab-testing).
+
+**2. Prove the program pays.** By day 180 you should be reporting **incremental lift**
+from the lifecycle program (global holdout, Chapter 5) and **blended CAC** including
+the referral loop's contribution — is growth getting cheaper as the owned audience
+grows? That's the flywheel from Chapter 8 showing up in the finances.
+
+**3. Decide what you are before you scale.** Real acquisition money is worth gating on
+evidence of product-market fit — the
+[Sean Ellis 40% test](https://pmfsurvey.com/) ("how disappointed would you be if this
+product disappeared?") is the standard instrument. It's also worth running the system
+yourself for a while before hiring a head of growth to run it for you; First Round's
+[founder-led growth playbook](https://review.firstround.com/founder-led-growth-playbook/)
+makes the case that premature growth hires fail precisely because the founder skipped
+the loop you've just spent 90 days building.
+
+<Checklist
+  id="plan-180"
+  title="Days 91–180 — Compound"
+  items={[
+    "Experiment backlog exists, ICE-scored, groomed in the weekly growth review",
+    "Steady test tempo: every week at least one experiment launches or reports",
+    "Every experiment ships with a hypothesis, a primary metric, and a written result — including the losers",
+    "Global holdout on the lifecycle program; incremental lift reported monthly",
+    "Blended CAC reviewed monthly, with the referral loop's contribution broken out",
+    "PMF check run (40% test) before any major step-up in paid spend",
+    "Quarterly prune: kill journeys with no lift, events nobody queries, ad sets that don't convert",
+    "The activation metric re-validated — still the best predictor of retention you have?",
+  ]}
+/>
+
+**Exit criteria — and the real finish line.** There isn't one, and that's the point:
+by day 180 the plan should have dissolved into an operating rhythm (Chapter 9's
+cadence) that doesn't need this chapter anymore. The observable test: growth work
+appears in every sprint, decisions cite the funnel, and the team can name last month's
+biggest learning from a *failed* experiment without embarrassment.
+
+---
+
+## 10.7 What good looks like at each gate
+
+Held deliberately loose — your product's numbers are your own (Chapter 2) — but these
+are the questions each gate should answer with a yes:
+
+| Gate | The question | Evidence |
+|---|---|---|
+| Day 30 | Do we trust the data? | Funnel + retention read aloud, replays match events |
+| Day 60 | Does the bucket hold? | Holdout-measured lift on activation or early retention |
+| Day 90 | Is acquisition landing in owned channels? | Conversion quality good; % of signups verified/linked |
+| Day 180 | Is the loop compounding? | Test tempo steady; lift + blended CAC reported monthly |
+
+[YC's key startup metrics](https://www.ycombinator.com/library/KR-key-startup-metrics)
+is a sane external reference for what investors will eventually ask of the same
+numbers; [Reforge on North Star metrics](https://www.reforge.com/blog/north-star-metrics)
+for keeping the one metric honest as the machine grows.
+
+---
+
+## 10.8 Before you move on
+
+Three things worth doing while the plan is in front of you:
+
+1. **Day 0 itself.** It's an hour with the whole team, and everything else in the plan
+   assumes it happened. The checklist above will keep your place — tick things off as
+   they land and they'll be here when you come back.
+2. **The four gate reviews, in the calendar** — day 30, 60, 90, 180 from today. A
+   30-minute review against the exit criteria at each, with the checklists above open.
+   Gates that exist in the calendar get held; gates that exist in a chapter don't.
+3. **A look at [your workbook](/workbook)** — everything you've written across the
+   course (activation sentence, North Star, tracking plan, hypotheses, these
+   checklists) in one place, each entry linked back to the chapter that produced it.
+   That page *is* your growth plan now.
+
+And if you're happy to share it — where are you starting from?
+
+<CheckIn
+  id="planCommitment"
+  question="When are you actually starting this plan?"
+  options={["Starting this week", "Starting this month", "Next quarter", "Just learning for now"]}
+/>
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "Your welcome journey's open rate is 62% and you want to report it as proof the lifecycle program works. What's the problem?",
+      options: [
+        "Open rates are underreported, so the real number is higher",
+        "Opens measure sending activity, not lift — without a holdout you can't attribute any retention change to the journey",
+        "62% is below the benchmark for welcome emails",
+        "Nothing — open rate is the standard lifecycle KPI",
+      ],
+      answer: 1,
+      explain:
+        "The plan's day-60 exit criterion is holdout-measured lift, not engagement metrics. Opens prove the email was sent and rendered; only a held-out comparison group proves the journey caused anything.",
+    },
+    {
+      q: "It's day 45. Activation is leaking badly, but a friend's startup doubled signups with Meta ads and you're tempted to copy them. The plan says:",
+      options: [
+        "Run the ads — acquisition data will help diagnose activation",
+        "Split the budget 50/50 between ads and activation work",
+        "Stay in the Keep phase — the day-60 gate (holdout-measured lift) hasn't been passed, so paid traffic would pour into a leaking bucket",
+        "Skip to the day-90 gate and run the PMF survey instead",
+      ],
+      answer: 2,
+      explain:
+        "Phases are gates, not dates. Scaling acquisition into a broken activation funnel is the most expensive mistake in the course — you'd be buying churn at ad-market prices.",
+    },
+    {
+      q: "In the 91–180 phase, what does ICE scoring order?",
+      options: [
+        "Which journeys to prune each quarter",
+        "The experiment backlog — by impact, confidence, and ease",
+        "Which acquisition channels to fund",
+        "Alert thresholds on the daily dashboard",
+      ],
+      answer: 1,
+      explain:
+        "ICE (Sean Ellis) scores growth hypotheses so the weekly ritual always pulls the highest-expected-value test from the top of the backlog instead of the loudest idea in the room.",
+    },
+    {
+      q: "What gates a major step-up in paid spend around day 180?",
+      options: [
+        "Reaching 10,000 registered users",
+        "A blended CAC under $50",
+        "Evidence of product-market fit — e.g. the Sean Ellis 40% test",
+        "Having all eight lifecycle journeys live",
+      ],
+      answer: 2,
+      explain:
+        "Scaling spend amplifies whatever exists. If under 40% of surveyed users would be 'very disappointed' to lose the product, the money is better spent on the product and the Keep phase than on traffic.",
+    },
+    {
+      q: "The plan's definition of success at day 180 is:",
+      options: [
+        "Every checklist in this chapter fully ticked",
+        "A dedicated growth hire owning the system",
+        "North Star growth of at least 10% month over month",
+        "The plan dissolved into a weekly operating rhythm — steady test tempo, decisions citing the funnel, learnings reported from failures",
+      ],
+      answer: 3,
+      explain:
+        "The finish line is cultural, not numeric: the machine runs on a cadence that no longer needs the plan. Checklists and hires are means; the operating rhythm is the outcome.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [Reforge — Succeed in your new growth leadership role](https://www.reforge.com/guides/succeed-in-your-new-growth-leadership-role) — the professional version of this plan: learn the data, early wins, then scale.
+- [Delivering Value — the Head of Growth 90-day plan](https://deliveringvalue.co/growth-essays/head-of-growth) — an operator's 30/60/90 with milestones, good for calibrating yours.
+- [First Round Review — the founder-led growth playbook](https://review.firstround.com/founder-led-growth-playbook/) — why you run this loop yourself before hiring for it.
+- [YC — Analytics for startups](https://www.ycombinator.com/library/8H-analytics-for-startups) — the day-1-to-30 instrumentation phase, from the source most founders trust.
+- [YC — Key startup metrics](https://www.ycombinator.com/library/KR-key-startup-metrics) — what the day-30/60/90 numbers get measured against eventually.
+- [Sean Ellis — the PMF survey](https://pmfsurvey.com/) — the 40% test that gates the day-180 spend decision.
+- [Reforge — the growth experiment management system](https://www.reforge.com/blog/growth-experiment-management-system) — backlog, template, and velocity metrics for the Compound phase.
+- [Lenny Rachitsky & Ronny Kohavi — the ultimate guide to A/B testing](https://www.lennysnewsletter.com/p/the-ultimate-guide-to-ab-testing) — the rigor that keeps a high test tempo honest.
+- [Product Marketing Alliance — 30-60-90 plan template](https://www.productmarketingalliance.com/30-60-90-day-plan-template-framework/) — if you want the generic scaffold this chapter specialises.
+- [John Doerr — Google's OKR playbook](https://www.whatmatters.com/resources/google-okr-playbook) — a heavier operating cadence for when the team outgrows one weekly meeting.

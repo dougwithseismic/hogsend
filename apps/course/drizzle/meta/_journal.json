@@ -15,6 +15,13 @@
       "when": 1782805095926,
       "tag": "0001_damp_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782975181155,
+      "tag": "0002_aromatic_warpath",
+      "breakpoints": true
     }
   ]
 }

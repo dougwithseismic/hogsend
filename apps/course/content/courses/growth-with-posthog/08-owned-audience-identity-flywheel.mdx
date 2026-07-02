@@ -1,13 +1,14 @@
 ---
 title: "Chapter 8 — The owned-audience flywheel"
-description: "Turn ad clicks and visitors into verified emails and linked Discord/Telegram accounts — an audience you own, can reach for free, and can build a referral loop on. Plus the tools you'd otherwise rent."
+description: "How ad clicks and visitors become verified emails and linked Discord/Telegram accounts — an audience you own, can reach for free, and can build a referral loop on. Plus what it takes to run the community itself, and the tools you'd otherwise rent."
 ---
 
 > **In this chapter:** why an owned channel beats a rented ad audience, the
 > "link-your-account-for-a-perk" mechanic that captures identity, how email
-> verification and Discord/Telegram linking build an identity graph, how that graph
-> makes referral loops actually work, and the off-the-shelf tools you could use instead.
-> Code mirrors Hogsend's real connectors.
+> verification and Discord/Telegram linking build an identity graph, what actually
+> keeps a community alive once you've built one, how the graph makes referral loops
+> work (and their honest failure modes), and the off-the-shelf tools you could use
+> instead. Code mirrors Hogsend's real connectors.
 
 This is the chapter that answers the original question: *how does a lifecycle tool start
 driving traffic?* The answer is that lifecycle and acquisition meet at **identity** —
@@ -22,7 +23,12 @@ turn, not just an output of this one.
 
 Every ad audience is **rented.** You pay to reach those people the first time, and you
 pay again every time you want to reach them after that. The moment you stop paying, the
-channel goes dark.
+channel goes dark. Social followings are rented too, just with a subtler landlord: the
+platform's algorithm decides what fraction of "your" followers see any given post, and
+that fraction has fallen for a decade across every major feed — reach you built in 2020
+is not reach you have now (Chapter 7's
+[law of shitty clickthroughs](https://andrewchen.com/the-law-of-shitty-clickthroughs/),
+applied to organic).
 
 An **owned** channel — a verified email address, a linked Discord or Telegram account —
 is the opposite. Once someone is in it:
@@ -32,13 +38,25 @@ is the opposite. Once someone is in it:
   who sees it.
 - **Reactivation is nearly free.** Bringing a lapsed user back through an owned channel
   costs a fraction of re-buying the ad impression.
+- **It's portable.** An email list exports. A Discord guild's members are linked to
+  *your* identity graph, not just to Discord. Platform policy changes hurt; they don't
+  zero you.
 
 The exact multiples you'll see quoted — "acquiring costs 5–25× more than retaining,"
 "owned reactivation is 5–10× cheaper than paid" — are **directional folklore** with
-loose sourcing; don't repeat the decimals as fact. But the **mechanism is undeniable**
-and it's the load-bearing argument of this chapter: *a one-time ad spend that captures
-someone into an owned channel converts a rented impression into a reusable asset.* You
-pay once to acquire the contact, then reach them as often as you like for free.
+loose sourcing, better treated as direction than decimals. But the **mechanism is
+undeniable** and it's the load-bearing argument of this chapter: *a one-time ad spend
+that captures someone into an owned channel converts a rented impression into a
+reusable asset.* You pay once to acquire the contact, then reach them as often as you
+like for free.
+
+<VideoEmbed
+  id="7zZ8LIOWFd8"
+  title="Why 90% of B2B Brands Are Wasting Money on Rented Audiences (And What Works Instead)"
+  channel="Pipe Dream Podcast from B2B Better"
+  duration="30:27"
+  note="The rented-vs-owned argument made from the B2B marketing side — same conclusion this chapter reaches from the identity side."
+/>
 
 This reframes what an ad is *for*. A click that bounces is money spent and gone. A click
 that ends in a verified email or a linked Discord is money spent on an asset you keep —
@@ -46,6 +64,13 @@ the same dollar, but one version evaporates and the other compounds. This is why
 lifecycle tool is the natural place for acquisition to *land*: ads bring people,
 lifecycle keeps them, and the bridge between the two is the moment you capture their
 identity into a channel you own.
+
+The scale you need is smaller than you think. Kevin Kelly's
+[1,000 True Fans](https://kk.org/thetechnium/1000-true-fans/) is the foundational
+version of the argument: a creator (or a niche product) doesn't need millions of
+renters — it needs a thousand people it can *reach directly* who care enough to buy.
+An owned audience of a few thousand engaged, reachable people is a real business
+foundation; a hundred thousand rented impressions is a receipt.
 
 ---
 
@@ -70,10 +95,21 @@ worth modelling:
   and its perks. This is the move that produces an **email ↔ Discord** link you own —
   and several tools market it openly as list-building.
 
-The reward should map to your product's value and live *in the owned channel* where
-possible, so claiming it deepens the relationship rather than ending it. A perk the user
-collects and walks away from buys you one email; a perk they collect *inside* your
-community pulls them one step further in.
+The reward works best when it maps to your product's value and lives *in the owned
+channel*, so claiming it deepens the relationship rather than ending it. A perk the
+user collects and walks away from buys you one email; a perk they collect *inside*
+your community pulls them one step further in.
+
+Two design considerations keep the mechanic honest:
+
+- **The perk must be worth the link, and no more.** Over-reward and you harvest
+  perk-hunters who churn the moment the reward lands (§8.7 returns to this with
+  referral fraud). The best perks are things a genuine user wanted anyway: access to
+  the community channels, credits in the product, early features.
+- **Ask at the moment of motivation.** The link prompt converts best right after the
+  user got value — the same peak-engagement timing as the referral ask (Chapter 6,
+  §6.8). A cold DM asking to "verify your email for a role" is spam; the same ask as
+  the doorway into a community they just decided to join is onboarding.
 
 ---
 
@@ -143,7 +179,62 @@ the same behavioural-journey machinery from Chapter 6 — the only new thing is 
 
 ---
 
-## 8.4 Linking Telegram
+## 8.4 The part the tooling can't do: a community worth joining
+
+A warning before the next code block, because this is where most "build a Discord"
+advice quietly fails: **the linking mechanic captures identity; it does not create a
+community.** A server with a verification gate, twenty channels, and no conversation is
+a list with extra steps — and everyone who joins can *see* it's dead, which a mailing
+list at least hides.
+
+The practitioners' consensus (Jono Bacon, who wrote the standard books on this, is the
+clearest voice) compresses to:
+
+- **Start with a mission, not a server.** People join a movement or a topic, not your
+  product's support channel. Frame the community around the thing your users are trying
+  to *become* — better at growth, better at shipping — with your product as the venue.
+- **Fewer channels than feels right.** Three active channels beat twenty empty ones.
+  Conversation density is the product; split channels only when volume forces it.
+- **Rituals create the habit.** A weekly show-and-tell, a changelog thread, an office
+  hour — recurring, hosted moments give members a reason to come back on a schedule
+  (the community version of Chapter 9's operating cadence).
+- **The first 100 members are hand-recruited.** Like Chapter 7's do-things-that-don't-
+  scale: personally invite, personally welcome, personally introduce members to each
+  other until conversation is self-sustaining.
+
+<VideoEmbed
+  id="waU5Cm1FENA"
+  title="Build a Movement, Not a Discord (A Community Guide)"
+  channel="Jono Bacon"
+  duration="9:26"
+  note="The community authority on why servers die: you launched a chat room, not a movement. Nine minutes, saves months."
+/>
+
+<VideoEmbed
+  id="SJi469BuU6g"
+  title="30 PROVEN Discord Hacks For Building Communities"
+  channel="Jono Bacon"
+  note="The tactical companion — concrete server-structure, onboarding, and engagement mechanics for when you're past the mission stage."
+/>
+
+The measurement lens from this course applies here too: instrument the community like
+a product. `member.joined`, first message, reactions given/received — Hogsend's
+connector events — give you an activation funnel for the community itself (what
+fraction of joiners post within a week?) and feed the engagement-role journeys above.
+[Discord's own community resources](https://discord.com/community) and the
+[CMX community-building guide](https://www.cmxhub.com/reports/the-cmx-guide-to-building-a-community)
+are the fuller playbooks.
+
+<CheckIn
+  id="community"
+  question="Where does your audience gather today?"
+  options={["Discord", "Slack", "Telegram", "A newsletter", "X or social only", "No community yet"]}
+  multi
+/>
+
+---
+
+## 8.5 Linking Telegram
 
 Telegram has no native email field — identity is phone-based — so linking uses a bot
 deep-link plus an email-confirm flow, the same proof-by-clicking pattern as Discord. A
@@ -195,11 +286,11 @@ export const telegramLinkRequest = defineJourney({
 Clicking the link binds `telegram ↔ email` and stitches the analytics identity from the
 client (so you get the real geo/IP). Referrals on Telegram ride the same deep-link
 mechanism: a unique `t.me/<bot>?start=<referrerId>` link lets the bot record who brought
-whom — which is the attribution primitive the referral loop (§8.6) is built on.
+whom — which is the attribution primitive the referral loop (§8.7) is built on.
 
 ---
 
-## 8.5 The identity graph (why this compounds)
+## 8.6 The identity graph (why this compounds)
 
 Every link event writes an **edge** between two ways of reaching the same person:
 
@@ -220,6 +311,17 @@ devices, sessions, and channels. The payoffs stack:
   custom-audience and lookalike-seed inputs from Chapter 7. The graph you build here is
   the fuel the ad machine there runs on.
 
+There's a strategic layer on top of the operational one. Chris Dixon's
+[come for the tool, stay for the network](https://cdixon.org/2015/01/31/come-for-the-tool-stay-for-the-network/)
+describes the classic ladder: a single-player tool earns the user, and the network they
+join is what keeps them (and keeps competitors out). A linked community sits exactly on
+that ladder — the product is the tool; the community and its graph are the network. And
+a16z's [Hidden Networks](https://a16z.com/hidden-networks-network-effects-that-dont-look-like-network-effects/)
+makes the subtler point that defensible networks often don't look like social networks —
+an identity graph connecting your users' channels, reachable by you and no competitor,
+is precisely such a hidden network. Features can be copied in a quarter; a dense,
+consented identity graph has to be earned edge by edge.
+
 Hogsend builds this graph on its **own** identity model (it stitches email ↔ channel ↔
 anonymous), and its connectors emit the engagement events — `discord.linked`,
 `reaction_added`, `member.joined`, `link.clicked` — that both trigger journeys *and* add
@@ -230,10 +332,16 @@ the identity graph only gets denser.
 
 ---
 
-## 8.6 The referral loop
+## 8.7 The referral loop
 
 Referrals are where the owned graph pays off most, because **a referral program only
 works if you can attribute it** — and attribution is exactly what the graph gives you.
+The prize is real:
+[Lenny Rachitsky's survey of referral programs](https://www.lennysnewsletter.com/p/this-week-16-building-a-referrals)
+found they commonly drive **15–50% of new-user growth** at companies that get them
+right — and, in the same breath, that most programs see **under 10% of users ever
+refer anyone**. Both numbers matter: the upside is large, and the median program
+underdelivers because it was bolted on rather than designed.
 
 ### Incentive structures that work
 
@@ -250,10 +358,32 @@ works if you can attribute it** — and attribution is exactly what the graph gi
   *whitelist spot*, or an *exclusive role* — scarcity instead of cash. **Robinhood**'s
   skip-the-line waitlist is the classic.
 
-Design principles across all of them: make sharing effortless (prewritten copy, a
-one-click link), reward both sides, align the reward to product value, show progress
-(a dashboard or leaderboard), and **trigger the ask at peak engagement** — right after
-the aha moment, which is the referral journey from Chapter 6, §6.7.
+The design principles that run across all of them: sharing that costs nothing
+(prewritten copy, a one-click link), rewards on both sides, a reward aligned to product
+value, visible progress (a dashboard or leaderboard), and **an ask timed to peak
+engagement** — right after the aha moment, which is the referral journey from Chapter
+6, §6.8.
+
+### The honest failure mode: referred users can be your worst users
+
+Before settling on a reward, it's worth sitting with Andrew Chen's
+[counterpoint](https://andrewchen.com/worst-users-referral-trials-coupons-gamification/):
+users acquired through heavy incentives — referral bounties, coupons, gamified
+rewards — are often the *lowest-quality* cohort you acquire, because the incentive
+(not the product) did the selecting. The symptoms: referred users who never activate,
+reward-farmers inviting throwaway accounts, and a referral "channel" whose cohort
+retention embarrasses every other source.
+
+The defences are all things this course already gave you:
+
+- **Cohorting the referred users** (Chapter 4) and comparing their retention against
+  other channels — a referral program is judged on retained users, not invites sent.
+- **Rewarding verified behaviour, not signups.** When the referee has to verify email,
+  link an account, or hit a real activation milestone before the reward fires, farmers
+  lose interest. This is exactly the anti-fraud power the identity graph gives you
+  (below).
+- **A reward aligned to product value** (Dropbox's storage, not cash), so the people
+  the incentive attracts are people who wanted the product anyway.
 
 ### Why the owned graph makes attribution work
 
@@ -303,7 +433,7 @@ for the products this course is written for.
 
 ---
 
-## 8.7 Other ways to own an audience
+## 8.8 Other ways to own an audience
 
 Discord/Telegram-on-your-own-infra is this course's emphasis because it builds the graph
 you own outright. But "owned audience" is a spectrum, and the alternatives are worth
@@ -325,8 +455,8 @@ naming:
 The principle that ranks them: **the more of the identity graph you own outright, the more
 the audience compounds and the less you're exposed to a platform's pricing or policy
 changes.** A hosted newsletter is a fine, real owned audience; an identity graph on your
-own infrastructure is the maximal version. Pick the rung that matches how central owned
-growth is to your business.
+own infrastructure is the maximal version. The rung worth picking is the one that
+matches how central owned growth is to your business.
 
 ### For your kind of startup
 
@@ -341,7 +471,7 @@ growth is to your business.
 
 ---
 
-## 8.8 The full funnel, assembled
+## 8.9 The full funnel, assembled
 
 Putting Chapters 7 and 8 together, this is the complete path — and every stage captures
 an identity edge:
@@ -355,7 +485,9 @@ an identity edge:
 | **Lifecycle journeys** | Activate & retain | engagement events on your own spine |
 | **Referral loop** | Compound | referrer ↔ referee edge, often a Discord role |
 
-The feedback loops that make it a flywheel rather than a funnel:
+The feedback loops that make it a flywheel rather than a funnel — the
+[growth-loops model](https://www.reforge.com/blog/growth-loops) from Chapter 2, finally
+built:
 
 - Verified emails → **custom audiences + lookalike seeds** → cheaper, better-matched ads
   (Chapter 7).
@@ -365,31 +497,111 @@ The feedback loops that make it a flywheel rather than a funnel:
 
 The identity graph sits at the hub. Every turn of the loop adds edges, and every edge
 makes the next turn cheaper. That's the difference between a funnel you keep refilling and
-a loop that compounds — the growth-loop idea from Chapter 2, finally built.
+a loop that compounds.
 
 ---
 
-## 8.9 Do this now
+## 8.10 Before you move on
 
-1. Pick the **perk** that's worth linking for (a role, access, credits, a whitelist).
-2. Stand up the **Discord and/or Telegram connector** and the `/link` email-verify flow.
-3. Build the **`discord-linked` / `telegram-linked`** journey to grant the perk and
-   welcome them across both channels.
-4. Add the **referral ask** at your aha milestone (Chapter 6, §6.7) and reward verified
-   referrals with a role.
-5. Sync your **verified, consented emails** as a Meta custom audience and lookalike seed
-   (Chapter 7).
+A few things worth doing while this chapter is fresh:
 
-You now have the whole machine. The final chapter sequences it into a plan.
+1. **Choose the perk** that's worth linking for (a role, access, credits, a whitelist).
+   The sweet spot: valuable enough to convert, not so valuable it attracts farmers —
+   §8.2's two design considerations are the test.
+2. **Stand up the Discord and/or Telegram connector** with the `/link` email-verify
+   flow — this is the moment your list starts becoming a graph.
+3. **The `discord-linked` / `telegram-linked` journey** grants the perk and welcomes
+   people across both channels; it's the code from §8.3, nearly verbatim.
+4. **Give the community a reason to exist beyond the perk**: a mission statement, three
+   channels, one weekly ritual (§8.4). The first members are worth recruiting by hand —
+   conversation density is what everyone who joins next will judge you on.
+5. **Place the referral ask at your aha milestone** (Chapter 6, §6.8) with verified
+   referrals rewarded by a role — and it's worth putting "referred-cohort retention" on
+   the dashboard before celebrating the invite count.
+6. **Sync your verified, consented emails** as a Meta custom audience and lookalike
+   seed (Chapter 7) — this is where the two chapters' machines connect.
+
+That's the whole machine. Chapter 9 turns running it into a weekly rhythm, and Chapter
+10 sequences everything you've built into a 30/60/90/180-day plan.
 
 ---
 
-*Sources for this chapter: [Guild.xyz](https://help.guild.xyz/en/articles/6934383-introduction-to-guild),
-[Collab.Land token-gating](https://docs.collab.land/help-docs/key-features/token-gate-communities/),
-[Supabase community-led growth](https://medium.com/craft-ventures/inside-supabases-product-community-led-growth-e4799823fbb2),
-[Dropbox referral program](https://growsurf.com/blog/dropbox-referral-program),
-[double-sided referral programs](https://www.voucherify.io/blog/how-to-launch-a-double-sided-referral-program),
-[first-party identity graphs](https://www.cometly.com/post/first-party-identity-graph),
-[Telegram bot links](https://core.telegram.org/api/links). Hogsend connector details:
-this project's `docs/connect-discord.md`, `docs/connector-runtime.md`, and the journeys
-in `apps/api/src/journeys/`.*
+<Quiz
+  questions={[
+    {
+      q: "Your product has 40,000 followers on X and a 900-person verified-email list. Which is the owned audience, and why?",
+      options: [
+        "The X following — it's 44× bigger",
+        "Both, equally — they're both audiences you built",
+        "The email list — the platform algorithm decides which followers see a post, while the list is reachable directly and portable",
+        "Neither — only a Discord server counts as owned",
+      ],
+      answer: 2,
+      explain:
+        "A social following is rented reach with a subtler landlord: the feed algorithm taxes every post, and the platform can change the deal at any time. A verified list is directly reachable, exportable, and — per 1,000 True Fans — a few thousand engaged reachable people beat a large rented count.",
+    },
+    {
+      q: "Why does the /link flow email a confirmation link instead of trusting the address the user types?",
+      options: [
+        "To comply with Discord's API terms",
+        "Because the clicked email is the proof of inbox ownership — an unverified address is worthless as an owned contact and possibly unlawful to upload as an ad audience",
+        "To slow down the flow and reduce server load",
+        "Because Discord hides members' real emails",
+      ],
+      answer: 1,
+      explain:
+        "The delivered-and-clicked email IS the verification. It makes the captured email real (deliverable), consented (they acted on it), and therefore usable — both for lifecycle messaging and as a legal, high-quality custom-audience input for Chapter 7.",
+    },
+    {
+      q: "You launch a referral program offering $25 cash per signup. Six weeks later invites are up but referred-cohort retention is terrible. What happened?",
+      options: [
+        "The reward was too small to attract serious users",
+        "The incentive did the selecting: cash-per-signup attracts perk-hunters and farmers, not people who want the product — reward verified activation milestones with product-aligned value instead",
+        "Referral programs simply don't work for most products",
+        "The attribution is broken, so the cohort data is wrong",
+      ],
+      answer: 1,
+      explain:
+        "This is Andrew Chen's 'worst users' pattern: heavily-incentivised channels select for people who want the incentive. The fixes: reward verified behaviour (activation, not signup), align the reward to product value like Dropbox's storage, and judge the program on retained users, not invites.",
+    },
+    {
+      q: "A friend shares a referral link; the recipient clicks it on their phone, then signs up on a laptop three weeks later. How does the owned identity graph credit the referrer when cookie-based tracking can't?",
+      options: [
+        "It fingerprints the user's devices",
+        "It stores a longer-lived third-party cookie",
+        "The anonymous visit recorded the referral edge; when the visitor later identifies (email verify, Discord link), the graph resolves them to one person and back-credits the referrer",
+        "It asks the user who referred them at signup",
+      ],
+      answer: 2,
+      explain:
+        "First-party referral attribution rides the graph: the anonymous id from the phone click and the identified laptop signup both stitch to the same person once identity lands, so the referrer ↔ referee edge survives the cross-device gap that kills cookie attribution.",
+    },
+    {
+      q: "You stood up a Discord with 22 channels and a verification gate; 300 people joined via the perk and the server is silent. The chapter's diagnosis:",
+      options: [
+        "The perk wasn't valuable enough",
+        "You need a bigger moderation team",
+        "You built the capture mechanic but not the community: too many channels dilute conversation, there's no mission or ritual, and the first hundred members were never hand-recruited into talking",
+        "Discord is the wrong platform — move to Slack",
+      ],
+      answer: 2,
+      explain:
+        "Linking captures identity; it doesn't create conversation. The playbook: a mission people join, three channels instead of twenty (density is the product), a weekly ritual, and unscalable personal recruiting until conversation self-sustains.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [Kevin Kelly — 1,000 True Fans](https://kk.org/thetechnium/1000-true-fans/) — the foundational owned-audience thesis: direct reach to a small true-fan base beats large rented reach.
+- [Reforge — Growth Loops are the new funnels](https://www.reforge.com/blog/growth-loops) — the loop model this chapter's flywheel implements.
+- [Lenny Rachitsky — Building a referrals program](https://www.lennysnewsletter.com/p/this-week-16-building-a-referrals) — mechanics and benchmarks: 15–50% of growth when done right, under 10% of users typically refer.
+- [Andrew Chen — Worst users come from referral programs](https://andrewchen.com/worst-users-referral-trials-coupons-gamification/) — the essential counterpoint; read before setting the reward.
+- [Chris Dixon — Come for the tool, stay for the network](https://cdixon.org/2015/01/31/come-for-the-tool-stay-for-the-network/) — the strategic ladder from single-player product to network moat.
+- [a16z — Hidden Networks](https://a16z.com/hidden-networks-network-effects-that-dont-look-like-network-effects/) — why an identity graph is a network effect that doesn't look like one.
+- [Discord — Community resources](https://discord.com/community) — the primary-source playbook for server structure, onboarding, and moderation.
+- [CMX — Guide to Building a Community](https://www.cmxhub.com/reports/the-cmx-guide-to-building-a-community) — the fuller community-led-growth framework behind §8.4.
+- [Guild.xyz](https://help.guild.xyz/en/articles/6934383-introduction-to-guild) and [Collab.Land](https://docs.collab.land/help-docs/key-features/token-gate-communities/) — the token-gating implementations of the perk-for-linking mechanic.
+- [Telegram — deep-link docs](https://core.telegram.org/api/links) — the `?start=` primitive Telegram referrals ride on.

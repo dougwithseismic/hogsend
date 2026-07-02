@@ -106,6 +106,14 @@ export function UserMenu() {
               Profile
             </Link>
             <Link
+              href="/workbook"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="block px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/[0.04] hover:text-white"
+            >
+              Workbook
+            </Link>
+            <Link
               href="/"
               role="menuitem"
               onClick={() => setOpen(false)}
