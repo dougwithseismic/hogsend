@@ -22,6 +22,13 @@
       "when": 1782975181155,
       "tag": "0002_aromatic_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782991877701,
+      "tag": "0003_smart_odin",
+      "breakpoints": true
     }
   ]
 }

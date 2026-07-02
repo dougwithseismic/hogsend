@@ -60,6 +60,16 @@ export function Paywall({
           </button>
         </form>
 
+        <p className="mt-4 text-sm text-white/40">
+          Buying for someone else?{" "}
+          <a
+            href={`/${course}#gift`}
+            className="text-white/60 underline transition-colors hover:text-white"
+          >
+            Gift a copy instead →
+          </a>
+        </p>
+
         {allAccessConfigured() ? (
           <div className="mt-5 border-white/[0.08] border-t pt-5">
             <p className="text-sm text-white/50">

@@ -5,11 +5,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { JSX } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
-import { FounderNote } from "@/components/course/founder-note";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { ProgressBar } from "@/components/ds/progress-bar";
+import { GiftBanner, GiftCourse } from "@/components/gift-course";
 import { getCourseModules, slugsFromUrl } from "@/lib/course-ui";
 import { ALL_ACCESS, COURSES, type CourseMeta, getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
@@ -86,8 +86,10 @@ function ComingSoonOverview({ course }: { course: CourseMeta }): JSX.Element {
 
 export default async function CourseOverview(props: {
   params: Promise<{ course: string }>;
+  searchParams: Promise<{ gift?: string }>;
 }) {
   const { course: slug } = await props.params;
+  const { gift: giftStatus } = await props.searchParams;
   const course = getCourse(slug);
   if (!course) notFound();
 
@@ -151,9 +153,7 @@ export default async function CourseOverview(props: {
         {course.summary}
       </p>
 
-      <div className="max-w-2xl">
-        <FounderNote />
-      </div>
+      <GiftBanner status={giftStatus} />
 
       {/* Primary CTA */}
       <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-3">
@@ -219,6 +219,8 @@ export default async function CourseOverview(props: {
           </p>
         </div>
       ) : null}
+
+      {paywalled ? <GiftCourse course={course} /> : null}
 
       {/* Modules */}
       <div className="mt-14 flex flex-col gap-12">

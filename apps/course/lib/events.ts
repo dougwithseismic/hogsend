@@ -247,6 +247,110 @@ export async function emitQuizCompleted(
   );
 }
 
+/**
+ * A gift checkout completed: the BUYER's event, carrying the minted code so
+ * the lifecycle side can send their receipt/confirmation.
+ */
+export async function emitGiftPurchased(
+  user: AuthUser,
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    code: string;
+    recipientEmail?: string | null;
+    amount?: number | null;
+    currency?: string | null;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.gift_purchased",
+      email: user.email,
+      contactProperties: { courseUserId: user.id, ...firstName(user.name) },
+      eventProperties: {
+        source: SOURCE,
+        course: input.courseSlug,
+        courseTitle: input.courseTitle,
+        code: input.code,
+        ...(input.recipientEmail
+          ? { recipientEmail: input.recipientEmail }
+          : {}),
+        ...(typeof input.amount === "number" ? { amount: input.amount } : {}),
+        ...(input.currency ? { currency: input.currency } : {}),
+      },
+    },
+    `course-gift-purchased-${user.id}-${input.code}`,
+  );
+}
+
+/**
+ * The RECIPIENT's side of a gift (only when the buyer gave us their email):
+ * identity is the recipient's email — this mints/updates their contact and
+ * triggers the "you've been gifted" journey.
+ */
+export async function emitGifted(
+  recipientEmail: string,
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    code: string;
+    buyerName?: string | null;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.gifted",
+      email: recipientEmail,
+      eventProperties: {
+        source: SOURCE,
+        course: input.courseSlug,
+        courseTitle: input.courseTitle,
+        code: input.code,
+        ...(input.buyerName ? { buyerName: input.buyerName } : {}),
+      },
+    },
+    `course-gifted-${recipientEmail}-${input.code}`,
+  );
+}
+
+/**
+ * The buyer's notification event when their gift code gets redeemed — carries
+ * WHO claimed it (name + email of the redeeming account, plus the address the
+ * gift was originally sent to) so the email can say so.
+ */
+export async function emitGiftRedeemed(
+  buyer: AuthUser,
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    redeemerName?: string | null;
+    redeemerEmail?: string | null;
+    recipientEmail?: string | null;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.gift_redeemed",
+      email: buyer.email,
+      contactProperties: { courseUserId: buyer.id },
+      eventProperties: {
+        source: SOURCE,
+        course: input.courseSlug,
+        courseTitle: input.courseTitle,
+        ...(input.redeemerName ? { redeemerName: input.redeemerName } : {}),
+        ...(input.redeemerEmail ? { redeemerEmail: input.redeemerEmail } : {}),
+        ...(input.recipientEmail
+          ? { recipientEmail: input.recipientEmail }
+          : {}),
+      },
+    },
+    `course-gift-redeemed-${buyer.id}-${input.courseSlug}-${Date.now()}`,
+  );
+}
+
 export async function emitAccountDeleted(user: AuthUser): Promise<void> {
   if (!ingestConfigured()) return;
   await forwardToIngest(

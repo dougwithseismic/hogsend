@@ -161,6 +161,46 @@ export const response = pgTable(
 );
 
 /**
+ * A gifted copy of a course: the buyer pays full price and we mint a
+ * single-use 100%-off Stripe promotion code instead of granting the buyer an
+ * entitlement. The recipient redeems the code through normal checkout (a $0
+ * session → the purchase webhook grants THEIR entitlement). The row is claimed
+ * idempotently on the buyer's checkout-session id BEFORE the code is minted,
+ * so a retried webhook delivery can resume a half-finished mint without ever
+ * creating a second code; empty code fields mark that pending state.
+ */
+export const gift = pgTable(
+  "gift",
+  {
+    id: text("id").primaryKey(),
+    buyerUserId: text("buyer_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    courseSlug: text("course_slug").notNull(),
+    /** Where to send the gift email; null = buyer forwards the code himself. */
+    recipientEmail: text("recipient_email"),
+    /** The human code (GIFT-XXXXXX); "" while the mint is pending. */
+    promotionCode: text("promotion_code").notNull().default(""),
+    stripePromotionCodeId: text("stripe_promotion_code_id")
+      .notNull()
+      .default(""),
+    stripeCouponId: text("stripe_coupon_id").notNull().default(""),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id").notNull(),
+    amount: integer("amount"),
+    currency: text("currency"),
+    redeemedByUserId: text("redeemed_by_user_id"),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("gift_checkout_session_uq").on(t.stripeCheckoutSessionId),
+    index("gift_buyer_idx").on(t.buyerUserId),
+  ],
+);
+
+/**
  * A one-time course purchase (entitlement). One active grant per user × course.
  * Written by the Stripe webhook (checkout.session.completed), read by the gate
  * (hasAccess). `status` flips to "refunded" on charge.refunded → access is
