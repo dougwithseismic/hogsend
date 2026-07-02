@@ -52,6 +52,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     client_reference_id: session.user.id,
     customer_email: session.user.email,
     metadata: { courseSlug: course, userId: session.user.id },
+    // Discount codes (including single-use 100%-off gift/free copies) are
+    // entered on Stripe's hosted page; a fully-discounted session still
+    // completes and the webhook grants the entitlement unchanged.
+    allow_promotion_codes: true,
     // Generate a proper invoice (PDF) per purchase so it shows in the account
     // billing section and the customer gets a receipt.
     invoice_creation: { enabled: true },
