@@ -279,16 +279,16 @@ page before switching it on.
       back: "Without it, the next person on a shared machine gets merged into the previous user's profile — and merges don't cleanly undo. It's the pair to identify() that keeps identities whole.",
     },
     {
-      front: "The single biggest cost decision in the whole setup",
-      back: "person_profiles: \"identified_only\" — anonymous events are roughly 4× cheaper than identified ones, so logged-out traffic bills at the cheap rate until you call identify. Set it on day one.",
+      prompt: "The single biggest cost decision in the whole setup:",
+      cloze: "Set person_profiles to {{\"identified_only\"}} on day one — anonymous events are roughly {{4× cheaper}} than identified ones, so logged-out traffic bills at the cheap rate until you call {{identify}}.",
     },
     {
-      front: "The one naming rule that most reliably saves an analytics setup",
+      front: "What naming rule most reliably saves an analytics setup?",
       back: "Never build event names dynamically. capture(`page_viewed_${page}`) mints thousands of un-queryable event types; capture(\"page_viewed\", { page_name }) keeps one event with the variable in a property.",
     },
     {
-      front: "What is a tracking plan?",
-      back: "A short, shared spec of every event — name, trigger, source, key properties — owned, not vibes. Keep it in the repo so a new event and its plan row land in the same PR; eight rows is a real plan for an early product.",
+      prompt: "A tracking plan is a short, shared spec of every event:",
+      cloze: "Its {{name}}, {{trigger}}, {{source}}, and {{key properties}} — owned, not vibes. Keep it in the repo so a new event and its plan row land in the same PR; eight rows is a real plan for an early product.",
     },
     {
       front: "How do you beat ad blockers eating 10–30% of events?",

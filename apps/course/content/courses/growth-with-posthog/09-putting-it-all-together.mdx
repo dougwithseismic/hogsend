@@ -169,19 +169,19 @@ quarter; one that depends on someone remembering to look does not.
   title="Key ideas — the operating system"
   cards={[
     {
-      front: "Why measure → keep → grow, in that order?",
-      back: "The leaky bucket: acquisition wastes the most money when the bucket leaks and pays back the most when it doesn't, so it goes last. That ordering decision, agreed on Day 0, is the most valuable thing in the course.",
+      prompt: "The ordering agreed on Day 0 — the most valuable decision in the course:",
+      cloze: "{{Measure}} → {{keep}} → {{grow}}: acquisition goes last because it {{wastes the most money when the bucket leaks}} and pays back the most when it doesn't.",
     },
     {
-      front: "The division of labour",
-      back: "PostHog detects (events, funnels, retention). Hogsend acts (lifecycle journeys across email, Discord, Telegram). You decide. Held onto, that split keeps the system simple no matter how much you add to it.",
+      prompt: "The division of labour that keeps the system simple:",
+      cloze: "PostHog {{detects}} (events, funnels, retention). Hogsend {{acts}} (lifecycle journeys across email, Discord, Telegram). You {{decide}}.",
     },
     {
       front: "What's the daily job in the operating cadence?",
       back: "Two minutes of noticing, not analysing: glance at the Slack alerts, the activation funnel, and the active-users trend — dig only if an alert fired. A glance over five minutes means the alerts need tuning.",
     },
     {
-      front: "The weekly growth review",
+      front: "What does the weekly growth review look like?",
       back: "30 minutes, fixed agenda: metrics read, journeys and spend (kill-or-scale, out loud), experiments. It reviews learnings and decisions, not status — anomalies get an owner, not live group debugging.",
     },
     {
@@ -189,15 +189,15 @@ quarter; one that depends on someone remembering to look does not.
       back: "Is activation still the best predictor of retention; incremental lift from the global holdout; blended CAC and the referral loop's contribution; and a prune of no-lift journeys, unqueried events, dead ad sets.",
     },
     {
-      front: "How does an idea enter the experiment backlog?",
-      back: "As a hypothesis, not a task — \"if we [change], [metric] will move [direction] because [reasoning]\" — ICE-scored (impact, confidence, ease, 1–10) so the meeting pulls from the top of the list, not the loudest idea.",
+      prompt: "The growth-hypothesis format — every backlog idea enters this way, ICE-scored (impact, confidence, ease, 1–10):",
+      cloze: "If we {{make this specific change}}, {{this named metric}} will move {{in this direction}}, because {{this reasoning}}.",
     },
     {
-      front: "Sean Ellis's high-tempo testing argument",
+      front: "What's Sean Ellis's high-tempo testing argument?",
       back: "The compounding asset is your velocity of tests — learning compounds even when individual tests fail. For a startup, one experiment a week, every week, beats a burst of ten followed by a quarter of nothing.",
     },
     {
-      front: "The three honest rules of an experimentation program",
+      front: "What are the three honest rules of an experimentation program?",
       back: "Not everything deserves an experiment (obvious, reversible, or too-small changes just ship); sample size decides what you can learn — big swings beat button colours at startup traffic; write the losers down too.",
     },
   ]}

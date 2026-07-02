@@ -8,11 +8,72 @@ import { useWorkbookResponse } from "@/components/course/workbook-state";
 import { useSession } from "@/lib/auth-client";
 
 export type FlashCard = {
-  /** The prompt side — a term or question. */
-  front: string;
-  /** The answer side — the fact, dense and complete. */
-  back: string;
+  /** The prompt side — a plain question. Unused when `cloze` is set. */
+  front?: string;
+  /** The answer side — the fact, dense and complete. Unused with `cloze`. */
+  back?: string;
+  /**
+   * Fill-in-the-blank card: one sentence with `{{key term}}` markers. The
+   * unflipped side renders each marked term as a width-true underlined blank;
+   * flipping reveals the real words in the accent colour. For answers that
+   * ARE a structure (the hypothesis format, an ordering, exit criteria).
+   */
+  cloze?: string;
+  /** Optional short lead-in above a cloze sentence ("The hypothesis format:"). */
+  prompt?: string;
 };
+
+/** `start` = the segment's char offset in the cloze source — a stable,
+ *  content-derived React key (segment texts can repeat). */
+type ClozeSegment = { text: string; blank: boolean; start: number };
+
+function parseCloze(cloze: string): ClozeSegment[] {
+  const segments: ClozeSegment[] = [];
+  const marker = /\{\{(.+?)\}\}/g;
+  let last = 0;
+  let match = marker.exec(cloze);
+  while (match) {
+    if (match.index > last) {
+      segments.push({
+        text: cloze.slice(last, match.index),
+        blank: false,
+        start: last,
+      });
+    }
+    segments.push({ text: match[1], blank: true, start: match.index });
+    last = marker.lastIndex;
+    match = marker.exec(cloze);
+  }
+  if (last < cloze.length) {
+    segments.push({ text: cloze.slice(last), blank: false, start: last });
+  }
+  return segments;
+}
+
+/** A cloze sentence: blanks stay width-true (transparent text + underline) so
+ *  nothing shifts when the flip recolours them. */
+function ClozeText({ cloze, revealed }: { cloze: string; revealed: boolean }) {
+  return (
+    <>
+      {parseCloze(cloze).map((segment) =>
+        segment.blank ? (
+          <span
+            key={segment.start}
+            className={
+              revealed
+                ? "font-medium text-accent transition-colors"
+                : "select-none border-white/40 border-b text-transparent"
+            }
+          >
+            {segment.text}
+          </span>
+        ) : (
+          <span key={segment.start}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
+}
 
 /**
  * A chapter's key facts as a flip-deck: tap to reveal the back, then "Got it"
@@ -136,18 +197,36 @@ export function Flashcards({
             aria-pressed={flipped}
             className="block min-h-28 w-full rounded-md border border-white/[0.1] bg-white/[0.02] p-5 text-left transition-colors hover:border-white/25"
           >
-            <p className="font-medium text-[10px] text-white/35 uppercase tracking-[0.14em]">
-              {flipped ? "Answer" : "Tap to flip"}
-            </p>
-            <p
-              className={
-                flipped
-                  ? "mt-2 text-sm text-white/85 leading-relaxed"
-                  : "mt-2 font-medium text-base text-white leading-relaxed"
-              }
-            >
-              {flipped ? cards[current].back : cards[current].front}
-            </p>
+            {cards[current].cloze ? (
+              <>
+                <p className="font-medium text-[10px] text-white/35 uppercase tracking-[0.14em]">
+                  {flipped ? "Answer" : "Fill the blanks — tap to reveal"}
+                </p>
+                {cards[current].prompt ? (
+                  <p className="mt-2 text-sm text-white/55">
+                    {cards[current].prompt}
+                  </p>
+                ) : null}
+                <p className="mt-2 text-base text-white/85 leading-relaxed">
+                  <ClozeText cloze={cards[current].cloze} revealed={flipped} />
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-medium text-[10px] text-white/35 uppercase tracking-[0.14em]">
+                  {flipped ? "Answer" : "Tap to flip"}
+                </p>
+                <p
+                  className={
+                    flipped
+                      ? "mt-2 text-sm text-white/85 leading-relaxed"
+                      : "mt-2 font-medium text-base text-white leading-relaxed"
+                  }
+                >
+                  {flipped ? cards[current].back : cards[current].front}
+                </p>
+              </>
+            )}
           </button>
           {flipped ? (
             <div className="mt-3 flex items-center gap-2">

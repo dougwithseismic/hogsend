@@ -372,27 +372,27 @@ suppression rule enforced by the engine rather than by your discipline.
   title="Key ideas — journeys as code"
   cards={[
     {
-      front: "The Hogsend loop",
-      back: "An event arrives (backend ingest, webhook source, or PostHog); the engine stores it and routes it to every journey subscribed to that event; the journey runs and fires events back, so the loop is measurable in PostHog.",
+      prompt: "The Hogsend loop:",
+      cloze: "An event arrives — backend ingest, webhook source, or PostHog — the engine stores it and routes it to every journey {{subscribed to that event}}, and the journey runs and {{fires its own events back}}, so the loop is {{measurable in PostHog}}.",
     },
     {
       front: "What does durable execution buy you?",
       back: "The engine persists the journey's position, so a two-day sleep genuinely survives deploys and crashes — a multi-day program stays one readable function instead of cron jobs and database flags rebuilding state by hand.",
     },
     {
-      front: "The guardrails in a journey's meta",
-      back: "trigger (the subscribing event, filterable with where), entryLimit (the re-enrollment policy), exitOn (events that end the journey immediately), and suppress (a debounce against bursts of the same trigger).",
+      prompt: "A journey's meta guardrails:",
+      cloze: "The meta declares {{trigger}} (the subscribing event, filterable with where), {{entryLimit}} (the re-enrollment policy), {{exitOn}} (events that end the journey immediately), and {{suppress}} (a debounce against bursts of the same trigger).",
     },
     {
-      front: "if-check vs exitOn",
+      front: "What's the difference between an if-check and exitOn?",
       back: "An if gates one send at a known point; exitOn stops the whole journey at any point, including mid-sleep or mid-wait — Chapter 5's suppression rule enforced by the engine rather than your discipline.",
     },
     {
-      front: "The shape that covers most onboarding programs",
-      back: "Sleep, check what happened during the sleep, send only if needed. Every touch is gated on real behaviour, so an active user is left alone and a stuck user gets help.",
+      prompt: "The shape that covers most onboarding programs:",
+      cloze: "The pattern is {{sleep}}, {{check what happened during the sleep}}, then {{send only if needed}} — every touch gated on real behaviour, so an active user is left alone and a stuck user gets help.",
     },
     {
-      front: "ctx.waitForEvent vs a plain ctx.sleep",
+      front: "What does ctx.waitForEvent do that a plain ctx.sleep doesn't?",
       back: "waitForEvent races the user's own behaviour against a timeout and returns { timedOut }, so the code branches on what actually happened — a program that listens, not a timer that fires regardless.",
     },
     {
