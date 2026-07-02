@@ -36,6 +36,7 @@ const POPOVER_ID = "hs-docs-feed";
  */
 export function NavBell({
   align = "start",
+  variant = "plain",
 }: {
   /**
    * Which edge of the bell the popover aligns to. "start" (docs left sidebar)
@@ -43,16 +44,31 @@ export function NavBell({
    * it stays on-screen.
    */
   align?: "start" | "end";
+  /**
+   * Which sibling icon-button idiom the bell's trigger should mimic:
+   * - "plain" (default) — SiteNav's / the fumadocs sidebar's borderless size-9
+   *   button (hover:bg-white/5). Also the default so the untouched sidebar call
+   *   site keeps its look.
+   * - "bordered" — the landing nav's size-8 hairline-boxed button
+   *   (border-white/10 → white/30 on hover), matching its GitHub/Discord marks.
+   */
+  variant?: "bordered" | "plain";
 } = {}) {
   // Gate BEFORE any provider-dependent hook. When Hogsend isn't configured the
   // provider is a pass-through (no context), so the live bell — which calls
   // `useHogsendFeed` (and throws without a provider) — must not mount at all.
   // Renders nothing, leaving the nav unchanged pre-launch.
   if (!isHogsendConfigured) return null;
-  return <NavBellLive align={align} />;
+  return <NavBellLive align={align} variant={variant} />;
 }
 
-function NavBellLive({ align }: { align: "start" | "end" }) {
+function NavBellLive({
+  align,
+  variant,
+}: {
+  align: "start" | "end";
+  variant: "bordered" | "plain";
+}) {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [ringing, setRinging] = useState(false);
@@ -123,7 +139,13 @@ function NavBellLive({ align }: { align: "start" | "end" }) {
         popoverId={POPOVER_ID}
         onClick={() => setOpen((o) => !o)}
         aria-label="Notifications"
-        className={cn("hs-docs-bell", ringing && "hs-docs-bell--ring")}
+        className={cn(
+          "hs-docs-bell",
+          variant === "bordered"
+            ? "hs-docs-bell--bordered"
+            : "hs-docs-bell--plain",
+          ringing && "hs-docs-bell--ring",
+        )}
         badgeCountType="unread"
       />
       {mounted &&

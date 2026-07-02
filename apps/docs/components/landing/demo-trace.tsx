@@ -46,14 +46,22 @@ export function DemoTrace({
             <Workflow className="size-3.5" strokeWidth={1.5} />
             What just ran
           </PillBadge>
+          {nonce > 0 && event ? (
+            <code className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 font-mono text-[11px] text-white/55 leading-none">
+              {event}
+            </code>
+          ) : null}
         </div>
         <p className="text-[12px] text-white/40 leading-5">{hint}</p>
       </div>
 
-      <JourneyShot spec={spec} playToken={nonce} />
+      <div className="overflow-hidden rounded-xl border border-white/[0.08]">
+        <JourneyShot spec={spec} playToken={nonce} />
+      </div>
 
       <p className="mt-3 text-[12px] text-white/40 leading-5">
-        Stage by stage — the real dogfood run: the journey{" "}
+        The journey on the left is the real dogfood code; the run on the right
+        is what it did with your event. It{" "}
         <span className="text-white/60">identifies</span> you on{" "}
         <span className="text-white/60">PostHog</span> (your name, or your NPS
         score, becomes a person property), drops the item into your bell ↗

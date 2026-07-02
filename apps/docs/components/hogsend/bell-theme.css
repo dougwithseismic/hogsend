@@ -51,19 +51,60 @@
   --hs-color-unread-dot: #f64838;
 }
 
-/* ── Bell — sits in the dark nav next to the GitHub / theme icons. ── */
+/* ── Bell — sits in the dark nav beside the GitHub / Discord icon buttons, and
+   is repainted to match WHICHEVER sibling row it lands in. Two variants, chosen
+   by nav-bell.tsx from its `variant` prop:
+
+   • `--plain`  — the borderless size-9 (36px) treatment SiteNav uses (and the
+     default, so the untouched fumadocs sidebar bell keeps its look). The bell's
+     natural box (8px padding + 20px icon) already IS size-9, so we only recolor
+     and tighten the radius to the 6px the siblings use.
+   • `--bordered` — the landing nav's size-8 (32px) hairline-boxed icon button:
+     pin the box to 32px, drop the padding, shrink the 20px icon to the 16px the
+     GitHub/Discord marks use, and add the white/10 → white/30 hover border.
+
+   The badge (`.hsr-bell__badge`, absolute + translated onto the top-right
+   corner) overflows OUTSIDE the box in both variants and nothing clips it — the
+   button has no `overflow`, and the bordered box's border sits inside the badge
+   — so it stays a corner sticker. The ring/swing + halo (`--ring`, below)
+   inherit the 6px radius and work unchanged in either variant. ── */
 .hs-docs-bell.hsr-bell {
   position: relative; /* positions the badge + the arrival halo (::after) */
-  color: rgba(255, 255, 255, 0.62);
-  border-radius: 10px;
+  box-sizing: border-box;
+  border-radius: 6px; /* match the sibling icon buttons' rounded-[6px] */
   transition:
     color 0.18s ease,
-    background-color 0.18s ease;
+    background-color 0.18s ease,
+    border-color 0.18s ease;
 }
-.hs-docs-bell.hsr-bell:hover,
-.hs-docs-bell.hsr-bell[data-state="open"] {
+
+/* Plain — SiteNav's / the sidebar's borderless size-9 icon button (default). */
+.hs-docs-bell--plain.hsr-bell {
+  color: rgba(255, 255, 255, 0.7);
+}
+.hs-docs-bell--plain.hsr-bell:hover,
+.hs-docs-bell--plain.hsr-bell[data-state="open"] {
   color: #ffffff;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Bordered — the landing nav's size-8 hairline icon button. */
+.hs-docs-bell--bordered.hsr-bell {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.75);
+}
+.hs-docs-bell--bordered.hsr-bell:hover,
+.hs-docs-bell--bordered.hsr-bell[data-state="open"] {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.3);
+  background: transparent; /* siblings shift border + text only, never fill */
+}
+.hs-docs-bell--bordered .hsr-bell__icon-svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* ── Badge — a red pill punched out of the ink nav with a 2px ink ring, so it

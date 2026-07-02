@@ -10,7 +10,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { useState } from "react";
-import { PillBadge, TagPill } from "@/components/ds/badge";
+import { PillBadge } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
 import { AnalyticsEvent, capture as trackEvent } from "@/lib/analytics";
 import { cn } from "@/lib/cn";
@@ -99,11 +99,26 @@ const ACTIONS: readonly DemoAction[] = [
   },
 ] as const;
 
-const STEPS = [
-  "You fired a first-party event (source: inapp) keyed to your id.",
-  "The engine resolved your id to a canonical contact key and routed it.",
-  "A journey triggered on the event, read your name, and called sendFeedItem.",
-  "Your bell rang ↗ and it landed in the feed below — the same feed the nav bell polls.",
+/** The four beats of a fire, as a compact pipeline: chip labels on one row,
+ * one narration line below that swaps as the run advances. Replaces the old
+ * four-item numbered list (same facts, a third of the height). */
+const PIPELINE = [
+  {
+    label: "event",
+    text: "You fired a first-party event keyed to your id.",
+  },
+  {
+    label: "identity",
+    text: "The engine resolved it to one contact — the same person across web, email, and Discord.",
+  },
+  {
+    label: "journey",
+    text: "A journey caught the event, read your name, and chose the response.",
+  },
+  {
+    label: "landed",
+    text: "Your bell rang ↗ and the item hit the feed — email and Discord fan out from the same trigger.",
+  },
 ] as const;
 
 /** Per-action channel chips. The action's `live` channel reads as crimzon and
@@ -162,6 +177,9 @@ export function InAppDemoLive({
   // The event whose item most recently landed — drives the "bell rang ↗" / "sent
   // ✓" cue and the live-chip pulse for ~2.6s, then clears.
   const [landed, setLanded] = useState<string | null>(null);
+  // The address the sample email went to — persists the inbox card's "sent"
+  // row for the session (unlike `landed`, which clears after the pulse).
+  const [sampleSentTo, setSampleSentTo] = useState<string | null>(null);
 
   async function fire(event: string) {
     if (!signedUp || firing !== null) return;
@@ -226,6 +244,7 @@ export function InAppDemoLive({
       });
       if (res.ok) {
         setLanded("demo.email");
+        setSampleSentTo(email);
         window.setTimeout(
           () =>
             setLanded((current) => (current === "demo.email" ? null : current)),
@@ -398,37 +417,133 @@ export function InAppDemoLive({
     </div>
   );
 
+  // The email payoff, made visible: a small inbox mock that fills in as real
+  // sends land. Row one is the welcome series the sign-up itself triggered;
+  // row two lights up when "Email me a sample" actually sends.
+  const inbox = (
+    <div className="border-white/[0.08] border-b p-6">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <span className="kicker block">Your inbox</span>
+        <PillBadge>
+          <Mail className="size-3.5" strokeWidth={1.5} />
+          Real email
+        </PillBadge>
+      </div>
+      <ul className="flex flex-col gap-2">
+        <li
+          className={cn(
+            "flex items-start gap-3 rounded-[10px] border px-4 py-3",
+            signedUp
+              ? "border-white/[0.08] bg-white/[0.03]"
+              : "border-white/[0.06] border-dashed opacity-60",
+          )}
+        >
+          <Mail
+            className="mt-0.5 size-4 shrink-0 text-white/45"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+          <span className="flex min-w-0 flex-col">
+            <span className="font-medium text-sm text-white">
+              Welcome to Hogsend 👋
+            </span>
+            <span className="text-[12px] text-white/40 leading-5">
+              {signedUp
+                ? "hello@hogsend.com — sent when you signed up; it opens the welcome series."
+                : "Sign up and the welcome series starts here."}
+            </span>
+          </span>
+        </li>
+        <li
+          className={cn(
+            "flex items-start gap-3 rounded-[10px] border px-4 py-3 transition-colors",
+            sampleSentTo
+              ? "border-accent/50 bg-accent/[0.07]"
+              : "border-white/[0.06] border-dashed opacity-60",
+            landed === "demo.email" && "animate-pulse",
+          )}
+        >
+          <Mail
+            className={cn(
+              "mt-0.5 size-4 shrink-0",
+              sampleSentTo ? "text-accent" : "text-white/45",
+            )}
+            strokeWidth={1.5}
+            aria-hidden="true"
+          />
+          <span className="flex min-w-0 flex-col">
+            <span className="font-medium text-sm text-white">
+              [Sample] Welcome to Hogsend
+            </span>
+            <span className="text-[12px] text-white/40 leading-5">
+              {sampleSentTo
+                ? `hello@hogsend.com — just sent to ${sampleSentTo}. Open your inbox: that's the activation/welcome template, rendered for you.`
+                : "Click “Email me a sample” above and the send lands here — and in your real inbox."}
+            </span>
+          </span>
+        </li>
+      </ul>
+      <p className="mt-3 text-[12px] text-white/35 leading-5">
+        Both are React Email templates from the scaffold — 13 ship with
+        create-hogsend.{" "}
+        <a href="/emails" className="text-white/60 hover:text-white">
+          See them all →
+        </a>
+      </p>
+    </div>
+  );
+
   const narration = (
     <div className="p-6" role="status" aria-live="polite">
-      <ol className="flex flex-col gap-2.5">
-        {STEPS.map((text, i) => {
+      <ol className="flex items-center">
+        {PIPELINE.map((beat, i) => {
           const active = step === i;
           const done = step > i;
           return (
-            <li key={text} className="flex items-start gap-3">
-              <TagPill
-                accent={active || done}
-                className="mt-0.5 size-6 shrink-0 justify-center px-0 tabular-nums"
-              >
-                {done ? <Check className="size-3" /> : i + 1}
-              </TagPill>
+            <li
+              key={beat.label}
+              className={cn("flex items-center", i > 0 && "min-w-0 flex-1")}
+            >
+              {i > 0 ? (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "mx-1.5 h-px min-w-2 flex-1 transition-colors",
+                    done || active ? "bg-accent/50" : "bg-white/10",
+                  )}
+                />
+              ) : null}
               <span
                 className={cn(
-                  "pt-0.5 text-[13px] leading-5 transition-colors",
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] leading-none transition-colors",
                   active
-                    ? "text-white"
+                    ? "border-accent bg-accent/10 text-white"
                     : done
-                      ? "text-white/60"
-                      : "text-white/35",
+                      ? "border-accent/40 text-white/70"
+                      : "border-white/10 text-white/40",
                 )}
               >
-                {text}
+                {done ? (
+                  <Check
+                    className="size-3 text-accent"
+                    aria-hidden="true"
+                    strokeWidth={2}
+                  />
+                ) : null}
+                {beat.label}
               </span>
             </li>
           );
         })}
       </ol>
-      <p className="mt-4 text-[12px] text-white/35 leading-5">
+      <p className="mt-3 min-h-10 text-[13px] text-white/55 leading-5">
+        {step >= 0
+          ? PIPELINE[Math.min(step, PIPELINE.length - 1)]?.text
+          : signedUp
+            ? "Fire an event above and watch it move through the engine."
+            : "Sign up, fire an event, and watch it move through the engine."}
+      </p>
+      <p className="mt-2 text-[12px] text-white/35 leading-5">
         Unread:{" "}
         <span className="font-mono text-accent tabular-nums">
           {metadata.unread_count ?? 0}
@@ -441,8 +556,8 @@ export function InAppDemoLive({
     </div>
   );
 
-  // Wide (identified, full-width): two-up — controls | inbox. The arbitrary
-  // last-child variant strips each card's trailing zone border.
+  // Wide (identified, full-width): two-up — controls | inbox + feed. The
+  // arbitrary last-child variant strips each card's trailing zone border.
   if (wide) {
     return (
       <div className="grid items-start gap-6 lg:grid-cols-2">
@@ -453,6 +568,7 @@ export function InAppDemoLive({
         </Card>
         <Card className="flex flex-col p-0 [&>div:last-child]:border-b-0">
           {feed}
+          {inbox}
           {discord}
         </Card>
       </div>
@@ -465,6 +581,7 @@ export function InAppDemoLive({
       {header}
       {actions}
       {feed}
+      {inbox}
       {discord}
       {narration}
     </Card>

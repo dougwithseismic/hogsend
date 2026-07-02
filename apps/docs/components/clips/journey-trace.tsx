@@ -1,6 +1,14 @@
 "use client";
 
-import type { CSSProperties, ReactNode, Ref } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { cn } from "@/lib/cn";
 import { glide, interpolate, pop, punchIn } from "./clip-anim";
 import { syntax, theme, typo } from "./clip-theme";
 import { type CodeLine, tokenize } from "./clip-tokenizer";
@@ -18,12 +26,35 @@ import { useLoopFrame, useShotFrame } from "./use-loop-frame";
 
 const FPS = 30;
 
-// Fixed code-column width on desktop; the rail takes the rest. On mobile the
-// layout stacks and both go full-width (handled by the wrapper flex).
+// Natural column widths at scale 1. The stage measures its own container and
+// scales BOTH columns down to fit (fonts, chips, and row heights all derive
+// from the scale), so the run rail never clips — the old viewport-breakpoint
+// layout clipped hard inside the 1024px hero demo window.
 const CODE_WIDTH = 560;
 const RAIL_WIDTH = 480;
-// Single stage scale — the web only needs one good size.
+const COLUMN_GAP = 32;
+// Below this container width the columns stack instead of shrinking further.
+const STACK_BELOW = 760;
+// Rail scale at stage scale 1 — the web only needs one good size.
 const S = 0.82;
+
+/** Measured content-box width of the stage's flex wrapper — drives the
+ * fit-to-container scale. Null until mounted (first paint uses natural). */
+function useStageWidth() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState<number | null>(null);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (typeof w === "number" && w > 0) setWidth(w);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  return { ref, width };
+}
 
 // ---------------------------------------------------------------------------
 // Timing — ported EXACTLY from the reference.
@@ -193,14 +224,15 @@ function CodePanel({
   lines,
   steps,
   times,
+  size = 14,
 }: {
   frame: number;
   file: string;
   lines: CodeLine[];
   steps: ClipStep[];
   times: number[];
+  size?: number;
 }) {
-  const size = 14;
   const codeLineH = 1.6;
   const lineH = size * codeLineH;
   const padY = Math.round(size * 1.0);
@@ -268,6 +300,8 @@ function CodePanel({
           color: syntax.base,
         }}
       >
+        {/* Straight left edge — a rounded corner on the 2px accent border
+            curls top+bottom and reads as a stray "(" glyph beside the code. */}
         <div
           style={{
             position: "absolute",
@@ -278,7 +312,7 @@ function CodePanel({
             opacity: progress[0],
             backgroundColor: theme.accentTint,
             borderLeft: `2px solid ${theme.accent}`,
-            borderRadius: 8,
+            borderRadius: "0 8px 8px 0",
             boxShadow: "0 0 26px rgba(246,72,56,0.12)",
           }}
         />
@@ -449,10 +483,14 @@ function Tick({
 function MonoText({
   s,
   dim = false,
+  truncate = false,
   children,
 }: {
   s: number;
   dim?: boolean;
+  /** Clip with an ellipsis instead of overflowing the row (needs a flex
+   * parent that lets this shrink — pair with minWidth: 0). */
+  truncate?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -462,6 +500,13 @@ function MonoText({
         fontSize: 18 * s,
         color: dim ? theme.textHint : theme.text,
         whiteSpace: "pre",
+        ...(truncate
+          ? {
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }
+          : null),
       }}
     >
       {children}
@@ -488,7 +533,7 @@ function EventRow({
   return (
     <RowShell frame={frame} at={at} height={height} s={s}>
       <KindChip label="event" s={s} />
-      <MonoText s={s}>
+      <MonoText s={s} truncate>
         {event}
         <span style={{ color: theme.textHint }}> · {who}</span>
       </MonoText>
@@ -496,6 +541,7 @@ function EventRow({
         className="font-mono"
         style={{
           marginLeft: "auto",
+          flexShrink: 0,
           opacity: enrolled,
           transform: `scale(${interpolate(enrolled, [0, 1], [1.4, 1])})`,
           fontSize: 16 * s,
@@ -678,16 +724,27 @@ function CheckRow({
   const verdictAt = at + (candidates?.length ? 66 : 30);
   const v = pop(frame, FPS, verdictAt);
   const header = (
-    <div style={{ display: "flex", alignItems: "center", gap: 18 * s }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 18 * s,
+        minWidth: 0,
+      }}
+    >
       <KindChip label="check" s={s} />
-      <MonoText s={s}>
+      <MonoText s={s} truncate>
         {question}
-        {sub ? <span style={{ color: theme.textHint }}> · {sub}</span> : null}
+        {/* At demo scale the sub truncates to a couple of glyphs — noise. */}
+        {sub && s >= 0.7 ? (
+          <span style={{ color: theme.textHint }}> · {sub}</span>
+        ) : null}
       </MonoText>
       <span
         style={{
           position: "relative",
           marginLeft: "auto",
+          flexShrink: 0,
           opacity: v,
           transform: `scale(${interpolate(v, [0, 1], [1.35, 1])})`,
         }}
@@ -816,7 +873,7 @@ function WaitRow({
           flex: 1,
         }}
       >
-        <MonoText s={s}>
+        <MonoText s={s} truncate>
           {event}
           <span style={{ color: theme.textHint }}> · timeout {timeout}</span>
         </MonoText>
@@ -991,6 +1048,55 @@ function FanoutRow({
             </span>
           );
         })}
+        {/* Parked after arrival — the settled frame otherwise leaves a bare
+            hairline, which reads as broken. The delivered payload rests at
+            the destination end with a tick. */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: 10 * s,
+            paddingRight: 4 * s,
+            pointerEvents: "none",
+            // Two parked pills can outgrow a narrow lane — clip at the lane
+            // edge rather than overlapping the kind chip to the left.
+            overflow: "hidden",
+          }}
+        >
+          {events.map((ev, i) => {
+            const arriveAt = at + 14 + i * 20 + FLIGHT;
+            if (frame < arriveAt + 2) {
+              return null;
+            }
+            const settle = pop(frame, FPS, arriveAt + 2);
+            return (
+              <span
+                key={ev}
+                className="font-mono"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 7 * s,
+                  fontSize: 16 * s,
+                  color: theme.textMuted,
+                  border: `1px solid ${theme.hairlineFaint}`,
+                  borderRadius: 6 * s,
+                  padding: `${6 * s}px ${12 * s}px`,
+                  backgroundColor: theme.tagFill,
+                  whiteSpace: "pre",
+                  opacity: 0.9 * settle,
+                  transform: `scale(${interpolate(settle, [0, 1], [0.92, 1])})`,
+                }}
+              >
+                {ev}
+                <span style={{ color: theme.accent }}>✓</span>
+              </span>
+            );
+          })}
+        </div>
       </div>
       {/* Destination chip */}
       <span
@@ -1038,12 +1144,13 @@ function Rail({
   frame,
   steps,
   times,
+  s = S,
 }: {
   frame: number;
   steps: ClipStep[];
   times: number[];
+  s?: number;
 }) {
-  const s = S;
   const gap = 16 * s;
   return (
     <div style={{ position: "relative", width: "100%" }}>
@@ -1207,6 +1314,18 @@ function JourneyTraceView({
   const times = clipTimes(spec.steps);
   const lines = tokenize(spec.code);
 
+  // Fit-to-container: scale both fixed-metric columns down together so the
+  // side-by-side layout survives any host (hero demo window, use-case pages);
+  // stack below STACK_BELOW instead of shrinking into illegibility.
+  const { ref: stageRef, width } = useStageWidth();
+  const available = width ?? CODE_WIDTH + COLUMN_GAP + RAIL_WIDTH;
+  const sideBySide = available >= STACK_BELOW;
+  const k = sideBySide
+    ? Math.min(1, (available - COLUMN_GAP) / (CODE_WIDTH + RAIL_WIDTH))
+    : 1;
+  const codeSize = sideBySide ? 14 * k : 12.5;
+  const railScale = sideBySide ? S * k : 0.72;
+
   // The payoff moment: the last clicked send's tick, else the last step.
   let payoffAt = (times[times.length - 1] ?? START) + 20;
   spec.steps.forEach((step, i) => {
@@ -1267,15 +1386,22 @@ function JourneyTraceView({
         }}
       />
       <div
-        className="flex flex-col items-stretch gap-8 p-6 md:p-10 lg:flex-row lg:items-center lg:gap-12"
+        ref={stageRef}
+        className={cn(
+          "flex p-5 md:p-8",
+          sideBySide
+            ? "flex-row items-center justify-center"
+            : "flex-col items-stretch gap-7",
+        )}
         style={{
+          gap: sideBySide ? COLUMN_GAP : undefined,
           transform: `scale(${punchIn(frame, FPS) * push})`,
           transformOrigin: "center",
         }}
       >
         <div
-          className="w-full lg:w-auto lg:shrink-0"
-          style={{ maxWidth: CODE_WIDTH }}
+          className={cn("shrink-0", !sideBySide && "w-full overflow-x-auto")}
+          style={{ width: sideBySide ? CODE_WIDTH * k : undefined }}
         >
           <CodePanel
             frame={frame}
@@ -1283,16 +1409,17 @@ function JourneyTraceView({
             lines={lines}
             steps={spec.steps}
             times={times}
+            size={codeSize}
           />
         </div>
         <div
-          className="flex w-full flex-col lg:shrink-0"
-          style={{ maxWidth: RAIL_WIDTH }}
+          className="flex shrink-0 flex-col"
+          style={{ width: sideBySide ? RAIL_WIDTH * k : "100%" }}
         >
           <div style={{ paddingBottom: 18 }}>
             <Eyebrow frame={frame} text="The run" />
           </div>
-          <Rail frame={frame} steps={spec.steps} times={times} />
+          <Rail frame={frame} steps={spec.steps} times={times} s={railScale} />
         </div>
       </div>
     </div>
