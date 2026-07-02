@@ -1,4 +1,4 @@
-import { Lock } from "lucide-react";
+import { CircleCheck, Lock } from "lucide-react";
 import { ALL_ACCESS_SLUG } from "@/lib/courses";
 import { isCoursePaywalled } from "@/lib/entitlements";
 import { isFreeLesson } from "@/lib/gating";
@@ -97,18 +97,21 @@ export function getCourseModules(slug: string): CourseModule[] {
 /* -------------------------------------------------------------------------- */
 
 const LOCK_ICON = <Lock className="size-3.5 text-white/40" aria-hidden />;
+const DONE_ICON = <CircleCheck className="size-3.5 text-good" aria-hidden />;
 
 /**
  * A CLONE of the page tree (never mutate the memoized one) with a lock icon on
  * every lesson the viewer can't yet read — a non-first lesson of a paywalled
- * course they don't own (directly or via all-access). `ownedSlugs` is the
- * viewer's paid SKUs (empty for signed-out); the lesson reader is already
- * per-request (force-dynamic), so resolving this against the session is free
- * and means owners don't see padlocks on courses they've paid for.
+ * course they don't own (directly or via all-access) — and a check on every
+ * lesson they've completed. `ownedSlugs` is the viewer's paid SKUs (empty for
+ * signed-out); `completedLessons` holds "course/lesson" keys. The lesson
+ * reader is already per-request (force-dynamic), so resolving these against
+ * the session is free.
  */
 export function decorateTree(
   tree: PageTreeRoot,
   ownedSlugs: Set<string>,
+  completedLessons: Set<string> = new Set(),
 ): PageTreeRoot {
   const hasAllAccess = ownedSlugs.has(ALL_ACCESS_SLUG);
 
@@ -128,7 +131,11 @@ export function decorateTree(
         !isFreeLesson(slugs) &&
         isCoursePaywalled(course) &&
         !(hasAllAccess || ownedSlugs.has(course));
-      return gated ? { ...node, icon: LOCK_ICON } : node;
+      if (gated) return { ...node, icon: LOCK_ICON };
+      if (slugs.length >= 2 && completedLessons.has(slugs.join("/"))) {
+        return { ...node, icon: DONE_ICON };
+      }
+      return node;
     }
     return node;
   };
