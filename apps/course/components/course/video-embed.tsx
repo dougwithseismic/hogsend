@@ -1,13 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { CopyLinkButton } from "@/components/course/share-link";
+import { useMounted } from "@/components/course/use-mounted";
+import { useWorkbookResponse } from "@/components/course/workbook-state";
+import { useSession } from "@/lib/auth-client";
 
 /**
  * Privacy-light YouTube embed: renders the static thumbnail with a play
  * affordance and only mounts the (youtube-nocookie) iframe on click, so a
  * lesson with several videos loads no third-party script until the reader
  * opts in. Caption carries the verified title/channel so the block is useful
- * even unplayed.
+ * even unplayed. Signed-in readers can tick it watched (persisted to the
+ * workbook, counts in the chapter recap); everyone gets share links.
  */
 export function VideoEmbed({
   id,
@@ -25,6 +30,14 @@ export function VideoEmbed({
   note?: string;
 }) {
   const [playing, setPlaying] = useState(false);
+  const mounted = useMounted();
+  const { data: session } = useSession();
+  const { value, save } = useWorkbookResponse<{ done?: boolean }>(
+    "media",
+    id,
+    `media:${id}`,
+  );
+  const watched = value?.done === true;
 
   return (
     <figure id={`wb-media-${id}`} className="not-prose my-8 scroll-mt-28">
@@ -79,6 +92,42 @@ export function VideoEmbed({
           </span>
         ) : null}
       </figcaption>
+
+      <div className="mt-2.5 flex items-center gap-4">
+        {mounted && session ? (
+          <button
+            type="button"
+            aria-pressed={watched}
+            onClick={() => void save({ done: !watched })}
+            className="inline-flex items-center gap-2 text-xs transition-colors"
+          >
+            <span
+              aria-hidden
+              className={
+                watched
+                  ? "flex h-4.5 w-4.5 items-center justify-center rounded border border-good/60 bg-good-tint text-[10px] text-good"
+                  : "flex h-4.5 w-4.5 items-center justify-center rounded border border-white/25 text-transparent hover:border-white/45"
+              }
+            >
+              ✓
+            </span>
+            <span className={watched ? "text-good" : "text-white/50"}>
+              {watched ? "Watched" : "Mark as watched"}
+            </span>
+          </button>
+        ) : null}
+        <span className="ml-auto flex items-center gap-4">
+          <CopyLinkButton url={`https://youtu.be/${id}`} label="Share" />
+          <a
+            href={`https://www.youtube.com/watch?v=${id}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-white/50 text-xs transition-colors hover:text-white"
+          >
+            YouTube ↗
+          </a>
+        </span>
+      </div>
     </figure>
   );
 }
