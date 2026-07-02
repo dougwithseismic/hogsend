@@ -2,18 +2,21 @@ import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { MDXComponents } from "mdx/types";
 import { CheckIn } from "@/components/course/check-in";
 import { Checklist } from "@/components/course/checklist";
+import { PodcastLink } from "@/components/course/podcast-link";
 import { Quiz } from "@/components/course/quiz";
 import { VideoEmbed } from "@/components/course/video-embed";
 import { WorkbookPrompt } from "@/components/course/workbook-prompt";
 
 /** MDX component map for lesson rendering: Fumadocs defaults plus the
  *  interactive course blocks (quiz, profiling check-in, plan checklist,
- *  click-to-load video). The blocks locate their lesson via LessonProvider. */
+ *  click-to-load video, podcast recommendation). The blocks locate their
+ *  lesson via LessonProvider. */
 export function getMDXComponents(components?: MDXComponents) {
   return {
     ...defaultMdxComponents,
     CheckIn,
     Checklist,
+    PodcastLink,
     Quiz,
     VideoEmbed,
     WorkbookPrompt,

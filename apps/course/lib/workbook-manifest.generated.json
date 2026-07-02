@@ -51,6 +51,14 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      },
+      {
+        "kind": "media",
+        "id": "lenny-verna-ai-growth-playbook",
+        "key": "media:lenny-verna-ai-growth-playbook",
+        "anchor": "wb-media-lenny-verna-ai-growth-playbook",
+        "label": "The new AI growth playbook for 2026: how Lovable hit $200M ARR in one year",
+        "media": "podcast"
       }
     ],
     "01-what-is-posthog": [
@@ -175,6 +183,14 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      },
+      {
+        "kind": "media",
+        "id": "lenny-sean-ellis-hacking-growth",
+        "key": "media:lenny-sean-ellis-hacking-growth",
+        "anchor": "wb-media-lenny-sean-ellis-hacking-growth",
+        "label": "The original growth hacker reveals his secrets",
+        "media": "podcast"
       }
     ],
     "03-instrument-posthog": [
@@ -666,6 +682,14 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      },
+      {
+        "kind": "media",
+        "id": "lenny-kohavi-ab-testing",
+        "key": "media:lenny-kohavi-ab-testing",
+        "anchor": "wb-media-lenny-kohavi-ab-testing",
+        "label": "The ultimate guide to A/B testing",
+        "media": "podcast"
       }
     ]
   }
