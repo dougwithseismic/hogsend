@@ -219,7 +219,7 @@ are entirely about why a code-first journey beats a flowchart once your logic ge
 
 ---
 
-## 1.4 US cloud or EU cloud — choose before you start
+## 1.4 US cloud or EU cloud — the one choice worth making first
 
 PostHog Cloud runs in two independent regions:
 
@@ -236,9 +236,9 @@ migration, not a setting.
 
 There's also a **self-hosted** open-source version. It's a real infrastructure
 commitment (it runs on ClickHouse) and PostHog actively steers small teams toward
-Cloud unless data-residency rules force self-hosting. For this course, use Cloud — the
-free tier (§1.5) means there's no cost argument for self-hosting at your stage, and the
-operational cost of running ClickHouse yourself is real.
+Cloud unless data-residency rules force self-hosting. For this course, Cloud is the
+sensible choice — the free tier (§1.5) means there's no cost argument for self-hosting
+at your stage, and the operational cost of running ClickHouse yourself is real.
 
 > Hogsend, by contrast, is built to be self-hosted — your database, your email
 > provider, your deploy. So a common setup is *PostHog Cloud for analytics +
@@ -308,9 +308,9 @@ landscape and where PostHog wins and loses.
   product analytics: aggregated, sampled at scale, session-centric, and not built for
   user-level funnels or retention cohorts (§1.2 covered why the data model itself is the
   difference). It will tell you traffic by channel; it will not honestly answer "do
-  users who create a project in week one retain better." **Keep GA4 for
-  marketing-channel reporting if you like; do not try to run your activation funnel on
-  it.**
+  users who create a project in week one retain better." **Keeping GA4 around for
+  marketing-channel reporting is fine — asking it to run your activation funnel is the
+  part that won't work.**
 - **Segment / RudderStack** — these are a *pipe*, not an analytics tool. They collect
   events once and fan them out to many destinations (including PostHog). Complementary,
   not competitive — and for a small team, often overkill: PostHog's own CDP (§1.2) and a
@@ -358,19 +358,24 @@ PostHog for on-site behaviour. Pick the tool once; tune the emphasis to your fun
 
 ---
 
-## 1.7 Do this now
+## 1.7 Before you move on
 
-1. Create a PostHog account on the **right region** for your users (US or EU).
-2. Create one project. (Keep your marketing site and your app in the *same* project —
-   you want the whole journey, from first visit to paying user, in one place.)
-3. Find your **project API key** (it starts with `phc_`). You'll need it in Chapter 3.
-   It's safe to expose publicly — it can write events but cannot read your data.
-4. If you evaluated alternatives, **write down in one line why you chose PostHog** (or
-   didn't). A growth team can always answer "why this tool" — and you'll want the note
-   when someone asks in six months.
+Four small things are worth doing while this chapter is fresh — together they take
+about ten minutes:
 
-That's all the setup for now. The next chapter is the part most teams skip and then
-regret: deciding *what* to measure before you wire anything up.
+1. Create a PostHog account on the **right region** for your users (US or EU) — it's
+   the one decision here that's hard to undo (§1.4).
+2. Create one project, keeping your marketing site and your app in the *same* one —
+   the payoff is seeing the whole journey, from first visit to paying user, in one
+   place.
+3. Find your **project API key** (it starts with `phc_`) — you'll want it in Chapter
+   3, and it's safe to expose publicly: it can write events but not read your data.
+4. If you evaluated alternatives, consider **writing one line on why you chose PostHog**
+   (or didn't). A growth team can always answer "why this tool" — and the note earns
+   its keep when someone asks in six months.
+
+That's all the setup for now. The next chapter is the part most teams skip and later
+wish they hadn't: deciding *what* to measure before wiring anything up.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: "Chapter 7 — Driving traffic"
-description: "Now that the bucket holds water, open the tap: pick the channel that actually fits your product, know your CAC and payback maths, run Meta ads properly if paid is your channel, and track conversions accurately despite ad blockers and iOS."
+description: "Once the bucket holds water, it's time to open the tap: how to choose the channel that actually fits your product, the CAC and payback maths that tell you whether it's working, how Meta ads work if paid is your channel, and how to keep conversion tracking honest despite ad blockers and iOS."
 ---
 
 > **In this chapter:** how to choose an acquisition channel deliberately (and why paid
@@ -11,20 +11,21 @@ description: "Now that the bucket holds water, open the tap: pick the channel th
 > back to the ad platform. Accuracy matters here — the privacy landscape is full of
 > half-truths.
 
-A reminder on order: this chapter is deliberately seventh. If your retention curve
-(Chapter 4) still decays to zero, come back later — paid acquisition into a leaky bucket
-is, as Chapter 2 put it, buying churn. A growth team earns the right to spend on traffic
-by first proving the bucket holds.
+A gentle reminder on order before anything else: this chapter is deliberately seventh.
+If your retention curve (Chapter 4) still decays to zero, this chapter will serve you
+much better after Chapters 5–6 have done their work — paid acquisition into a leaky
+bucket is, as Chapter 2 put it, buying churn. Teams that prove the bucket holds first
+get dramatically more out of every pound they spend here.
 
 ---
 
 ## 7.1 Where are you starting from?
 
-Before the tactics, be honest about your current mix — because the rest of this chapter
-reads differently depending on the answer. A team that's all-organic needs to know
-whether paid is worth *starting*; a team that's mostly-paid needs the measurement and
-owned-audience work urgently, because every tracking gap and every rented audience is
-already costing them money.
+The rest of this chapter reads differently depending on where you're starting from, so
+it's worth pausing on your current mix before the tactics. A team that's all-organic is
+really asking whether paid is worth *starting*; a team that's mostly-paid tends to need
+the measurement and owned-audience work first, because every tracking gap and every
+rented audience is already costing money.
 
 <CheckIn
   id="acquisitionMix"
@@ -73,8 +74,9 @@ the first choice:
     start, nearly free to sustain. Rob Walling's rule of thumb for bootstrapped SaaS
     is that content is a 6–12-month investment before it pays — budget the patience,
     not just the writing.
-  - **Launches** — [Show HN](https://news.ycombinator.com/showhn.html) (read the actual
-    rules: no marketing-speak, the thing must be tryable), Product Hunt, and the
+  - **Launches** — [Show HN](https://news.ycombinator.com/showhn.html) (the actual
+    rules are worth reading first: no marketing-speak, the thing must be tryable),
+    Product Hunt, and the
     subreddit/newsletter/Discord ecosystem of your niche. Launches are spikes, not
     engines — their real value is seeding the loop: every launch visitor you capture
     into an owned channel (Chapter 8) keeps paying after the spike dies.
@@ -117,9 +119,9 @@ And **web3/crypto ads face policy restrictions** on Meta and Google. For both se
 treat paid as *fuel for the loop*, not the loop itself — which makes the owned channels
 in Chapter 8 disproportionately important, and means the accuracy work in the rest of
 this chapter applies mostly to whatever *small* paid spend you do run. **If you're a
-dev tool, don't read this chapter as "now go buy Meta ads." Read it as "here's how paid
-works and how to measure it honestly when you do use it" — then put your energy into
-Chapter 8.**
+dev tool, the useful way to read this chapter isn't "now go buy Meta ads" — it's
+"here's how paid works and how to measure it honestly when you do use it," with most
+of your energy pointed at Chapter 8.**
 
 <CheckIn
   id="whatsWorking"
@@ -152,18 +154,18 @@ routinely get them wrong in ways that flatter the business:
   if payback takes three years and the bank account empties in one.
 
 The folk benchmark you'll hear is **LTV:CAC ≥ 3 and payback under ~12 months** for
-SaaS — treat it as a sanity range, not a law; the honest version is "know your numbers
-and their trend." Two operational rules follow:
+SaaS — better treated as a sanity range than a law; what actually protects you is
+knowing your numbers and their trend. Two habits follow from that:
 
-- **Compute CAC per channel, not blended.** A blended CAC averages your free organic
-  users into the paid number and hides a channel that's quietly unprofitable. Blended
-  CAC is a board metric; per-channel CAC is an operating metric. (Chapter 9's monthly
-  ritual reviews blended CAC precisely to see whether owned/referral growth is pulling
-  it down over time.)
-- **Segment LTV by cohort and source.** Users from different channels retain
-  differently — paid-social users commonly churn faster than organic (they had less
-  intent). If paid cohorts' LTV is half your organic LTV, your real paid LTV:CAC may
-  be under water while the blended number looks fine.
+- **CAC is most useful per channel, not blended.** A blended CAC averages your free
+  organic users into the paid number, which can hide a channel that's quietly
+  unprofitable. Blended CAC is a board metric; per-channel CAC is the operating one.
+  (Chapter 9's monthly ritual reviews blended CAC precisely to see whether
+  owned/referral growth is pulling it down over time.)
+- **LTV is worth segmenting by cohort and source.** Users from different channels
+  retain differently — paid-social users commonly churn faster than organic (they had
+  less intent). If paid cohorts' LTV is half your organic LTV, your real paid LTV:CAC
+  may be under water while the blended number looks fine.
 
 <VideoEmbed
   id="zo3QHrXiprs"
@@ -182,7 +184,8 @@ server-side in PostHog (Chapter 3), source/UTM landed as person properties (§7.
 ## 7.4 The shape of a Meta campaign
 
 From here to §7.9, the paid-social worked example. Meta (Facebook/Instagram) ads have a
-fixed three-tier structure. Learn it first because everything else hangs off it:
+fixed three-tier structure, and it's worth getting comfortable with it first because
+everything else hangs off it:
 
 - **Campaign** — sets the **objective** and budget strategy. One objective per campaign.
 - **Ad Set** — the levers: **audience, placements, the optimisation event, budget,
@@ -202,22 +205,24 @@ objectives into six (ODAX):
 5. **App Promotion** — installs and in-app events.
 6. **Sales** — purchases / highest-intent conversions.
 
-**Rule of thumb:** optimise for the event closest to revenue that you can feed Meta
-*enough of*. The algorithm needs roughly **50 conversions per ad set per week** to exit
-its "learning phase" and deliver efficiently. If you can't generate 50 purchases a week
-yet, optimise a higher-funnel event (lead or signup) and pass the deeper conversion
-back server-side (§7.7) so Meta still learns from it. This is the most common early
-mistake: optimising for `purchase` when you get five a week starves the algorithm of
-signal, and it never learns who to find.
+**The rule of thumb worth carrying:** optimise for the event closest to revenue that
+you can feed Meta *enough of*. The algorithm needs roughly **50 conversions per ad set
+per week** to exit its "learning phase" and deliver efficiently. If you can't generate
+50 purchases a week yet, a higher-funnel event (lead or signup) as the optimisation
+target — with the deeper conversion passed back server-side (§7.7) — keeps the
+algorithm fed. The most common early pattern goes the other way: optimising for
+`purchase` at five a week starves the algorithm of signal, and it never learns who to
+find.
 
 Two practical corollaries of the learning phase:
 
-- **Don't fiddle.** Every significant edit (budget, audience, creative) can reset
-  learning. The beginner pattern — check daily, panic, edit — keeps the ad set
-  permanently in learning and permanently expensive. Change things weekly, on the
-  cadence from Chapter 9, not daily on nerves.
-- **Consolidate.** Five ad sets splitting 10 conversions a week will all starve; one
-  ad set receiving all 50 can learn. Fewer, bigger ad sets is the modern default.
+- **Edits reset learning.** Every significant change (budget, audience, creative) can
+  send the ad set back to school. The pattern that hurts — check daily, worry, edit —
+  keeps it permanently in learning and permanently expensive. Weekly changes, on the
+  cadence from Chapter 9, give the system time to settle.
+- **Fewer, bigger ad sets learn faster.** Five ad sets splitting 10 conversions a week
+  will all starve; one ad set receiving all 50 can learn. Consolidation is the modern
+  default.
 
 ---
 
@@ -236,9 +241,9 @@ Every ad set targets one of three kinds of audience:
   highest-signal inputs you can give Meta — and they only exist because you captured
   first-party identity, which is the whole thesis of Chapter 8.
 - **Lookalike Audiences ("prospecting").** Meta finds new people resembling a **seed**
-  custom audience. **Seed quality dominates the result** — seed it with your *best*
-  customers (recent purchasers, high-LTV), never "everyone who ever signed up." A 1%
-  lookalike is the tightest match; widen to 3–10% for scale.
+  custom audience. **Seed quality dominates the result** — your *best* customers
+  (recent purchasers, high-LTV) make a far better seed than "everyone who ever signed
+  up." A 1% lookalike is the tightest match; widening to 3–10% trades match for scale.
 
 ### The full funnel
 
@@ -252,15 +257,16 @@ A standard structure layers these:
   with a direct offer.
 
 > A starting split you'll see quoted is ~50–60% cold / 20–30% warm / 15–20% hot
-> *(directional heuristic, not gospel)*. The common mistake for small founders is
-> over-investing in retargeting too early — a tiny warm pool can't scale spend. You
-> earn a bigger warm pool by capturing more first-party identity, which is Chapter 8.
+> *(directional heuristic, not gospel)*. The pattern that catches small founders is
+> over-investing in retargeting too early — a tiny warm pool can't scale spend. The
+> warm pool grows by capturing more first-party identity, which is Chapter 8.
 
 And a word on the part this course can't do for you: **creative is now the targeting.**
 With broad audiences, the ad itself selects the audience — a video about "deploy
 previews for your Next.js app" finds developers because only developers watch it. The
-practical implication: produce more creative variants than feels natural (winners
-fatigue in weeks), and make the first three seconds carry the qualification.
+practical implication: you'll likely need more creative variants than feels natural
+(winners fatigue in weeks), and the first three seconds are where the qualification
+happens.
 
 ---
 
@@ -314,7 +320,7 @@ them. Redundancy plus better matching.
   qualified-lead, refunds, LTV, offline events. This is huge — these are usually your
   *most valuable* conversions, and the Pixel can't see any of them.
 
-### What server-side does **not** fix (be precise — this is where bad courses lie)
+### What server-side does **not** fix (worth being precise — this is where a lot of advice overpromises)
 
 - **It is not a consent loophole.** You still need a lawful basis to collect, hash, and
   share user data (§7.9). A SHA-256-hashed email is **pseudonymous, not anonymous** —
@@ -326,17 +332,19 @@ them. Redundancy plus better matching.
   barely helps. Garbage in, garbage matched.
 - **It doesn't dedupe by magic** — see below.
 
-> ⚠️ **Don't teach the old AEM "8 prioritised events" limit.** Meta removed the
-> 8-event cap and manual configuration around **June 2025** and now
+> ⚠️ **A dated claim you'll still run into: the AEM "8 prioritised events" limit.**
+> Meta removed the 8-event cap and manual configuration around **June 2025** and now
 > [auto-aggregates eligible events](https://www.conversios.io/blog/meta-aggregated-event-measurement/).
-> Older blogs and courses still teach the cap — it's outdated.
+> Older blogs and courses still teach the cap — if a guide mentions it, that's a good
+> sign the rest is stale too.
 
 ### Deduplication (the thing people get wrong)
 
-If you send an event from both Pixel and CAPI, you must give both the **same `event_id`**
-(and matching `event_name`). Meta dedupes on `event_id` and counts it once. Skip this and
-your hybrid setup **double-counts** conversions — corrupting the very ROAS you set this
-up to measure.
+When an event goes out from both Pixel and CAPI, both copies need the **same
+`event_id`** (and matching `event_name`) — Meta dedupes on `event_id` and counts it
+once. Without it, a hybrid setup **double-counts** conversions, corrupting the very
+ROAS it was built to measure. This is the single most common CAPI mistake, and it's
+silent until you notice the numbers look too good.
 
 ### Event Match Quality (EMQ)
 
@@ -389,7 +397,7 @@ PostHog analytics loss, and it does not override consent or ATT.
 ### Other ways to send server-side conversions
 
 PostHog's destination is the path this course recommends because you're already in
-PostHog, but it's not the only one — know the field:
+PostHog, but it's not the only one — the field is worth knowing:
 
 - **Stape / server-side Google Tag Manager** — a popular dedicated server container that
   forwards to Meta, Google, TikTok, etc. More control, more setup.
@@ -403,9 +411,10 @@ dedupe on `event_id`, send only consented conversion events.**
 
 ---
 
-## 7.9 Consent — the part you can't skip
+## 7.9 Consent — the part that isn't optional
 
-Server-side does not mean consent-free, and the rules tightened recently:
+Server-side does not mean consent-free, and the rules tightened recently. It's worth
+knowing exactly where the lines sit:
 
 - As of **January 2025**, Meta requires **explicit user consent** before you upload
   contact info for custom audiences or send PII via CAPI.
@@ -414,11 +423,11 @@ Server-side does not mean consent-free, and the rules tightened recently:
   say so explicitly — and need a lawful basis (usually consent). A German regulator has
   ruled list uploads without consent unlawful, and — again — **hashing does not make
   data anonymous** in law.
-- Use Meta's consent signals / data-processing options, and **don't send events for
-  non-consenting users** in consent regimes.
-- **Minimise data:** send only what you need (hashed email/phone/external_id). As of
-  **September 2025**, Meta blocks custom conversions containing sensitive (health/
-  financial) data.
+- Meta's consent signals / data-processing options exist for exactly this — and in
+  consent regimes, events for non-consenting users are best not sent at all.
+- **Less is safer:** sending only what you need (hashed email/phone/external_id) keeps
+  you out of trouble. As of **September 2025**, Meta blocks custom conversions
+  containing sensitive (health/financial) data.
 
 The strategic point this sets up: an **owned, consented identity graph** — emails
 captured *with opt-in* at signup and verification — is what makes the whole custom-
@@ -427,23 +436,28 @@ Meta good, legal data if you collected it well in the first place. That's Chapte
 
 ---
 
-## 7.10 Do this now
+## 7.10 Before you move on
 
-1. Decide whether paid social is even your channel (§7.2). If you're a dev tool or
-   community product, weight toward Chapter 8 and run only small paid tests.
-2. Write down your **per-channel CAC and payback** for whatever you're doing today
-   (§7.3), even if the numbers are rough. You can't judge a new channel without a
-   baseline.
-3. If you're running Meta: install the **Meta Pixel** on your site (browser side).
-4. Add the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
-   conversion events.
-5. Make sure your conversions carry **email + `fbc` + `external_id`** so EMQ ≥ 6.
-6. Start **one campaign**: a Sales/Leads objective, broad audience, strong creative,
-   optimising on the deepest event you can feed 50/week.
-7. Capture **opt-in consent** at the point you collect email.
+A few things worth doing while this chapter is fresh:
 
-You can now drive traffic *and* measure it honestly. The last piece is the one that
-compounds: turning that traffic into an audience you never have to pay to reach again.
+1. **Settle whether paid social is even your channel** (§7.2). For a dev tool or
+   community product, the honest answer is usually "mostly no" — in which case Chapter
+   8 is where your energy goes, with paid kept to small tests.
+2. **Write down your per-channel CAC and payback** for whatever you're doing today
+   (§7.3), even roughly. A new channel can only be judged against a baseline, and most
+   teams discover they don't have one.
+3. If Meta is your channel: the **Meta Pixel** on your site (browser side) is step one…
+4. …and the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
+   conversion events, is step two — that's the dedup working for you.
+5. It's worth checking your conversions carry **email + `fbc` + `external_id`** — that's
+   what gets EMQ to 6 or higher, and EMQ is targeting quality.
+6. **One campaign** is the right amount to start with: a Sales/Leads objective, broad
+   audience, strong creative, optimising on the deepest event you can feed 50/week.
+7. And wherever you collect email, **opt-in consent** at that moment is what makes the
+   whole audience machine in §7.8 legal to run.
+
+With traffic flowing and honestly measured, the last piece is the one that compounds:
+turning that traffic into an audience you never have to pay to reach again.
 
 ---
 

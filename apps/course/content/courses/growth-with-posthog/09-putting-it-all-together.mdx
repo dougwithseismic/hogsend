@@ -5,8 +5,8 @@ description: "The whole machine on one page, the operating cadence that keeps it
 
 > **In this chapter:** the end-to-end system as a single loop, the daily/weekly/monthly
 > rhythm that turns it from a project into an operation, how to run experiments at a
-> steady tempo without fooling yourself, the mistakes that undo all of it — and a return
-> to the question the course opened with: what it takes to run your startup as a
+> steady tempo without fooling yourself, the patterns that tend to undo it — and a
+> return to the question the course opened with: what it takes to run your startup as a
 > product-led growth team. The sequenced build plan itself lives in Chapter 10.
 
 ---
@@ -65,8 +65,8 @@ A quick reference for the division of labour the course is built on:
 | Track conversions accurately | Pixel + CAPI, via PostHog | 7 |
 | Capture & link identity, referrals | Hogsend connectors | 8 |
 
-**PostHog detects. Hogsend acts. You decide.** Keep that split clear and the system
-stays simple no matter how much you add.
+**PostHog detects. Hogsend acts. You decide.** Held onto, that split keeps the system
+simple no matter how much you add to it.
 
 ---
 
@@ -74,14 +74,15 @@ stays simple no matter how much you add.
 
 The sequence is the course's spine, compressed to four gates:
 
-1. **Day 0 — commit.** Name the growth owner, write the activation sentence, agree
-   retention-before-acquisition out loud (Chapter 0).
-2. **Days 1–30 — Measure.** PostHog live, tracking plan, activation event, the daily
-   dashboard. Exit when you can say where the funnel leaks, with numbers (Chapters 1–4).
-3. **Days 31–60 — Keep.** Welcome, dunning, win-back journeys — with a holdout. Exit
-   when lift is measured, not vibed (Chapters 5–6).
+1. **Day 0 — commit.** Naming the growth owner, writing the activation sentence,
+   agreeing retention-before-acquisition as a team (Chapter 0).
+2. **Days 1–30 — Measure.** PostHog live, a tracking plan, the activation event, the
+   daily dashboard. The gate: you can say where the funnel leaks, with numbers
+   (Chapters 1–4).
+3. **Days 31–60 — Keep.** Welcome, dunning, win-back journeys — with a holdout. The
+   gate: lift you've measured rather than sensed (Chapters 5–6).
 4. **Days 61–180 — Grow, then compound.** Open the tap, capture identity into owned
-   channels, then turn the whole thing into an experimentation program (Chapters 7–8,
+   channels, then let the whole thing become an experimentation program (Chapters 7–8,
    and §9.5 below).
 
 That's the summary; **Chapter 10 is the full plan** — each phase with its interactive
@@ -108,46 +109,49 @@ cadence](https://www.reforge.com/blog/operating-cadence) — is that the *rhythm
 looking is itself a designed system: decide in advance what gets read daily, weekly,
 and monthly, and by whom, so attention stops depending on anyone's memory.
 
-**Daily (2 minutes).** Read the Slack alerts. Open the dashboard only if one fired.
-Glance at the activation funnel and active-users trend. That's it — the daily job is
-*noticing*, not analysing. If the daily glance regularly takes more than five minutes,
-your alerts are badly tuned, not your discipline.
+**Daily (2 minutes).** The daily job is *noticing*, not analysing: a glance at the
+Slack alerts, the activation funnel, and the active-users trend — and the dashboard
+itself only if an alert fired. If the daily glance regularly takes more than five
+minutes, that's usually a sign the alerts need tuning, not that you need more
+discipline.
 
 **Weekly (30 minutes, the growth review).** The one meeting this course asks you to
 hold, and it has a fixed agenda — a compressed version of the weekly growth meeting
 [Brian Balfour has documented](https://brianbalfour.com/essays/growth-meeting) from
 running growth at HubSpot and Reforge:
 
-1. **Metrics read (10 min).** Retention curve and lifecycle chart — is growth real or
-   churn-and-replace? North Star vs last week. No debugging in the meeting; note
-   anomalies and assign an owner.
-2. **Journeys and spend (10 min).** Each live journey's send volume and holdout lift.
-   Ad performance: cost per conversion, EMQ, which audiences work. Kill or scale
-   decisions get made here, out loud.
-3. **Experiments (10 min).** What finished (result + learning, in one sentence each),
-   what launches next from the top of the backlog (§9.5), what's blocked.
+1. **Metrics read (10 min).** The retention curve and lifecycle chart — is growth real
+   or churn-and-replace? North Star vs last week. Anomalies get noted and assigned an
+   owner rather than debugged live; group debugging is how a 30-minute meeting becomes
+   a 2-hour one.
+2. **Journeys and spend (10 min).** Each live journey's send volume and holdout lift;
+   ad performance — cost per conversion, EMQ, which audiences are working. This is
+   where kill-or-scale decisions get made, out loud.
+3. **Experiments (10 min).** What finished (result and learning, a sentence each),
+   what launches next from the top of the backlog (§9.5), and what's blocked.
 
 The discipline that makes the meeting work: it reviews **learnings and decisions**, not
 status. "The welcome-nudge holdout shows +4 points activation, we're keeping it and
 removing the day-5 email" is a growth review; "we sent 3,400 emails this week" is
 theatre.
 
-Two habits close the weekly loop. **Watch 3–5 session replays** of the week's biggest
-drop-off — the qualitative *why* behind the quantitative *where* (Chapter 4). And
-**write the week's one learning down** somewhere permanent. A learning that lives in
-one person's head is a learning the team will pay to re-discover in six months.
+Two habits tend to close the weekly loop well. Ending the week with **3–5 session
+replays** of the biggest drop-off gives you the qualitative *why* behind the
+quantitative *where* (Chapter 4). And **writing the week's one learning down**
+somewhere permanent is cheaper than it looks — a learning that lives in one person's
+head is one the team usually pays to re-discover six months later.
 
 **Monthly (an hour).** Zoom out to the questions that are too slow to see weekly:
 
-- Re-examine the **activation metric** — is it still the best predictor of retention?
-  Run Chapter 2's correlation-then-experiment method if you're unsure.
-- Report **incremental lift** from the lifecycle program (global holdout) — the number
-  that justifies the whole Keep phase to anyone who asks.
-- Review **blended CAC** and the referral loop's contribution. Is growth getting
-  cheaper as the owned audience grows? That's Chapter 8's flywheel, showing up in the
-  finances.
-- **Prune.** Kill journeys with no lift, events no one queries, ad sets that don't
-  convert. A growth system accretes cruft exactly like a codebase.
+- The **activation metric** — is it still the best predictor of retention? Chapter 2's
+  correlation-then-experiment method is there whenever you're unsure.
+- **Incremental lift** from the lifecycle program (global holdout) — the number that
+  justifies the whole Keep phase to anyone who asks.
+- **Blended CAC** and the referral loop's contribution. Is growth getting cheaper as
+  the owned audience grows? That's Chapter 8's flywheel, showing up in the finances.
+- **Pruning.** Journeys with no lift, events no one queries, ad sets that don't
+  convert — a growth system accretes cruft exactly like a codebase, and a monthly
+  prune keeps it legible.
 
 The cadence is the point. A growth system that's checked on a rhythm survives a busy
 quarter; one that depends on someone remembering to look does not.
@@ -168,15 +172,16 @@ between a team that occasionally A/B tests and a team with an experimentation *p
 is three artifacts:
 
 **A scored backlog.** Every growth idea — a new journey, a pricing page change, an
-onboarding step removed — goes into one list as a **hypothesis**, not a task: *"if we
-[change], [metric] will move [direction] because [reasoning]."* Score each on
+onboarding step removed — goes into one list as a **hypothesis** rather than a task:
+*"if we [change], [metric] will move [direction] because [reasoning]."* Scoring each on
 **[ICE](https://www.productplan.com/glossary/ice-scoring-model)** — impact, confidence,
-ease, each 1–10 — and let the scores order the list.
+ease, each 1–10 — lets the scores order the list.
 ([PIE](https://conversion.com/framework/pie-framework/) — potential, importance, ease —
-is the same idea with different letters; pick one and stop debating frameworks.) The
-score's job isn't precision, it's forcing the *"this would be huge"* claim to survive
-contact with *"how confident are we, actually?"* — and giving the weekly meeting a top
-of the list to pull from, instead of the loudest idea in the room.
+is the same idea with different letters; either works, and the only real mistake is
+debating frameworks instead of running tests.) The score's job isn't precision — it's
+letting the *"this would be huge"* claim meet *"how confident are we, actually?"*, and
+giving the weekly meeting a top of the list to pull from instead of the loudest idea
+in the room.
 
 **A steady tempo.** Sean Ellis — the man who coined both "growth hacking" and the
 North Star framing this course uses — argues the compounding asset is your
@@ -203,17 +208,19 @@ with results written down, beats a burst of ten followed by a quarter of nothing
 needs three:
 
 - **Not everything deserves an experiment.** Obvious fixes, reversible changes, and
-  changes too small to measure should just ship —
+  changes too small to measure can just ship —
   [Lenny's guide to when *not* to test](https://www.lennysnewsletter.com/p/not-running-an-experiment)
-  is the checklist. Experiments are for decisions that are expensive to get wrong.
-- **Respect sample size.** At startup traffic, most tests can't detect small effects.
-  Prefer big swings (whole journeys, whole onboarding flows) over button colours, and
-  treat "no detectable difference" as the honest, common result it is.
+  is a good checklist. Experiments earn their overhead on decisions that are expensive
+  to get wrong.
+- **Sample size decides what you can learn.** At startup traffic, most tests can't
+  detect small effects — which is why big swings (whole journeys, whole onboarding
+  flows) tend to beat button colours, and why "no detectable difference" is an honest,
+  common result rather than a failure.
   [Kohavi and Lenny's A/B testing guide](https://www.lennysnewsletter.com/p/the-ultimate-guide-to-ab-testing)
-  covers the failure modes — peeking, underpowered wins, p-hacking by another name.
-- **Write down the losers.** A result only counts if it's recorded — hypothesis,
-  what happened, what you'd do differently. The write-up is thirty seconds; the
-  re-run of a forgotten failed experiment is a month.
+  covers the traps — peeking, underpowered wins, p-hacking by another name.
+- **The losers are worth writing down too.** A result only really counts once it's
+  recorded — hypothesis, what happened, what you'd try differently. The write-up
+  takes thirty seconds; re-running a forgotten failed experiment takes a month.
 
 <WorkbookPrompt
   id="first-hypotheses"
@@ -232,28 +239,29 @@ constraint, test against it, repeat.
 
 ---
 
-## 9.6 The mistakes to not make
+## 9.6 The patterns that undo it
 
-A short list, each tied to where the course warned you:
+Every team that builds this system brushes against the same failure modes. It's worth
+knowing them by name — each one links back to the chapter with the escape route:
 
-- **Scaling acquisition into a leaky bucket** (Ch 2). The most expensive mistake there
-  is. Fix retention first.
-- **Chasing someone else's magic number** (Ch 2). Find *your* activation metric with the
-  correlation-then-experiment method. The famous numbers are rally cries.
-- **Building event names dynamically** (Ch 3). One ruined analytics setup. One fixed
-  event, variables in properties.
+- **Scaling acquisition into a leaky bucket** (Ch 2). The most expensive of the set —
+  retention work first is the escape.
+- **Chasing someone else's magic number** (Ch 2). The famous activation numbers are
+  rally cries, not physics; the correlation-then-experiment method finds *yours*.
+- **Building event names dynamically** (Ch 3). One of the quickest ways to ruin an
+  analytics setup — one fixed event with variables in properties keeps it queryable.
 - **Installing analytics and never looking** (Ch 0, Ch 4). The dashboard graveyard.
-  Measurement without a ritual and without action is theatre.
-- **Experiment theatre** (§9.5). Running underpowered tests to "validate" decisions
-  already made, celebrating wins nobody could reproduce, never writing down a loser.
-  Tempo counts learnings, not launches.
-- **Trusting the Pixel alone** (Ch 7). It under-counts by a third or more. Pixel *and*
-  CAPI, deduped, fed from where you have identity.
-- **Treating server-side as a consent loophole** (Ch 7). It isn't. Hashed email is
-  pseudonymous, not anonymous. Capture consent.
-- **Measuring opens instead of lift** (Ch 5). Opens don't prove causation. Use holdouts.
-- **Renting your whole audience** (Ch 8). Capture identity into owned channels so you
-  never have to pay to reach the same person twice.
+  Measurement without a ritual and without action ends up as theatre.
+- **Experiment theatre** (§9.5). Underpowered tests "validating" decisions already
+  made, wins nobody could reproduce, losers never written down. Tempo counts
+  learnings, not launches.
+- **Trusting the Pixel alone** (Ch 7). It under-counts by a third or more; Pixel *and*
+  CAPI, deduped, fed from where you have identity, is the reliable shape.
+- **Treating server-side as a consent loophole** (Ch 7). Hashed email is pseudonymous,
+  not anonymous — consent still needs capturing.
+- **Measuring opens instead of lift** (Ch 5). Opens don't prove causation; holdouts do.
+- **Renting your whole audience** (Ch 8). Identity captured into owned channels is
+  what saves you from paying to reach the same person twice.
 
 ---
 
@@ -287,14 +295,17 @@ point. Growth stops being a thing you hope works and becomes a system you run.
 
 ---
 
-## 9.8 Do this now
+## 9.8 Before you move on
 
-1. **Book the weekly growth review** — 30 minutes, recurring, fixed agenda from §9.4.
-   This is the single highest-leverage calendar invite in the course.
-2. **Start the experiment backlog** — one shared doc, the hypothesis format from §9.5,
-   ICE scores. Seed it with three ideas straight from your dashboard's worst numbers.
-3. **Turn the page to Chapter 10** — the full 30/60/90/180-day plan with interactive
-   checklists, and commit to a start date.
+Three things worth doing while this chapter is fresh:
+
+1. **The weekly growth review** — booking it now, 30 minutes recurring with the §9.4
+   agenda, is probably the highest-leverage calendar invite in the course. A rhythm
+   that exists in the calendar survives; one that exists as an intention doesn't.
+2. **The experiment backlog** — one shared doc, the hypothesis format from §9.5, ICE
+   scores. Your dashboard's three worst numbers are the natural first entries.
+3. **Chapter 10** — the full 30/60/90/180-day plan with interactive checklists. It's
+   where all of this becomes a sequence with dates on it.
 
 ---
 

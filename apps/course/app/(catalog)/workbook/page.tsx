@@ -18,51 +18,65 @@ export const metadata: Metadata = {
 };
 
 /**
- * Everything the reader has written or answered across the course, in one
- * reviewable place: workbook notes, check-in answers, plan checklists, quiz
- * scores. Grouped by lesson in course order, each group linking back to the
- * lesson it came from — the profile they build in the lessons, readable back.
+ * Everything the reader has written or answered, in one reviewable place:
+ * workbook notes, check-in answers, plan checklists, quiz scores. Grouped
+ * per COURSE (there can be several), then by lesson in course order, each
+ * lesson linking back to where the answer was given — the profile they build
+ * in the lessons, readable back.
  */
 
 type Row = typeof response.$inferSelect;
 
 type LessonGroup = {
-  course: string;
   lesson: string | null;
   title: string;
   href: string | null;
   rows: Row[];
 };
 
-/** Course-order position for sorting groups (lessons sort lexically). */
-function lessonOrderKey(g: LessonGroup): string {
-  return `${g.course}/${g.lesson ?? "~"}`; // "~" sorts unplaced rows last
-}
+type CourseGroup = {
+  course: string; // "" = rows saved outside any lesson
+  title: string;
+  href: string | null;
+  lessons: LessonGroup[];
+};
 
-function groupByLesson(rows: Row[]): LessonGroup[] {
-  const groups = new Map<string, LessonGroup>();
+function groupByCourse(rows: Row[]): CourseGroup[] {
+  const courses = new Map<string, Map<string, LessonGroup>>();
   for (const row of rows) {
     const course = row.courseSlug ?? "";
     const lesson = row.lessonSlug ?? null;
-    const mapKey = `${course}/${lesson ?? ""}`;
-    let group = groups.get(mapKey);
+    let lessons = courses.get(course);
+    if (!lessons) {
+      lessons = new Map();
+      courses.set(course, lessons);
+    }
+    const lessonKey = lesson ?? "~"; // "~" sorts unplaced rows last
+    let group = lessons.get(lessonKey);
     if (!group) {
       const page =
         course && lesson ? source.getPage([course, lesson]) : undefined;
       group = {
-        course,
         lesson,
-        title: page?.data.title ?? getCourse(course)?.title ?? "General notes",
+        title: page?.data.title ?? "Saved outside a lesson",
         href: page ? page.url : null,
         rows: [],
       };
-      groups.set(mapKey, group);
+      lessons.set(lessonKey, group);
     }
     group.rows.push(row);
   }
-  return [...groups.values()].sort((a, b) =>
-    lessonOrderKey(a).localeCompare(lessonOrderKey(b)),
-  );
+
+  return [...courses.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([course, lessons]) => ({
+      course,
+      title: course ? (getCourse(course)?.title ?? course) : "General notes",
+      href: course ? `/${course}` : null,
+      lessons: [...lessons.entries()]
+        .sort(([a], [b]) => a.localeCompare(b)) // numeric lesson prefixes = course order
+        .map(([, g]) => g),
+    }));
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -173,7 +187,7 @@ export default async function WorkbookPage() {
     .where(eq(response.userId, session.user.id))
     .orderBy(desc(response.updatedAt));
 
-  const groups = groupByLesson(rows);
+  const courseGroups = groupByCourse(rows);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
@@ -181,12 +195,12 @@ export default async function WorkbookPage() {
         Your workbook
       </h1>
       <p className="mt-2 text-sm text-white/55 leading-6">
-        Everything you've written and answered across the course — your
-        commitments, drafts, check-ins, and scores — each linked back to the
-        lesson it belongs to.
+        Everything you've written and answered across your courses — your
+        commitments, drafts, check-ins, and scores — organised per course, each
+        entry linked back to the lesson it belongs to.
       </p>
 
-      {groups.length === 0 ? (
+      {courseGroups.length === 0 ? (
         <div className="mt-10 rounded-md border border-white/[0.08] bg-white/[0.015] p-8 text-center">
           <p className="text-sm text-white/60">
             Nothing here yet. Answers, notes, and checklists you save inside
@@ -200,31 +214,51 @@ export default async function WorkbookPage() {
           </Link>
         </div>
       ) : (
-        <div className="mt-10 flex flex-col gap-10">
-          {groups.map((group) => (
-            <section key={`${group.course}/${group.lesson ?? ""}`}>
-              <div className="flex items-baseline justify-between gap-3">
-                <h2 className="font-medium text-lg text-white tracking-[-0.01em]">
-                  {group.title}
+        <div className="mt-10 flex flex-col gap-14">
+          {courseGroups.map((cg) => (
+            <section key={cg.course || "general"}>
+              <div className="flex items-baseline justify-between gap-3 border-white/[0.08] border-b pb-3">
+                <h2 className="font-display text-white text-xl tracking-[-0.02em]">
+                  {cg.title}
                 </h2>
-                {group.href ? (
+                {cg.href ? (
                   <Link
-                    href={group.href}
+                    href={cg.href}
                     className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
                   >
-                    Revisit lesson →
+                    Course overview →
                   </Link>
                 ) : null}
               </div>
-              <div className="mt-4 flex flex-col gap-3">
-                {[...group.rows]
-                  .sort(
-                    (a, b) =>
-                      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind),
-                  )
-                  .map((row) => (
-                    <Entry key={row.id} row={row} />
-                  ))}
+              <div className="mt-6 flex flex-col gap-8">
+                {cg.lessons.map((group) => (
+                  <div key={group.lesson ?? "general"}>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h3 className="font-medium text-base text-white tracking-[-0.01em]">
+                        {group.title}
+                      </h3>
+                      {group.href ? (
+                        <Link
+                          href={group.href}
+                          className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
+                        >
+                          Revisit lesson →
+                        </Link>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 flex flex-col gap-3">
+                      {[...group.rows]
+                        .sort(
+                          (a, b) =>
+                            KIND_ORDER.indexOf(a.kind) -
+                            KIND_ORDER.indexOf(b.kind),
+                        )
+                        .map((row) => (
+                          <Entry key={row.id} row={row} />
+                        ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
           ))}

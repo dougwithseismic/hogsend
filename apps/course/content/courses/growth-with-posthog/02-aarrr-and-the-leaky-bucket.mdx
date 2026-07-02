@@ -22,7 +22,7 @@ pirate, hence "pirate metrics."
   id="irjgfW0BIrw"
   title="Startup Metrics for Pirates: AARRR! - Dave McClure"
   channel="Ignite Seattle"
-  note="The original 2007 talk, from McClure himself, in five minutes. Watch the primary source — nearly twenty years of blog posts about AARRR are summaries of this."
+  note="The original 2007 talk, from McClure himself, in five minutes. The primary source is worth the time — nearly twenty years of blog posts about AARRR are summaries of this."
 />
 
 Nearly two decades later it's still the cleanest map of a business there is, and it's the
@@ -79,16 +79,17 @@ $220, the 3:1+ LTV:CAC says growth here is worth scaling — *once* the bucket h
 
 > A small note that confuses people: some sources list the last two as Revenue then
 > Referral. McClure's own slides put **Referral before Revenue**, but it genuinely
-> doesn't matter — the acronym is identical (R-R) either way. Don't spend energy on it.
+> doesn't matter — the acronym is identical (R-R) either way, so it's not worth
+> spending energy on.
 
 AARRR is best read as **"the five categories of number to watch,"** not as a strict
 chronological pipeline every user marches through. A user can refer a friend before they
 pay; a user can pay before they're really retained. That distinction is what the next
 section is about.
 
-One habit to build from day one: when you write the five numbers down, write **who owns
-each one** next to it. Five numbers with five owners (fine if one person owns three) is
-a growth team; five numbers in a doc is a doc.
+One habit worth building from day one: when the five numbers get written down, put
+**who owns each one** next to them. Five numbers with five owners (fine if one person
+owns three) is a growth team; five numbers in a doc is a doc.
 
 ---
 
@@ -170,19 +171,20 @@ The famous examples:
 | **Slack** | a team sends 2,000 messages |
 | **Dropbox** | put one file in one folder |
 
-These are real and they're useful — but they are widely misunderstood, so read the
-next part carefully.
+These are real and they're useful — but they're also widely misunderstood, and the
+misunderstanding is expensive, so the next part matters.
 
 ### The magic number is a rally cry, not a law
 
-It is tempting to copy "7 friends" and chase it. Don't. As Mixpanel put it,
+It's tempting to copy "7 friends" and chase it — and it's the one move here worth
+resisting. As Mixpanel put it,
 [*"magic numbers are an illusion — a very useful illusion, but an illusion
 nevertheless."*](https://mixpanel.com/blog/magic-numbers-are-an-illusion/)
 Andrew Chen, talking about Facebook's number, said it *"could have been '10 friends in
 12 days' or even 'five friends in one day'"* — it was a **round number picked from the
 middle of a range**. Facebook weren't trying to make it precise.
 
-Three things to understand about these numbers:
+Three things worth understanding about these numbers:
 
 - **They describe an average, not an individual.** One user is hooked after 3 friends;
   another churns after 12. The number is a population-level signal.
@@ -196,8 +198,8 @@ Three things to understand about these numbers:
 
 ### How to find *your* activation metric (the method that matters)
 
-Copying someone else's number is the mistake. Finding your own is a three-step method
-(from [Lenny Rachitsky's guide](https://www.lennysnewsletter.com/p/how-to-determine-your-activation)):
+Rather than borrowing someone else's number, you can find your own — it's a three-step
+method (from [Lenny Rachitsky's guide](https://www.lennysnewsletter.com/p/how-to-determine-your-activation)):
 
 1. **Brainstorm candidate aha moments** from your product-usage data — actions that
    plausibly mark "they got it."
@@ -234,8 +236,8 @@ then dug further and found a *better*, more causal signal: what fraction of thos
 outcome.
 
 The shape of an activation metric is almost always: **[quantity] of [key action]
-within [time window]**, for new users. Your job in the next chapter is to make sure
-the "[key action]" is an event you actually capture.
+within [time window]**, for new users. Chapter 3's job is making sure that
+"[key action]" is an event you actually capture.
 
 ### What "activation" means for your kind of startup
 
@@ -327,8 +329,8 @@ files collaborated on* (value delivered, leading, not directly movable). Inputs:
 signups (acquisition), % inviting a teammate in week one (activation — the §2.3
 metric), files-per-active-team (frequency/depth), % of new signups arriving via a
 shared file (the growth loop, §2.5). Four numbers, four owners, one story: every input
-plausibly *causes* the North Star, and the North Star plausibly causes revenue. If you
-can't draw that causal chain for your candidate NSM, pick again.
+plausibly *causes* the North Star, and the North Star plausibly causes revenue. If the
+causal chain won't draw for your candidate NSM, that's usually the sign to pick again.
 
 <WorkbookPrompt
   id="north-star"
@@ -382,8 +384,8 @@ fit, expressed as data) or decays to nothing (no amount of acquisition will save
 />
 
 What counts as a *good* plateau varies enormously by category — a consumer social app
-and an SMB SaaS have utterly different healthy shapes — so before you panic or
-celebrate, calibrate against
+and an SMB SaaS have utterly different healthy shapes — so before panicking or
+celebrating, it's worth calibrating against
 [Lenny Rachitsky's operator-surveyed benchmarks](https://www.lennysnewsletter.com/p/what-is-good-retention-issue-29)
 for what "good" and "great" retention look like in yours.
 
@@ -413,7 +415,7 @@ pour into. It's also how you answer the only strategic question that matters rig
 
 <CheckIn
   id="biggestLeak"
-  question="Be honest — where does your bucket leak most today?"
+  question="Where does your bucket leak most today?"
   options={["Getting traffic", "Signup → activation", "Week-1 retention", "Long-term retention", "Monetisation", "Honestly, no idea yet"]}
   freeText
   notePlaceholder="What have you tried?"

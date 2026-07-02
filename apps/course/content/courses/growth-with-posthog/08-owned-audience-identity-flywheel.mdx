@@ -1,6 +1,6 @@
 ---
 title: "Chapter 8 — The owned-audience flywheel"
-description: "Turn ad clicks and visitors into verified emails and linked Discord/Telegram accounts — an audience you own, can reach for free, and can build a referral loop on. Plus what it takes to run the community itself, and the tools you'd otherwise rent."
+description: "How ad clicks and visitors become verified emails and linked Discord/Telegram accounts — an audience you own, can reach for free, and can build a referral loop on. Plus what it takes to run the community itself, and the tools you'd otherwise rent."
 ---
 
 > **In this chapter:** why an owned channel beats a rented ad audience, the
@@ -44,10 +44,11 @@ is the opposite. Once someone is in it:
 
 The exact multiples you'll see quoted — "acquiring costs 5–25× more than retaining,"
 "owned reactivation is 5–10× cheaper than paid" — are **directional folklore** with
-loose sourcing; don't repeat the decimals as fact. But the **mechanism is undeniable**
-and it's the load-bearing argument of this chapter: *a one-time ad spend that captures
-someone into an owned channel converts a rented impression into a reusable asset.* You
-pay once to acquire the contact, then reach them as often as you like for free.
+loose sourcing, better treated as direction than decimals. But the **mechanism is
+undeniable** and it's the load-bearing argument of this chapter: *a one-time ad spend
+that captures someone into an owned channel converts a rented impression into a
+reusable asset.* You pay once to acquire the contact, then reach them as often as you
+like for free.
 
 <VideoEmbed
   id="7zZ8LIOWFd8"
@@ -94,12 +95,12 @@ worth modelling:
   and its perks. This is the move that produces an **email ↔ Discord** link you own —
   and several tools market it openly as list-building.
 
-The reward should map to your product's value and live *in the owned channel* where
-possible, so claiming it deepens the relationship rather than ending it. A perk the user
-collects and walks away from buys you one email; a perk they collect *inside* your
-community pulls them one step further in.
+The reward works best when it maps to your product's value and lives *in the owned
+channel*, so claiming it deepens the relationship rather than ending it. A perk the
+user collects and walks away from buys you one email; a perk they collect *inside*
+your community pulls them one step further in.
 
-Two design rules keep the mechanic honest:
+Two design considerations keep the mechanic honest:
 
 - **The perk must be worth the link, and no more.** Over-reward and you harvest
   perk-hunters who churn the moment the reward lands (§8.7 returns to this with
@@ -357,14 +358,15 @@ underdelivers because it was bolted on rather than designed.
   *whitelist spot*, or an *exclusive role* — scarcity instead of cash. **Robinhood**'s
   skip-the-line waitlist is the classic.
 
-Design principles across all of them: make sharing effortless (prewritten copy, a
-one-click link), reward both sides, align the reward to product value, show progress
-(a dashboard or leaderboard), and **trigger the ask at peak engagement** — right after
-the aha moment, which is the referral journey from Chapter 6, §6.8.
+The design principles that run across all of them: sharing that costs nothing
+(prewritten copy, a one-click link), rewards on both sides, a reward aligned to product
+value, visible progress (a dashboard or leaderboard), and **an ask timed to peak
+engagement** — right after the aha moment, which is the referral journey from Chapter
+6, §6.8.
 
 ### The honest failure mode: referred users can be your worst users
 
-Before designing the reward, read Andrew Chen's
+Before settling on a reward, it's worth sitting with Andrew Chen's
 [counterpoint](https://andrewchen.com/worst-users-referral-trials-coupons-gamification/):
 users acquired through heavy incentives — referral bounties, coupons, gamified
 rewards — are often the *lowest-quality* cohort you acquire, because the incentive
@@ -374,13 +376,14 @@ retention embarrasses every other source.
 
 The defences are all things this course already gave you:
 
-- **Cohort the referred users** (Chapter 4) and compare their retention against other
-  channels — a referral program is judged on retained users, not invites sent.
-- **Reward verified behaviour, not signups.** The referee must verify email, link an
-  account, or hit a real activation milestone before the reward fires. This is exactly
-  the anti-fraud power the identity graph gives you (below).
-- **Keep the reward aligned to product value** (Dropbox's storage, not cash) so the
-  people the incentive attracts are people who wanted the product anyway.
+- **Cohorting the referred users** (Chapter 4) and comparing their retention against
+  other channels — a referral program is judged on retained users, not invites sent.
+- **Rewarding verified behaviour, not signups.** When the referee has to verify email,
+  link an account, or hit a real activation milestone before the reward fires, farmers
+  lose interest. This is exactly the anti-fraud power the identity graph gives you
+  (below).
+- **A reward aligned to product value** (Dropbox's storage, not cash), so the people
+  the incentive attracts are people who wanted the product anyway.
 
 ### Why the owned graph makes attribution work
 
@@ -452,8 +455,8 @@ naming:
 The principle that ranks them: **the more of the identity graph you own outright, the more
 the audience compounds and the less you're exposed to a platform's pricing or policy
 changes.** A hosted newsletter is a fine, real owned audience; an identity graph on your
-own infrastructure is the maximal version. Pick the rung that matches how central owned
-growth is to your business.
+own infrastructure is the maximal version. The rung worth picking is the one that
+matches how central owned growth is to your business.
 
 ### For your kind of startup
 
@@ -498,23 +501,28 @@ a loop that compounds.
 
 ---
 
-## 8.10 Do this now
+## 8.10 Before you move on
 
-1. Pick the **perk** that's worth linking for (a role, access, credits, a whitelist) —
-   valuable enough to convert, not so valuable it attracts farmers.
-2. Stand up the **Discord and/or Telegram connector** and the `/link` email-verify flow.
-3. Build the **`discord-linked` / `telegram-linked`** journey to grant the perk and
-   welcome them across both channels.
-4. Give the community a reason to exist beyond the perk: a mission statement, three
-   channels, one weekly ritual (§8.4). Hand-recruit the first members.
-5. Add the **referral ask** at your aha milestone (Chapter 6, §6.8), reward verified
-   referrals with a role — and put "referred-cohort retention" on the dashboard before
-   you celebrate the invite count.
-6. Sync your **verified, consented emails** as a Meta custom audience and lookalike seed
-   (Chapter 7).
+A few things worth doing while this chapter is fresh:
 
-You now have the whole machine. Chapter 9 turns running it into a weekly rhythm, and
-Chapter 10 sequences everything you've built into a 30/60/90/180-day plan.
+1. **Choose the perk** that's worth linking for (a role, access, credits, a whitelist).
+   The sweet spot: valuable enough to convert, not so valuable it attracts farmers —
+   §8.2's two design considerations are the test.
+2. **Stand up the Discord and/or Telegram connector** with the `/link` email-verify
+   flow — this is the moment your list starts becoming a graph.
+3. **The `discord-linked` / `telegram-linked` journey** grants the perk and welcomes
+   people across both channels; it's the code from §8.3, nearly verbatim.
+4. **Give the community a reason to exist beyond the perk**: a mission statement, three
+   channels, one weekly ritual (§8.4). The first members are worth recruiting by hand —
+   conversation density is what everyone who joins next will judge you on.
+5. **Place the referral ask at your aha milestone** (Chapter 6, §6.8) with verified
+   referrals rewarded by a role — and it's worth putting "referred-cohort retention" on
+   the dashboard before celebrating the invite count.
+6. **Sync your verified, consented emails** as a Meta custom audience and lookalike
+   seed (Chapter 7) — this is where the two chapters' machines connect.
+
+That's the whole machine. Chapter 9 turns running it into a weekly rhythm, and Chapter
+10 sequences everything you've built into a 30/60/90/180-day plan.
 
 ---
 

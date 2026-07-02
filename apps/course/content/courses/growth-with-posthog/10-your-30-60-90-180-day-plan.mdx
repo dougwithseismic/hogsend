@@ -17,10 +17,11 @@ Everything before this chapter taught the machine; this chapter sequences the bu
 few rules about how to read it:
 
 - **The phases are gates, not dates.** "30/60/90/180" assumes roughly a founder-day per
-  week of focused growth work. If you have more time, compress; if you have less,
-  stretch. What you must not do is *reorder* — each phase's exit criteria are the
-  entry requirements for the next. Shipping ads (phase 3) before retention work
-  (phase 2) is the leaky-bucket mistake from Chapter 2, now with a budget attached.
+  week of focused growth work. With more time you can compress; with less, stretch —
+  the one thing worth protecting is the *order*, because each phase's exit criteria
+  are the entry requirements for the next. Shipping ads (phase 3) before retention
+  work (phase 2) is the leaky-bucket pattern from Chapter 2, now with a budget
+  attached.
 - **The plan is stage-agnostic, the targets aren't.** A pre-launch product runs the same
   sequence but treats phase 1 as "instrument before launch" and phase 3 as launch
   channels rather than paid scaling. Where a number matters, this chapter says what it
@@ -45,9 +46,9 @@ few rules about how to read it:
 
 ## 10.2 Day 0 — commit (one hour, no code)
 
-Chapter 0's commitments, now as a checklist. Do these in one sitting with the whole
-team present. They cost an hour and prevent the two most expensive mistakes in the
-course: nobody owning the loop, and acquisition before retention.
+Chapter 0's commitments, now as a checklist. They're best done in one sitting with the
+whole team present — an hour, and it tends to prevent the two most expensive patterns
+in the course: nobody owning the loop, and acquisition before retention.
 
 <Checklist
   id="plan-day0"
@@ -67,9 +68,9 @@ growth team from a team that did a growth project once. And putting growth work 
 same backlog as product work is what makes "growth is an engineering discipline"
 (Chapter 0) real rather than aspirational.
 
-Two of those commitments are *writing* commitments — so write them here, now. Both
-save to [your workbook](/workbook) alongside everything else you put down in the
-course, linked back to the lesson it came from.
+Two of those commitments are *writing* commitments, so there's space for them right
+here. Both save to [your workbook](/workbook) alongside everything else you put down
+in the course, linked back to the lesson it came from.
 
 <WorkbookPrompt
   id="growth-owner"
@@ -117,17 +118,18 @@ Week by week, the shape most teams follow:
   ]}
 />
 
-**Exit criteria.** You can open the dashboard and say out loud, with numbers: *where*
-in the funnel you lose the most people, *what* your week-4 retention roughly is, and
-*which* phase of product-market fit you're in (Chapter 4, §4.3). If you can't say those
-three sentences, stay in this phase — [YC's analytics-for-startups
+**Exit criteria.** You can open the dashboard and say, with numbers: *where* in the
+funnel you lose the most people, *what* your week-4 retention roughly is, and *which*
+phase of product-market fit you're in (Chapter 4, §4.3). If those three sentences
+aren't sayable yet, that's the signal to stay in this phase a little longer —
+[YC's analytics-for-startups
 guidance](https://www.ycombinator.com/library/8H-analytics-for-startups) is blunt that
 most startups' first analytics problem is not volume of charts but trusting what the
 few important ones say.
 
-**The anti-pattern here** is instrumenting forever. Thirty days is enough to measure a
-funnel honestly; it is not enough to build a data platform. If you're writing a schema
-registry in week 3, you've swapped growth work for tooling work.
+**The pattern to watch for here** is instrumenting forever. Thirty days is enough to
+measure a funnel honestly; it is not enough to build a data platform — a schema
+registry in week three is usually growth work quietly traded for tooling work.
 
 ---
 
@@ -137,13 +139,14 @@ registry in week 3, you've swapped growth work for tooling work.
 with the highest return per hour in the whole plan — the users it saves are users you
 already paid (in money or effort) to acquire.
 
-Build journeys in the order of expected impact, which for almost every product means:
+Journeys are best built in the order of expected impact, which for almost every
+product looks like:
 
 1. **Welcome + onboarding nudge** — the gap between signup and activation is nearly
    always the biggest leak (Chapter 5). One journey: welcome on signup, a nudge at
    +48h if the activation event hasn't fired.
 2. **Dunning** — if you charge money, failed payments are pure, recoverable churn
-   (Chapter 6). This is the fastest revenue win in the course.
+   (Chapter 6). This tends to be the fastest revenue win in the whole course.
 3. **Win-back** — dormant-user re-engagement, triggered by an inactivity window, with
    something concrete to come back to.
 
@@ -167,10 +170,10 @@ or — more honestly — your **holdout comparison** shows the journeys lifting 
 (Chapter 5's incrementality argument: opens and clicks are activity, lift is proof).
 The bucket holds water well enough that pouring into it isn't waste.
 
-**The anti-pattern** is building all eight journeys you can imagine instead of the
-three that matter. Volume of automation is not the goal; measured lift is. A second
-anti-pattern, subtler: declaring victory off open rates. If you didn't hold anyone
-out, you measured sending, not keeping.
+**The pattern to watch for** is building all eight journeys you can imagine instead of
+the three that matter — volume of automation isn't the goal; measured lift is. A
+second, subtler one: declaring victory off open rates. Without a holdout, what got
+measured was sending, not keeping.
 
 ---
 
@@ -207,9 +210,10 @@ conversions are tracked accurately enough to optimise on (not Pixel-alone guessw
 and a visible share of new users end up in a channel you own — a verified email, a
 linked Discord or Telegram — rather than only in an ad platform's audience you rent.
 
-**The anti-pattern** is scaling spend before the measurement is trustworthy. If EMQ is
-low or events are missing, the ad platform optimises on noise and you pay tuition for
-it. A day spent on conversion quality routinely beats a week of creative testing.
+**The pattern to watch for** is scaling spend before the measurement is trustworthy.
+When EMQ is low or events are missing, the ad platform optimises on noise — and the
+tuition comes out of your budget. A day spent on conversion quality routinely beats a
+week of creative testing.
 
 ---
 
@@ -236,11 +240,11 @@ from the lifecycle program (global holdout, Chapter 5) and **blended CAC** inclu
 the referral loop's contribution — is growth getting cheaper as the owned audience
 grows? That's the flywheel from Chapter 8 showing up in the finances.
 
-**3. Decide what you are before you scale.** Before pouring real money into
-acquisition, gate it on evidence of product-market fit — the
+**3. Decide what you are before you scale.** Real acquisition money is worth gating on
+evidence of product-market fit — the
 [Sean Ellis 40% test](https://pmfsurvey.com/) ("how disappointed would you be if this
-product disappeared?") is the standard instrument. And resist hiring a head of growth
-to fix a system you haven't run yourself; First Round's
+product disappeared?") is the standard instrument. It's also worth running the system
+yourself for a while before hiring a head of growth to run it for you; First Round's
 [founder-led growth playbook](https://review.firstround.com/founder-led-growth-playbook/)
 makes the case that premature growth hires fail precisely because the founder skipped
 the loop you've just spent 90 days building.
@@ -287,17 +291,22 @@ for keeping the one metric honest as the machine grows.
 
 ---
 
-## 10.8 Do this now
+## 10.8 Before you move on
 
-1. **Run Day 0 today.** One hour, whole team, the five checklist items above. Tick
-   them here — they'll be waiting when you come back.
-2. **Put the four gate reviews in the calendar** — day 30, 60, 90, 180 from today.
-   A 30-minute review against the exit criteria at each, with the checklists above open.
-3. **Review [your workbook](/workbook)** — everything you've written across the course
-   (activation sentence, North Star, tracking plan, hypotheses, these checklists) in
-   one place, each entry linked back to the chapter that produced it. That page *is*
-   your growth plan now.
-4. **Tell us where you're starting.**
+Three things worth doing while the plan is in front of you:
+
+1. **Day 0 itself.** It's an hour with the whole team, and everything else in the plan
+   assumes it happened. The checklist above will keep your place — tick things off as
+   they land and they'll be here when you come back.
+2. **The four gate reviews, in the calendar** — day 30, 60, 90, 180 from today. A
+   30-minute review against the exit criteria at each, with the checklists above open.
+   Gates that exist in the calendar get held; gates that exist in a chapter don't.
+3. **A look at [your workbook](/workbook)** — everything you've written across the
+   course (activation sentence, North Star, tracking plan, hypotheses, these
+   checklists) in one place, each entry linked back to the chapter that produced it.
+   That page *is* your growth plan now.
+
+And if you're happy to share it — where are you starting from?
 
 <CheckIn
   id="planCommitment"

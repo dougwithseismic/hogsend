@@ -9,7 +9,8 @@ description: "The journeys from Chapter 5, written as code: welcome, behavioural
 > this, and the correctness rules that stop you double-sending. Code here mirrors real
 > production journeys.
 
-This chapter assumes a Hogsend app (scaffold one with `pnpm dlx create-hogsend@latest`).
+If you'd like to follow along, the examples assume a Hogsend app —
+`pnpm dlx create-hogsend@latest` scaffolds one in a minute.
 
 ---
 
@@ -204,7 +205,8 @@ shows the same stack outside Hogsend). Two consequences worth noticing:
   note="A 2026 conference take on why the React component model fits email's brutal rendering constraints — good background before you build your EmailLayout."
 />
 
-**Test emails like code, too.** Before a template gates thousands of sends, look at it:
+**Test emails like code, too.** A template is about to sit in front of thousands of
+sends, so it's worth actually looking at it first:
 React Email's dev server previews every template with sample props; send-to-yourself
 against [test addresses](https://resend.com/docs/dashboard/emails/send-test-emails)
 (or a capture sandbox — [Mailtrap's testing guide](https://mailtrap.io/blog/how-to-test-email/)
@@ -465,10 +467,10 @@ export const dunning = defineJourney({
 
 The `exitOn: PAYMENT_SUCCEEDED` is the whole point — the moment the retry clears (or the
 user fixes their card), the reminders stop. This recovers a meaningful share of the
-20–40% of churn that's involuntary (Chapter 5). Wire the trigger to your payment
+20–40% of churn that's involuntary (Chapter 5). The trigger comes from your payment
 provider's failed-charge webhook (a Stripe `invoice.payment_failed` → `defineWebhookSource`
-→ `payment.failed`), and pass the hosted card-update URL through as a prop so the email
-has a one-click fix.
+→ `payment.failed`), with the hosted card-update URL passed through as a prop so the
+email has a one-click fix.
 
 Note the `idempotencyLabel` on the second send: this journey sends the **same template
 twice** on one run, so each send site declares a distinct label for the engine's
@@ -534,7 +536,7 @@ fast-forwarding through completed steps. Now imagine a worker dies **after** the
 provider accepted your welcome email but **before** the engine recorded that step as
 complete. The replay re-runs the send line. Without engine support, that user gets two
 welcomes — and at scale, every deploy is a small chance of embarrassing some slice of
-your users. Three things to internalise:
+your users. Three things worth internalising:
 
 - **Replay safety is automatic.** The engine derives a deterministic idempotency key
   for every `sendEmail()` and `ctx.trigger()` from the run's identity plus the nearest
@@ -569,8 +571,9 @@ options in the next section.
 A growth team should know what it's choosing instead of. The ways teams build lifecycle
 automation, roughly worst-to-best for this job:
 
-- **`setTimeout` / in-process timers.** Don't. Every wait is lost on the next deploy or
-  crash. Fine for a 30-second debounce, catastrophic for a 3-day sequence.
+- **`setTimeout` / in-process timers.** The tempting first reach, and the one that
+  hurts: every wait is lost on the next deploy or crash. Fine for a 30-second
+  debounce, catastrophic for a 3-day sequence.
 - **Cron + a state column.** A nightly job scans the users table and decides who's due
   for which email. It works, and plenty of companies run on it — but you end up
   hand-rebuilding state, idempotency, and branching that the engine gives you for free,
@@ -649,14 +652,19 @@ this hook is where the answer comes from.
 
 ---
 
-## 6.13 Do this now
+## 6.13 Before you move on
 
-1. Wire your backend to `POST /v1/ingest` for `user.created`, `payment.failed`, and your
-   milestone event.
-2. Build **`activation-welcome`** first; add its email templates to `src/emails/` and
-   preview them in the React Email dev server before they send (§6.3).
-3. Add **dunning** if you charge; then **win-back**.
-4. Add a **holdout** to your first journey and watch the lift in PostHog.
+The build order that tends to work, if you want a checklist for the week:
+
+1. **Wire your backend** to `POST /v1/ingest` for `user.created`, `payment.failed`,
+   and your milestone event — every journey below hangs off these three.
+2. **Build `activation-welcome` first**; add its templates to `src/emails/` and
+   preview them in the React Email dev server before they send (§6.3) — a broken
+   layout is much cheaper to catch in the preview than in a customer's inbox.
+3. **Add dunning if you charge**, then **win-back** — the same order as Chapter 5,
+   for the same reasons.
+4. **Put a holdout on that first journey** and watch the lift in PostHog — so when
+   someone asks whether the program works, there's a number instead of a feeling.
 
 You've now plugged the bucket. The rest of the course opens the tap — and makes sure
 every drop lands in an audience you own.

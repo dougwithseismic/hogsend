@@ -13,9 +13,9 @@ description: "The handful of charts a founder should read each morning, what eac
 
 ## 4.1 The insight types, and how to read them
 
-PostHog has seven ways to look at your events. You'll lean on four. Know all seven so
-you reach for the right one — picking the wrong insight type is the most common reason a
-founder stares at a chart that can't answer their question.
+PostHog has seven ways to look at your events, and you'll lean on four of them. All
+seven are still worth knowing, because picking the wrong insight type is the most
+common reason a founder ends up staring at a chart that can't answer their question.
 
 - **Trends** — a metric over time (counts, unique users, formulas), with breakdowns by
   any property. The workhorse. *Read it for direction and breakdown:* "signups per day,
@@ -63,12 +63,12 @@ The four you'll read daily are **Trends, Funnels, Retention, and Lifecycle.**
 
 ## 4.2 The daily checklist
 
-You don't need to stare at twenty charts. You need a short, fixed list you read the
-same way every morning. Here it is, with what each one means *and what to do when it
-looks wrong* — because a chart you don't act on is the "dashboard graveyard" failure mode
-from Chapter 0.
+You don't need twenty charts — what works is a short, fixed list read the same way
+every morning. Here's a good one, with what each chart means *and what it's telling you
+to do when it looks wrong* — because a chart nobody acts on is the "dashboard
+graveyard" failure mode from Chapter 0.
 
-Before the list, be honest about the baseline you're starting from:
+Before the list, it's worth being honest about the baseline you're starting from:
 
 <CheckIn
   id="dataHabit"
@@ -81,16 +81,16 @@ is precisely what this chapter closes, and by §4.5 the daily version costs two 
 
 ### 1. Active users (Trends — unique users on your core action)
 **The pulse.** If this is flat or falling week-over-week, nothing else matters yet.
-Watch the *trend*, not the absolute number — early on, direction is the signal. Define
-"active" as your **core action**, not "opened the app": a user who logs in and does
-nothing is not active in any sense that pays you.
+The *trend* is what to watch, not the absolute number — early on, direction is the
+signal. "Active" works best defined as your **core action** rather than "opened the
+app": a user who logs in and does nothing isn't active in any sense that pays you.
 *If it's falling:* check the lifecycle chart (#6) — is it fewer New, or more Dormant?
 
 ### 2. New signups (Trends — count of `user_signed_up`, server-side)
 **Is acquisition working?** A useful number, but a vanity one on its own: a signup
 spike with no matching activation means you attracted the wrong people or overpromised.
-Always read it next to chart 3, and always with the **channel breakdown** on — a flat
-total can hide one channel doubling while another collapses.
+It reads best next to chart 3, with the **channel breakdown** on — a flat total can
+hide one channel doubling while another collapses.
 *If it spikes but activation doesn't:* you bought the wrong traffic — check the channel
 breakdown.
 
@@ -117,15 +117,15 @@ product with real pull.
 **Is your growth real?** A healthy chart shows New and Returning growing. A big red
 **Dormant** band underneath modest New growth means you're refilling a leaking bucket —
 the same users churning and being replaced. This is the leaky bucket, drawn for you.
-*If Dormant dominates:* stop thinking about acquisition; this is a Chapter 5–6 problem.
+*If Dormant dominates:* acquisition can wait — this is a Chapter 5–6 problem.
 
 ### 7. Session replays of drop-offs and errors
 **The "why" behind the numbers.** Filter replays to users who hit a funnel drop-off, a
 rage-click, or an error, and watch a few. Five minutes of watching real people struggle
-will teach you more than an hour of staring at a chart. The workflow that makes this
-cheap: never browse replays cold — arrive from a chart (a funnel step, an error, a
-rage-click filter) so every replay you watch is pre-selected to show you a problem
-([replay docs](https://posthog.com/docs/session-replay)).
+will teach you more than an hour of staring at a chart. The workflow that keeps this
+cheap is arriving from a chart (a funnel step, an error, a rage-click filter) rather
+than browsing cold — that way every replay you watch is pre-selected to show you a
+problem ([replay docs](https://posthog.com/docs/session-replay)).
 *What you're looking for:* the moment of hesitation. Cursor circling, tab-switching,
 a form field cleared and retyped — the qualitative signature of the leak your funnel
 found quantitatively.
@@ -177,9 +177,9 @@ a baseline you know by heart, and it only works because the list doesn't change.
 
 ## 4.3 How to read a retention curve (the one chart that matters most)
 
-Most founders glance at retention and move on. Read it properly and it answers your
-single most important strategic question — *am I in the "fix the bucket" or "open the
-tap" phase?* Three things to look at:
+Most founders glance at retention and move on, which is a shame — read properly, this
+one chart answers your single most important strategic question: *am I in the "fix the
+bucket" or "open the tap" phase?* Three things worth looking at:
 
 - **The shape, not the height.** Three archetypes: a curve that **slides to zero** (no
   PMF — every cohort eventually leaves), a curve that **declines then flattens** (the
@@ -201,13 +201,14 @@ covers all three in depth):
 
 - **N-day vs unbounded retention.** N-day asks "did they return *on* day 7?";
   unbounded asks "did they return on day 7 *or any day after*?" N-day is stricter and
-  lower; unbounded suits products used sporadically. Know which your grid shows before
-  comparing anything to anything.
+  lower; unbounded suits products used sporadically. It's worth checking which your
+  grid shows before comparing anything to anything.
 - **The right-hand columns are younger.** In a weekly grid, the newest cohort has only
   had one week to prove itself — the bottom-right of the grid is always sparse and
   noisy. Read the *oldest few cohorts* for shape, the newest few for early trend.
-- **Small cohorts lie.** A 12-user cohort swinging from 40% to 25% is three people.
-  Don't re-plan the roadmap on it; wait for the trend across several cohorts.
+- **Small cohorts lie.** A 12-user cohort swinging from 40% to 25% is three people —
+  not something to re-plan a roadmap on. The trend across several cohorts is the
+  signal worth waiting for.
 
 A practical benchmark, held loosely: for many B2B SaaS products a flattening D30 in the
 *tens of percent* is healthy; consumer social needs higher; e-commerce thinks in repeat-
@@ -222,20 +223,21 @@ have](https://posthog.com/founders/measure-product-market-fit).
 
 ## 4.4 Build it as one dashboard
 
-Don't navigate to nine insights every day. Save each as an insight, add them to a
-single **dashboard**, and **pin that dashboard to your project homepage** so it's the
-first thing you see when you log in
-([dashboards docs](https://posthog.com/docs/product-analytics/dashboards)).
+There's no reason to navigate to nine insights every day. Each one can be saved, added
+to a single **dashboard**, and that dashboard **pinned to your project homepage** so
+it's the first thing you see when you log in
+([dashboards docs](https://posthog.com/docs/product-analytics/dashboards)). A few
+things that make the board work harder:
 
-- Put your **North Star metric** (Chapter 2) as the top tile, with its input metrics
-  beneath it — the layout itself should say what matters most
+- Your **North Star metric** (Chapter 2) belongs in the top tile, with its input
+  metrics beneath it — the layout itself should say what matters most
   ([PostHog's founder guide to North Star metrics](https://posthog.com/founders/north-star-metrics)
   makes the case that the metric on top shapes what the team optimises).
 - Use dashboard-level date and property filters so you can switch the whole board to
   "last 7 days" or "paid users only" at once.
 - PostHog ships dashboard templates (web metrics, product health) you can start from
   instead of building blank.
-- Give every non-obvious tile a one-line description ("D7 retention, weekly cohorts,
+- Every non-obvious tile earns a one-line description ("D7 retention, weekly cohorts,
   core action = project_created"). The tile that needs a tribal elder to interpret is
   the tile that stops being read.
 
@@ -252,9 +254,9 @@ The goal is not to *remember* to check these. The goal is for the important ones
 come to you, and for you to only open PostHog when something's worth investigating.
 
 - **Alerts** fire when an insight crosses a threshold or trips anomaly detection, and
-  notify you in-app, by email, on Slack, or via webhook. Set one on each critical
-  chart: "signups dropped below X today," "errors spiked." Choose how often it checks
-  (hourly/daily/weekly).
+  notify you in-app, by email, on Slack, or via webhook. One on each critical chart
+  covers it: "signups dropped below X today," "errors spiked." You choose how often
+  each checks (hourly/daily/weekly).
 - **Subscriptions** send a scheduled snapshot of an insight or dashboard to email or
   Slack on a cadence. A weekly snapshot of your North Star dashboard, delivered Monday
   morning, keeps the team aligned with zero effort.
@@ -327,8 +329,8 @@ Three failure modes to avoid as you build the habit:
 - **Watching vanity metrics.** Signups, pageviews, and registered-user counts feel
   good and move easily — [Amplitude's definition](https://amplitude.com/blog/vanity-metrics)
   is blunt: a vanity metric is one that can go up while the business goes nowhere.
-  Anchor on the metrics that reflect *value delivered* — activation, retention, paid
-  conversion — and treat the vanity numbers as context.
+  The metrics that reflect *value delivered* — activation, retention, paid
+  conversion — are the anchor; the vanity numbers are context around them.
 - **Reacting to noise.** Day-to-day numbers bounce. Look at trends over weeks before
   concluding something changed. An alert is for "investigate," not "panic." A single bad
   day is weather; a two-week trend is climate.
@@ -341,16 +343,24 @@ Three failure modes to avoid as you build the habit:
 
 ---
 
-## 4.8 Do this now
+## 4.8 Before you move on
 
-1. Create the nine insights from §4.2.
-2. Add them to one dashboard; pin it to your homepage; put your North Star on top.
-3. Set alerts on signups, activation, and errors → Slack — few and loud.
-4. Schedule a weekly subscription of the dashboard to yourself/your team.
-5. Read your **retention curve** with §4.3 in hand and say out loud which phase you're
-   in — fix the bucket, or open the tap.
-6. Watch three session replays of your worst funnel step's drop-outs, arriving from the
-   chart, not browsing cold.
+Six things worth doing while this chapter is fresh — together they turn the
+instrumentation from Chapter 3 into a habit that costs two minutes a day:
+
+1. Create the nine insights from §4.2 — the fixed list is what makes deviations
+   register.
+2. Put them on one dashboard, pinned to your homepage, North Star on top — so the
+   right read is also the path of least resistance.
+3. Add alerts on signups, activation, and errors → Slack — few and loud, so a fired
+   alert always means something.
+4. Schedule a weekly subscription of the dashboard to yourself/your team — alignment
+   with zero effort.
+5. Read your **retention curve** with §4.3 in hand, and see if you can say out loud
+   which phase you're in — fix the bucket, or open the tap. That one sentence directs
+   the next three chapters.
+6. Watch three session replays of your worst funnel step's drop-outs, arriving from
+   the chart rather than browsing cold — the cheapest "why" you'll ever collect.
 
 You can now *see* your funnel and your leaks. The rest of the course is about acting on
 them — first by keeping the users you have, then by going to get more.
