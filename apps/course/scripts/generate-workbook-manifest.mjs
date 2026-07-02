@@ -30,7 +30,9 @@ function attr(node, name, file) {
   const found = (node.attributes ?? []).find(
     (a) => a.type === "mdxJsxAttribute" && a.name === name,
   );
-  if (!found || found.value == null) return undefined;
+  if (!found) return undefined;
+  // A bare JSX attribute (`<CheckIn multi>`) means true.
+  if (found.value == null) return true;
   if (typeof found.value === "string") return found.value;
   if (found.value.type === "mdxJsxAttributeValueExpression") {
     try {
@@ -62,33 +64,51 @@ function extractItems(filePath, course, lesson) {
     switch (node.name) {
       case "WorkbookPrompt": {
         const id = requireAttr(node, "id", filePath);
+        const placeholder = attr(node, "placeholder", filePath);
+        const rows = attr(node, "rows", filePath);
         items.push({
           kind: "note",
+          id,
           key: `note:${id}`,
           anchor: `wb-${id}`,
           label: requireAttr(node, "prompt", filePath),
+          ...(placeholder ? { placeholder } : {}),
+          ...(typeof rows === "number" ? { rows } : {}),
         });
         break;
       }
       case "CheckIn": {
         const id = requireAttr(node, "id", filePath);
+        const options = attr(node, "options", filePath);
         items.push({
           kind: "profile",
+          id,
           key: `profile:${id}`,
           anchor: `wb-${id}`,
           label: requireAttr(node, "question", filePath),
+          options: Array.isArray(options) ? options : [],
+          ...(attr(node, "multi", filePath) === true ? { multi: true } : {}),
+          ...(attr(node, "freeText", filePath) === true
+            ? { freeText: true }
+            : {}),
         });
         break;
       }
       case "Checklist": {
         const id = requireAttr(node, "id", filePath);
         const list = requireAttr(node, "items", filePath);
+        if (!Array.isArray(list)) {
+          throw new Error(
+            `${filePath}: <Checklist ${id}> items is not an array`,
+          );
+        }
         items.push({
           kind: "checklist",
+          id,
           key: `checklist:${id}`,
           anchor: `wb-${id}`,
           label: attr(node, "title", filePath) ?? "Checklist",
-          itemCount: Array.isArray(list) ? list.length : 0,
+          items: list,
         });
         break;
       }
@@ -107,6 +127,7 @@ function extractItems(filePath, course, lesson) {
         const id = requireAttr(node, "id", filePath);
         items.push({
           kind: "media",
+          id,
           key: `media:${id}`,
           anchor: `wb-media-${id}`,
           label: requireAttr(node, "title", filePath),
@@ -118,6 +139,7 @@ function extractItems(filePath, course, lesson) {
         const id = requireAttr(node, "id", filePath);
         items.push({
           kind: "media",
+          id,
           key: `media:${id}`,
           anchor: `wb-media-${id}`,
           label: requireAttr(node, "title", filePath),

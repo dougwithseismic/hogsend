@@ -1,13 +1,31 @@
-import { desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { CheckIn } from "@/components/course/check-in";
+import { Checklist } from "@/components/course/checklist";
+import { LessonProvider } from "@/components/course/lesson-context";
+import {
+  WorkbookCourseProgress,
+  WorkbookMediaRow,
+  WorkbookQuizRow,
+} from "@/components/course/workbook-extras";
+import { WorkbookPrompt } from "@/components/course/workbook-prompt";
+import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { auth } from "@/lib/auth";
 import { getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
-import { response } from "@/lib/db/schema";
+import { enrollment, response } from "@/lib/db/schema";
 import { source } from "@/lib/source";
+import {
+  courseWorkbookLessons,
+  dedupeByKey,
+  itemState,
+  type SavedValue,
+  WORKBOOK_MANIFEST,
+  type WorkbookItem,
+} from "@/lib/workbook";
 
 // Reads the session + the user's DB rows — always per-request.
 export const dynamic = "force-dynamic";
@@ -18,162 +36,127 @@ export const metadata: Metadata = {
 };
 
 /**
- * Everything the reader has written or answered, in one reviewable place:
- * workbook notes, check-in answers, plan checklists, quiz scores. Grouped
- * per COURSE (there can be several), then by lesson in course order, each
- * lesson linking back to where the answer was given — the profile they build
- * in the lessons, readable back.
+ * The reader's workbook: every interactive item each course will ask of them,
+ * grouped per course → chapter in course order, with the FULL structure shown —
+ * filled answers editable right here (the same blocks the lessons render),
+ * unfilled ones ghosted in with a jump link to where they live. A per-course
+ * progress meter and a "continue where you left off" pointer keep the next
+ * action obvious.
  */
 
-type Row = typeof response.$inferSelect;
-
-type LessonGroup = {
-  lesson: string | null;
+type CourseSection = {
+  slug: string;
   title: string;
-  href: string | null;
-  rows: Row[];
+  items: WorkbookItem[]; // deduped, course order — for progress
+  lessons: Array<{
+    lesson: string;
+    title: string;
+    url: string;
+    items: WorkbookItem[]; // deduped against earlier lessons
+  }>;
 };
 
-type CourseGroup = {
-  course: string; // "" = rows saved outside any lesson
-  title: string;
-  href: string | null;
-  lessons: LessonGroup[];
-};
-
-function groupByCourse(rows: Row[]): CourseGroup[] {
-  const courses = new Map<string, Map<string, LessonGroup>>();
-  for (const row of rows) {
-    const course = row.courseSlug ?? "";
-    const lesson = row.lessonSlug ?? null;
-    let lessons = courses.get(course);
-    if (!lessons) {
-      lessons = new Map();
-      courses.set(course, lessons);
-    }
-    const lessonKey = lesson ?? "~"; // "~" sorts unplaced rows last
-    let group = lessons.get(lessonKey);
-    if (!group) {
-      const page =
-        course && lesson ? source.getPage([course, lesson]) : undefined;
-      group = {
-        lesson,
-        title: page?.data.title ?? "Saved outside a lesson",
-        href: page ? page.url : null,
-        rows: [],
-      };
-      lessons.set(lessonKey, group);
-    }
-    group.rows.push(row);
+function buildCourseSection(slug: string): CourseSection {
+  const seen = new Set<string>();
+  const lessons: CourseSection["lessons"] = [];
+  for (const { lesson, items } of courseWorkbookLessons(slug)) {
+    const fresh = items.filter((item) => {
+      if (seen.has(item.key)) return false;
+      seen.add(item.key);
+      return true;
+    });
+    if (fresh.length === 0) continue;
+    const page = source.getPage([slug, lesson]);
+    lessons.push({
+      lesson,
+      title: page?.data.title ?? lesson,
+      url: page?.url ?? `/learn/${slug}/${lesson}`,
+      items: fresh,
+    });
   }
-
-  return [...courses.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([course, lessons]) => ({
-      course,
-      title: course ? (getCourse(course)?.title ?? course) : "General notes",
-      href: course ? `/${course}` : null,
-      lessons: [...lessons.entries()]
-        .sort(([a], [b]) => a.localeCompare(b)) // numeric lesson prefixes = course order
-        .map(([, g]) => g),
-    }));
+  const items = lessons.flatMap((l) => l.items);
+  return {
+    slug,
+    title: getCourse(slug)?.title ?? slug,
+    items,
+    lessons,
+  };
 }
 
-const KIND_LABEL: Record<string, string> = {
-  note: "Workbook",
-  profile: "Check-in",
-  checklist: "Checklist",
-  quiz: "Quiz",
-};
+/** First unfilled item in course order — the "continue here" pointer. */
+function nextOpenItem(
+  section: CourseSection,
+  values: Record<string, SavedValue>,
+): { item: WorkbookItem; lessonTitle: string; href: string } | null {
+  for (const lesson of section.lessons) {
+    for (const item of lesson.items) {
+      if (itemState(item, values[item.key] ?? null).status !== "done") {
+        return {
+          item,
+          lessonTitle: lesson.title,
+          href: `${lesson.url}#${item.anchor}`,
+        };
+      }
+    }
+  }
+  return null;
+}
 
-/** Render order within a lesson group: written work first, score last. */
-const KIND_ORDER = ["note", "profile", "checklist", "quiz"];
-
-function Entry({ row }: { row: Row }) {
-  const v = (row.value ?? {}) as {
-    text?: string;
-    prompt?: string;
-    question?: string;
-    choices?: string[];
-    note?: string;
-    checked?: string[];
-    title?: string;
-    score?: number;
-    total?: number;
-  };
-
+function LessonItems({
+  courseSlug,
+  lesson,
+  url,
+  items,
+}: {
+  courseSlug: string;
+  lesson: string;
+  url: string;
+  items: WorkbookItem[];
+}) {
   return (
-    <div className="rounded-md border border-white/[0.08] bg-white/[0.015] p-4">
-      <p className="font-medium text-[10px] text-accent uppercase tracking-[0.14em]">
-        {KIND_LABEL[row.kind] ?? row.kind}
-      </p>
-
-      {row.kind === "note" ? (
-        <>
-          {v.prompt ? (
-            <p className="mt-1.5 font-medium text-sm text-white">{v.prompt}</p>
-          ) : null}
-          <p className="mt-2 whitespace-pre-wrap text-sm text-white/75 leading-relaxed">
-            {v.text}
-          </p>
-        </>
-      ) : null}
-
-      {row.kind === "profile" ? (
-        <>
-          {v.question ? (
-            <p className="mt-1.5 font-medium text-sm text-white">
-              {v.question}
-            </p>
-          ) : null}
-          {v.choices && v.choices.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {v.choices.map((c) => (
-                <span
-                  key={c}
-                  className="rounded-full border border-accent/40 bg-accent-tint px-2.5 py-1 text-white/90 text-xs"
-                >
-                  {c}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {v.note ? (
-            <p className="mt-2 whitespace-pre-wrap text-sm text-white/60 leading-relaxed">
-              {v.note}
-            </p>
-          ) : null}
-        </>
-      ) : null}
-
-      {row.kind === "checklist" ? (
-        <>
-          <p className="mt-1.5 font-medium text-sm text-white">
-            {v.title ?? "Checklist"}
-            <span className="ml-2 font-normal text-white/50">
-              {v.checked?.length ?? 0} done
-            </span>
-          </p>
-          <ul className="mt-2 flex flex-col gap-1">
-            {(v.checked ?? []).map((item) => (
-              <li key={item} className="flex gap-2 text-sm text-white/60">
-                <span className="text-good">✓</span>
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : null}
-
-      {row.kind === "quiz" ? (
-        <p className="mt-1.5 text-sm text-white">
-          Score:{" "}
-          <span className="font-medium">
-            {v.score}/{v.total}
-          </span>
-        </p>
-      ) : null}
-    </div>
+    <LessonProvider course={courseSlug} lesson={lesson}>
+      {items.map((item) => {
+        const href = `${url}#${item.anchor}`;
+        switch (item.kind) {
+          case "note":
+            return (
+              <WorkbookPrompt
+                key={item.key}
+                id={item.id ?? ""}
+                prompt={item.label}
+                placeholder={item.placeholder}
+                rows={item.rows}
+              />
+            );
+          case "profile":
+            return (
+              <CheckIn
+                key={item.key}
+                id={item.id ?? ""}
+                question={item.label}
+                options={item.options ?? []}
+                multi={item.multi}
+                freeText={item.freeText}
+              />
+            );
+          case "checklist":
+            return (
+              <Checklist
+                key={item.key}
+                id={item.id ?? ""}
+                title={item.label}
+                items={item.items ?? []}
+              />
+            );
+          case "quiz":
+            return <WorkbookQuizRow key={item.key} item={item} href={href} />;
+          case "media":
+            return <WorkbookMediaRow key={item.key} item={item} href={href} />;
+          default:
+            return null;
+        }
+      })}
+    </LessonProvider>
   );
 }
 
@@ -181,13 +164,34 @@ export default async function WorkbookPage() {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/sign-in?next=/workbook");
 
-  const rows = await db
-    .select()
-    .from(response)
-    .where(eq(response.userId, session.user.id))
-    .orderBy(desc(response.updatedAt));
+  const [rows, enrollments] = await Promise.all([
+    db
+      .select({ key: response.key, value: response.value })
+      .from(response)
+      .where(eq(response.userId, session.user.id)),
+    db
+      .select({ courseSlug: enrollment.courseSlug })
+      .from(enrollment)
+      .where(eq(enrollment.userId, session.user.id)),
+  ]);
 
-  const courseGroups = groupByCourse(rows);
+  const values: Record<string, SavedValue> = Object.fromEntries(
+    rows.map((row) => [row.key, row.value as SavedValue]),
+  );
+
+  // A course belongs in the workbook once the reader is enrolled OR has any
+  // saved answer for one of its items (free-lesson answers precede enrollment).
+  const enrolled = new Set(enrollments.map((e) => e.courseSlug));
+  const savedKeys = new Set(Object.keys(values));
+  const courseSlugs = Object.keys(WORKBOOK_MANIFEST).filter(
+    (slug) =>
+      enrolled.has(slug) ||
+      dedupeByKey(courseWorkbookLessons(slug).flatMap((l) => l.items)).some(
+        (item) => savedKeys.has(item.key),
+      ),
+  );
+
+  const sections = courseSlugs.map(buildCourseSection);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
@@ -195,16 +199,16 @@ export default async function WorkbookPage() {
         Your workbook
       </h1>
       <p className="mt-2 text-sm text-white/55 leading-6">
-        Everything you've written and answered across your courses — your
-        commitments, drafts, check-ins, and scores — organised per course, each
-        entry linked back to the lesson it belongs to.
+        Every exercise your courses ask of you, in one place — what you've
+        written and answered is editable right here, and what you haven't yet is
+        waiting with a link to the chapter it lives in.
       </p>
 
-      {courseGroups.length === 0 ? (
+      {sections.length === 0 ? (
         <div className="mt-10 rounded-md border border-white/[0.08] bg-white/[0.015] p-8 text-center">
           <p className="text-sm text-white/60">
-            Nothing here yet. Answers, notes, and checklists you save inside
-            lessons land here automatically.
+            Nothing here yet. Start a course and everything you write, answer,
+            and tick lands here automatically.
           </p>
           <Link
             href="/"
@@ -214,55 +218,71 @@ export default async function WorkbookPage() {
           </Link>
         </div>
       ) : (
-        <div className="mt-10 flex flex-col gap-14">
-          {courseGroups.map((cg) => (
-            <section key={cg.course || "general"}>
-              <div className="flex items-baseline justify-between gap-3 border-white/[0.08] border-b pb-3">
-                <h2 className="font-display text-white text-xl tracking-[-0.02em]">
-                  {cg.title}
-                </h2>
-                {cg.href ? (
-                  <Link
-                    href={cg.href}
-                    className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
-                  >
-                    Course overview →
-                  </Link>
-                ) : null}
-              </div>
-              <div className="mt-6 flex flex-col gap-8">
-                {cg.lessons.map((group) => (
-                  <div key={group.lesson ?? "general"}>
+        <WorkbookStateProvider initial={values}>
+          <div className="mt-10 flex flex-col gap-16">
+            {sections.map((section) => {
+              const next = nextOpenItem(section, values);
+              return (
+                <section key={section.slug}>
+                  <div className="border-white/[0.08] border-b pb-4">
                     <div className="flex items-baseline justify-between gap-3">
-                      <h3 className="font-medium text-base text-white tracking-[-0.01em]">
-                        {group.title}
-                      </h3>
-                      {group.href ? (
+                      <h2 className="font-display text-white text-xl tracking-[-0.02em]">
+                        {section.title}
+                      </h2>
+                      <Link
+                        href={`/${section.slug}`}
+                        className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
+                      >
+                        Course overview →
+                      </Link>
+                    </div>
+                    <WorkbookCourseProgress items={section.items} />
+                    {next ? (
+                      <p className="mt-3 text-sm text-white/55">
+                        Continue where you left off:{" "}
                         <Link
-                          href={group.href}
-                          className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
+                          href={next.href}
+                          className="text-white/80 underline transition-colors hover:text-white"
                         >
-                          Revisit lesson →
-                        </Link>
-                      ) : null}
-                    </div>
-                    <div className="mt-3 flex flex-col gap-3">
-                      {[...group.rows]
-                        .sort(
-                          (a, b) =>
-                            KIND_ORDER.indexOf(a.kind) -
-                            KIND_ORDER.indexOf(b.kind),
-                        )
-                        .map((row) => (
-                          <Entry key={row.id} row={row} />
-                        ))}
-                    </div>
+                          {next.item.label.length > 80
+                            ? `${next.item.label.slice(0, 77)}…`
+                            : next.item.label}
+                        </Link>{" "}
+                        <span className="text-white/35">
+                          ({next.lessonTitle})
+                        </span>
+                      </p>
+                    ) : null}
                   </div>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
+
+                  <div className="mt-2 flex flex-col gap-10">
+                    {section.lessons.map((lesson) => (
+                      <div key={lesson.lesson}>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <h3 className="font-medium text-base text-white tracking-[-0.01em]">
+                            {lesson.title}
+                          </h3>
+                          <Link
+                            href={lesson.url}
+                            className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
+                          >
+                            Revisit chapter →
+                          </Link>
+                        </div>
+                        <LessonItems
+                          courseSlug={section.slug}
+                          lesson={lesson.lesson}
+                          url={lesson.url}
+                          items={lesson.items}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </WorkbookStateProvider>
       )}
     </div>
   );

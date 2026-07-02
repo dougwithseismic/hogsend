@@ -16,16 +16,27 @@ export type WorkbookItemKind =
 
 export type WorkbookItem = {
   kind: WorkbookItemKind;
+  /** The block's authored id (absent for quiz — keyed by lesson). */
+  id?: string;
   /** Response-table key the block persists under (note:…, quiz:course/lesson). */
   key: string;
   /** DOM id the block renders, for #anchor deep links. */
   anchor: string;
   /** The authored prompt / question / title. */
   label: string;
-  /** checklist: number of items; quiz: pool size. */
+  /** quiz: pool size. */
   itemCount?: number;
   /** Only for kind "media". */
   media?: "video" | "podcast";
+  /** note: authored textarea hints. */
+  placeholder?: string;
+  rows?: number;
+  /** profile: authored choices. */
+  options?: string[];
+  multi?: boolean;
+  freeText?: boolean;
+  /** checklist: authored items. */
+  items?: string[];
 };
 
 export type WorkbookManifest = Record<string, Record<string, WorkbookItem[]>>;
@@ -84,7 +95,7 @@ export function itemState(
         : { status: "empty" };
     case "checklist": {
       const ticked = value.checked?.length ?? 0;
-      const total = item.itemCount ?? 0;
+      const total = item.items?.length ?? 0;
       if (ticked === 0) return { status: "empty" };
       const detail =
         total > 0 ? `${ticked}/${total} ticked` : `${ticked} ticked`;
