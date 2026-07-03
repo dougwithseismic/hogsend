@@ -88,8 +88,8 @@ export const ALL_ACCESS = {
  * (check-ins, prompts, flashcards, plan items) stay literal at their call site.
  */
 export const FLAGSHIP_CONTENT_FACTS = {
-  quizQuestions: 110,
-  workbookItems: 84,
+  quizQuestions: 114,
+  workbookItems: 88,
   dayPlan: "30/60/90/180",
 } as const;
 

@@ -55,6 +55,7 @@ export function freeLessonParams(): { slug: string[] }[] {
  * courses. The lexically-first lesson of every course stays free regardless.
  */
 const FREE_CHAPTERS = new Set<string>([
+  "growth-with-posthog/00-product-led-growth",
   "growth-with-posthog/01-what-is-posthog",
 ]);
 

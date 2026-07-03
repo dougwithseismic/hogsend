@@ -1,6 +1,6 @@
 {
   "growth-with-posthog": {
-    "00-product-led-growth": [
+    "00-product-led-growth/02-what-plg-means": [
       {
         "kind": "media",
         "id": "JSMvq9dXKxA",
@@ -9,6 +9,16 @@
         "label": "The Evolution of Product-Led Growth: PLG x AI",
         "media": "video"
       },
+      {
+        "kind": "flashcards",
+        "id": "cards-plg-definition",
+        "key": "flashcards:cards-plg-definition",
+        "anchor": "wb-cards-plg-definition",
+        "label": "Key ideas — what PLG is",
+        "itemCount": 4
+      }
+    ],
+    "00-product-led-growth/04-growth-is-engineering": [
       {
         "kind": "media",
         "id": "IHwS2By9UKM",
@@ -19,12 +29,14 @@
       },
       {
         "kind": "flashcards",
-        "id": "cards-plg",
-        "key": "flashcards:cards-plg",
-        "anchor": "wb-cards-plg",
-        "label": "Key ideas — product-led growth",
-        "itemCount": 8
-      },
+        "id": "cards-plg-engineering",
+        "key": "flashcards:cards-plg-engineering",
+        "anchor": "wb-cards-plg-engineering",
+        "label": "Key ideas — growth as engineering",
+        "itemCount": 4
+      }
+    ],
+    "00-product-led-growth/05-who-owns-growth": [
       {
         "kind": "profile",
         "id": "role",
@@ -38,7 +50,28 @@
           "Marketing or growth",
           "Consultant or agency"
         ]
-      },
+      }
+    ],
+    "00-product-led-growth/06-the-machine": [
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/00-product-led-growth/06-the-machine",
+        "anchor": "wb-quiz",
+        "label": "Quick check — the machine",
+        "itemCount": 4
+      }
+    ],
+    "00-product-led-growth/07-how-teams-get-it-wrong": [
+      {
+        "kind": "flashcards",
+        "id": "cards-plg-failures",
+        "key": "flashcards:cards-plg-failures",
+        "anchor": "wb-cards-plg-failures",
+        "label": "Key ideas — how teams get it wrong",
+        "itemCount": 5
+      }
+    ],
+    "00-product-led-growth/08-measure-keep-grow": [
       {
         "kind": "profile",
         "id": "stage",
@@ -54,8 +87,18 @@
         ]
       },
       {
+        "kind": "flashcards",
+        "id": "cards-plg-order",
+        "key": "flashcards:cards-plg-order",
+        "anchor": "wb-cards-plg-order",
+        "label": "Key ideas — the order",
+        "itemCount": 3
+      }
+    ],
+    "00-product-led-growth/09-before-you-move-on": [
+      {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/00-product-led-growth",
+        "key": "quiz:growth-with-posthog/00-product-led-growth/09-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10

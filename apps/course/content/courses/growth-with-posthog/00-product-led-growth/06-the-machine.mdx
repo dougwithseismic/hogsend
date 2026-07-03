@@ -1,0 +1,88 @@
+---
+title: "The machine you're going to build"
+description: "The whole system on one page: three layers, one loop. See it (PostHog), act on it (Hogsend), own it (identity + ads) — and the division of labour that keeps it legible: PostHog detects, Hogsend acts, you decide."
+---
+
+Here's the whole system on one page, so the chapters that follow have somewhere to hang.
+Three layers, one loop:
+
+- **See it — PostHog (Chapters 1–4).** Collect events, identify people, and read the
+  funnel, retention, and the daily dashboard. You can't fix a leak you can't see.
+- **Act on it — Hogsend (Chapters 5–6).** Code-first lifecycle journeys that reach the
+  right user at the right moment — welcome, nudge, win-back, dunning, referral — triggered
+  by the same events you measure, and fired back as events so the loop stays measurable.
+- **Own it — identity + ads (Chapters 7–8).** Drive traffic, then capture every visitor
+  into a channel you own (verified email, linked Discord/Telegram) on an identity graph,
+  so you never pay to reach the same person twice — and so your ads and referrals compound.
+
+The division of labour that keeps it simple no matter how much you add: **PostHog detects,
+Hogsend acts, you decide.** Hold that split and the system stays legible.
+
+| Layer | Tool | Chapters | The question it answers |
+|---|---|---|---|
+| Decide what matters | You (AARRR, North Star) | 0, 2 | What are we even optimising? |
+| See it | PostHog | 1, 3, 4 | Where are we losing people? |
+| Act on it | Hogsend | 5, 6 | How do we pull them back, automatically? |
+| Own & grow it | Ads + Hogsend connectors | 7, 8 | How do we acquire without renting our audience? |
+| Run it | The cadence + the plan | 9, 10 | How does this become a habit, not a project? |
+
+Two chapters at the end turn the machine into an operation: Chapter 9 is the rhythm it
+runs on (the daily/weekly/monthly cadence and the experimentation program), and Chapter
+10 is the **30/60/90/180-day plan** — the whole build sequenced into phases with
+interactive checklists, exit criteria, and the anti-patterns per phase. If you're the
+kind of person who wants to see the plan before the theory, it's there; it will just
+keep pointing you back here.
+
+<Quiz
+  title="Quick check — the machine"
+  questions={[
+    {
+      q: "What are the three layers of the machine this course builds?",
+      options: [
+        "Acquire, convert, retain",
+        "See it (PostHog) → act on it (Hogsend) → own it (identity + ads)",
+        "Frontend, backend, database",
+        "Awareness, consideration, decision",
+      ],
+      answer: 1,
+      explain:
+        "See it — PostHog (Ch 1–4). Act on it — Hogsend (Ch 5–6). Own it — identity + ads (Ch 7–8). Three layers, one loop, run on a cadence (Ch 9–10).",
+    },
+    {
+      q: "What's the one-line division of labour that keeps the system legible?",
+      options: [
+        "PostHog detects, Hogsend acts, you decide",
+        "Marketing owns it, engineering supports it",
+        "The tool decides, the human executes",
+        "PostHog sends, Hogsend measures",
+      ],
+      answer: 0,
+      explain:
+        "PostHog detects (events, identity, analytics); Hogsend acts (the journeys that reach users); you decide what matters. Hold that split and the system stays simple no matter how much you add.",
+    },
+    {
+      q: "Why do the journeys fire their results back as events?",
+      options: [
+        "To bill per send",
+        "So the loop stays measurable — the action you took becomes data PostHog can read",
+        "To satisfy a compliance requirement",
+        "Because Hogsend can't send without them",
+      ],
+      answer: 1,
+      explain:
+        "Hogsend acts on the events PostHog measures, and fires the outcome back as events — so the effect of every journey is itself measurable, closing the loop rather than disappearing into a black box.",
+    },
+    {
+      q: "What do the last two chapters (9 and 10) add on top of the three layers?",
+      options: [
+        "Two more tools to install",
+        "The operation: the cadence it runs on, and the 30/60/90/180-day plan that sequences the build",
+        "A pricing model and a sales script",
+        "Nothing new — they're a recap",
+      ],
+      answer: 1,
+      explain:
+        "Chapter 9 is the rhythm (daily/weekly/monthly cadence + the experimentation program); Chapter 10 is the phased 30/60/90/180-day plan with checklists and exit criteria. They turn the machine into a habit, not a project.",
+    },
+  ]}
+/>
