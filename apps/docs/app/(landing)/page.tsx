@@ -410,7 +410,7 @@ function PsHero() {
             DISPLAY,
           )}
         >
-          Hogsend acts on what PostHog sees.
+          Build your growth in code.
         </h1>
         <p className="mt-6 max-w-[640px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
           Lifecycle marketing as TypeScript in your repo — the welcome series,
