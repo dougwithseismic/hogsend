@@ -1,0 +1,38 @@
+---
+title: "One pipeline, one identity"
+description: "PostHog's structural advantage over stitching point tools together: one event pipeline and one model of who your users are, under everything. The nine-minute official demo, digested."
+workbook: "Watch the official PostHog tour and take the point that the whole course leans on: it's all one pipeline under one identity."
+---
+
+PostHog calls itself an all-in-one platform for building products. In practice it's a
+stack of products that all sit on **one event pipeline and one model of who your users
+are**. That shared foundation is the entire point, and it's worth dwelling on because it's
+the thing the alternatives mostly *don't* have: an error links to the session replay that
+links to the user's whole analytics history that links to the feature flag they were in —
+because it is all the same data, keyed to the same person, in one place.
+
+For most analytics setups, "join the error to the session to the funnel" is a data-
+engineering project. In PostHog it's a click. For a small team, that collapse of five
+tools into one is most of the value.
+
+<VideoEmbed
+  id="1FZji2L-LmM"
+  title="What is PostHog? (Official Demo & Tutorial)"
+  channel="PostHog"
+  duration="8:50"
+  note="Watch this first — the official nine-minute tour. The suite in the next piece will map onto things you've now seen on screen."
+/>
+
+<VideoTranscript id="1FZji2L-LmM" />
+
+**What to take from it:**
+
+- PostHog exists to answer one question — *what should I build next?* — and it's built so
+  answering it doesn't need a data-engineering project first.
+- You send events from your product with front-end and back-end SDKs; everything else
+  (analytics, replay, flags, error tracking, LLM analytics) reads off that one stream.
+- The pitch isn't "best at any one thing" — it's "all of it joined, keyed to the same
+  person, plus an AI agent to query it for you."
+
+That last point is the whole reason a small team reaches for PostHog over a pile of
+point tools. The next piece is the full list of what's in the box.

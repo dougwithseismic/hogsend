@@ -69,7 +69,7 @@
         "media": "podcast"
       }
     ],
-    "01-what-is-posthog": [
+    "01-what-is-posthog/01-why-measure": [
       {
         "kind": "profile",
         "id": "teamSize",
@@ -82,7 +82,9 @@
           "A small team (3–10)",
           "10+ people"
         ]
-      },
+      }
+    ],
+    "01-what-is-posthog/02-one-pipeline": [
       {
         "kind": "media",
         "id": "1FZji2L-LmM",
@@ -90,7 +92,9 @@
         "anchor": "wb-media-1FZji2L-LmM",
         "label": "What is PostHog? (Official Demo & Tutorial)",
         "media": "video"
-      },
+      }
+    ],
+    "01-what-is-posthog/04-two-demos": [
       {
         "kind": "media",
         "id": "WPjJLpNxI6s",
@@ -106,15 +110,9 @@
         "anchor": "wb-media-ALR9iuXQVqg",
         "label": "Solve support tickets 10x faster with Session Replay – PostHog Session Replay Demo",
         "media": "video"
-      },
-      {
-        "kind": "flashcards",
-        "id": "cards-posthog",
-        "key": "flashcards:cards-posthog",
-        "anchor": "wb-cards-posthog",
-        "label": "Key ideas — PostHog",
-        "itemCount": 8
-      },
+      }
+    ],
+    "01-what-is-posthog/09-why-posthog": [
       {
         "kind": "profile",
         "id": "analyticsStack",
@@ -130,10 +128,20 @@
           "Something homegrown"
         ],
         "multi": true
+      }
+    ],
+    "01-what-is-posthog/10-set-up-account": [
+      {
+        "kind": "flashcards",
+        "id": "cards-posthog",
+        "key": "flashcards:cards-posthog",
+        "anchor": "wb-cards-posthog",
+        "label": "Key ideas — PostHog",
+        "itemCount": 8
       },
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/01-what-is-posthog",
+        "key": "quiz:growth-with-posthog/01-what-is-posthog/10-set-up-account",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10

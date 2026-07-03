@@ -1,0 +1,31 @@
+---
+title: "US cloud or EU cloud"
+description: "PostHog Cloud runs in two independent regions, and you pick one at signup. Data does not move between them and you cannot merge across them — the one decision in this chapter that's hard to undo."
+---
+
+PostHog Cloud runs in two independent regions:
+
+- **US Cloud** — data hosted in the US (AWS, Virginia).
+- **EU Cloud** — data hosted in the EU (AWS, Frankfurt). New EU projects disable IP
+  capture by default for a stronger privacy posture
+  ([the EU cloud announcement](https://posthog.com/blog/posthog-cloud-eu) has the
+  background).
+
+You pick one at signup. This matters because **data does not move between regions and
+you cannot merge across them.** If most of your users (or your compliance obligations)
+are in Europe, start on EU Cloud. If you guess wrong, fixing it later means a
+migration, not a setting.
+
+There's also a **self-hosted** open-source version. It's a real infrastructure
+commitment (it runs on ClickHouse) and PostHog actively steers small teams toward
+Cloud unless data-residency rules force self-hosting. For this course, Cloud is the
+sensible choice — the free tier (next piece) means there's no cost argument for
+self-hosting at your stage, and the operational cost of running ClickHouse yourself is
+real.
+
+> Hogsend, by contrast, is built to be self-hosted — your database, your email
+> provider, your deploy. So a common setup is *PostHog Cloud for analytics +
+> self-hosted Hogsend for messaging*, which keeps the customer data and the sending
+> on your own infrastructure. The asymmetry is deliberate: analytics is read-heavy and
+> fine to delegate; the messaging spine and the identity graph (Chapter 8) are assets you
+> want to own.

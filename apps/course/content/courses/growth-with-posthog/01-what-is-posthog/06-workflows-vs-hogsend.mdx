@@ -1,0 +1,55 @@
+---
+title: "PostHog Workflows vs Hogsend"
+description: "PostHog has its own messaging product — a no-code canvas for marketers. This course pairs PostHog with Hogsend for the lifecycle layer, because the audience here is people who build. The split, and why it's deliberate."
+---
+
+PostHog has its own messaging product (PostHog Workflows, formerly the open-source
+Laudspeaker). It's a no-code canvas for marketers, and it's good at what it does:
+batch sends and simple drip campaigns targeted on PostHog data.
+
+This course pairs PostHog with **Hogsend** instead, for the lifecycle layer, because
+the audience here is people who build, and because the messaging layer is where the
+"owned by the people who build" principle from Chapter 0 actually bites. The split is
+deliberate:
+
+| | PostHog Workflows | Hogsend |
+|---|---|---|
+| Authoring | Visual no-code canvas | Code-first TypeScript (`defineJourney`) |
+| Lives in | PostHog cloud | Your repo, your infra, your email provider |
+| Best at | Batch + simple drips, by marketers | Durable multi-step journeys, by developers |
+| Versioned | A config in a UI | A dependency you pin and code-review |
+| Logic | What the canvas exposes | Anything you can express in code |
+
+The clean division of labour, which the rest of the course follows:
+
+- **PostHog detects** — event collection, identity, cohorts, the analytics you read.
+- **Hogsend acts** — the journeys that send the emails and Discord/Telegram messages,
+  triggered by events, with the results fired back as events PostHog can measure.
+
+To make "code-first" concrete before Chapter 6 builds it properly — this is a real
+journey shape, abbreviated:
+
+```ts
+defineJourney({
+  meta: { id: "activation-nudge", trigger: { event: "user.signed_up" } },
+  run: async (user, ctx) => {
+    await sendEmail({ to: user, template: "welcome" });
+    const { timedOut } = await ctx.waitForEvent({
+      event: "project.created",
+      timeout: hours(48),
+    });
+    if (timedOut) await sendEmail({ to: user, template: "activation-nudge" });
+  },
+});
+```
+
+Read what that buys you: the branching is ordinary TypeScript (`if`), the "wait up to
+48 hours for the activation event" is one line, and the whole thing lives in a pull
+request a colleague reviews. Now picture maintaining the same logic as boxes on a
+canvas — then picture the version with three more branches. That divergence is the
+whole argument, and it compounds with every condition you add.
+
+You don't have to choose one forever. The point is that the *measurement* lives in
+PostHog and the *code-first lifecycle automation* lives in Hogsend — and Chapters 5 and 6
+are entirely about why a code-first journey beats a flowchart once your logic gets real
+(behavioural branching, exact-once sends, holdouts you can prove).
