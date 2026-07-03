@@ -17,6 +17,7 @@ import {
   NPM_URL,
   RAILWAY_DEPLOY_URL,
 } from "@/lib/site";
+import postphant from "@/public/images/postphant.png";
 import studioJourneys from "@/public/images/studio/studio-journeys.png";
 import studioSends from "@/public/images/studio/studio-sends.png";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
@@ -1398,7 +1399,7 @@ function PsElephant() {
           </div>
         </Reveal>
 
-        <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
+        <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
           {ELEPHANT_ITCHES.map((item) => (
             <div key={item.title} className="border-white/10 border-t pt-6">
               <h3 className="font-medium text-base text-white tracking-[-0.025em]">
@@ -1409,6 +1410,14 @@ function PsElephant() {
               </p>
             </div>
           ))}
+          {/* The elephant, literally in the room — feet on the rule below. */}
+          <div className="hidden self-end lg:block">
+            <Image
+              src={postphant}
+              alt="Postphant — the elephant in the room"
+              className="w-[180px] translate-y-10"
+            />
+          </div>
         </div>
 
         <div className="mt-10 flex flex-col justify-between gap-6 border-white/10 border-t pt-8 lg:flex-row lg:items-center">
