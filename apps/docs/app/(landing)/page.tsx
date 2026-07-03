@@ -1352,6 +1352,80 @@ async function PsCode() {
   );
 }
 
+/* -------------------------------------------------- elephant in the room -- */
+
+const ELEPHANT_ITCHES = [
+  {
+    title: "You want the canvas",
+    body: "If you're used to a drag-and-drop editor, Workflows has you covered: a visual canvas next to your data, light automations, a generous free tier, nothing to run.",
+  },
+  {
+    title: "You want to build marketing in",
+    body: "You're here because you'd rather write it, as a developer or a product-first engineering team. There will be things a canvas can't express — and owning the code, versioning it completely, and integrating any other service wins that freedom back.",
+  },
+];
+
+function PsElephant() {
+  return (
+    <section
+      id="posthog-workflows"
+      className="relative border-[#f6483826] border-t"
+    >
+      <Container className="pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>The elephant in the room</Eyebrow>
+
+          <div className="mt-8 flex flex-col justify-between gap-10 lg:flex-row">
+            <h2
+              className={cn(
+                "max-w-[620px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+                DISPLAY,
+              )}
+            >
+              <span className="text-white">
+                Why not just use PostHog Workflows?
+              </span>{" "}
+              <span className="text-white/40">Sometimes you should.</span>
+            </h2>
+
+            <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
+              Workflows is genuinely good. It lives in the PostHog UI your team
+              already has open, consumes the events you already capture, and
+              needs nothing deployed. If you're a PostHog team — or about to
+              become one — it will cover a lot of your early automation, and you
+              should let it.
+            </p>
+          </div>
+        </Reveal>
+
+        <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2">
+          {ELEPHANT_ITCHES.map((item) => (
+            <div key={item.title} className="border-white/10 border-t pt-6">
+              <h3 className="font-medium text-base text-white tracking-[-0.025em]">
+                {item.title}
+              </h3>
+              <p className="mt-2 max-w-[460px] text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                {item.body}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-10 flex flex-col justify-between gap-6 border-white/10 border-t pt-8 lg:flex-row lg:items-center">
+          <p className="max-w-[560px] text-white/75 text-base leading-[24px] tracking-[-0.025em]">
+            They scratch different itches, and it isn't a choice of one or the
+            other — both run off the same PostHog events, so use each where it
+            fits. Hogsend amplifies everything PostHog does.
+          </p>
+          <Btn href="/docs/compare/posthog-workflows" variant="outline">
+            Read the full comparison
+          </Btn>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
 /* ---------------------------------------------------------- how it works -- */
 
 const DEPLOY_LINES = [
@@ -3042,6 +3116,7 @@ export default function HomePage(): JSX.Element {
       <PsRepo />
       <PsAgents />
       <PsCode />
+      <PsElephant />
       <PsSetup />
       <PsCorePlatform />
       <PsHowItWorks />
