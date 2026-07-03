@@ -58,8 +58,13 @@ export const dynamic = "force-dynamic";
 
 export default async function Page(props: {
   params: Promise<{ slug?: string[] }>;
+  searchParams: Promise<{ checkout?: string }>;
 }) {
   const params = await props.params;
+  // Set when the reader is returning from sign-in mid-purchase (see the
+  // checkout route's anon bounce). Only used to auto-resume the buy flow on the
+  // paywall — never to grant access, which stays a session + DB decision.
+  const { checkout } = await props.searchParams;
   const page = source.getPage(params.slug);
   if (!page) notFound();
 
@@ -96,6 +101,7 @@ export default async function Page(props: {
           lessonUrl={page.url}
           title={page.data.title}
           description={page.data.description}
+          autoSubmit={checkout === slugs[0]}
         />
       );
     }

@@ -1,10 +1,14 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
-import { signIn } from "@/lib/auth-client";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import { authClient, signIn } from "@/lib/auth-client";
 
-/** Passwordless sign-in: email magic-link + GitHub OAuth. `next` is a
- *  pre-validated relative path (see lib/safe-next) used as the callback target. */
+type Pending = null | "code" | "verify" | "magic" | "github" | "resend";
+
+/** Passwordless sign-in. Primary path is a 6-digit email code the reader types
+ *  on this same tab (no inbox round-trip); the magic link and GitHub OAuth are
+ *  kept as fallbacks. `next` is a pre-validated relative path (see lib/safe-next)
+ *  used as the callback/return target after sign-in. */
 export function SignInForm({
   next,
   githubEnabled,
@@ -12,31 +16,96 @@ export function SignInForm({
   next: string;
   githubEnabled: boolean;
 }) {
+  const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
-  const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState<"magic" | "github" | null>(null);
+  const [code, setCode] = useState("");
+  const [pending, setPending] = useState<Pending>(null);
   const [error, setError] = useState<string | null>(null);
+  const [magicSent, setMagicSent] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const codeInputRef = useRef<HTMLInputElement>(null);
 
-  async function onMagic(e: FormEvent) {
+  // Resend cooldown ticker.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  // Move focus to the code field the moment it appears.
+  useEffect(() => {
+    if (step === "code") codeInputRef.current?.focus();
+  }, [step]);
+
+  async function sendCode(mode: "code" | "resend") {
+    setPending(mode);
+    setError(null);
+    const res = await authClient.emailOtp.sendVerificationOtp({
+      email,
+      type: "sign-in",
+    });
+    setPending(null);
+    if (res.error) {
+      setError("Couldn't send the code. Check the address and try again.");
+      return;
+    }
+    setStep("code");
+    setCode("");
+    setCooldown(30);
+  }
+
+  async function onEmailSubmit(e: FormEvent) {
     e.preventDefault();
-    setLoading("magic");
+    await sendCode("code");
+  }
+
+  async function verify(value: string) {
+    setPending("verify");
+    setError(null);
+    const res = await signIn.emailOtp({ email, otp: value });
+    if (res.error) {
+      setPending(null);
+      setCode("");
+      setError("That code didn't match. Check it, or send a new one.");
+      return;
+    }
+    // Full navigation so the destination re-renders with the new session — and,
+    // when `next` carries a checkout marker, the paywall resumes the purchase.
+    window.location.assign(next);
+  }
+
+  function onCodeChange(raw: string) {
+    const digits = raw.replace(/\D/g, "").slice(0, 6);
+    setCode(digits);
+    if (digits.length === 6 && pending === null) {
+      void verify(digits);
+    }
+  }
+
+  async function onMagic() {
+    if (!email) {
+      setError("Enter your email first.");
+      return;
+    }
+    setPending("magic");
     setError(null);
     const res = await signIn.magicLink({ email, callbackURL: next });
-    setLoading(null);
+    setPending(null);
     if (res.error) {
       setError("Couldn't send the link. Check the address and try again.");
     } else {
-      setSent(true);
+      setMagicSent(true);
     }
   }
 
   async function onGithub() {
-    setLoading("github");
+    setPending("github");
     setError(null);
     await signIn.social({ provider: "github", callbackURL: next });
   }
 
-  if (sent) {
+  // Magic-link fallback confirmation.
+  if (magicSent) {
     return (
       <div className="rounded-md border border-white/[0.08] bg-white/[0.015] p-6">
         <p className="font-display text-xl tracking-[-0.02em]">
@@ -46,13 +115,103 @@ export function SignInForm({
           We sent a sign-in link to <span className="text-white">{email}</span>.
           It's single-use and expires in 15 minutes.
         </p>
+        <button
+          type="button"
+          onClick={() => setMagicSent(false)}
+          className="mt-4 text-sm text-white/50 underline transition-colors hover:text-white"
+        >
+          Use a different way to sign in
+        </button>
       </div>
     );
   }
 
+  // Code-entry step.
+  if (step === "code") {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <p className="text-sm text-white/60 leading-6">
+            We sent a 6-digit code to{" "}
+            <span className="text-white">{email}</span>. Enter it below.
+          </p>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (code.length === 6) void verify(code);
+          }}
+          className="flex flex-col gap-3"
+        >
+          <input
+            ref={codeInputRef}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(e) => onCodeChange(e.target.value)}
+            placeholder="000000"
+            aria-label="Sign-in code"
+            className="h-14 rounded-[10px] border border-white/[0.12] bg-white/[0.03] text-center font-mono text-2xl text-white tracking-[0.5em] outline-none transition-colors placeholder:text-white/20 focus:border-white/30"
+          />
+          <button
+            type="submit"
+            disabled={pending !== null || code.length !== 6}
+            className="h-12 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] transition-colors hover:bg-white/90 disabled:opacity-60"
+          >
+            {pending === "verify" ? "Verifying…" : "Verify and sign in"}
+          </button>
+        </form>
+
+        {error ? <p className="text-sm text-accent">{error}</p> : null}
+
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-white/50">
+          <button
+            type="button"
+            onClick={() => sendCode("resend")}
+            disabled={pending !== null || cooldown > 0}
+            className="underline transition-colors hover:text-white disabled:no-underline disabled:opacity-60"
+          >
+            {cooldown > 0
+              ? `Resend code in ${cooldown}s`
+              : pending === "resend"
+                ? "Sending…"
+                : "Resend code"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setStep("email");
+              setCode("");
+              setError(null);
+            }}
+            className="underline transition-colors hover:text-white"
+          >
+            Use a different email
+          </button>
+        </div>
+
+        <div className="border-white/[0.08] border-t pt-4">
+          <button
+            type="button"
+            onClick={onMagic}
+            disabled={pending !== null}
+            className="text-sm text-white/50 underline transition-colors hover:text-white disabled:opacity-60"
+          >
+            {pending === "magic"
+              ? "Sending…"
+              : "Email me a sign-in link instead"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Email step.
   return (
     <div className="flex flex-col gap-4">
-      <form onSubmit={onMagic} className="flex flex-col gap-3">
+      <form onSubmit={onEmailSubmit} className="flex flex-col gap-3">
         <input
           type="email"
           required
@@ -64,12 +223,23 @@ export function SignInForm({
         />
         <button
           type="submit"
-          disabled={loading !== null}
+          disabled={pending !== null}
           className="h-12 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] transition-colors hover:bg-white/90 disabled:opacity-60"
         >
-          {loading === "magic" ? "Sending…" : "Email me a sign-in link"}
+          {pending === "code" ? "Sending code…" : "Email me a sign-in code"}
         </button>
       </form>
+
+      <button
+        type="button"
+        onClick={onMagic}
+        disabled={pending !== null}
+        className="text-sm text-white/50 underline transition-colors hover:text-white disabled:opacity-60"
+      >
+        {pending === "magic"
+          ? "Sending…"
+          : "Prefer a link? Email me a sign-in link"}
+      </button>
 
       {githubEnabled ? (
         <>
@@ -82,10 +252,10 @@ export function SignInForm({
           <button
             type="button"
             onClick={onGithub}
-            disabled={loading !== null}
+            disabled={pending !== null}
             className="flex h-12 items-center justify-center gap-2 rounded-[10px] border border-white/[0.12] bg-white/[0.03] px-5 font-medium text-white transition-colors hover:border-white/30 disabled:opacity-60"
           >
-            {loading === "github" ? "Redirecting…" : "Continue with GitHub"}
+            {pending === "github" ? "Redirecting…" : "Continue with GitHub"}
           </button>
         </>
       ) : null}

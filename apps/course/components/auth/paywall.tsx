@@ -1,28 +1,36 @@
 import { ArrowRight } from "lucide-react";
 import { ALL_ACCESS, getCourse } from "@/lib/courses";
 import { allAccessConfigured } from "@/lib/entitlements";
+import { CheckoutResume } from "./checkout-resume";
 
 /**
  * Wall shown to a SIGNED-IN reader who hasn't purchased the course. Renders the
  * lesson's title/description as a teaser, never the body (the gate returns this
  * before the MDX is read). The Buy button is a plain HTML form POST to
  * /api/checkout — no client JS — carrying the course slug and the return path.
+ *
+ * `autoSubmit` is set when the reader is coming back from sign-in mid-purchase
+ * (the return path carried a `checkout` marker): the purchase is resumed for
+ * them automatically, with the button below as the manual fallback.
  */
 export function Paywall({
   course,
   lessonUrl,
   title,
   description,
+  autoSubmit = false,
 }: {
   course: string;
   lessonUrl: string;
   title: string;
   description?: string;
+  autoSubmit?: boolean;
 }) {
   const meta = getCourse(course);
   const price = meta?.priceLabel ?? "";
   return (
     <div className="container-page py-16 md:py-24">
+      {autoSubmit ? <CheckoutResume course={course} next={lessonUrl} /> : null}
       <p className="kicker mb-3">{meta?.title ?? "Full course"}</p>
       <h1 className="max-w-2xl font-display text-[32px] leading-[1.1] tracking-[-0.03em] md:text-[40px]">
         {title}
@@ -30,6 +38,12 @@ export function Paywall({
       {description ? (
         <p className="mt-4 max-w-xl text-lg text-white/60 leading-7">
           {description}
+        </p>
+      ) : null}
+
+      {autoSubmit ? (
+        <p className="mt-6 max-w-xl text-sm text-white/60">
+          You're signed in — taking you to secure checkout…
         </p>
       ) : null}
 

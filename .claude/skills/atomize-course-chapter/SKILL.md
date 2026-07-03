@@ -229,6 +229,20 @@ curl -so /dev/null -w "%{http_code}\n" http://localhost:3006/learn/growth-with-p
 curl -so /dev/null -w "%{http_code}\n" http://localhost:3006/learn/growth-with-posthog/NN-slug/MM-final
 ```
 
+**Assert CONTENT, not just 200.** The overview (`/growth-with-posthog`) and `/workbook`
+aggregate every lesson and return **200 even when empty** — so also count what rendered, not
+just the status. After converting the LAST flat chapter (every chapter now a folder), fetch the
+overview and assert it lists many lessons:
+
+```bash
+curl -s http://localhost:3006/growth-with-posthog | grep -oE '/learn/growth-with-posthog/[0-9][^" ]*' | sort -u | wc -l
+# expect the full lesson count (~230), NOT 0
+```
+
+(An earlier regression: `lib/course-ui.tsx findCourseFolder` matched the course by a *direct-child
+page*, which broke — silently, still 200 — once no flat lessons remained. It now recurses; a
+content-count assertion is what catches this class.)
+
 `build` (`pnpm --filter @hogsend/course build`) is the fuller gate if you want it — `prebuild`
 re-runs the three generators too.
 
