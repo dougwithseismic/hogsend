@@ -1,0 +1,40 @@
+---
+title: "Correctness: exactly-once and re-enrollment"
+description: "The failure mode that kills trust isn't a missed email — it's a double send. How replay-based durability makes that a real risk, how the engine closes it automatically, and the one authoring rule you're responsible for."
+---
+
+The failure mode that kills trust in a lifecycle program isn't a missed email — it's a
+**double send**. Here's why it's a real risk and how the engine closes it.
+
+Remember the loop: durability works by *replaying* a crashed journey from the top and
+fast-forwarding through completed steps. Now imagine a worker dies **after** the
+provider accepted your welcome email but **before** the engine recorded that step as
+complete. The replay re-runs the send line. Without engine support, that user gets two
+welcomes — and at scale, every deploy is a small chance of embarrassing some slice of
+your users. Three things worth internalising:
+
+- **Replay safety is automatic.** The engine derives a deterministic idempotency key
+  for every `sendEmail()` and `ctx.trigger()` from the run's identity plus the nearest
+  authored wait label, and dedupes on it — so a replayed send collapses into the
+  original instead of delivering twice. You write nothing extra.
+- **The one authoring rule:** if you send the **same template twice in one journey**
+  (like the dunning reminder), give each site a distinct `idempotencyLabel` so
+  their keys can't collide. Forgetting isn't silent — the engine throws a loud
+  key-collision error in dev, which is exactly when you want to find out.
+- **Keep the run deterministic where it matters.** If a *non-deterministic* choice
+  picks what to send — an LLM choosing a template, a random variant — wrap it in
+  `ctx.once(label, compute)`: the engine records the first result and replays it
+  verbatim, so a crash can't re-roll the dice into a different-but-duplicate message.
+  Same logic for timestamps: prefer the event's own `occurredAt` (from
+  `ctx.waitForEvent`'s returned properties) over `new Date()`.
+
+And separately from replays, **`entryLimit` is your re-enrollment policy** — it governs
+legitimate *new* runs, not crashed ones. `"once"` for a welcome (a user signs up once).
+`"once_per_period"` for win-back and dunning (they can lapse again, but not be spammed).
+`"unlimited"` only for counting journeys (e.g. the Discord gamification in Chapter 8,
+where every reaction must re-count).
+
+This is the kind of correctness you get *because* the journey is code in a system built
+for it — exactly-once delivery across redeploys is brutally hard to get right by hand,
+and it's the subtlest of the reasons a purpose-built engine beats the roll-your-own
+options in the next piece.

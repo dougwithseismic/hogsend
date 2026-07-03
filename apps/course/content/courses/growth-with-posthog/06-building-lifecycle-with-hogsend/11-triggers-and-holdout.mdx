@@ -1,0 +1,51 @@
+---
+title: "Feeding your journeys and proving lift"
+description: "Two sides of the system around a single journey: the three sources of events that trigger it — your backend, webhook sources, and PostHog cohorts — and the deterministic holdout that lets you measure the lift the program actually produces."
+---
+
+Your journeys are only as good as the events feeding them. Three sources:
+
+- **Your backend** — `POST /v1/ingest` for product events (signup, payment, milestone).
+  This is the primary source and it's server-side, so ad-blocker-proof (Chapter 3).
+- **Webhook sources** — `defineWebhookSource()` turns any external webhook (Stripe,
+  a form, a CRM) into an event that can trigger a journey. Declare the auth header,
+  optionally validate the payload, and write one `transform()` that maps the
+  provider's shape onto your event names — from then on a Stripe invoice failure is
+  just another event in the same pipeline.
+- **PostHog** — for *batch* / analytics-defined audiences (e.g. "did signup but not
+  activate in 7 days"), build a PostHog cohort + a workflow webhook that posts to
+  `/v1/ingest`. PostHog decides *who* needs action; Hogsend decides *what* to do. This
+  is the bridge that powers inactivity-based win-back without Hogsend polling anything.
+
+That last one is the clean expression of "PostHog detects, Hogsend acts" (Chapter 0):
+the thing that's hard to compute in real time (30-day dormancy across all users) is a
+cohort PostHog already maintains; Hogsend just receives the verdict and runs the program.
+
+### The holdout hook
+
+Chapter 5 said: prove lift with a holdout. Because enrollment is just code, you can
+implement a campaign holdout directly — deterministically bucket a small fraction of
+users out of enrollment and compare their downstream events to the enrolled group:
+
+```ts
+run: async (user, ctx) => {
+  // ~10% holdout, deterministic per user so it's stable across replays.
+  if (hashToUnitInterval(user.id) < 0.1) {
+    await ctx.trigger({ event: "journey.held_out", userId: user.id });
+    return; // measured, not messaged
+  }
+  // ...normal journey...
+}
+```
+
+Two details are load-bearing. The bucketing is a **hash of the user id**, not
+`Math.random()` — deterministic, so a replay makes the same decision and the same user
+is always in the same bucket across every journey version. And the held-out path still
+**fires an event** — the control group must be *visible* in PostHog, or you'll have
+nothing to compare against.
+
+Then in PostHog, compare activation/retention/revenue for `journey.held_out` users vs
+enrolled users. That difference is your real, causal lift — the growth-team experiment
+loop (Chapter 0) running continuously, in production, on the journey you just shipped.
+When Chapter 9's monthly review asks "what's the lifecycle program actually worth?",
+this hook is where the answer comes from.

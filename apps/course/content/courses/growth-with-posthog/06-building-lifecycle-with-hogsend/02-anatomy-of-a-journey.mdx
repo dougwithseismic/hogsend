@@ -1,0 +1,73 @@
+---
+title: "Anatomy of a journey"
+description: "Every journey is defineJourney({ meta, run }) — meta declares when it runs and the guardrails, run is the control flow. The pieces that matter for lifecycle work, and why it's just code."
+---
+
+Every journey is `defineJourney({ meta, run })`. The `meta` declares *when* it runs and
+the guardrails; `run` is the actual control flow.
+
+```ts
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const example = defineJourney({
+  meta: {
+    id: "example",
+    name: "Example journey",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },     // the event that starts it
+    entryLimit: "once",                            // once | once_per_period | unlimited
+    suppress: hours(12),                           // ignore re-triggers within this window
+    exitOn: [{ event: Events.USER_DELETED }],      // events that end the journey early
+  },
+  run: async (user, ctx) => {
+    // user: { id, email, stateId, journeyName, properties }
+    // ctx:  durable primitives — sleep, history, waitForEvent, trigger, guard
+  },
+});
+```
+
+The pieces that matter for lifecycle work:
+
+- **`trigger.event`** — the event the journey subscribes to. Add **`where`** to filter
+  on properties: `trigger: { event: Events.USER_CREATED, where: (b) => b.prop("plan").eq("free") }`.
+- **`entryLimit`** — `"once"` (a user can only ever enter once), `"once_per_period"`
+  (with `entryPeriod`), or `"unlimited"`. This is your re-enrollment policy and an
+  important correctness control.
+- **`exitOn`** — the events that stop the journey immediately. **This is how you
+  implement suppression from Chapter 5:** exit the upgrade sequence the instant the
+  user upgrades. An exit fires even mid-wait — a journey parked on a 5-day
+  `waitForEvent` aborts cleanly the moment an exit event arrives, so no post-wait
+  side effects run.
+- **`suppress`** — a debounce so a burst of the same trigger doesn't start multiple
+  runs.
+
+Inside `run`, you use the context primitives:
+
+- `ctx.sleep({ duration, label })` — durable pause.
+- `ctx.sleepUntil(at, { label })` — durable pause until an absolute instant.
+- `ctx.when` — a timezone-aware scheduler for computing that instant: e.g.
+  `ctx.when.tomorrow().at("09:00")` resolves 9am *in the user's own timezone* and
+  respects your configured send window, so "send the day-2 email at breakfast, not at
+  3am" is one line instead of timezone arithmetic.
+- `ctx.history.hasEvent({ userId, event, within? })` → `{ found, count }` — did this
+  already happen?
+- `ctx.history.events({ userId, event, within, limit })` — pull the matching events to
+  inspect.
+- `ctx.waitForEvent({ event, timeout, label? })` — pause until *this user* emits an
+  event or the timeout elapses; returns `{ timedOut, properties? }` (the matched
+  event's payload, so you can branch on the answer). An optional `lookback` first
+  checks recent history, covering the gap where the event fired a moment *before* the
+  wait was established.
+- `ctx.trigger({ event, userId, properties? })` — emit an event back into the pipeline.
+- `ctx.guard.isSubscribed()` — re-check subscription after a long sleep.
+- `ctx.checkpoint(label)` — mark progress so operators can see where users sit.
+
+And you send with `sendEmail({ to, userId, journeyStateId, template, subject, props? })`,
+where `template` is a key from your `src/emails/` registry (the next piece).
+
+The thing to notice across all of this: it's *just code*. The branching is `if`. The wait
+is `await`. The history check is a function call. There's no DSL to learn and no canvas
+to fight — which is exactly why a journey can express logic a no-code tool can't, and why
+it's reviewable in a pull request like the rest of your product.

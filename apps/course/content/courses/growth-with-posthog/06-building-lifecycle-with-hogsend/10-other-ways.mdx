@@ -1,0 +1,33 @@
+---
+title: "Other ways you could build this (and why durable execution)"
+description: "A growth team should know what it's choosing instead of — setTimeout, cron + a state column, job queues, durable-execution platforms, and no-code. Roughly worst-to-best, and why durable execution fits lifecycle messaging."
+---
+
+A growth team should know what it's choosing instead of. The ways teams build lifecycle
+automation, roughly worst-to-best for this job:
+
+- **`setTimeout` / in-process timers.** The tempting first reach, and the one that
+  hurts: every wait is lost on the next deploy or crash. Fine for a 30-second
+  debounce, catastrophic for a 3-day sequence.
+- **Cron + a state column.** A nightly job scans the users table and decides who's due
+  for which email. It works, and plenty of companies run on it — but you end up
+  hand-rebuilding state, idempotency, and branching that the engine gives you for free,
+  and the logic smears across cron jobs and SQL until no one can read the program.
+  The tell: six months in, nobody can answer "what messages can user X possibly
+  receive this week?" without reading four jobs and a spreadsheet.
+- **A job queue with delayed jobs (BullMQ, Sidekiq).** Better — delays survive restarts.
+  But you're still assembling sequences, exit conditions, and exactly-once yourself, job
+  by job. Each journey becomes a distributed state machine you maintain by hand.
+- **Durable-execution platforms (Temporal, Inngest, DBOS, Restate).** The right
+  *category* — they make multi-step, long-running, restart-proof workflows a first-class
+  thing. Hogsend uses one (Hatchet) under the hood. If you're building generic
+  workflows, these are excellent; for lifecycle *messaging* specifically you'd still
+  build the email/preferences/tracking/identity layer on top, which is what Hogsend is.
+- **No-code automation (Zapier, n8n, Make).** Great glue for "when X, do Y" one-shots;
+  weak for stateful multi-day per-user journeys with branching. Useful at the edges.
+
+The summary: lifecycle messaging is a *durable, stateful, per-user* problem, and the
+tools that fit it are the ones that treat long waits and exactly-once delivery as solved.
+Hogsend's bet is that giving you that as ordinary TypeScript — plus the email, identity,
+and tracking layers already wired — beats both the roll-your-own stack and the no-code
+canvas for a team that codes.
