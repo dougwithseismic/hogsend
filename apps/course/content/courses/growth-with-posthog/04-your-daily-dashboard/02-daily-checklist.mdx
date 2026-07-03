@@ -1,0 +1,130 @@
+---
+title: "The daily checklist"
+description: "The short, fixed list of charts to read the same way every morning — what each one means, what to do when it looks wrong, and a worked Monday read from a real SaaS."
+workbook: "Record how often you actually look at your product data today, then watch the team run the chart-to-replay debugging workflow for real."
+---
+
+You don't need twenty charts — what works is a short, fixed list read the same way
+every morning. Here's a good one, with what each chart means *and what it's telling you
+to do when it looks wrong* — because a chart nobody acts on is the "dashboard
+graveyard" failure mode from Chapter 0.
+
+Before the list, it's worth being honest about the baseline you're starting from:
+
+<CheckIn
+  id="dataHabit"
+  question="How often do you actually look at your product data today?"
+  options={["Rarely or never", "When something feels off", "Weekly", "Daily"]}
+/>
+
+There's no wrong answer — but the gap between "when something feels off" and "daily"
+is precisely what this chapter closes, and by the alerts piece the daily version costs
+two minutes.
+
+### 1. Active users (Trends — unique users on your core action)
+**The pulse.** If this is flat or falling week-over-week, nothing else matters yet.
+The *trend* is what to watch, not the absolute number — early on, direction is the
+signal. "Active" works best defined as your **core action** rather than "opened the
+app": a user who logs in and does nothing isn't active in any sense that pays you.
+*If it's falling:* check the lifecycle chart (#6) — is it fewer New, or more Dormant?
+
+### 2. New signups (Trends — count of `user_signed_up`, server-side)
+**Is acquisition working?** A useful number, but a vanity one on its own: a signup
+spike with no matching activation means you attracted the wrong people or overpromised.
+It reads best next to chart 3, with the **channel breakdown** on — a flat total can
+hide one channel doubling while another collapses.
+*If it spikes but activation doesn't:* you bought the wrong traffic — check the channel
+breakdown.
+
+### 3. Activation funnel (Funnel — `signup → your aha event`)
+**The most actionable chart you have.** The drop-off between steps shows you *exactly*
+where onboarding leaks. Click the worst step and pull the list of users who fell out —
+or jump straight to their session replays (chart 7) to see why. A useful discipline:
+know your funnel's *baseline* by heart (say, "62% reach step 2, 31% activate") so a
+change registers as a change and not a guess.
+*If the drop is at one step:* that step is your week's work.
+
+### 4. Signup conversion rate (Web Analytics goal, or a funnel)
+**Is the top of the funnel smooth?** Visitors → signup. A low number here points at
+friction on the landing page or in the signup flow itself.
+*If it's low:* watch replays of the landing page; it's usually copy or a form, not the
+product.
+
+### 5. Weekly retention curve (Retention — start: signup; return: core action)
+**The single best product-market-fit signal.** Read the *shape* (the full how-to is the
+retention piece): a curve that decays to zero is a leaky bucket; one that flattens above
+zero is a product with real pull.
+
+### 6. Lifecycle (Lifecycle insight on your core action)
+**Is your growth real?** A healthy chart shows New and Returning growing. A big red
+**Dormant** band underneath modest New growth means you're refilling a leaking bucket —
+the same users churning and being replaced. This is the leaky bucket, drawn for you.
+*If Dormant dominates:* acquisition can wait — this is a Chapter 5–6 problem.
+
+### 7. Session replays of drop-offs and errors
+**The "why" behind the numbers.** Filter replays to users who hit a funnel drop-off, a
+rage-click, or an error, and watch a few. Five minutes of watching real people struggle
+will teach you more than an hour of staring at a chart. The workflow that keeps this
+cheap is arriving from a chart (a funnel step, an error, a rage-click filter) rather
+than browsing cold — that way every replay you watch is pre-selected to show you a
+problem ([replay docs](https://posthog.com/docs/session-replay)).
+*What you're looking for:* the moment of hesitation. Cursor circling, tab-switching,
+a form field cleared and retyped — the qualitative signature of the leak your funnel
+found quantitatively.
+
+### 8. Errors / exceptions (Error Tracking)
+**Production health.** New or spiking issues. Best piped to Slack (see the alerts piece)
+so you don't have to remember to look. *A spike in errors often explains a dip in
+activation — check this before blaming your onboarding copy.*
+
+### 9. Paid conversion (free → paid %)
+**The strongest value signal there is.** People paying is the hardest proof that the
+problem you solve is worth solving. Track the conversion rate, not just the count.
+
+That's the list. The first time, it'll take you twenty minutes. Once it's a dashboard,
+it's a two-minute glance.
+
+### What a real read looks like
+
+To make the ritual concrete, here's a Monday morning read of the nine charts, as it
+actually goes for a small SaaS:
+
+*Active users: flat, fine. Signups: up 18% — nice, but the breakdown says it's all one
+Reddit thread, so don't celebrate a trend. Activation funnel: baseline is 31%, today
+it reads 24% — that's outside normal bounce. Worst step is still "create first
+project," but the drop moved to the step before it: the workspace-naming screen.
+Errors: a new exception, `WorkspaceNameValidation`, started Friday. There's the story.
+Replays: three watched, all three show users typing a workspace name with a space,
+getting a red field with no message, and leaving. Lifecycle and retention: unchanged,
+they move on week timescales. Paid conversion: unchanged.*
+
+One decision comes out of it — fix the validation message today, then confirm tomorrow
+that the funnel step recovers to baseline. Total time: eight minutes, because the
+charts were pre-built and the errors alert had already flagged Friday's exception.
+
+Notice what the read did *not* involve: no exploring, no new charts, no debate about
+what "active" means. The nine tiles answered "where's the leak?" and the replays
+answered "why?" — and every future morning starts from the same fixed list, so a
+deviation registers instantly. That's the entire skill. It's pattern-matching against
+a baseline you know by heart, and it only works because the list doesn't change.
+
+<VideoEmbed
+  id="IJJKLxhcsIA"
+  title="How we debug production issues at PostHog (Complete Walkthrough)"
+  channel="PostHog"
+  note="The chart-to-replay workflow from item 7, run for real by the team that builds the tool — from anomaly to watched session to diagnosis."
+/>
+
+<VideoTranscript id="IJJKLxhcsIA" />
+
+**What to take from it:**
+
+- Errors are worth enriching at capture time: attaching context properties (environment,
+  inputs, the model being processed) is what later lets you filter the dashboard down to
+  just your team's production issues and auto-route them.
+- The debugging path runs anomaly → frequent issue → stack trace → the exact file and line
+  → the custom properties that reveal the root cause — the same chart-to-cause move item 7
+  describes, applied to exceptions.
+- The fix is usually upstream of where it throws: here a bad input (a persons-model export
+  hitting an events-only path) points to adding a guard at the API and front-end layer, not
+  patching the crash site.

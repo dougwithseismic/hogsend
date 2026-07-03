@@ -1,0 +1,166 @@
+---
+title: "Before you move on"
+description: "Six things worth doing while the chapter is fresh — they turn the instrumentation from Chapter 3 into a two-minute daily habit. Then check yourself with the quiz."
+workbook: "Six concrete setup steps that make the daily read a habit, then the chapter quiz to check yourself."
+---
+
+Six things worth doing while this chapter is fresh — together they turn the
+instrumentation from Chapter 3 into a habit that costs two minutes a day:
+
+1. Create the nine insights from the daily checklist — the fixed list is what makes
+   deviations register.
+2. Put them on one dashboard, pinned to your homepage, North Star on top — so the
+   right read is also the path of least resistance.
+3. Add alerts on signups, activation, and errors → Slack — few and loud, so a fired
+   alert always means something.
+4. Schedule a weekly subscription of the dashboard to yourself/your team — alignment
+   with zero effort.
+5. Read your **retention curve** with the retention piece in hand, and see if you can say
+   out loud which phase you're in — fix the bucket, or open the tap. That one sentence
+   directs the next three chapters.
+6. Watch three session replays of your worst funnel step's drop-outs, arriving from
+   the chart rather than browsing cold — the cheapest "why" you'll ever collect.
+
+You can now *see* your funnel and your leaks. The rest of the course is about acting on
+them — first by keeping the users you have, then by going to get more.
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "Your lifecycle chart shows New users steady, but the Dormant band is growing every week. What is it telling you?",
+      options: [
+        "Acquisition is failing — spend more on ads",
+        "Growth is churn-and-replace: you're refilling a leaking bucket, and the priority is retention (Chapters 5–6)",
+        "The chart needs a longer date range",
+        "Users are switching devices, splitting their identity",
+      ],
+      answer: 1,
+      explain:
+        "Lifecycle decomposes 'active users' into New, Returning, Resurrecting, and Dormant. Steady New with swelling Dormant means the same users churn and get replaced — the leaky bucket drawn for you. More acquisition makes that worse, not better.",
+    },
+    {
+      q: "A retention curve declines for four weeks and then flattens at 30%. The honest reading is:",
+      options: [
+        "The product is losing 70% of users — it's failing",
+        "Roughly three in ten users stick long-term — a real sign of product pull, and the flattening level is the ceiling lifecycle messaging works to lift",
+        "Retention is 30% so the product has reached its potential",
+        "The curve must reach zero eventually; the flattening is a data artifact",
+      ],
+      answer: 1,
+      explain:
+        "Shape first, height second: any flattening above zero means some cohort found durable value — the core PMF signal. The level it flattens at is your ceiling without intervention, which is exactly what Chapters 5–6 work on raising.",
+    },
+    {
+      q: "Your activation funnel shows an impossibly low conversion. Before redesigning onboarding, what should you check?",
+      options: [
+        "Whether the conversion window is shorter than the time users actually take, and whether the steps match the order users really follow (User Paths)",
+        "Whether the dashboard's date filter is set to 'all time'",
+        "Whether autocapture is enabled",
+        "Whether the funnel uses unique users instead of events",
+      ],
+      answer: 0,
+      explain:
+        "The two silent funnel-killers are a conversion window that expires before real users convert, and steps in an order users don't follow. Both make a healthy product look broken. Verify the instrument before treating the reading.",
+    },
+    {
+      q: "What's the right way to use session replay in the daily ritual?",
+      options: [
+        "Browse recent replays for 15 minutes to get a feel for users",
+        "Watch every new user's first session",
+        "Arrive from a chart — a funnel drop-off, error, or rage-click filter — so each replay is pre-selected to show a known problem",
+        "Only watch replays when a customer complains",
+      ],
+      answer: 2,
+      explain:
+        "Cold-browsing replays is expensive and anecdotal. Chart-first selection means the quantitative layer finds where the leak is and replay supplies the why — five minutes of watching becomes diagnosis instead of tourism.",
+    },
+    {
+      q: "An alert has fired every morning for two weeks and nobody has done anything about it. The correct move is:",
+      options: [
+        "Leave it — better safe than sorry",
+        "Act on it or re-threshold it; an alert that's ignorable trains the team to ignore the one that matters",
+        "Move it from Slack to email",
+        "Add three more alerts so patterns are easier to spot",
+      ],
+      answer: 1,
+      explain:
+        "Alert fatigue is the failure mode of §4.5: every fired alert gets acted on or re-tuned, no third option. Few loud alerts that always mean something beat many quiet ones that never do.",
+    },
+    {
+      q: "Your pageviews Trend doubled overnight, but signups and activation are flat. Before celebrating, what should you check first?",
+      options: [
+        "Whether a new marketing channel just kicked in",
+        "Whether the dashboard date filter got changed",
+        "Whether autocapture is double-counting pageviews",
+        "Whether the series counts events instead of unique users — ten pageviews from one user look identical to one pageview from ten",
+      ],
+      answer: 3,
+      explain:
+        "The Trends failure mode is counting events when you mean people. Switching the series to unique users tells you whether more humans actually showed up or the same ones just clicked more.",
+    },
+    {
+      q: "A weekly retention cohort of 12 users drops from 40% to 25%, and a teammate wants to re-plan the roadmap. The right response is:",
+      options: [
+        "That swing is about three people — wait for a trend across several cohorts before concluding anything",
+        "Act now: a 15-point drop is a crisis at any cohort size",
+        "Switch the grid to unbounded retention, which is more forgiving",
+        "Widen the return-event definition so more users count as retained",
+      ],
+      answer: 0,
+      explain:
+        "Small cohorts lie: in a 12-user cohort each person is worth over eight points, so 40% to 25% is three people. The signal worth acting on is the trend across several cohorts, not one noisy row.",
+    },
+    {
+      q: "Your activation funnel reads 24% against the 31% baseline you know by heart. Following the chapter's Monday read, what comes next?",
+      options: [
+        "Rewrite the onboarding copy on the worst step",
+        "Increase acquisition spend to compensate for lost activations",
+        "Check Error Tracking for new exceptions, then watch replays of the drop-off — an error spike often explains an activation dip",
+        "Wait a few weeks to see whether the number recovers on its own",
+      ],
+      answer: 2,
+      explain:
+        "In the worked example, the 31%-to-24% dip traced to a new validation exception, not bad copy — errors get checked before blaming onboarding. Knowing the baseline by heart is what made the deviation register at all.",
+    },
+    {
+      q: "You want to know what separates your power users — the ones who fire the core action five days a week — from everyone else. Which insight fits?",
+      options: [
+        "Retention — it shows whether users came back",
+        "Stickiness — it measures how many times users did something in a period, and what the deep-usage group shares is an activation-bar candidate",
+        "User Paths — it maps every route through the product",
+        "Funnels — the biggest drop is your biggest leak",
+      ],
+      answer: 1,
+      explain:
+        "Retention asks whether users returned; Stickiness asks how often. The chapter's example: if five-day-a-week users all created three projects in week one, 'three projects' becomes an activation bar worth testing with Chapter 2's method.",
+    },
+    {
+      q: "A teammate proposes a dedicated dashboard per feature — forty boards, so nothing gets missed. The chapter's position is:",
+      options: [
+        "Good idea — more visibility always beats less",
+        "Fine, as long as each board has a named owner",
+        "Split the difference with one dashboard per team",
+        "Dashboard sprawl means none is canonical — one pinned board everyone reads the same way beats a wall of charts nobody trusts",
+      ],
+      answer: 3,
+      explain:
+        "A team with forty dashboards has none, because nobody knows which one is canonical. The daily read works precisely because it's one fixed list read against a known baseline — sprawl dissolves that baseline.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [PostHog — funnels](https://posthog.com/docs/product-analytics/funnels) — conversion windows, exclusions, and drop-off analysis in full.
+- [PostHog — retention](https://posthog.com/docs/product-analytics/retention) — building and reading the cohort grid.
+- [PostHog — dashboards](https://posthog.com/docs/product-analytics/dashboards) — assembling, filtering, and pinning the daily board.
+- [PostHog — session replay](https://posthog.com/docs/session-replay) — setup and the filtering that makes replays diagnostic.
+- [PostHog — finding your North Star metric](https://posthog.com/founders/north-star-metrics) — why the top tile of the dashboard shapes what the team optimises.
+- [Amplitude — funnel analysis: a complete guide](https://amplitude.com/blog/funnel-analysis) — vendor-neutral funnel theory when you want the general case.
+- [Amplitude — retention analysis guide](https://amplitude.com/blog/retention-analysis) — n-day vs unbounded, cohort mechanics, and the maths behind the retention piece.
+- [Lenny Rachitsky — what is good retention?](https://www.lennysnewsletter.com/p/what-is-good-retention-issue-29) — the benchmark survey: "good" and "great" retention by product category.
+- [Lenny's Newsletter — the most important bottom-up SaaS metrics](https://www.lennysnewsletter.com/p/the-most-important-bottom-up-saas-69d) — which of the many numbers deserve a tile at all.

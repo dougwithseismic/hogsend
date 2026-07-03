@@ -1,0 +1,31 @@
+---
+title: "Stop logging in: alerts and subscriptions"
+description: "The goal isn't to remember to check — it's for the important charts to come to you. Alerts fire on a threshold, subscriptions deliver a scheduled snapshot, and tuning matters more than setting."
+---
+
+The goal is not to *remember* to check these. The goal is for the important ones to
+come to you, and for you to only open PostHog when something's worth investigating.
+
+- **Alerts** fire when an insight crosses a threshold or trips anomaly detection, and
+  notify you in-app, by email, on Slack, or via webhook. One on each critical chart
+  covers it: "signups dropped below X today," "errors spiked." You choose how often
+  each checks (hourly/daily/weekly).
+- **Subscriptions** send a scheduled snapshot of an insight or dashboard to email or
+  Slack on a cadence. A weekly snapshot of your North Star dashboard, delivered Monday
+  morning, keeps the team aligned with zero effort.
+
+Tuning matters more than setting. An alert that fires daily is furniture within a
+week — nobody clicks it, and then nobody clicks the one that mattered. Two rules keep
+alerts honest: **every alert that fires gets acted on or re-thresholded** (no third
+option), and **prefer few loud alerts to many quiet ones** — three alerts someone
+investigates beat fifteen that scroll by. If you're deleting an alert because it never
+mattered, that's the system working.
+
+Set the alerts once and your daily ritual shrinks to: read the Slack alerts, and open
+the dashboard only when one fires. That two-minute daily glance is the first rung of
+the full operating cadence in Chapter 9 — daily notice, weekly review, monthly
+re-examination.
+
+This is also exactly the seam Hogsend extends. PostHog alerts tell *you* something
+changed; Hogsend journeys tell *the user* something — automatically, when an event
+fires. The next chapter is about that second loop.

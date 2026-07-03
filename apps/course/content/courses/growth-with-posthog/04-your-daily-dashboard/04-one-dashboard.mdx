@@ -1,0 +1,27 @@
+---
+title: "Build it as one dashboard"
+description: "There's no reason to navigate to nine insights every day. Save each one to a single dashboard, pin it to your homepage, and the daily read becomes a glance the whole team shares."
+---
+
+There's no reason to navigate to nine insights every day. Each one can be saved, added
+to a single **dashboard**, and that dashboard **pinned to your project homepage** so
+it's the first thing you see when you log in
+([dashboards docs](https://posthog.com/docs/product-analytics/dashboards)). A few
+things that make the board work harder:
+
+- Your **North Star metric** (Chapter 2) belongs in the top tile, with its input
+  metrics beneath it — the layout itself should say what matters most
+  ([PostHog's founder guide to North Star metrics](https://posthog.com/founders/north-star-metrics)
+  makes the case that the metric on top shapes what the team optimises).
+- Use dashboard-level date and property filters so you can switch the whole board to
+  "last 7 days" or "paid users only" at once.
+- PostHog ships dashboard templates (web metrics, product health) you can start from
+  instead of building blank.
+- Every non-obvious tile earns a one-line description ("D7 retention, weekly cohorts,
+  core action = project_created"). The tile that needs a tribal elder to interpret is
+  the tile that stops being read.
+
+This dashboard is a growth team's shared artifact. When everyone opens the same board and
+reads the same nine charts the same way, "how are we doing" stops being a meeting and
+becomes a glance. That's the operating model from Chapter 0 made concrete — and this
+board is exactly what the weekly growth review (Chapter 9, §9.4) opens with.

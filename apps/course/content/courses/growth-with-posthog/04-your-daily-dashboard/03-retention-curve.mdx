@@ -1,0 +1,86 @@
+---
+title: "How to read a retention curve"
+description: "The one chart that answers your most important strategic question — are you in the fix-the-bucket phase or the open-the-tap phase. Read the shape, not the height."
+workbook: "Run the chapter's key ideas as flashcards: the daily four, the funnel failure modes, and the three retention-curve shapes."
+---
+
+Most founders glance at retention and move on, which is a shame — read properly, this
+one chart answers your single most important strategic question: *am I in the "fix the
+bucket" or "open the tap" phase?* Three things worth looking at:
+
+- **The shape, not the height.** Three archetypes: a curve that **slides to zero** (no
+  PMF — every cohort eventually leaves), a curve that **declines then flattens** (the
+  "smile" or plateau — some cohort sticks forever, the sign of real product-market fit),
+  and the rare **smiling curve that ticks back up** (resurrection exceeds churn — usually
+  a network-effect or content product). You want, at minimum, a flattening above zero.
+- **Where it flattens.** A curve flattening at 40% means four in ten users become
+  permanent; flattening at 5% means you have a trickle. The flattening *level* is roughly
+  your ceiling without intervention — and lifecycle messaging (Chapter 5) is how you lift
+  it.
+- **Cohort over cohort.** Are *newer* cohorts retaining better than older ones? That's
+  the real signal your product changes are working — each week's improvements should show
+  up as a higher curve for the cohorts that joined after them. PostHog's cohort grid lets
+  you compare rows directly.
+
+Three technicalities that change what the same grid means — worth knowing before you
+panic or celebrate ([Amplitude's retention guide](https://amplitude.com/blog/retention-analysis)
+covers all three in depth):
+
+- **N-day vs unbounded retention.** N-day asks "did they return *on* day 7?";
+  unbounded asks "did they return on day 7 *or any day after*?" N-day is stricter and
+  lower; unbounded suits products used sporadically. It's worth checking which your
+  grid shows before comparing anything to anything.
+- **The right-hand columns are younger.** In a weekly grid, the newest cohort has only
+  had one week to prove itself — the bottom-right of the grid is always sparse and
+  noisy. Read the *oldest few cohorts* for shape, the newest few for early trend.
+- **Small cohorts lie.** A 12-user cohort swinging from 40% to 25% is three people —
+  not something to re-plan a roadmap on. The trend across several cohorts is the
+  signal worth waiting for.
+
+A practical benchmark, held loosely: for many B2B SaaS products a flattening D30 in the
+*tens of percent* is healthy; consumer social needs higher; e-commerce thinks in repeat-
+purchase rate instead. [Lenny Rachitsky's benchmark survey of growth
+leaders](https://www.lennysnewsletter.com/p/what-is-good-retention-issue-29) puts real
+numbers on "good" and "great" by category if you want to calibrate — but your own
+cohort-over-cohort trend is a better guide than anyone's benchmark, and retention is
+still [the single best PMF signal you
+have](https://posthog.com/founders/measure-product-market-fit).
+
+<Flashcards
+  id="cards-dashboard"
+  title="Key ideas — your daily dashboard"
+  cards={[
+    {
+      prompt: "The daily four:",
+      cloze: "Of PostHog's seven insight types, the four you'll read daily are {{Trends}}, {{Funnels}}, {{Retention}}, and {{Lifecycle}}.",
+    },
+    {
+      front: "What is the Trends failure mode?",
+      back: "Counting events when you mean people: ten pageviews from one user and one pageview from ten users look identical until you switch the series to unique users.",
+    },
+    {
+      front: "Which two funnel settings do people commonly miss?",
+      back: "The conversion window (a day-15 convert in a 7-day window counts as dropped) and exclusion steps. If conversion looks impossibly low, check User Paths — your steps may not match the order users follow.",
+    },
+    {
+      front: "What does a big Dormant band under modest New growth mean?",
+      back: "Churn-and-replace, not growth — the same users leaving and being replaced. It's the leaky bucket drawn for you; acquisition can wait, retention (Chapters 5–6) is the work.",
+    },
+    {
+      prompt: "The three retention-curve shapes:",
+      cloze: "A curve that {{slides to zero}} means no PMF, one that {{declines then flattens above zero}} is the product-market-fit signal, and the rare one that {{ticks back up}} means resurrection exceeds churn — the flattening level is roughly your ceiling without intervention.",
+    },
+    {
+      front: "Why do small cohorts lie?",
+      back: "In a 12-user cohort a 40% to 25% swing is three people — not roadmap material. The signal worth acting on is the trend across several cohorts, not one noisy row.",
+    },
+    {
+      front: "How do you keep session replay cheap and diagnostic?",
+      back: "Arrive from a chart — a funnel drop-off, error, or rage-click filter — so every replay is pre-selected to show a problem. What you're looking for is the moment of hesitation.",
+    },
+    {
+      front: "Why know your funnel baseline by heart?",
+      back: "So a change registers as a change, not a guess (say, 62% reach step 2, 31% activate). The fixed list read the same way every morning is what makes a deviation register instantly.",
+    },
+  ]}
+/>

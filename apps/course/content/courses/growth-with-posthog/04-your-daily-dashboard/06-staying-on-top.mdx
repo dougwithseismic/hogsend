@@ -1,0 +1,58 @@
+---
+title: "Other ways teams stay on top of the numbers"
+description: "The pinned dashboard plus alerts is the default — but the weekly metrics post, warehouse BI, and Max AI each fit certain teams. Plus the daily pulse for your kind of startup, and the sprawl anti-pattern to avoid."
+workbook: "Watch an indie founder's actual daily/weekly read — real numbers, which charts he checks and which he ignores."
+---
+
+The pinned dashboard plus alerts is the default. Some alternatives and when they fit:
+
+- **The weekly metrics email/Slack post.** A human (or a subscription) posts the five
+  headline numbers with one line of commentary every Monday. Lower-tech than a dashboard,
+  higher-signal for a team — the commentary forces interpretation, not just observation.
+- **Warehouse BI (Metabase, Looker, Lightdash).** If you've outgrown PostHog's insights
+  or need to join heavy financial data, a BI tool on your warehouse is more flexible.
+  It's also more setup and another tool to maintain — reach for it when PostHog genuinely
+  can't express the question, not before.
+- **PostHog's home + "Max" AI.** You can ask Max a plain-language question ("what's our
+  D7 retention this month vs last?") instead of building an insight. Good for ad-hoc
+  questions that don't deserve a permanent tile.
+
+It's worth seeing what this looks like at the small end — one founder, real numbers, a
+process that fits in a morning coffee:
+
+<VideoEmbed
+  id="EQMPvqpRPuQ"
+  title="My app analytics process (real numbers 👀+ quick tutorial)"
+  channel="Chris Raroque"
+  note="An indie founder's actual daily/weekly read — which charts he checks, which he ignores, and how decisions come out of it. Good calibration for how light this can be."
+/>
+
+<VideoTranscript id="EQMPvqpRPuQ" />
+
+**What to take from it:**
+
+- Track as little as possible early: copying big-company dashboards at five users just buys
+  information paralysis. One metric — week-one retention — comes first, and until it's
+  healthy nothing else matters.
+- Analytics tells you *what's* broken, not *why* — the retention jump from under 1% to 19%
+  came from talking to users (they needed Outlook and Apple Calendar support), not from a
+  chart.
+- Once retention is decent, per-feature adoption numbers (only 3% create lists, 17% link a
+  calendar) become the prioritisation tool — surprisingly low usage usually signals a
+  discoverability problem, not a demand one.
+
+The anti-pattern to avoid: **dashboard sprawl.** A team with forty dashboards has none —
+nobody knows which is canonical. One pinned board everyone reads beats a wall of charts
+nobody trusts.
+
+### For your kind of startup
+
+- **Marketplace** — your daily pulse is *liquidity*: track both sides (supply added,
+  demand served) and the match/transaction rate between them. A healthy one side and a
+  starved other is the failure mode.
+- **Consumer app** — DAU/MAU stickiness and the retention curve are the whole game; paid
+  conversion may not even apply.
+- **E-commerce** — repeat-purchase rate and time-between-orders replace "retention curve";
+  the activation chart becomes first → second purchase.
+- **Dev tool** — the activation funnel (docs → first successful call) is your #1 chart;
+  signups without a first call are noise.
