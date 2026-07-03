@@ -1,6 +1,7 @@
 ---
 title: "Dunning (Revenue)"
 description: "The highest dollar-ROI journey for a paid product: trigger on a failed charge, exit the moment payment succeeds, and recover a meaningful share of the involuntary churn. Also the one journey that sends the same template twice."
+workbook: "Put your own MRR and failure rate into the dunning-recovery calculator — this is usually the fastest revenue the whole course pays for, and the number is worth seeing in dollars."
 ---
 
 The highest dollar-ROI journey for a paid product (Chapter 5, §5.3). Trigger on a failed
@@ -60,3 +61,14 @@ email has a one-click fix.
 Note the `idempotencyLabel` on the second send: this journey sends the **same template
 twice** on one run, so each send site declares a distinct label for the engine's
 exactly-once bookkeeping — the exactly-once piece explains the rule.
+
+How much is this worth to *you*? Involuntary churn is a share of your MRR every month,
+and a retry-plus-reminder sequence recovers a large fraction of it — from customers who
+already chose to pay. Put your numbers in; this is the calculation that usually justifies
+the whole afternoon it takes to build the journey.
+
+<Calculator
+  preset="dunning-recovery"
+  id="ch6-dunning-recovery"
+  title="What dunning is worth to you"
+/>

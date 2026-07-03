@@ -202,6 +202,13 @@
     ],
     "02-aarrr-and-the-leaky-bucket/02-leaky-bucket": [
       {
+        "kind": "calc",
+        "id": "ch2-retention-compounder",
+        "key": "calc:ch2-retention-compounder",
+        "anchor": "wb-ch2-retention-compounder",
+        "label": "Feel the leak: retention vs. the pour"
+      },
+      {
         "kind": "flashcards",
         "id": "cards-aarrr",
         "key": "flashcards:cards-aarrr",
@@ -235,6 +242,13 @@
         "label": "Write your activation sentence — the one user action that means they got real value.",
         "placeholder": "A user is activated when they… (one sentence, one observable event)",
         "rows": 2
+      },
+      {
+        "kind": "calc",
+        "id": "ch2-activation-value",
+        "key": "calc:ch2-activation-value",
+        "anchor": "wb-ch2-activation-value",
+        "label": "What a point of activation is worth"
       }
     ],
     "02-aarrr-and-the-leaky-bucket/04-north-star": [
@@ -564,6 +578,15 @@
         "itemCount": 8
       }
     ],
+    "06-building-lifecycle-with-hogsend/07-dunning": [
+      {
+        "kind": "calc",
+        "id": "ch6-dunning-recovery",
+        "key": "calc:ch6-dunning-recovery",
+        "anchor": "wb-ch6-dunning-recovery",
+        "label": "What dunning is worth to you"
+      }
+    ],
     "06-building-lifecycle-with-hogsend/12-before-you-move-on": [
       {
         "kind": "quiz",
@@ -726,6 +749,15 @@
         "anchor": "wb-cards-owned-audience",
         "label": "Key ideas — the owned-audience flywheel",
         "itemCount": 8
+      }
+    ],
+    "08-owned-audience-identity-flywheel/07-referral-loop": [
+      {
+        "kind": "calc",
+        "id": "ch8-viral-k-factor",
+        "key": "calc:ch8-viral-k-factor",
+        "anchor": "wb-ch8-viral-k-factor",
+        "label": "Your referral loop's k-factor"
       }
     ],
     "08-owned-audience-identity-flywheel/10-before-you-move-on": [
