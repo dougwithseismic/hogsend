@@ -1355,14 +1355,50 @@ async function PsCode() {
 
 /* -------------------------------------------------- elephant in the room -- */
 
-const ELEPHANT_ITCHES = [
+const ELEPHANT_COLUMNS = [
   {
-    title: "You want the canvas",
-    body: "If you're used to a drag-and-drop editor, Workflows has you covered: a visual canvas next to your data, light automations, a generous free tier, nothing to run.",
+    label: "What Workflows does well",
+    accent: false,
+    cards: [
+      {
+        lead: "Zero extra infrastructure.",
+        rest: "A tab in the PostHog UI your team already has open, consuming the events you already capture — nothing to deploy, nothing to operate.",
+      },
+      {
+        lead: "Multi-channel out of the box.",
+        rest: "Email, SMS, push, Slack, and webhooks without writing a line.",
+      },
+      {
+        lead: "Non-engineers can ship.",
+        rest: "The no-code canvas means whoever owns lifecycle can see and edit the flow — no developer in the loop.",
+      },
+      {
+        lead: "A genuinely generous free tier.",
+        rest: "Light volume fits inside it; after that it's per-send pricing on top of your PostHog bill.",
+      },
+    ],
   },
   {
-    title: "You want to build marketing in",
-    body: "You're here because you'd rather write it, as a developer or a product-first engineering team. There will be things a canvas can't express — and owning the code, versioning it completely, and integrating any other service wins that freedom back.",
+    label: "Why you'd reach for Hogsend",
+    accent: true,
+    cards: [
+      {
+        lead: "The flow is code you own.",
+        rest: "Versioned completely — git log knows who changed the discount email and why. PR review, tests, and rollback apply like everywhere else.",
+      },
+      {
+        lead: "Your domain, your reputation.",
+        rest: "Sends go through your own Resend or Postmark account, not a managed sender.",
+      },
+      {
+        lead: "Past the canvas ceiling.",
+        rest: "Park until this user acts, send in their timezone, trigger journeys from journeys, cap re-entries — control flow boxes and arrows can't express.",
+      },
+      {
+        lead: "Integrate any service.",
+        rest: "A journey is an async TypeScript function — call any API you can import, or an LLM mid-run, and branch on the answer.",
+      },
+    ],
   },
 ];
 
@@ -1400,31 +1436,63 @@ function PsElephant() {
         </Reveal>
 
         <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
-          {ELEPHANT_ITCHES.map((item) => (
-            <div key={item.title} className="border-white/10 border-t pt-6">
-              <h3 className="font-medium text-base text-white tracking-[-0.025em]">
-                {item.title}
-              </h3>
-              <p className="mt-2 max-w-[460px] text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
-                {item.body}
-              </p>
+          {ELEPHANT_COLUMNS.map((col) => (
+            <div key={col.label}>
+              <span
+                className={cn(
+                  "font-mono text-[11px] uppercase tracking-[0.08em]",
+                  col.accent ? "text-[#f64838]" : "text-white/40",
+                )}
+              >
+                {col.label}
+              </span>
+              <div className="mt-4 flex flex-col gap-3">
+                {col.cards.map((card) => (
+                  <div
+                    key={card.lead}
+                    className={cn(
+                      "rounded-lg border p-5",
+                      col.accent
+                        ? "border-[#f64838]/25 bg-[#f64838]/[0.06]"
+                        : "border-white/10 bg-white/[0.03]",
+                    )}
+                  >
+                    <p className="text-[14px] leading-[21px] tracking-[-0.02em]">
+                      <span className="font-medium text-white">
+                        {card.lead}
+                      </span>{" "}
+                      <span className="text-white/55">{card.rest}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
-          {/* The elephant, literally in the room — feet on the rule below. */}
-          <div className="hidden self-end lg:block">
+          {/* The elephant, literally in the room — feet on the rule below.
+              Hover: he leans in and owns up. Pure CSS, no client JS. */}
+          <div className="group relative hidden self-end lg:block">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -top-9 right-2 w-max translate-y-1 rounded-lg bg-white px-3.5 py-2 font-medium text-[#0a0a0a] text-[13px] tracking-[-0.02em] opacity-0 shadow-lg transition-all duration-300 ease-out group-hover:translate-y-0 group-hover:opacity-100"
+            >
+              Don&rsquo;t mind me — you can use both.
+              <span className="-bottom-1 absolute right-10 size-2 rotate-45 bg-white" />
+            </div>
             <Image
               src={postphant}
               alt="Postphant — the elephant in the room"
-              className="w-[180px] translate-y-10"
+              className="w-[180px] origin-bottom translate-y-10 transition-all duration-300 ease-out group-hover:-rotate-2 group-hover:translate-y-8 group-hover:scale-[1.07]"
             />
           </div>
         </div>
 
         <div className="mt-10 flex flex-col justify-between gap-6 border-white/10 border-t pt-8 lg:flex-row lg:items-center">
-          <p className="max-w-[560px] text-white/75 text-base leading-[24px] tracking-[-0.025em]">
-            They scratch different itches, and it isn't a choice of one or the
-            other — both run off the same PostHog events, so use each where it
-            fits. Hogsend amplifies everything PostHog does.
+          <p className="max-w-[640px] text-white/75 text-base leading-[24px] tracking-[-0.025em]">
+            They scratch different itches. If you want a drag-and-drop editor,
+            Workflows has you covered — you're here because you'd rather build
+            marketing in, as a developer or a product-first engineering team.
+            And it isn't either/or: both run off the same PostHog events, so use
+            each where it fits. Hogsend amplifies everything PostHog does.
           </p>
           <Btn href="/docs/compare/posthog-workflows" variant="outline">
             Read the full comparison
