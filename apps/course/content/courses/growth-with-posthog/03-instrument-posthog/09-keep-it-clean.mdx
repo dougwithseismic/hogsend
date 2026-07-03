@@ -1,0 +1,32 @@
+---
+title: "Keep it clean"
+description: "A few habits that prevent the most common messes — filtering internal users, keeping PII out of names, versioning events, QA'ing instrumentation like code — plus the tweaks for your kind of startup."
+---
+
+A few habits that prevent the most common messes:
+
+- **Filter out internal/test users** — by email domain, IP, or a test flag — so your
+  own activity doesn't pollute the funnels. (Founders refreshing their own app is the
+  number-one source of fake activation.)
+- **Don't leak PII into event or property *names*** (values are fine; names are not).
+- **Version events on breaking changes** (`registration_v2`) rather than silently
+  changing a name's meaning.
+- **Keep the website and app in one project** so you see the full journey from first
+  anonymous visit to paying customer.
+- **QA instrumentation like code.** After shipping an event, it's worth watching it
+  arrive in PostHog's activity view, checking its properties, and watching one session
+  replay of the flow to confirm it fires when you think it does. The trade is ten
+  minutes now against a quarter's worth of subtly wrong funnels later.
+
+### For your kind of startup
+
+- **Mobile-first** — use the native SDK; note that session replay and autocapture behave
+  differently than on web, and store-purchase events come from the platform, not a
+  browser.
+- **B2B** — turn on groups (mind the billing), and track the *account*-level activation,
+  not just the user's.
+- **E-commerce** — fire `order_completed` server-side from the payment webhook (the
+  browser tab often closes before a client event lands), and capture `product_*`
+  properties for merchandising analysis.
+- **Dev tool** — instrument the docs and the first successful API call; the docs-to-first-
+  call path is your real activation funnel.

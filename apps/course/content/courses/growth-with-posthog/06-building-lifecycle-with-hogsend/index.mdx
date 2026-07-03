@@ -1,0 +1,33 @@
+---
+title: "Chapter 6 — Building the lifecycle in Hogsend"
+description: "The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back, dunning, and referral — each triggered by a real event, each durable by default — plus email templates as React components and the correctness rules that stop double-sends, in twelve short pieces."
+workbook: "The Chapter 5 journeys, written as code — welcome, nudge, win-back, dunning, referral. Nothing to draft here: watch the three React Email pieces and take the check; the patterns land in your plan in Chapter 10."
+---
+
+> **In this chapter:** how an event becomes a running journey, why durable execution
+> matters (and what breaks without it), the anatomy of `defineJourney`, email templates
+> as code, working examples for each lifecycle stage, the other ways you could build
+> this, and the correctness rules that stop you double-sending. Code here mirrors real
+> production journeys.
+
+If you'd like to follow along, the examples assume a Hogsend app —
+`pnpm dlx create-hogsend@latest` scaffolds one in a minute.
+
+**How this chapter works.** It's broken into twelve short pieces — most are a one- to
+three-minute read. One piece (Templates) carries three short videos on building email as
+React components: read the one-line reason it's worth your time, watch it (or read the
+transcript underneath), then read the digest. Work through them in order, or jump to what
+you need:
+
+1. [The loop: event in, journey runs, event out](./01-the-loop) — how an event becomes a durable running journey, and why "durable" is the whole game.
+2. [Anatomy of a journey](./02-anatomy-of-a-journey) — `defineJourney`, its meta guardrails, and the context primitives.
+3. [Templates: email as code](./03-templates-email-as-code) — React components that render to inbox-proof HTML, versioned with your code.
+4. [Welcome + onboarding](./04-welcome-onboarding) — the first journey: welcome now, branch on behaviour two days later.
+5. [A behavioural nudge series](./05-behavioural-nudge-series) — sleep, check, send only if needed — the shape most onboarding takes.
+6. [Win-back](./06-win-back) — `waitForEvent` gives a dormant user a window to return before the final nudge.
+7. [Dunning](./07-dunning) — the highest-ROI journey: recover a failed charge, exit the moment payment clears.
+8. [Referral](./08-referral) — ask at peak satisfaction, and only ask users who are still active.
+9. [Correctness: exactly-once](./09-exactly-once) — how the engine stops a replay from double-sending, and the one rule you author.
+10. [Other ways you could build this](./10-other-ways) — cron, job queues, durable-execution platforms, no-code — and why durable wins here.
+11. [Feeding your journeys and proving lift](./11-triggers-and-holdout) — where the events come from, and the holdout that measures your impact.
+12. [Before you move on](./12-before-you-move-on) — the build order for the week, then a quiz to check yourself.

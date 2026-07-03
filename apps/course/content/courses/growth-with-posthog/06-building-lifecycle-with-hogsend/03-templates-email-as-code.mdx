@@ -1,0 +1,120 @@
+---
+title: "Templates: email as code"
+description: "Journeys decide when and who; templates decide what lands in the inbox. In a Hogsend app templates are React components — type-checked, versioned in git, compiled to the table-based HTML email clients actually tolerate."
+workbook: "Three short videos on the React Email model your src/emails/ folder uses — building a template, and the tooling that catches broken layouts before they ship."
+---
+
+The journeys decide *when* and *who*; templates decide *what lands in the inbox*. In a
+Hogsend app, templates are **React components** — the
+[React Email](https://react.email/docs/introduction) model, where an email is a
+component tree (`<Container>`, `<Button>`, `<Text>`) that renders to the
+table-based HTML that email clients actually tolerate. If you've ever hand-written
+`<td>` soup for Outlook, this is the upgrade: components, props, type-checked data, and
+your design system's tokens — compiled to HTML that works in clients stuck in 2009.
+
+<VideoEmbed
+  id="xlA5XD8CSdo"
+  title="Send emails with React components (with Zeno from Resend)"
+  channel="Vercel"
+  duration="23:54"
+  note="Resend's founder building and sending a React Email template end to end — the exact authoring model your src/emails/ folder uses."
+/>
+
+<VideoTranscript id="xlA5XD8CSdo" />
+
+**What to take from it:**
+
+- The Vercel × Resend template wires an isolated API key into your project *mid-deploy*,
+  so a fresh Next.js app ships with email hooked up from the first commit — no separate
+  setup step.
+- The email itself is a React Email component with typed props and Tailwind; Zeno's whole
+  point is that you write ordinary React and get the Outlook/Gmail cross-client
+  compatibility handled for you, instead of hand-writing inline styles and table soup.
+- React Email's local dev server previews every template in mobile and desktop, shows the
+  HTML *and* plain-text versions, and lets you fire a real test send — the exact
+  preview-before-you-send loop this piece recommends.
+
+A template in your app is a component plus a registry entry:
+
+```tsx
+// src/emails/activation-welcome.tsx
+export function ActivationWelcome({ firstName, ctaUrl }: Props) {
+  return (
+    <EmailLayout preview="Let's get you set up">
+      <Text>Welcome{firstName ? `, ${firstName}` : ""} 👋</Text>
+      <Text>One thing to do today: create your first project.</Text>
+      <EmailButton href={ctaUrl}>Create a project</EmailButton>
+    </EmailLayout>
+  );
+}
+```
+
+The engine owns the pipeline from there: when a journey calls `sendEmail({ template:
+Templates.ACTIVATION_WELCOME, props })`, the engine renders the component to HTML,
+checks the user's preferences/unsubscribe state, rewrites links for first-party click
+tracking, records the send, and only then hands plain HTML to the delivery provider
+(Resend by default — [their docs](https://resend.com/docs/introduction) cover the wire;
+[Vercel's guide](https://vercel.com/kb/guide/sending-emails-from-an-application-on-vercel)
+shows the same stack outside Hogsend). Two consequences worth noticing:
+
+- **Templates version with your code.** The welcome email that shipped with v1.4 is in
+  the v1.4 git history — reviewable, revertable, diffable
+  ([Resend's templates post](https://resend.com/blog/introducing-templates) makes the
+  same versioning argument even for their hosted flavour).
+- **Content vs plumbing stays split.** Journeys never concatenate HTML; templates never
+  decide who gets mail. The same separation your product keeps between logic and view.
+
+<VideoEmbed
+  id="cQy24szSsBw"
+  title="Modern emails using React"
+  channel="React Conf"
+  duration="11:18"
+  note="A 2026 conference take on why the React component model fits email's brutal rendering constraints — good background before you build your EmailLayout."
+/>
+
+<VideoTranscript id="cQy24szSsBw" />
+
+**What to take from it:**
+
+- The problem React Email exists to solve: email clients — old *and* new (Gmail, Yahoo,
+  Outlook, Superhuman, Notion Mail) — still don't support SVG, `border-radius`, and most
+  modern CSS, so you need a component layer that emits cross-client, table-based HTML.
+- The workflow is three steps — *code* the template (unstyled components + Tailwind +
+  typed props that fail the build when missing), *test* it (preview across clients, a
+  linter that flags broken and 404 links), then *send* it (a `render` util turns the
+  component into plain HTML any provider accepts).
+- The existing open-source options were stale (one's last commit was seven years ago;
+  another's docs were badly outdated), which is exactly why a fresh component-model tool
+  was worth building — the "email as code" case this piece makes.
+
+**Test emails like code, too.** A template is about to sit in front of thousands of
+sends, so it's worth actually looking at it first:
+React Email's dev server previews every template with sample props; send-to-yourself
+against [test addresses](https://resend.com/docs/dashboard/emails/send-test-emails)
+(or a capture sandbox — [Mailtrap's testing guide](https://mailtrap.io/blog/how-to-test-email/)
+covers the methodology) before pointing at real users; and keep
+[transactional-email conventions](https://postmarkapp.com/guides/transactional-email-best-practices)
+in mind — a lifecycle email is closer to a receipt than a brochure: one job, one CTA,
+plain and fast.
+
+<VideoEmbed
+  id="d4UZg3l8JvQ"
+  title="react.email now tests your emails"
+  channel="Resend"
+  duration="4:14"
+  note="The linting/compatibility side of the toolchain — catching the Outlook-breaks-this class of bug before it ships."
+/>
+
+<VideoTranscript id="d4UZg3l8JvQ" />
+
+**What to take from it:**
+
+- React Email 4 adds a spam checker (it runs SpamAssassin, the standard open-source tool)
+  that scores your email the way inboxes will and flags the phrases dragging the score
+  down — catch deliverability problems in preview, not after a send.
+- The linter surfaces accessibility and performance issues — a missing `alt` tag, an
+  oversized image that slows the client — and links each finding straight to the offending
+  line.
+- The compatibility checker (backed by "Can I email") flags CSS that breaks in specific
+  clients — `object-fit`, or `height` vs `min-height` diverging between Outlook and Yahoo —
+  so the "Outlook breaks this" bug is caught in the preview instead of a customer's inbox.

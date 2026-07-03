@@ -1,0 +1,48 @@
+---
+title: "Referral (Referral)"
+description: "Ask at peak satisfaction — trigger off a milestone, wait a beat so the ask rides the good feeling, and only ask users who are still active. The referral loop itself is Chapter 8; this journey is just the ask."
+---
+
+Ask at peak satisfaction — trigger off a milestone, and only ask users who are still
+active:
+
+```ts
+export const referralInvite = defineJourney({
+  meta: {
+    id: "referral-invite",
+    name: "Referral — Post-Achievement Invite",
+    enabled: true,
+    trigger: { event: Events.MILESTONE_REACHED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(7),
+    suppress: days(2),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: hours(2), label: "post-achievement" });
+
+    // Only ask people who are actually engaged.
+    const { found: active30d } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.SESSION_COMPLETED,
+      within: days(30),
+    });
+    if (!active30d) return;
+
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.RETENTION_ACHIEVEMENT,
+      subject: "Share the love — invite a friend",
+      journeyName: user.journeyName,
+      props: { ctaText: "Invite a Friend" },
+    });
+  },
+});
+```
+
+This encodes the Chapter 5 rule "ask at peak satisfaction" precisely: it triggers off a
+*milestone*, waits a beat so the ask rides the good feeling, and the `if (!active30d)
+return` guard means you never ask a disengaged user to vouch for you. The referral
+*loop* — turning that invite into a tracked, rewarded conversion on an identity graph you
+own — is Chapter 8. This journey is just the ask.

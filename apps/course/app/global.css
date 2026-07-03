@@ -181,6 +181,18 @@ h4,
   animation: hs-spin linear infinite;
 }
 
+/* Slow dash-drift for the hero contour lines (WaveLines). The global
+   reduced-motion block below already neutralises the animation. */
+@keyframes hs-dash-drift {
+  to {
+    stroke-dashoffset: -240;
+  }
+}
+.hs-dash {
+  stroke-dasharray: 4 8;
+  animation: hs-dash-drift 26s linear infinite;
+}
+
 /* Hide horizontal scrollbars on tag/marquee rows. */
 .no-scrollbar::-webkit-scrollbar {
   display: none;

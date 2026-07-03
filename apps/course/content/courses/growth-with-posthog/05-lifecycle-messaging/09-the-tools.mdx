@@ -1,0 +1,46 @@
+---
+title: "The tools you could use (and when no-code is right)"
+description: "The honest map of the messaging-tool landscape — Customer.io, Loops, Klaviyo, Braze, Intercom, PostHog Workflows — when a no-code tool is the right call, and why this course is code-first."
+workbook: "The landscape of messaging tools and their trade-offs, plus when no-code is the right call. Note what you're sending with today, then read the case for code-first."
+---
+
+This course builds journeys in Hogsend, but a growth team should know the landscape and
+choose deliberately. The honest map:
+
+- **Customer.io** — the closest "serious" behavioural-messaging tool: event-triggered,
+  multi-channel, strong segmentation. A genuinely good choice, especially for a
+  marketing-owned program. Trade-off: your lifecycle logic lives in their UI, not your
+  repo.
+- **Loops.so** — clean, developer-friendly transactional + lifecycle email; lovely DX
+  for simple flows. Trade-off: less powerful when your branching gets complex.
+- **Klaviyo** — the e-commerce default; superb for cart/browse/post-purchase flows on
+  Shopify. If you're commerce, start here. Weaker fit for product-event-driven SaaS.
+- **Braze / Iterable** — enterprise-grade multi-channel orchestration. Powerful,
+  expensive, and overkill until you're at real scale with a marketing team.
+- **Intercom** — strong when messaging and support live together (in-app + email +
+  inbox). You pay for the suite.
+- **Resend Broadcasts / Mailchimp / ConvertKit** — broadcast-first. Fine for a
+  newsletter; not built for behavioural, per-user journeys.
+- **PostHog Workflows** — no-code, lives next to your data, good for batch + simple
+  drips (Chapter 1, §1.3).
+
+<CheckIn
+  id="messagingStack"
+  question="What are you sending with today?"
+  options={["None yet", "Batch newsletters (Mailchimp-style)", "Lifecycle tool (Customer.io, Loops, …)", "Transactional only (Resend, Postmark, SES)", "In-house code"]}
+  multi
+/>
+
+**When a no-code tool is the right call:** if a non-engineer owns messaging, if your
+flows are simple drips, or if you need to ship something this week without touching the
+codebase — Customer.io or Loops will serve you well, and there's no virtue in code for
+its own sake.
+
+**Why this course is code-first (Hogsend):** because for a *product-led growth team*
+(Chapter 0) the messaging layer is part of the product, and it benefits from the same
+things your product code does — version control, code review, real branching logic,
+testing, and exactly-once guarantees. When your journey needs to *read* arbitrary event
+history and *branch* on it, a flowchart UI becomes the bottleneck; code doesn't. And the
+identity graph that makes Chapter 8 work is much easier when the messaging engine is
+yours. The trade-off is real and you should make it with eyes open: code-first asks an
+engineer to own lifecycle. For the audience of this course, that's a feature.

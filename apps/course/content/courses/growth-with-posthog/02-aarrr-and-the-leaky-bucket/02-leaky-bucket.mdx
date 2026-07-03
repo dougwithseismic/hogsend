@@ -1,0 +1,102 @@
+---
+title: "The leaky bucket"
+description: "Your business is a bucket: water in is new customers, leaks are churn, the level is your active base. Why almost everyone pours faster when they should plug the holes — and why the course fixes things in the order measure → keep → grow."
+workbook: "The leaky-bucket model, RARRA, and the honest counterpoint — then flashcards on the key ideas so far: the five stages, the two levers, the mobile numbers, and the method for finding your activation metric."
+---
+
+Here is the analogy this course returns to over and over.
+
+**Your business is a bucket.** Water poured in at the top is newly acquired customers.
+Water leaking out of holes in the bottom is customers who churn. The water level is
+your active customer base. ([Amplitude's explainer](https://amplitude.com/blog/leaky-bucket-problem)
+walks the same image with cohort charts attached, if you want it drawn.)
+
+There are only two ways to raise the level: **pour faster** (acquire more) or **plug
+the holes** (retain more).
+
+Almost everyone reaches for the tap first. It feels like progress — the signup number
+goes up, the chart is up and to the right, the launch looks like a success. But if the
+bucket is full of holes, pouring faster mostly reveals the problem: you spend more, the
+level barely moves, and you've simply *bought churn*. As one framing puts it, "if the
+product cannot retain, paid acquisition becomes a way of purchasing churn."
+
+The mobile world makes this brutal. Data popularised by Andrew Chen found the average
+app **loses about 77% of its daily users within three days, and about 90% within 30
+days** ([his write-up of the dataset](https://andrewchen.com/new-data-shows-why-losing-80-of-your-mobile-users-is-normal/)).
+Run the math on that: acquire 100 users at \$5 each, lose 77 of them in three
+days, and you've effectively set \$385 on fire — immediately, before you've done
+anything wrong except scale a leaky bucket. *(Directional: the 77%/90% figures come
+from one widely-cited dataset; treat them as illustrative of the shape, not gospel.)*
+Chen's [four-scenario framing](https://andrewchen.com/is-your-website-a-leaky-bucket-4-scenarios-for-user-retention/)
+of the same idea is worth internalising: acquisition and retention multiply, so the
+same traffic produces wildly different businesses depending on the leak rate.
+
+**This is why the course fixes things in this order: measure → keep → grow.** Plug the
+biggest holes (activation and retention) *first*, because retention is the multiplier
+on every acquisition dollar. A user who stays is worth more, refers more, and pays
+back their acquisition cost — [Brian Balfour's retention essays](https://brianbalfour.com/essays/category/Retention)
+make the compounding case in full: retention improvements cascade into every other
+AARRR stage, which is why he calls retention the one metric that multiplies rather
+than adds. Only once the bucket holds water do you open the tap. This is the same
+"retention before acquisition" line you got the team to nod to in Chapter 0 — this is
+the argument behind the nod.
+
+### RARRA: the same point, sharpened
+
+Around 2017, Thomas Petit and Gabor Papp reordered the letters to **RARRA** —
+Retention, Activation, Referral, Revenue, Acquisition — specifically to break the
+habit of starting with acquisition
+([Mind the Product's comparison](https://www.mindtheproduct.com/aarrr-vs-rarra-pirate-metrics-explained/)
+covers both orderings). Their blunt version: *"If you don't have retention, you have
+nothing."* AARRR is the map of a user's journey; RARRA is the order of *priorities* —
+what to fix first for the most leverage.
+
+### The honest counterpoint
+
+So you don't over-rotate: the leaky-bucket idea has a credible critique. The
+Ehrenberg-Bass Institute [argues it's over-applied](https://marketingscience.info/the-hole-in-the-leaky-bucket-theory/)
+— for many categories, acquiring new and light buyers drives growth *more* than
+plugging churn, and obsessing only over retention can cap your ceiling. The balanced
+reading: **retention-first is the right default for an early-stage product**, but
+"retention is the only thing that matters" is an oversimplification. Fix the bucket,
+then absolutely turn on the tap (Chapters 7–8). The skill is knowing which phase you're
+in — and the retention curve (§2.5) is how you tell.
+
+<Flashcards
+  id="cards-aarrr"
+  title="Key ideas — AARRR"
+  cards={[
+    {
+      prompt: "The five AARRR stages, each as a question:",
+      cloze: "{{Acquisition}}: how do people find you? {{Activation}}: do new users reach the value? {{Retention}}: do they come back? {{Referral}}: do they bring others? {{Revenue}}: do they pay, and how much?",
+    },
+    {
+      front: "In the leaky-bucket model, what are the only two ways to raise the water level?",
+      back: "The bucket is your business: water in = new customers, leaks = churn, level = active base. Pour faster (acquire more) or plug the holes (retain more) — and almost everyone reaches for the tap first.",
+    },
+    {
+      front: "What do the mobile numbers say pouring into a leaky bucket costs?",
+      back: "The average app loses ~77% of daily users within 3 days and ~90% within 30 (Andrew Chen's dataset; directional). Acquire 100 users at $5 with that leak and ~$385 is gone in three days — you bought churn.",
+    },
+    {
+      front: "What is RARRA, and how does it differ from AARRR?",
+      back: "Petit and Papp's 2017 reordering: Retention, Activation, Referral, Revenue, Acquisition. AARRR maps the user's journey; RARRA orders your priorities — \"if you don't have retention, you have nothing.\"",
+    },
+    {
+      front: "Why not copy Facebook's \"7 friends in 10 days\"?",
+      back: "Magic numbers are population-level rally cries picked round on purpose — Facebook's could have been \"10 friends in 12 days.\" Their real job is alignment; yours must come from your own data.",
+    },
+    {
+      prompt: "The three-step method for finding your activation metric:",
+      cloze: "{{Brainstorm candidate aha moments}}, {{run correlation analysis against retention}}, then {{run an experiment}} that pushes users to the candidate. Step 3 is the one teams skip — a good metric is causal, not just correlative.",
+    },
+    {
+      prompt: "The four criteria of a good North Star Metric:",
+      cloze: "It {{reflects customer value}}, {{expresses your strategy}}, is a {{leading indicator}}, and {{isn't directly movable}} — you work on 3–5 input metrics beneath it. Revenue fails: it's the lagging score, not the play.",
+    },
+    {
+      front: "What is the one question to ask of a retention curve?",
+      back: "Does it flatten above zero? A plateau means some cohort made the product a habit — that plateau is PMF expressed as data. Decay to zero means no amount of acquisition will save it.",
+    },
+  ]}
+/>

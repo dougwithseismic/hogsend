@@ -1,0 +1,15 @@
+{
+  "title": "Chapter 3 · Instrument PostHog",
+  "pages": [
+    "01-ways-to-install",
+    "02-autocapture",
+    "03-custom-events",
+    "04-identify-users",
+    "05-events-to-track-first",
+    "06-other-ways-in",
+    "07-beat-ad-blockers",
+    "08-actions-and-experiments",
+    "09-keep-it-clean",
+    "10-before-you-move-on"
+  ]
+}

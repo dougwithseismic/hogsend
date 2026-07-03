@@ -1,0 +1,74 @@
+---
+title: "The loop: event in, journey runs, event out"
+description: "Hogsend's whole model is one loop: an event arrives, the engine routes it to every subscribed journey, and the journey runs — as durable TypeScript — firing its own events back so the loop stays measurable in PostHog."
+workbook: "A quick check on who would actually own these journeys on your team."
+---
+
+Hogsend's whole model is one loop:
+
+1. An event arrives — from your backend (`POST /v1/ingest`), from a webhook source, or
+   from PostHog. The same server-side events you send to PostHog in Chapter 3 are the
+   events you send here.
+2. The engine stores it, then routes it to every journey **subscribed to that event**.
+3. The journey runs — it can wait days, check history, branch, send email, message
+   Discord/Telegram — and fires its own events back (`journey:completed`, `email.*`,
+   etc.) so the loop is measurable in PostHog.
+
+The key property: **a journey is durable TypeScript.** `await ctx.sleep(...)` is a
+real two-day pause that survives deploys and restarts — not a cron job, not a flowchart
+approximating control flow. You write normal code; the engine makes it durable.
+
+### Why "durable" is the whole game
+
+It's worth understanding what that buys you, because it's the reason a code-first journey
+engine exists at all. A lifecycle journey is mostly *waiting* — send, wait two days,
+check, send, wait five days, check. Naively, you might reach for `setTimeout` or a
+background `sleep`. That works until your server restarts mid-wait (a deploy, a crash, an
+OOM) — and then every in-flight wait is lost, and every user mid-journey is stranded. You
+can't run a messaging program on a process that forgets what it was doing every time you
+ship.
+
+Durable execution solves this: the engine persists the journey's position, so a
+two-day sleep genuinely survives a redeploy on day one and resumes on day two as if
+nothing happened. That's what lets you write a multi-day program as a single, readable
+function instead of a pile of cron jobs and database flags reconstructing the state by
+hand. The alternatives (later in this chapter) all exist to approximate this; Hogsend
+gives it to you as plain control flow.
+
+There's a subtlety inside "durable" that the exactly-once piece returns to: durability is
+achieved by being able to *replay* a journey from the top after a crash and fast-forward
+through the parts that already ran. That replay model is why exactly-once sending needs
+engine support rather than hope — hold the thought.
+
+### Send the trigger events
+
+From your backend, the same place you call `posthog.capture(...)`, also post to Hogsend:
+
+```ts
+await fetch(`${HOGSEND_URL}/v1/ingest`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
+  body: JSON.stringify({
+    event: "user.created",
+    userId: "user_123",
+    userEmail: "sam@example.com",
+    properties: { plan: "free" },
+  }),
+});
+```
+
+That `user.created` event is what triggers the welcome journey below. One server-side
+emission, two consumers: PostHog measures it, Hogsend acts on it. And because it's
+server-side, it's ad-blocker-proof (Chapter 3) — your lifecycle program never depends
+on a browser script that a third of your users block.
+
+<CheckIn
+  id="engineeringBandwidth"
+  question="Who would write these journeys on your team?"
+  options={[
+    "Me — I write the code",
+    "A teammate would",
+    "We'd need to borrow or hire help",
+    "No one technical yet",
+  ]}
+/>

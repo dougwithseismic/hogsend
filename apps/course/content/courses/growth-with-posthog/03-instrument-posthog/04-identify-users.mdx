@@ -1,0 +1,143 @@
+---
+title: "Identifying users (and the cost lever inside it)"
+description: "Call identify to connect anonymous activity to a real person — carefully, because merges are permanent. Plus the person_profiles setting that's the single biggest cost decision in the whole setup, and B2B group analytics."
+workbook: "The identity mechanics that are the hardest bugs to undo, the anonymous-vs-identified cost lever, B2B group analytics, and the key-ideas flashcards for the whole chapter."
+---
+
+Out of the box, events are tied to an anonymous id (a random UUID the SDK stores in the
+browser). To connect a person's activity to *who they are*, call `identify` — typically
+right after login ([identify docs](https://posthog.com/docs/getting-started/identify-users)):
+
+```js
+posthog.identify("user_123", {     // your stable user id (DB id or email)
+  email: "sam@example.com",
+  name: "Sam Rivera",
+});
+```
+
+This links all the prior anonymous activity from that browser to the identified person,
+so the pre-signup and post-signup history becomes one timeline. It works best called
+early, with whatever properties you know at the time — each call can add more.
+
+What's actually happening underneath is worth thirty seconds of your attention, because
+identity bugs are the hardest analytics bugs to undo. Each browser starts with an
+anonymous distinct id. When you `identify`, PostHog *merges* that anonymous person into
+the identified one — the anonymous id becomes an alias of `user_123`, and every past
+and future event on either id lands on one person. Merges are effectively permanent, so
+two mistakes are expensive:
+
+- **Identifying with an unstable id** (a session id, a device id, an email that can
+  change) — you'll mint multiple "people" for one human, and their funnel steps will be
+  split across them.
+- **Identifying two different humans with the same id** (a shared demo account, a
+  hardcoded test id that ships to production) — you'll weld strangers into one person,
+  and no filter can cleanly separate them again.
+
+<VideoEmbed
+  id="3afzkLS-zQA"
+  title="PostHog identify and alias"
+  channel="PostHog"
+  duration="10:15"
+  note="The official explainer on how anonymous and identified events merge into one person — ten minutes that are much cheaper before your first identify call ships than after."
+/>
+
+<VideoTranscript id="3afzkLS-zQA" />
+
+**What to take from it:**
+
+- Call `identify` on the front end right after login or signup, with a *stable, unique* id
+  (email or your DB id) — a non-unique id welds different people into one profile, and the
+  merge pulls all prior anonymous events onto that person.
+- Pair it with `reset(true)` on sign-out so the next person on a shared device starts with
+  a fresh anonymous id instead of inheriting the last user's identity.
+- `alias` is the escape hatch when your front end knows a user by email but your backend
+  only has their database id — aliasing keeps both ids pointed at the same person.
+
+**Person properties** come in two flavours, and the difference matters:
+
+- **`$set`** — overwrite every time. Use for things that change: email, plan, company.
+- **`$set_once`** — write only if not already set. Use for immutable firsts: signup
+  date, first referrer, acquisition channel.
+
+```js
+posthog.capture("user_signed_up", {
+  $set: { plan: "free" },
+  $set_once: { signup_date: "2026-06-29", initial_referrer: document.referrer },
+});
+```
+
+Two things that tend to get forgotten:
+
+- **`posthog.reset()` on logout.** Without it, the next person on a shared machine
+  gets merged into the previous user's profile — and merges don't cleanly undo.
+- **`$set_once` checks whether the key exists, not which event is newest.** With
+  out-of-order delivery, the first event *ingested* wins.
+
+### The cost lever: anonymous vs identified
+
+Anonymous events (no person profile) are roughly **4× cheaper** than identified ones.
+The `person_profiles` setting controls this:
+
+- **`identified_only`** (recommended) — events stay anonymous until you call
+  `identify`. Logged-out marketing-site traffic costs the cheap rate; logged-in users
+  get full profiles.
+- **`always`** — every event creates a profile. More expensive; only if you genuinely
+  need person data on everything.
+
+For a typical SaaS, `identified_only` is the sane default and can cut your bill
+significantly. It's the single biggest cost decision in the whole setup (Chapter 1,
+§1.5), and it's much easier to set on day one than to untangle later — which is why
+it's in the very first code sample of this chapter.
+
+### B2B: group analytics
+
+If you sell to companies, you'll want to roll events up to the *account*, not just the
+user, so you can ask "how many *companies* are active" and run account-level funnels:
+
+```js
+posthog.group("company", "company_456", { name: "Acme", plan: "enterprise" });
+```
+
+Two gotchas worth knowing going in: unlike `identify`, the group has to ride along with
+**every** relevant event or you lose the rollup — and group analytics is often a paid
+add-on with billing implications (Chapter 1, §1.5), so it's worth a look at the pricing
+page before switching it on.
+
+<Flashcards
+  id="cards-instrumentation"
+  title="Key ideas — instrumentation"
+  cards={[
+    {
+      front: "Where do money- and decision-critical events fire?",
+      back: "Server-side (posthog-node): signup, activation, subscription, purchase. It's reliable and ad-blocker-immune — and the source of truth for subscription_started is the payment webhook, not the checkout success page.",
+    },
+    {
+      front: "What does autocapture give you, and where does it stop?",
+      back: "Pageviews, clicks, form submits, rageclicks, and automatic properties (UTMs, ad-click IDs) with no code — but it records interface events, not meaning. Your funnels need a deliberate set of named custom events.",
+    },
+    {
+      front: "What actually happens when you call posthog.identify?",
+      back: "The browser's anonymous person merges into the identified one, so pre- and post-signup activity become one timeline. Merges are effectively permanent — unstable or shared ids are the expensive mistakes.",
+    },
+    {
+      front: "Why call posthog.reset() on logout?",
+      back: "Without it, the next person on a shared machine gets merged into the previous user's profile — and merges don't cleanly undo. It's the pair to identify() that keeps identities whole.",
+    },
+    {
+      prompt: "The single biggest cost decision in the whole setup:",
+      cloze: "Set person_profiles to {{\"identified_only\"}} on day one — anonymous events are roughly {{4× cheaper}} than identified ones, so logged-out traffic bills at the cheap rate until you call {{identify}}.",
+    },
+    {
+      front: "What naming rule most reliably saves an analytics setup?",
+      back: "Never build event names dynamically. capture(`page_viewed_${page}`) mints thousands of un-queryable event types; capture(\"page_viewed\", { page_name }) keeps one event with the variable in a property.",
+    },
+    {
+      prompt: "A tracking plan is a short, shared spec of every event:",
+      cloze: "Its {{name}}, {{trigger}}, {{source}}, and {{key properties}} — owned, not vibes. Keep it in the repo so a new event and its plan row land in the same PR; eight rows is a real plan for an early product.",
+    },
+    {
+      front: "How do you beat ad blockers eating 10–30% of events?",
+      back: "Two fixes together: a reverse proxy on your own subdomain recovers blocked client-side analytics, and server-side events never touch the browser at all. The proxy mitigates analytics; server-side fixes the triggers.",
+    },
+  ]}
+/>

@@ -1,0 +1,101 @@
+---
+title: "The referral loop"
+description: "Referrals are where the owned graph pays off most, because a referral program only works if you can attribute it — and attribution is exactly what the graph gives you. The incentive structures, the honest failure mode, and build-vs-buy."
+---
+
+Referrals are where the owned graph pays off most, because **a referral program only
+works if you can attribute it** — and attribution is exactly what the graph gives you.
+The prize is real:
+[Lenny Rachitsky's survey of referral programs](https://www.lennysnewsletter.com/p/this-week-16-building-a-referrals)
+found they commonly drive **15–50% of new-user growth** at companies that get them
+right — and, in the same breath, that most programs see **under 10% of users ever
+refer anyone**. Both numbers matter: the upside is large, and the median program
+underdelivers because it was bolted on rather than designed.
+
+### Incentive structures that work
+
+- **Double-sided (give-get).** Reward *both* the referrer and the new user. It removes
+  the "I'm asking a favour" friction. **Dropbox** is the canonical case: 500 MB of
+  storage to *each side* per referral, capped at 16 GB. The reward was the product's own
+  core value, the ask was the last step of onboarding, and it drove **~3,900% growth in
+  15 months.** (The backstory: paid ads were costing Dropbox far more than a customer was
+  worth, so a product-value referral was dramatically cheaper.)
+- **Milestone / tiered.** An escalating ladder of rewards — **Morning Brew**'s newsletter
+  referral program (stickers → shirt → bigger swag → trip to HQ) is the model, with a
+  leaderboard for status. Near-zero marginal cost per reward; great for community.
+- **Status / access.** For pre-launch and web3/games, the reward is *earlier access*, a
+  *whitelist spot*, or an *exclusive role* — scarcity instead of cash. **Robinhood**'s
+  skip-the-line waitlist is the classic.
+
+The design principles that run across all of them: sharing that costs nothing
+(prewritten copy, a one-click link), rewards on both sides, a reward aligned to product
+value, visible progress (a dashboard or leaderboard), and **an ask timed to peak
+engagement** — right after the aha moment, which is the referral journey from Chapter
+6, §6.8.
+
+### The honest failure mode: referred users can be your worst users
+
+Before settling on a reward, it's worth sitting with Andrew Chen's
+[counterpoint](https://andrewchen.com/worst-users-referral-trials-coupons-gamification/):
+users acquired through heavy incentives — referral bounties, coupons, gamified
+rewards — are often the *lowest-quality* cohort you acquire, because the incentive
+(not the product) did the selecting. The symptoms: referred users who never activate,
+reward-farmers inviting throwaway accounts, and a referral "channel" whose cohort
+retention embarrasses every other source.
+
+The defences are all things this course already gave you:
+
+- **Cohorting the referred users** (Chapter 4) and comparing their retention against
+  other channels — a referral program is judged on retained users, not invites sent.
+- **Rewarding verified behaviour, not signups.** When the referee has to verify email,
+  link an account, or hit a real activation milestone before the reward fires, farmers
+  lose interest. This is exactly the anti-fraud power the identity graph gives you
+  (below).
+- **A reward aligned to product value** (Dropbox's storage, not cash), so the people
+  the incentive attracts are people who wanted the product anyway.
+
+### Why the owned graph makes attribution work
+
+Cookie-based referral tracking breaks on the exact journey referrals take: a friend
+shares a link, the recipient clicks on their phone, then signs up on a laptop weeks
+later. Last-click misses it; the referrer goes uncredited; the program looks like it
+doesn't work and gets cut.
+
+An owned identity graph fixes this:
+
+- First-party referral codes/links are tracked **independent of third-party cookies**,
+  so you capture the conversion even as browsers tighten.
+- The graph **resolves the new user across devices** and **back-credits the referrer**
+  when the anonymous visitor finally identifies (gives email / links Discord).
+- You can enforce **anti-fraud rules** — the referee must verify their email or link an
+  account or hit a real milestone before the reward fires — because the *whole graph is
+  yours*. A Discord-linked referral resolves to a real verified person, not a cookie.
+
+And the natural community fit closes the loop: **"X verified referrals → unlock a Discord
+role"** puts the reward *in the owned channel*, which densifies the graph further. The
+reward for growing your audience is itself a deeper hook into your audience.
+
+Hogsend ships a referral v1 on exactly this shape: `visited → converted → credited`, two
+journeys plus a Discord role granted at a milestone — all on its own identity graph, no
+cookies required.
+
+### Build vs buy: the referral tooling landscape
+
+You don't have to build referral attribution from scratch, and a growth team should know
+the off-the-shelf options:
+
+- **Rewardful / GrowSurf / Referral Rock / Viral Loops** — hosted referral SaaS, fast to
+  stand up, with dashboards and reward logic out of the box. **Buy when** you want a
+  program live this week and a simple link-based attribution is enough.
+- **PartnerStack / FirstPromoter** — affiliate/partner-program flavoured, for paid
+  referrers and influencers rather than user-to-user.
+- **Build it on your own graph (Hogsend's approach)** — **worth it when** cross-device
+  and cross-channel attribution matters, when the reward lives in your product or
+  community (a role, credits, access), and when you want anti-fraud tied to real verified
+  identity. The hosted tools mostly rely on cookies/links and can't resolve the
+  phone-click → laptop-signup gap; your graph can.
+
+The honest split: a hosted tool is the right first move for a simple cash/credit referral
+on a single channel. The owned-graph build wins precisely when referrals are
+cross-device, community-rewarded, or fraud-prone — which is most of the interesting cases
+for the products this course is written for.

@@ -1,0 +1,46 @@
+---
+title: "Feeding it from PostHog (and Hogsend)"
+description: "PostHog's Meta Ads destination hashes and forwards conversions server-side with a dedup event_id, builds custom audiences from cohorts without CSVs, and lets Hogsend fire enriched deep-funnel conversions from its own identity graph."
+---
+
+You don't have to hand-build a CAPI integration. PostHog's **Data Pipelines** include a
+**Meta Ads conversions destination**:
+
+- You give it your **Pixel/Dataset ID and access token**. PostHog **SHA-256-hashes**
+  the email/name, and sends `event_name`, a unique `event_id` (enabling Pixel dedup),
+  `event_time`, plus `fbc`/`fbclid` and user agent.
+- Use the **same Pixel ID** for the browser Pixel and the PostHog destination so
+  deduplication works.
+- Filter the destination to **conversion events only** — you don't want every pageview
+  going to Meta.
+
+PostHog also auto-captures `fbclid`/`gclid` and UTMs as person properties and stitches
+anonymous → identified when the user gives an email, so a later server-side conversion
+carries the identifiers Meta needs for a high EMQ.
+
+**Custom audiences without CSVs:** build a PostHog **cohort** (e.g. "closed-won in the
+last 180 days") and sync it as a Meta custom audience — for retargeting, or as a
+lookalike seed. No manual list upload, and it stays fresh.
+
+**Where Hogsend fits:** Hogsend's events are server-side and keyed to its own identity
+graph (email ↔ Discord ↔ Telegram ↔ anonymous). That means Hogsend can fire **enriched,
+deep-funnel conversions** — trial→paid, qualified-lead — **server-side, with strong
+identity**, which is exactly the high-EMQ, browser-invisible conversion that makes CAPI
+worth it. The honest caveat (same as Chapter 3): this makes your *conversions* accurate
+and your *journey triggers* ad-blocker-proof; it does **not** fix the user's client-side
+PostHog analytics loss, and it does not override consent or ATT.
+
+### Other ways to send server-side conversions
+
+PostHog's destination is the path this course recommends because you're already in
+PostHog, but it's not the only one — the field is worth knowing:
+
+- **Stape / server-side Google Tag Manager** — a popular dedicated server container that
+  forwards to Meta, Google, TikTok, etc. More control, more setup.
+- **Segment / RudderStack** — if you already run a CDP, it has Meta/Google destinations.
+- **Direct CAPI integration** — call Meta's endpoint from your backend yourself. Most
+  control, most maintenance; only worth it if the managed options can't express what you
+  need.
+
+The principle is the same regardless of tool: **send from where you have identity,
+dedupe on `event_id`, send only consented conversion events.**

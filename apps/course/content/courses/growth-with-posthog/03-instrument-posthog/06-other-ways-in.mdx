@@ -1,0 +1,26 @@
+---
+title: "Other ways to get events in"
+description: "Capturing from your own code is the cheap default — but CDPs, Google Tag Manager, reverse-ETL, and PostHog's managed Sources each have a place. Choose deliberately."
+---
+
+Capturing from your own code is the default and the cheapest. But it's worth knowing the
+alternatives so you choose deliberately:
+
+- **A CDP pipe (Segment / RudderStack).** Instrument once against the CDP's API; it fans
+  the same events out to PostHog *and* your warehouse *and* your ad tools. **Worth it
+  when** you have many destinations and want one canonical schema; **overkill when**
+  PostHog is your only destination — then you're adding a hop and a bill for nothing.
+- **Google Tag Manager.** Marketers love it because it adds tags without a deploy. The
+  catch for a product team: GTM-injected tags are *more* likely to be ad-blocked (they
+  load from Google's domains), and it pulls your event logic out of the codebase where it
+  can be code-reviewed. **Fine for marketing-site pixels; not where your product funnel
+  should live.**
+- **Reverse-ETL / warehouse → PostHog.** If your source of truth is a database (orders,
+  subscriptions), you can sync those rows in as events rather than instrumenting the app.
+  **Good for back-office facts** (refunds, fulfilment) that never happen in a browser.
+- **PostHog managed Sources.** PostHog's own CDP can pull from Stripe, Hubspot, and
+  others directly — useful for joining revenue to behaviour without writing the pipe.
+
+For most teams this course is written for, the deliberate choice comes out the same
+way: **your own front-end and back-end do the capturing, the CDP waits until you have a
+second destination, and GTM stays on the marketing site.**

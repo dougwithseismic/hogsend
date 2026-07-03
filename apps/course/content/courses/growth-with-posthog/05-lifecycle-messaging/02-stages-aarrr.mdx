@@ -1,0 +1,71 @@
+---
+title: "The stages, mapped to AARRR"
+description: "Every lifecycle program is a subset of eight stages — welcome, onboarding, engagement, retention, resurrection, referral, expansion, dunning — each tied to an AARRR stage and a trigger event."
+workbook: "The eight lifecycle programs mapped to AARRR and their trigger events. Watch practitioners walk real programs end to end, then note how much email your product sends today."
+---
+
+Every lifecycle program is some subset of these. Here's each one, when it fires, and
+which AARRR stage it serves:
+
+| Program | AARRR stage | Fires when | Typical trigger event |
+|---|---|---|---|
+| **Welcome** | Acquisition → Activation | Right after signup | `user_signed_up` |
+| **Onboarding / activation** | Activation | New user hasn't hit the aha yet | signup + "not yet activated" |
+| **Engagement / feature adoption** | Retention | A valuable feature goes unused | `feature_x_never_used` after N days |
+| **Retention / habit** | Retention | On the product's natural usage rhythm | usage cadence, streaks, digests |
+| **Resurrection / win-back** | Retention | A user goes dormant | inactivity 30/60/90 days |
+| **Referral** | Referral | At peak satisfaction | activation milestone hit |
+| **Expansion / upsell** | Revenue | Approaching a plan limit / power usage | `approaching_limit` |
+| **Dunning / failed payment** | Revenue | A charge fails | `payment_failed` |
+
+A useful mental model (from Reforge): **retention is an output, not a stage you push
+on directly.** Its inputs are *activation*, *engagement*, and *resurrection* — and
+lifecycle messaging is how you move each of those inputs.
+[Customer.io's lifecycle guide](https://customer.io/learn/lifecycle-marketing/automation-and-personalization-guide)
+frames the same program as a five-step arc — capture, activate, retain, win back,
+expand — which is a decent sanity check that your table above covers the whole
+relationship, not just the first week of it.
+
+The best programs reinforce the product's *existing* habit loop rather than inventing
+new reasons to log in. A fitness app's habit is the workout; the message that says
+"your Tuesday session is waiting" works because it strengthens a loop that already
+exists. A message that invents a reason ("check out our blog!") fights the user's
+attention instead of riding it. Before writing any sequence, it's worth naming the
+habit loop you're reinforcing — teams that can't name one usually discover, a few
+months in, that they've built a newsletter and called it lifecycle.
+
+<VideoEmbed
+  id="iGzVM8ygjTk"
+  title="Mastering Lifecycle Marketing: Real-World Tactics from Leading B2B Teams"
+  channel="Exit Five"
+  duration="54:21"
+  note="Practitioners walking real lifecycle programs end to end — useful for hearing how teams decide which stage to work on next, which is exactly the §5.3 question."
+/>
+
+<VideoTranscript id="iGzVM8ygjTk" />
+
+**What to take from it:**
+
+- The practitioners split lifecycle into three pillars — activation (drive to the aha
+  moment), monetization, then retention/advocacy — and pick what to work on by asking
+  "where's the gap in the customer journey?" It's the same §5.3 sequencing question in
+  different words.
+- Their favourite post-welcome touch is the behaviour-triggered milestone email ("you've
+  sent your 10th invoice", "you've made $10k") — positive reinforcement *and* a moment to
+  collect first-party data that improves every later message.
+- Assume nobody reads the whole welcome series — and skims what they do read — so
+  deliberately reinforcing the same key points across later messages is expected, not
+  redundant. (And plain, clearly-written email often beats the heavily-designed kind.)
+
+---
+
+<CheckIn
+  id="emailVolume"
+  question="How much email does your product send today?"
+  options={[
+    "None yet",
+    "Transactional only (receipts, resets)",
+    "A newsletter, now and then",
+    "Lifecycle emails already running",
+  ]}
+/>

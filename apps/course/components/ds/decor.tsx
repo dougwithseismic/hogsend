@@ -43,6 +43,53 @@ export function DottedArrow({ tone: _tone, className }: DottedArrowProps) {
   );
 }
 
+type WaveLinesProps = {
+  className?: string;
+  /** Stroke color for the contour lines (defaults to a warm crimzon rim). */
+  stroke?: string;
+  /** How many fanned lines to draw. */
+  count?: number;
+};
+
+/**
+ * Fanned contour lines with a slow dash-drift — an abstract horizon layer for
+ * the hero glow canvas, drawn in code so it stays on-palette. The `.hs-dash`
+ * drift (and its reduced-motion neutralise) live in app/global.css.
+ */
+export function WaveLines({
+  className,
+  stroke = "rgba(255, 150, 128, 0.45)",
+  count = 8,
+}: WaveLinesProps) {
+  const paths = Array.from({ length: count }, (_, i) => {
+    const y = 16 + i * 26;
+    const lift = 24 + ((i * 13) % 26);
+    return `M-20 ${y} C 180 ${y - lift}, 380 ${y + lift}, 620 ${y - lift / 2} S 980 ${y + lift}, 1240 ${y - lift}`;
+  });
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 1200 200"
+      fill="none"
+      preserveAspectRatio="none"
+      className={cn("pointer-events-none", className)}
+    >
+      {paths.map((d, i) => (
+        <path
+          // biome-ignore lint/suspicious/noArrayIndexKey: static deterministic art
+          key={i}
+          d={d}
+          stroke={stroke}
+          strokeWidth="1"
+          strokeOpacity={0.3 + (i % 4) * 0.16}
+          className="hs-dash"
+          style={{ animationDelay: `${i * -3.5}s` }}
+        />
+      ))}
+    </svg>
+  );
+}
+
 type WordmarkProps = {
   text?: string;
   className?: string;

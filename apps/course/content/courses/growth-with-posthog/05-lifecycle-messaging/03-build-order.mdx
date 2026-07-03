@@ -1,0 +1,117 @@
+---
+title: "The order to build them — and why"
+description: "Welcome and onboarding first, dunning early if you charge, then win-back, engagement, referral, and expansion — the sequence most programs converge on, and the reasoning so you can adapt it rather than follow it blindly."
+workbook: "The default build order and the reasoning behind each step. Watch the three-minute dunning walkthrough for the retry-plus-reminder mechanics behind the highest-ROI journey."
+---
+
+You can't build all eight at once — and you don't need to. Here's the order most
+programs converge on, and the reasoning behind it, so you can adapt it rather than
+follow it blindly:
+
+### 1. Welcome + onboarding — first, and most important
+
+It's hard to justify starting anywhere else, for three reasons:
+
+- **Peak intent.** A new user is more engaged the moment after signup than they will
+  ever be again. Welcome and onboarding emails consistently post the highest open and
+  click rates of any automated message — welcome-email open rates commonly land around
+  **35–50%** *(well-attested across benchmark reports; the high end is SaaS-blog
+  territory — [Litmus's State of Email reports](https://www.litmus.com/state-of-email-reports)
+  are the least salesy place to calibrate)*.
+- **It plugs the biggest hole.** Most early churn happens in the gap between signup and
+  activation. That's the widest leak in the bucket, and onboarding is the patch.
+- **It's the highest-leverage growth lever you have.** Activated users retain roughly
+  ~2× better than non-activated ones
+  ([Lenny Rachitsky's activation benchmarks](https://www.lennysnewsletter.com/p/what-is-a-good-activation-rate)).
+  Doubling activation can beat doubling signups — at zero acquisition cost. Onboarding
+  email is the cheapest way to move activation.
+
+> ⚠️ You'll see "poor onboarding causes 40–60% of early churn" repeated everywhere.
+> It's directional folklore with no single solid study behind it — believe the
+> direction (onboarding matters enormously), not the decimal.
+
+What a good welcome sequence actually contains, since "send a welcome series" hides all
+the craft: **message one** delivers the single next action (not five features — the
+first action from your activation funnel, Chapter 4); **message two**, a day or two
+later, either celebrates progress or unblocks the stall, branching on behaviour
+(Chapter 6 shows the code); **message three** introduces the second habit only once the
+first stuck. Every message earns the next; none of them fires if the user has already
+moved past it. That last property — *not sending* — is what separates lifecycle from a
+drip.
+
+### 2. Dunning / failed-payment recovery — early, if you charge
+
+Most lifecycle guides bury this because they're written for e-commerce. For a
+subscription product it belongs near the top, because it's often the **highest
+dollar-ROI** journey you'll ever build: it recovers revenue you already earned.
+
+- **Involuntary churn** (failed cards, expirations) is **20–40% of total SaaS churn**
+  *(well-attested — consistent across many independent sources, including
+  [Baremetrics' dunning writeup](https://baremetrics.com/blog/dunning-management))*.
+- Well-run dunning recovers a large share of it.
+  [Stripe's Smart Retries documentation](https://docs.stripe.com/billing/revenue-recovery/smart-retries)
+  is the primary source worth reading: machine-timed retries plus reminder emails are
+  the whole mechanism, and Stripe publishes how its retry timing is chosen. Vendor
+  case studies claim recovery rates well above half of failed payments — treat the
+  precise percentages as marketing, the mechanism as real.
+
+<VideoEmbed
+  id="vp4SwMY-QrM"
+  title="How to Recover 89% of Failed Payments (SaaS Dunning Strategy)"
+  channel="Churnkey"
+  duration="3:23"
+  note="Three minutes on the retry + reminder mechanics. The 89% in the title is a vendor's best case — watch it for the playbook, not the number."
+/>
+
+<VideoTranscript id="vp4SwMY-QrM" />
+
+**What to take from it:**
+
+- Most failed payments are *involuntary* — an expired card, a bank flag — and have
+  nothing to do with intent, yet the standard "your payment failed" email is missed by
+  most people, because average email open rates sit around 20%.
+- Recovery works by removing friction and adding channels: a one-tap card-update link, an
+  in-app "payment recovery wall" for users still in the product, and SMS (≈98% open
+  rates) when email goes unseen — routed to the actual billing contact for B2B.
+- The headline "89%" is a vendor best case — take the mechanism (retry + multi-channel
+  reminder + a frictionless update), not the number.
+
+A handful of retry-and-remind emails can recover a meaningful slice of your MRR. The
+reason it's so high-ROI: these users *want* to keep paying — they're not churning by
+choice, their card just expired. You're removing friction, not persuading — which is
+why this one rewards being built early. The sequence itself is short: an immediate "your payment didn't go through" with
+a one-click card-update link, a reminder a few days later if the retry hasn't cleared,
+and a final "your account is about to pause" — all of it exiting the instant a payment
+succeeds (Chapter 6, §6.7 builds exactly this).
+
+### 3. Win-back / resurrection — next
+
+Reactivating a lapsed user is cheaper than acquiring a new one, and they already
+understand the value. Reactivation rates of **10–30% of lapsed users** are the commonly
+cited band *(directional)*. The structure that works —
+[Klaviyo's win-back examples](https://www.klaviyo.com/blog/winback-email-campaign-examples)
+are e-commerce but the shape transfers — is a gentle "here's what's new" first touch,
+a concrete-value second touch, and only then an incentive if you use one at all.
+Leading with what changed since they left works because "we miss you" answers no
+question the user has. Dormancy is also worth segmenting honestly: 30 days idle in a
+daily-use product is churn; in a tax product it's Tuesday. Your dormancy threshold
+comes from *your* usage interval (Chapter 2's retention curve), not from a template.
+
+### 4. Engagement + retention/habit — once the above are stable
+
+Feature-adoption nudges and habit reinforcement, tuned to your product's natural usage
+rhythm. These are the journeys that most reward the behavioural branching of §5.7 —
+"you've never tried X" is only a good email if it's true.
+
+### 5. Referral — after you have a reliable activation milestone
+
+You need a real "aha" to ask from — the ask only lands once the user has felt the
+value, which is why this waits for a reliable activation milestone (more in Chapter 8).
+
+### 6. Expansion / upsell — as monetisation matures
+
+> One thing to **drop**, not build: rigid, time-based lead-nurture drips that ignore
+> what the user is actually doing. They underperform behavioural triggers
+> ([MarTech's lifecycle-programs piece](https://martech.org/5-email-lifecycle-programs-you-need-and-one-to-drop/)
+> makes the same call), and a plain newsletter does the relationship-building job
+> better.

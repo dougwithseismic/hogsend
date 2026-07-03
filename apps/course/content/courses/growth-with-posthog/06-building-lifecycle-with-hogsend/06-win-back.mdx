@@ -1,0 +1,59 @@
+---
+title: "Win-back (Retention)"
+description: "Trigger on a dormancy event, then re-engage — but give the user a window to come back on their own before the final nudge. ctx.waitForEvent is what makes win-back feel human instead of a blind timer."
+---
+
+Trigger on a dormancy event (you emit `user.dormant_30d` from a scheduled check, or via
+a PostHog cohort webhook — see the triggers piece), then re-engage. Give the user a window
+to come back on their own before sending again with `ctx.waitForEvent`:
+
+```ts
+export const reactivationWinback = defineJourney({
+  meta: {
+    id: "reactivation-winback",
+    name: "Reactivation — Win-back",
+    enabled: true,
+    trigger: { event: Events.DORMANT_30D },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+    exitOn: [{ event: Events.USER_DELETED }, { event: Events.APP_ACTIVE }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.REACTIVATION_CHECKIN,
+      subject: "We miss you — here's what's new",
+      journeyName: user.journeyName,
+    });
+
+    // Give them 5 days to come back before the final nudge.
+    const { timedOut } = await ctx.waitForEvent({
+      event: Events.APP_ACTIVE,
+      timeout: days(5),
+      label: "comeback-window",
+    });
+
+    if (timedOut) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.REACTIVATION_FINAL_NUDGE,
+        subject: "One last thing before you go",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+`ctx.waitForEvent` is the primitive that makes win-back feel human: instead of blindly
+sending the second email on a timer, the journey *waits to see if they came back* and
+only sends the final nudge if they didn't. And `exitOn: [{ event: Events.APP_ACTIVE }]`
+means if they return at any point, the journey stops — they won't get a "we miss you"
+email the day after they logged back in. Nothing is more corrosive to trust than a
+win-back email to someone who's already active.
+
+One habit for any journey with long waits: after the wait, re-check
+`ctx.guard.isSubscribed()` before sending. An exit event ends a journey; an unsubscribe
+doesn't — it's a preference the mailer honours at send time — but checking first keeps
+your journey's *logic* honest about who still wants to hear from you.

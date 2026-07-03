@@ -1,0 +1,168 @@
+---
+title: "Before you move on"
+description: "Six things worth settling while the chapter is fresh — each makes the Chapter 6 build noticeably smoother — then the chapter quiz and where to go deeper."
+workbook: "Six decisions to settle before the build — first journey, its events, cadence, deliverability basics, tool, and a holdout — then the chapter quiz and the go-deeper reading."
+---
+
+A few things worth settling while this chapter is fresh — each one makes the build in
+Chapter 6 noticeably smoother:
+
+1. **Pick the first journey** — welcome + onboarding, for the §5.3 reasons (with
+   dunning next if you charge; it's the fastest revenue win in the list).
+2. **Map each journey to its events** — the one that triggers it and the one that
+   exits it. If the exit event is hard to name, that's usually a sign the journey
+   doesn't have a clear goal yet.
+3. **Sketch your cadence** per stage and a global frequency cap, so the pile-up
+   failure from §5.5 can't happen by accident.
+4. **Check the deliverability basics** — SPF/DKIM/DMARC on a sending subdomain and
+   one-click unsubscribe (§5.6). Cheap to set up now; expensive to retrofit once a
+   domain's reputation is damaged.
+5. **Choose your tool deliberately** (§5.9) — and if it's code-first, the next
+   chapter is the build.
+6. **Plan a holdout** for that first journey, so its lift is measured from day one
+   rather than argued about later.
+
+You now know *what* to build and *why*. Next, you build it — in code.
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "Why does the build order start with welcome + onboarding rather than win-back or referral?",
+      options: [
+        "Welcome emails are the easiest to write",
+        "New users are at peak intent, and the signup→activation gap is the biggest leak in the bucket",
+        "Win-back requires a paid email tool",
+        "Referral programs are illegal in some jurisdictions",
+      ],
+      answer: 1,
+      explain:
+        "Engagement is never higher than right after signup, and most early churn happens before activation — so the first journey targets the widest hole at the moment of highest attention. Everything else compounds off users who activated.",
+    },
+    {
+      q: "A subscription user's card expires and their payment fails. Which is true?",
+      options: [
+        "This is voluntary churn and should get a win-back offer",
+        "This is involuntary churn — commonly 20–40% of SaaS churn — and a dunning sequence recovers it by removing friction, not persuading",
+        "Nothing can be done until the user notices",
+        "The correct response is a discount",
+      ],
+      answer: 1,
+      explain:
+        "Dunning is the highest dollar-ROI journey for a paid product precisely because the user already wants to pay. Retries plus a one-click card-update link recover revenue you'd otherwise silently lose.",
+    },
+    {
+      q: "What's the honest signal that you're over-messaging?",
+      options: [
+        "Any unsubscribes at all",
+        "Sending more than one email per week",
+        "Engagement per send drops as you add messages",
+        "Your open rate is below 50%",
+      ],
+      answer: 2,
+      explain:
+        "Cadence has no universal right answer — the dial is calibrated per product by watching whether each added touch still earns engagement. Falling opens/clicks/revenue-per-email as volume rises is the stop signal.",
+    },
+    {
+      q: "Since 2024, which of these is a hard requirement for bulk senders to reach Gmail/Yahoo inboxes?",
+      options: [
+        "A minimum open rate of 20%",
+        "SPF, DKIM and DMARC authentication plus one-click unsubscribe, with spam complaints under 0.3%",
+        "Sending only on weekdays",
+        "Using a dedicated IP address",
+      ],
+      answer: 1,
+      explain:
+        "Google and Yahoo turned the old soft best-practices into enforced rules: authenticate your domain, honour one-click unsubscribe within two days, and keep complaint rates under 0.3% — or your mail simply doesn't land.",
+    },
+    {
+      q: "Your welcome journey shows a 45% open rate and the upgrade rate of messaged users is 18%. What do you still not know?",
+      options: [
+        "Whether the subject lines are good",
+        "Whether the emails render on mobile",
+        "Whether the journey caused any of those upgrades — you need a holdout comparison to measure incremental lift",
+        "Whether users read to the end",
+      ],
+      answer: 2,
+      explain:
+        "Opens and even conversions among messaged users can't distinguish 'the email worked' from 'these users would have upgraded anyway.' Only the difference against a randomly held-out group is causal — that's the incrementality discipline.",
+    },
+    {
+      q: "A user's card fails the same week they go dormant and approach a plan limit — and three separate journeys each send twice. Every message was individually justified. What practice prevents this?",
+      options: [
+        "Better subject lines so the messages feel less repetitive",
+        "Pausing all journeys whenever a payment fails",
+        "Merging everything into one mega-journey",
+        "A frequency cap — a ceiling on total messages per user across all journeys and channels",
+      ],
+      answer: 3,
+      explain:
+        "Each journey can be correct in isolation and still produce a spam-worthy pile-up in combination — that's exactly the failure frequency capping exists for. It becomes load-bearing the moment you run more than one journey.",
+    },
+    {
+      q: "Reviewing your journey table, you notice the trigger column filling up with entries like 'it's been 7 days since email #2'. What does the chapter say about this?",
+      options: [
+        "Time should appear only as a window on behaviour ('not done in 24–72h'), never as the reason to send — this is the drip you were escaping, creeping back in",
+        "It's fine, since the welcome cadence is every 2–3 days anyway",
+        "Time-based triggers are preferable because they're easier to test",
+        "It's fine as long as open rates stay healthy",
+      ],
+      answer: 0,
+      explain:
+        "The core argument of §5.4 is that triggered beats batch because relevance is pinned to a behavioural moment. When durations replace behaviours as the reason to send, you've rebuilt the rigid time-based drip the chapter says to drop.",
+    },
+    {
+      q: "You're writing the first touch of a win-back for users of a tax product who've been idle 30 days. What's the chapter-aligned move?",
+      options: [
+        "Send 'we miss you' with a discount — incentives drive the highest reactivation",
+        "Treat 30 days idle as churned and send a final-notice offer immediately",
+        "Check your own usage interval first — 30 days idle in a tax product may be normal — and lead with what changed since they left",
+        "Skip win-back entirely; reactivation is more expensive than acquiring new users",
+      ],
+      answer: 2,
+      explain:
+        "Dormancy thresholds come from your retention curve, not a template — 30 days idle in a daily-use product is churn, in a tax product it's Tuesday. And 'we miss you' answers no question the user has; 'here's what's new' does, with incentives held for last.",
+    },
+    {
+      q: "A journey enrolls about 200 users a month. You set a 5% holdout, and after one week the messaged group looks clearly ahead, so you call it a win. What went wrong?",
+      options: [
+        "The holdout is too small for the volume (use 20–50% until it grows), and peeking early biases the read — the read date should be decided in advance",
+        "Nothing — a week is enough when the lift looks that large",
+        "You should have compared against last month's cohort instead of a holdout",
+        "5% is the right size, but the test needed to run a full quarter regardless of volume",
+      ],
+      answer: 0,
+      explain:
+        "A 5% holdout of 200 users is ~10 people — far too few to detect anything — and stopping the moment numbers look good is the peeking mistake §5.10 warns about. Both errors make the 'lift' you report indistinguishable from noise.",
+    },
+    {
+      q: "Which of these messages passes the chapter's test for real personalisation — 'could this exact message have been sent to a user in a different state?'",
+      options: [
+        "'Hi {first name}, here are five tips for getting started'",
+        "A weekly product digest sent to the whole list",
+        "'Hi {first name}, welcome to the community!'",
+        "'You created 3 projects but haven't invited a teammate yet'",
+      ],
+      answer: 3,
+      explain:
+        "Real personalisation branches on what the user did or didn't do — a message tied to their actual product state couldn't be sent to anyone else. First-name merge fields and generic tips fail the test, and fake personalisation quietly teaches users your emails aren't worth opening.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [Customer.io — lifecycle automation & personalization guide](https://customer.io/learn/lifecycle-marketing/automation-and-personalization-guide) — the whole program as a five-step arc, from a tool built for exactly this.
+- [Reforge — build your lifecycle marketing strategy](https://www.reforge.com/guides/build-your-lifecycle-marketing-strategy) — the retention-as-output framing §5.2 leans on.
+- [Lenny Rachitsky — what is a good activation rate](https://www.lennysnewsletter.com/p/what-is-a-good-activation-rate) — the activation benchmarks behind the "build onboarding first" argument.
+- [Stripe — Smart Retries and revenue recovery](https://docs.stripe.com/billing/revenue-recovery/smart-retries) — the primary source on dunning mechanics.
+- [Klaviyo — win-back email examples](https://www.klaviyo.com/blog/winback-email-campaign-examples) — flow structure and timing for resurrection, transferable beyond e-commerce.
+- [Google — email sender guidelines](https://support.google.com/mail/answer/81126) — the actual inbox rules; everything else is commentary.
+- [Resend — Gmail & Yahoo bulk sending requirements](https://resend.com/blog/gmail-and-yahoo-bulk-sending-requirements-for-2024) — the readable version of those rules.
+- [Litmus — State of Email reports](https://www.litmus.com/state-of-email-reports) — benchmark data for calibrating open/click expectations without vendor spin.
+- [Eppo — marketing incrementality 101](https://www.geteppo.com/blog/marketing-incrementality-101) — holdout test designs, one level deeper than §5.10.
+- [Reforge — run a lock-down incrementality test](https://www.reforge.com/guides/method-run-a-lock-down-incrementality-test-on-meta-ads) — the same holdout logic applied to paid channels, previewing Chapter 7.
+- [Userlist — behavioural email triggers](https://userlist.com/blog/behavior-email-campaign-triggers/) — an idea-bank of trigger → message pairs.

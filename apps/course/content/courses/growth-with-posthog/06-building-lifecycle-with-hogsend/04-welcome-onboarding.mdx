@@ -1,0 +1,65 @@
+---
+title: "Welcome + onboarding (Activation)"
+description: "The first journey to build: trigger on signup, welcome immediately, then two days later branch on whether the user reached the aha moment — behavioural personalisation in code."
+---
+
+The first journey to build (Chapter 5, §5.3). Trigger on signup, welcome immediately,
+then branch two days later on whether the user reached the aha moment:
+
+```ts
+import { days, hours } from "@hogsend/core";
+import { defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const activationWelcome = defineJourney({
+  meta: {
+    id: "activation-welcome",
+    name: "Activation — Welcome Series",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.ACTIVATION_WELCOME,
+      subject: "Welcome — let's get you set up",
+      journeyName: user.journeyName,
+    });
+
+    await ctx.sleep({ duration: days(2), label: "post-welcome" });
+
+    // Branch on behaviour, not on a guess (Chapter 5, §5.7).
+    const { found: activated } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+    });
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: activated ? Templates.ACTIVATION_ADVANCED : Templates.ACTIVATION_NUDGE,
+      subject: activated ? "Nice work — here's what to try next" : "You haven't tried the key feature yet",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+Two things to notice. The journey **reads event history** to decide what to send — that's
+behavioural personalisation in code, the §5.7 principle made literal: an activated user
+gets "here's what's next," a stuck user gets "here's how to start," from the same journey.
+And the whole thing **exits the moment `user.deleted` fires**, so a churned user never
+gets the day-2 email. That `exitOn` is the difference between a system that feels
+attentive and one that emails dead accounts.
+
+One refinement worth adding once the basic journey works: replace the raw
+`ctx.sleep(days(2))` with `ctx.sleepUntil(ctx.when.in(days(2)).at("09:00"))` so the
+day-2 email lands at 9am in *the user's* timezone instead of exactly 48 hours after a
+2am signup. Small change, visibly more human program.

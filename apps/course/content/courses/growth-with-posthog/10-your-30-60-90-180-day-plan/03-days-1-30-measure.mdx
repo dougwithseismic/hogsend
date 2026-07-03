@@ -1,0 +1,46 @@
+---
+title: "Days 1–30 — Measure"
+description: "Goal: see the truth about your funnel. Nothing here grows the business directly — all of it determines whether the next five months target the real leak or a guessed one."
+workbook: "Work the Measure-phase checklist — instrumentation, the daily dashboard, the first honest read — and the three-sayable-sentences exit criteria that gate the Keep phase."
+---
+
+**Goal: see the truth about your funnel.** Nothing in this phase grows the business
+directly. All of it determines whether the next five months of work target the real
+leak or a guessed one.
+
+Week by week, the shape most teams follow:
+
+| Week | Focus | Chapters |
+|---|---|---|
+| 1 | PostHog live: SDK installed, `identify`/`reset` wired, starter events firing | 1, 3 |
+| 2 | Tracking plan written; activation event defined; server-side revenue events | 2, 3 |
+| 3 | Reverse proxy; data QA — watch replays, check identities merge correctly | 3 |
+| 4 | The daily dashboard built and pinned; alerts to Slack; first honest read | 4 |
+
+<Checklist
+  id="plan-30"
+  title="Days 1–30 — Measure"
+  items={[
+    "PostHog account on the right region; one project; website + app tracked together",
+    "posthog-js installed with identified_only; identify at login, reset at logout",
+    "Starter event kit firing — signup client-side; subscription + payment server-side",
+    "Tracking plan written down and shared — even ten rows in a doc beats zero",
+    "Your one activation event defined, instrumented, and confirmed firing",
+    "Managed reverse proxy set up so tracking survives ad-blockers",
+    "Daily dashboard built and pinned: North Star, activation funnel, retention, alerts → Slack",
+    "First data QA pass: watch 5 session replays and confirm the events match what you see",
+  ]}
+/>
+
+**Exit criteria.** You can open the dashboard and say, with numbers: *where* in the
+funnel you lose the most people, *what* your week-4 retention roughly is, and *which*
+phase of product-market fit you're in (Chapter 4, §4.3). If those three sentences
+aren't sayable yet, that's the signal to stay in this phase a little longer —
+[YC's analytics-for-startups
+guidance](https://www.ycombinator.com/library/8H-analytics-for-startups) is blunt that
+most startups' first analytics problem is not volume of charts but trusting what the
+few important ones say.
+
+**The pattern to watch for here** is instrumenting forever. Thirty days is enough to
+measure a funnel honestly; it is not enough to build a data platform — a schema
+registry in week three is usually growth work quietly traded for tooling work.

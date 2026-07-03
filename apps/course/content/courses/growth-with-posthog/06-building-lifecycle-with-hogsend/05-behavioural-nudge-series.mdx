@@ -1,0 +1,107 @@
+---
+title: "A behavioural nudge series (Activation)"
+description: "A multi-step activation sequence that escalates only when the user hasn't progressed and exits the instant they activate — sleep, check what happened, send only if needed. The shape most onboarding programs take."
+workbook: "Flashcards on the key ideas — the loop, durable execution, meta guardrails, if-vs-exitOn, and templates as code."
+---
+
+A multi-step version that escalates only when the user *hasn't* progressed, and exits
+as soon as they activate. Note the second `exitOn` event:
+
+```ts
+export const activationNudgeSeries = defineJourney({
+  meta: {
+    id: "activation-nudge-series",
+    name: "Activation — Behavioural Nudges",
+    enabled: true,
+    trigger: { event: Events.USER_CREATED },
+    entryLimit: "once",
+    suppress: hours(12),
+    // Exit the instant they activate — no more nudges (suppression in action).
+    exitOn: [{ event: Events.USER_DELETED }, { event: Events.USER_ACTIVATED }],
+  },
+
+  run: async (user, ctx) => {
+    await ctx.sleep({ duration: days(2), label: "initial-nudge" });
+
+    const { found: usedFeature } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.FEATURE_USED,
+      within: days(2),
+    });
+    if (!usedFeature) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.ACTIVATION_NUDGE_SERIES,
+        subject: "You haven't tried the key feature yet",
+        journeyName: user.journeyName,
+      });
+    }
+
+    await ctx.sleep({ duration: days(1), label: "setup-check" });
+
+    const { found: setupDone } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.SETUP_COMPLETED,
+      within: days(3),
+    });
+    if (!setupDone) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.ACTIVATION_QUICKSTART,
+        subject: "Need help getting set up?",
+        journeyName: user.journeyName,
+      });
+    }
+  },
+});
+```
+
+This is exactly the 3–5 touch behavioural sequence Chapter 5 recommended — except every
+touch is gated on real behaviour, so an active user is left alone and a stuck user gets
+help. The pattern generalises: *sleep, check what happened during the sleep, send only if
+needed.* That single shape covers most onboarding programs you'll ever write.
+
+Notice also what the `exitOn: USER_ACTIVATED` buys over the `if` checks alone: the
+checks gate *sends at known points*; the exit kills the journey *at any point*,
+including mid-sleep. Both layers matter. The `if` makes each message conditional; the
+exit guarantees the whole program stops the moment its goal is met — Chapter 5's
+suppression rule enforced by the engine rather than by your discipline.
+
+<Flashcards
+  id="cards-hogsend"
+  title="Key ideas — journeys as code"
+  cards={[
+    {
+      prompt: "The Hogsend loop:",
+      cloze: "An event arrives — backend ingest, webhook source, or PostHog — the engine stores it and routes it to every journey {{subscribed to that event}}, and the journey runs and {{fires its own events back}}, so the loop is {{measurable in PostHog}}.",
+    },
+    {
+      front: "What does durable execution buy you?",
+      back: "The engine persists the journey's position, so a two-day sleep genuinely survives deploys and crashes — a multi-day program stays one readable function instead of cron jobs and database flags rebuilding state by hand.",
+    },
+    {
+      prompt: "A journey's meta guardrails:",
+      cloze: "The meta declares {{trigger}} (the subscribing event, filterable with where), {{entryLimit}} (the re-enrollment policy), {{exitOn}} (events that end the journey immediately), and {{suppress}} (a debounce against bursts of the same trigger).",
+    },
+    {
+      front: "What's the difference between an if-check and exitOn?",
+      back: "An if gates one send at a known point; exitOn stops the whole journey at any point, including mid-sleep or mid-wait — Chapter 5's suppression rule enforced by the engine rather than your discipline.",
+    },
+    {
+      prompt: "The shape that covers most onboarding programs:",
+      cloze: "The pattern is {{sleep}}, {{check what happened during the sleep}}, then {{send only if needed}} — every touch gated on real behaviour, so an active user is left alone and a stuck user gets help.",
+    },
+    {
+      front: "What does ctx.waitForEvent do that a plain ctx.sleep doesn't?",
+      back: "waitForEvent races the user's own behaviour against a timeout and returns { timedOut }, so the code branches on what actually happened — a program that listens, not a timer that fires regardless.",
+    },
+    {
+      front: "How do email templates work in a Hogsend app?",
+      back: "React components (React Email) that render to the table-based HTML email clients tolerate, versioned in git with your code. Journeys never concatenate HTML; templates never decide who gets mail.",
+    },
+    {
+      front: "What does ctx.when add over a raw sleep?",
+      back: "Timezone-aware scheduling: sleepUntil(ctx.when.in(days(2)).at(\"09:00\")) lands the day-2 email at 9am in the user's own timezone and respects your send window — not exactly 48 hours after a 2am signup.",
+    },
+  ]}
+/>

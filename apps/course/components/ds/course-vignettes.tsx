@@ -173,6 +173,125 @@ export function PlanVignette({ className }: VignetteProps) {
   );
 }
 
+/**
+ * The hero's floating product window — a believable slice of the flagship
+ * course under a browser-style chrome bar. Two panes: the syllabus with live
+ * progress on the left, a self-check quiz with the right answer lit on the
+ * right. The course analog of the product homepage's live-demo window.
+ * aria-hidden — the hero copy and catalog below restate everything it shows.
+ */
+export function CoursePreviewWindow({ className }: VignetteProps) {
+  const chapters = [
+    { n: "00", title: "Start here — product-led growth", state: "done" },
+    {
+      n: "01",
+      title: "What PostHog is, and why you want it",
+      state: "reading",
+    },
+    { n: "02", title: "AARRR and the leaky bucket", state: "idle" },
+    { n: "03", title: "Instrument PostHog from zero", state: "idle" },
+  ] as const;
+  const options = [
+    "They signed up",
+    "They created their first project",
+    "They opened the pricing page",
+  ];
+  const pickedIndex = 1;
+
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "mx-auto max-w-[1024px] overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-2xl",
+        className,
+      )}
+    >
+      {/* Window chrome */}
+      <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+          </div>
+          <span className="font-mono text-[11px] text-white/40 tracking-wide">
+            course.hogsend.com — Growth with PostHog
+          </span>
+        </div>
+        <span className="font-mono text-[11px] text-accent">
+          Chapter 1 of 11
+        </span>
+      </div>
+
+      {/* Two panes — the syllabus, and a self-check. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-white/10">
+        {/* Left — the syllabus with live progress. */}
+        <div className="p-5 md:p-6">
+          <p className={MICRO_LABEL}>The syllabus</p>
+          <ul className="mt-3 flex flex-col divide-y divide-white/[0.06]">
+            {chapters.map((chapter) => (
+              <li
+                key={chapter.n}
+                className="flex items-center gap-3 py-2.5 text-[13px]"
+              >
+                <span className="font-mono text-[11px] text-white/40">
+                  {chapter.n}
+                </span>
+                <span
+                  className={
+                    chapter.state === "idle" ? "text-white/80" : "text-white/50"
+                  }
+                >
+                  {chapter.title}
+                </span>
+                {chapter.state === "done" ? (
+                  <span className="ml-auto text-good text-xs">✓</span>
+                ) : chapter.state === "reading" ? (
+                  <span className="ml-auto whitespace-nowrap rounded-full bg-accent-tint px-2 py-0.5 text-[10px] text-accent">
+                    reading
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-white/35 text-xs">
+            11 chapters · the first lesson is free
+          </p>
+        </div>
+
+        {/* Right — a self-check quiz, the right answer lit. */}
+        <div className="bg-white/[0.03] p-5 md:p-6">
+          <p className={MICRO_LABEL}>Check yourself</p>
+          <p className="mt-2 text-sm text-white leading-relaxed">
+            Which event should count as activation for a project tool?
+          </p>
+          <div className="mt-3 flex flex-col gap-1.5">
+            {options.map((text, oi) => (
+              <div
+                key={text}
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left text-[13px]",
+                  oi === pickedIndex
+                    ? "border-accent/60 bg-accent-tint text-white"
+                    : "border-white/[0.08] bg-white/[0.01] text-white/45",
+                )}
+              >
+                <span className="mr-2 text-white/40">
+                  {String.fromCharCode(65 + oi)}
+                </span>
+                {text}
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 font-medium text-accent text-xs">
+            ✓ Right — the first moment of real value, not the signup.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** The opening chapters of the flagship course, first one complete. */
 export function ChapterListVignette({ className }: VignetteProps) {
   const chapters = [

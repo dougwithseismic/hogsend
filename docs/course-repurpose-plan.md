@@ -156,7 +156,18 @@ Producing a chapter's atoms is mechanical — this is the line, run it per chapt
 - [x] **Phase 3 — Chapter 0** (the front door) through the same line: hub + 9 atoms, whole
   chapter free, with **more distributed flashcards + quizzes** (4 decks + a mini-quiz added;
   facts now 88 workbook items / 114 quiz questions). Both free chapters (0 + 1) atomized.
-  Remaining: roll chapters 2–10 through the same line (repeatable now).
+- [x] **Phase 3b — Chapters 2–10** through the same line: all nine flat chapters converted to
+  nested hub + atoms folders (2→6, 3→10, 4→8, 5→12, 6→12, 7→10, 8→10, 9→8, 10→8 atoms; ~84
+  atoms total), every embedded video framed (`<VideoTranscript>` + "what to take from it"
+  digest, 28 transcripts pulled), the chapter Quiz + `## Go deeper` on each final atom. Ran
+  the line as a fan-out (one subagent per chapter) then verified centrally: every interactive
+  block id preserved verbatim (only the path-derived `quiz:` key moves), manifest still 88
+  items / 114 questions, `check-types` green, all surfaces render. Chapters 2–10 stay gated;
+  the two free chapters (0 + 1) are still the funnel magnet.
+- [x] **Skill — the line, made repeatable.** `.claude/skills/atomize-course-chapter/` captures
+  the whole pipeline (pull transcripts → snapshot block inventory → split into hub + atoms →
+  regenerate + diff vs baseline → gates → one commit per chapter) so the next chapter/course
+  is one invocation.
 - [x] **LLM hand-off (added on request).** Every transcript has Copy + Send-to-Claude/
   ChatGPT/Perplexity (branded chips); every lesson has "Copy for LLM". All payloads open
   with a Hogsend brand line (`lib/llm-brand.ts`) so pasting into a model seeds hogsend.com +

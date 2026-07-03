@@ -1,0 +1,63 @@
+---
+title: "The insight types, and how to read them"
+description: "PostHog has seven ways to look at your events, and you'll lean on four. Which insight answers which question — and the failure mode that leaves a founder staring at a chart that can't answer theirs."
+workbook: "Watch the canonical funnels tutorial — building one, reading the drop-off, and jumping to the users behind a step."
+---
+
+PostHog has seven ways to look at your events, and you'll lean on four of them. All
+seven are still worth knowing, because picking the wrong insight type is the most
+common reason a founder ends up staring at a chart that can't answer their question.
+
+- **Trends** — a metric over time (counts, unique users, formulas), with breakdowns by
+  any property. The workhorse. *Read it for direction and breakdown:* "signups per day,
+  by channel — which channel is growing?" *Its failure mode:* counting events when you
+  mean people. Ten pageviews from one user and one pageview from ten users look identical
+  until you switch the series to unique users.
+- **Funnels** — step-by-step conversion
+  ([docs](https://posthog.com/docs/product-analytics/funnels)). Shows the drop-off at
+  each step and the time to convert. *Read it for the worst step:* the biggest drop is
+  your biggest leak. Click a step to see — or replay — the users who fell out. Two
+  settings people miss: the **conversion window** (a user who converts on day 15 of a
+  7-day window counts as dropped) and **exclusion steps** (remove users who, say, hit an
+  error page between steps). *Its failure mode:* steps in an order users don't actually
+  follow — check User Paths first if conversion looks impossibly low.
+- **Retention** — a cohort grid ([docs](https://posthog.com/docs/product-analytics/retention)):
+  pick a start event ("signed up") and a return event ("did the core action"). Each row
+  is a cohort, each column a later period. *Read it for the shape* (the retention piece
+  walks through it) — this is the leaky-bucket test made visual.
+- **Lifecycle** — splits your active users each period into **New**, **Returning**,
+  **Resurrecting**, and **Dormant**. *Read it for whether growth is real:* a big Dormant
+  band under modest New growth means churn-and-replace, not growth.
+- **Stickiness** — *how many times* users did something in a period (depth), as opposed
+  to retention's *whether they came back*. *Read it to find your power users* and what
+  separates them: if users who fire your core action 5+ days a week all created three
+  or more projects in week one, "three projects" is a candidate activation bar worth
+  testing (Chapter 2's method).
+- **User Paths** — a flow diagram of how people move through the product. *Read it to
+  discover* unexpected routes and dead ends you didn't think to build a funnel for —
+  the classic find is a settings or pricing page appearing in the middle of what you
+  assumed was a straight onboarding line.
+- **SQL** — write SQL (HogQL) directly when the UI can't express your question.
+  PostHog's AI assistant (Max) can write these for you, which makes SQL approachable even
+  if you don't know HogQL.
+
+The four you'll read daily are **Trends, Funnels, Retention, and Lifecycle.**
+
+<VideoEmbed
+  id="cMFz_xFlHaE"
+  title="Conversion funnels: building, analyzing, and optimizing - PostHog tutorial"
+  channel="PostHog"
+  note="The canonical official funnels tutorial — building one, reading drop-off, and jumping to the users behind a step. Older, but nothing essential has changed."
+/>
+
+<VideoTranscript id="cMFz_xFlHaE" />
+
+**What to take from it:**
+
+- A funnel is just ordered steps; rename each step so the chart reads clearly, then break
+  it down by a property (channel, continent) to see which segment actually converts.
+- Two levers change what a funnel *means*: strict vs sequential step order (strict counts
+  only direct step-to-step, and conversion usually drops), and exclusion steps that remove
+  users who took a detour — say, hit the support page — between steps.
+- Filtering to one traffic source shows fewer users but often a higher conversion — segment
+  before you judge the number.

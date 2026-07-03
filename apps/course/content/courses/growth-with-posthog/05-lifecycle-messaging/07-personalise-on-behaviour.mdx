@@ -1,0 +1,21 @@
+---
+title: "Personalise on behaviour, not just name"
+description: "'Hi {{first_name}}' is not personalisation. Real lifecycle personalisation branches on what the user did or didn't do in the product — and there's a one-line test for whether it's real."
+---
+
+`Hi {{first_name}}` is not personalisation. Real lifecycle personalisation branches on
+**what the user did or didn't do in the product** — their plan, which features they've
+touched, how many projects they've created, whether they hit the aha moment. Behavioural
+triggers reportedly drive several times the engagement of time-based sends
+*(directional —
+[Userlist's trigger catalogue](https://userlist.com/blog/behavior-email-campaign-triggers/)
+is a good idea-bank)*, and it's the thing a code-first engine does well: your journey
+can read event history and person properties and take a different path for each user.
+Chapter 6 shows exactly that.
+
+The test for whether personalisation is real: **could this exact message have been sent
+to a user in a different state?** "You created 3 projects but haven't invited a
+teammate" passes. "Here are five tips for getting started," sent to someone who
+finished setup a week ago, fails — and quietly teaches the user your emails aren't
+worth opening. The damage of fake personalisation is cumulative and invisible in any
+single send's metrics.

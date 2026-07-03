@@ -1,0 +1,62 @@
+---
+title: "Dunning (Revenue)"
+description: "The highest dollar-ROI journey for a paid product: trigger on a failed charge, exit the moment payment succeeds, and recover a meaningful share of the involuntary churn. Also the one journey that sends the same template twice."
+---
+
+The highest dollar-ROI journey for a paid product (Chapter 5, §5.3). Trigger on a failed
+charge, exit the moment payment succeeds:
+
+```ts
+export const dunning = defineJourney({
+  meta: {
+    id: "dunning",
+    name: "Revenue — Failed Payment Recovery",
+    enabled: true,
+    trigger: { event: Events.PAYMENT_FAILED },
+    entryLimit: "once_per_period",
+    entryPeriod: days(14),
+    exitOn: [{ event: Events.PAYMENT_SUCCEEDED }, { event: Events.SUBSCRIPTION_CANCELLED }],
+  },
+
+  run: async (user, ctx) => {
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.CHURN_PAYMENT_FAILED,
+      subject: "Your payment didn't go through",
+      journeyName: user.journeyName,
+      props: { updateUrl: String(user.properties.updateUrl ?? "") },
+    });
+
+    // Wait 3 days for the retry (or the user) to fix it. If PAYMENT_SUCCEEDED
+    // fires in the window, the wait resolves early — and the exitOn above ends
+    // the journey anyway. Only the true timeout path sends the reminder.
+    const { timedOut } = await ctx.waitForEvent({
+      event: Events.PAYMENT_SUCCEEDED,
+      timeout: days(3),
+      label: "first-retry",
+    });
+
+    if (timedOut) {
+      await sendEmail({
+        to: user.email, userId: user.id, journeyStateId: user.stateId,
+        template: Templates.CHURN_PAYMENT_FAILED,
+        subject: "Reminder: update your payment method",
+        journeyName: user.journeyName,
+        props: { updateUrl: String(user.properties.updateUrl ?? "") },
+        idempotencyLabel: "dunning-reminder",
+      });
+    }
+  },
+});
+```
+
+The `exitOn: PAYMENT_SUCCEEDED` is the whole point — the moment the retry clears (or the
+user fixes their card), the reminders stop. This recovers a meaningful share of the
+20–40% of churn that's involuntary (Chapter 5). The trigger comes from your payment
+provider's failed-charge webhook (a Stripe `invoice.payment_failed` → `defineWebhookSource`
+→ `payment.failed`), with the hosted card-update URL passed through as a prop so the
+email has a one-click fix.
+
+Note the `idempotencyLabel` on the second send: this journey sends the **same template
+twice** on one run, so each send site declares a distinct label for the engine's
+exactly-once bookkeeping — the exactly-once piece explains the rule.

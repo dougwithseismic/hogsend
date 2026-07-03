@@ -1,0 +1,33 @@
+---
+title: "Lifecycle messaging plugs the bucket"
+description: "The right message, triggered by the right behaviour, at the right time — the operational layer that moves users between AARRR stages, and a service to the user rather than a broadcast at them."
+---
+
+Chapter 2 said: fix retention before scaling acquisition. But "fix retention" is not a
+thing you do in the product code alone — a lot of it is *reaching the user at the right
+moment* and pulling them back toward value. That's lifecycle messaging: the right
+message, triggered by the right behaviour, at the right time.
+
+It's worth tying this directly to the leaky bucket, because each hole in the bucket
+has a message that plugs it:
+
+- A user signs up but never reaches value → an **onboarding** sequence pulls them to
+  the aha moment.
+- An active user goes quiet → a **win-back** message brings them back before they're
+  gone for good.
+- A card fails → a **dunning** sequence recovers revenue you already earned.
+
+Lifecycle messaging isn't "marketing email." It's the operational layer that moves
+people between AARRR stages — and the cheapest retention lever you have, because the
+users are already yours. For a growth team it's also the *action* half of the operating
+model (Chapter 0): measurement (Chapters 1–4) tells you where the leak is; lifecycle
+messaging is how the team acts on it automatically, every time, without anyone
+remembering to.
+
+One more framing before the mechanics, because it changes how you'll design every
+message: lifecycle messaging is a *service to the user*, not a broadcast at them. Every
+good lifecycle message answers a question the user has at that moment — "what do I do
+first?", "why did my payment fail?", "what changed since I left?" A message with no
+answer behind it is noise, and users bill you for noise in unsubscribes and spam
+complaints (§5.6). The whole discipline of this chapter — triggers, cadence, exit
+conditions, holdouts — exists to keep the program on the right side of that line.

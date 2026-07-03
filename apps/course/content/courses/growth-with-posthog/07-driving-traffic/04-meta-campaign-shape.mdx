@@ -1,0 +1,45 @@
+---
+title: "The shape of a Meta campaign"
+description: "The paid-social worked example starts here: Meta's fixed campaign/ad-set/ad structure, the objective that decides which people the algorithm goes to find, and the learning-phase maths that punishes daily tweaks."
+---
+
+From here to §7.9, the paid-social worked example. Meta (Facebook/Instagram) ads have a
+fixed three-tier structure, and it's worth getting comfortable with it first because
+everything else hangs off it:
+
+- **Campaign** — sets the **objective** and budget strategy. One objective per campaign.
+- **Ad Set** — the levers: **audience, placements, the optimisation event, budget,
+  schedule**.
+- **Ad** — the creative the user sees (image/video, copy, CTA, destination).
+
+The single most consequential choice is the **campaign objective**, because it tells
+Meta's delivery algorithm *which kind of person to go find*. Meta consolidated its old
+objectives into six (ODAX):
+
+1. **Awareness** — reach/recall, top of funnel.
+2. **Traffic** — cheap clicks to a page. *Not* optimised for conversions — a common
+   beginner trap is to use Traffic and wonder why clicks don't convert. Traffic buys you
+   visitors who clicked; Sales buys you visitors who *act*. They are different people.
+3. **Engagement** — interactions, video views, messages.
+4. **Leads** — form fills, newsletter signups.
+5. **App Promotion** — installs and in-app events.
+6. **Sales** — purchases / highest-intent conversions.
+
+**The rule of thumb worth carrying:** optimise for the event closest to revenue that
+you can feed Meta *enough of*. The algorithm needs roughly **50 conversions per ad set
+per week** to exit its "learning phase" and deliver efficiently. If you can't generate
+50 purchases a week yet, a higher-funnel event (lead or signup) as the optimisation
+target — with the deeper conversion passed back server-side (§7.7) — keeps the
+algorithm fed. The most common early pattern goes the other way: optimising for
+`purchase` at five a week starves the algorithm of signal, and it never learns who to
+find.
+
+Two practical corollaries of the learning phase:
+
+- **Edits reset learning.** Every significant change (budget, audience, creative) can
+  send the ad set back to school. The pattern that hurts — check daily, worry, edit —
+  keeps it permanently in learning and permanently expensive. Weekly changes, on the
+  cadence from Chapter 9, give the system time to settle.
+- **Fewer, bigger ad sets learn faster.** Five ad sets splitting 10 conversions a week
+  will all starve; one ad set receiving all 50 can learn. Consolidation is the modern
+  default.
