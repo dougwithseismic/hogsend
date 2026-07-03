@@ -1,0 +1,203 @@
+---
+title: "Set up your account"
+description: "Four small things worth doing while this chapter is fresh — about ten minutes — then review the chapter's key ideas and check yourself with the quiz."
+workbook: "The ten-minute setup: an account on the right region, one project, your phc_ key, and a one-line note on why you chose PostHog. Then the chapter's flashcards and quiz."
+---
+
+Four small things are worth doing while this chapter is fresh — together they take
+about ten minutes:
+
+1. Create a PostHog account on the **right region** for your users (US or EU) — it's
+   the one decision here that's hard to undo (see the US-or-EU piece).
+2. Create one project, keeping your marketing site and your app in the *same* one —
+   the payoff is seeing the whole journey, from first visit to paying user, in one
+   place.
+3. Find your **project API key** (it starts with `phc_`) — you'll want it in Chapter
+   3, and it's safe to expose publicly: it can write events but not read your data.
+4. If you evaluated alternatives, consider **writing one line on why you chose PostHog**
+   (or didn't). A growth team can always answer "why this tool" — and the note earns
+   its keep when someone asks in six months.
+
+That's all the setup for now. The next chapter is the part most teams skip and later
+wish they hadn't: deciding *what* to measure before wiring anything up.
+
+---
+
+Before you go, run the chapter's key ideas — then check yourself.
+
+<Flashcards
+  id="cards-posthog"
+  title="Key ideas — PostHog"
+  cards={[
+    {
+      front: "What structural advantage does PostHog have over stitching point tools together?",
+      back: "One event pipeline and one identity model under everything: the error links to the replay, the funnel, and the flag. Across four tools that join is a data-engineering project; in PostHog it's a click.",
+    },
+    {
+      front: "The funnel tells you where you lose people — what tells you why?",
+      back: "Session replay — real sessions behind a drop-off, with console logs and network requests captured. Five minutes of replay beats an hour of staring at a chart; the jump from a data point to its recordings is a click.",
+    },
+    {
+      front: "Why can't GA4 run your activation funnel?",
+      back: "GA4 answers aggregated, session-centric marketing questions (channels, campaigns). User-level funnels, N-day retention cohorts, and jump-to-replay need events keyed to durable persons — the product-analytics data model.",
+    },
+    {
+      front: "How does this course split the work between PostHog and Hogsend?",
+      back: "PostHog detects: event collection, identity, cohorts, the analytics you read. Hogsend acts: code-first TypeScript journeys in your repo — versioned, code-reviewed — triggered by the same events, results fired back as events.",
+    },
+    {
+      front: "Which decision at PostHog signup is hard to undo?",
+      back: "US vs EU cloud region. Data does not move between regions and you cannot merge across them — guessing wrong means a migration, not a setting. Pick where your users and compliance obligations are.",
+    },
+    {
+      front: "Your phc_ project key is visible in the shipped JS bundle. Problem?",
+      back: "No — by design it can write events but cannot read your data, like a mailbox slot. Reading requires a personal API key, which never ships to the browser.",
+    },
+    {
+      prompt: "PostHog's pricing model in three facts:",
+      cloze: "Usage-based per product, with monthly free tiers that {{reset each month}}; you're billed once {{at capture}} — storing history is {{free}}; roughly {{90% of companies}} use it for free. When cost arrives, the lever is event volume.",
+    },
+    {
+      front: "Why PostHog Cloud for analytics but self-hosted Hogsend for messaging?",
+      back: "The asymmetry is deliberate: analytics is read-heavy and fine to delegate; the messaging spine and the identity graph are assets you want on your own infrastructure.",
+    },
+  ]}
+/>
+
+<Quiz
+  questions={[
+    {
+      q: "What's the single biggest structural advantage PostHog has over stitching Mixpanel + Hotjar + LaunchDarkly + Sentry together?",
+      options: [
+        "It's cheaper at every scale",
+        "Its individual products are each best-in-class",
+        "One event pipeline and one identity model under everything — the error, the replay, the funnel, and the flag are the same data about the same person",
+        "It's open source",
+      ],
+      answer: 2,
+      explain:
+        "Point tools can each be deeper in their niche. What they can't do is join: 'show me the replay behind this funnel drop-off' is a click in PostHog and a data-engineering project across four tools with four identity models.",
+    },
+    {
+      q: "You already run GA4. Why can't it answer 'do users who create a project in week one retain better'?",
+      options: [
+        "GA4 has no event tracking at all",
+        "It's built for aggregated, session-centric marketing questions — not user-level funnels and retention cohorts keyed to durable persons",
+        "GA4 only works on mobile apps",
+        "It can, but only on the paid tier",
+      ],
+      answer: 1,
+      explain:
+        "GA4 technically has events, but the product answers channel/campaign questions over aggregated (and at scale, sampled) traffic. Retention-by-behaviour questions need every event tied to a durable person — the product-analytics data model, not the web-analytics one.",
+    },
+    {
+      q: "Why does the course run analytics in PostHog Cloud but messaging in self-hosted Hogsend?",
+      options: [
+        "PostHog can't be self-hosted",
+        "Analytics is read-heavy and fine to delegate; the messaging spine and identity graph are assets you want on your own infrastructure",
+        "Hogsend doesn't offer a cloud version, so there's no choice",
+        "To avoid paying for two clouds",
+      ],
+      answer: 1,
+      explain:
+        "The asymmetry is deliberate. Losing an analytics vendor costs you charts; the identity graph and the ability to reach your users are the business. Own the assets, delegate the instruments.",
+    },
+    {
+      q: "The most consequential decision in this chapter that you can't easily undo later is:",
+      options: [
+        "Which free-tier products to enable",
+        "US vs EU cloud region — data never moves or merges between them",
+        "Whether to install autocapture",
+        "Which dashboard template to start from",
+      ],
+      answer: 1,
+      explain:
+        "Nearly everything in PostHog is reversible — except the region. Getting it wrong means a migration, not a setting. Choose where your users (and your compliance obligations) are.",
+    },
+    {
+      q: "Your `phc_` project API key ends up visible in your site's JavaScript. What's the risk?",
+      options: [
+        "An attacker can read your analytics data with it",
+        "Your account can be billed for someone else's events unless you rotate it weekly",
+        "Essentially none by design — it can write events but cannot read data; it's meant to be public",
+        "Session replays become publicly viewable",
+      ],
+      answer: 2,
+      explain:
+        "The project key is write-only by design, like a mailbox slot: anyone can post through it, nobody can read through it. Reading data requires a personal API key, which never ships to the browser (Chapter 3 returns to this split).",
+    },
+    {
+      q: "A teammate proposes adding Segment in front of PostHog 'so we collect events properly'. Per this chapter, what is Segment actually for?",
+      options: [
+        "It's a pipe, not an analytics tool — it collects events once and fans them out to many destinations, and for a small team PostHog's own CDP plus direct capture usually cover it",
+        "It's a direct competitor to PostHog's product analytics",
+        "It's a required layer — PostHog can't ingest events without a CDP in front",
+        "It's a cheaper replacement for PostHog's session replay",
+      ],
+      answer: 0,
+      explain:
+        "Segment and RudderStack are complementary, not competitive — they can even feed PostHog. The chapter's rule: reach for a dedicated CDP when you have many destinations that need one canonical event schema; before that, it's overkill.",
+    },
+    {
+      q: "Your funnel shows 41% of new users drop between signup and first project. What does the chapter suggest as the fastest way to find out why?",
+      options: [
+        "Ship an A/B test on the signup flow immediately",
+        "Add more events to the funnel until the drop explains itself",
+        "Export everything to a warehouse and model it in SQL",
+        "Watch session replays of the users who dropped — the qualitative layer under the quantitative funnel",
+      ],
+      answer: 3,
+      explain:
+        "The funnel tells you where; replay tells you why. Five minutes of watching real sessions behind a drop-off beats an hour of staring at a chart — and in PostHog the jump from data point to recordings is a click, not a project.",
+    },
+    {
+      q: "What is the chapter's core argument for authoring lifecycle journeys in code rather than on a no-code canvas?",
+      options: [
+        "Code executes faster than canvas-based tools at send time",
+        "No-code tools can't trigger on PostHog events",
+        "Branching is ordinary TypeScript, a 48-hour wait is one line, and the whole journey lives in a pull request a colleague reviews — while canvas complexity compounds with every condition you add",
+        "Canvas tools are always more expensive per send",
+      ],
+      answer: 2,
+      explain:
+        "The example journey makes it concrete: an `if` and a `waitForEvent` replace a tangle of boxes, and the logic is versioned as a dependency you pin and code-review. Picture the canvas version with three more branches — that divergence is the whole argument.",
+    },
+    {
+      q: "Which statement matches PostHog's pricing model as the chapter describes it?",
+      options: [
+        "You're billed once when an event is captured, storing historical events costs nothing, and each product's free tier resets every month",
+        "You pay a flat monthly seat price per team member",
+        "Historical events accrue storage charges the longer you keep them",
+        "The free tier is a one-time credit that never renews",
+      ],
+      answer: 0,
+      explain:
+        "The model is usage-based per product, and PostHog says roughly 90% of companies use it for free. When cost eventually arrives, the lever is event volume — which is why Chapter 3 tells you to be deliberate about what you track.",
+    },
+    {
+      q: "You run a B2B product and want Group Analytics to roll events up to the company level. What does the chapter warn you to do first?",
+      options: [
+        "Nothing — Group Analytics is included in every product's free tier",
+        "Switch to the EU cloud, where Group Analytics is cheaper",
+        "Self-host, since Group Analytics isn't available on Cloud",
+        "Check the current pricing page — it's reportedly a paid add-on, and enabling it can cause all identified events in the project to bill, not just the grouped ones",
+      ],
+      answer: 3,
+      explain:
+        "This is one of the two things the pricing piece says to verify rather than take on faith, because it bites: the setting can change what your entire identified event volume costs, not merely add a line item for company rollups.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [PostHog — Product analytics docs](https://posthog.com/docs/product-analytics) — the reference for the half of the tool this course lives in.
+- [PostHog — the product analytics overview](https://posthog.com/product-analytics) — the shorter framing of the same, with the current feature surface.
+- [PostHog vs GA4](https://posthog.com/blog/posthog-vs-ga4) — the candid side-by-side; useful ammunition for the "we already have GA" conversation.
+- [Google — the GA4 event model](https://developers.google.com/analytics/devguides/collection/ga4/events) — read Google's own docs to see the difference from a product-analytics event model first-hand.
+- [PostHog vs Mixpanel](https://posthog.com/blog/posthog-vs-mixpanel) — the all-in-one vs point-tool trade, feature by feature.
+- [PostHog — Session replay docs](https://posthog.com/docs/session-replay) — setup and the debugging workflow you'll use in Chapter 4.
+- [PostHog — Feature flags docs](https://posthog.com/docs/feature-flags) and [Experiments docs](https://posthog.com/docs/experiments) — the ship-behind-a-flag half of the loop, and the instrument behind Chapter 9's experimentation program.
+- [posthog.com/pricing](https://posthog.com/pricing) — the current free-tier numbers; verify before you rely on the table above.

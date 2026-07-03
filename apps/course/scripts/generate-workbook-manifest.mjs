@@ -12,7 +12,7 @@
 // Anchors mirror the DOM ids the block components render (wb-…).
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { remark } from "remark";
 import remarkMdx from "remark-mdx";
@@ -173,15 +173,37 @@ function extractItems(filePath, course, lesson) {
   return items;
 }
 
+/**
+ * Every lesson MDX under a course dir, recursing chapter folders. The lesson
+ * KEY is the file path relative to the course dir minus `.mdx`, so a nested atom
+ * keys as `01-what-is-posthog/why-measure` — matching the app's lesson identity
+ * (`slugs.slice(1).join("/")`). `index.mdx` in a folder collapses to the folder
+ * slug (Fumadocs strips `index` from the URL), so a chapter hub keys as the
+ * chapter itself. Numeric filename prefixes make the DFS order == course order.
+ */
+function walkLessons(dir, courseDir) {
+  const results = [];
+  for (const name of readdirSync(dir).sort()) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) {
+      results.push(...walkLessons(p, courseDir));
+    } else if (name.endsWith(".mdx")) {
+      const lesson = relative(courseDir, p)
+        .replace(/\.mdx$/, "")
+        .replace(/(^|\/)index$/, "");
+      results.push({ lesson, filePath: p });
+    }
+  }
+  return results;
+}
+
 const manifest = {};
 for (const course of readdirSync(contentDir).sort()) {
   const courseDir = join(contentDir, course);
   if (!statSync(courseDir).isDirectory()) continue;
   const lessons = {};
-  for (const file of readdirSync(courseDir).sort()) {
-    if (!file.endsWith(".mdx")) continue;
-    const lesson = file.replace(/\.mdx$/, "");
-    const items = extractItems(join(courseDir, file), course, lesson);
+  for (const { lesson, filePath } of walkLessons(courseDir, courseDir)) {
+    const items = extractItems(filePath, course, lesson);
     if (items.length > 0) lessons[lesson] = items;
   }
   if (Object.keys(lessons).length > 0) manifest[course] = lessons;

@@ -16,16 +16,26 @@ import {
   ChapterWorkbook,
 } from "@/components/course/chapter-workbook";
 import { LessonProvider } from "@/components/course/lesson-context";
+import { LlmActions } from "@/components/course/llm-actions";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { getMDXComponents } from "@/components/mdx";
 import { db } from "@/lib/db";
 import { lessonProgress, response } from "@/lib/db/schema";
 import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
+import lessonTextJson from "@/lib/lesson-text.generated.json";
+import { ARTICLE_PROMPT } from "@/lib/llm-brand";
 import { source } from "@/lib/source";
 import { lessonWorkbookItems, type SavedValue } from "@/lib/workbook";
 
-/** The following lesson in course order (numeric slug prefixes sort), or null. */
+const LESSON_TEXT = lessonTextJson as Record<
+  string,
+  { title: string; text: string }
+>;
+
+/** The following lesson in course order (numeric slug prefixes sort), or null.
+ *  `lesson` is the full sub-path after the course (`slugs.slice(1).join("/")`),
+ *  so this walks atoms within a chapter and then across chapters. */
 function nextLessonOf(
   course: string,
   lesson: string,
@@ -34,7 +44,7 @@ function nextLessonOf(
     .getPages()
     .filter((p) => p.slugs.length >= 2 && p.slugs[0] === course)
     .sort((a, b) => a.slugs.join("/").localeCompare(b.slugs.join("/")));
-  const idx = pages.findIndex((p) => p.slugs[1] === lesson);
+  const idx = pages.findIndex((p) => p.slugs.slice(1).join("/") === lesson);
   const nextPage = idx >= 0 ? pages[idx + 1] : undefined;
   return nextPage ? { url: nextPage.url, title: nextPage.data.title } : null;
 }
@@ -92,7 +102,13 @@ export default async function Page(props: {
   }
 
   const MDX = page.data.body;
-  const lessonSlug = slugs[slugs.length - 1] ?? "";
+  // Lesson identity = the full path after the course, so a nested atom is
+  // `01-what-is-posthog/why-measure` (not just `why-measure`). This keys the
+  // workbook manifest, the quiz response, and lessonProgress, and matches the
+  // `slugs.join("/")` completion key the sidebar decoration uses. Flat lessons
+  // are unchanged (`01-what-is-posthog`), so existing progress data is stable.
+  const lessonSlug = slugs.slice(1).join("/");
+  const articleText = LESSON_TEXT[`${slugs[0]}/${lessonSlug}`]?.text;
 
   const body = (
     <MDX
@@ -160,6 +176,15 @@ export default async function Page(props: {
             lesson={lessonSlug}
           >
             <WorkbookStateProvider initial={initialResponses}>
+              {articleText ? (
+                <div className="not-prose mb-8 flex justify-end">
+                  <LlmActions
+                    text={articleText}
+                    prompt={ARTICLE_PROMPT}
+                    copyLabel="Copy for LLM"
+                  />
+                </div>
+              ) : null}
               <ChapterWorkbook signedIn={session !== null} />
               {body}
               <ChapterRecap signedIn={session !== null} />

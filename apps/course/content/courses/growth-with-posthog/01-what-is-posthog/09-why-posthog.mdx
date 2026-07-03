@@ -1,0 +1,71 @@
+---
+title: "Why PostHog vs the alternatives"
+description: "A growth team should be able to say why it chose its tools. PostHog is this course's default but not the only honest choice — the real landscape (Mixpanel, Amplitude, GA4, Segment, Heap, Statsig, Plausible, build-your-own) and where PostHog wins and loses."
+workbook: "Record what's actually running on your product today — the honest baseline the instrumentation chapters start from."
+---
+
+A growth team should be able to say *why* it chose its tools, not just *that* it did.
+PostHog is the course's default, but it is not the only honest choice — here's the real
+landscape and where PostHog wins and loses.
+
+- **Mixpanel / Amplitude** — the incumbents of product analytics, and genuinely
+  excellent at the analytics itself (Amplitude's behavioural cohorts and Mixpanel's
+  reports are mature; on several individual analysis features they remain ahead). What
+  they're *not* is all-in-one: no session replay, no feature flags, no CDP, no error
+  tracking in the same bill — you'd stitch those from other tools, each with its own
+  identity model to reconcile ([PostHog's own comparison](https://posthog.com/blog/posthog-vs-mixpanel)
+  is more even-handed than you'd expect from a vendor, and worth reading for the
+  feature-by-feature truth). **Choose them over PostHog if** deep, polished analytics is
+  the only thing you need and you already have replay/flags elsewhere. **Choose PostHog
+  if** you want one pipeline under everything, which is most small teams.
+- **Google Analytics 4 (GA4)** — free and ubiquitous, but it's *web* analytics, not
+  product analytics: aggregated, sampled at scale, session-centric, and not built for
+  user-level funnels or retention cohorts (the events-and-persons piece covered why the
+  data model itself is the difference). It will tell you traffic by channel; it will not
+  honestly answer "do users who create a project in week one retain better." **Keeping
+  GA4 around for marketing-channel reporting is fine — asking it to run your activation
+  funnel is the part that won't work.**
+- **Segment / RudderStack** — these are a *pipe*, not an analytics tool. They collect
+  events once and fan them out to many destinations (including PostHog). Complementary,
+  not competitive — and for a small team, often overkill: PostHog's own CDP and a
+  direct server-side capture (Chapter 3) usually cover it. **Reach for a dedicated CDP
+  when** you have many destinations and want one canonical event schema feeding all of
+  them. RudderStack is the warehouse-first, open-source-leaning option here.
+- **Heap** — autocapture-first, like PostHog's autocapture taken as the whole product.
+  Good if you never want to define events; weaker on the breadth PostHog gives you.
+- **Statsig / LaunchDarkly** — best-in-class experimentation and flags, but single-
+  purpose. If A/B testing is your core discipline they're stronger than PostHog's
+  experiments; you'd pair them with an analytics tool.
+- **Plausible / Fathom** — privacy-first, cookieless *web* analytics. Lovely for a
+  content site or a landing page where all you want is traffic and referrers without a
+  consent banner. They are not product analytics at all — no persons, no funnels, no
+  retention — so they answer a different question than this course asks. Fine to keep
+  one running on the marketing site alongside PostHog.
+- **The build-your-own stack** — Snowflake/BigQuery + dbt + a BI tool (Looker, Metabase)
+  fed by Segment. This is where bigger data teams end up, and it's genuinely more
+  powerful and flexible than any packaged tool. It's also a team and a budget you don't
+  have yet. **The honest rule:** if you already live in a warehouse-native stack, PostHog
+  is a duplicate and you should send events to your warehouse instead. If you don't,
+  PostHog gives you 80% of that stack's value this afternoon, for free.
+
+The one-line summary: **PostHog wins on "one event pipeline under everything plus a
+generous free tier," which is exactly the shape a small growth team needs.** It loses to
+single-purpose tools on depth-in-one-area, and to a warehouse stack on ultimate
+flexibility. For the team this course is written for, the trade is clearly worth it.
+
+<CheckIn
+  id="analyticsStack"
+  question="What's actually running on your product today?"
+  options={["Nothing yet", "Google Analytics", "PostHog", "Mixpanel or Amplitude", "Plausible or Fathom", "Something homegrown"]}
+  multi
+/>
+
+### A note for your kind of startup
+
+The choice barely changes by business type — PostHog fits a marketplace, a consumer app,
+a dev tool, or an e-commerce brand equally — but the *emphasis* does. **Consumer apps**
+lean hardest on retention and replay. **B2B/marketplaces** care about Group Analytics
+(roll events up to the account/company), which is the one place to check pricing first.
+**Dev tools** get unusual value from autocapture on docs + the warehouse join to track
+the docs-to-signup path. **E-commerce** often keeps GA4 for channel reporting alongside
+PostHog for on-site behaviour. Pick the tool once; tune the emphasis to your funnel.

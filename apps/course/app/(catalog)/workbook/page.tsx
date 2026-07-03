@@ -18,7 +18,7 @@ import {
 import { WorkbookPrompt } from "@/components/course/workbook-prompt";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { auth } from "@/lib/auth";
-import { getCourseModules } from "@/lib/course-ui";
+import { getCourseModules, slugsFromUrl } from "@/lib/course-ui";
 import { getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { enrollment, response } from "@/lib/db/schema";
@@ -85,13 +85,15 @@ function buildCourseSection(slug: string): CourseSection {
         return true;
       });
       if (fresh.length === 0) continue;
-      const page = source.getPage([slug, lesson.slug]);
+      // lesson.slug is the full sub-path (e.g. `01-what-is-posthog/why-measure`);
+      // getPage wants slug segments, and a DOM id can't carry a slash.
+      const page = source.getPage(slugsFromUrl(lesson.url));
       const numeric = lesson.slug.match(/^(\d+)/)?.[1];
       chapters.push({
         lesson: lesson.slug,
         title: lesson.title,
         url: lesson.url,
-        anchor: `wb-ch-${slug}-${lesson.slug}`,
+        anchor: `wb-ch-${slug}-${lesson.slug.replace(/\//g, "-")}`,
         num: numeric ? `Ch ${Number.parseInt(numeric, 10)}` : lesson.slug,
         intro: page?.data.workbook ?? page?.data.description,
         items: fresh,

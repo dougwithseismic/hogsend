@@ -1,0 +1,39 @@
+---
+title: "What PostHog costs"
+description: "Usage-based and free until you're at real scale: every product has a monthly free tier that resets, you're billed once at capture (storing history is free), and roughly 90% of companies use it for free. The model, the tiers, and the two gotchas."
+---
+
+PostHog is **usage-based and free until you're at real scale.** The model:
+
+- Every product has a **monthly free tier that resets each month.** You only pay,
+  per-product, once you exceed it.
+- There's **no charge for storing historical events** — you're billed once when an
+  event is captured, not for keeping it.
+- PostHog says roughly **90% of companies use it for free**, and most early-stage
+  startups run free for 6–12 months.
+
+Approximate monthly free tiers (these change — treat as a guide, confirm on
+[posthog.com/pricing](https://posthog.com/pricing) before relying on them):
+
+| Product | Free per month (approx.) |
+|---|---|
+| Product Analytics | ~1M events |
+| Session Replay | ~5,000 recordings |
+| Feature Flags | ~1M requests |
+| Surveys | ~1,500 responses |
+| Error Tracking | ~100K exceptions |
+| Data Warehouse | ~1M rows |
+
+> ⚠️ Two things to verify rather than take on faith, because they move and they bite:
+> the **exact free-tier numbers and per-unit prices** (they drift), and **Group
+> Analytics** — it's reportedly a paid add-on, and enabling it can cause *all*
+> identified events in the project to bill, not just grouped ones. If you're a B2B
+> product tempted by company-level rollups (Chapter 3), check the current pricing
+> page first.
+
+The practical takeaway: you will not pay anything to follow this course, and you'll
+have a long runway before cost is a question. When it becomes one, the lever is event
+volume — which is exactly why Chapter 3 tells you to be deliberate about what you
+track rather than capturing everything that moves. The single biggest cost lever, the
+anonymous-vs-identified setting, is also in Chapter 3; set it right on day one and
+your bill can be ~4× smaller.

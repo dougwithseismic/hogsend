@@ -121,7 +121,14 @@ export default async function CourseOverview(props: {
   const modules = getCourseModules(slug);
   const allLessons = modules.flatMap((m) => m.lessons);
   const first = allLessons[0];
-  const indexBySlug = new Map(allLessons.map((l, i) => [l.slug, i]));
+  // Number only chapters (depth-0 entries: flat lessons + chapter hubs); atoms
+  // (depth 1) render indented and unnumbered under their chapter.
+  const chapterNumBySlug = new Map<string, number>();
+  let chapterNo = 0;
+  for (const l of allLessons) {
+    if (l.depth === 0) chapterNumBySlug.set(l.slug, ++chapterNo);
+  }
+  const chapterCount = chapterNo;
 
   const session = await getSession();
   const userId = session?.user.id ?? null;
@@ -225,19 +232,20 @@ export default async function CourseOverview(props: {
       {/* Fact strip */}
       {course.slug === FLAGSHIP_SLUG ? (
         <div className="mt-10 flex flex-wrap gap-x-6 gap-y-4">
-          {[{ value: String(total), label: "Chapters" }, ...FLAGSHIP_FACTS].map(
-            (fact) => (
-              <div
-                key={fact.label}
-                className="border-white/[0.08] border-l pl-6 first:border-l-0 first:pl-0"
-              >
-                <p className="font-display text-2xl tracking-[-0.02em]">
-                  {fact.value}
-                </p>
-                <p className="eyebrow mt-1.5 text-white/50">{fact.label}</p>
-              </div>
-            ),
-          )}
+          {[
+            { value: String(chapterCount), label: "Chapters" },
+            ...FLAGSHIP_FACTS,
+          ].map((fact) => (
+            <div
+              key={fact.label}
+              className="border-white/[0.08] border-l pl-6 first:border-l-0 first:pl-0"
+            >
+              <p className="font-display text-2xl tracking-[-0.02em]">
+                {fact.value}
+              </p>
+              <p className="eyebrow mt-1.5 text-white/50">{fact.label}</p>
+            </div>
+          ))}
         </div>
       ) : null}
 
@@ -287,7 +295,8 @@ export default async function CourseOverview(props: {
             ) : null}
             <ol className="flex flex-col">
               {mod.lessons.map((lesson) => {
-                const n = (indexBySlug.get(lesson.slug) ?? 0) + 1;
+                const num = chapterNumBySlug.get(lesson.slug);
+                const isAtom = lesson.depth > 0;
                 const free = isFreeLesson(slugsFromUrl(lesson.url));
                 const isDone = completed.has(lesson.slug);
                 const isLocked = locked && !free;
@@ -295,16 +304,28 @@ export default async function CourseOverview(props: {
                   <li key={lesson.url}>
                     <Link
                       href={lesson.url}
-                      className="group flex items-baseline gap-4 border-hairline-faint border-t py-5 transition-colors hover:bg-white/[0.03]"
+                      className={`group flex items-baseline gap-4 border-hairline-faint border-t transition-colors hover:bg-white/[0.03] ${
+                        isAtom ? "py-3 pl-8" : "py-5"
+                      }`}
                     >
-                      <span className="w-8 shrink-0 font-display text-lg text-white/25">
-                        {String(n).padStart(2, "0")}
+                      <span
+                        className={`shrink-0 font-display ${
+                          isAtom
+                            ? "w-4 text-sm text-white/15"
+                            : "w-8 text-lg text-white/25"
+                        }`}
+                      >
+                        {num ? String(num).padStart(2, "0") : "·"}
                       </span>
                       <span className="flex-1">
-                        <span className="block font-medium text-white transition-colors group-hover:text-accent">
+                        <span
+                          className={`block font-medium transition-colors group-hover:text-accent ${
+                            isAtom ? "text-sm text-white/85" : "text-white"
+                          }`}
+                        >
                           {lesson.title}
                         </span>
-                        {lesson.description ? (
+                        {!isAtom && lesson.description ? (
                           <span className="mt-1 block text-sm text-white/50 leading-6">
                             {lesson.description}
                           </span>

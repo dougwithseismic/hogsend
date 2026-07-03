@@ -1,6 +1,6 @@
 {
   "growth-with-posthog": {
-    "00-product-led-growth": [
+    "00-product-led-growth/02-what-plg-means": [
       {
         "kind": "media",
         "id": "JSMvq9dXKxA",
@@ -9,6 +9,16 @@
         "label": "The Evolution of Product-Led Growth: PLG x AI",
         "media": "video"
       },
+      {
+        "kind": "flashcards",
+        "id": "cards-plg-definition",
+        "key": "flashcards:cards-plg-definition",
+        "anchor": "wb-cards-plg-definition",
+        "label": "Key ideas — what PLG is",
+        "itemCount": 4
+      }
+    ],
+    "00-product-led-growth/04-growth-is-engineering": [
       {
         "kind": "media",
         "id": "IHwS2By9UKM",
@@ -19,12 +29,14 @@
       },
       {
         "kind": "flashcards",
-        "id": "cards-plg",
-        "key": "flashcards:cards-plg",
-        "anchor": "wb-cards-plg",
-        "label": "Key ideas — product-led growth",
-        "itemCount": 8
-      },
+        "id": "cards-plg-engineering",
+        "key": "flashcards:cards-plg-engineering",
+        "anchor": "wb-cards-plg-engineering",
+        "label": "Key ideas — growth as engineering",
+        "itemCount": 4
+      }
+    ],
+    "00-product-led-growth/05-who-owns-growth": [
       {
         "kind": "profile",
         "id": "role",
@@ -38,7 +50,28 @@
           "Marketing or growth",
           "Consultant or agency"
         ]
-      },
+      }
+    ],
+    "00-product-led-growth/06-the-machine": [
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/00-product-led-growth/06-the-machine",
+        "anchor": "wb-quiz",
+        "label": "Quick check — the machine",
+        "itemCount": 4
+      }
+    ],
+    "00-product-led-growth/07-how-teams-get-it-wrong": [
+      {
+        "kind": "flashcards",
+        "id": "cards-plg-failures",
+        "key": "flashcards:cards-plg-failures",
+        "anchor": "wb-cards-plg-failures",
+        "label": "Key ideas — how teams get it wrong",
+        "itemCount": 5
+      }
+    ],
+    "00-product-led-growth/08-measure-keep-grow": [
       {
         "kind": "profile",
         "id": "stage",
@@ -54,8 +87,18 @@
         ]
       },
       {
+        "kind": "flashcards",
+        "id": "cards-plg-order",
+        "key": "flashcards:cards-plg-order",
+        "anchor": "wb-cards-plg-order",
+        "label": "Key ideas — the order",
+        "itemCount": 3
+      }
+    ],
+    "00-product-led-growth/09-before-you-move-on": [
+      {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/00-product-led-growth",
+        "key": "quiz:growth-with-posthog/00-product-led-growth/09-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
@@ -69,7 +112,7 @@
         "media": "podcast"
       }
     ],
-    "01-what-is-posthog": [
+    "01-what-is-posthog/01-why-measure": [
       {
         "kind": "profile",
         "id": "teamSize",
@@ -82,7 +125,9 @@
           "A small team (3–10)",
           "10+ people"
         ]
-      },
+      }
+    ],
+    "01-what-is-posthog/02-one-pipeline": [
       {
         "kind": "media",
         "id": "1FZji2L-LmM",
@@ -90,7 +135,9 @@
         "anchor": "wb-media-1FZji2L-LmM",
         "label": "What is PostHog? (Official Demo & Tutorial)",
         "media": "video"
-      },
+      }
+    ],
+    "01-what-is-posthog/04-two-demos": [
       {
         "kind": "media",
         "id": "WPjJLpNxI6s",
@@ -106,15 +153,9 @@
         "anchor": "wb-media-ALR9iuXQVqg",
         "label": "Solve support tickets 10x faster with Session Replay – PostHog Session Replay Demo",
         "media": "video"
-      },
-      {
-        "kind": "flashcards",
-        "id": "cards-posthog",
-        "key": "flashcards:cards-posthog",
-        "anchor": "wb-cards-posthog",
-        "label": "Key ideas — PostHog",
-        "itemCount": 8
-      },
+      }
+    ],
+    "01-what-is-posthog/09-why-posthog": [
       {
         "kind": "profile",
         "id": "analyticsStack",
@@ -130,10 +171,20 @@
           "Something homegrown"
         ],
         "multi": true
+      }
+    ],
+    "01-what-is-posthog/10-set-up-account": [
+      {
+        "kind": "flashcards",
+        "id": "cards-posthog",
+        "key": "flashcards:cards-posthog",
+        "anchor": "wb-cards-posthog",
+        "label": "Key ideas — PostHog",
+        "itemCount": 8
       },
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/01-what-is-posthog",
+        "key": "quiz:growth-with-posthog/01-what-is-posthog/10-set-up-account",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10

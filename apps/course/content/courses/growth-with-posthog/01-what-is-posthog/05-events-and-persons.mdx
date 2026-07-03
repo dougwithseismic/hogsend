@@ -1,0 +1,32 @@
+---
+title: "Events, persons, and why it isn't GA4"
+description: "Everything in PostHog hangs off events (a thing that happened) attached to a person (who it happened to). Get those two right and every chart works — and it's the exact place product analytics parts ways with GA4."
+---
+
+Everything in PostHog hangs off **events** (a thing that happened) attached to a
+**person** (who it happened to). "User signed up", "project created", "page viewed" —
+each is an event with properties, tied to a person
+([capture docs](https://posthog.com/docs/product-analytics/capture-events)). Get those
+two things right and every chart in the product just works. Chapter 3 is about getting
+them right.
+
+This sounds obvious, but it's the exact place where **web analytics and product
+analytics part ways**, and the reason "we already have Google Analytics" isn't an
+answer. GA4 does technically have
+[an event model](https://developers.google.com/analytics/devguides/collection/ga4/events)
+now, but the product is built to answer *marketing* questions — sessions, channels,
+campaign attribution — aggregated, sampled at scale, and reported around anonymous
+traffic. What it can't honestly answer is the question every chapter of this course
+turns on: *what did this specific user do next, and do users who did X retain better
+than users who didn't?* User-level funnels, N-day retention cohorts, and jump-to-the-
+replay-of-that-drop-off all require events keyed to durable persons — which is the
+whole design of a product analytics tool
+([PostHog's side-by-side with GA4](https://posthog.com/blog/posthog-vs-ga4) is candid
+about what each is for).
+
+For a growth team, events are also the team's **shared language**. "Activated" stops
+being a vibe and becomes `project_created` fired within seven days of signup. When
+everyone names the same events the same way, the dashboard, the lifecycle journeys
+(Chapter 6), and the ad conversions (Chapter 7) all speak to each other for free. The
+event taxonomy you set up in Chapter 3 is, quietly, the most important architectural
+decision in the whole course.

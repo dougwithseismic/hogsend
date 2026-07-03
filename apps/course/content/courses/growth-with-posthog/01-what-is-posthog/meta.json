@@ -1,0 +1,15 @@
+{
+  "title": "Chapter 1 · What PostHog is",
+  "pages": [
+    "01-why-measure",
+    "02-one-pipeline",
+    "03-the-suite",
+    "04-two-demos",
+    "05-events-and-persons",
+    "06-workflows-vs-hogsend",
+    "07-us-or-eu",
+    "08-what-it-costs",
+    "09-why-posthog",
+    "10-set-up-account"
+  ]
+}

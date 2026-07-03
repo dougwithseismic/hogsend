@@ -1,0 +1,172 @@
+---
+title: "Before you move on"
+description: "Three things worth settling before you touch a line of code — who owns growth, what \"activated\" means, and the order — then check yourself on the chapter."
+workbook: "The three things to settle before Chapter 1, and the chapter quiz."
+---
+
+You can't install a mindset, but there are three things worth settling before you
+touch a line of code — each takes minutes, and each saves real money later:
+
+1. **Settle who owns growth** — one person accountable for measure → keep → grow. On a
+   solo team that's you; writing it down still helps, because a hat is easier to drop
+   than to wear.
+2. **Try writing what "activated" means for your product** in one sentence — the
+   moment a new user first gets real value. Chapter 2 will make it precise; what
+   matters now is committing to the concept.
+3. **Talk the order through with your team** — retention before acquisition. It's the
+   single most valuable sentence to get everyone nodding at before any money goes into
+   ads, because it's the one instinct that pulls the other way.
+
+Then, when you're ready: Chapter 1 is the tool you'll measure with, and why measuring
+is the job at all.
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "This course's definition of a 'product-led growth team' is:",
+      options: [
+        "A team at a self-serve SaaS company with a freemium tier",
+        "A team that operates on instrumented usage data — hypothesise, ship, measure, repeat — whatever its go-to-market",
+        "A dedicated growth department reporting to marketing",
+        "A team whose product has a viral loop built in",
+      ],
+      answer: 1,
+      explain:
+        "The strict definition (product as the primary acquisition/conversion driver) is a go-to-market choice that doesn't fit every business. The operating model — instrument, measure honestly, act, repeat — applies to almost any startup, and it's what the course installs.",
+    },
+    {
+      q: "Your four-person startup sells a high-touch product to enterprises, so self-serve PLG isn't your motion. What does this chapter say applies to you anyway?",
+      options: [
+        "Nothing — this course is for self-serve products",
+        "Only the paid-ads material in Chapter 7",
+        "The operating model: instrument what users do, read it honestly, fix the real leak, measure whether the fix worked",
+        "You should switch to a freemium model first",
+      ],
+      answer: 2,
+      explain:
+        "PLG-as-go-to-market is a choice; product-led as an operating model is universal. Even a sales-assisted business has users doing measurable things, a funnel that leaks somewhere specific, and messaging that can be triggered by behaviour.",
+    },
+    {
+      q: "Why does the course insist the messaging layer lives in code, in your repo?",
+      options: [
+        "Code-based emails render more reliably than drag-and-drop ones",
+        "It's cheaper than paying for a marketing SaaS",
+        "So the people who build the product own the layer that acts on its data — versioned, code-reviewed, and expressive enough for real logic",
+        "Because marketers shouldn't send emails",
+      ],
+      answer: 2,
+      explain:
+        "The operating model says growth work is engineering work. If the lifecycle layer is a config in a SaaS UI no engineer sees, the 'act on it' half of the loop is outside the team's discipline — unversioned, unreviewed, and capped at what the canvas exposes.",
+    },
+    {
+      q: "The 'tactic collector' failure mode ships growth work constantly. What's actually wrong?",
+      options: [
+        "The tactics are copied from other companies instead of derived from this product's own data and constraint",
+        "The team ships too fast to measure anything",
+        "Referral programs and pricing experiments never work",
+        "The team lacks a dedicated growth hire to coordinate it",
+      ],
+      answer: 0,
+      explain:
+        "Tactics are the output of the loop (find the constraint → hypothesise → measure), never the input. A borrowed tactic can work — but only by luck, because it wasn't aimed at your leak. Elena Verna's 'tactics that never work' list is essentially a catalogue of this failure mode.",
+    },
+    {
+      q: "Why is 'measure → keep → grow' in that order?",
+      options: [
+        "Measurement tools are the cheapest, so you buy them first",
+        "Acquisition into a product that can't retain just buys churn — retention multiplies every acquisition dollar, so plug the bucket before opening the tap",
+        "Ads platforms require analytics to be installed first",
+        "It's alphabetical in the original framework",
+      ],
+      answer: 1,
+      explain:
+        "The leaky-bucket argument (Chapter 2): pouring traffic into a product that loses users wastes the spend and hides the real problem. Retention work is the highest-leverage, cheapest growth available because those users are already yours.",
+    },
+    {
+      q: "A founder tells you: 'We're four people — we'll adopt this operating model once we can afford a growth team.' What does the chapter say?",
+      options: [
+        "They're right — the rituals need a dedicated team to staff them",
+        "Partly right — install analytics now, but hold off on lifecycle messaging until the hire",
+        "They're wrong, but only if they're a self-serve SaaS",
+        "They're wrong — the smaller the team, the more leverage the model has, because a small company can't afford unmeasured bets",
+      ],
+      answer: 3,
+      explain:
+        "The evidence runs the other way: a four-person company can't afford a quarter spent building things nobody uses or ads that don't return, so the loop is cheapest exactly when you're small. Lovable ran this playbook to $200M ARR within a year with a team in the dozens.",
+    },
+    {
+      q: "Your self-serve signups activate poorly, and someone proposes hiring salespeople to convert more of them. What's the chapter's warning?",
+      options: [
+        "Sales layered onto a product that can't activate users just industrialises the leak — fix activation first",
+        "Hiring sales means abandoning product-led growth entirely",
+        "Sales should never be added to a product-led company",
+        "Hire them, but keep them away from the self-serve accounts",
+      ],
+      answer: 0,
+      explain:
+        "Elena Verna's rule is that sales gets added on top of a working self-serve motion, to expand and enterprise-ify accounts the product already won. Reps pushing signups into a product that can't activate them scale the loss, not the revenue — the hybrid pattern works the same funnel, it doesn't patch it.",
+    },
+    {
+      q: "A teammate adds 'try a referral program?' to next quarter's growth backlog. By the hypothesis format from this chapter, what's missing?",
+      options: [
+        "A budget estimate and a delivery timeline",
+        "Nothing — referral programs are a proven growth tactic",
+        "A named metric committed to in advance and a 'because' grounded in something observed in your own data",
+        "The A/B testing infrastructure to run it behind a flag",
+      ],
+      answer: 2,
+      explain:
+        "The format — if we [specific change], [specific metric] will move [direction], because [something observed] — makes each clause do work: naming the metric before you look stops you declaring victory on whatever moved, and the 'because' forces the idea to come from your data. A backlog of these is a growth program; 'try referral program?' is a wish list.",
+    },
+    {
+      q: "Your team installed PostHog six months ago and the dashboards exist. How does the chapter say to test which rung of the maturity ladder you're really on?",
+      options: [
+        "Count how many events and dashboards you've configured",
+        "Ask whether any decision changed in the last month because of the data",
+        "Check that everyone on the team has a PostHog login",
+        "Compare your numbers against industry benchmarks",
+      ],
+      answer: 1,
+      explain:
+        "The most common self-deception is believing you're on rung three because a dashboard exists. If no decision changed because of it, rung two — analytics installed but no one looks — is closer to the truth, and that's the dashboard-graveyard failure mode.",
+    },
+    {
+      q: "How does the chapter say to read OpenView's PLG Index, which shows product-led public companies trading at a premium?",
+      options: [
+        "As proof that any company adopting PLG will outperform the market",
+        "As irrelevant — public-market data says nothing about startups",
+        "As evidence that product-led companies are systematically overvalued",
+        "As directional, not destiny — an index of successful PLG companies can't count the ones the motion didn't suit",
+      ],
+      answer: 3,
+      explain:
+        "The Index is honest evidence with a selection-bias caveat: it's built from the survivors, so it supports the claim that growth compounding through the product gets priced at a premium without guaranteeing the motion fits your price, buyer, and time-to-value.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+<PodcastLink
+  id="lenny-verna-ai-growth-playbook"
+  title="The new AI growth playbook for 2026: how Lovable hit $200M ARR in one year"
+  show="Lenny's Podcast"
+  guest="Elena Verna"
+  note="The operator this chapter keeps citing, on what changes — and what doesn't — when the PLG playbook meets AI-speed products. Listen for how much of Lovable's growth is still the instrument → measure → iterate loop."
+  spotify="https://open.spotify.com/episode/2tjRRxdTXpTl2vki4HTczP"
+  youtube="https://youtu.be/6qAB6aUMIeA"
+  apple="https://podcasts.apple.com/us/podcast/the-new-ai-growth-playbook-for-2026-how-lovable-hit/id1627920305?i=1000741838304"
+/>
+
+- [OpenView — What is product-led growth?](https://openviewpartners.com/product-led-growth/) — the origin source; Blake Bartlett coined the term here in 2016.
+- [Wes Bush — the PLG definition](https://productled.com/blog/product-led-growth-definition) — the canonical strict definition, and [the book](https://productled.com/book) behind it.
+- [OpenView — the Product-Led Growth Index](https://openviewpartners.com/product-led-growth-index/) — the public-market evidence that product-led compounding gets priced at a premium.
+- [Reforge — Growth loops are the new funnels](https://www.reforge.com/blog/growth-loops) — growth as a compounding system rather than a funnel you refill; the engineering-discipline argument at its sharpest.
+- [Reforge — Building growth: product, process, and team](https://www.reforge.com/blog/growth-system) — why growth is a system with three legs, not a hire or a hack.
+- [Elena Verna — Why, when, and how to add sales to a PLG motion](https://www.elenaverna.com/p/why-when-and-how-to-add-sales-to) — the hybrid reality: sales layered on top of a working self-serve engine.
+- [a16z — Growth+Sales: the new era of enterprise go-to-market](https://a16z.com/growthsales-the-new-era-of-enterprise-go-to-market/) — the same hybrid pattern from the investor's seat.
+- [Lenny's Newsletter — 10 growth tactics that never work](https://www.lennysnewsletter.com/p/10-growth-tactics-that-never-work-elena-verna) — the written companion to the Verna interview above; the anti-pattern catalogue.
