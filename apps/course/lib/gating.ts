@@ -65,12 +65,6 @@ const FREE_CHAPTERS = new Set<string>([
  * Free when it's the course's first lesson OR it lives under a FREE_CHAPTER.
  */
 export function isFreeLesson(slugs: string[]): boolean {
-  // TEMP — preview review only (REVERT this commit before merging): when the
-  // env flag is set (only on the PR preview environment, never production),
-  // ungate the whole course so paid chapters are readable on the preview
-  // without a purchase. Production never sets COURSE_PREVIEW_UNGATE, so this
-  // is inert there — and the commit is dropped before merge regardless.
-  if (process.env.COURSE_PREVIEW_UNGATE === "1") return true;
   if (slugs.length < 2) return true;
   const course = slugs[0];
   if (FREE_CHAPTERS.has(`${course}/${slugs[1]}`)) return true;
