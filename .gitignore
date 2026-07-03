@@ -63,3 +63,6 @@ marketing/screenshots/
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
 .claude-work/
+
+# Promo/discount code exports — live Stripe codes, never commit
+free-codes-*.csv
