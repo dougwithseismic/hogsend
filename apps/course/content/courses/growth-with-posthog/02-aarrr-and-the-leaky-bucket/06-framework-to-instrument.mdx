@@ -1,0 +1,187 @@
+---
+title: "From framework to instrument"
+description: "How the theory in this chapter becomes the charts in Chapter 4 — each AARRR stage mapped to what you build in PostHog, with the retention curve as the one chart that answers the only strategic question that matters now."
+workbook: "Mark where your bucket leaks most today, then check yourself on the whole chapter with the quiz. Go deeper links close it out, including Sean Ellis on Lenny's Podcast."
+---
+
+Here's how the theory in this chapter becomes the charts in Chapter 4:
+
+| AARRR stage | What you build in PostHog |
+|---|---|
+| Acquisition | A **funnel** from first-touch → signup, broken down by channel/UTM; CAC per channel |
+| Activation | The **activation funnel** (signup → aha threshold); regression to find the aha; experiments to prove it |
+| Retention | The **retention curve** (does it flatten above zero?) and **cohort** tables |
+| Referral | A funnel of invites sent → accepted → activated; the K-factor |
+| Revenue | Free→paid conversion funnel; LTV:CAC by cohort |
+| North Star | One headline number pinned to a dashboard, with its input metrics beneath |
+
+The single most important chart in that list is the **retention curve**. If it decays
+to zero, you have a leaky bucket and no amount of acquisition will save you. If it
+flattens above zero — some cohort of users sticks forever — you have something real to
+pour into. It's also how you answer the only strategic question that matters right now:
+*am I in the "fix the bucket" phase or the "open the tap" phase?*
+
+<CheckIn
+  id="biggestLeak"
+  question="Where does your bucket leak most today?"
+  options={["Getting traffic", "Signup → activation", "Week-1 retention", "Long-term retention", "Monetisation", "Honestly, no idea yet"]}
+  freeText
+  notePlaceholder="What have you tried?"
+/>
+
+You now know what to measure and why. Next, you'll wire PostHog up to measure it.
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "Your launch went well: signups tripled this month. Which AARRR question tells you whether that was worth anything?",
+      options: [
+        "Acquisition — which channel did they come from?",
+        "Activation and retention — did they reach the value, and are they still here?",
+        "Revenue — did MRR go up this month?",
+        "Referral — did they invite anyone yet?",
+      ],
+      answer: 1,
+      explain:
+        "Acquisition counts arrivals; the bucket sections are activation and retention. Tripled signups into a 90%-leak bucket is mostly money and attention set on fire — you can't judge the launch until you've watched the cohort activate and stick.",
+    },
+    {
+      q: "Why does this course tell you NOT to adopt Facebook's '7 friends in 10 days' for your product?",
+      options: [
+        "It's outdated — the real number was recalculated later",
+        "Magic numbers are population-level rally cries, picked round on purpose; yours must be found from your own data and proven causal with an experiment",
+        "Social-network metrics never apply to other products",
+        "Seven is too ambitious for an early-stage product",
+      ],
+      answer: 1,
+      explain:
+        "Facebook's own people describe the number as a round pick from a range — its job was alignment, not precision. The method that matters is: candidates → correlation → experiment. Skipping the experiment risks optimising a number users hit on their way out the door.",
+    },
+    {
+      q: "Users who watch a tutorial video retain at 71% vs 22% for those who don't. What have you learned?",
+      options: [
+        "The tutorial causes retention — push everyone to watch it",
+        "A correlation worth testing: engaged users might watch AND retain for the same underlying reason, so run an experiment that pushes more users to watch and see if retention actually moves",
+        "Nothing — retention splits like this are noise",
+        "The tutorial is your North Star Metric",
+      ],
+      answer: 1,
+      explain:
+        "This is exactly step 2 of the method — a strong correlation and nothing more. Only deliberately causing more of the behaviour (step 3) separates 'predictor of already-retained users' from 'lever that creates retained users'.",
+    },
+    {
+      q: "Why is MRR a bad North Star Metric, by the framework's own criteria?",
+      options: [
+        "Revenue doesn't reflect customer value at all",
+        "It's too hard to measure accurately",
+        "It's a lagging output — by the time it moves, the game is played; the North Star should be the leading value-signal that causes revenue",
+        "Investors prefer ARR",
+      ],
+      answer: 2,
+      explain:
+        "A North Star must be a leading indicator you move through input metrics. Revenue is the scoreboard, not the play — PostHog picking 'Discoveries' (which predicted retention 2.3× better than alternatives) over any revenue count is the model to copy.",
+    },
+    {
+      q: "Your retention curve falls for 30 days and then flattens at 12% forever. The strategic read is:",
+      options: [
+        "12% is a failure — fix retention before anything else",
+        "A cohort has made the product a habit: evidence of PMF for that segment. Calibrate the plateau against category benchmarks, then decide if you're in 'fix the bucket' or 'open the tap' phase",
+        "Retention curves always flatten; it means nothing",
+        "Time to raise prices on the 12%",
+      ],
+      answer: 1,
+      explain:
+        "A plateau above zero — at any level — means some users stick indefinitely, which decay-to-zero curves never show. Whether 12% is good depends enormously on category (consumer vs B2B differ wildly), which is why you check operator benchmarks before reacting.",
+    },
+    {
+      q: "You acquire 100 mobile app users at $5 each. Going by the dataset Andrew Chen popularised, what does the chapter say you should expect?",
+      options: [
+        "About 77 of them gone within three days — roughly $385 effectively set on fire before you've done anything wrong except scale a leaky bucket",
+        "About half churn in the first month, which is normal and safe to scale through",
+        "Nothing can be said until you have 90 days of retention data",
+        "Most will stick if the ads targeted the right audience",
+      ],
+      answer: 0,
+      explain:
+        "The chapter's math: the average app loses ~77% of daily users in three days and ~90% within 30. The figures are directional (one widely-cited dataset), but the lesson is structural — acquisition and retention multiply, so pouring into a leaky bucket is purchasing churn.",
+    },
+    {
+      q: "A teammate reads about RARRA and declares AARRR obsolete. What's the chapter's actual position on the two?",
+      options: [
+        "AARRR is outdated; RARRA is the modern replacement and you should switch",
+        "RARRA is for mobile apps, AARRR is for SaaS",
+        "They contradict each other, so pick one and stay consistent",
+        "Same five letters, different jobs: AARRR maps the user's journey, RARRA orders your priorities — fix retention and activation first because that's where the leverage is",
+      ],
+      answer: 3,
+      explain:
+        "Petit and Papp reordered the acronym specifically to break the start-with-acquisition habit — 'if you don't have retention, you have nothing.' Nothing about the categories changed; what changed is what you fix first.",
+    },
+    {
+      q: "Your 60 retained users sent 48 invites and 18 converted — a K-factor of 0.3. What does that number mean for your growth?",
+      options: [
+        "The product is viral: each user brings more users, so referral compounds on its own",
+        "The referral program failed and should be cut",
+        "Below 1, referral is a discount on CAC — real value, but each cycle shrinks; only above 1 does it compound into self-sustaining growth",
+        "K-factor only matters for consumer social apps",
+      ],
+      answer: 2,
+      explain:
+        "A K of 0.3 means each cohort brings in 30% of its own size — cheaper effective acquisition, which is genuinely worth having. But the loop decays every cycle, so it can't replace other acquisition until K crosses 1.",
+    },
+    {
+      q: "You've used your funnel to find where users drop off. Now you want growth that sustains itself without constantly refilling the top. Which lens does the chapter hand you?",
+      options: [
+        "Stay with the funnel — loops are just funnels drawn in a circle",
+        "HEART, because it's the most granular framework",
+        "The PMF survey, to confirm fit before designing anything",
+        "Growth loops — a system where one cycle's output (a user creating shareable content) becomes the next cycle's input",
+      ],
+      answer: 3,
+      explain:
+        "Reforge's critique is that a funnel is linear — people fall out the bottom and you're always refilling the top. The funnel is the right lens for seeing leaks; the loop is the right lens for designing growth that feeds itself, like the owned-audience flywheel in Chapter 8.",
+    },
+    {
+      q: "Before sinking months into activation optimisation, the chapter offers a cheap gut-check on whether you have product-market fit at all. What is it?",
+      options: [
+        "Ask users how they'd feel if they could no longer use the product — 40%+ saying 'very disappointed' suggests PMF",
+        "Check whether MRR grew last quarter",
+        "Ask users whether they'd recommend you (NPS above 50)",
+        "Compare your download count against the category average",
+      ],
+      answer: 0,
+      explain:
+        "That's the Sean Ellis test from The Startup Pyramid: above the 40% bar, pour into growth; below it, fix the product first. It complements the retention curve — two independent reads on whether you're in the 'fix the bucket' phase or the 'open the tap' phase.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+<PodcastLink
+  id="lenny-sean-ellis-hacking-growth"
+  title="The original growth hacker reveals his secrets"
+  show="Lenny's Podcast"
+  guest="Sean Ellis"
+  duration="1h 44m"
+  note="The inventor of the 40% PMF test and the ICE framework on activation, retention, and North Star metrics — this chapter's toolkit, from the person who built it."
+  spotify="https://open.spotify.com/episode/4V5wt6luPeF4YiJ1lWDY5e"
+  youtube="https://youtu.be/VjJ6xcv7e8s"
+  apple="https://podcasts.apple.com/us/podcast/the-original-growth-hacker-reveals-his-secrets-sean/id1627920305?i=1000668463120"
+/>
+
+- [Sean Ellis — The Startup Pyramid](https://seanellis.substack.com/p/the-startup-pyramid) — the primary source for the 40% "very disappointed" PMF survey.
+- [Sean Ellis — Find a growth hacker for your startup (2010)](https://www.startup-marketing.com/where-are-all-the-growth-hackers/) — where "growth hacking" was coined, and what it originally meant.
+- [Amplitude — The North Star Playbook](https://amplitude.com/resources/north-star-playbook) — the full framework §2.4 summarises, with worked input trees.
+- [Reforge — How to choose and measure North Star metrics](https://www.reforge.com/blog/north-star-metrics) — the input-vs-output metric distinction that makes an NSM operable.
+- [Lenny Rachitsky — What is good retention?](https://www.lennysnewsletter.com/p/what-is-good-retention-issue-29) — operator-surveyed benchmarks by category; calibrate your plateau here.
+- [Lenny Rachitsky — How to determine your activation metric](https://www.lennysnewsletter.com/p/how-to-determine-your-activation) — the three-step method from §2.3 in full.
+- [Amplitude — The leaky bucket problem](https://amplitude.com/blog/leaky-bucket-problem) — the bucket, drawn with cohort charts.
+- [Andrew Chen — Is your website a leaky bucket?](https://andrewchen.com/is-your-website-a-leaky-bucket-4-scenarios-for-user-retention/) and [losing 80% of mobile users is normal](https://andrewchen.com/new-data-shows-why-losing-80-of-your-mobile-users-is-normal/) — the acquisition×retention multiplication, and the brutal mobile data.
+- [Brian Balfour — Retention essays](https://brianbalfour.com/essays/category/Retention) — why retention multiplies every other growth lever.
+- [Mixpanel — Magic numbers are an illusion](https://mixpanel.com/blog/magic-numbers-are-an-illusion/) — the useful-illusion argument quoted in §2.3.
+- [Ehrenberg-Bass — The hole in the leaky bucket theory](https://marketingscience.info/the-hole-in-the-leaky-bucket-theory/) — the credible counterpoint, so you don't over-rotate on retention.

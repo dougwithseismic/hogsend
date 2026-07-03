@@ -1,0 +1,121 @@
+---
+title: "Activation and the aha moment"
+description: "The highest-leverage stage for most early products. Why copying someone else's magic number is a trap, the three-step method for finding your own — and proving it's causal, not just correlative."
+workbook: "Pick the business type closest to yours, then write your activation sentence — the one observable action that means a user got real value. It saves to your workbook and follows you into Chapter 3 and the plan."
+---
+
+Activation is the highest-leverage stage for most early products, so it's worth going
+deep. The **aha moment** is the point a new user first feels the product's value. The
+**activation metric** is a measurable stand-in for it: a specific action, or a count of
+actions in a time window, that *predicts* whether someone sticks around.
+
+The famous examples:
+
+| Company | The "magic number" |
+|---|---|
+| **Facebook** | 7 friends in 10 days |
+| **Twitter** | follow ~30 accounts |
+| **Slack** | a team sends 2,000 messages |
+| **Dropbox** | put one file in one folder |
+
+These are real and they're useful — but they're also widely misunderstood, and the
+misunderstanding is expensive, so the next part matters.
+
+### The magic number is a rally cry, not a law
+
+It's tempting to copy "7 friends" and chase it — and it's the one move here worth
+resisting. As Mixpanel put it,
+[*"magic numbers are an illusion — a very useful illusion, but an illusion
+nevertheless."*](https://mixpanel.com/blog/magic-numbers-are-an-illusion/)
+Andrew Chen, talking about Facebook's number, said it *"could have been '10 friends in
+12 days' or even 'five friends in one day'"* — it was a **round number picked from the
+middle of a range**. Facebook weren't trying to make it precise.
+
+Three things worth understanding about these numbers:
+
+- **They describe an average, not an individual.** One user is hooked after 3 friends;
+  another churns after 12. The number is a population-level signal.
+- **Their real job is organisational.** A magic number is a mantra that gets every team
+  pointed at the same goal. That alignment is most of the value — and it's exactly the
+  "shared language" a growth team needs (Chapter 0).
+- **Some are shakier than others.** Slack's 2,000 is a *team*-level number, not
+  per-user. Dropbox's "one file in one folder" is repeated everywhere but hard to
+  trace to a primary source — Dropbox's *solid, documented* story is its referral
+  program (Chapter 8), not its activation number.
+
+### How to find *your* activation metric (the method that matters)
+
+Rather than borrowing someone else's number, you can find your own — it's a three-step
+method (from [Lenny Rachitsky's guide](https://www.lennysnewsletter.com/p/how-to-determine-your-activation)):
+
+1. **Brainstorm candidate aha moments** from your product-usage data — actions that
+   plausibly mark "they got it."
+2. **Run a correlation/regression analysis** to see whether retention jumps for users
+   who hit each candidate. This surfaces patterns.
+3. **Run an experiment** — deliberately push more new users to hit the candidate
+   moment, and see if retention actually rises.
+
+Step 3 is the one teams skip, and it's the one that counts. The crucial caveat: *"a
+good activation metric is causal for your retention, not just correlative."* Steps 1–2
+only show correlation — maybe engaged users do X *because* they were already going to
+stick. Only an experiment proves that *causing* more X *causes* more retention. Without
+it, you can spend months optimising a number users hit on their way out the door.
+
+### Worked example: finding it for a real-ish product
+
+Say you run a design-collaboration tool. You walk the method:
+
+1. **Candidates** from your data: *invited a teammate*, *created 3+ files*, *left a
+   comment*, *connected Figma*. All plausible "aha"s.
+2. **Correlation:** in PostHog, build a retention insight split by each candidate. Users
+   who *invited a teammate in week one* retain at 64% to day 30; everyone else at 19%.
+   That's a huge gap — but it might just be that engaged teams invite *and* retain.
+3. **Experiment:** you put a "+ invite a teammate" prompt in onboarding for half of new
+   signups (a feature flag). If the prompted half retains meaningfully better, you've
+   shown *causing* the invite *causes* retention. Now "invite a teammate in week one" is
+   your activation metric, and onboarding's whole job is to drive it.
+
+That's the work, and it's the same correlation-vs-causation discipline you'll use again
+for lifecycle holdouts in Chapter 5 and the experimentation program in Chapter 9.
+Twitter's team is the model: they found "follow 30 accounts" correlated with retention —
+then dug further and found a *better*, more causal signal: what fraction of those 30
+**followed back**. They refined a correlation into something that actually moves the
+outcome.
+
+The shape of an activation metric is almost always: **[quantity] of [key action]
+within [time window]**, for new users. Chapter 3's job is making sure that
+"[key action]" is an event you actually capture.
+
+### What "activation" means for your kind of startup
+
+The metric is yours to find, but the *shape* is predictable by business type:
+
+- **Self-serve SaaS** — the first time the core job gets done (project created, report
+  shipped, integration connected).
+- **Marketplace** — the first *successful match or transaction*; for a two-sided
+  marketplace you have two activation metrics (supply and demand), and liquidity is the
+  real game.
+- **Consumer / social app** — a habit signal: sessions-per-week, or the network action
+  (a follow, a post) that predicts the user comes back.
+- **Dev tool** — the first successful API call / first green build / first deploy. The
+  "aha" is "it worked in my environment."
+- **E-commerce** — first purchase, then second purchase (the repeat is the real
+  activation; one-time buyers are barely retained).
+- **Community / web3** — the link-and-verify-for-a-perk action (Chapter 8) is both the
+  activation *and* the start of the identity graph.
+
+<CheckIn
+  id="productType"
+  question="Which of these is closest to what you're building?"
+  options={["SaaS", "Dev tool", "Marketplace", "Consumer app", "E-commerce", "Community or game", "Service or agency"]}
+/>
+
+<WorkbookPrompt
+  id="activation-sentence"
+  prompt="Write your activation sentence — the one user action that means they got real value."
+  placeholder="A user is activated when they… (one sentence, one observable event)"
+  rows={2}
+/>
+
+You'll refine this into a tracked event in Chapter 3 and hold yourself to it in the
+plan (Chapter 10) — it saves to your workbook, so it follows you there.
