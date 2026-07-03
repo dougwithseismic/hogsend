@@ -27,6 +27,7 @@ import {
   PsCodePicker,
   type UseCaseValue,
 } from "./_components/code-picker";
+import { CourseCard } from "./_components/course-card";
 import { PsNav } from "./_components/nav";
 import { WordReveal } from "./_components/word-reveal";
 
@@ -3207,6 +3208,7 @@ export default function HomePage(): JSX.Element {
       <PsClosingCta />
       <PsFooter />
       <PsFrame />
+      <CourseCard />
     </main>
   );
 }
