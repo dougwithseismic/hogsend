@@ -1,11 +1,14 @@
 import { Check } from "lucide-react";
+import Link from "next/link";
 import type { JSX, ReactNode } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
-import { Eyebrow, PillBadge } from "@/components/ds/badge";
+import { Eyebrow } from "@/components/ds/badge";
+import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { Button } from "@/components/ds/button";
 import { Card, FeatureCard } from "@/components/ds/card";
 import {
+  CoursePreviewWindow,
   FlashcardVignette,
   GlowMedia,
   PlanVignette,
@@ -13,8 +16,9 @@ import {
   WorkbookVignette,
 } from "@/components/ds/course-vignettes";
 import { CtaPanel } from "@/components/ds/cta-panel";
+import { WaveLines } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
-import { GlowField } from "@/components/ds/fx";
+import { LogoMarquee } from "@/components/ds/marquee";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
@@ -175,19 +179,31 @@ export default async function CatalogPage() {
 
   return (
     <>
-      {/* Hero */}
+      {/* Hero — mirrors the product homepage: announcement pill, big display
+          headline, a contained planet-horizon glow canvas, and the course
+          preview window floating over it, then a built-on marquee. */}
       <section className="relative overflow-hidden">
-        <GlowField className="opacity-70" />
-        <div className="container-page relative z-10 py-28 md:py-40">
-          <Reveal className="flex flex-col items-center text-center">
-            <PillBadge className="mb-6">Code-first growth courses</PillBadge>
-            <h1 className="mx-auto max-w-4xl text-center font-display text-[48px] leading-[1.0] tracking-[-0.05em] md:text-[76px]">
+        <div className="container-page relative z-10 flex flex-col items-center pt-20 text-center md:pt-24">
+          <Reveal className="flex w-full flex-col items-center">
+            {/* Announcement pill — the free-first-lesson offer. */}
+            <Link
+              href={flagshipFirstLesson}
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-accent-tint py-1 pr-4 pl-1 text-[13px] text-white/75"
+            >
+              <span className="rounded-full bg-accent px-2.5 py-0.5 font-medium text-[12px] text-white">
+                Free
+              </span>
+              The first lesson of every course is free to read
+              <span className="font-medium text-white">Start →</span>
+            </Link>
+
+            <h1 className="mx-auto mt-9 max-w-4xl text-center font-display text-[48px] leading-[1.0] tracking-[-0.05em] md:text-[76px]">
               Build your growth in code.
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-center text-lg text-white/70 leading-7">
               Start-to-finish courses on PostHog, lifecycle messaging, and
               turning traffic into an audience you own — written for the people
-              who build it. The first lesson of every course is free.
+              who build it.
             </p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
               <Button href={flagshipFirstLesson} variant="accent" icon>
@@ -197,7 +213,80 @@ export default async function CatalogPage() {
                 See pricing
               </Button>
             </div>
+            <p className="mt-6 text-sm text-white/40">
+              First lesson free · One-time purchase · Lifetime access
+            </p>
           </Reveal>
+        </div>
+
+        {/* Glow canvas — a contained ink panel carrying the crimzon
+            planet-horizon glow; the course preview window floats over it. */}
+        <div className="container-page relative mt-14">
+          <div className="relative h-[300px] overflow-hidden rounded-2xl bg-[#070303] md:h-[340px]">
+            <WaveLines
+              className="absolute inset-0 h-full w-full opacity-80"
+              stroke="rgba(255,140,118,0.5)"
+              count={8}
+            />
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+              }}
+            />
+            {/* The crisp horizon arc. */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="container-page relative z-10 -mt-[210px] pb-14 md:-mt-[230px]">
+          <Reveal>
+            <CoursePreviewWindow />
+          </Reveal>
+          <p className="mt-5 text-center text-[13px] text-white/40">
+            The syllabus, quizzes, and workbook are the real course —{" "}
+            <Link href={flagshipFirstLesson} className="font-medium text-white">
+              read the first lesson free →
+            </Link>
+          </p>
+        </div>
+
+        {/* Built-on strip */}
+        <div className="border-accent/20 border-y">
+          <div className="container-page flex flex-col gap-5 py-9 md:flex-row md:items-center md:gap-12">
+            <span className="shrink-0 font-mono text-[12px] text-white/40 uppercase tracking-[0.08em]">
+              Built on
+            </span>
+            <div className="relative min-w-0 flex-1 opacity-70 grayscale">
+              <LogoMarquee
+                items={(
+                  [
+                    "posthog",
+                    "resend",
+                    "typescript",
+                    "stripe",
+                    "railway",
+                  ] as const satisfies readonly BrandKey[]
+                ).map((brand) => (
+                  <BrandLogo
+                    key={brand}
+                    brand={brand}
+                    height={22}
+                    className="mx-8 text-white/55"
+                  />
+                ))}
+              />
+            </div>
+          </div>
         </div>
       </section>
 
