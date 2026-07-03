@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { JSX } from "react";
 import { cn } from "@/lib/cn";
 
@@ -42,6 +43,43 @@ export function PillBadge({
     >
       {children}
     </span>
+  );
+}
+
+type AnnouncePillProps = {
+  /** Where the pill links (internal route or external URL). */
+  href: string;
+  /** The solid red chip label at the pill's left. */
+  chip: string;
+  children: React.ReactNode;
+  className?: string;
+};
+
+/**
+ * Announcement pill: a red chip + a line of copy in a rounded red-tint capsule,
+ * used at the top of marketing heroes (catalog + pricing). Mirrors the product
+ * homepage's announcement pill so the two sites read as one family.
+ */
+export function AnnouncePill({
+  href,
+  chip,
+  children,
+  className,
+}: AnnouncePillProps): JSX.Element {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border border-white/10",
+        "bg-accent-tint py-1 pr-4 pl-1 text-[13px] text-white/75",
+        className,
+      )}
+    >
+      <span className="rounded-full bg-accent px-2.5 py-0.5 font-medium text-[12px] text-white">
+        {chip}
+      </span>
+      {children}
+    </Link>
   );
 }
 

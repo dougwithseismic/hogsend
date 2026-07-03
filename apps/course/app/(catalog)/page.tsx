@@ -3,7 +3,7 @@ import Link from "next/link";
 import type { JSX, ReactNode } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
-import { Eyebrow } from "@/components/ds/badge";
+import { AnnouncePill, Eyebrow } from "@/components/ds/badge";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { Button } from "@/components/ds/button";
 import { Card, FeatureCard } from "@/components/ds/card";
@@ -186,16 +186,10 @@ export default async function CatalogPage() {
         <div className="container-page relative z-10 flex flex-col items-center pt-20 text-center md:pt-24">
           <Reveal className="flex w-full flex-col items-center">
             {/* Announcement pill — the free-first-lesson offer. */}
-            <Link
-              href={flagshipFirstLesson}
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-accent-tint py-1 pr-4 pl-1 text-[13px] text-white/75"
-            >
-              <span className="rounded-full bg-accent px-2.5 py-0.5 font-medium text-[12px] text-white">
-                Free
-              </span>
+            <AnnouncePill href={flagshipFirstLesson} chip="Free">
               The first lesson of every course is free to read
               <span className="font-medium text-white">Start →</span>
-            </Link>
+            </AnnouncePill>
 
             <h1 className="mx-auto mt-9 max-w-4xl text-center font-display text-[48px] leading-[1.0] tracking-[-0.05em] md:text-[76px]">
               Build your growth in code.

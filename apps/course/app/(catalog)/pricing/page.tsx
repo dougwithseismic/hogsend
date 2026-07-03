@@ -3,13 +3,13 @@ import type { Metadata } from "next";
 import type { JSX, ReactNode } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
-import { Eyebrow, TagPill } from "@/components/ds/badge";
+import { AnnouncePill, TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
 import { Card } from "@/components/ds/card";
 import { PlanVignette } from "@/components/ds/course-vignettes";
 import { CtaPanel } from "@/components/ds/cta-panel";
+import { WaveLines } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
-import { AuroraBeam } from "@/components/ds/fx";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { type AllAccessView, getCatalog } from "@/lib/catalog";
@@ -154,7 +154,9 @@ function PlanCard({
   return (
     <Card
       className={cn(
-        "relative h-full overflow-hidden p-8",
+        // Opaque fill so the card reads cleanly where it floats over the hero
+        // glow (the base Card is near-transparent).
+        "relative h-full overflow-hidden bg-[#0a0606] p-8",
         popular && "border-accent/40",
       )}
     >
@@ -196,12 +198,16 @@ export default async function PricingPage() {
 
   return (
     <main className="flex flex-1 flex-col">
-      {/* Hero */}
+      {/* Hero + offer grid — the three plans float up over a planet-horizon
+          glow, mirroring the homepage hero's floating-product-over-glow move.
+          The offer IS pricing's product shot, so the grid is what floats. */}
       <section className="relative overflow-hidden">
-        <AuroraBeam className="opacity-60" />
-        <div className="container-page relative z-10 pt-28 pb-20 text-center">
-          <Reveal className="flex flex-col items-center">
-            <Eyebrow className="mb-4">Pricing</Eyebrow>
+        <div className="container-page relative z-10 flex flex-col items-center pt-24 text-center md:pt-28">
+          <Reveal className="flex w-full flex-col items-center">
+            <AnnouncePill href="/" chip="Free" className="mb-8">
+              The first lesson of every course is free — no account needed
+              <span className="font-medium text-white">Browse →</span>
+            </AnnouncePill>
             <h1 className="max-w-3xl font-display text-[40px] leading-[1.15] tracking-[-0.04em] md:text-[56px]">
               One price. Every course. Forever.
             </h1>
@@ -212,69 +218,97 @@ export default async function PricingPage() {
             </p>
           </Reveal>
         </div>
-      </section>
 
-      {/* Three-tier offer grid */}
-      <Section divider={false}>
-        <div className="grid items-stretch gap-6 md:grid-cols-3">
-          <Reveal className="h-full">
-            <PlanCard
-              name="Single course"
-              price={FLAGSHIP_PRICE}
-              priceSuffix="/one-time"
-              description="Just want one? Unlock a single course forever — try the first lesson free first."
-              features={SINGLE_INCLUDES}
-              cta={
-                <Button
-                  href="/"
-                  variant="outline"
-                  icon
-                  className="w-full justify-center"
-                >
-                  Browse courses
-                </Button>
-              }
+        {/* Glow canvas */}
+        <div className="container-page relative mt-14">
+          <div className="relative h-[240px] overflow-hidden rounded-2xl bg-[#070303] md:h-[280px]">
+            <WaveLines
+              className="absolute inset-0 h-full w-full opacity-80"
+              stroke="rgba(255,140,118,0.5)"
+              count={7}
             />
-          </Reveal>
-
-          <Reveal delay={0.08} className="h-full">
-            <PlanCard
-              popular
-              name="All-Access"
-              badge={<TagPill accent>Best value</TagPill>}
-              price={allAccess.priceLabel}
-              priceSuffix="/one-time · lifetime"
-              description="Every course, now and later, unlocked on your account for one payment."
-              features={ALL_ACCESS_INCLUDES}
-              cta={<AllAccessCta view={allAccess} />}
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+              }}
             />
-          </Reveal>
-
-          <Reveal delay={0.16} className="h-full">
-            <PlanCard
-              name="Gift a course"
-              price={FLAGSHIP_PRICE}
-              priceSuffix="/one-time"
-              description="Pay for one copy and we mint a single-use unlock code — emailed to them, or to you to forward."
-              features={GIFT_INCLUDES}
-              cta={
-                <Button
-                  href="/growth-with-posthog#gift"
-                  variant="outline"
-                  icon
-                  className="w-full justify-center"
-                >
-                  Gift a course
-                </Button>
-              }
+            {/* The crisp horizon arc. */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+              }}
             />
-          </Reveal>
+          </div>
         </div>
-        <p className="mt-10 text-center text-sm text-white/50">
-          One-time payments. No subscription. The first lesson of every course
-          is free.
-        </p>
-      </Section>
+
+        {/* Offer grid floats up over the glow. */}
+        <div className="container-page relative z-10 -mt-[170px] md:-mt-[200px]">
+          <div className="grid items-stretch gap-6 md:grid-cols-3">
+            <Reveal className="h-full">
+              <PlanCard
+                name="Single course"
+                price={FLAGSHIP_PRICE}
+                priceSuffix="/one-time"
+                description="Just want one? Unlock a single course forever — try the first lesson free first."
+                features={SINGLE_INCLUDES}
+                cta={
+                  <Button
+                    href="/"
+                    variant="outline"
+                    icon
+                    className="w-full justify-center"
+                  >
+                    Browse courses
+                  </Button>
+                }
+              />
+            </Reveal>
+
+            <Reveal delay={0.08} className="h-full">
+              <PlanCard
+                popular
+                name="All-Access"
+                badge={<TagPill accent>Best value</TagPill>}
+                price={allAccess.priceLabel}
+                priceSuffix="/one-time · lifetime"
+                description="Every course, now and later, unlocked on your account for one payment."
+                features={ALL_ACCESS_INCLUDES}
+                cta={<AllAccessCta view={allAccess} />}
+              />
+            </Reveal>
+
+            <Reveal delay={0.16} className="h-full">
+              <PlanCard
+                name="Gift a course"
+                price={FLAGSHIP_PRICE}
+                priceSuffix="/one-time"
+                description="Pay for one copy and we mint a single-use unlock code — emailed to them, or to you to forward."
+                features={GIFT_INCLUDES}
+                cta={
+                  <Button
+                    href="/growth-with-posthog#gift"
+                    variant="outline"
+                    icon
+                    className="w-full justify-center"
+                  >
+                    Gift a course
+                  </Button>
+                }
+              />
+            </Reveal>
+          </div>
+          <p className="mt-10 text-center text-sm text-white/50">
+            One-time payments. No subscription. The first lesson of every course
+            is free.
+          </p>
+        </div>
+      </section>
 
       {/* Course list */}
       <Section>
