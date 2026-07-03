@@ -17,6 +17,7 @@ import {
   NPM_URL,
   RAILWAY_DEPLOY_URL,
 } from "@/lib/site";
+import postphant from "@/public/images/postphant.png";
 import studioJourneys from "@/public/images/studio/studio-journeys.png";
 import studioSends from "@/public/images/studio/studio-sends.png";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
@@ -1347,6 +1348,156 @@ async function PsCode() {
             raw={JOURNEY_SAMPLES}
           />
         </Reveal>
+      </Container>
+    </section>
+  );
+}
+
+/* -------------------------------------------------- elephant in the room -- */
+
+const ELEPHANT_COLUMNS = [
+  {
+    label: "What Workflows does well",
+    accent: false,
+    cards: [
+      {
+        lead: "Zero extra infrastructure.",
+        rest: "A tab in the PostHog UI your team already has open, consuming the events you already capture — nothing to deploy, nothing to operate.",
+      },
+      {
+        lead: "Multi-channel out of the box.",
+        rest: "Email, SMS, push, Slack, and webhooks without writing a line.",
+      },
+      {
+        lead: "Non-engineers can ship.",
+        rest: "The no-code canvas means whoever owns lifecycle can see and edit the flow — no developer in the loop.",
+      },
+      {
+        lead: "A genuinely generous free tier.",
+        rest: "Light volume fits inside it; after that it's per-send pricing on top of your PostHog bill.",
+      },
+    ],
+  },
+  {
+    label: "Why you'd reach for Hogsend",
+    accent: true,
+    cards: [
+      {
+        lead: "The flow is code you own.",
+        rest: "Versioned completely — git log knows who changed the discount email and why. PR review, tests, and rollback apply like everywhere else.",
+      },
+      {
+        lead: "Your domain, your reputation.",
+        rest: "Sends go through your own Resend or Postmark account, not a managed sender.",
+      },
+      {
+        lead: "Past the canvas ceiling.",
+        rest: "Park until this user acts, send in their timezone, trigger journeys from journeys, cap re-entries — control flow boxes and arrows can't express.",
+      },
+      {
+        lead: "Integrate any service.",
+        rest: "A journey is an async TypeScript function — call any API you can import, or an LLM mid-run, and branch on the answer.",
+      },
+    ],
+  },
+];
+
+function PsElephant() {
+  return (
+    <section
+      id="posthog-workflows"
+      className="relative border-[#f6483826] border-t"
+    >
+      <Container className="pt-16 pb-28">
+        <Reveal>
+          <Eyebrow>The elephant in the room</Eyebrow>
+
+          <div className="mt-8 flex flex-col justify-between gap-10 lg:flex-row">
+            <h2
+              className={cn(
+                "max-w-[620px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+                DISPLAY,
+              )}
+            >
+              <span className="text-white">
+                Why not just use PostHog Workflows?
+              </span>{" "}
+              <span className="text-white/40">Sometimes you should.</span>
+            </h2>
+
+            <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
+              Workflows is genuinely good. It lives in the PostHog UI your team
+              already has open, consumes the events you already capture, and
+              needs nothing deployed. If you're a PostHog team — or about to
+              become one — it will cover a lot of your early automation, and you
+              should let it.
+            </p>
+          </div>
+        </Reveal>
+
+        <div className="mt-14 grid grid-cols-1 gap-10 md:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+          {ELEPHANT_COLUMNS.map((col) => (
+            <div key={col.label}>
+              <span
+                className={cn(
+                  "font-mono text-[11px] uppercase tracking-[0.08em]",
+                  col.accent ? "text-[#f64838]" : "text-white/40",
+                )}
+              >
+                {col.label}
+              </span>
+              <div className="mt-4 flex flex-col gap-3">
+                {col.cards.map((card) => (
+                  <div
+                    key={card.lead}
+                    className={cn(
+                      "rounded-lg border p-5",
+                      col.accent
+                        ? "border-[#f64838]/25 bg-[#f64838]/[0.06]"
+                        : "border-white/10 bg-white/[0.03]",
+                    )}
+                  >
+                    <p className="text-[14px] leading-[21px] tracking-[-0.02em]">
+                      <span className="font-medium text-white">
+                        {card.lead}
+                      </span>{" "}
+                      <span className="text-white/55">{card.rest}</span>
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {/* The elephant, literally in the room — feet on the rule below.
+              Hover: he leans in and owns up. Pure CSS, no client JS. */}
+          <div className="group relative hidden self-end lg:block">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -top-9 right-2 w-max translate-y-1 rounded-lg bg-white px-3.5 py-2 font-medium text-[#0a0a0a] text-[13px] tracking-[-0.02em] opacity-0 shadow-lg transition-all duration-300 ease-out group-hover:translate-y-0 group-hover:opacity-100"
+            >
+              Don&rsquo;t mind me — you can use both.
+              <span className="-bottom-1 absolute right-10 size-2 rotate-45 bg-white" />
+            </div>
+            <Image
+              src={postphant}
+              alt="Postphant — the elephant in the room"
+              className="w-[180px] origin-bottom translate-y-10 transition-all duration-300 ease-out group-hover:-rotate-2 group-hover:translate-y-8 group-hover:scale-[1.07]"
+            />
+          </div>
+        </div>
+
+        <div className="mt-10 flex flex-col justify-between gap-6 border-white/10 border-t pt-8 lg:flex-row lg:items-center">
+          <p className="max-w-[640px] text-white/75 text-base leading-[24px] tracking-[-0.025em]">
+            They scratch different itches. If you want a drag-and-drop editor,
+            Workflows has you covered — you're here because you'd rather build
+            marketing in, as a developer or a product-first engineering team.
+            And it isn't either/or: both run off the same PostHog events, so use
+            each where it fits. Hogsend amplifies everything PostHog does.
+          </p>
+          <Btn href="/docs/compare/posthog-workflows" variant="outline">
+            Read the full comparison
+          </Btn>
+        </div>
       </Container>
     </section>
   );
@@ -3042,6 +3193,7 @@ export default function HomePage(): JSX.Element {
       <PsRepo />
       <PsAgents />
       <PsCode />
+      <PsElephant />
       <PsSetup />
       <PsCorePlatform />
       <PsHowItWorks />
