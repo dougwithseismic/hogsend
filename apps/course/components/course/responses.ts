@@ -22,7 +22,8 @@ export type ResponseKind =
   | "note"
   | "media"
   | "flashcards"
-  | "calc";
+  | "calc"
+  | "reading";
 
 export async function saveResponse(
   kind: ResponseKind,

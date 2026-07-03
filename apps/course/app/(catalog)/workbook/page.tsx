@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { CheckIn } from "@/components/course/check-in";
 import { Checklist } from "@/components/course/checklist";
 import { LessonProvider } from "@/components/course/lesson-context";
+import { Reading } from "@/components/course/reading";
 import { CopyLinkButton } from "@/components/course/share-link";
 import {
   WorkbookCalcRow,
@@ -190,6 +191,15 @@ function ChapterItems({
             );
           case "calc":
             return <WorkbookCalcRow key={item.key} item={item} href={href} />;
+          case "reading":
+            return (
+              <Reading
+                key={item.key}
+                id={item.id ?? ""}
+                title={item.label}
+                books={item.books ?? []}
+              />
+            );
           default:
             return null;
         }

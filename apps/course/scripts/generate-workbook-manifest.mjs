@@ -8,7 +8,7 @@
 // rather than silently omitting it.
 //
 // Keys mirror /api/responses exactly:
-//   note:<id> · profile:<id> · checklist:<id> · quiz:<course>/<lesson> · media:<id> · calc:<id>
+//   note:<id> · profile:<id> · checklist:<id> · quiz:<course>/<lesson> · media:<id> · calc:<id> · reading:<id>
 // Anchors mirror the DOM ids the block components render (wb-…).
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -149,6 +149,23 @@ function extractItems(filePath, course, lesson) {
           key: `calc:${id}`,
           anchor: `wb-${id}`,
           label: requireAttr(node, "title", filePath),
+        });
+        break;
+      }
+      case "Reading": {
+        const id = requireAttr(node, "id", filePath);
+        const books = requireAttr(node, "books", filePath);
+        if (!Array.isArray(books)) {
+          throw new Error(`${filePath}: <Reading ${id}> books is not an array`);
+        }
+        items.push({
+          kind: "reading",
+          id,
+          key: `reading:${id}`,
+          anchor: `wb-${id}`,
+          label: attr(node, "title", filePath) ?? "Reading list",
+          itemCount: books.length,
+          books,
         });
         break;
       }

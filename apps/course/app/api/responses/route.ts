@@ -196,6 +196,31 @@ function parseBody(body: unknown): Saved | { error: string } {
     };
   }
 
+  if (kind === "reading") {
+    if (!ID_PATTERN.test(id)) return { error: "bad_request" };
+    const total = value.total;
+    const read = value.read;
+    if (
+      typeof total !== "number" ||
+      !Number.isInteger(total) ||
+      total < 1 ||
+      total > 60 ||
+      !Array.isArray(read) ||
+      read.length > total ||
+      !read.every(
+        (n) =>
+          typeof n === "number" && Number.isInteger(n) && n >= 0 && n < total,
+      )
+    ) {
+      return { error: "bad_request" };
+    }
+    return {
+      key: `reading:${id}`,
+      kind,
+      value: { read, total, ...context("title", 160) },
+    };
+  }
+
   if (kind === "flashcards") {
     if (!ID_PATTERN.test(id)) return { error: "bad_request" };
     const total = value.total;

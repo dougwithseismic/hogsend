@@ -7,6 +7,7 @@ import { Figure } from "@/components/course/figure";
 import { Flashcards } from "@/components/course/flashcards";
 import { PodcastLink } from "@/components/course/podcast-link";
 import { Quiz } from "@/components/course/quiz";
+import { Reading } from "@/components/course/reading";
 import { VideoEmbed } from "@/components/course/video-embed";
 import { VideoTranscript } from "@/components/course/video-transcript";
 import { WorkbookPrompt } from "@/components/course/workbook-prompt";
@@ -25,6 +26,7 @@ export function getMDXComponents(components?: MDXComponents) {
     Flashcards,
     PodcastLink,
     Quiz,
+    Reading,
     VideoEmbed,
     VideoTranscript,
     WorkbookPrompt,
