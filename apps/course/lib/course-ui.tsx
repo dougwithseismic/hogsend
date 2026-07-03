@@ -40,21 +40,29 @@ export type CourseModule = {
   lessons: CourseModuleLesson[];
 };
 
+/** Does this node (a page, or any page nested under a folder) belong to `slug`? */
+function containsCoursePage(node: TreeNode, slug: string): boolean {
+  if (node.type === "page") return node.url.startsWith(`/learn/${slug}/`);
+  if (node.type === "folder") {
+    if (node.index && containsCoursePage(node.index, slug)) return true;
+    return node.children.some((c) => containsCoursePage(c, slug));
+  }
+  return false;
+}
+
+/**
+ * The root-level folder for a course. Identified by ANY page under it (at any
+ * depth) — not just a direct child — so it still resolves once every chapter is
+ * a nested folder (no flat lessons left as direct page children).
+ */
 function findCourseFolder(
   tree: PageTreeRoot,
   slug: string,
 ): FolderNode | undefined {
-  for (const node of tree.children) {
-    if (
-      node.type === "folder" &&
-      node.children.some(
-        (c) => c.type === "page" && c.url.startsWith(`/learn/${slug}/`),
-      )
-    ) {
-      return node;
-    }
-  }
-  return undefined;
+  return tree.children.find(
+    (node): node is FolderNode =>
+      node.type === "folder" && containsCoursePage(node, slug),
+  );
 }
 
 /** Turn a tree page/index node into a CourseModuleLesson. */
