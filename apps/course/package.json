@@ -9,6 +9,8 @@
     "predev": "node scripts/generate-workbook-manifest.mjs && node scripts/generate-transcripts.mjs && node scripts/generate-lesson-text.mjs",
     "dev": "next dev --port 3006",
     "start": "node .next/standalone/apps/course/server.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "workbook:manifest": "node scripts/generate-workbook-manifest.mjs",
     "transcripts": "node scripts/generate-transcripts.mjs",
     "transcripts:pull": "node scripts/pull-transcripts.mjs",
@@ -53,6 +55,7 @@
     "remark-mdx": "^3.1.1",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.2",
-    "unist-util-visit": "^5.1.0"
+    "unist-util-visit": "^5.1.0",
+    "vitest": "^4.1.9"
   }
 }
