@@ -190,7 +190,7 @@
         "itemCount": 10
       }
     ],
-    "02-aarrr-and-the-leaky-bucket": [
+    "02-aarrr-and-the-leaky-bucket/01-aarrr-five-metrics": [
       {
         "kind": "media",
         "id": "irjgfW0BIrw",
@@ -198,7 +198,9 @@
         "anchor": "wb-media-irjgfW0BIrw",
         "label": "Startup Metrics for Pirates: AARRR! - Dave McClure",
         "media": "video"
-      },
+      }
+    ],
+    "02-aarrr-and-the-leaky-bucket/02-leaky-bucket": [
       {
         "kind": "flashcards",
         "id": "cards-aarrr",
@@ -206,7 +208,9 @@
         "anchor": "wb-cards-aarrr",
         "label": "Key ideas — AARRR",
         "itemCount": 8
-      },
+      }
+    ],
+    "02-aarrr-and-the-leaky-bucket/03-activation-aha": [
       {
         "kind": "profile",
         "id": "productType",
@@ -231,7 +235,9 @@
         "label": "Write your activation sentence — the one user action that means they got real value.",
         "placeholder": "A user is activated when they… (one sentence, one observable event)",
         "rows": 2
-      },
+      }
+    ],
+    "02-aarrr-and-the-leaky-bucket/04-north-star": [
       {
         "kind": "note",
         "id": "north-star",
@@ -240,7 +246,9 @@
         "label": "Write your North Star Metric candidate — and the causal chain that justifies it.",
         "placeholder": "NSM: … It measures value because… Its inputs are…",
         "rows": 3
-      },
+      }
+    ],
+    "02-aarrr-and-the-leaky-bucket/05-other-frameworks": [
       {
         "kind": "media",
         "id": "0LNQxT9LvM0",
@@ -248,7 +256,9 @@
         "anchor": "wb-media-0LNQxT9LvM0",
         "label": "David Rusenko - How To Find Product Market Fit",
         "media": "video"
-      },
+      }
+    ],
+    "02-aarrr-and-the-leaky-bucket/06-framework-to-instrument": [
       {
         "kind": "profile",
         "id": "biggestLeak",
@@ -267,7 +277,7 @@
       },
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/02-aarrr-and-the-leaky-bucket",
+        "key": "quiz:growth-with-posthog/02-aarrr-and-the-leaky-bucket/06-framework-to-instrument",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
@@ -281,7 +291,7 @@
         "media": "podcast"
       }
     ],
-    "03-instrument-posthog": [
+    "03-instrument-posthog/02-autocapture": [
       {
         "kind": "media",
         "id": "FFgzJYi4GQA",
@@ -289,7 +299,9 @@
         "anchor": "wb-media-FFgzJYi4GQA",
         "label": "Understanding PostHog Events: From Auto-Capture to Backend Integration",
         "media": "video"
-      },
+      }
+    ],
+    "03-instrument-posthog/04-identify-users": [
       {
         "kind": "media",
         "id": "3afzkLS-zQA",
@@ -305,7 +317,9 @@
         "anchor": "wb-cards-instrumentation",
         "label": "Key ideas — instrumentation",
         "itemCount": 8
-      },
+      }
+    ],
+    "03-instrument-posthog/05-events-to-track-first": [
       {
         "kind": "media",
         "id": "RkCg1cgZzHc",
@@ -322,7 +336,9 @@
         "label": "Draft the first rows of your tracking plan: event name, what triggers it, and the two or three properties that matter.",
         "placeholder": "signup_completed — user submits the signup form — plan, source\nproject_created — first project saved — template, team_size\n…",
         "rows": 6
-      },
+      }
+    ],
+    "03-instrument-posthog/08-actions-and-experiments": [
       {
         "kind": "profile",
         "id": "abTesting",
@@ -335,16 +351,18 @@
           "Regularly, without holdouts",
           "Regularly, with holdouts or experiments"
         ]
-      },
+      }
+    ],
+    "03-instrument-posthog/10-before-you-move-on": [
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/03-instrument-posthog",
+        "key": "quiz:growth-with-posthog/03-instrument-posthog/10-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
       }
     ],
-    "04-your-daily-dashboard": [
+    "04-your-daily-dashboard/01-insight-types": [
       {
         "kind": "media",
         "id": "cMFz_xFlHaE",
@@ -352,7 +370,9 @@
         "anchor": "wb-media-cMFz_xFlHaE",
         "label": "Conversion funnels: building, analyzing, and optimizing - PostHog tutorial",
         "media": "video"
-      },
+      }
+    ],
+    "04-your-daily-dashboard/02-daily-checklist": [
       {
         "kind": "profile",
         "id": "dataHabit",
@@ -373,7 +393,9 @@
         "anchor": "wb-media-IJJKLxhcsIA",
         "label": "How we debug production issues at PostHog (Complete Walkthrough)",
         "media": "video"
-      },
+      }
+    ],
+    "04-your-daily-dashboard/03-retention-curve": [
       {
         "kind": "flashcards",
         "id": "cards-dashboard",
@@ -381,7 +403,9 @@
         "anchor": "wb-cards-dashboard",
         "label": "Key ideas — your daily dashboard",
         "itemCount": 8
-      },
+      }
+    ],
+    "04-your-daily-dashboard/06-staying-on-top": [
       {
         "kind": "media",
         "id": "EQMPvqpRPuQ",
@@ -389,16 +413,18 @@
         "anchor": "wb-media-EQMPvqpRPuQ",
         "label": "My app analytics process (real numbers 👀+ quick tutorial)",
         "media": "video"
-      },
+      }
+    ],
+    "04-your-daily-dashboard/08-before-you-move-on": [
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/04-your-daily-dashboard",
+        "key": "quiz:growth-with-posthog/04-your-daily-dashboard/08-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
       }
     ],
-    "05-lifecycle-messaging": [
+    "05-lifecycle-messaging/02-stages-aarrr": [
       {
         "kind": "media",
         "id": "iGzVM8ygjTk",
@@ -419,7 +445,9 @@
           "A newsletter, now and then",
           "Lifecycle emails already running"
         ]
-      },
+      }
+    ],
+    "05-lifecycle-messaging/03-build-order": [
       {
         "kind": "media",
         "id": "vp4SwMY-QrM",
@@ -427,7 +455,9 @@
         "anchor": "wb-media-vp4SwMY-QrM",
         "label": "How to Recover 89% of Failed Payments (SaaS Dunning Strategy)",
         "media": "video"
-      },
+      }
+    ],
+    "05-lifecycle-messaging/05-touch-points": [
       {
         "kind": "flashcards",
         "id": "cards-lifecycle",
@@ -435,7 +465,9 @@
         "anchor": "wb-cards-lifecycle",
         "label": "Key ideas — lifecycle messaging",
         "itemCount": 8
-      },
+      }
+    ],
+    "05-lifecycle-messaging/06-deliverability": [
       {
         "kind": "media",
         "id": "eDoHvKiB2Lc",
@@ -443,7 +475,9 @@
         "anchor": "wb-media-eDoHvKiB2Lc",
         "label": "Best Email Deliverability Tips for 2025",
         "media": "video"
-      },
+      }
+    ],
+    "05-lifecycle-messaging/09-the-tools": [
       {
         "kind": "profile",
         "id": "messagingStack",
@@ -458,7 +492,9 @@
           "In-house code"
         ],
         "multi": true
-      },
+      }
+    ],
+    "05-lifecycle-messaging/10-holdouts": [
       {
         "kind": "media",
         "id": "DeSdoaLOOoM",
@@ -466,16 +502,18 @@
         "anchor": "wb-media-DeSdoaLOOoM",
         "label": "Incrementality 101: Everything You Need to Know",
         "media": "video"
-      },
+      }
+    ],
+    "05-lifecycle-messaging/12-before-you-move-on": [
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/05-lifecycle-messaging",
+        "key": "quiz:growth-with-posthog/05-lifecycle-messaging/12-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
       }
     ],
-    "06-building-lifecycle-with-hogsend": [
+    "06-building-lifecycle-with-hogsend/01-the-loop": [
       {
         "kind": "profile",
         "id": "engineeringBandwidth",
@@ -488,7 +526,9 @@
           "We'd need to borrow or hire help",
           "No one technical yet"
         ]
-      },
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/03-templates-email-as-code": [
       {
         "kind": "media",
         "id": "xlA5XD8CSdo",
@@ -512,7 +552,9 @@
         "anchor": "wb-media-d4UZg3l8JvQ",
         "label": "react.email now tests your emails",
         "media": "video"
-      },
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/05-behavioural-nudge-series": [
       {
         "kind": "flashcards",
         "id": "cards-hogsend",
@@ -520,16 +562,18 @@
         "anchor": "wb-cards-hogsend",
         "label": "Key ideas — journeys as code",
         "itemCount": 8
-      },
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/12-before-you-move-on": [
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/06-building-lifecycle-with-hogsend",
+        "key": "quiz:growth-with-posthog/06-building-lifecycle-with-hogsend/12-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
       }
     ],
-    "07-driving-traffic": [
+    "07-driving-traffic/01-where-you-start": [
       {
         "kind": "profile",
         "id": "acquisitionMix",
@@ -543,7 +587,9 @@
           "Mostly paid",
           "All paid"
         ]
-      },
+      }
+    ],
+    "07-driving-traffic/02-channel-menu": [
       {
         "kind": "media",
         "id": "Sxn1ji7vYzU",
@@ -577,7 +623,9 @@
         ],
         "multi": true,
         "freeText": true
-      },
+      }
+    ],
+    "07-driving-traffic/03-cac-ltv-payback": [
       {
         "kind": "media",
         "id": "zo3QHrXiprs",
@@ -585,7 +633,9 @@
         "anchor": "wb-media-zo3QHrXiprs",
         "label": "11 essential SaaS metrics explained in 11 minutes",
         "media": "video"
-      },
+      }
+    ],
+    "07-driving-traffic/05-three-audiences": [
       {
         "kind": "flashcards",
         "id": "cards-traffic",
@@ -593,16 +643,18 @@
         "anchor": "wb-cards-traffic",
         "label": "Key ideas — driving traffic",
         "itemCount": 8
-      },
+      }
+    ],
+    "07-driving-traffic/10-before-you-move-on": [
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/07-driving-traffic",
+        "key": "quiz:growth-with-posthog/07-driving-traffic/10-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
       }
     ],
-    "08-owned-audience-identity-flywheel": [
+    "08-owned-audience-identity-flywheel/01-owned-beats-rented": [
       {
         "kind": "media",
         "id": "7zZ8LIOWFd8",
@@ -623,7 +675,9 @@
           "500–5,000",
           "5,000+"
         ]
-      },
+      }
+    ],
+    "08-owned-audience-identity-flywheel/04-community-worth-joining": [
       {
         "kind": "media",
         "id": "waU5Cm1FENA",
@@ -655,7 +709,9 @@
           "No community yet"
         ],
         "multi": true
-      },
+      }
+    ],
+    "08-owned-audience-identity-flywheel/06-identity-graph": [
       {
         "kind": "flashcards",
         "id": "cards-owned-audience",
@@ -663,16 +719,18 @@
         "anchor": "wb-cards-owned-audience",
         "label": "Key ideas — the owned-audience flywheel",
         "itemCount": 8
-      },
+      }
+    ],
+    "08-owned-audience-identity-flywheel/10-before-you-move-on": [
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/08-owned-audience-identity-flywheel",
+        "key": "quiz:growth-with-posthog/08-owned-audience-identity-flywheel/10-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
       }
     ],
-    "09-putting-it-all-together": [
+    "09-putting-it-all-together/03-build-order": [
       {
         "kind": "profile",
         "id": "biggestNeed",
@@ -687,7 +745,9 @@
           "Convincing my team to work this way"
         ],
         "freeText": true
-      },
+      }
+    ],
+    "09-putting-it-all-together/04-operating-cadence": [
       {
         "kind": "media",
         "id": "6nkAn0xDNG4",
@@ -703,7 +763,9 @@
         "anchor": "wb-cards-operating-system",
         "label": "Key ideas — the operating system",
         "itemCount": 8
-      },
+      }
+    ],
+    "09-putting-it-all-together/05-experimentation-program": [
       {
         "kind": "media",
         "id": "whoQtu9Vhnw",
@@ -720,16 +782,18 @@
         "label": "Write your first three hypotheses, ICE-scored. Use the format: if we [change], [metric] will move [direction] because [reasoning] — I/C/E.",
         "placeholder": "1. If we…, … will move up because… — I7 C5 E8\n2. …\n3. …",
         "rows": 6
-      },
+      }
+    ],
+    "09-putting-it-all-together/08-before-you-move-on": [
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/09-putting-it-all-together",
+        "key": "quiz:growth-with-posthog/09-putting-it-all-together/08-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
       }
     ],
-    "10-your-30-60-90-180-day-plan": [
+    "10-your-30-60-90-180-day-plan/01-how-to-use": [
       {
         "kind": "media",
         "id": "rBCdgcFZ0uA",
@@ -750,7 +814,9 @@
           "A full day",
           "It's my main job"
         ]
-      },
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/02-day-0-commit": [
       {
         "kind": "checklist",
         "id": "plan-day0",
@@ -790,7 +856,9 @@
         "anchor": "wb-cards-plan",
         "label": "Key ideas — the 30/60/90/180 plan",
         "itemCount": 8
-      },
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/03-days-1-30-measure": [
       {
         "kind": "checklist",
         "id": "plan-30",
@@ -807,7 +875,9 @@
           "Daily dashboard built and pinned: North Star, activation funnel, retention, alerts → Slack",
           "First data QA pass: watch 5 session replays and confirm the events match what you see"
         ]
-      },
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/04-days-31-60-keep": [
       {
         "kind": "checklist",
         "id": "plan-60",
@@ -824,7 +894,9 @@
           "Global frequency cap set so overlapping journeys can't spam one user",
           "Unsubscribe/preferences verified working end-to-end (send yourself every email)"
         ]
-      },
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/05-days-61-90-grow": [
       {
         "kind": "media",
         "id": "nYTSIuC3ScY",
@@ -849,7 +921,9 @@
           "Referral ask placed at the aha milestone, not before; verified referrals rewarded",
           "Verified emails synced as a custom audience + lookalike seed"
         ]
-      },
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/06-days-91-180-compound": [
       {
         "kind": "checklist",
         "id": "plan-180",
@@ -866,7 +940,9 @@
           "Quarterly prune: kill journeys with no lift, events nobody queries, ad sets that don't convert",
           "The activation metric re-validated — still the best predictor of retention you have?"
         ]
-      },
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/08-before-you-move-on": [
       {
         "kind": "profile",
         "id": "planCommitment",
@@ -882,7 +958,7 @@
       },
       {
         "kind": "quiz",
-        "key": "quiz:growth-with-posthog/10-your-30-60-90-180-day-plan",
+        "key": "quiz:growth-with-posthog/10-your-30-60-90-180-day-plan/08-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
