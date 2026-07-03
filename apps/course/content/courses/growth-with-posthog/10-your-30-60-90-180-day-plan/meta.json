@@ -2,12 +2,18 @@
   "title": "10 · Your plan",
   "pages": [
     "01-how-to-use",
+    "10-which-plan-are-you-on",
+    "11-role-based-plans",
+    "09-zero-to-one",
     "02-day-0-commit",
     "03-days-1-30-measure",
     "04-days-31-60-keep",
     "05-days-61-90-grow",
     "06-days-91-180-compound",
+    "12-the-weekly-review",
+    "13-the-experiment-doc",
     "07-what-good-looks-like",
+    "14-after-180-days",
     "08-before-you-move-on"
   ]
 }
