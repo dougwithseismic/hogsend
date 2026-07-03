@@ -1,0 +1,130 @@
+---
+title: "The events to track first"
+description: "A small, deliberately named starter kit builds every AARRR chart — including the activation event most teams forget. Plus the naming rules and the tracking plan that keeps a team honest."
+workbook: "The starter event kit and naming rules, the tracking plan as a cross-team contract, and a prompt to draft your own plan's first rows."
+---
+
+You don't need a hundred events — a small, deliberately named set is enough to build
+every AARRR chart from Chapter 2, and it's a lot easier to keep clean. A good starter
+kit looks like this:
+
+```
+user_signed_up          # Acquisition  — fire server-side
+user_logged_in          # Engagement
+<your_activation_event>  # Activation   — the "aha" action, e.g. project_created
+invite_sent             # Referral
+subscription_started    # Revenue      — fire server-side
+subscription_cancelled  # Revenue / churn
+payment_succeeded       # Revenue      — fire server-side
+<your_core_action>      # Retention    — the thing users do repeatedly
+```
+
+The one most teams forget is the explicit **activation event**. Teams that skip firing
+`project_created` (or whatever their aha action is) usually end up trying to
+reverse-engineer it later from autocaptured button clicks — at which point the
+activation funnel, retention cohorts, and LTV analysis are all built on guesswork.
+Since Chapter 2 (§2.3) already helped you decide *which* action it is, this is the
+moment to give it a name and a capture call.
+
+### Naming: the rules that keep this usable
+
+PostHog recommends an `object_action` shape with snake_case and present-tense verbs —
+the same **object-action framework** Segment's data teams
+[standardised years ago](https://www.twilio.com/en-us/resource-center/naming-conventions-for-clean-data)
+and practitioner tools like [Avo](https://www.avo.app/docs/data-design/best-practices/naming-conventions)
+enforce:
+
+- ✅ `project_created`, `invite_sent`, `pricing_page_viewed`
+- ❌ `ProjectCreated`, `user-signed-up`, `Sent Invite`
+
+Properties follow `object_adjective`, with `is_`/`has_` for booleans and `_date`/
+`_timestamp` for times: `item_price`, `is_subscribed`, `last_login_timestamp`.
+
+The deeper point behind the pedantry —
+[Amplitude calls it taxonomy](https://amplitude.com/blog/event-taxonomy),
+[RudderStack calls it schema discipline](https://www.rudderstack.com/knowledge-base/data-collection-best-practices/) —
+is that events are an API between the people who fire them and the people who query
+them. Casing and verb-tense conventions aren't style preferences; they're what makes
+`user_signed_up` findable by someone who didn't write it, six months later, in a list
+of 80 event types.
+
+If you take one rule from this section, make it this one: **event names are never built
+dynamically.** It's the single mistake that most reliably ruins an analytics setup:
+
+```js
+// ❌ Don't — this creates thousands of un-queryable event types
+posthog.capture(`page_viewed_${pageName}`);
+
+// ✅ Do — one event, the variable goes in a property
+posthog.capture("page_viewed", { page_name: pageName });
+```
+
+Aim for roughly **10–200 event types** total. Fewer and you can't see your funnels;
+more and you've built a dictionary no one can read.
+
+### The tracking plan: a growth team's most boring, most important document
+
+The thing that separates a team's analytics from a mess is a **tracking plan** — a short,
+shared spec of every event you fire, its properties, and where it fires. It's a Google
+Sheet or a Markdown file in the repo, and it's owned, not vibes. Segment's guide to
+[creating a tracking plan](https://www.twilio.com/en-us/resource-center/how-to-create-a-tracking-plan)
+frames it exactly right: the plan is a *contract between teams*, not documentation
+written after the fact.
+
+| Event | When it fires | Where | Key properties |
+|---|---|---|---|
+| `user_signed_up` | account created | server | `plan`, `signup_method`, `$set_once: signup_date` |
+| `user_logged_in` | session start | client | `login_method` |
+| `project_created` | first project saved | server | `template`, `is_first` |
+| `invite_sent` | invite email queued | server | `invitee_role` |
+| `subscription_started` | checkout success | server (Stripe webhook) | `plan`, `amount`, `interval` |
+| `subscription_cancelled` | cancellation effective | server (webhook) | `reason`, `tenure_days` |
+| `payment_succeeded` | charge captured | server (webhook) | `amount`, `is_renewal` |
+| `page_viewed` | route change | client | `page_name` |
+
+Eight rows. That's a real, working tracking plan for an early-stage product — not a
+40-tab spreadsheet, and emphatically not nothing.
+
+Why it earns its keep: it stops two engineers inventing `signup` and `user_signed_up` for
+the same thing; it makes "events are part of done" (Chapter 0) enforceable in code review;
+and it's the reference Chapter 6's journeys and Chapter 7's ad conversions both read from.
+Two habits make it stick:
+
+- **The plan lives where code review happens.** A Markdown file in the repo means a new
+  event and its plan row land in the same pull request, and a reviewer can reject an
+  event that isn't in the plan. A spreadsheet nobody diffs will drift within a month.
+- **Every row has the same four columns** — event, trigger, source, properties. If you
+  can't fill in "where it fires," you haven't decided yet, and that ambiguity is
+  exactly what the plan exists to catch.
+
+Tools exist for this at scale (Avo, Segment Protocols, RudderStack's tracking plans),
+but a single shared doc beats nothing by a mile — and it's a perfectly good place to
+stay until the doc itself starts hurting.
+
+<VideoEmbed
+  id="RkCg1cgZzHc"
+  title="How to Create an Effective Tracking Plan (Mixpanel, Segment.com, Amplitude and more)"
+  channel="Ruben Ugarte"
+  duration="11:35"
+  note="A tool-agnostic method for the plan itself — core events, properties, and how to keep the doc from dying. Everything transfers to PostHog directly."
+/>
+
+<VideoTranscript id="RkCg1cgZzHc" />
+
+**What to take from it:**
+
+- Write the plan *before* you instrument: a few hours deciding what matters catches the
+  missing event or property you'd otherwise discover months later while building a report
+  — and the method is tool-agnostic, so it transfers straight to PostHog.
+- Case-sensitivity is the silent killer: `Signup` and `signup` become two different events,
+  so force one convention (lowercase) across every event and property name.
+- Prefer fewer events with more properties — collapse `upload_youtube`/`upload_vimeo`/
+  `upload_mp4` into one `upload_video` with a `video_type` property, and reuse property
+  names across events so the data stays readable.
+
+<WorkbookPrompt
+  id="tracking-plan-draft"
+  prompt="Draft the first rows of your tracking plan: event name, what triggers it, and the two or three properties that matter."
+  placeholder={"signup_completed — user submits the signup form — plan, source\nproject_created — first project saved — template, team_size\n…"}
+  rows={6}
+/>

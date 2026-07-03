@@ -1,0 +1,51 @@
+---
+title: "Ways to install PostHog"
+description: "PostHog has an SDK for wherever your code runs. Choose by where the event actually happens — snippet, npm, server, or mobile — because 'which SDK' is really 'which events live where'."
+---
+
+PostHog has an SDK for wherever your code runs. The useful way to choose is by where
+the event actually happens rather than by habit — and most real products end up using
+two or three of these together, so this is less "pick one" than "know what each is
+for".
+
+**The browser snippet** — paste a `<script>` into your `<head>`. No build step, works on
+any site, good for a marketing page or a quick start. Its weakness is the same as its
+strength: because it's copy-paste, it tends to drift — different pages get different
+versions, and nobody code-reviews a snippet.
+
+**Browser via npm** — `npm install posthog-js`. Better for a real app: types,
+tree-shaking, and framework wrappers (`posthog-js/react`, Next.js helpers). This is
+the natural home for your product front-end.
+
+```js
+import posthog from "posthog-js";
+
+posthog.init("phc_YOUR_PROJECT_KEY", {
+  api_host: "https://us.i.posthog.com", // use eu.i.posthog.com on EU Cloud
+  person_profiles: "identified_only",   // see §3.4 — this is the cost-sane default
+});
+```
+
+**Server-side** — `posthog-node`, plus official libraries for Python, Ruby, Go, PHP,
+Java, and more. This is where your *important* events should fire (§3.3), and it's the
+half most beginner setups skip. A server SDK needs the user's id passed explicitly,
+because there's no browser cookie to read it from.
+
+**Mobile** — React Native, iOS (Swift), Android (Kotlin), and Flutter SDKs, with their
+own autocapture and session-replay support. If you ship an app, the native SDK is the
+better route — piping everything through a webview tends to lose events and replay
+quality.
+
+A decision table, since "which SDK" is really "which events live where":
+
+| You're capturing… | Use | Why |
+|---|---|---|
+| Marketing-site pageviews, UTM landings | Snippet or npm | Anonymous, high-volume, loss-tolerant |
+| Product UI interactions, journey steps | npm (`posthog-js`) | Typed, reviewable, framework-aware |
+| Signup, subscription, payment, activation | `posthog-node` (server) | Reliable, ad-blocker-immune (§3.7) |
+| Back-office facts (refunds, fulfilment) | Server SDK or reverse-ETL (§3.6) | They never happen in a browser |
+
+That `phc_` key is your **project API key**. It's safe in client-side code: it can
+*write* events but cannot *read* your data. (Reading data needs a separate personal API
+key, which you keep secret.) This split surprises engineers regularly — shipping the
+`phc_` key in your bundle is by design, not a leak.

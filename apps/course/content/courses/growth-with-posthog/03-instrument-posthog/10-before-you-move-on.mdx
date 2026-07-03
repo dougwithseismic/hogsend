@@ -1,0 +1,164 @@
+---
+title: "Before you move on"
+description: "Six things worth having in place before the next chapter — about an afternoon of work that everything later builds on. Then check yourself with the chapter quiz."
+workbook: "The pre-flight checklist for the whole chapter, then the ten-question quiz that checks it all stuck."
+---
+
+Six things worth having in place before the next chapter — roughly an afternoon of
+work, and everything later builds on them:
+
+1. `posthog-js` installed with `person_profiles: "identified_only"` — the cost default
+   that's painful to change later.
+2. `posthog.identify()` at login and `posthog.reset()` at logout — the pair that keeps
+   identities whole and unmixed.
+3. The starter events from §3.5, with **signup, subscription, and payment firing from
+   your backend** — webhook sources of truth, so the numbers stay honest.
+4. A **tracking plan** (§3.5), even if it's ten rows in a Markdown file in the repo —
+   the doc that stops two engineers inventing two names for one thing.
+5. The managed reverse proxy — a few minutes of DNS that recovers the blocked slice of
+   your client-side events.
+6. Your one **activation event** firing, QA'd against a session replay — the event the
+   whole next chapter's funnel hangs off.
+
+With data flowing, the next chapter is the daily habit that turns all this
+instrumentation into decisions.
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "Where should subscription_started fire, and from what trigger?",
+      options: [
+        "Client-side, on the checkout success page",
+        "Client-side, when the user clicks 'Subscribe'",
+        "Server-side, from the payment provider's webhook after signature verification",
+        "Both client and server, so you're covered either way",
+      ],
+      answer: 2,
+      explain:
+        "Success pages get closed early, refreshed (double-firing), and ad-blocked. The webhook is the source of truth: it fires exactly once, server-side, regardless of what the browser did. Firing from both sides double-counts revenue.",
+    },
+    {
+      q: "What does person_profiles: 'identified_only' actually do?",
+      options: [
+        "Blocks anonymous visitors from being tracked at all",
+        "Keeps events anonymous (≈4× cheaper) until you call identify, then builds full person profiles",
+        "Hides personal data from the PostHog UI",
+        "Only tracks users who accepted the cookie banner",
+      ],
+      answer: 1,
+      explain:
+        "It's a cost lever, not a privacy switch: logged-out traffic stays at the cheap anonymous rate, and profiles are only created once you identify someone. For a typical SaaS it's the single biggest billing decision in the setup.",
+    },
+    {
+      q: "An engineer ships posthog.capture(`export_clicked_${format}`) with format taking 30 values. What's wrong?",
+      options: [
+        "Nothing — more granular events mean better analytics",
+        "It creates 30 un-queryable event types; the format belongs in a property of one export_clicked event",
+        "Template literals aren't supported by posthog-js",
+        "Client-side capture should never carry variables",
+      ],
+      answer: 1,
+      explain:
+        "Dynamic event names are the classic taxonomy-ruining mistake: you can't build one funnel or trend across 30 spellings. One fixed event name with { format } as a property keeps it queryable and keeps your event dictionary readable.",
+    },
+    {
+      q: "You forgot posthog.reset() on logout. What's the failure mode?",
+      options: [
+        "Sessions expire early for logged-out users",
+        "Events stop being captured after logout",
+        "The next person to log in on that browser gets merged into the previous user's profile",
+        "The anonymous id is regenerated on every pageview",
+      ],
+      answer: 2,
+      explain:
+        "identify merges the browser's current distinct id into the identified person — and merges are effectively permanent. Without reset(), a shared or second-hand browser welds two humans into one person, and no filter cleanly separates them again.",
+    },
+    {
+      q: "Ad blockers are eating client-side events. Which statement is precise?",
+      options: [
+        "A reverse proxy makes all your tracking immune to blockers",
+        "Server-side capture recovers your client-side analytics too",
+        "A proxy mitigates client-side analytics loss; server-side events (your journey triggers) were never blockable in the first place",
+        "There's no fix — accept the 10–30% loss",
+      ],
+      answer: 2,
+      explain:
+        "Keep the two mechanisms distinct: the proxy recovers a chunk of browser events by using your own domain, while backend events never touch the user's browser at all — which is why money-critical events and lifecycle triggers belong server-side.",
+    },
+    {
+      q: "A security review flags your phc_ project key sitting visible in the shipped JS bundle. What's the right response?",
+      options: [
+        "Nothing to fix — the project key can only write events; reading your data needs a separate personal API key, which you do keep secret",
+        "Rotate the key immediately and move every capture call server-side",
+        "Proxy the key through your backend so it never reaches the browser",
+        "Restrict the key to your domain in PostHog settings before re-shipping",
+      ],
+      answer: 0,
+      explain:
+        "The write/read split is by design, not a leak: the phc_ key in your bundle can send events but cannot query anything back. It's the personal API key — the one that reads data — that must never ship client-side.",
+    },
+    {
+      q: "Autocapture is on and busily recording clicks, pageviews, and rageclicks. Why can't it power your activation funnel by itself?",
+      options: [
+        "Autocapture samples at high volume, so funnels systematically under-count",
+        "Autocapture only works on marketing pages, not inside a logged-in product",
+        "Autocaptured events can't carry properties, so there's nothing to filter on",
+        "It records interface events — 'a button was clicked' — not meaning like 'the user activated'; that signal needs named custom events",
+      ],
+      answer: 3,
+      explain:
+        "Autocapture is the safety net, not the signal: it can't know which click was your aha moment. The mature pattern is autocapture on for discovery plus a small, deliberate set of named events for the funnels you actually report on.",
+    },
+    {
+      q: "PostHog is your only analytics destination, and a teammate proposes routing all events through Segment first 'to do it properly'. What does this chapter advise?",
+      options: [
+        "Skip the CDP for now — with one destination it adds a hop and a bill for nothing, and it earns its keep only once a second destination exists",
+        "Adopt Segment early, because retrofitting a CDP later means re-instrumenting everything",
+        "Route through Google Tag Manager instead, since it needs no deploy",
+        "Split the difference: Segment for client events, PostHog SDKs for server events",
+      ],
+      answer: 0,
+      explain:
+        "A CDP is worth it when the same events fan out to many destinations under one canonical schema. With PostHog as the sole destination, your own front-end and back-end doing the capturing is the cheaper, simpler default.",
+    },
+    {
+      q: "Months in, you discover three differently-named events all mean 'started checkout'. What's the cheapest fix that keeps your history?",
+      options: [
+        "Rename the events in code and backfill the old data with a migration",
+        "Define an Action in PostHog that groups the three events — actions apply retroactively, with no code to ship",
+        "Delete the old events and start over with one clean checkout_started",
+        "Build three parallel funnels and sum the numbers in a spreadsheet",
+      ],
+      answer: 1,
+      explain:
+        "Actions are groupings defined inside PostHog that apply to events you already captured — the escape hatch for the inevitable taxonomy miss. It's why a good taxonomy matters but a perfect one isn't worth blocking on.",
+    },
+    {
+      q: "Your team wants to start A/B testing, but the goal metric project_created currently fires from two places under three names. What's the right order of operations?",
+      options: [
+        "Run the experiment anyway — instrumentation noise averages out across variants",
+        "Use a before/after comparison instead, since it doesn't depend on event quality",
+        "Switch the goal metric to pageviews, which autocapture already tracks cleanly",
+        "Clean the instrumentation first — experiments measure a variant against an event, so dirty events make results measure your tracking, not your product",
+      ],
+      answer: 3,
+      explain:
+        "The dependency runs one direction: instrument first, test second. And before/after comparisons are no refuge — they feel like measurement but can't separate your change from the newsletter that went out the same day.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [PostHog — capturing events](https://posthog.com/docs/product-analytics/capture-events) — the canonical reference for custom events, client and server.
+- [PostHog — identify users](https://posthog.com/docs/getting-started/identify-users) — distinct ids, merging, and the identify lifecycle in full.
+- [PostHog — autocapture](https://posthog.com/docs/product-analytics/autocapture) — exactly what's collected automatically and how to tune it.
+- [Segment — naming conventions for clean data](https://www.twilio.com/en-us/resource-center/naming-conventions-for-clean-data) — the object-action framework this chapter's rules come from.
+- [Segment — how to create a tracking plan](https://www.twilio.com/en-us/resource-center/how-to-create-a-tracking-plan) — the plan as a cross-team contract, with templates.
+- [Avo — naming conventions](https://www.avo.app/docs/data-design/best-practices/naming-conventions) — practitioner-grade event/property naming, opinionated in the right places.
+- [Amplitude — great analytics needs a great taxonomy](https://amplitude.com/blog/event-taxonomy) — why taxonomy quality decides analytics quality, vendor-neutral.
+- [RudderStack — behavioral data collection best practices](https://www.rudderstack.com/knowledge-base/data-collection-best-practices/) — the engineering-side rules (schemas, naming, QA) before you instrument.

@@ -1,0 +1,43 @@
+---
+title: "Beating ad blockers"
+description: "10–30% of your client-side events can vanish to ad blockers, and the loss is biased toward technical audiences. Two fixes together: a reverse proxy for the analytics, server-side capture for the triggers that must never be blocked."
+---
+
+This is the part that surprises people: **10–30% of your events can simply vanish**
+because ad blockers maintain blocklists of analytics domains and drop any browser
+request to `*.posthog.com`. Your charts under-count, and you don't know by how much.
+Worse, the loss is *biased* — technical audiences block more, so a dev tool's charts
+under-count precisely the users it cares about most.
+
+Two fixes, used together:
+
+### Reverse proxy (recovers client-side events)
+
+Route events through a subdomain of *your own* domain (e.g. `e.yourdomain.com`), which
+blockers haven't catalogued. On PostHog Cloud this is a **free, managed** feature:
+
+1. In **Organization settings**, create a managed reverse proxy.
+2. Choose a neutral subdomain — *avoid* obvious words like "analytics" or "tracking."
+3. Add the CNAME record it gives you; wait a few minutes for SSL.
+4. Point your SDK's `api_host` at your subdomain.
+
+This typically recovers 10–30% of otherwise-blocked events. (Note: the managed proxy
+runs on Cloudflare and is not HIPAA-compliant — don't route PHI through it. If you self-
+host the proxy, prefer a Cloudflare Worker over PostHog's managed CNAME, which can be
+"uncloaked" by blocklists over time.)
+
+### Server-side capture (immune by design)
+
+A reverse proxy helps the browser. But the truly robust answer for your *important*
+events is to fire them from the **backend** with `posthog-node`. Those events go
+server → PostHog and never touch the user's browser, so **ad blockers cannot block
+them at all.** This is why §3.3 said capture signup, subscription, and purchase
+server-side.
+
+This is also a genuine, defensible positioning point worth understanding: **the events
+that drive your lifecycle journeys are server-side and therefore ad-blocker-proof.**
+Your client-side product *analytics* still take the ~10–30% hit (only a proxy mitigates
+that), but the events that *trigger your emails and Discord messages* are sovereign —
+they fire from your server regardless of what's running in the user's browser. The
+distinction is worth keeping precise: server-side fixes the *triggers*, a proxy
+mitigates the *analytics*.

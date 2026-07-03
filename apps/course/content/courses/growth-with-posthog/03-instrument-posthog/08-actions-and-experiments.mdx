@@ -1,0 +1,51 @@
+---
+title: "Actions, and why clean events unlock experiments"
+description: "Actions are retroactive groupings you define inside PostHog — the escape hatch for a taxonomy that turns out slightly wrong. And clean events are the price of admission to A/B testing: instrument first, test second."
+workbook: "Events vs Actions as your taxonomy escape hatch, why clean events are experiment infrastructure, and a check-in on your testing culture today."
+---
+
+## Events vs Actions
+
+Worth knowing because it saves you re-instrumenting later:
+
+- **Events** are the raw records you capture in code.
+- **Actions** are groupings you define *inside PostHog* — combine several events that
+  mean the same thing ("all the CTAs that reach /pricing"), or rename a messy
+  autocaptured event into something friendly.
+
+The useful part: **actions apply retroactively**, to events you already captured. So if
+you realise three different buttons all represent "started checkout," you can unify them
+in the UI without shipping code or losing history. It's the escape hatch for the
+inevitable day your taxonomy turns out slightly wrong — which is why a *good* taxonomy
+matters but a *perfect* one isn't worth blocking on.
+
+## Clean events are the price of admission to experiments
+
+There's a payoff to all this discipline that most teams only discover later:
+**everything you just instrumented is also your A/B testing infrastructure.**
+PostHog's [experiments](https://posthog.com/docs/experiments) measure a variant against
+a goal metric — and the goal metric is one of your events. If `project_created` fires
+reliably and means one thing, you can test onboarding changes against it this
+afternoon. If it's three differently-named events fired from two places, every
+experiment you run inherits that mess, and your "results" measure your instrumentation
+as much as your product.
+
+The dependency runs in one direction: **instrument first, test second.** Teams that
+adopt an experimentation tool before their events are clean end up debugging data
+instead of learning — which is a big part of why Chapter 9 puts the experimentation
+*program* in the Run phase, months after this chapter. The maturity ladder looks like:
+no testing → informal before/after comparisons ("we shipped it and signups went up") →
+regular A/B tests → tests with proper holdouts and written-up results (Chapter 9, §9.5).
+Before/after comparisons are the rung most teams get stuck on — they feel like
+measurement but can't separate your change from the newsletter that went out the same
+day.
+
+<CheckIn
+  id="abTesting"
+  question="What does your testing culture look like today?"
+  options={["Never tested anything", "Occasionally, informally", "Regularly, without holdouts", "Regularly, with holdouts or experiments"]}
+/>
+
+Wherever you are on that ladder, the path up runs through the same place: this
+chapter's event kit firing cleanly. Once it does, the experiments in Chapters 5 and 9
+become cheap.

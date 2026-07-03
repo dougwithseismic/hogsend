@@ -1,0 +1,56 @@
+---
+title: "Autocapture: what you get for free"
+description: "The moment init() runs, posthog-js records pageviews, clicks, rageclicks, and automatic properties with no code — your safety net for discovery. Its limit: it captures interface events, not meaning."
+workbook: "Watch the hands-on tour from autocapture through custom events to server-side capture, and note where autocapture's free data stops being enough."
+---
+
+The moment `init()` runs, `posthog-js` starts recording a lot with no further code
+([autocapture docs](https://posthog.com/docs/product-analytics/autocapture)):
+
+- **`$pageview`** and **`$pageleave`** — every navigation, with URL, referrer, and UTM
+  parameters.
+- **`$autocapture`** — clicks, input changes, and form submissions on `a`, `button`,
+  `form`, `input`, `select`, `textarea`, and `label` elements.
+- **`$rageclick`** — three-plus clicks in about a second (a frustration signal),
+  plus dead clicks and copy/paste events.
+- **Automatic properties** on everything — browser, OS, device, viewport, referrer,
+  UTMs, and ad-click IDs like `gclid`/`fbclid` (these matter in Chapter 7).
+
+Autocapture has sane privacy defaults: it records input *names* and *ids*, never input
+*values*, and excludes password fields. You can suppress capture on any element by
+giving it the class `ph-no-autocapture`, and narrow what's collected with an element
+allowlist if volume becomes a problem.
+
+Autocapture is your safety net — it means you're never *not* collecting data while you
+decide what matters. Its limit is that it captures *interface* events ("a button was
+clicked"), not *meaning* ("the user activated"). That gap is the next section, and it's
+the difference between data and signal.
+
+> **Trade-off worth naming:** autocapture is fast to start and great for exploration, but
+> it can get noisy and, at high volume, expensive. The mature pattern is autocapture *on*
+> for discovery, plus a deliberate set of named custom events (§3.5) for the funnels you
+> actually report on. Some teams turn autocapture off in production once their custom
+> events are solid; most leave it on for the replay/debugging value.
+
+<VideoEmbed
+  id="FFgzJYi4GQA"
+  title="Understanding PostHog Events: From Auto-Capture to Backend Integration"
+  channel="Vision Labs"
+  duration="14:36"
+  note="A hands-on walk from autocapture through custom events to server-side capture — the exact arc of §3.2–3.3, shown live."
+/>
+
+<VideoTranscript id="FFgzJYi4GQA" />
+
+**What to take from it:**
+
+- Autocapture roughly *doubles* your event volume — it fires about as often as pageviews,
+  and adds rageclicks and web vitals on top — which is why the presenter turns it off on
+  anything but a very low-volume site, and why this chapter treats it as discovery, not
+  your reporting layer.
+- Event names carry real weight: use the object-action shape (`cta_viewed`) and push the
+  specifics — the CTA's name — into a *property*, not the event name. That's the same rule
+  §3.5 makes.
+- The whole payoff is one story per person: a browser event and a later backend/CRM event
+  (lead → qualified → info gathered) stitch onto a single profile through a shared distinct
+  id — which is exactly why `identify` and server-side capture come next.
