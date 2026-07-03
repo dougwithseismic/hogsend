@@ -122,17 +122,17 @@ export default async function WelcomePage(props: {
     {
       n: "02",
       title: "Work the workbook",
-      description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items save to your account as you read — 18 profiling check-ins, 6 free-text prompts, and every checklist. All of it lands on one page, editable in place.`,
+      description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items save to your account as you read — 18 profiling check-ins, 28 writing prompts, 11 calculators, and every checklist. All of it lands on one page, editable in place.`,
     },
     {
       n: "03",
       title: "Test yourself",
-      description: `11 quizzes drawing on a pool of ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus 64 flashcards across 11 decks.`,
+      description: `16 quizzes drawing on a pool of ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus 127 flashcards across 18 decks.`,
     },
     {
       n: "04",
       title: "Build your plan",
-      description: `Chapter 10 assembles a ${FLAGSHIP_CONTENT_FACTS.dayPlan}-day plan — 37 checklist items you tick off from your workbook over the months that follow.`,
+      description: `Chapter 10 assembles a ${FLAGSHIP_CONTENT_FACTS.dayPlan}-day plan — 48 checklist items you tick off from your workbook over the months that follow.`,
     },
     {
       n: "05",
@@ -161,7 +161,7 @@ export default async function WelcomePage(props: {
             Welcome to {course.title}
           </h1>
           <p className="mt-5 max-w-xl text-base text-white/60 leading-6">
-            Eleven chapters in four modules, about 4.5 hours end to end — and
+            Fifteen chapters in five modules, about 6 hours end to end — and
             here is everything that comes with them.
           </p>
           {owned ? (

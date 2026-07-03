@@ -1,0 +1,34 @@
+---
+title: "Reading results honestly"
+description: "The result is in — now the ways to fool yourself. P-hacking, the multiple-comparisons trap, reading the losers as carefully as the winners, and turning every test into ship, kill, or iterate."
+---
+
+Getting a number is easy; not fooling yourself with it is the hard part. Below are the
+traps that catch people most often, and the discipline that beats each one.
+
+**The multiple-comparisons trap.** Test enough metrics or enough variants and something
+will look significant by pure chance — at 95% confidence, roughly one in twenty
+comparisons is a false positive even when nothing is going on. Slice a result twenty ways
+("it didn't work overall, but look, it won for left-handed users in Canada") and you'll
+always find a winner. XKCD [drew this perfectly](https://xkcd.com/882/) with green jelly
+beans. The defence is the primary metric you committed to in §12.3: it decides the test;
+everything else is a hypothesis for *next* time, not a victory to claim now.
+
+**P-hacking by another name.** Peeking (§12.4), dropping "bad" days, redefining the metric
+after seeing the data, running until significant — all of it manufactures wins. The rule:
+fix the metric, the audience, the run length, and the success bar *before* the test, then
+read what you agreed to read. Kohavi's **Twyman's law** is the right reflex — any figure
+that looks surprisingly good is probably wrong until you've ruled out a bug or a fluke.
+
+**Read the losers.** A flat or negative result is not a wasted test — it's most of what
+you'll get. Remember only about a third of ideas win *(well-attested; §12.1)*. "No
+detectable difference" tells you the effect is smaller than you hoped, which is a real
+finding that saves you from shipping the change and believing it did something. The losers
+also feed the backlog: *why* didn't it move — wrong audience, too small, or a bad belief?
+
+**Ship, kill, or iterate — and write it down.** Every test ends in one of three decisions:
+**ship** it (clear win, guardrails intact), **kill** it (flat or negative), or **iterate**
+(promising but inconclusive — sharpen the change and rerun). Then record it: hypothesis,
+result, decision, what you'd try next. The write-up costs thirty seconds; re-running a
+forgotten experiment costs a month — and a documented failure is the thing a growth team
+can say out loud without embarrassment (Chapter 10's finish line).

@@ -1,23 +1,42 @@
 ---
-title: "Templates: email as code"
-description: "Journeys decide when and who; templates decide what lands in the inbox. In a Hogsend app templates are React components — type-checked, versioned in git, compiled to the table-based HTML email clients actually tolerate."
-workbook: "Three short videos on the React Email model your src/emails/ folder uses — building a template, and the tooling that catches broken layouts before they ship."
+title: "What makes a good lifecycle email"
+description: "The journey decides when and who; the email itself decides what lands. Deliverability, the brutal cross-client rendering reality, why plain text still matters, the receipt-not-brochure principle — and the strategic case for owning your emails instead of renting a drag-and-drop tool."
+workbook: "Three short videos on the modern email-authoring model — building a template, rendering across clients, and the tooling that catches broken layouts and spam-triggering copy before they ship."
 ---
 
-The journeys decide *when* and *who*; templates decide *what lands in the inbox*. In a
-Hogsend app, templates are **React components** — the
-[React Email](https://react.email/docs/introduction) model, where an email is a
-component tree (`<Container>`, `<Button>`, `<Text>`) that renders to the
-table-based HTML that email clients actually tolerate. If you've ever hand-written
-`<td>` soup for Outlook, this is the upgrade: components, props, type-checked data, and
-your design system's tokens — compiled to HTML that works in clients stuck in 2009.
+The last two atoms were about the *system* — the loop, and the six decisions behind each
+message. This one is about the artefact itself: the email that actually lands in the
+inbox. A lifecycle email lives under constraints a marketing page never faces. It has to
+render in clients whose CSS support froze around 2009, clear the spam filters Chapter 5
+described, and do exactly one job the moment someone glances at it. Good lifecycle email
+is a craft, and it's worth learning what separates a message that works from one that
+gets ignored — or worse, marked as spam.
+
+### Deliverability is the first feature
+
+None of the craft matters if the message lands in spam. Everything in Chapter 5's
+deliverability section applies to each individual send: authenticate your domain, keep a
+plain-text version so the message clears the filters and stays under Gmail's ~102KB clip
+limit, and watch the phrases that drag a spam score up. The best-designed email in the
+world scores zero if half of it never reaches an inbox — so treat "does this land?" as the
+first question about a template, not the last.
+
+### The rendering reality
+
+Email is not the web. The clients your users read in — old *and* new — still don't support
+most of the CSS you'd reach for on a landing page, so an email has to be built as
+table-based HTML with inline styles to survive the trip. Modern component-based tooling
+(the [React Email](https://react.email/docs/introduction) model) exists precisely to hide
+this: you write ordinary components and it emits the cross-client HTML underneath. The
+video below is Resend's founder building and sending a template end to end — the clearest
+tour of what "author once, render everywhere" actually looks like.
 
 <VideoEmbed
   id="xlA5XD8CSdo"
   title="Send emails with React components (with Zeno from Resend)"
   channel="Vercel"
   duration="23:54"
-  note="Resend's founder building and sending a React Email template end to end — the exact authoring model your src/emails/ folder uses."
+  note="Resend's founder building and sending a React Email template end to end — the modern authoring model these lifecycle emails use."
 />
 
 <VideoTranscript id="xlA5XD8CSdo" />
@@ -34,42 +53,15 @@ your design system's tokens — compiled to HTML that works in clients stuck in 
   HTML *and* plain-text versions, and lets you fire a real test send — the exact
   preview-before-you-send loop this piece recommends.
 
-A template in your app is a component plus a registry entry:
-
-```tsx
-// src/emails/activation-welcome.tsx
-export function ActivationWelcome({ firstName, ctaUrl }: Props) {
-  return (
-    <EmailLayout preview="Let's get you set up">
-      <Text>Welcome{firstName ? `, ${firstName}` : ""} 👋</Text>
-      <Text>One thing to do today: create your first project.</Text>
-      <EmailButton href={ctaUrl}>Create a project</EmailButton>
-    </EmailLayout>
-  );
-}
-```
-
-The engine owns the pipeline from there: when a journey calls `sendEmail({ template:
-Templates.ACTIVATION_WELCOME, props })`, the engine renders the component to HTML,
-checks the user's preferences/unsubscribe state, rewrites links for first-party click
-tracking, records the send, and only then hands plain HTML to the delivery provider
-(Resend by default — [their docs](https://resend.com/docs/introduction) cover the wire;
-[Vercel's guide](https://vercel.com/kb/guide/sending-emails-from-an-application-on-vercel)
-shows the same stack outside Hogsend). Two consequences worth noticing:
-
-- **Templates version with your code.** The welcome email that shipped with v1.4 is in
-  the v1.4 git history — reviewable, revertable, diffable
-  ([Resend's templates post](https://resend.com/blog/introducing-templates) makes the
-  same versioning argument even for their hosted flavour).
-- **Content vs plumbing stays split.** Journeys never concatenate HTML; templates never
-  decide who gets mail. The same separation your product keeps between logic and view.
+The next video is a conference take on *why* the component model fits email's constraints
+so well — good background on the rendering problem before you design your own layout.
 
 <VideoEmbed
   id="cQy24szSsBw"
   title="Modern emails using React"
   channel="React Conf"
   duration="11:18"
-  note="A 2026 conference take on why the React component model fits email's brutal rendering constraints — good background before you build your EmailLayout."
+  note="A 2026 conference take on why the component model fits email's brutal rendering constraints — background on the problem before you design a layout."
 />
 
 <VideoTranscript id="cQy24szSsBw" />
@@ -85,24 +77,45 @@ shows the same stack outside Hogsend). Two consequences worth noticing:
   component into plain HTML any provider accepts).
 - The existing open-source options were stale (one's last commit was seven years ago;
   another's docs were badly outdated), which is exactly why a fresh component-model tool
-  was worth building — the "email as code" case this piece makes.
+  was worth building.
 
-**Test emails like code, too.** A template is about to sit in front of thousands of
-sends, so it's worth actually looking at it first:
-React Email's dev server previews every template with sample props; send-to-yourself
-against [test addresses](https://resend.com/docs/dashboard/emails/send-test-emails)
-(or a capture sandbox — [Mailtrap's testing guide](https://mailtrap.io/blog/how-to-test-email/)
-covers the methodology) before pointing at real users; and keep
-[transactional-email conventions](https://postmarkapp.com/guides/transactional-email-best-practices)
-in mind — a lifecycle email is closer to a receipt than a brochure: one job, one CTA,
-plain and fast.
+### Plain text still matters
+
+A serious lifecycle email ships with a plain-text version, not as an afterthought but as a
+real signal. Filters read it as a sign of a well-formed message; screen readers rely on
+it; and plenty of people read in a preview pane where the plain text is what they see
+first. Skipping it costs you deliverability and accessibility at once — two things a
+lifecycle program can't afford to leak.
+
+### Receipt, not brochure
+
+Here is the single most useful mental model for lifecycle email: **a lifecycle email is
+closer to a receipt than a brochure.** One job, one call to action, plain and fast. The
+best lifecycle emails look almost boring — a sentence of context, the one action you want,
+a button, done. That's not a lack of polish; it's the polish. A user who opened your "your
+payment failed" email wants a card-update link, not a hero image and three testimonials.
+The transactional-email conventions worth internalising —
+[Postmark's guide](https://postmarkapp.com/guides/transactional-email-best-practices) is
+the standard reference — all point the same way: respect the reader's time, say the one
+thing, make the action unmissable.
+
+### Test it before thousands of people see it
+
+A template is about to sit in front of every user a trigger matches, so it's worth
+actually looking at it first. Modern tooling makes this cheap: preview every template with
+sample data across clients, send a test to yourself against
+[test addresses](https://resend.com/docs/dashboard/emails/send-test-emails) (or a capture
+sandbox — [Mailtrap's testing guide](https://mailtrap.io/blog/how-to-test-email/) covers
+the methodology) before pointing at real users, and run the copy through a spam checker in
+preview rather than discovering the problem after a send. The last video covers exactly
+this linting-and-compatibility layer.
 
 <VideoEmbed
   id="d4UZg3l8JvQ"
   title="react.email now tests your emails"
   channel="Resend"
   duration="4:14"
-  note="The linting/compatibility side of the toolchain — catching the Outlook-breaks-this class of bug before it ships."
+  note="The linting/compatibility side of the toolchain — catching the Outlook-breaks-this and spam-word class of bug before it ships."
 />
 
 <VideoTranscript id="d4UZg3l8JvQ" />
@@ -118,3 +131,30 @@ plain and fast.
 - The compatibility checker (backed by "Can I email") flags CSS that breaks in specific
   clients — `object-fit`, or `height` vs `min-height` diverging between Outlook and Yahoo —
   so the "Outlook breaks this" bug is caught in the preview instead of a customer's inbox.
+
+### Own your emails
+
+There's a strategic decision hiding inside all of this: *where do your emails live?* The
+common default is a rented drag-and-drop tool, where each template lives in someone else's
+dashboard. It's fast to start, and it costs you three things that compound over time.
+
+- **You can't version or review them.** An email that lives in a dashboard has no history
+  you can diff, no pull request where a teammate catches the broken link before it ships,
+  and no way to tell which version went out with last quarter's campaign. When you own the
+  email, it sits in your codebase next to everything else — reviewable, revertable, and
+  diffable like any other change.
+- **Personalisation is capped at the tool's merge tags.** A rented editor lets you drop in
+  a first name and whatever fields it chose to expose. When the email is yours, it can be
+  personalised on *your* data — the same activation events, plan details, and behaviour
+  you already track — so the message can say something the merge-tag menu never could.
+- **Content and plumbing get tangled.** In the owned model the split stays clean: the
+  journey decides *who* gets mail and *when*; the template decides only *what it says*. The
+  same separation your product already keeps between logic and view — logic never
+  concatenates HTML, and a view never decides who it's for.
+
+None of this argues against a hosted *sending provider* — you still want someone reliable
+putting bytes on the wire, and Resend, Postmark, and the like do that job well. The
+argument is about where the *email itself* is authored and reviewed: in your repo, under
+version control, personalised on your own data — versus locked in a canvas you rent. For
+how Hogsend renders these owned templates and hands them to whichever provider you've
+configured, see [the Hogsend docs](https://hogsend.com/docs).

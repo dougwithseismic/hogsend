@@ -13,7 +13,9 @@ export type WorkbookItemKind =
   | "checklist"
   | "quiz"
   | "flashcards"
-  | "media";
+  | "media"
+  | "calc"
+  | "reading";
 
 export type WorkbookItem = {
   kind: WorkbookItemKind;
@@ -38,6 +40,14 @@ export type WorkbookItem = {
   freeText?: boolean;
   /** checklist: authored items. */
   items?: string[];
+  /** reading: authored books, so /workbook can render the shelf inline. */
+  books?: {
+    title: string;
+    author?: string;
+    why?: string;
+    quote?: string;
+    url?: string;
+  }[];
 };
 
 export type WorkbookManifest = Record<string, Record<string, WorkbookItem[]>>;
@@ -74,6 +84,12 @@ export type SavedValue = {
   done?: boolean;
   /** flashcards: mastered card indices. */
   mastered?: number[];
+  /** reading: indices of books marked read. */
+  read?: number[];
+  /** calc: the reader's saved inputs, computed results, and read-out sentence. */
+  inputs?: Record<string, number>;
+  results?: Record<string, number>;
+  summary?: string;
 };
 
 export type ItemStatus = "empty" | "partial" | "done";
@@ -126,6 +142,19 @@ export function itemState(
             detail: item.media === "podcast" ? "Listened" : "Watched",
           }
         : { status: "empty" };
+    case "calc":
+      return value.inputs && Object.keys(value.inputs).length > 0
+        ? { status: "done", detail: "Saved" }
+        : { status: "empty" };
+    case "reading": {
+      const read = value.read?.length ?? 0;
+      const total = value.total ?? item.itemCount ?? 0;
+      if (read === 0) return { status: "empty" };
+      const detail = `${read}/${total} read`;
+      return read >= total && total > 0
+        ? { status: "done", detail }
+        : { status: "partial", detail };
+    }
     default:
       return { status: "empty" };
   }

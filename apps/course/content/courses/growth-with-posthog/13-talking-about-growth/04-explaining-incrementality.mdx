@@ -1,0 +1,72 @@
+---
+title: "How do you know it worked?"
+description: "The hardest question a skeptical stakeholder asks. How to explain a holdout and incremental lift in plain language — no p-values, no stats lecture — so the answer actually lands."
+workbook: "Draft the plain-language version of 'how do you know it worked' for one of your journeys — the holdout explanation you could say out loud to a skeptic. Saves to your workbook — plus a plain-language walkthrough of incrementality and geo holdouts."
+---
+
+Sooner or later someone — an investor, a skeptical cofounder, a numbers-literate
+customer — asks the one question that separates a growth team from a marketing team: *how
+do you know it worked?* How do you know the welcome journey *caused* the retention bump,
+rather than those users being the kind who'd have stuck around anyway?
+
+You already have the honest answer from Chapter 5: a **holdout.** The skill here is saying
+it without a statistics lecture, because the moment you reach for "p-values" and
+"confidence intervals" you've lost the room. The version that lands is plain and concrete:
+
+> "Of everyone who qualified for the welcome journey, we held back a random slice — say
+> 10% — and sent them nothing. Everyone else got the emails. A month later the messaged
+> group had upgraded at 18%, the held-back group at 11%. That 7-point gap is what the
+> journey added, because the two groups were identical except for the emails." (Numbers
+> illustrative.)
+
+<VideoEmbed
+  id="DeSdoaLOOoM"
+  title="Incrementality 101: Everything You Need to Know"
+  channel="Common Thread Collective"
+  note="The paid-media version of the same holdout idea — why lift, not activity, is the honest measure, explained for a skeptic."
+/>
+
+<VideoTranscript id="DeSdoaLOOoM" />
+
+**What to take from it:**
+
+- Same idea as this atom's holdout, in a paid-media frame: a *geo holdout* — turn media off
+  in a few matched regions, leave it on everywhere else, and the revenue gap is the
+  channel's true contribution. It sits at the top of the measurement pyramid precisely
+  because it's a controlled experiment, not attribution laid over history.
+- Why lift beats activity: platform-reported ROAS and *incremental* ROAS routinely diverge.
+  In their example a three-state holdout showed Meta was actually *under*-reporting, while
+  Google brand search's incremental value was only ~23% of the reported number — the
+  platform taking credit for buyers who'd have converted anyway. Same trap as crediting a
+  journey with conversions it didn't cause.
+- A detail that defuses the skeptic's fear: the "held-back" spend isn't burned — it's
+  reallocated to the live regions, so the test costs almost nothing while buying a causal
+  read. The control group is a measurement tool, not lost money.
+
+Three moves make that explanation work:
+
+- **Lead with the control group, not the math.** The intuition people already have is the
+  drug-trial one: some patients get the placebo. "We kept a group who got nothing, on
+  purpose" is a sentence anyone follows. Reforge and Eppo call this *incrementality*; your
+  stakeholder doesn't need the word, they need the placebo.
+- **Name the gap as the credit.** Not "the journey has an 18% conversion rate" (that's the
+  messaged group alone, and it includes people who'd have converted anyway) but "the
+  journey *added* 7 points over doing nothing." The incremental number is smaller and far
+  more defensible — [Eppo's incrementality primer](https://www.geteppo.com/blog/marketing-incrementality-101)
+  is the fuller version for anyone who wants it.
+- **Say what would have changed your mind.** "If the held-back group had converted at the
+  same rate, we'd have killed the journey." A stakeholder trusts a measurement far more
+  once they hear it *could* have come out against you — that's the tell that you weren't
+  just building a case.
+
+Why rehearse this conversation at all? Because it's the whole distance between "we sent
+3,400 emails" (activity) and "the program added 7 points of activation, measured against a
+control" (proof). The first invites more questions; the second ends the debate — which is
+exactly what you want a report to do.
+
+<WorkbookPrompt
+  id="ch13-incrementality"
+  prompt="Write the plain-language 'how do you know it worked' answer for one of your journeys — the holdout, in words you'd say out loud to a skeptic."
+  placeholder="Of everyone who qualified, we held back a random …%. The messaged group … ; the held-back group … . The gap — … — is what the journey added."
+  rows={4}
+/>

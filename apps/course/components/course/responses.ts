@@ -21,7 +21,9 @@ export type ResponseKind =
   | "checklist"
   | "note"
   | "media"
-  | "flashcards";
+  | "flashcards"
+  | "calc"
+  | "reading";
 
 export async function saveResponse(
   kind: ResponseKind,

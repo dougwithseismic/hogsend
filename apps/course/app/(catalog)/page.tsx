@@ -142,12 +142,12 @@ function VignetteMedia({ children }: { children: ReactNode }): JSX.Element {
 const INSIDE_CARDS = [
   {
     title: "The workbook",
-    description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items — 18 profiling check-ins, 6 free-text prompts — everything you type saves to your account.`,
+    description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items — 18 profiling check-ins, 28 writing prompts, 11 calculators — everything you type saves to your account.`,
     media: <WorkbookVignette />,
   },
   {
     title: "Quizzes & flashcards",
-    description: `11 quizzes pooling ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus 64 flashcards across 11 decks.`,
+    description: `16 quizzes pooling ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus 127 flashcards across 18 decks.`,
     // A flashcard peeking behind the quiz, cropped by the media area — both
     // halves of the card title in one stack.
     media: (

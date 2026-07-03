@@ -1,0 +1,63 @@
+---
+title: "The zero-to-one version (if you have no users yet)"
+description: "The plan assumes you have users to measure. If you're pre-launch or just launched with almost nobody, the sequence is the same but the first phase changes shape: you're hunting for evidence that someone wants this, not building a dashboard."
+workbook: "Name the one thing you need to learn before you instrument anything, and work the zero-to-one checklist — the pre-PMF version of the plan."
+---
+
+Everything in this chapter so far assumes you have a funnel to measure. If you're
+pre-launch, or you launched last week and the dashboard would show single digits, the
+plan doesn't change *order* — it changes *shape*. The order still protects you: chasing
+acquisition before you can keep anyone is the leaky-bucket mistake (Chapter 2) whether you
+have ten users or ten thousand. But at zero-to-one, the Measure phase isn't "build the
+daily dashboard" — it's "find evidence a real person wants this at all".
+
+**What each phase becomes before product-market fit:**
+
+- **Measure → talk to users, instrument the one signal.** With no traffic, quantitative
+  dashboards are noise. The measurement that matters is qualitative: problem interviews,
+  and watching the first handful of people try the product. Instrument exactly one thing —
+  the activation event that would mean "they got it" (Chapter 2) — so the moment you *do*
+  have users, you can already see whether they reach value.
+- **Keep → make the first ten users successful by hand.** This is the phase Paul Graham
+  means by [*Do Things That Don't Scale*](https://paulgraham.com/ds.html): onboard people
+  personally, fix their problems over a call, do the unscalable work that a lifecycle
+  journey will later automate. You're not building the Keep machine yet — you're learning,
+  by hand, what it will eventually need to do.
+- **Grow → founder-led distribution, not paid.** Launches, communities, writing, direct
+  outreach, being useful in the places your users already are. Paid acquisition into a
+  product with no proven retention is the most expensive way to learn you don't have
+  product-market fit (Chapter 7). Keep the tap off until the bucket holds a little water.
+
+**The trap at this stage** is building the whole machine before anyone is using it — a
+schema registry, eight lifecycle journeys, a paid funnel — because building feels like
+progress and talking to five users feels like it isn't. It's the "instrumenting forever"
+anti-pattern, moved earlier: the work that looks like growth work is quietly standing in
+for the uncomfortable work of finding out whether anyone cares.
+
+**What "good enough to start the real plan" looks like** is a pulse: a small group of
+users who would be genuinely disappointed if the product vanished (the seed of the Sean
+Ellis 40% test you'll run properly at day 180), and a retention curve — even over a dozen
+users — that doesn't fall to zero. That's the flattening from Chapter 2, expressed in
+miniature. The stages chapter maps these in full; this atom is just the on-ramp.
+
+<Checklist
+  id="plan-zero-to-one"
+  title="Zero-to-one — before the day-0 clock starts"
+  items={[
+    "Talked to at least ten real potential users about the problem, not the product",
+    "Defined the one activation event that would mean 'they got real value', and instrumented it",
+    "Onboarded the first users by hand — personally, unscalably — and watched them use it",
+    "At least a few users would be 'very disappointed' to lose it (the seed of the 40% test)",
+    "The tap is still off: no paid acquisition until early retention shows a pulse",
+  ]}
+/>
+
+<WorkbookPrompt
+  id="zero-to-one-learning"
+  prompt="What's the single most important thing you need to learn before you're ready to instrument and run the full plan?"
+  placeholder="The riskiest assumption I need evidence on is… — I'll know it's answered when…"
+  rows={2}
+/>
+
+Once you have that pulse, start at [Day 0](./02-day-0-commit.mdx) and run the plan as
+written. The phases are the same; now you have something real to measure.

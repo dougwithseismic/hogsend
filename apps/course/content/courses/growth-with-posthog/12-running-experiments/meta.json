@@ -1,0 +1,13 @@
+{
+  "title": "Running experiments",
+  "pages": [
+    "01-what-deserves-an-experiment",
+    "02-the-hypothesis-format",
+    "03-primary-metric-and-guardrails",
+    "04-power-and-sample-size",
+    "05-holdouts-and-incrementality",
+    "06-reading-results-honestly",
+    "07-tempo-and-the-backlog",
+    "08-before-you-move-on"
+  ]
+}

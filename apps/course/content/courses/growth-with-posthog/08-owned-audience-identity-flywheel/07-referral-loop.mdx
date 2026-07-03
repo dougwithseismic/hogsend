@@ -1,6 +1,7 @@
 ---
 title: "The referral loop"
 description: "Referrals are where the owned graph pays off most, because a referral program only works if you can attribute it — and attribution is exactly what the graph gives you. The incentive structures, the honest failure mode, and build-vs-buy."
+workbook: "Incentive structures, the honest failure mode, and build-vs-buy — plus a k-factor calculator so you can see whether your loop amplifies acquisition or would need to self-sustain."
 ---
 
 Referrals are where the owned graph pays off most, because **a referral program only
@@ -32,6 +33,17 @@ The design principles that run across all of them: sharing that costs nothing
 value, visible progress (a dashboard or leaderboard), and **an ask timed to peak
 engagement** — right after the aha moment, which is the referral journey from Chapter
 6, §6.8.
+
+The two levers a loop actually turns on are *invites sent per user* and *the share of
+invites that convert* — their product is the k-factor. Below 1 a loop doesn't sustain
+itself, but it still quietly multiplies every other channel; at or above 1 you have true
+organic virality. See what your assumptions imply before you build:
+
+<Calculator
+  preset="viral-k-factor"
+  id="ch8-viral-k-factor"
+  title="Your referral loop's k-factor"
+/>
 
 ### The honest failure mode: referred users can be your worst users
 

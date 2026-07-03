@@ -1,0 +1,120 @@
+---
+title: "The one report you share"
+description: "Everything in the course points at a single monthly one-pager: North Star and trend, activation and retention, blended CAC and referral contribution, and one experiment learning. Build yours."
+workbook: "Assemble your monthly one-pager — North Star trend, activation/retention, acquisition economics, one learning — as a checklist and a first draft. Saves to your workbook, and it's the report Chapter 9's cadence runs on — plus an operator's walkthrough of the investor update and the metrics that carry it."
+---
+
+Everything the course has built points at one artifact: a **single monthly one-pager** —
+the board slide, the investor-update section, the thing you'd screenshot into the team
+channel. If you can fill it honestly, the growth system is real. If you can't, it tells
+you exactly which part isn't real yet.
+
+It has four blocks and one sentence, in this order:
+
+1. **North Star + trend.** The one metric that reflects value delivered (Chapter 2), shown
+   as a *line over 3–6 months*, not a single number. The trend is the story; the point is
+   trivia.
+2. **Activation + retention.** The proof the bucket holds: activation rate for recent
+   cohorts, and the retention curve or its key cohort number. This is the half of the page
+   that says whether growth is real or churn-and-replace.
+3. **Blended CAC + referral contribution.** The acquisition economics: what a customer
+   costs blended across channels, and the share of new users arriving through the owned
+   audience and referral loop (Chapter 8). Falling blended CAC as the owned audience grows
+   is the flywheel showing up in the finances.
+4. **One experiment learning.** Exactly one — stated as what you'll do differently, win or
+   loss (§13.5). One real learning beats ten bullet points, because it proves the loop
+   turned this month.
+
+Plus the sentence most decks omit: **the one thing you're worried about.** For a board
+especially, naming the risk you'd want help on builds more trust than a flawless slide —
+it's the difference between reporting *to* your board and working *with* it.
+
+<Checklist
+  id="ch13-one-pager"
+  title="The monthly one-pager"
+  items={[
+    "North Star metric, as a line over 3–6 months (trend, not a point)",
+    "Activation rate for recent cohorts + the retention curve or key cohort number",
+    "Incremental lift from the lifecycle program (the global holdout) — the number that justifies it",
+    "Blended CAC, and the share of growth from the owned audience / referral loop",
+    "Exactly one experiment learning, stated as what you'll do differently",
+    "One sentence: the risk you're most worried about",
+    "Every number is a rate or a trend, not a cumulative total (the §13.6 test)",
+  ]}
+/>
+
+Notice what's *not* on it: total registered users, emails sent, impressions, pageviews. A
+one-pager that survives the "so what?" test on every line is the entire course expressed
+as a single page — one someone else can read in two minutes. And it's the report the
+monthly cadence in Chapter 9 exists to produce.
+
+<VideoEmbed
+  id="dgz-Ud4fq6w"
+  title="How to Write Investor Updates + Startup Metrics (CAC, LTV, Chrun)"
+  channel="Founder University"
+  note="A working example of the one report this atom is about — what belongs in a monthly investor update and which metrics carry it."
+/>
+
+<VideoTranscript id="dgz-Ud4fq6w" />
+
+**What to take from it:**
+
+- Lead with the trend, not the snapshot. The framing is the "investors invest in lines, not
+  dots" idea (Mark Suster) — a single month's number is one data point; the value is the
+  line, so you send updates early and repeatedly and show at least a year of charts. Exactly
+  this atom's rule that the North Star is a line over 3–6 months, not a point.
+- Put every metric next to its change, and name the lowlights. The template sets revenue,
+  burn, and runway beside the month-over-month delta so the reader never does the math, and
+  it insists the highs *and* lows go in as bullets (e.g. "tested a new social strategy,
+  spent $2,500, results flat, turned it off"). That's this atom's "one experiment learning,
+  win or loss" and its one-sentence worry.
+- The metrics that carry the update are the economic levers: CAC (drive it down — e.g. a
+  referral program), LTV (drive it up — e.g. annual billing or packaging), and churn. The
+  job is widening the gap between CAC and LTV — the blended-CAC-and-referral block of the
+  one-pager here.
+
+<WorkbookPrompt
+  id="ch13-one-pager-draft"
+  prompt="Draft your one-pager now — fill each block with your real current number, or write 'don't have this yet' where you can't. The gaps are next month's work."
+  placeholder={"North Star + trend: …\nActivation + retention: …\nBlended CAC + referral share: …\nOne learning: …\nThe risk I'm worried about: …"}
+  rows={6}
+/>
+
+<Flashcards
+  id="ch13-cards-talking"
+  title="Key ideas — talking about growth"
+  cards={[
+    {
+      prompt: "The four audiences and the altitude each cares about:",
+      cloze: "{{Investors/board}}: a few outcome ratios and the trend. {{Cofounders}}: the whole picture, unpolished. {{The team}}: input metrics they can move this week. {{Customers}}: the outcome for them, not your numbers.",
+    },
+    {
+      front: "Why does a single number never persuade?",
+      back: "Alone it can't show cause — it invites 'so what?'. The persuasive unit is a pair: a leading metric you control and the lagging outcome it moved, with the mechanism stated between them.",
+    },
+    {
+      prompt: "The two cadences and what each reports:",
+      cloze: "{{Weekly team review}}: operational — input metrics, journeys and spend, experiments, decisions not status. {{Monthly/board update}}: outcomes — North Star trend, retention, lift, CAC, and one learning.",
+    },
+    {
+      front: "How do you explain a holdout to a skeptic without a stats lecture?",
+      back: "Use the placebo intuition: 'we held back a random slice and sent them nothing; the messaged group beat them by X points; that gap is what the journey added.' Name the gap as the credit, and say what would have changed your mind.",
+    },
+    {
+      front: "Why is a losing experiment worth presenting well?",
+      back: "Most experiments lose — only ~a third improve their target metric even at Microsoft (Kohavi). A loss is a learning you already paid for; hiding it wastes it. State the hypothesis, say what it ruled out, show your tempo.",
+    },
+    {
+      front: "What is a vanity metric, and what replaces it?",
+      back: "A number that reliably rises and informs no decision — cumulative totals, impressions, registered users. Replace it with a rate or a cohort (something that can go down), and apply the 'so what?' test (Eric Ries, The Lean Startup).",
+    },
+    {
+      front: "What's the long-run cost of over-claiming attribution?",
+      back: "The first hero story that doesn't survive a holdout discounts every future number you present. Credibility is priced by your least defensible claim — so say the smaller, defensible number and name what you can't prove.",
+    },
+    {
+      prompt: "The monthly one-pager — four blocks and a sentence:",
+      cloze: "{{North Star + trend}}, {{activation + retention}}, {{blended CAC + referral contribution}}, {{one experiment learning}} — plus one sentence: {{the risk you're most worried about}}.",
+    },
+  ]}
+/>

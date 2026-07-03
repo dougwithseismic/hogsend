@@ -1,33 +1,34 @@
 ---
-title: "6 — Building the lifecycle in Hogsend"
-description: "The journeys from Chapter 5, written as code: welcome, behavioural nudge, win-back, dunning, and referral — each triggered by a real event, each durable by default — plus email templates as React components and the correctness rules that stop double-sends, in twelve short pieces."
-workbook: "The Chapter 5 journeys, written as code — welcome, nudge, win-back, dunning, referral. Nothing to draft here: watch the three React Email pieces and take the check; the patterns land in your plan in Chapter 10."
+title: "6 — Your lifecycle playbook"
+description: "The concrete emails behind Chapter 5's strategy — welcome, activation nudge, conversion, win-back, dunning, referral, feedback — what each one is, why you need it, the tactics that make it land, and how they come together into a system that helps rather than spams, in fifteen short pieces."
+workbook: "The lifecycle emails you need at each stage of the funnel and the tactics behind them — the trigger that means 'ready to pay', a good feedback-request email, and the coordination rules that keep a full program from overwhelming anyone. It lands in your plan in Chapter 10."
 ---
 
-> **In this chapter:** how an event becomes a running journey, why durable execution
-> matters (and what breaks without it), the anatomy of `defineJourney`, email templates
-> as code, working examples for each lifecycle stage, the other ways you could build
-> this, and the correctness rules that stop you double-sending. Code here mirrors real
-> production journeys.
+> **In this chapter:** the lifecycle program made concrete. Chapter 5 argued *which*
+> journeys to build and why; this chapter is the playbook for each one — what the email
+> is, which leak in the funnel it plugs, the trigger, the timing, the content, and how you
+> measure it — walked stage by stage across the funnel (Activation → Conversion →
+> Reactivation → Revenue → Referral → Feedback), then pulled together into a coordinated
+> system. This is strategy and tactics, not code — when you're ready to build it, the
+> [Hogsend docs](https://hogsend.com/docs) cover the how.
 
-If you'd like to follow along, the examples assume a Hogsend app —
-`pnpm dlx create-hogsend@latest` scaffolds one in a minute.
+**How this chapter works.** It's broken into fifteen short pieces — most are a one- to
+three-minute read. One piece (What makes a good lifecycle email) carries three short videos
+on the craft of building email that renders and delivers. Work through them in order, or
+jump to the stage you're on:
 
-**How this chapter works.** It's broken into twelve short pieces — most are a one- to
-three-minute read. One piece (Templates) carries three short videos on building email as
-React components: read the one-line reason it's worth your time, watch it (or read the
-transcript underneath), then read the digest. Work through them in order, or jump to what
-you need:
-
-1. [The loop: event in, journey runs, event out](./01-the-loop.mdx) — how an event becomes a durable running journey, and why "durable" is the whole game.
-2. [Anatomy of a journey](./02-anatomy-of-a-journey.mdx) — `defineJourney`, its meta guardrails, and the context primitives.
-3. [Templates: email as code](./03-templates-email-as-code.mdx) — React components that render to inbox-proof HTML, versioned with your code.
-4. [Welcome + onboarding](./04-welcome-onboarding.mdx) — the first journey: welcome now, branch on behaviour two days later.
-5. [A behavioural nudge series](./05-behavioural-nudge-series.mdx) — sleep, check, send only if needed — the shape most onboarding takes.
-6. [Win-back](./06-win-back.mdx) — `waitForEvent` gives a dormant user a window to return before the final nudge.
-7. [Dunning](./07-dunning.mdx) — the highest-ROI journey: recover a failed charge, exit the moment payment clears.
-8. [Referral](./08-referral.mdx) — ask at peak satisfaction, and only ask users who are still active.
-9. [Correctness: exactly-once](./09-exactly-once.mdx) — how the engine stops a replay from double-sending, and the one rule you author.
-10. [Other ways you could build this](./10-other-ways.mdx) — cron, job queues, durable-execution platforms, no-code — and why durable wins here.
-11. [Feeding your journeys and proving lift](./11-triggers-and-holdout.mdx) — where the events come from, and the holdout that measures your impact.
-12. [Before you move on](./12-before-you-move-on.mdx) — the build order for the week, then a quiz to check yourself.
+1. [The lifecycle loop](./01-the-loop.mdx) — an event happens, the right message goes out, you measure whether it worked.
+2. [Anatomy of a lifecycle message](./02-anatomy-of-a-journey.mdx) — the six decisions behind every email: trigger, audience, timing, content, exit, measurement.
+3. [What makes a good lifecycle email](./03-templates-email-as-code.mdx) — deliverability, receipt-not-brochure, and the case for owning your emails.
+4. [Welcome + onboarding (Activation)](./04-welcome-onboarding.mdx) — the highest-leverage pair: welcome now, nudge if they haven't reached value.
+5. [A behavioural nudge series (Activation)](./05-behavioural-nudge-series.mdx) — wait, check, and send *only if the action didn't happen*.
+6. [Free to paid (Conversion)](./13-conversion-emails.mdx) — the upgrade emails, earned by activation and triggered by hitting a wall.
+7. [Win-back (Reactivation)](./06-win-back.mdx) — re-engage the dormant with a real reason, one window, then stop.
+8. [Dunning (Revenue)](./07-dunning.mdx) — recover a failed payment, the highest-ROI email you'll send.
+9. [Referral (Referral)](./08-referral.mdx) — ask at peak satisfaction, and only ask still-active users.
+10. [Asking for feedback (Feedback)](./14-feedback-and-nps.mdx) — the survey that triggers the next journey instead of vanishing into a dashboard.
+11. [Reliability](./09-exactly-once.mdx) — why a lifecycle system that double-sends or drops messages destroys trust fast.
+12. [Build vs buy](./10-other-ways.mdx) — own your lifecycle system or rent one, and when each is right.
+13. [Feeding your journeys and proving lift](./11-triggers-and-holdout.mdx) — where the events come from, and the holdout that measures your impact.
+14. [How they come together](./15-how-they-come-together.mdx) — frequency caps, a priority order, and the program holdout that make it a system.
+15. [Before you move on](./12-before-you-move-on.mdx) — the build order for the week, then a quiz to check yourself.

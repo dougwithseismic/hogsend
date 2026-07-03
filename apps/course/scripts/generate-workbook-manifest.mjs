@@ -1,6 +1,6 @@
 // Generates lib/workbook-manifest.generated.json — the per-lesson inventory of
 // interactive blocks (WorkbookPrompt / CheckIn / Checklist / Quiz / Flashcards /
-// VideoEmbed / PodcastLink) parsed straight from the course MDX. The manifest is what lets
+// Calculator / VideoEmbed / PodcastLink) parsed straight from the course MDX. The manifest is what lets
 // the chapter callout, the end-of-chapter recap, and /workbook know which
 // answers COULD exist (and ghost the ones that don't yet), without shipping an
 // MDX parser to the server. Runs before build / check-types (see package.json),
@@ -8,7 +8,7 @@
 // rather than silently omitting it.
 //
 // Keys mirror /api/responses exactly:
-//   note:<id> · profile:<id> · checklist:<id> · quiz:<course>/<lesson> · media:<id>
+//   note:<id> · profile:<id> · checklist:<id> · quiz:<course>/<lesson> · media:<id> · calc:<id> · reading:<id>
 // Anchors mirror the DOM ids the block components render (wb-…).
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -138,6 +138,34 @@ function extractItems(filePath, course, lesson) {
           anchor: `wb-${id}`,
           label: attr(node, "title", filePath) ?? "Flashcards",
           itemCount: cards.length,
+        });
+        break;
+      }
+      case "Calculator": {
+        const id = requireAttr(node, "id", filePath);
+        items.push({
+          kind: "calc",
+          id,
+          key: `calc:${id}`,
+          anchor: `wb-${id}`,
+          label: requireAttr(node, "title", filePath),
+        });
+        break;
+      }
+      case "Reading": {
+        const id = requireAttr(node, "id", filePath);
+        const books = requireAttr(node, "books", filePath);
+        if (!Array.isArray(books)) {
+          throw new Error(`${filePath}: <Reading ${id}> books is not an array`);
+        }
+        items.push({
+          kind: "reading",
+          id,
+          key: `reading:${id}`,
+          anchor: `wb-${id}`,
+          label: attr(node, "title", filePath) ?? "Reading list",
+          itemCount: books.length,
+          books,
         });
         break;
       }

@@ -1,155 +1,156 @@
 ---
 title: "Before you move on"
-description: "The build order that tends to work if you want a checklist for the week — wire your backend, build activation first, add dunning then win-back, put a holdout on it — then a quiz to check yourself."
-workbook: "The chapter's quiz — durability, if-vs-exitOn, exactly-once, waitForEvent, holdouts, and entryLimit."
+description: "The build order that tends to work if you want a plan for the week — activation first, then dunning, then win-back, then a holdout — and the coordination that keeps them from spamming anyone. Then a quiz on the whole lifecycle playbook."
+workbook: "The chapter's quiz — build order, conversion earned by activation, dunning ROI, referral timing, frequency caps, and the program holdout."
 ---
 
-The build order that tends to work, if you want a checklist for the week:
+The build order that tends to work, in order of impact, if you want a plan for the week:
 
-1. **Wire your backend** to `POST /v1/ingest` for `user.created`, `payment.failed`,
-   and your milestone event — every journey below hangs off these three.
-2. **Build `activation-welcome` first**; add its templates to `src/emails/` and
-   preview them in the React Email dev server before they send (the templates piece) — a
-   broken layout is much cheaper to catch in the preview than in a customer's inbox.
-3. **Add dunning if you charge**, then **win-back** — the same order as Chapter 5,
-   for the same reasons.
-4. **Put a holdout on that first journey** and watch the lift in PostHog — so when
-   someone asks whether the program works, there's a number instead of a feeling.
+1. **Welcome + activation first.** The gap between signup and activation is nearly always
+   the biggest leak (Chapter 2), so the welcome and its activation nudge are the highest-return
+   emails you can ship. Build these before anything else.
+2. **Dunning next, if you charge.** Failed payments are pure, recoverable churn — usually the
+   fastest revenue in the whole course for the least work.
+3. **Then win-back**, for users who've gone quiet — the same order as Chapter 5, for the same
+   reasons.
+4. **Put a holdout on that first journey** and read the lift — so when someone asks whether the
+   program works, there's a number instead of a feeling.
 
-You've now plugged the bucket. The rest of the course opens the tap — and makes sure
-every drop lands in an audience you own.
+And hold the *system* in mind from the second journey on: a frequency cap, a priority order, and
+one global holdout are what keep a growing pile of emails helpful instead of overwhelming.
+
+You've now plugged the bucket. The rest of the course opens the tap — and makes sure every drop
+lands in an audience you own.
 
 <Quiz
   questions={[
     {
-      q: "Your journey does: send welcome → sleep 2 days → send nudge. The server redeploys on day 1. What happens with durable execution?",
+      q: "You have time to build exactly one lifecycle email this week. For almost every product, which one has the highest return?",
       options: [
-        "The journey restarts and the user gets a second welcome email",
-        "The sleep is lost and the nudge never sends",
-        "The journey resumes exactly where it was — the sleep completes on day 2 and the nudge sends once",
-        "The journey fails and moves to a dead-letter queue",
-      ],
-      answer: 2,
-      explain:
-        "Durability means the engine persists the journey's position and replays past a restart without re-executing completed side effects — the two-day pause genuinely survives the deploy. This is the property every alternative (cron, setTimeout, job queues) makes you rebuild by hand.",
-    },
-    {
-      q: "What's the difference between an `if (!activated)` check before a send and an `exitOn: USER_ACTIVATED` entry?",
-      options: [
-        "They're equivalent — pick whichever reads better",
-        "The if-check gates one send at a known point; exitOn stops the whole journey at any point, including mid-sleep or mid-wait",
-        "exitOn only works for deletion events",
-        "if-checks are faster",
+        "A win-back for dormant users — reactivation is the most neglected stage",
+        "The welcome + activation nudge — the signup-to-activation gap is nearly always the biggest leak",
+        "A referral ask — it's the cheapest acquisition there is",
+        "A monthly newsletter — it keeps everyone warm",
       ],
       answer: 1,
       explain:
-        "Both layers matter: conditions personalise individual sends, while exit events are the engine-enforced suppression rule from Chapter 5 — the instant the goal event fires, the journey ends, even if it's parked in the middle of a 5-day wait.",
+        "Emails are built in order of expected impact, and the biggest leak for almost every product sits between signup and activation. Fixing that saves users you already paid to acquire, which is why it comes before everything else.",
     },
     {
-      q: "The dunning journey sends the CHURN_PAYMENT_FAILED template twice on one run. What does the engine require?",
+      q: "A free user hasn't done the core action yet, and your instinct is to send them an 'upgrade to paid' email. The chapter's read:",
       options: [
-        "Nothing — every send is automatically unique",
-        "A distinct idempotencyLabel on the sends that share a template, so their exactly-once keys can't collide (it throws in dev if you forget)",
-        "Setting entryLimit to unlimited",
-        "Wrapping both sends in ctx.once()",
+        "Send it — more upgrade prompts lift conversion",
+        "Don't — conversion is earned by activation; asking someone who hasn't felt the value to pay just earns an unsubscribe",
+        "Send it, but offer a discount to compensate",
+        "Send it only if they opened the welcome email",
       ],
       answer: 1,
       explain:
-        "Exactly-once keys are derived automatically from the run + nearest wait label + template. Two sends of the SAME template can collide, so each site declares a label — and the engine fails loudly at authoring time rather than silently dropping the second email.",
+        "The most common mistake in the funnel is asking for money before the user reached the aha moment. Conversion emails work on activated users; on unactivated ones they push on a door that never opened.",
     },
     {
-      q: "Why does the win-back journey use ctx.waitForEvent({ event: APP_ACTIVE, timeout: days(5) }) instead of ctx.sleep(days(5))?",
+      q: "Why is dunning (failed-payment recovery) usually the fastest revenue win in the course?",
       options: [
-        "waitForEvent is more efficient for the worker",
-        "sleep can't run for 5 days",
-        "It reacts to the user: if they come back inside the window the journey knows immediately (and exitOn ends it), while a plain sleep would blindly wait out the timer",
-        "waitForEvent automatically sends the follow-up email",
+        "It's the easiest email to design",
+        "It recovers involuntary churn — customers who already chose to pay and just had a card fail — so you're saving revenue that's already yours",
+        "It lets you raise prices without complaints",
+        "It brings back users who cancelled on purpose",
+      ],
+      answer: 1,
+      explain:
+        "A meaningful share of churn is involuntary — expired cards, insufficient funds. Those customers wanted to keep paying, so a retry-plus-reminder sequence recovers real revenue for almost no acquisition cost.",
+    },
+    {
+      q: "When should the referral ask fire?",
+      options: [
+        "On signup, while enthusiasm is highest",
+        "On a fixed monthly schedule to everyone",
+        "At a moment of peak satisfaction — just after the aha or a great outcome — and only to still-active users",
+        "When a user is about to churn, as a last-ditch effort",
       ],
       answer: 2,
       explain:
-        "waitForEvent races the user's own behaviour against a timeout and returns { timedOut } so the code branches on what actually happened — the difference between a program that listens and a timer that fires regardless.",
+        "People refer when they've just felt the value, not before they've felt it and not on your calendar. Asking dormant or unhappy users wastes the ask and can annoy them; timing it to a real win is the whole tactic.",
     },
     {
-      q: "In the holdout hook, why hash the user id instead of calling Math.random()?",
+      q: "You're running a dozen journeys and a single user is eligible for several at once. The single most important guardrail is:",
       options: [
-        "Hashing is faster than random number generation",
-        "Math.random() isn't available inside journeys",
-        "The bucket decision must be deterministic — stable across replays and consistent for the same user — or the holdout assignment (and your measurement) breaks",
-        "Hashes distribute more evenly than random numbers",
-      ],
-      answer: 2,
-      explain:
-        "A replayed journey must make the same holdout decision it made the first time, and the same user should stay in the same bucket. Randomness at run time would let a crash flip a user between arms — quietly corrupting the experiment.",
-    },
-    {
-      q: "You're adding win-back and dunning journeys. A user can lapse (or have a card fail) again months later, but shouldn't be re-enrolled twice in the same week. Which entryLimit fits?",
-      options: [
-        "once_per_period with an entryPeriod — it allows legitimate re-entry after the window while blocking rapid re-enrollment",
-        "once — a user should only ever receive a win-back sequence one time",
-        "unlimited — the exitOn events already prevent duplicate sends",
-        "None — the suppress window is the re-enrollment policy",
+        "A global frequency cap enforced across all journeys, so no combination can pile on",
+        "Sending everything at 9am so it arrives together",
+        "Turning off every journey but the most important one",
+        "Asking users to pick which emails they want",
       ],
       answer: 0,
       explain:
-        "entryLimit governs legitimate new runs: once fits welcome (you sign up once), once_per_period fits win-back and dunning (users can lapse again, but not be spammed), and unlimited is reserved for counting journeys. suppress is only a short debounce against a burst of the same trigger, not a policy.",
+        "Overlapping journeys are how a helpful program becomes spam. A cap enforced across every journey — not per-journey — is what protects the user from your enthusiasm and your deliverability from complaints.",
     },
     {
-      q: "A user unsubscribes from email while parked in the win-back journey's 5-day wait. What happens?",
+      q: "Two journeys could fire for the same user at the same moment: a dunning email and a new-feature nudge. Which should win, and on what principle?",
       options: [
-        "The journey exits immediately, exactly like an exitOn event",
-        "The engine cancels every active journey for that user",
-        "The next sendEmail throws and the journey run fails",
-        "The journey keeps running — unsubscribe is a preference the mailer honours at send time, which is why you re-check ctx.guard.isSubscribed() after long waits",
+        "The feature nudge — new features drive engagement",
+        "Whichever was scheduled first",
+        "Dunning — the rule of thumb is money and trust (payments, security, receipts) outrank promotional nudges",
+        "Neither — hold both until tomorrow",
       ],
-      answer: 3,
+      answer: 2,
       explain:
-        "An exit event ends a journey; an unsubscribe doesn't — the mailer suppresses the send, but the journey's logic keeps executing. Re-checking ctx.guard.isSubscribed() after a long sleep keeps the program honest about who still wants to hear from you.",
+        "When the frequency cap forces a choice, you need a priority order decided up front. Revenue-critical and trust-critical messages outrank promotion, so the failed-payment email sends and the feature nudge waits.",
     },
     {
-      q: "An LLM picks which of three re-engagement templates a journey sends. Why does the chapter say to wrap that choice in ctx.once?",
+      q: "Your welcome journey's open rate is 61% and you want to report the lifecycle program as a win. What actually proves the program's worth?",
       options: [
-        "ctx.once caches the LLM call so replays run faster",
-        "A crash-and-replay could re-roll the choice and deliver a different-but-duplicate message — ctx.once records the first result and replays it verbatim",
-        "The engine forbids network calls inside run() unless they're wrapped",
-        "ctx.once is required whenever a send takes props",
+        "The open rate, since it's well above benchmark",
+        "The total number of emails sent this month",
+        "A global holdout — a small random slice held out of all lifecycle email — compared to everyone else on retention and revenue",
+        "The number of journeys live",
+      ],
+      answer: 2,
+      explain:
+        "Opens measure sending, not lift. A permanent program holdout is the only thing that shows what the whole lifecycle system is actually worth — the number Chapter 9's review and a skeptical cofounder both ask for.",
+    },
+    {
+      q: "A feedback email comes back with a detractor score and an angry comment. In a lifecycle system, what should happen next?",
+      options: [
+        "Log it to a dashboard and move on",
+        "It triggers a save flow — a real reply or a 'what went wrong' journey — rather than vanishing into silence",
+        "Immediately send a discount code",
+        "Remove them from all future emails",
       ],
       answer: 1,
       explain:
-        "The exactly-once key is derived partly from what you send, so a non-deterministic choice is the one thing automatic replay safety can't cover. Recording the decision keeps a replayed run identical to the original — the same reason to prefer the event's occurredAt over new Date().",
+        "The feedback email isn't the end of a journey; it's a fork. A detractor should trigger a save/reply flow and a promoter a referral or review ask — routing the answer is what turns a survey into a system.",
     },
     {
-      q: "You want a win-back journey for users who've been inactive for 30 days. How does the chapter recommend detecting that dormancy?",
+      q: "It's a trial-ending sequence. A teammate suggests a countdown timer that resets on every page refresh to boost urgency. The chapter's view:",
       options: [
-        "Build a PostHog cohort for the inactivity condition and have a workflow webhook post to /v1/ingest — PostHog decides who, Hogsend decides what to do",
-        "Start a 30-day ctx.sleep in every journey at signup and check activity when it wakes",
-        "Have the journey poll PostHog's API on an interval until the user goes quiet",
-        "Run a nightly cron inside Hogsend that scans the users table for stale accounts",
+        "Do it — manufactured urgency reliably lifts conversion",
+        "Don't — fake scarcity converts a few once and costs trust with everyone who notices; honest urgency ('your trial ends Friday, here's what changes') converts about as well without spending credibility",
+        "Do it, but only for users who haven't activated",
+        "Only use it in the final email, not the whole sequence",
       ],
-      answer: 0,
+      answer: 1,
       explain:
-        "Thirty-day dormancy across all users is hard to compute in real time, but it's a cohort PostHog already maintains — the bridge is a webhook into the same ingest pipeline. That's the clean split of 'PostHog detects, Hogsend acts', with Hogsend never polling anything.",
+        "Real deadlines are honest urgency; a timer that resets is a trick. It works once and quietly erodes the trust the rest of your lifecycle program depends on — a bad trade.",
     },
     {
-      q: "A teammate proposes running lifecycle email on a nightly cron that scans the users table against a state column. What's the chapter's core objection?",
+      q: "What makes a triggered, per-user lifecycle email beat a batch blast to your whole list?",
       options: [
-        "Cron jobs can't send email reliably at scale",
-        "Every in-flight wait is lost the next time the server restarts",
-        "It only works for transactional email, not multi-step sequences",
-        "It works, but you hand-rebuild state, idempotency, and branching — and the logic smears across jobs and SQL until nobody can say what messages a user might get this week",
+        "It's cheaper to send",
+        "It reaches the right person at the moment their behaviour makes the message relevant — a receipt-not-brochure email doing one job, rather than the same mail to everyone regardless of where they are",
+        "It always has higher open rates",
+        "It doesn't need an unsubscribe link",
       ],
-      answer: 3,
+      answer: 1,
       explain:
-        "Losing waits on restart is the setTimeout failure, not cron's — cron's failure mode is slower and quieter. The tell the chapter gives: six months in, answering 'what can user X possibly receive this week?' means reading four jobs and a spreadsheet, which is exactly the readability a single durable function preserves.",
+        "The whole point of a lifecycle system is relevance: the email fires off what the user actually did, so it lands when it's useful. A batch blast ignores where each person is in the funnel, which is why it's the thing this course is built to replace.",
     },
   ]}
 />
 
 ## Go deeper
 
-- [React Email — documentation](https://react.email/docs/introduction) — the component model your `src/emails/` templates use.
-- [Resend — documentation](https://resend.com/docs/introduction) — the delivery API underneath the default provider.
-- [Vercel — sending emails from an application](https://vercel.com/kb/guide/sending-emails-from-an-application-on-vercel) — the same React Email + Resend stack assembled outside Hogsend, useful for seeing what the engine automates.
-- [Resend — introducing Templates](https://resend.com/blog/introducing-templates) — the version-controlled-templates argument, from the provider's side.
-- [Postmark — transactional email best practices](https://postmarkapp.com/guides/transactional-email-best-practices) — the one-job-one-CTA discipline lifecycle emails should copy.
-- [Resend — send test emails](https://resend.com/docs/dashboard/emails/send-test-emails) — sandbox addresses for exercising flows safely.
-- [Mailtrap — how to test email](https://mailtrap.io/blog/how-to-test-email/) — capture-sandbox methodology for staging environments.
+- [Postmark — transactional email best practices](https://postmarkapp.com/guides/transactional-email-best-practices) — the one-job-one-CTA discipline every lifecycle email should copy.
+- [Hogsend docs](https://hogsend.com/docs) — how to actually build the journeys and templates from this chapter, when you're ready to implement.
+- [Hogsend — email templates by lifecycle stage](https://hogsend.com/emails) — the same AARRR catalog this chapter teaches, as ready-made components.
+- [Reforge — retention & engagement](https://www.reforge.com/blog) — the strategy behind the retention and reactivation emails, in depth.
+- [Lenny's Newsletter](https://www.lennysnewsletter.com/) — operator essays on onboarding, conversion, and lifecycle across every stage.

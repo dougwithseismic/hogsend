@@ -27,6 +27,8 @@ const KIND_VERB: Record<string, string> = {
   checklist: "Checklist",
   quiz: "Quiz",
   flashcards: "Study",
+  calc: "Calculate",
+  reading: "Read",
 };
 
 function itemVerb(item: WorkbookItem): string {

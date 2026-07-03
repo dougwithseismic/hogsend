@@ -1,0 +1,68 @@
+---
+title: "Power and sample size"
+description: "An underpowered test can't see the effect you're hoping for — so it reports 'no difference' or, worse, a false win you'll act on. The intuition behind minimum detectable effect, run length, and why peeking lies."
+workbook: "Watch Ronny Kohavi — who ran experimentation at Bing — on the pitfalls that make results untrustworthy: peeking, underpowered tests, and sample-ratio mismatch."
+---
+
+Power is the least intuitive idea in this chapter, and it's the one that quietly wrecks
+small-team tests — so it's worth slowing down on. **Statistical power** is the chance a
+test *detects* a real effect when one exists. A test at low power is a smoke detector with
+a flat battery: the thing can be happening and the alarm stays silent.
+
+Underpowered tests are the quiet failure mode of small-team experimentation, and they fail
+in two ways. They miss real wins — reporting "no difference" when there really was one.
+And they hand you **false wins**: results that look significant but won't replicate. Acting
+on a false win is worse than running no test at all, because you ship the change *and*
+trust it.
+
+Three levers set how much traffic you need:
+
+- **Baseline rate** — where the metric starts.
+- **Minimum detectable effect (MDE)** — the smallest change you care to catch. This one
+  dominates: required sample grows with roughly the *square* of how small an effect you
+  want to see, so detecting a 1% lift needs about **four times** the traffic of detecting
+  a 2% lift *(well-attested — it's arithmetic, not opinion)*. Small effects are enormously
+  expensive to prove.
+- **Confidence and power** — conventionally 95% confidence and 80% power.
+
+The practical consequence for a startup: you usually can't detect small effects, so **test
+big swings** — whole onboarding flows, whole journeys, pricing — not button colours. And
+decide the sample size and run length *before* you start, with a calculator like
+[Evan Miller's](https://www.evanmiller.org/ab-testing/sample-size.html), so "how long do
+we run this?" has an answer that isn't "until it looks significant."
+
+### The cardinal sin: peeking
+
+The temptation is to watch a running test and stop the moment it crosses significance —
+and doing that badly inflates your false-positive rate. A test with *no* real
+effect will touch significance surprisingly often if you check it every day. The p-value
+is only trustworthy at the sample size you committed to. Pick the finish line first, then
+look when you reach it. Evan Miller's
+["How Not to Run an A/B Test"](https://www.evanmiller.org/how-not-to-run-an-ab-test.html)
+shows exactly how much peeking distorts the result.
+
+<VideoEmbed
+  id="HEGI5QN3fXE"
+  title="Ronny Kohavi: A/B Testing Pitfalls: Getting Numbers You Can Trust is Hard - CXL LIVE 2016"
+  channel="CXL"
+  note="The person who ran experimentation at Bing walks the pitfalls that turn a significant result into a wrong one — the reason 'trustworthy' is a harder bar than 'significant.'"
+/>
+
+<VideoTranscript id="HEGI5QN3fXE" />
+
+**What to take from it:**
+
+- False wins are the rule, not the exception. Kohavi's headline Bing metric — sessions per
+  user — improves in only about 1 in 5,000 attempts, so because a genuine move is that rare,
+  roughly 99.6% of the *significant* (p < 0.05) results on it are false positives. His
+  certification committee's standing line: don't celebrate one significant result, replicate
+  it first.
+- Sample-ratio mismatch is the trust-killer he checks before anything else — the single most
+  common alarm at Microsoft. A test built to split traffic 50/50 that comes back even
+  slightly lopsided (his live example: 821,588 vs 815,582 users, about a 1-in-500,000
+  imbalance by chance) has a flaw in its execution, and no p-value from it can be trusted.
+- Peeking and ramp-ups distort the answer directly: combine data while the treatment's
+  traffic share is still changing and a winner can flip to a loser (Simpson's paradox). The
+  discipline is to fix the finish line first, run A/A tests to sanity-check the system — they
+  should "fail" about 5% of the time, and one vendor's once failed 30%, exposing a broken
+  engine — and remember Twyman's law: a result that looks amazing is usually a bug.

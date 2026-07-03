@@ -1,40 +1,61 @@
 ---
-title: "Correctness: exactly-once and re-enrollment"
-description: "The failure mode that kills trust isn't a missed email — it's a double send. How replay-based durability makes that a real risk, how the engine closes it automatically, and the one authoring rule you're responsible for."
+title: "Reliability: the system has to be trustworthy"
+description: "The failure mode that kills a lifecycle program isn't a missed email — it's a double-send. Why exactly-once delivery and safe re-runs are a requirement, not a nicety, and what to expect from your tooling."
 ---
 
-The failure mode that kills trust in a lifecycle program isn't a missed email — it's a
-**double send**. Here's why it's a real risk and how the engine closes it.
+Everything in this chapter has quietly assumed one thing: that when your program decides to
+send a message, it sends it **once** — not zero times, not twice. That assumption is doing
+enormous work, and it's the difference between a lifecycle program people trust and one they
+quietly route around.
 
-Remember the loop: durability works by *replaying* a crashed journey from the top and
-fast-forwarding through completed steps. Now imagine a worker dies **after** the
-provider accepted your welcome email but **before** the engine recorded that step as
-complete. The replay re-runs the send line. Without engine support, that user gets two
-welcomes — and at scale, every deploy is a small chance of embarrassing some slice of
-your users. Three things worth internalising:
+**The failure mode that kills trust isn't a dropped email — it's a double-send.** A missed
+message is invisible; nobody complains about an email they never got. A *duplicate* is
+loud. Two identical welcomes make you look broken. Two "your payment failed" notices —
+especially one that lands after the card already cleared — make you look alarming. A
+referral ask that arrives three times makes you look desperate. Users don't file a bug;
+they mark you as spam, and internally your own team stops trusting the program enough to
+add to it. Reliability isn't a polish item you get to later. It's the foundation the whole
+program stands on.
 
-- **Replay safety is automatic.** The engine derives a deterministic idempotency key
-  for every `sendEmail()` and `ctx.trigger()` from the run's identity plus the nearest
-  authored wait label, and dedupes on it — so a replayed send collapses into the
-  original instead of delivering twice. You write nothing extra.
-- **The one authoring rule:** if you send the **same template twice in one journey**
-  (like the dunning reminder), give each site a distinct `idempotencyLabel` so
-  their keys can't collide. Forgetting isn't silent — the engine throws a loud
-  key-collision error in dev, which is exactly when you want to find out.
-- **Keep the run deterministic where it matters.** If a *non-deterministic* choice
-  picks what to send — an LLM choosing a template, a random variant — wrap it in
-  `ctx.once(label, compute)`: the engine records the first result and replays it
-  verbatim, so a crash can't re-roll the dice into a different-but-duplicate message.
-  Same logic for timestamps: prefer the event's own `occurredAt` (from
-  `ctx.waitForEvent`'s returned properties) over `new Date()`.
+**Why this is genuinely hard — and why you should care that it's handled.** Durable
+lifecycle systems survive crashes and deploys by *replaying* a journey from the top and
+fast-forwarding through the steps that already happened. That's exactly what lets a
+three-day wait survive a Tuesday redeploy. But it also means that if a worker dies at the
+wrong instant — *after* the email provider accepted your send but *before* the system
+recorded it as done — a naïve replay re-runs the send and the user gets two. At any real
+scale, every deploy becomes a small chance of embarrassing some slice of your users. The
+mechanism that makes long waits reliable is the same mechanism that, done carelessly,
+double-sends.
 
-And separately from replays, **`entryLimit` is your re-enrollment policy** — it governs
-legitimate *new* runs, not crashed ones. `"once"` for a welcome (a user signs up once).
-`"once_per_period"` for win-back and dunning (they can lapse again, but not be spammed).
-`"unlimited"` only for counting journeys (e.g. the Discord gamification in Chapter 8,
-where every reaction must re-count).
+**So here's what to demand from your tooling, as the growth owner:**
 
-This is the kind of correctness you get *because* the journey is code in a system built
-for it — exactly-once delivery across redeploys is brutally hard to get right by hand,
-and it's the subtlest of the reasons a purpose-built engine beats the roll-your-own
-options in the next piece.
+- **Exactly-once delivery by default.** A crash, a redeploy, or a retry mid-journey must
+  never turn one intended message into two. This should be the engine's job — automatic,
+  with nothing extra for you to remember on the common path — not a discipline you
+  hand-maintain send by send.
+- **Deliberate repeat sends stay possible.** Some journeys send the *same* message twice on
+  purpose — the dunning reminder is the same "update your card" template as the first
+  notice. Your tooling has to tell the difference between "the same send, replayed by a
+  crash" (collapse it) and "a second send I meant to happen" (deliver it). If getting that
+  distinction right needs care, the tool should catch a mistake *loudly in development* —
+  not silently drop a message in production.
+- **A clear re-enrollment policy.** Separate from crashes, you need a deliberate answer to
+  "can this customer enter this journey again?" A welcome should fire **once** — a person
+  signs up once. Win-back and dunning should be **once per period** — a customer can
+  genuinely lapse again, but shouldn't be re-nudged daily. A few counting journeys (like
+  the Discord engagement loop in Chapter 8) are **unlimited** by design. This is a policy
+  decision you make per journey; the tool just has to enforce it.
+- **Determinism where a choice drives the message.** If something non-deterministic picks
+  *what* to send — an LLM choosing a variant, a random A/B split — a replay must not
+  re-roll that choice into a different-but-duplicate message. The decision has to be
+  recorded once and reused. Same for timestamps: anchor to the event's own time, not "now,"
+  so a replay reads the same clock.
+
+You get this kind of correctness *because* the journey runs inside a system purpose-built
+for it. Exactly-once delivery across redeploys is brutally hard to get right by hand — it's
+one of the subtlest reasons a dedicated engine beats a roll-your-own stack, which is
+exactly the trade-off the next piece weighs. For how the engine actually guarantees it —
+the idempotency keys, the replay-safe primitives, the loud dev-time errors — see
+[the Hogsend docs](https://hogsend.com/docs). The point for you as the growth owner is
+simpler: reliability is a requirement you get to *assume*, and a program you can't trust to
+send exactly once is a program no one will let you grow.

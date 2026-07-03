@@ -1,0 +1,67 @@
+---
+title: "What deserves an experiment"
+description: "Every experiment has a fixed cost — traffic you split, time you wait, and the change you didn't ship instead. Some decisions earn that cost; many should just ship. How to tell them apart."
+workbook: "Sort a real decision into ship-it or test-it, then watch Ronny Kohavi on why most tested ideas fail and when not to run an experiment at all."
+---
+
+An experiment is not free. It costs **traffic** — you split it, so each variant learns
+slower and you need more users to reach an answer. It costs **time** — design, build,
+wait for significance, read. And it costs **opportunity** — the change you didn't ship
+while this one ran. Testing is a way to *buy certainty* about a decision, and like
+anything you buy, it's only worth it when the certainty is worth more than the price.
+
+Two questions decide it:
+
+- **Is the change cheap and reversible?** Then ship it. If a clearer button label is
+  obviously better and trivial to roll back, a two-week test to confirm it is time you
+  won't get back — and at startup traffic the effect is probably too small to detect
+  anyway (§12.4).
+- **Is the decision expensive to get wrong, and hard to undo?** Then test it. Pricing
+  changes, removing an onboarding step, a new activation flow — these are the decisions
+  where being wrong costs months, and where certainty is worth paying for.
+
+Lenny's [guide to when *not* to run an experiment](https://www.lennysnewsletter.com/p/not-running-an-experiment)
+is a good checklist: ship without a test when the change is obviously good, too small to
+measure at your traffic, or easily reversed; test when the stakes and the uncertainty are
+both high.
+
+### Why test the expensive ones at all?
+
+There's a humbling reason to test the big ones: you're bad at predicting winners, and so
+is everyone else. At Microsoft, only about **one-third of experiments moved the metric
+they were designed to move** in the intended direction — another third did nothing, and a
+third made things worse (Ronny Kohavi's data from Bing/Microsoft) *(well-attested)*. The
+famous example is a Bing ad-headline change one engineer left in the backlog for months
+because it looked trivial; it turned out to be worth roughly **\$100M a year** (Kohavi,
+["The Surprising Power of Online Experiments," HBR](https://hbr.org/2017/09/the-surprising-power-of-online-experiments))
+*(well-attested)*. If experts guessed right, you wouldn't need the test. The point of
+experimentation isn't to rubber-stamp good ideas — it's to catch the two-thirds that
+would have quietly cost you.
+
+So the rule isn't "test everything." It's: ship the cheap, reversible, obvious changes
+fast, and spend your limited testing capacity on the decisions that are expensive to get
+wrong and where your intuition genuinely might be wrong.
+
+<VideoEmbed
+  id="hEzpiDuYFoE"
+  title="The ultimate guide to A/B testing"
+  channel="Lenny's Podcast"
+  note="Kohavi, the field's leading voice on experimentation, on why most ideas fail and when a test isn't worth running — the humility this whole chapter is built on."
+/>
+
+<VideoTranscript id="hEzpiDuYFoE" />
+
+**What to take from it:**
+
+- The failure rates *rise* with optimisation: ~two-thirds of ideas fail at Microsoft,
+  ~85% at Bing, 92% at Airbnb search — and every team assumes it's the exception until the
+  data humbles it. That's the case for testing the expensive decisions: intuition is wrong
+  more often than anyone guesses.
+- When *not* to test comes down to sample size. Below ~tens of thousands of users the
+  statistics only see large effects, and the "magic" starts around 200k — so a small
+  startup should test big swings, not button colours (§12.4). Some calls (a one-time,
+  irreversible decision) can't be A/B tested at all.
+- Two guardrails from the same humility: don't ship on flat (a no-difference result still
+  adds code and maintenance cost for no gain — a no-ship, not a free launch), and invoke
+  Twyman's law — a result that looks too good is probably a bug, so investigate before you
+  celebrate.

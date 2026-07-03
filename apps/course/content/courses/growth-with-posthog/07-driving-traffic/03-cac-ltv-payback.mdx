@@ -1,7 +1,7 @@
 ---
 title: "The maths that decides: CAC, LTV, payback"
 description: "Whatever the channel, the same three numbers decide whether it's working — and the definitions are where founders fool themselves. CAC per channel, LTV on margin, and the payback period that matters most when cash is tight."
-workbook: "Watch a fast primer on the SaaS vocabulary this section leans on, and note your own CAC and payback."
+workbook: "Watch a fast primer on the SaaS vocabulary this section leans on, then compute your own CAC, LTV, and payback."
 ---
 
 Whatever the channel, the same three numbers decide whether it's working. The
@@ -59,3 +59,13 @@ knowing your numbers and their trend. Two habits follow from that:
 Where do the numbers come from? The machine you already built: revenue events are
 server-side in PostHog (Chapter 3), source/UTM landed as person properties (§7.8), so
 "LTV by acquisition source" is a PostHog insight, not a spreadsheet safari.
+
+Benchmarks are worth less than your own numbers, so put them in. Watch the payback
+figure most when cash is tight — a healthy LTV:CAC with a payback longer than your
+runway still sinks you.
+
+<Calculator
+  preset="cac-ltv-payback"
+  id="ch7-cac-ltv-payback"
+  title="Your CAC, LTV, and payback"
+/>

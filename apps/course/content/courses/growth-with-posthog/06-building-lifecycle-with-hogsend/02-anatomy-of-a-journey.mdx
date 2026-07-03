@@ -1,73 +1,110 @@
 ---
-title: "Anatomy of a journey"
-description: "Every journey is defineJourney({ meta, run }) — meta declares when it runs and the guardrails, run is the control flow. The pieces that matter for lifecycle work, and why it's just code."
+title: "Anatomy of a lifecycle message"
+description: "Every lifecycle email is really six decisions — the trigger, the audience, the timing, the content, the exit, and the measurement. The choices a growth person makes before anyone writes a line of code."
 ---
 
-Every journey is `defineJourney({ meta, run })`. The `meta` declares *when* it runs and
-the guardrails; `run` is the actual control flow.
+Every lifecycle email you'll ever build comes down to six decisions. Get them right and
+the implementation is almost mechanical; get them wrong and no amount of clever copy
+saves the message. These are the decisions a growth person owns — the tool just carries
+them out. Here they are in the order you actually make them.
 
-```ts
-import { days, hours } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
-import { Events, Templates } from "./constants/index.js";
+### 1. The trigger — which event starts it
 
-export const example = defineJourney({
-  meta: {
-    id: "example",
-    name: "Example journey",
-    enabled: true,
-    trigger: { event: Events.USER_CREATED },     // the event that starts it
-    entryLimit: "once",                            // once | once_per_period | unlimited
-    suppress: hours(12),                           // ignore re-triggers within this window
-    exitOn: [{ event: Events.USER_DELETED }],      // events that end the journey early
-  },
-  run: async (user, ctx) => {
-    // user: { id, email, stateId, journeyName, properties }
-    // ctx:  durable primitives — sleep, history, waitForEvent, trigger, guard
-  },
-});
-```
+The trigger is the single behaviour that means *now is the moment*. Choosing it is
+choosing when the message fires, so it's the most consequential decision on the list. "A
+user signed up" is a trigger. So is "a user hit their fifth project," "a payment failed,"
+or "no activity for fourteen days."
 
-The pieces that matter for lifecycle work:
+Precision here is everything. "Signed up" and "signed up *and is on the free plan*" are
+different triggers that produce different programs — the second one never wastes an
+upgrade sequence on someone who paid at the door. The tighter you can describe the
+moment, the less filtering you have to do later. The events you defined back in Chapter 3
+are exactly the raw material; the craft is picking the one that most precisely marks the
+moment this message earns its place in the inbox.
 
-- **`trigger.event`** — the event the journey subscribes to. Add **`where`** to filter
-  on properties: `trigger: { event: Events.USER_CREATED, where: (b) => b.prop("plan").eq("free") }`.
-- **`entryLimit`** — `"once"` (a user can only ever enter once), `"once_per_period"`
-  (with `entryPeriod`), or `"unlimited"`. This is your re-enrollment policy and an
-  important correctness control.
-- **`exitOn`** — the events that stop the journey immediately. **This is how you
-  implement suppression from Chapter 5:** exit the upgrade sequence the instant the
-  user upgrades. An exit fires even mid-wait — a journey parked on a 5-day
-  `waitForEvent` aborts cleanly the moment an exit event arrives, so no post-wait
-  side effects run.
-- **`suppress`** — a debounce so a burst of the same trigger doesn't start multiple
-  runs.
+### 2. The audience — who's eligible, and who to suppress
 
-Inside `run`, you use the context primitives:
+A trigger fires for a lot of people. The audience decision narrows it to the people this
+message is actually *for*, and — just as importantly — excludes the people it would harm.
 
-- `ctx.sleep({ duration, label })` — durable pause.
-- `ctx.sleepUntil(at, { label })` — durable pause until an absolute instant.
-- `ctx.when` — a timezone-aware scheduler for computing that instant: e.g.
-  `ctx.when.tomorrow().at("09:00")` resolves 9am *in the user's own timezone* and
-  respects your configured send window, so "send the day-2 email at breakfast, not at
-  3am" is one line instead of timezone arithmetic.
-- `ctx.history.hasEvent({ userId, event, within? })` → `{ found, count }` — did this
-  already happen?
-- `ctx.history.events({ userId, event, within, limit })` — pull the matching events to
-  inspect.
-- `ctx.waitForEvent({ event, timeout, label? })` — pause until *this user* emits an
-  event or the timeout elapses; returns `{ timedOut, properties? }` (the matched
-  event's payload, so you can branch on the answer). An optional `lookback` first
-  checks recent history, covering the gap where the event fired a moment *before* the
-  wait was established.
-- `ctx.trigger({ event, userId, properties? })` — emit an event back into the pipeline.
-- `ctx.guard.isSubscribed()` — re-check subscription after a long sleep.
-- `ctx.checkpoint(label)` — mark progress so operators can see where users sit.
+Two separate questions live here:
 
-And you send with `sendEmail({ to, userId, journeyStateId, template, subject, props? })`,
-where `template` is a key from your `src/emails/` registry (the next piece).
+- **Eligibility.** Who qualifies? Free-plan users only. Trial users in their first week.
+  Accounts over a certain size. This is a filter on top of the trigger.
+- **Suppression and re-enrollment.** Who should *not* get this even though they qualify?
+  Someone who's already mid-upgrade shouldn't get the upgrade nudge. Someone who finished
+  this sequence last week shouldn't be dropped straight back into it. You decide whether a
+  user can enter this journey *once ever*, *once per period*, or *every time the trigger
+  fires* — and that re-enrollment policy is one of the most common places lifecycle
+  programs go wrong. Set it too loose and you spam; too tight and you miss a legitimate
+  second occasion.
 
-The thing to notice across all of this: it's *just code*. The branching is `if`. The wait
-is `await`. The history check is a function call. There's no DSL to learn and no canvas
-to fight — which is exactly why a journey can express logic a no-code tool can't, and why
-it's reviewable in a pull request like the rest of your product.
+This is a correctness decision, not a copy decision. The best-written email sent to the
+wrong person is a complaint waiting to happen — and Chapter 5's deliverability math is
+unforgiving about complaint rate.
+
+### 3. The timing — the delay, and the time of day
+
+Two sub-decisions, both easy to under-think.
+
+The **delay** is a tactic. Fire the welcome email instantly — intent is never higher than
+the second after signup. But the "you've been quiet" nudge needs to wait long enough that
+being quiet actually means something, and the "how's it going?" check-in lands better on
+day three than day zero. Too soon feels robotic; too late misses the moment.
+
+The **time of day** is the one teams forget. A message that resolves to "send two days
+later" will, naively, fire at whatever 3am-in-the-user's-timezone your server clock
+happens to hit. The fix is to send in the *user's* local time and inside a sane send
+window — a well-timed 9am email beats a perfectly-written 3am one, because nobody reads
+the 3am one. Deciding this is a strategy call ("breakfast, their time"); making it happen
+reliably is what the engine handles for you — see [the Hogsend docs](https://hogsend.com/docs)
+for the timezone and send-window mechanics.
+
+### 4. The content — one job, one CTA
+
+A lifecycle email is closer to a *receipt* than a *brochure*: one job, one call to action,
+plain and fast. The content decision is really a decision about *restraint* — what to
+leave out. Every lifecycle message should be able to answer "what is the one thing I want
+this person to do?" in a single sentence. If it can't, it's two emails wearing a trench
+coat. The next atom goes deep on the craft of the email itself; for now, the anatomical
+point is that "one job" is a design constraint you set here, before a word is written.
+
+### 5. The exit — the event that stops it
+
+The exit is the mirror image of the trigger, and it's every bit as important. It's the
+event that ends the journey early, the instant it happens.
+
+The canonical case: an upgrade sequence should stop the *moment* the user upgrades. If it
+doesn't, they get "still thinking about upgrading?" a day after they already paid — which
+reads as "we don't even know you're a customer," the most trust-eroding message you can
+send. This is Chapter 5's suppression principle made concrete: the exit is how a journey
+knows when it has been overtaken by events and should get out of the way.
+
+A journey that's parked mid-wait — say, five days into a check-in delay — has to be able
+to abort cleanly when its exit event arrives, so no later step fires after the reason for
+it has gone. Deciding *what* stops the message is the growth call; wiring the exit so it
+fires even mid-wait is engine territory
+([the Hogsend docs](https://hogsend.com/docs) cover it).
+
+### 6. The measurement — did it lift anything
+
+The last decision closes the loop from the previous atom: how will you know this message
+worked? A lifecycle email exists to move a number — activation, recovered revenue,
+reactivation. If you can't say which number and can't see it move, you've built a message
+you can neither improve nor safely retire.
+
+So every message should report back — emit events on send, open, click, and (ideally) the
+downstream action it was trying to cause — so the effect shows up in PostHog next to the
+funnel it's meant to help. This is what lets you answer the only question that matters
+after launch: *is this email earning its place, or is it quietly costing me sender
+reputation for no lift?* A message you can't measure is a message you'll never turn off,
+even when it's hurting.
+
+---
+
+Those six — trigger, audience, timing, content, exit, measurement — are the whole anatomy.
+Notice that five of the six are pure growth judgment; none of them is a coding problem.
+The value you add is in the decisions. The engine's job is to execute them faithfully, in
+the right order, for the right user, at the right time — and to keep doing it through
+every deploy and restart. For how each decision maps to an actual journey, see
+[the Hogsend docs](https://hogsend.com/docs).

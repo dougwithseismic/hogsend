@@ -1,17 +1,20 @@
 {
-  "title": "6 · Lifecycle in Hogsend",
+  "title": "6 · Lifecycle playbook",
   "pages": [
     "01-the-loop",
     "02-anatomy-of-a-journey",
     "03-templates-email-as-code",
     "04-welcome-onboarding",
     "05-behavioural-nudge-series",
+    "13-conversion-emails",
     "06-win-back",
     "07-dunning",
     "08-referral",
+    "14-feedback-and-nps",
     "09-exactly-once",
     "10-other-ways",
     "11-triggers-and-holdout",
+    "15-how-they-come-together",
     "12-before-you-move-on"
   ]
 }

@@ -1,51 +1,68 @@
 ---
 title: "Feeding your journeys and proving lift"
-description: "Two sides of the system around a single journey: the three sources of events that trigger it — your backend, webhook sources, and PostHog cohorts — and the deterministic holdout that lets you measure the lift the program actually produces."
+description: "Two sides of a live journey: the three places its trigger events come from — your product backend, external webhooks like Stripe, and PostHog cohorts — and the holdout that proves the program's real lift."
 ---
 
-Your journeys are only as good as the events feeding them. Three sources:
+A journey is only as good as the events feeding it, and only as trustworthy as your ability
+to prove it works. Those are the two sides of the system around every journey you ship:
+what *fires* it, and how you *measure* it.
 
-- **Your backend** — `POST /v1/ingest` for product events (signup, payment, milestone).
-  This is the primary source and it's server-side, so ad-blocker-proof (Chapter 3).
-- **Webhook sources** — `defineWebhookSource()` turns any external webhook (Stripe,
-  a form, a CRM) into an event that can trigger a journey. Declare the auth header,
-  optionally validate the payload, and write one `transform()` that maps the
-  provider's shape onto your event names — from then on a Stripe invoice failure is
-  just another event in the same pipeline.
-- **PostHog** — for *batch* / analytics-defined audiences (e.g. "did signup but not
-  activate in 7 days"), build a PostHog cohort + a workflow webhook that posts to
-  `/v1/ingest`. PostHog decides *who* needs action; Hogsend decides *what* to do. This
-  is the bridge that powers inactivity-based win-back without Hogsend polling anything.
+### Where the events come from
 
-That last one is the clean expression of "PostHog detects, Hogsend acts" (Chapter 0):
-the thing that's hard to compute in real time (30-day dormancy across all users) is a
-cohort PostHog already maintains; Hogsend just receives the verdict and runs the program.
+Three sources feed your triggers, and most programs use all three:
 
-### The holdout hook
+- **Your product backend.** Your own application emits the events that describe what
+  customers do — signed up, activated, hit a milestone, paid, cancelled. This is the
+  primary source, and because it's sent server-side from your backend it's immune to
+  ad-blockers (Chapter 3) in a way client-side tracking never is. These are events you
+  already own; the lifecycle program just listens to them.
+- **External webhooks.** Systems you don't control — Stripe, a form provider, a CRM, your
+  billing platform — already emit webhooks when something happens. You point those at your
+  lifecycle system, map each provider's payload onto your own event names once, and from
+  then on a Stripe invoice failure is just another event in the same pipeline as a product
+  signup. This is how the dunning trigger arrives (§07): the *billing system* is the source
+  of truth, not a scheduled guess. ([The Hogsend docs](https://hogsend.com/docs) cover
+  wiring up a webhook source.)
+- **PostHog cohorts.** Some audiences aren't a single event — they're a *pattern* best
+  computed in your analytics tool: "signed up but didn't activate within 7 days," "active
+  last month, silent this month." PostHog already maintains these as cohorts. You let
+  PostHog decide *who* qualifies and have it hand that verdict to your lifecycle system,
+  which then decides *what* to do. Nothing has to poll your database looking for dormancy —
+  the analytics layer that's already computing it tells you.
 
-Chapter 5 said: prove lift with a holdout. Because enrollment is just code, you can
-implement a campaign holdout directly — deterministically bucket a small fraction of
-users out of enrollment and compare their downstream events to the enrolled group:
+That last source is the clean expression of the whole course's spine — **"PostHog detects,
+the lifecycle acts"** (Chapter 0). The thing that's genuinely hard to compute in real time
+(30-day dormancy across every user) is a cohort PostHog maintains for free; your program
+just receives the verdict and runs. Detection and action stay in the tools that are best at
+each.
 
-```ts
-run: async (user, ctx) => {
-  // ~10% holdout, deterministic per user so it's stable across replays.
-  if (hashToUnitInterval(user.id) < 0.1) {
-    await ctx.trigger({ event: "journey.held_out", userId: user.id });
-    return; // measured, not messaged
-  }
-  // ...normal journey...
-}
-```
+### Proving lift with a holdout
 
-Two details are load-bearing. The bucketing is a **hash of the user id**, not
-`Math.random()` — deterministic, so a replay makes the same decision and the same user
-is always in the same bucket across every journey version. And the held-out path still
-**fires an event** — the control group must be *visible* in PostHog, or you'll have
-nothing to compare against.
+Shipping a journey is not the same as knowing it worked. Opens and clicks tell you a message
+was *seen*; they tell you nothing about whether it *caused* anything — those users might
+have converted anyway. The only honest way to know is a **holdout**, the exact discipline
+from Chapter 5:
 
-Then in PostHog, compare activation/retention/revenue for `journey.held_out` users vs
-enrolled users. That difference is your real, causal lift — the growth-team experiment
-loop (Chapter 0) running continuously, in production, on the journey you just shipped.
-When Chapter 9's monthly review asks "what's the lifecycle program actually worth?",
-this hook is where the answer comes from.
+- **Quietly withhold the messages from a small random slice of otherwise-eligible users.**
+  They qualify for the journey in every way; they just don't get the emails. Everyone else
+  does.
+- **Keep the slice stable.** A given user should always land on the same side of the line —
+  held out or messaged — not get re-rolled each time. Otherwise you can't cleanly compare
+  the groups, and you'll message someone one week and hold them out the next.
+- **Make the held-out group visible.** The control group has to be *observable* in your
+  analytics — tagged as held-out — or you'll have nothing to compare against. A control you
+  can't see isn't a control.
+- **Compare outcomes, not opens.** Look at activation, retention, or revenue for the
+  messaged group versus the held-out group. The *difference* is the incremental lift you
+  can actually credit to the program — the number that survives scrutiny.
+
+A worked read looks like Chapter 5's: messaged users convert at 18%, held-out users at 11%,
+so the journey is worth **+7 points** of conversion you can attribute to it — not
+correlation, cause. Use a *larger* holdout (20–50%) on low-volume journeys so the
+comparison means something, decide your read date in advance so you don't stop the moment
+it looks good, and hold out the *whole* experience rather than just some of the messages.
+
+This is the growth-team experiment loop from Chapter 0 running continuously, in production,
+on the journey you just shipped. And it's exactly where the answer comes from when Chapter
+9's monthly review asks the only question that ultimately matters: **what is the lifecycle
+program actually worth?**

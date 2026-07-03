@@ -202,6 +202,13 @@
     ],
     "02-aarrr-and-the-leaky-bucket/02-leaky-bucket": [
       {
+        "kind": "calc",
+        "id": "ch2-retention-compounder",
+        "key": "calc:ch2-retention-compounder",
+        "anchor": "wb-ch2-retention-compounder",
+        "label": "Feel the leak: retention vs. the pour"
+      },
+      {
         "kind": "flashcards",
         "id": "cards-aarrr",
         "key": "flashcards:cards-aarrr",
@@ -235,6 +242,13 @@
         "label": "Write your activation sentence — the one user action that means they got real value.",
         "placeholder": "A user is activated when they… (one sentence, one observable event)",
         "rows": 2
+      },
+      {
+        "kind": "calc",
+        "id": "ch2-activation-value",
+        "key": "calc:ch2-activation-value",
+        "anchor": "wb-ch2-activation-value",
+        "label": "What a point of activation is worth"
       }
     ],
     "02-aarrr-and-the-leaky-bucket/04-north-star": [
@@ -560,8 +574,17 @@
         "id": "cards-hogsend",
         "key": "flashcards:cards-hogsend",
         "anchor": "wb-cards-hogsend",
-        "label": "Key ideas — journeys as code",
+        "label": "Key ideas — the behavioural nudge series",
         "itemCount": 8
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/07-dunning": [
+      {
+        "kind": "calc",
+        "id": "ch6-dunning-recovery",
+        "key": "calc:ch6-dunning-recovery",
+        "anchor": "wb-ch6-dunning-recovery",
+        "label": "What dunning is worth to you"
       }
     ],
     "06-building-lifecycle-with-hogsend/12-before-you-move-on": [
@@ -571,6 +594,50 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/13-conversion-emails": [
+      {
+        "kind": "note",
+        "id": "ch6-conversion-trigger",
+        "key": "note:ch6-conversion-trigger",
+        "anchor": "wb-ch6-conversion-trigger",
+        "label": "What's the one in-product signal that means a user is ready to pay — the wall or power-action your best upgrade email should wait for?",
+        "placeholder": "A user is ready to pay when they… (e.g. invite a teammate beyond the free seat count, or hit the export limit twice in a week)",
+        "rows": 2
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/14-feedback-and-nps": [
+      {
+        "kind": "checklist",
+        "id": "ch6-feedback-checklist",
+        "key": "checklist:ch6-feedback-checklist",
+        "anchor": "wb-ch6-feedback-checklist",
+        "label": "A feedback email that goes somewhere",
+        "items": [
+          "Triggered by a real success event (activation, purchase, resolved ticket) — not a fixed date",
+          "One question, answerable in a tap — no ten-field form behind a link",
+          "The number is directional; the free-text reason is the real signal",
+          "A detractor's answer triggers a save/reply flow, not silence",
+          "A promoter's answer triggers a referral or review ask",
+          "Answers are reviewed against the product and the other journeys, not just charted"
+        ]
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/15-how-they-come-together": [
+      {
+        "kind": "checklist",
+        "id": "ch6-lifecycle-system",
+        "key": "checklist:ch6-lifecycle-system",
+        "anchor": "wb-ch6-lifecycle-system",
+        "label": "The coordination rules",
+        "items": [
+          "A global frequency cap across all journeys — no user gets more than N lifecycle emails a week",
+          "A priority order — money and trust (dunning, security, receipts) outrank promotional nudges",
+          "Every email mapped to its funnel stage, so the coverage gaps are visible",
+          "A permanent global holdout — a small slice held out of all lifecycle email to prove the program's total lift",
+          "No contradictions — a user in active onboarding shouldn't also get a win-back"
+        ]
       }
     ],
     "07-driving-traffic/01-where-you-start": [
@@ -633,6 +700,13 @@
         "anchor": "wb-media-zo3QHrXiprs",
         "label": "11 essential SaaS metrics explained in 11 minutes",
         "media": "video"
+      },
+      {
+        "kind": "calc",
+        "id": "ch7-cac-ltv-payback",
+        "key": "calc:ch7-cac-ltv-payback",
+        "anchor": "wb-ch7-cac-ltv-payback",
+        "label": "Your CAC, LTV, and payback"
       }
     ],
     "07-driving-traffic/05-three-audiences": [
@@ -719,6 +793,15 @@
         "anchor": "wb-cards-owned-audience",
         "label": "Key ideas — the owned-audience flywheel",
         "itemCount": 8
+      }
+    ],
+    "08-owned-audience-identity-flywheel/07-referral-loop": [
+      {
+        "kind": "calc",
+        "id": "ch8-viral-k-factor",
+        "key": "calc:ch8-viral-k-factor",
+        "anchor": "wb-ch8-viral-k-factor",
+        "label": "Your referral loop's k-factor"
       }
     ],
     "08-owned-audience-identity-flywheel/10-before-you-move-on": [
@@ -921,9 +1004,23 @@
           "Referral ask placed at the aha milestone, not before; verified referrals rewarded",
           "Verified emails synced as a custom audience + lookalike seed"
         ]
+      },
+      {
+        "kind": "calc",
+        "id": "ch10-paid-readiness",
+        "key": "calc:ch10-paid-readiness",
+        "anchor": "wb-ch10-paid-readiness",
+        "label": "Can you afford to open the tap?"
       }
     ],
     "10-your-30-60-90-180-day-plan/06-days-91-180-compound": [
+      {
+        "kind": "calc",
+        "id": "ch10-pmf-40",
+        "key": "calc:ch10-pmf-40",
+        "anchor": "wb-ch10-pmf-40",
+        "label": "Run the 40% PMF test"
+      },
       {
         "kind": "checklist",
         "id": "plan-180",
@@ -961,7 +1058,7 @@
         "key": "quiz:growth-with-posthog/10-your-30-60-90-180-day-plan/08-before-you-move-on",
         "anchor": "wb-quiz",
         "label": "Check your understanding",
-        "itemCount": 10
+        "itemCount": 14
       },
       {
         "kind": "media",
@@ -970,6 +1067,795 @@
         "anchor": "wb-media-lenny-kohavi-ab-testing",
         "label": "The ultimate guide to A/B testing",
         "media": "podcast"
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/09-zero-to-one": [
+      {
+        "kind": "checklist",
+        "id": "plan-zero-to-one",
+        "key": "checklist:plan-zero-to-one",
+        "anchor": "wb-plan-zero-to-one",
+        "label": "Zero-to-one — before the day-0 clock starts",
+        "items": [
+          "Talked to at least ten real potential users about the problem, not the product",
+          "Defined the one activation event that would mean 'they got real value', and instrumented it",
+          "Onboarded the first users by hand — personally, unscalably — and watched them use it",
+          "At least a few users would be 'very disappointed' to lose it (the seed of the 40% test)",
+          "The tap is still off: no paid acquisition until early retention shows a pulse"
+        ]
+      },
+      {
+        "kind": "note",
+        "id": "zero-to-one-learning",
+        "key": "note:zero-to-one-learning",
+        "anchor": "wb-zero-to-one-learning",
+        "label": "What's the single most important thing you need to learn before you're ready to instrument and run the full plan?",
+        "placeholder": "The riskiest assumption I need evidence on is… — I'll know it's answered when…",
+        "rows": 2
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/10-which-plan-are-you-on": [
+      {
+        "kind": "profile",
+        "id": "stage",
+        "key": "profile:stage",
+        "anchor": "wb-stage",
+        "label": "Which stage are you actually in right now?",
+        "options": [
+          "Pre-launch — no product in users' hands yet",
+          "Just launched — a handful of users",
+          "Early traction — users and some retention",
+          "Scaling — a channel that works and budget to spend"
+        ]
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/11-role-based-plans": [
+      {
+        "kind": "note",
+        "id": "plan-owner-hardest-part",
+        "key": "note:plan-owner-hardest-part",
+        "anchor": "wb-plan-owner-hardest-part",
+        "label": "Who owns this plan, and which phase will be hardest for them? Name the support that de-risks it.",
+        "placeholder": "Owner: … — the hardest phase for them is … — I'll de-risk it by …",
+        "rows": 2
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/12-the-weekly-review": [
+      {
+        "kind": "checklist",
+        "id": "plan-weekly-review",
+        "key": "checklist:plan-weekly-review",
+        "anchor": "wb-plan-weekly-review",
+        "label": "Weekly growth review — the standing agenda",
+        "items": [
+          "North Star + the two or three input metrics beneath it: up, flat, or down since last week?",
+          "The one gate we're working toward (day 30/60/90/180) — are we closer?",
+          "Experiments: what launched, what's reading, what shipped or got killed (including the losers)",
+          "One anomaly worth a look — a replay to watch, an alert that fired, a cohort that dropped",
+          "Next week's single most important growth action, and who owns it",
+          "Anything blocking the person who owns growth this week"
+        ]
+      },
+      {
+        "kind": "note",
+        "id": "weekly-review-question",
+        "key": "note:weekly-review-question",
+        "anchor": "wb-weekly-review-question",
+        "label": "What's the standing question your weekly review opens with — the one that points the team at the goal that matters right now?",
+        "placeholder": "Our review always starts by asking… (e.g. 'Is the bucket holding water yet?')",
+        "rows": 2
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/13-the-experiment-doc": [
+      {
+        "kind": "calc",
+        "id": "ch10-ice-score",
+        "key": "calc:ch10-ice-score",
+        "anchor": "wb-ch10-ice-score",
+        "label": "Score the next experiment (ICE)"
+      },
+      {
+        "kind": "note",
+        "id": "experiment-doc",
+        "key": "note:experiment-doc",
+        "anchor": "wb-experiment-doc",
+        "label": "Draft your next experiment in the template: hypothesis, primary metric + guardrails, how long it runs, and how you'll decide.",
+        "placeholder": "Hypothesis: We believe … for … will cause … because … · Primary metric: … · Guardrails: … · Runs until: … · Decision rule: …",
+        "rows": 5
+      }
+    ],
+    "10-your-30-60-90-180-day-plan/14-after-180-days": [
+      {
+        "kind": "note",
+        "id": "next-constraint",
+        "key": "note:next-constraint",
+        "anchor": "wb-next-constraint",
+        "label": "What's the single next constraint on your growth — the one thing that, if fixed, unlocks the next stage? Name it, so the rhythm has a target.",
+        "placeholder": "The next constraint is… — I'll know it's eased when…",
+        "rows": 2
+      }
+    ],
+    "11-stages-of-growth/01-why-stage-matters": [
+      {
+        "kind": "profile",
+        "id": "stage",
+        "key": "profile:stage",
+        "anchor": "wb-stage",
+        "label": "Which stage are you actually in?",
+        "options": [
+          "Pre-launch",
+          "Launched, pre-revenue",
+          "Early revenue",
+          "Scaling",
+          "Side project"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "rBCdgcFZ0uA",
+        "key": "media:rBCdgcFZ0uA",
+        "anchor": "wb-media-rBCdgcFZ0uA",
+        "label": "Your first 90 Days as a Growth Marketer: A Practical Blueprint",
+        "media": "video"
+      }
+    ],
+    "11-stages-of-growth/02-idea-and-pre-launch": [
+      {
+        "kind": "note",
+        "id": "ch11-idea-and-pre-launch",
+        "key": "note:ch11-idea-and-pre-launch",
+        "anchor": "wb-ch11-idea-and-pre-launch",
+        "label": "Name the single riskiest assumption your product rests on — the one that, if it's wrong, means nothing else you build matters.",
+        "placeholder": "The riskiest thing I'm assuming is true is… (and I'll know it's true when…)",
+        "rows": 2
+      }
+    ],
+    "11-stages-of-growth/03-just-launched": [
+      {
+        "kind": "note",
+        "id": "ch11-just-launched",
+        "key": "note:ch11-just-launched",
+        "anchor": "wb-ch11-just-launched",
+        "label": "Write the one activation number you'll watch this week — the first-value moment, as a count of an action in a time window.",
+        "placeholder": "Activation = [how many] of [key action] within [time window], for a new user. This week it's sitting at roughly…",
+        "rows": 2
+      }
+    ],
+    "11-stages-of-growth/04-finding-pmf": [
+      {
+        "kind": "calc",
+        "id": "ch11-pmf-40",
+        "key": "calc:ch11-pmf-40",
+        "anchor": "wb-ch11-pmf-40",
+        "label": "The 40% PMF test — are you above the bar?"
+      },
+      {
+        "kind": "media",
+        "id": "0LNQxT9LvM0",
+        "key": "media:0LNQxT9LvM0",
+        "anchor": "wb-media-0LNQxT9LvM0",
+        "label": "David Rusenko - How To Find Product Market Fit",
+        "media": "video"
+      }
+    ],
+    "11-stages-of-growth/05-early-traction": [
+      {
+        "kind": "calc",
+        "id": "ch11-paid-readiness",
+        "key": "calc:ch11-paid-readiness",
+        "anchor": "wb-ch11-paid-readiness",
+        "label": "Can you actually afford this channel yet?"
+      },
+      {
+        "kind": "media",
+        "id": "Sxn1ji7vYzU",
+        "key": "media:Sxn1ji7vYzU",
+        "anchor": "wb-media-Sxn1ji7vYzU",
+        "label": "If I Started SaaS in 2026, Here's My B2B Content Strategy for $1M ARR",
+        "media": "video"
+      }
+    ],
+    "11-stages-of-growth/06-scaling": [
+      {
+        "kind": "checklist",
+        "id": "ch11-scaling",
+        "key": "checklist:ch11-scaling",
+        "anchor": "wb-ch11-scaling",
+        "label": "Ready to scale? — the signals",
+        "items": [
+          "Retention curve flattens above zero for a segment you can name — the bucket holds, so volume compounds instead of leaking",
+          "At least one channel is repeatable with a CAC and payback your model and runway can carry",
+          "Unit economics work at target scale — LTV:CAC and payback hold as spend grows, not just at today's small volumes",
+          "A weekly growth ritual exists and is actually held — review, scored backlog, decisions citing the funnel",
+          "Someone owns the loop end to end (a hat today, a hire as it grows), not five people owning none of it",
+          "Core instrumentation is trusted — you'd bet on the activation and retention numbers before you bet money on top of them"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "nYTSIuC3ScY",
+        "key": "media:nYTSIuC3ScY",
+        "anchor": "wb-media-nYTSIuC3ScY",
+        "label": "Your First 90 Days as Head of Growth (The Exact Plan I Give Every Client)",
+        "media": "video"
+      }
+    ],
+    "11-stages-of-growth/07-metrics-that-lie-by-stage": [
+      {
+        "kind": "flashcards",
+        "id": "ch11-cards-metrics-that-lie",
+        "key": "flashcards:ch11-cards-metrics-that-lie",
+        "anchor": "wb-ch11-cards-metrics-that-lie",
+        "label": "Key ideas — the metrics that lie by stage",
+        "itemCount": 8
+      }
+    ],
+    "11-stages-of-growth/08-before-you-move-on": [
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/11-stages-of-growth/08-before-you-move-on",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch11-reading",
+        "key": "reading:ch11-reading",
+        "anchor": "wb-ch11-reading",
+        "label": "Reading — finding your footing",
+        "itemCount": 5,
+        "books": [
+          {
+            "title": "The Mom Test",
+            "author": "Rob Fitzpatrick",
+            "why": "How to talk to users before you build, without fooling yourself into a false yes.",
+            "quote": "The Mom Test is a set of simple rules for crafting good questions that even your mom can't lie to you about.",
+            "url": "https://www.momtestbook.com/"
+          },
+          {
+            "title": "The Lean Startup",
+            "author": "Eric Ries",
+            "why": "Build-measure-learn, validated learning, and the vanity-metrics trap.",
+            "quote": "The only way to win is to learn faster than anyone else.",
+            "url": "http://theleanstartup.com/"
+          },
+          {
+            "title": "Zero to One",
+            "author": "Peter Thiel with Blake Masters",
+            "why": "The zero-to-one mindset — build something genuinely new, not a copy of what works.",
+            "quote": "What important truth do very few people agree with you on?"
+          },
+          {
+            "title": "Traction",
+            "author": "Gabriel Weinberg & Justin Mares",
+            "why": "The Bullseye framework for finding the one channel that actually responds.",
+            "quote": "Almost every failed startup has a product. What failed startups don't have is enough customers."
+          },
+          {
+            "title": "Crossing the Chasm",
+            "author": "Geoffrey A. Moore",
+            "why": "The market stages a product crosses, and why early and mainstream buyers behave nothing alike."
+          }
+        ]
+      }
+    ],
+    "12-running-experiments/01-what-deserves-an-experiment": [
+      {
+        "kind": "media",
+        "id": "hEzpiDuYFoE",
+        "key": "media:hEzpiDuYFoE",
+        "anchor": "wb-media-hEzpiDuYFoE",
+        "label": "The ultimate guide to A/B testing",
+        "media": "video"
+      }
+    ],
+    "12-running-experiments/02-the-hypothesis-format": [
+      {
+        "kind": "note",
+        "id": "ch12-hypothesis-format",
+        "key": "note:ch12-hypothesis-format",
+        "anchor": "wb-ch12-hypothesis-format",
+        "label": "Write your next experiment as a hypothesis: We believe [change] for [audience] will cause [outcome], measured by [metric], because [reasoning].",
+        "placeholder": "We believe … for … will cause … , measured by … , because …",
+        "rows": 3
+      }
+    ],
+    "12-running-experiments/03-primary-metric-and-guardrails": [
+      {
+        "kind": "note",
+        "id": "ch12-primary-metric",
+        "key": "note:ch12-primary-metric",
+        "anchor": "wb-ch12-primary-metric",
+        "label": "For your next test: the one primary metric that decides it, and the two or three guardrails it isn't allowed to break.",
+        "placeholder": "Primary: … · Guardrails: revenue, unsubscribe rate, …",
+        "rows": 3
+      }
+    ],
+    "12-running-experiments/04-power-and-sample-size": [
+      {
+        "kind": "media",
+        "id": "HEGI5QN3fXE",
+        "key": "media:HEGI5QN3fXE",
+        "anchor": "wb-media-HEGI5QN3fXE",
+        "label": "Ronny Kohavi: A/B Testing Pitfalls: Getting Numbers You Can Trust is Hard - CXL LIVE 2016",
+        "media": "video"
+      }
+    ],
+    "12-running-experiments/07-tempo-and-the-backlog": [
+      {
+        "kind": "calc",
+        "id": "ch12-ice-score",
+        "key": "calc:ch12-ice-score",
+        "anchor": "wb-ch12-ice-score",
+        "label": "Score an experiment (ICE)"
+      },
+      {
+        "kind": "media",
+        "id": "whoQtu9Vhnw",
+        "key": "media:whoQtu9Vhnw",
+        "anchor": "wb-media-whoQtu9Vhnw",
+        "label": "Sean Ellis on why \"a high velocity of tests\" is crucial for finding product/market fit",
+        "media": "video"
+      },
+      {
+        "kind": "checklist",
+        "id": "ch12-weekly-ritual",
+        "key": "checklist:ch12-weekly-ritual",
+        "anchor": "wb-ch12-weekly-ritual",
+        "label": "The weekly experiment ritual",
+        "items": [
+          "A single backlog exists — every idea written as a hypothesis, ICE-scored",
+          "Backlog groomed in a 30-minute weekly growth review",
+          "At least one experiment launched or reported every week",
+          "Each test names its primary metric and guardrails before it starts",
+          "Run length and sample size decided up front — no peeking, no stopping early",
+          "Every result recorded: hypothesis, outcome, decision (ship/kill/iterate), what's next",
+          "The losers written down too — a flat result is a finding, not a failure"
+        ]
+      }
+    ],
+    "12-running-experiments/08-before-you-move-on": [
+      {
+        "kind": "flashcards",
+        "id": "ch12-cards-experiments",
+        "key": "flashcards:ch12-cards-experiments",
+        "anchor": "wb-ch12-cards-experiments",
+        "label": "Key ideas — running experiments well",
+        "itemCount": 8
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/12-running-experiments/08-before-you-move-on",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch12-reading",
+        "key": "reading:ch12-reading",
+        "anchor": "wb-ch12-reading",
+        "label": "Reading — the experimentation craft",
+        "itemCount": 3,
+        "books": [
+          {
+            "title": "Trustworthy Online Controlled Experiments",
+            "author": "Ron Kohavi, Diane Tang & Ya Xu",
+            "why": "The definitive practical guide to A/B testing, from people who ran thousands at Microsoft, Amazon, and Airbnb.",
+            "quote": "Getting numbers is easy. Getting numbers you can trust is hard."
+          },
+          {
+            "title": "Hacking Growth",
+            "author": "Sean Ellis & Morgan Brown",
+            "why": "High-tempo testing and the growth-team operating system, from the person who coined 'growth hacking' and the 40% PMF test."
+          },
+          {
+            "title": "Experimentation Works",
+            "author": "Stefan H. Thomke",
+            "why": "The business case for making experimentation a company-wide habit, not an occasional project."
+          }
+        ]
+      }
+    ],
+    "13-talking-about-growth/01-who-cares-about-what": [
+      {
+        "kind": "media",
+        "id": "hdjlCLb9Hl8",
+        "key": "media:hdjlCLb9Hl8",
+        "anchor": "wb-media-hdjlCLb9Hl8",
+        "label": "How to nail your product positioning | April Dunford (Obviously Awesome)",
+        "media": "video"
+      },
+      {
+        "kind": "note",
+        "id": "ch13-who-cares",
+        "key": "note:ch13-who-cares",
+        "anchor": "wb-ch13-who-cares",
+        "label": "For each audience — board, cofounder, team, customer — write the one thing they actually want to know about growth this month.",
+        "placeholder": "Board: …\nCofounder: …\nTeam: …\nCustomer: …",
+        "rows": 4
+      }
+    ],
+    "13-talking-about-growth/02-the-two-number-story": [
+      {
+        "kind": "note",
+        "id": "ch13-two-number",
+        "key": "note:ch13-two-number",
+        "anchor": "wb-ch13-two-number",
+        "label": "Write your two-number story: the leading metric you moved, and the lagging outcome it should move — in one sentence that links them.",
+        "placeholder": "We changed …; [leading metric] went from … to …, and [lagging outcome] moved … — because …",
+        "rows": 3
+      }
+    ],
+    "13-talking-about-growth/03-reporting-cadence": [
+      {
+        "kind": "checklist",
+        "id": "ch13-weekly-review",
+        "key": "checklist:ch13-weekly-review",
+        "anchor": "wb-ch13-weekly-review",
+        "label": "Weekly team review — skeleton",
+        "items": [
+          "Metrics read (10 min): North Star vs last week, the retention curve, the one funnel step you're working — is growth real or churn-and-replace?",
+          "Journeys and spend (10 min): each live journey's volume and holdout lift; cost per conversion — kill-or-scale decisions made out loud",
+          "Experiments (10 min): what finished (result + one-sentence learning), what launches next from the top of the backlog, what's blocked",
+          "Every anomaly gets an owner and a next step — not a live debugging session",
+          "One learning from the week, written down somewhere permanent"
+        ]
+      },
+      {
+        "kind": "checklist",
+        "id": "ch13-monthly-update",
+        "key": "checklist:ch13-monthly-update",
+        "anchor": "wb-ch13-monthly-update",
+        "label": "Monthly / board update — skeleton",
+        "items": [
+          "North Star metric: this month's number, and the trend over the last 3–6 months (a line, not a point)",
+          "Retention: the curve or the key cohort number — the proof the bucket holds",
+          "Lifecycle lift: incremental lift from the global holdout — the number that justifies the program",
+          "Acquisition economics: blended CAC, and the share of growth from the owned audience / referral loop",
+          "One learning: a single experiment or insight, stated as what you'll do differently — not a list",
+          "The one thing you're worried about: for a board, naming a real risk builds more trust than a clean slide"
+        ]
+      }
+    ],
+    "13-talking-about-growth/04-explaining-incrementality": [
+      {
+        "kind": "media",
+        "id": "DeSdoaLOOoM",
+        "key": "media:DeSdoaLOOoM",
+        "anchor": "wb-media-DeSdoaLOOoM",
+        "label": "Incrementality 101: Everything You Need to Know",
+        "media": "video"
+      },
+      {
+        "kind": "note",
+        "id": "ch13-incrementality",
+        "key": "note:ch13-incrementality",
+        "anchor": "wb-ch13-incrementality",
+        "label": "Write the plain-language 'how do you know it worked' answer for one of your journeys — the holdout, in words you'd say out loud to a skeptic.",
+        "placeholder": "Of everyone who qualified, we held back a random …%. The messaged group … ; the held-back group … . The gap — … — is what the journey added.",
+        "rows": 4
+      }
+    ],
+    "13-talking-about-growth/05-presenting-a-losing-experiment": [
+      {
+        "kind": "media",
+        "id": "6nkAn0xDNG4",
+        "key": "media:6nkAn0xDNG4",
+        "anchor": "wb-media-6nkAn0xDNG4",
+        "label": "How to Build a Culture of Experimentation on Your Growth Team",
+        "media": "video"
+      },
+      {
+        "kind": "note",
+        "id": "ch13-losing-experiment",
+        "key": "note:ch13-losing-experiment",
+        "anchor": "wb-ch13-losing-experiment",
+        "label": "Take one flat or losing result and write it as a paid-for learning: the hypothesis, what happened, and what it rules out or what you'll do next.",
+        "placeholder": "We believed … ; the result was … (flat / negative). So the leak isn't … — next we'll test …",
+        "rows": 3
+      }
+    ],
+    "13-talking-about-growth/06-vanity-metrics": [
+      {
+        "kind": "checklist",
+        "id": "ch13-metric-test",
+        "key": "checklist:ch13-metric-test",
+        "anchor": "wb-ch13-metric-test",
+        "label": "Does this number earn its place in the report?",
+        "items": [
+          "So what? — if it were half or double, some decision would change",
+          "It's a rate or a cohort, not a cumulative running total",
+          "It measures value delivered (active, retained, paid), not reach (impressions, signups, followers)",
+          "It can go down — a metric that can only rise can't report a bad month",
+          "Someone on the team can name the work that moves it"
+        ]
+      },
+      {
+        "kind": "note",
+        "id": "ch13-vanity",
+        "key": "note:ch13-vanity",
+        "anchor": "wb-ch13-vanity",
+        "label": "Take one number you currently report and run the 'so what?' test — then rewrite it as a ratio or a cohort that would actually change a decision.",
+        "placeholder": "Vanity: … (cumulative / reach). Actionable version: … (a rate, or split by cohort) — because if it dropped, we'd …",
+        "rows": 3
+      }
+    ],
+    "13-talking-about-growth/07-growth-theatre-and-over-claiming": [
+      {
+        "kind": "note",
+        "id": "ch13-over-claiming",
+        "key": "note:ch13-over-claiming",
+        "anchor": "wb-ch13-over-claiming",
+        "label": "Take one 'X drove Y' attribution claim and rewrite it at the honesty the data supports — separating what you measured from what you're inferring.",
+        "placeholder": "Over-claimed: 'X drove Y signups.' Honest version: we measured … ; we think X helped because … ; what we can't separate out is …",
+        "rows": 3
+      }
+    ],
+    "13-talking-about-growth/08-the-one-report-you-share": [
+      {
+        "kind": "checklist",
+        "id": "ch13-one-pager",
+        "key": "checklist:ch13-one-pager",
+        "anchor": "wb-ch13-one-pager",
+        "label": "The monthly one-pager",
+        "items": [
+          "North Star metric, as a line over 3–6 months (trend, not a point)",
+          "Activation rate for recent cohorts + the retention curve or key cohort number",
+          "Incremental lift from the lifecycle program (the global holdout) — the number that justifies it",
+          "Blended CAC, and the share of growth from the owned audience / referral loop",
+          "Exactly one experiment learning, stated as what you'll do differently",
+          "One sentence: the risk you're most worried about",
+          "Every number is a rate or a trend, not a cumulative total (the §13.6 test)"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "dgz-Ud4fq6w",
+        "key": "media:dgz-Ud4fq6w",
+        "anchor": "wb-media-dgz-Ud4fq6w",
+        "label": "How to Write Investor Updates + Startup Metrics (CAC, LTV, Chrun)",
+        "media": "video"
+      },
+      {
+        "kind": "note",
+        "id": "ch13-one-pager-draft",
+        "key": "note:ch13-one-pager-draft",
+        "anchor": "wb-ch13-one-pager-draft",
+        "label": "Draft your one-pager now — fill each block with your real current number, or write 'don't have this yet' where you can't. The gaps are next month's work.",
+        "placeholder": "North Star + trend: …\nActivation + retention: …\nBlended CAC + referral share: …\nOne learning: …\nThe risk I'm worried about: …",
+        "rows": 6
+      },
+      {
+        "kind": "flashcards",
+        "id": "ch13-cards-talking",
+        "key": "flashcards:ch13-cards-talking",
+        "anchor": "wb-ch13-cards-talking",
+        "label": "Key ideas — talking about growth",
+        "itemCount": 8
+      }
+    ],
+    "13-talking-about-growth/09-before-you-move-on": [
+      {
+        "kind": "note",
+        "id": "ch13-audience-check",
+        "key": "note:ch13-audience-check",
+        "anchor": "wb-ch13-audience-check",
+        "label": "One honesty check before the quiz: which audience do you currently over-report to, and which do you under-serve? Name the report you'll change first.",
+        "placeholder": "I over-report to … (too much detail / too flattering); I under-serve … . The first report I'll change is …",
+        "rows": 3
+      },
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/13-talking-about-growth/09-before-you-move-on",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch13-reading",
+        "key": "reading:ch13-reading",
+        "anchor": "wb-ch13-reading",
+        "label": "Reading — saying it well",
+        "itemCount": 3,
+        "books": [
+          {
+            "title": "Obviously Awesome",
+            "author": "April Dunford",
+            "why": "How to frame what you do so the right people immediately get it.",
+            "quote": "Positioning is the act of deliberately defining how you are the best at something that a defined market cares a lot about.",
+            "url": "https://www.aprildunford.com/books"
+          },
+          {
+            "title": "Measure What Matters",
+            "author": "John Doerr",
+            "why": "OKRs — turning goals into a small set of numbers a team can rally on and report against.",
+            "quote": "Ideas are easy. Execution is everything."
+          },
+          {
+            "title": "Storytelling with Data",
+            "author": "Cole Nussbaumer Knaflic",
+            "why": "How to make a chart say one thing clearly — most of good reporting is restraint."
+          }
+        ]
+      }
+    ],
+    "14-growth-as-career-capital/01-what-its-worth": [
+      {
+        "kind": "media",
+        "id": "IHwS2By9UKM",
+        "key": "media:IHwS2By9UKM",
+        "anchor": "wb-media-IHwS2By9UKM",
+        "label": "10 growth tactics that never work | Elena Verna (Amplitude, Miro, Dropbox, SurveyMonkey)",
+        "media": "video"
+      }
+    ],
+    "14-growth-as-career-capital/02-your-workbook-is-your-portfolio": [
+      {
+        "kind": "note",
+        "id": "ch14-portfolio-oneliner",
+        "key": "note:ch14-portfolio-oneliner",
+        "anchor": "wb-ch14-portfolio-oneliner",
+        "label": "Write the one-paragraph version of your best piece of growth work from this course, in the problem → fix → how-you-knew → next shape. This is the top of your portfolio.",
+        "placeholder": "In the data I saw… so I shipped… I measured it with… which showed… next I'd…",
+        "rows": 2
+      },
+      {
+        "kind": "checklist",
+        "id": "ch14-portfolio",
+        "key": "checklist:ch14-portfolio",
+        "anchor": "wb-ch14-portfolio",
+        "label": "What a strong growth portfolio shows",
+        "items": [
+          "A funnel you instrumented yourself — the events you chose, and why those",
+          "At least one journey or experiment you shipped end to end, not just proposed",
+          "How you measured impact — a holdout or control, not opens and clicks",
+          "One result that didn't work, and what you learned from it",
+          "Your reasoning visible at each step, so it reads as judgement not luck",
+          "An honest note on scope — real product, practice product, or team effort",
+          "Compressed to something readable in two minutes, with detail available underneath"
+        ]
+      }
+    ],
+    "14-growth-as-career-capital/03-project-vs-loop": [
+      {
+        "kind": "note",
+        "id": "ch14-star-story",
+        "key": "note:ch14-star-story",
+        "anchor": "wb-ch14-star-story",
+        "label": "Draft one growth story in STAR form. Situation (what the data showed) · Task (what you owned) · Action (what you shipped) · Result (how you measured it, and what you did next). Make the Result about lift against a control, not a raw number.",
+        "placeholder": "Situation: … · Task: … · Action: … · Result: … and because of it I next…",
+        "rows": 2
+      }
+    ],
+    "14-growth-as-career-capital/04-the-90-day-plan-as-artifact": [
+      {
+        "kind": "note",
+        "id": "ch14-90-day-plan",
+        "key": "note:ch14-90-day-plan",
+        "anchor": "wb-ch14-90-day-plan",
+        "label": "Sketch a first-90-days plan for a company you'd want to work at. Days 1–30: what you'd instrument and look at first. Days 31–60: the first fix and how you'd measure it. Days 61–90: what a first win would gate. Keep it about learning before acting.",
+        "placeholder": "Company: … · 1–30 (measure): … · 31–60 (first fix + holdout): … · 61–90 (what a win unlocks): …",
+        "rows": 2
+      }
+    ],
+    "14-growth-as-career-capital/05-interviewing-for-growth": [
+      {
+        "kind": "media",
+        "id": "UhASMW6X4AY",
+        "key": "media:UhASMW6X4AY",
+        "anchor": "wb-media-UhASMW6X4AY",
+        "label": "My favorite interview questions from 100+ guests",
+        "media": "video"
+      },
+      {
+        "kind": "checklist",
+        "id": "ch14-interview-prep",
+        "key": "checklist:ch14-interview-prep",
+        "anchor": "wb-ch14-interview-prep",
+        "label": "Growth interview prep",
+        "items": [
+          "Rehearse a North Star answer for their product — value-reflecting, not a vanity metric",
+          "Have one STAR experiment story ready, landed on lift against a control",
+          "Sign up as a real user beforehand and note where the funnel leaks",
+          "Prepare a first-90-days sketch aimed at their business (measure before you act)",
+          "Be ready to say 'here's how I'd know it worked' for any claim you make",
+          "Bring your workbook/portfolio one-pager as concrete evidence",
+          "Have operator questions ready: data access, who owns the loop, what's been tried"
+        ]
+      },
+      {
+        "kind": "note",
+        "id": "ch14-questions-to-ask",
+        "key": "note:ch14-questions-to-ask",
+        "anchor": "wb-ch14-questions-to-ask",
+        "label": "Draft three questions you'll ask a growth interviewer — the ones that reveal whether the role is real and whether you'd have what you need to do the job well.",
+        "placeholder": "1. Is the product instrumented, and will I have data access? 2. Who owns the growth loop today? 3. …",
+        "rows": 2
+      }
+    ],
+    "14-growth-as-career-capital/06-reading-a-growth-jd": [
+      {
+        "kind": "flashcards",
+        "id": "ch14-cards-roles",
+        "key": "flashcards:ch14-cards-roles",
+        "anchor": "wb-ch14-cards-roles",
+        "label": "Key ideas — reading a growth role",
+        "itemCount": 7
+      }
+    ],
+    "14-growth-as-career-capital/07-attribution-humility": [
+      {
+        "kind": "note",
+        "id": "ch14-honest-impact",
+        "key": "note:ch14-honest-impact",
+        "anchor": "wb-ch14-honest-impact",
+        "label": "Write one impact claim twice: first the way you'd be tempted to say it, then the honest version — pairing the result with how you measured it and what you're still unsure about. Keep the second one.",
+        "placeholder": "Tempted: 'I grew X by …' → Honest: 'We shipped … and measured it with a holdout; the treated group … I'd want … before calling it durable.'",
+        "rows": 2
+      }
+    ],
+    "14-growth-as-career-capital/08-build-your-own-audience": [
+      {
+        "kind": "note",
+        "id": "ch14-owned-audience",
+        "key": "note:ch14-owned-audience",
+        "anchor": "wb-ch14-owned-audience",
+        "label": "Plan your first owned-audience move. One thing you'll write or share about the growth work you're doing — the topic, where you'll put it, and by when. Small and real beats big and someday.",
+        "placeholder": "I'll write about … (e.g. what my onboarding holdout taught me), publish it on … by …",
+        "rows": 2
+      },
+      {
+        "kind": "media",
+        "id": "MWwH-12N5TA",
+        "key": "media:MWwH-12N5TA",
+        "anchor": "wb-media-MWwH-12N5TA",
+        "label": "The Ultimate Guide to Developer Marketing | Lee Robinson (Vercel)",
+        "media": "video"
+      }
+    ],
+    "14-growth-as-career-capital/09-before-you-move-on": [
+      {
+        "kind": "quiz",
+        "key": "quiz:growth-with-posthog/14-growth-as-career-capital/09-before-you-move-on",
+        "anchor": "wb-quiz",
+        "label": "Check your understanding",
+        "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch14-reading",
+        "key": "reading:ch14-reading",
+        "anchor": "wb-ch14-reading",
+        "label": "Reading — the long game",
+        "itemCount": 4,
+        "books": [
+          {
+            "title": "So Good They Can't Ignore You",
+            "author": "Cal Newport",
+            "why": "Career capital: get good at rare and valuable skills, then trade them for autonomy.",
+            "quote": "Working right trumps finding the right work.",
+            "url": "https://calnewport.com/books/so-good/"
+          },
+          {
+            "title": "Deep Work",
+            "author": "Cal Newport",
+            "why": "The focused practice behind becoming good enough that they can't ignore you."
+          },
+          {
+            "title": "The Almanack of Naval Ravikant",
+            "author": "Eric Jorgenson",
+            "why": "Leverage, specific knowledge, and building an audience of your own — free to read online.",
+            "url": "https://www.navalmanack.com/"
+          },
+          {
+            "title": "Show Your Work!",
+            "author": "Austin Kleon",
+            "why": "The case for building in public and letting the work find the opportunities."
+          }
+        ]
       }
     ]
   }
