@@ -1,0 +1,45 @@
+---
+title: "Days 31–60 — Keep"
+description: "Goal: plug the biggest leaks before spending a cent on traffic. The highest-return phase per hour in the plan — the users it saves are users you already paid to acquire."
+workbook: "Work the Keep-phase checklist — welcome, activation nudge, dunning, win-back, a holdout — and the lift-not-opens exit criteria that gate the Grow phase."
+---
+
+**Goal: plug the biggest leaks before spending a cent on traffic.** This is the phase
+with the highest return per hour in the whole plan — the users it saves are users you
+already paid (in money or effort) to acquire.
+
+Journeys are best built in the order of expected impact, which for almost every
+product looks like:
+
+1. **Welcome + onboarding nudge** — the gap between signup and activation is nearly
+   always the biggest leak (Chapter 5). One journey: welcome on signup, a nudge at
+   +48h if the activation event hasn't fired.
+2. **Dunning** — if you charge money, failed payments are pure, recoverable churn
+   (Chapter 6). This tends to be the fastest revenue win in the whole course.
+3. **Win-back** — dormant-user re-engagement, triggered by an inactivity window, with
+   something concrete to come back to.
+
+<Checklist
+  id="plan-60"
+  title="Days 31–60 — Keep"
+  items={[
+    "Hogsend app scaffolded; backend wired to POST /v1/ingest",
+    "Welcome + onboarding journey live, triggered by the signup event",
+    "Activation nudge at +48h, skipped automatically if the activation event fired",
+    "Dunning journey live (if you charge) — failed payment → retry prompt sequence",
+    "Win-back journey live for users inactive 14+ days",
+    "A holdout on your first journey, and you know how to read its lift in PostHog",
+    "Global frequency cap set so overlapping journeys can't spam one user",
+    "Unsubscribe/preferences verified working end-to-end (send yourself every email)",
+  ]}
+/>
+
+**Exit criteria.** Either your activation or early-retention number has visibly moved,
+or — more honestly — your **holdout comparison** shows the journeys lifting it
+(Chapter 5's incrementality argument: opens and clicks are activity, lift is proof).
+The bucket holds water well enough that pouring into it isn't waste.
+
+**The pattern to watch for** is building all eight journeys you can imagine instead of
+the three that matter — volume of automation isn't the goal; measured lift is. A
+second, subtler one: declaring victory off open rates. Without a holdout, what got
+measured was sending, not keeping.

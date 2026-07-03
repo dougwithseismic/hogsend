@@ -1,0 +1,179 @@
+---
+title: "Before you move on"
+description: "Three things worth doing while the plan is in front of you — Day 0 itself, the four gate reviews in the calendar, and a look at your workbook — then check yourself on the whole plan with the quiz."
+workbook: "Commit to a start date, then check yourself on the whole 30/60/90/180 plan with the chapter quiz."
+---
+
+Three things worth doing while the plan is in front of you:
+
+1. **Day 0 itself.** It's an hour with the whole team, and everything else in the plan
+   assumes it happened. The checklist above will keep your place — tick things off as
+   they land and they'll be here when you come back.
+2. **The four gate reviews, in the calendar** — day 30, 60, 90, 180 from today. A
+   30-minute review against the exit criteria at each, with the checklists above open.
+   Gates that exist in the calendar get held; gates that exist in a chapter don't.
+3. **A look at [your workbook](/workbook)** — everything you've written across the
+   course (activation sentence, North Star, tracking plan, hypotheses, these
+   checklists) in one place, each entry linked back to the chapter that produced it.
+   That page *is* your growth plan now.
+
+And if you're happy to share it — where are you starting from?
+
+<CheckIn
+  id="planCommitment"
+  question="When are you actually starting this plan?"
+  options={["Starting this week", "Starting this month", "Next quarter", "Just learning for now"]}
+/>
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "Your welcome journey's open rate is 62% and you want to report it as proof the lifecycle program works. What's the problem?",
+      options: [
+        "Open rates are underreported, so the real number is higher",
+        "Opens measure sending activity, not lift — without a holdout you can't attribute any retention change to the journey",
+        "62% is below the benchmark for welcome emails",
+        "Nothing — open rate is the standard lifecycle KPI",
+      ],
+      answer: 1,
+      explain:
+        "The plan's day-60 exit criterion is holdout-measured lift, not engagement metrics. Opens prove the email was sent and rendered; only a held-out comparison group proves the journey caused anything.",
+    },
+    {
+      q: "It's day 45. Activation is leaking badly, but a friend's startup doubled signups with Meta ads and you're tempted to copy them. The plan says:",
+      options: [
+        "Run the ads — acquisition data will help diagnose activation",
+        "Split the budget 50/50 between ads and activation work",
+        "Stay in the Keep phase — the day-60 gate (holdout-measured lift) hasn't been passed, so paid traffic would pour into a leaking bucket",
+        "Skip to the day-90 gate and run the PMF survey instead",
+      ],
+      answer: 2,
+      explain:
+        "Phases are gates, not dates. Scaling acquisition into a broken activation funnel is the most expensive mistake in the course — you'd be buying churn at ad-market prices.",
+    },
+    {
+      q: "In the 91–180 phase, what does ICE scoring order?",
+      options: [
+        "Which journeys to prune each quarter",
+        "The experiment backlog — by impact, confidence, and ease",
+        "Which acquisition channels to fund",
+        "Alert thresholds on the daily dashboard",
+      ],
+      answer: 1,
+      explain:
+        "ICE (Sean Ellis) scores growth hypotheses so the weekly ritual always pulls the highest-expected-value test from the top of the backlog instead of the loudest idea in the room.",
+    },
+    {
+      q: "What gates a major step-up in paid spend around day 180?",
+      options: [
+        "Reaching 10,000 registered users",
+        "A blended CAC under $50",
+        "Evidence of product-market fit — e.g. the Sean Ellis 40% test",
+        "Having all eight lifecycle journeys live",
+      ],
+      answer: 2,
+      explain:
+        "Scaling spend amplifies whatever exists. If under 40% of surveyed users would be 'very disappointed' to lose the product, the money is better spent on the product and the Keep phase than on traffic.",
+    },
+    {
+      q: "The plan's definition of success at day 180 is:",
+      options: [
+        "Every checklist in this chapter fully ticked",
+        "A dedicated growth hire owning the system",
+        "North Star growth of at least 10% month over month",
+        "The plan dissolved into a weekly operating rhythm — steady test tempo, decisions citing the funnel, learnings reported from failures",
+      ],
+      answer: 3,
+      explain:
+        "The finish line is cultural, not numeric: the machine runs on a cadence that no longer needs the plan. Checklists and hires are means; the operating rhythm is the outcome.",
+    },
+    {
+      q: "It's day 20 of the Measure phase. An engineer proposes pausing the dashboard to build a schema registry and event pipeline 'so the data is right forever'. The plan's read:",
+      options: [
+        "That's tooling work quietly traded for growth work — thirty days is enough to measure a funnel honestly, not to build a data platform",
+        "Good call — trustworthy data is the phase's whole goal, so more infrastructure is better",
+        "Fine, as long as the registry ships before the day-30 gate",
+        "Skip the dashboard entirely — replays and alerts are enough to exit the phase",
+      ],
+      answer: 0,
+      explain:
+        "The Measure phase's named anti-pattern is instrumenting forever. The exit criteria need a trusted funnel read, not a data platform — a schema registry in week three delays the read without improving it.",
+    },
+    {
+      q: "You're starting the Keep phase with time for exactly one journey this week. For almost every product, the plan says build:",
+      options: [
+        "Win-back first — dormant users are the most neglected segment",
+        "Dunning first — it's the fastest revenue win in the whole course",
+        "Welcome + onboarding nudge first — the signup-to-activation gap is nearly always the biggest leak",
+        "Whichever journey is easiest to ship, to build momentum",
+      ],
+      answer: 2,
+      explain:
+        "Journeys are ordered by expected impact, and the biggest leak for almost every product sits between signup and activation. Dunning really is the fastest revenue win — which is why it's second, not first.",
+    },
+    {
+      q: "Day 75: your Meta campaign is live, but EMQ is sitting at 3 and some conversion events aren't arriving. Your cofounder wants to triple the budget while momentum is high. The plan says:",
+      options: [
+        "Triple it — more volume will raise EMQ on its own",
+        "Hold spend flat and shift the week to fresh creative testing",
+        "Kill paid entirely and pivot to content and launches",
+        "Fix conversion quality first — with low EMQ the platform optimises on noise, and the tuition comes out of your budget",
+      ],
+      answer: 3,
+      explain:
+        "The Grow phase's anti-pattern is scaling spend before the measurement is trustworthy. A day spent on conversion quality routinely beats a week of creative testing, because the algorithm can only optimise on what it can see.",
+    },
+    {
+      q: "You're pre-launch with no users yet. How does the plan change?",
+      options: [
+        "Same sequence — phase 1 becomes 'instrument before launch' and phase 3 becomes launch channels rather than paid scaling",
+        "Skip straight to phase 3 — measurement means nothing until you have users",
+        "Run phases 1 and 3 in parallel, then add retention work after launch",
+        "It doesn't apply until you have product-market fit",
+      ],
+      answer: 0,
+      explain:
+        "The plan is stage-agnostic even though the targets aren't: the one thing worth protecting is the order, because each phase's exit criteria are the next phase's entry requirements.",
+    },
+    {
+      q: "At the day-30 gate review, which of these tells you you're ready to leave the Measure phase?",
+      options: [
+        "The dashboard has a chart for every event in the tracking plan",
+        "You can say, with numbers, where the funnel loses the most people, roughly what week-4 retention is, and which PMF phase you're in",
+        "PostHog has collected a full 30 days of data",
+        "Every teammate has logged into PostHog at least once",
+      ],
+      answer: 1,
+      explain:
+        "The gate is three sayable sentences, not chart volume — echoing YC's point that a startup's first analytics problem is trusting what the few important charts say, not producing more of them.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+<PodcastLink
+  id="lenny-kohavi-ab-testing"
+  title="The ultimate guide to A/B testing"
+  show="Lenny's Podcast"
+  guest="Ronny Kohavi"
+  note="The Compound phase's experimentation rigor, from the person who ran experimentation at Microsoft, Amazon, and Airbnb — trust, invalid results, and when not to test at all."
+  spotify="https://open.spotify.com/episode/3vD3c87FT7RKnvZUJRwOb4"
+  youtube="https://youtu.be/hEzpiDuYFoE"
+  apple="https://podcasts.apple.com/us/podcast/the-ultimate-guide-to-a-b-testing-ronny-kohavi/id1627920305?i=1000622516586"
+/>
+
+- [Reforge — Succeed in your new growth leadership role](https://www.reforge.com/guides/succeed-in-your-new-growth-leadership-role) — the professional version of this plan: learn the data, early wins, then scale.
+- [Delivering Value — the Head of Growth 90-day plan](https://deliveringvalue.co/growth-essays/head-of-growth) — an operator's 30/60/90 with milestones, good for calibrating yours.
+- [First Round Review — the founder-led growth playbook](https://review.firstround.com/founder-led-growth-playbook/) — why you run this loop yourself before hiring for it.
+- [YC — Analytics for startups](https://www.ycombinator.com/library/8H-analytics-for-startups) — the day-1-to-30 instrumentation phase, from the source most founders trust.
+- [YC — Key startup metrics](https://www.ycombinator.com/library/KR-key-startup-metrics) — what the day-30/60/90 numbers get measured against eventually.
+- [Sean Ellis — the PMF survey](https://pmfsurvey.com/) — the 40% test that gates the day-180 spend decision.
+- [Reforge — the growth experiment management system](https://www.reforge.com/blog/growth-experiment-management-system) — backlog, template, and velocity metrics for the Compound phase.
+- [Lenny Rachitsky & Ronny Kohavi — the ultimate guide to A/B testing](https://www.lennysnewsletter.com/p/the-ultimate-guide-to-ab-testing) — the rigor that keeps a high test tempo honest.
+- [Product Marketing Alliance — 30-60-90 plan template](https://www.productmarketingalliance.com/30-60-90-day-plan-template-framework/) — if you want the generic scaffold this chapter specialises.
+- [John Doerr — Google's OKR playbook](https://www.whatmatters.com/resources/google-okr-playbook) — a heavier operating cadence for when the team outgrows one weekly meeting.

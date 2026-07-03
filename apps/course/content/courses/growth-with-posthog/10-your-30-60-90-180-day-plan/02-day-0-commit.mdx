@@ -1,0 +1,84 @@
+---
+title: "Day 0 — commit (one hour, no code)"
+description: "Chapter 0's commitments, now as a one-hour checklist done with the whole team present. It prevents the two most expensive patterns in the course: nobody owning the loop, and acquisition before retention."
+workbook: "Name the growth owner, finalise your activation sentence (pre-filled from Chapter 2), and work the Day 0 checklist — then the flashcards for the whole 30/60/90/180 plan."
+---
+
+Chapter 0's commitments, now as a checklist. They're best done in one sitting with the
+whole team present — an hour, and it tends to prevent the two most expensive patterns
+in the course: nobody owning the loop, and acquisition before retention.
+
+<Checklist
+  id="plan-day0"
+  title="Day 0 — commitments"
+  items={[
+    "Name the growth owner — one person accountable for measure → keep → grow (a hat, not a hire)",
+    "Write the activation sentence: the one user action that means 'got real value', in one sentence",
+    "Get the team to agree the order out loud: retention before acquisition",
+    "Book the weekly 30-minute growth review, recurring, starting next week",
+    "Pick where growth work lives: the same backlog/repo as product work, not a separate doc nobody opens",
+  ]}
+/>
+
+The last two matter more than they look. A recurring 30-minute meeting is the smallest
+possible container for a growth *ritual* — the thing Chapter 9 argues separates a
+growth team from a team that did a growth project once. And putting growth work in the
+same backlog as product work is what makes "growth is an engineering discipline"
+(Chapter 0) real rather than aspirational.
+
+Two of those commitments are *writing* commitments, so there's space for them right
+here. Both save to [your workbook](/workbook) alongside everything else you put down
+in the course, linked back to the lesson it came from.
+
+<WorkbookPrompt
+  id="growth-owner"
+  prompt="Who owns growth? Name the person (and write it like it's a real assignment, because it is)."
+  placeholder="Growth owner: … — accountable for the funnel being instrumented, the dashboard being read, and the journeys being live."
+  rows={2}
+/>
+
+<WorkbookPrompt
+  id="activation-sentence"
+  prompt="Your activation sentence — if you drafted it in Chapter 2, it's pre-filled here. Make it final."
+  placeholder="A user is activated when they… (one sentence, one observable event)"
+  rows={2}
+/>
+
+<Flashcards
+  id="cards-plan"
+  title="Key ideas — the 30/60/90/180 plan"
+  cards={[
+    {
+      front: "How rigid are the 30/60/90/180 timings?",
+      back: "Phases are gates, not dates — the numbers assume roughly a founder-day per week; compress or stretch freely. Protect the order: each phase's exit criteria are the next phase's entry requirements.",
+    },
+    {
+      prompt: "The day-30 gate — three sayable sentences, with numbers:",
+      cloze: "Where {{the funnel loses the most people}}, roughly what {{week-4 retention}} is, and which {{phase of product-market fit}} you're in. Chart volume doesn't count.",
+    },
+    {
+      front: "What's the Measure phase's named anti-pattern?",
+      back: "Instrumenting forever. Thirty days is enough to measure a funnel honestly, not to build a data platform — a schema registry in week three is growth work quietly traded for tooling work.",
+    },
+    {
+      prompt: "The Keep-phase build order, by expected impact:",
+      cloze: "{{Welcome + onboarding nudge}} first (signup→activation is nearly always the biggest leak), then {{dunning}} (the fastest revenue win in the course), then {{win-back}} for users inactive 14+ days.",
+    },
+    {
+      front: "What's the day-60 gate — when does the bucket hold?",
+      back: "Holdout-measured lift on activation or early retention — opens and clicks are activity, lift is proof. The bucket holds water well enough that pouring traffic into it isn't waste.",
+    },
+    {
+      front: "What does the day-90 gate require?",
+      back: "Traffic flows from a channel you chose on purpose; conversions are tracked accurately enough to optimise on; and a visible share of new users land in a channel you own — verified email or linked Discord/Telegram.",
+    },
+    {
+      front: "What's the Grow phase's anti-pattern?",
+      back: "Scaling spend before measurement is trustworthy — with low EMQ or missing events the platform optimises on noise, and the tuition comes out of your budget. A day on conversion quality beats a week of creative testing.",
+    },
+    {
+      front: "What gates day 180 — and what's the real finish line?",
+      back: "Lift and blended CAC reported monthly; major paid step-ups gated on PMF evidence (the Sean Ellis 40% test). The finish line: the plan dissolves into an operating rhythm that no longer needs this chapter.",
+    },
+  ]}
+/>
