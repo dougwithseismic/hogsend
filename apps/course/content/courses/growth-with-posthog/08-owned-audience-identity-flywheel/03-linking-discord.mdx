@@ -1,0 +1,66 @@
+---
+title: "Linking Discord, with email verification"
+description: "The Discord cold-connect flow: a member runs /link you@example.com, the engine emails a single-use confirmation link, and clicking it proves inbox ownership and binds discord ↔ email. The typed address is never trusted until the email is clicked."
+---
+
+Here's the mechanic in Hogsend terms. The Discord cold-connect flow lets a member run
+`/link you@example.com`; the engine emails a single-use confirmation link; clicking it
+**proves inbox ownership**, binds `discord ↔ email`, and emits a `discord.linked` event
+you can build on.
+
+The important design principle — and the one that makes the captured email *trustworthy*
+— is that **the typed address is never trusted until the email is clicked.** The
+delivered-and-clicked email *is* the proof. That's what makes the resulting email both
+real and consented (which matters for Chapter 7's ad uploads — an unverified typed
+address is worthless as a custom-audience input and possibly unlawful to upload).
+
+Once `discord.linked` fires, a journey welcomes them and grants the role:
+
+```ts
+import { defineJourney, sendConnectorAction, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const discordLinked = defineJourney({
+  meta: {
+    id: "discord-linked",
+    name: "Discord — Linked & Verified",
+    enabled: true,
+    trigger: { event: Events.DISCORD_LINKED }, // fires after the email is confirmed
+    entryLimit: "once",
+  },
+  run: async (user) => {
+    const discordId = String(user.properties.discordId ?? "");
+    const guildId = String(user.properties.guildId ?? "");
+
+    // Grant the "Verified / Community" role — the perk that prompted the link.
+    await sendConnectorAction({
+      connectorId: "discord",
+      action: "grantRole",
+      args: { guildId, member: discordId, roleId: process.env.DISCORD_ROLE_COMMUNITY ?? "" },
+    });
+
+    await sendConnectorAction({
+      connectorId: "discord",
+      action: "dmMember",
+      args: { member: discordId, content: "✅ Verified! You've unlocked the community channels." },
+    });
+
+    // Now they're reachable by BOTH email and Discord — an owned, multi-channel contact.
+    await sendEmail({
+      to: user.email, userId: user.id, journeyStateId: user.stateId,
+      template: Templates.ACTIVATION_COMMUNITY,
+      subject: "You're in — here's how to get the most from the community",
+      journeyName: user.journeyName,
+    });
+  },
+});
+```
+
+The same `sendConnectorAction` primitive drives **gamification** — granting roles for
+community engagement, which both rewards members and densifies the graph. Hogsend's
+real Discord journeys do exactly this: grant a "Hello world" role on a first message, a
+"Resonator" role when a member's post gets reactions from five different people, a "Hype
+hog" role for reacting to five different people's posts. Each engagement is an event;
+each role is a `grantRole` action; each is another edge in the identity graph. This is
+the same behavioural-journey machinery from Chapter 6 — the only new thing is that the
+*channel* is Discord instead of email, and the trigger is a reaction instead of a signup.

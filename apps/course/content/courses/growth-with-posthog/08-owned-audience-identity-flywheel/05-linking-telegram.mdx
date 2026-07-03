@@ -1,0 +1,56 @@
+---
+title: "Linking Telegram"
+description: "Telegram has no native email field — identity is phone-based — so linking uses a bot deep-link plus an email-confirm flow, the same proof-by-clicking pattern as Discord. Referrals ride the same deep-link mechanism."
+---
+
+Telegram has no native email field — identity is phone-based — so linking uses a bot
+deep-link plus an email-confirm flow, the same proof-by-clicking pattern as Discord. A
+member runs `/link you@example.com`; the journey emails a single-use confirm link:
+
+```ts
+export const telegramLinkRequest = defineJourney({
+  meta: {
+    id: "telegram-link-request",
+    name: "Telegram — Link Request (/link)",
+    enabled: true,
+    trigger: { event: TelegramEvents.LINK_REQUESTED },
+    entryLimit: "unlimited",
+  },
+  run: async (user) => {
+    const chatId = String(user.properties.chatId ?? "");
+    const fromId = String(user.properties.fromId ?? "");
+    const email = String(user.properties.email ?? "");
+
+    const reply = (text) =>
+      sendConnectorAction({ connectorId: "telegram", action: "sendMessage", args: { chatId, text } });
+
+    if (!email) {
+      await reply("To connect your email, send:\n\n/link you@example.com");
+      return;
+    }
+
+    // Mint a server-sealed, single-use confirm token (rate-limited, fail-closed).
+    const minted = await telegramColdConnect.mintConfirm({ platformUserId: fromId, email });
+    if (!minted.ok) {
+      await reply("Linking is briefly unavailable — please try again shortly.");
+      return;
+    }
+
+    const url = telegramColdConnect.confirmUrl({ apiPublicUrl: process.env.API_PUBLIC_URL, token: minted.token });
+    await getEmailService().send({
+      template: "transactional/magic-link",
+      props: { magicLinkUrl: url, expiresIn: "15 minutes" },
+      to: email, userId: email, userEmail: email,
+      subject: "Confirm your Telegram connection",
+      category: "transactional",
+      skipPreferenceCheck: true,
+    });
+    await reply(`📧 I've emailed a confirmation link to ${email}. Open it to finish — expires in 15 minutes.`);
+  },
+});
+```
+
+Clicking the link binds `telegram ↔ email` and stitches the analytics identity from the
+client (so you get the real geo/IP). Referrals on Telegram ride the same deep-link
+mechanism: a unique `t.me/<bot>?start=<referrerId>` link lets the bot record who brought
+whom — which is the attribution primitive the referral loop (§8.7) is built on.
