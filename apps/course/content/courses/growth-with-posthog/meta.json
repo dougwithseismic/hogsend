@@ -3,10 +3,12 @@
   "pages": [
     "---Measure---",
     "00-product-led-growth",
+    "11-stages-of-growth",
     "01-what-is-posthog",
     "02-aarrr-and-the-leaky-bucket",
     "03-instrument-posthog",
     "04-your-daily-dashboard",
+    "12-running-experiments",
     "---Keep---",
     "05-lifecycle-messaging",
     "06-building-lifecycle-with-hogsend",
@@ -15,12 +17,9 @@
     "08-owned-audience-identity-flywheel",
     "---Run---",
     "09-putting-it-all-together",
-    "10-your-30-60-90-180-day-plan",
-    "---Deepen---",
-    "11-stages-of-growth",
-    "12-running-experiments",
-    "---Beyond---",
     "13-talking-about-growth",
+    "10-your-30-60-90-180-day-plan",
+    "---Career---",
     "14-growth-as-career-capital"
   ]
 }

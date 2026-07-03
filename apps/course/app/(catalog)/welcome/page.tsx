@@ -161,8 +161,8 @@ export default async function WelcomePage(props: {
             Welcome to {course.title}
           </h1>
           <p className="mt-5 max-w-xl text-base text-white/60 leading-6">
-            Fifteen chapters in six modules, about 6 hours end to end — and here
-            is everything that comes with them.
+            Fifteen chapters in five modules, about 6 hours end to end — and
+            here is everything that comes with them.
           </p>
           {owned ? (
             <TagPill accent className="mt-6">
