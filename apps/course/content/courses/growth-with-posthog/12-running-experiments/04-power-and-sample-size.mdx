@@ -1,6 +1,7 @@
 ---
 title: "Power and sample size"
 description: "An underpowered test can't see the effect you're hoping for — so it reports 'no difference' or, worse, a false win you'll act on. The intuition behind minimum detectable effect, run length, and why peeking lies."
+workbook: "Watch Ronny Kohavi — who ran experimentation at Bing — on the pitfalls that make results untrustworthy: peeking, underpowered tests, and sample-ratio mismatch."
 ---
 
 Power is the least intuitive idea in this chapter, and it's the one that quietly wrecks
@@ -39,3 +40,29 @@ is only trustworthy at the sample size you committed to. Pick the finish line fi
 look when you reach it. Evan Miller's
 ["How Not to Run an A/B Test"](https://www.evanmiller.org/how-not-to-run-an-ab-test.html)
 shows exactly how much peeking distorts the result.
+
+<VideoEmbed
+  id="HEGI5QN3fXE"
+  title="Ronny Kohavi: A/B Testing Pitfalls: Getting Numbers You Can Trust is Hard - CXL LIVE 2016"
+  channel="CXL"
+  note="The person who ran experimentation at Bing walks the pitfalls that turn a significant result into a wrong one — the reason 'trustworthy' is a harder bar than 'significant.'"
+/>
+
+<VideoTranscript id="HEGI5QN3fXE" />
+
+**What to take from it:**
+
+- False wins are the rule, not the exception. Kohavi's headline Bing metric — sessions per
+  user — improves in only about 1 in 5,000 attempts, so because a genuine move is that rare,
+  roughly 99.6% of the *significant* (p < 0.05) results on it are false positives. His
+  certification committee's standing line: don't celebrate one significant result, replicate
+  it first.
+- Sample-ratio mismatch is the trust-killer he checks before anything else — the single most
+  common alarm at Microsoft. A test built to split traffic 50/50 that comes back even
+  slightly lopsided (his live example: 821,588 vs 815,582 users, about a 1-in-500,000
+  imbalance by chance) has a flaw in its execution, and no p-value from it can be trusted.
+- Peeking and ramp-ups distort the answer directly: combine data while the treatment's
+  traffic share is still changing and a winner can flip to a loser (Simpson's paradox). The
+  discipline is to fix the finish line first, run A/A tests to sanity-check the system — they
+  should "fail" about 5% of the time, and one vendor's once failed 30%, exposing a broken
+  engine — and remember Twyman's law: a result that looks amazing is usually a bug.

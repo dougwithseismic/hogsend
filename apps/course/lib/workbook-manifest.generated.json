@@ -1328,6 +1328,16 @@
         "rows": 3
       }
     ],
+    "12-running-experiments/04-power-and-sample-size": [
+      {
+        "kind": "media",
+        "id": "HEGI5QN3fXE",
+        "key": "media:HEGI5QN3fXE",
+        "anchor": "wb-media-HEGI5QN3fXE",
+        "label": "Ronny Kohavi: A/B Testing Pitfalls: Getting Numbers You Can Trust is Hard - CXL LIVE 2016",
+        "media": "video"
+      }
+    ],
     "12-running-experiments/07-tempo-and-the-backlog": [
       {
         "kind": "calc",
@@ -1405,6 +1415,14 @@
       }
     ],
     "13-talking-about-growth/01-who-cares-about-what": [
+      {
+        "kind": "media",
+        "id": "hdjlCLb9Hl8",
+        "key": "media:hdjlCLb9Hl8",
+        "anchor": "wb-media-hdjlCLb9Hl8",
+        "label": "How to nail your product positioning | April Dunford (Obviously Awesome)",
+        "media": "video"
+      },
       {
         "kind": "note",
         "id": "ch13-who-cares",
@@ -1549,6 +1567,14 @@
         ]
       },
       {
+        "kind": "media",
+        "id": "dgz-Ud4fq6w",
+        "key": "media:dgz-Ud4fq6w",
+        "anchor": "wb-media-dgz-Ud4fq6w",
+        "label": "How to Write Investor Updates + Startup Metrics (CAC, LTV, Chrun)",
+        "media": "video"
+      },
+      {
         "kind": "note",
         "id": "ch13-one-pager-draft",
         "key": "note:ch13-one-pager-draft",
@@ -1672,6 +1698,14 @@
       }
     ],
     "14-growth-as-career-capital/05-interviewing-for-growth": [
+      {
+        "kind": "media",
+        "id": "UhASMW6X4AY",
+        "key": "media:UhASMW6X4AY",
+        "anchor": "wb-media-UhASMW6X4AY",
+        "label": "My favorite interview questions from 100+ guests",
+        "media": "video"
+      },
       {
         "kind": "checklist",
         "id": "ch14-interview-prep",
