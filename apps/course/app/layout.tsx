@@ -2,7 +2,6 @@ import { RootProvider } from "fumadocs-ui/provider/next";
 import "./global.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { CourseHogsendProvider } from "@/components/hogsend/provider";
 import { geistMono, inter, interDisplay } from "@/lib/fonts";
 import { SITE_URL } from "@/lib/site";
 
@@ -31,9 +30,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     >
       <body className="flex min-h-screen flex-col bg-ink font-sans text-white antialiased">
         {/* Dark-only (matches the crimzon brand). Theme toggle disabled. */}
-        <RootProvider theme={{ enabled: false }}>
-          <CourseHogsendProvider>{children}</CourseHogsendProvider>
-        </RootProvider>
+        {/* The Hogsend feed provider is NOT here: it only feeds the nav bell,
+            and its identity-driven remount (anon → identified, once the feed
+            token lands ~0.5s post-load) would otherwise tear down and re-fade
+            the whole page. It's scoped to <SiteNav> so only the nav remounts. */}
+        <RootProvider theme={{ enabled: false }}>{children}</RootProvider>
       </body>
     </html>
   );
