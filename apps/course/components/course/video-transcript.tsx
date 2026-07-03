@@ -1,3 +1,5 @@
+import { LlmActions } from "@/components/course/llm-actions";
+import { TRANSCRIPT_PROMPT } from "@/lib/llm-brand";
 import transcripts from "@/lib/transcripts.generated.json";
 
 /**
@@ -27,6 +29,9 @@ export function VideoTranscript({ id }: { id: string }) {
           ({paras.length > 1 ? `${text.split(/\s+/).length} words` : "1-min"})
         </span>
       </summary>
+      <div className="border-white/[0.06] border-t px-4 py-3">
+        <LlmActions text={text} prompt={TRANSCRIPT_PROMPT} send />
+      </div>
       <div className="flex max-h-[28rem] flex-col gap-3 overflow-y-auto border-white/[0.06] border-t px-4 py-4 text-sm text-white/55 leading-relaxed">
         {paras.map((p) => (
           <p key={p.slice(0, 48)}>{p}</p>

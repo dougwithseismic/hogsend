@@ -16,14 +16,22 @@ import {
   ChapterWorkbook,
 } from "@/components/course/chapter-workbook";
 import { LessonProvider } from "@/components/course/lesson-context";
+import { LlmActions } from "@/components/course/llm-actions";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
 import { getMDXComponents } from "@/components/mdx";
 import { db } from "@/lib/db";
 import { lessonProgress, response } from "@/lib/db/schema";
 import { hasAccess, isCoursePaywalled } from "@/lib/entitlements";
 import { ensureEnrollment, getSession, isFreeLesson } from "@/lib/gating";
+import lessonTextJson from "@/lib/lesson-text.generated.json";
+import { ARTICLE_PROMPT } from "@/lib/llm-brand";
 import { source } from "@/lib/source";
 import { lessonWorkbookItems, type SavedValue } from "@/lib/workbook";
+
+const LESSON_TEXT = lessonTextJson as Record<
+  string,
+  { title: string; text: string }
+>;
 
 /** The following lesson in course order (numeric slug prefixes sort), or null.
  *  `lesson` is the full sub-path after the course (`slugs.slice(1).join("/")`),
@@ -100,6 +108,7 @@ export default async function Page(props: {
   // `slugs.join("/")` completion key the sidebar decoration uses. Flat lessons
   // are unchanged (`01-what-is-posthog`), so existing progress data is stable.
   const lessonSlug = slugs.slice(1).join("/");
+  const articleText = LESSON_TEXT[`${slugs[0]}/${lessonSlug}`]?.text;
 
   const body = (
     <MDX
@@ -167,6 +176,15 @@ export default async function Page(props: {
             lesson={lessonSlug}
           >
             <WorkbookStateProvider initial={initialResponses}>
+              {articleText ? (
+                <div className="not-prose mb-8 flex justify-end">
+                  <LlmActions
+                    text={articleText}
+                    prompt={ARTICLE_PROMPT}
+                    copyLabel="Copy for LLM"
+                  />
+                </div>
+              ) : null}
               <ChapterWorkbook signedIn={session !== null} />
               {body}
               <ChapterRecap signedIn={session !== null} />
