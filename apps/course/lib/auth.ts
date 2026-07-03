@@ -1,10 +1,14 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { magicLink } from "better-auth/plugins";
+import { emailOTP, magicLink } from "better-auth/plugins";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
-import { sendDeleteAccountEmail, sendMagicLinkEmail } from "@/lib/email";
+import {
+  sendDeleteAccountEmail,
+  sendMagicLinkEmail,
+  sendOtpEmail,
+} from "@/lib/email";
 import { env } from "@/lib/env";
 import { emitAccountDeleted, emitSignedUp } from "@/lib/events";
 
@@ -75,6 +79,21 @@ export const auth = betterAuth({
     },
   },
   plugins: [
+    // Primary passwordless method: a 6-digit code the reader types on the same
+    // tab — no inbox round-trip. Creates the user on first sign-in (same as the
+    // magic link), so the signed_up hook fires for new accounts either way.
+    emailOTP({
+      otpLength: 6,
+      expiresIn: 60 * 15,
+      disableSignUp: false,
+      sendVerificationOTP: async ({ email, otp, type }) => {
+        // Only the sign-in flow is used here (no email-change / password reset).
+        if (type === "sign-in") {
+          await sendOtpEmail(email, otp);
+        }
+      },
+    }),
+    // Fallback: the single-use link, for readers who'd rather click than type.
     magicLink({
       expiresIn: 60 * 15,
       disableSignUp: false,

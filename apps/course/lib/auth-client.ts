@@ -1,6 +1,6 @@
 "use client";
 
-import { magicLinkClient } from "better-auth/client/plugins";
+import { emailOTPClient, magicLinkClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 
 /**
@@ -8,7 +8,7 @@ import { createAuthClient } from "better-auth/react";
  * /api/auth on this site), so no NEXT_PUBLIC_* base URL is needed.
  */
 export const authClient = createAuthClient({
-  plugins: [magicLinkClient()],
+  plugins: [magicLinkClient(), emailOTPClient()],
 });
 
 export const {

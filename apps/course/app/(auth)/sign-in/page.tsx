@@ -30,8 +30,8 @@ export default async function SignInPage(props: {
             Create your free account
           </h1>
           <p className="mt-2 text-sm text-white/60 leading-6">
-            Sign in to unlock every lesson. No password — we email you a sign-in
-            link{githubEnabled ? ", or use GitHub" : ""}.
+            Sign in to unlock every lesson. No password — we email you a 6-digit
+            code{githubEnabled ? ", or use GitHub" : ""}.
           </p>
           <div className="mt-8">
             <SignInForm next={next} githubEnabled={githubEnabled} />

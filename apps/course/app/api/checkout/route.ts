@@ -42,10 +42,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   // header — Stripe success/cancel must point at our own origin, untrusted-input-free.
   const base = env.BETTER_AUTH_URL.replace(/\/+$/, "");
 
-  // Not signed in → bounce to sign-in, return here after.
+  // Not signed in → bounce to sign-in, return here after. Carry the intent to
+  // buy through auth as a `checkout` marker on the return path: the paywall
+  // resumes the purchase automatically once they're back, instead of making
+  // them click Buy a second time. Entitlement is still derived server-side on
+  // the resumed POST — the marker only re-triggers the same form.
   if (!session) {
+    const resumeNext = `${next}${next.includes("?") ? "&" : "?"}checkout=${encodeURIComponent(course)}`;
     return NextResponse.redirect(
-      `${base}/sign-in?next=${encodeURIComponent(next)}`,
+      `${base}/sign-in?next=${encodeURIComponent(resumeNext)}`,
       303,
     );
   }
