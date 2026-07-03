@@ -1,0 +1,82 @@
+---
+title: "Why touch-points matter (and how many)"
+description: "Multi-touch beats single-touch, but messaging is a dial you can turn too far either way. A workable default cadence, the honest over-messaging signal, and why frequency capping and suppression become load-bearing."
+workbook: "How many touch-points is right, the over-messaging signal to watch, and the frequency-capping and suppression practices that keep multiple journeys from piling up. Then a flashcard deck on the chapter's key ideas."
+---
+
+A single email is a single chance to catch someone at the right moment — and most of
+the time you'll miss it. Sequences work because they account for missed opens and rising
+intent over days. Multi-touch beats single-touch. The defensible framing: **a 3–5
+message sequence materially outperforms a one-shot send.**
+
+But messaging is a dial you can turn too far in either direction:
+
+- **Under-messaging** is the silent failure. No onboarding push means the bucket just
+  leaks. There's also a deliverability cost: senders who email irregularly see roughly
+  *double* the unsubscribe rate of those who send consistently — inbox reputation is
+  built by showing up predictably.
+- **Over-messaging** burns the relationship: fatigue, unsubscribes, spam complaints,
+  and damaged sender reputation. *(One survey claims ~56% of people unsubscribe after
+  4 marketing emails in 30 days — directional, but the effect is real.)* The spam
+  complaint is the expensive one — it doesn't just lose that user, it degrades
+  delivery to everyone else (§5.6).
+
+A workable default cadence:
+
+- **Welcome series:** every 2–3 days for the first few touches, while intent is high.
+- **Active users:** 1–3 per week, depending on your product's rhythm.
+- **Dormant users:** slow and value-led — a user who's already drifting is the last
+  person a barrage will win back.
+
+The signal that tells you the dial has gone too far: **engagement per send drops with
+each added message.** Opens, clicks, or revenue-per-email falling as you add sends is
+the program telling you it's reached the useful maximum.
+
+Two practices become load-bearing the moment you run more than one journey:
+
+- **Frequency capping** — a ceiling on total messages per user across all journeys and
+  channels, so two journeys don't both fire on the same bad day. The failure mode it
+  prevents is real and common: a user's card fails the same week they go dormant and
+  hit a plan limit, and three well-intentioned journeys each send twice. Every message
+  was individually justified; the pile-up is what gets you marked as spam.
+- **Suppression** — stop a sequence the instant its goal is met, and respect an opt-out
+  on *every* channel, not just the one they unsubscribed from.
+
+<Flashcards
+  id="cards-lifecycle"
+  title="Key ideas — lifecycle messaging"
+  cards={[
+    {
+      front: "What is lifecycle messaging?",
+      back: "The right message, triggered by the right behaviour, at the right time — the operational layer that moves users between AARRR stages, and the cheapest retention lever because the users are already yours.",
+    },
+    {
+      prompt: "The Reforge retention model:",
+      cloze: "Retention is an {{output}}, not a stage you push on directly — its inputs are {{activation}}, {{engagement}}, and {{resurrection}}, and lifecycle messaging is how you move each one.",
+    },
+    {
+      front: "Why build welcome + onboarding first?",
+      back: "Peak intent — welcome opens commonly run 35–50% — the signup-to-activation gap is the biggest leak, and activated users retain roughly 2× better. Dunning comes next if you charge, then win-back.",
+    },
+    {
+      front: "Why is dunning the highest dollar-ROI journey?",
+      back: "Involuntary churn (failed cards, expirations) is 20–40% of SaaS churn, and these users want to keep paying — you're removing friction, not persuading. Exit the instant a payment succeeds.",
+    },
+    {
+      prompt: "Triggered vs batch, the benchmark:",
+      cloze: "Automated flows are roughly {{5% of sends}} but about {{40% of email revenue}} (directional) — a batch send's relevance is the list's average, while a triggered send's is pinned to a moment of intent.",
+    },
+    {
+      front: "What role may time play in a trigger?",
+      back: "Only as a window on behaviour — 'not done in 24–72h' — never as the reason to send. A trigger column filling with durations is the time-based drip quietly creeping back in.",
+    },
+    {
+      front: "What's the honest signal that you're over-messaging?",
+      back: "Engagement per send drops as you add messages — opens, clicks, or revenue-per-email falling with volume is the program telling you it's reached the useful maximum.",
+    },
+    {
+      front: "What is frequency capping, and why is it load-bearing?",
+      back: "A ceiling on total messages per user across all journeys and channels. It prevents the pile-up where several individually-justified journeys fire in the same bad week — the pattern that gets you marked as spam.",
+    },
+  ]}
+/>

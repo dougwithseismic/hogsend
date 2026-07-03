@@ -1,0 +1,51 @@
+---
+title: "Deliverability: none of this works if you don't land"
+description: "Since 2024, Gmail and Yahoo's bulk-sender rules turned the soft best-practices into hard requirements — authenticate everything, one-click unsubscribe, complaint rate under 0.3% — plus the habits that keep a young domain healthy."
+workbook: "The hard bulk-sender rules since 2024 and the habits that keep a young sending domain healthy. Watch the four-minute deliverability briefing before your first journey sends."
+---
+
+Everything above assumes the message reaches the inbox. That's earned, not given —
+and since early 2024 it's also *specified*. Gmail and Yahoo's bulk-sender rules
+([Google's sender guidelines](https://support.google.com/mail/answer/81126) are the
+primary source;
+[Resend's summary](https://resend.com/blog/gmail-and-yahoo-bulk-sending-requirements-for-2024)
+is the readable version) made the previously-soft best practices hard requirements:
+
+- **Authenticate everything: SPF, DKIM, and DMARC.** These are DNS records proving
+  your mail actually comes from your domain. No auth, no inbox — it's that binary now
+  for senders above trivial volume.
+- **One-click unsubscribe** (the `List-Unsubscribe` header), honoured within two days.
+  Making people hunt for the link doesn't retain them; it converts unsubscribes into
+  spam complaints.
+- **Spam complaint rate below 0.3%** — and realistically well below it. This is the
+  metric the cadence discipline in §5.5 protects.
+
+<VideoEmbed
+  id="eDoHvKiB2Lc"
+  title="Best Email Deliverability Tips for 2025"
+  channel="Resend"
+  duration="3:50"
+  note="Four minutes from an email provider on auth + reputation basics — the minimum viable deliverability briefing before your first journey sends."
+/>
+
+<VideoTranscript id="eDoHvKiB2Lc" />
+
+**What to take from it:**
+
+- Authenticate and isolate: SPF, DKIM and DMARC prove your mail is really yours (DMARC
+  also blocks spoofing), and sending marketing from a *subdomain* keeps a reputation
+  problem there from dragging down your transactional mail.
+- List hygiene *is* deliverability: only mail people who opted in, prune non-engagers and
+  complainers, and never hard-bounce fake addresses when testing — the bounces are real
+  even when the addresses aren't, and they damage your reputation.
+- Small practical wins compound: keep emails under Gmail's ~102KB clip limit with a
+  plain-text version, avoid no-reply senders (they signal one-way, low-trust mail), and
+  warm up volume gradually instead of blasting a cold domain.
+
+Beyond the hard rules, three habits keep a young domain healthy: **send from a
+subdomain** (e.g. `mail.yourapp.com`) so lifecycle reputation is insulated from your
+transactional mail; **warm up volume gradually** rather than blasting a cold list on
+day one; and **prune non-engagers** — continuing to mail people who never open is how
+good lists rot into spam-trap territory. None of this is busywork. A lifecycle program
+with a damaged sender domain is a program that silently stopped existing; you'll keep
+"sending" for months before anyone notices nothing lands.

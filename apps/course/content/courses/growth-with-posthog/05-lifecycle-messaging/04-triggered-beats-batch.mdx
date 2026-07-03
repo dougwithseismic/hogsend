@@ -1,0 +1,59 @@
+---
+title: "Triggered beats batch-and-blast"
+description: "A message triggered by behaviour reaches a person at a moment of intent; a batch send hits everyone regardless of where they are. How a product event becomes a message, and why the performance gap is large and consistent."
+---
+
+The core argument for the whole approach: a message triggered by behaviour reaches a
+person at a moment of intent. A batch send hits everyone regardless of where they are
+in their journey. The performance gap is large and consistent:
+
+- Automated/triggered flows are a tiny fraction of send volume but drive a hugely
+  disproportionate share of revenue — a common benchmark is **flows ≈ 5% of sends but
+  ~40% of email revenue** *(vendor benchmark, directional — the direction is rock
+  solid even if the exact split varies)*.
+- Triggered emails show materially higher open and click rates than batch campaigns —
+  often roughly **70–120% higher opens and several times the click rate**. Treat these
+  as a *range*, not a precise multiple; the numbers vary wildly by source.
+
+> Avoid the fake-precise stats floating around win-back blogs ("2,361% higher
+> conversion"). They're uncited SEO bait. The honest version: multi-touch behavioural
+> sequences materially outperform single batch sends. You don't need invented decimals
+> to make the case.
+
+Why the gap exists is worth internalising, because it predicts where triggered wins
+biggest. A batch send's relevance is the *average* relevance across your whole list —
+necessarily mediocre. A triggered send's relevance is pinned to a moment: the user
+*just* signed up, *just* hit a milestone, *just* had a card fail. The bigger the spread
+in your users' states, the bigger triggered's advantage — which is why it dominates in
+SaaS onboarding (users are wildly spread) and matters less for a weekly content digest
+(everyone's in the same state: it's Thursday).
+
+### How a product event becomes a message
+
+The mechanism, which Chapter 6 implements:
+
+1. You instrument a behaviour as an **event** with properties (Chapter 3) —
+   `trial_started`, `project_created`, `payment_failed { amount }`.
+2. A journey is **subscribed** to that event. When the event fires, the journey starts
+   for that user.
+3. The journey runs its steps — wait, check a condition, send, branch — and an **exit
+   condition** stops it the instant the goal is met (e.g. stop the "upgrade" sequence
+   the moment the user upgrades).
+
+A few reliable trigger → message pairs to model yours on:
+
+| Behaviour | Message |
+|---|---|
+| Signed up | Welcome #1 — one clear CTA to the first action |
+| Trial started | Onboarding sequence begins |
+| Key action not done in 24–72h | Activation nudge |
+| Milestone hit | Celebration + (timed) referral ask |
+| Inactive 30 days | Re-engagement #1 |
+| Inactive 60–90 days | Win-back with an incentive |
+| Payment failed | Dunning: retry + update-card CTA |
+| Subscription cancelled | Win-back / save offer |
+
+Note what's *absent* from the table: "it's been 7 days since email #2." Time appears
+only as a window on behaviour ("not done in 24–72h"), never as the reason to send. If the
+trigger column starts filling with durations instead of behaviours, that's usually the
+drip you were escaping, quietly creeping back in.
