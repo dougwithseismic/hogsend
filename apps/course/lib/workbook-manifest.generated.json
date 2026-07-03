@@ -633,6 +633,13 @@
         "anchor": "wb-media-zo3QHrXiprs",
         "label": "11 essential SaaS metrics explained in 11 minutes",
         "media": "video"
+      },
+      {
+        "kind": "calc",
+        "id": "ch7-cac-ltv-payback",
+        "key": "calc:ch7-cac-ltv-payback",
+        "anchor": "wb-ch7-cac-ltv-payback",
+        "label": "Your CAC, LTV, and payback"
       }
     ],
     "07-driving-traffic/05-three-audiences": [

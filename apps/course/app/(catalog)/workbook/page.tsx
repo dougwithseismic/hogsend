@@ -8,6 +8,7 @@ import { Checklist } from "@/components/course/checklist";
 import { LessonProvider } from "@/components/course/lesson-context";
 import { CopyLinkButton } from "@/components/course/share-link";
 import {
+  WorkbookCalcRow,
   WorkbookChapterMeter,
   WorkbookCourseProgress,
   WorkbookFlashcardsRow,
@@ -187,6 +188,8 @@ function ChapterItems({
             return (
               <WorkbookFlashcardsRow key={item.key} item={item} href={href} />
             );
+          case "calc":
+            return <WorkbookCalcRow key={item.key} item={item} href={href} />;
           default:
             return null;
         }

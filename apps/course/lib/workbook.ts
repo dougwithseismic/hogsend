@@ -13,7 +13,8 @@ export type WorkbookItemKind =
   | "checklist"
   | "quiz"
   | "flashcards"
-  | "media";
+  | "media"
+  | "calc";
 
 export type WorkbookItem = {
   kind: WorkbookItemKind;
@@ -74,6 +75,10 @@ export type SavedValue = {
   done?: boolean;
   /** flashcards: mastered card indices. */
   mastered?: number[];
+  /** calc: the reader's saved inputs, computed results, and read-out sentence. */
+  inputs?: Record<string, number>;
+  results?: Record<string, number>;
+  summary?: string;
 };
 
 export type ItemStatus = "empty" | "partial" | "done";
@@ -125,6 +130,10 @@ export function itemState(
             status: "done",
             detail: item.media === "podcast" ? "Listened" : "Watched",
           }
+        : { status: "empty" };
+    case "calc":
+      return value.inputs && Object.keys(value.inputs).length > 0
+        ? { status: "done", detail: "Saved" }
         : { status: "empty" };
     default:
       return { status: "empty" };

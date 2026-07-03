@@ -48,6 +48,31 @@ function cleanStrings(
   return out;
 }
 
+/** A bounded map of finite numbers keyed by block-safe ids (calc inputs/results). */
+function cleanNumberRecord(
+  input: unknown,
+  maxKeys: number,
+): Record<string, number> | null {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return null;
+  }
+  const entries = Object.entries(input as Record<string, unknown>);
+  if (entries.length > maxKeys) return null;
+  const out: Record<string, number> = {};
+  for (const [key, val] of entries) {
+    if (!ID_PATTERN.test(key)) return null;
+    if (
+      typeof val !== "number" ||
+      !Number.isFinite(val) ||
+      Math.abs(val) > 1e12
+    ) {
+      return null;
+    }
+    out[key] = val;
+  }
+  return out;
+}
+
 function parseBody(body: unknown): Saved | { error: string } {
   if (typeof body !== "object" || body === null) {
     return { error: "bad_request" };
@@ -145,6 +170,29 @@ function parseBody(body: unknown): Saved | { error: string } {
       key: `checklist:${id}`,
       kind,
       value: { checked, ...context("title", 160) },
+    };
+  }
+
+  if (kind === "calc") {
+    if (!ID_PATTERN.test(id)) return { error: "bad_request" };
+    const inputs = cleanNumberRecord(value.inputs, 24);
+    if (!inputs || Object.keys(inputs).length === 0) {
+      return { error: "bad_request" };
+    }
+    const results = cleanNumberRecord(value.results ?? {}, 24) ?? {};
+    const summary =
+      typeof value.summary === "string"
+        ? value.summary.trim().slice(0, 400)
+        : "";
+    return {
+      key: `calc:${id}`,
+      kind,
+      value: {
+        inputs,
+        ...(Object.keys(results).length ? { results } : {}),
+        ...(summary ? { summary } : {}),
+        ...context("title", 160),
+      },
     };
   }
 
