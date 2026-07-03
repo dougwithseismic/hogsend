@@ -1,6 +1,7 @@
 ---
 title: "What deserves an experiment"
 description: "Every experiment has a fixed cost — traffic you split, time you wait, and the change you didn't ship instead. Some decisions earn that cost; many should just ship. How to tell them apart."
+workbook: "Sort a real decision into ship-it or test-it, then watch Ronny Kohavi on why most tested ideas fail and when not to run an experiment at all."
 ---
 
 An experiment is not free. It costs **traffic** — you split it, so each variant learns
@@ -39,4 +40,26 @@ So the rule isn't "test everything." It's: ship the cheap, reversible, obvious c
 fast, and spend your limited testing capacity on the decisions that are expensive to get
 wrong and where your intuition genuinely might be.
 
-{/* MEDIA: podcast — Ronny Kohavi on Lenny's Podcast, "when not to run an experiment" and why most tested ideas fail; sets up the whole chapter's humility about predicting winners */}
+<VideoEmbed
+  id="hEzpiDuYFoE"
+  title="The ultimate guide to A/B testing"
+  channel="Lenny's Podcast"
+  note="Kohavi, the field's leading voice on experimentation, on why most ideas fail and when a test isn't worth running — the humility this whole chapter is built on."
+/>
+
+<VideoTranscript id="hEzpiDuYFoE" />
+
+**What to take from it:**
+
+- The failure rates *rise* with optimisation: ~two-thirds of ideas fail at Microsoft,
+  ~85% at Bing, 92% at Airbnb search — and every team assumes it's the exception until the
+  data humbles it. That's the case for testing the expensive decisions: intuition is wrong
+  more often than anyone guesses.
+- When *not* to test comes down to sample size. Below ~tens of thousands of users the
+  statistics only see large effects, and the "magic" starts around 200k — so a small
+  startup should test big swings, not button colours (§12.4). Some calls (a one-time,
+  irreversible decision) can't be A/B tested at all.
+- Two guardrails from the same humility: don't ship on flat (a no-difference result still
+  adds code and maintenance cost for no gain — a no-ship, not a free launch), and invoke
+  Twyman's law — a result that looks too good is probably a bug, so investigate before you
+  celebrate.
