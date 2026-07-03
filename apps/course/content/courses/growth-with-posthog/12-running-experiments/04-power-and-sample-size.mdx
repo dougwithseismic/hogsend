@@ -3,13 +3,16 @@ title: "Power and sample size"
 description: "An underpowered test can't see the effect you're hoping for — so it reports 'no difference' or, worse, a false win you'll act on. The intuition behind minimum detectable effect, run length, and why peeking lies."
 ---
 
-**Statistical power** is the chance a test *detects* a real effect when one exists. A test
-at low power is a smoke detector with a flat battery: the thing can be happening and the
-alarm stays silent. Underpowered tests are the quiet failure mode of small-team
-experimentation, and they fail in two ways — they miss real wins (reporting "no
-difference" when there was one), and they hand you **false wins** that look significant
-but won't replicate. Acting on a false win is worse than running no test at all, because
-you ship the change *and* trust it.
+Power is the least intuitive idea in this chapter, and it's the one that quietly wrecks
+small-team tests — so it's worth slowing down on. **Statistical power** is the chance a
+test *detects* a real effect when one exists. A test at low power is a smoke detector with
+a flat battery: the thing can be happening and the alarm stays silent.
+
+Underpowered tests are the quiet failure mode of small-team experimentation, and they fail
+in two ways. They miss real wins — reporting "no difference" when there really was one.
+And they hand you **false wins**: results that look significant but won't replicate. Acting
+on a false win is worse than running no test at all, because you ship the change *and*
+trust it.
 
 Three levers set how much traffic you need:
 
@@ -27,8 +30,10 @@ decide the sample size and run length *before* you start, with a calculator like
 [Evan Miller's](https://www.evanmiller.org/ab-testing/sample-size.html), so "how long do
 we run this?" has an answer that isn't "until it looks significant."
 
-Which is the cardinal sin: **peeking.** If you watch a running test and stop the moment it
-crosses significance, you badly inflate your false-positive rate — a test with *no* real
+### The cardinal sin: peeking
+
+The temptation is to watch a running test and stop the moment it crosses significance —
+and doing that badly inflates your false-positive rate. A test with *no* real
 effect will touch significance surprisingly often if you check it every day. The p-value
 is only trustworthy at the sample size you committed to. Pick the finish line first, then
 look when you reach it. Evan Miller's
