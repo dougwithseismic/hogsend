@@ -1,0 +1,25 @@
+---
+title: "Consent — the part that isn't optional"
+description: "Server-side does not mean consent-free, and the rules tightened recently: explicit consent before uploading contact info or sending PII, you as the data controller on list uploads, and hashing that does not make data anonymous in law."
+---
+
+Server-side does not mean consent-free, and the rules tightened recently. It's worth
+knowing exactly where the lines sit:
+
+- As of **January 2025**, Meta requires **explicit user consent** before you upload
+  contact info for custom audiences or send PII via CAPI.
+- When you upload a list, **you are the data controller** —
+  [Meta's custom-audience terms](https://www.facebook.com/legal/terms/customaudience)
+  say so explicitly — and need a lawful basis (usually consent). A German regulator has
+  ruled list uploads without consent unlawful, and — again — **hashing does not make
+  data anonymous** in law.
+- Meta's consent signals / data-processing options exist for exactly this — and in
+  consent regimes, events for non-consenting users are best not sent at all.
+- **Less is safer:** sending only what you need (hashed email/phone/external_id) keeps
+  you out of trouble. As of **September 2025**, Meta blocks custom conversions
+  containing sensitive (health/financial) data.
+
+The strategic point this sets up: an **owned, consented identity graph** — emails
+captured *with opt-in* at signup and verification — is what makes the whole custom-
+audience + CAPI + lookalike machine both *effective* and *compliant*. You can only feed
+Meta good, legal data if you collected it well in the first place. That's Chapter 8.

@@ -1,0 +1,61 @@
+---
+title: "The maths that decides: CAC, LTV, payback"
+description: "Whatever the channel, the same three numbers decide whether it's working — and the definitions are where founders fool themselves. CAC per channel, LTV on margin, and the payback period that matters most when cash is tight."
+workbook: "Watch a fast primer on the SaaS vocabulary this section leans on, and note your own CAC and payback."
+---
+
+Whatever the channel, the same three numbers decide whether it's working. The
+definitions matter — a16z's
+[16 Startup Metrics](https://a16z.com/16-startup-metrics/) exists because founders
+routinely get them wrong in ways that flatter the business:
+
+- **CAC (customer acquisition cost)** — *fully loaded* spend to acquire one paying
+  customer: ad spend plus the content, tools, and people behind it, divided by
+  customers acquired. The classic self-deception is reporting CAC on ad spend alone,
+  or on signups instead of customers.
+- **LTV (lifetime value)** — the **gross-margin** contribution of a customer over their
+  lifetime, where lifetime comes from your churn rate (roughly, monthly margin ÷
+  monthly churn). Computing LTV on revenue instead of margin is the second classic
+  self-deception — a16z calls both out by name.
+- **Payback period** — months of gross margin to recover CAC. For a cash-constrained
+  startup this is often the number that matters most: an LTV:CAC of 5 is cold comfort
+  if payback takes three years and the bank account empties in one.
+
+The folk benchmark you'll hear is **LTV:CAC ≥ 3 and payback under ~12 months** for
+SaaS — better treated as a sanity range than a law; what actually protects you is
+knowing your numbers and their trend. Two habits follow from that:
+
+- **CAC is most useful per channel, not blended.** A blended CAC averages your free
+  organic users into the paid number, which can hide a channel that's quietly
+  unprofitable. Blended CAC is a board metric; per-channel CAC is the operating one.
+  (Chapter 9's monthly ritual reviews blended CAC precisely to see whether
+  owned/referral growth is pulling it down over time.)
+- **LTV is worth segmenting by cohort and source.** Users from different channels
+  retain differently — paid-social users commonly churn faster than organic (they had
+  less intent). If paid cohorts' LTV is half your organic LTV, your real paid LTV:CAC
+  may be under water while the blended number looks fine.
+
+<VideoEmbed
+  id="zo3QHrXiprs"
+  title="11 essential SaaS metrics explained in 11 minutes"
+  channel="ChartMogul"
+  duration="11:04"
+  note="A fast, straight primer on CAC, LTV, churn, and the rest of the vocabulary this section leans on."
+/>
+
+<VideoTranscript id="zo3QHrXiprs" />
+
+**What to take from it:**
+
+- LTV falls out of ARPA and churn: average revenue per account ÷ churn rate, then taken
+  down to margin — a $100 ARPA at 10% monthly churn is a $1,000 lifetime value, which is
+  the ceiling on what you can spend to acquire that customer.
+- Track **gross** revenue retention (churn + contraction only), not just the flashier
+  net revenue retention — net can exceed 100% on expansion and quietly hide the bad news
+  gross retention would show you.
+- MRR is not cash flow (a $1,200 annual deal is $100 of MRR), and segmenting churn and
+  CAC by customer size or source tells you far more than the blended number.
+
+Where do the numbers come from? The machine you already built: revenue events are
+server-side in PostHog (Chapter 3), source/UTM landed as person properties (§7.8), so
+"LTV by acquisition source" is a PostHog insight, not a spreadsheet safari.

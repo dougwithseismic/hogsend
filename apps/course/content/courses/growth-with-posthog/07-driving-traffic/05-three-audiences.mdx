@@ -1,0 +1,84 @@
+---
+title: "The three audiences"
+description: "Every ad set targets cold, warm, or lookalike — and in the 2024–2026 era broad targeting plus strong creative plus a good conversion signal beats hand-built interest stacks. Which shifts the work to creative and signal quality."
+workbook: "Lock in the chapter's key ideas with a set of flashcards on channels, CAC/LTV, Meta objectives, and audiences."
+---
+
+Every ad set targets one of three kinds of audience:
+
+- **Broad / interest ("cold").** Demographics and interests, or — increasingly — fully
+  broad "Advantage+" audiences where you let Meta's ML find people. The 2024–2026 trend
+  is clear: **broad targeting + strong creative + a good conversion signal now beats
+  hand-built interest stacks**, because the algorithm does the targeting. Interest
+  targeting is more of a hint than a filter now — which shifts the work from audience-
+  picking to *creative* and *signal quality* (§7.7).
+- **Custom Audiences ("warm", first-party).** Built from *your* data: a customer-list
+  upload, site/app visitors, or events sent via the Conversions API. These are the
+  highest-signal inputs you can give Meta — and they only exist because you captured
+  first-party identity, which is the whole thesis of Chapter 8.
+- **Lookalike Audiences ("prospecting").** Meta finds new people resembling a **seed**
+  custom audience. **Seed quality dominates the result** — your *best* customers
+  (recent purchasers, high-LTV) make a far better seed than "everyone who ever signed
+  up." A 1% lookalike is the tightest match; widening to 3–10% trades match for scale.
+
+### The full funnel
+
+A standard structure layers these:
+
+- **Top (cold):** Awareness/Traffic/Video to broad audiences. Cheap short video both
+  earns reach *and* manufactures the video-viewer/engager audiences you'll retarget.
+- **Middle (warm):** retarget site visitors, video viewers, engagers with
+  trust/education content.
+- **Bottom (hot):** retarget pricing-page visitors, trial-starters, cart abandoners
+  with a direct offer.
+
+> A starting split you'll see quoted is ~50–60% cold / 20–30% warm / 15–20% hot
+> *(directional heuristic, not gospel)*. The pattern that catches small founders is
+> over-investing in retargeting too early — a tiny warm pool can't scale spend. The
+> warm pool grows by capturing more first-party identity, which is Chapter 8.
+
+And a word on the part this course can't do for you: **creative is now the targeting.**
+With broad audiences, the ad itself selects the audience — a video about "deploy
+previews for your Next.js app" finds developers because only developers watch it. The
+practical implication: you'll likely need more creative variants than feels natural
+(winners fatigue in weeks), and the first three seconds are where the qualification
+happens.
+
+<Flashcards
+  id="cards-traffic"
+  title="Key ideas — driving traffic"
+  cards={[
+    {
+      front: "What is the law of shitty clickthroughs?",
+      back: "Every channel's performance degrades as it saturates — banner ads fell from 78% CTR in 1994 to ~0.05%. The counter is capturing what the channel brings into something you own, not channel-hopping.",
+    },
+    {
+      front: "Should a dev tool lead with paid social?",
+      back: "Mostly no — developers block ads at the highest rate and discover tools through content, GitHub, HN, docs, and each other. Treat paid as fuel for the loop and point most energy at owned channels (Chapter 8).",
+    },
+    {
+      front: "How do you compute CAC honestly?",
+      back: "Fully loaded spend — ads plus the content, tools, and people behind them — divided by paying customers, not signups. Per-channel CAC is the operating metric; blended CAC can hide an unprofitable channel.",
+    },
+    {
+      prompt: "The LTV:CAC maths:",
+      cloze: "LTV is the {{gross-margin}} contribution over a customer's lifetime — roughly monthly margin ÷ {{monthly churn}}, never revenue — and the folk benchmark is LTV:CAC of at least {{3}} with payback (months of margin to recover CAC) inside {{about 12 months}}.",
+    },
+    {
+      front: "What's the most consequential choice in a Meta campaign?",
+      back: "The objective — it tells the delivery algorithm which kind of person to go find. Traffic buys visitors who click; Sales buys visitors who act. They are different people.",
+    },
+    {
+      prompt: "The 50-conversions rule:",
+      cloze: "Meta's algorithm needs roughly {{50 conversions}} per ad set per {{week}} to exit the {{learning phase}} — optimise the deepest event you can feed at that volume, pass deeper conversions back server-side, and change things weekly, since {{edits reset learning}}.",
+    },
+    {
+      front: "Why is creative now the targeting?",
+      back: "With broad and Advantage+ audiences the ad itself selects the audience — only developers watch a video about deploy previews. Winners fatigue in weeks, and the first three seconds are where qualification happens.",
+    },
+    {
+      front: "What makes a good lookalike seed?",
+      back: "Seed quality dominates the result: your best customers — recent purchasers, high-LTV — beat 'everyone who ever signed up.' A 1% lookalike is the tightest match; widening to 3–10% trades match for scale.",
+    },
+  ]}
+/>
