@@ -1,0 +1,38 @@
+---
+title: "Power and sample size"
+description: "An underpowered test can't see the effect you're hoping for — so it reports 'no difference' or, worse, a false win you'll act on. The intuition behind minimum detectable effect, run length, and why peeking lies."
+---
+
+**Statistical power** is the chance a test *detects* a real effect when one exists. A test
+at low power is a smoke detector with a flat battery: the thing can be happening and the
+alarm stays silent. Underpowered tests are the quiet failure mode of small-team
+experimentation, and they fail in two ways — they miss real wins (reporting "no
+difference" when there was one), and they hand you **false wins** that look significant
+but won't replicate. Acting on a false win is worse than running no test at all, because
+you ship the change *and* trust it.
+
+Three levers set how much traffic you need:
+
+- **Baseline rate** — where the metric starts.
+- **Minimum detectable effect (MDE)** — the smallest change you care to catch. This one
+  dominates: required sample grows with roughly the *square* of how small an effect you
+  want to see, so detecting a 1% lift needs about **four times** the traffic of detecting
+  a 2% lift *(well-attested — it's arithmetic, not opinion)*. Small effects are enormously
+  expensive to prove.
+- **Confidence and power** — conventionally 95% confidence and 80% power.
+
+The practical consequence for a startup: you usually can't detect small effects, so **test
+big swings** — whole onboarding flows, whole journeys, pricing — not button colours. And
+decide the sample size and run length *before* you start, with a calculator like
+[Evan Miller's](https://www.evanmiller.org/ab-testing/sample-size.html), so "how long do
+we run this?" has an answer that isn't "until it looks significant."
+
+Which is the cardinal sin: **peeking.** If you watch a running test and stop the moment it
+crosses significance, you badly inflate your false-positive rate — a test with *no* real
+effect will touch significance surprisingly often if you check it every day. The p-value
+is only trustworthy at the sample size you committed to. Pick the finish line first, then
+look when you reach it. Evan Miller's
+["How Not to Run an A/B Test"](https://www.evanmiller.org/how-not-to-run-an-ab-test.html)
+shows exactly how much peeking distorts the result.
+
+{/* MEDIA: video — intuitive explainer on statistical power, minimum detectable effect, and the peeking problem; keep it visual and non-academic (StatQuest-style or a growth-team walkthrough) */}

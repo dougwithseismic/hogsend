@@ -1,0 +1,168 @@
+---
+title: "Before you move on"
+description: "A last look at the one-pager and your workbook, then a scenario quiz on the whole chapter — who to tell what, how to explain a holdout, and how not to over-claim."
+workbook: "A final honesty check, then test yourself on the whole chapter — audiences, the two-number story, cadences, incrementality, losses, vanity metrics, and over-claiming — with the quiz."
+---
+
+Two things worth doing while the chapter is fresh:
+
+1. **Fill the one-pager for real.** The template from §13.8 only earns its keep once it
+   has your numbers in it — and the blanks you *can't* fill are the most valuable output,
+   because they name next month's work precisely.
+2. **A look at [your workbook](/workbook).** The board line, the two-number story, the two
+   cadence skeletons, the holdout explanation, the honest attribution rewrite, and the
+   one-pager draft now sit together — that collection *is* how you'll talk about growth,
+   in one place, each entry linked back to the piece that produced it.
+
+The chapter in one line: **decide the altitude before you pick the number, pair every
+claim with its mechanism, and say the smaller, defensible thing.** Talking about growth
+honestly isn't a soft skill bolted onto the real work — it's the last stage of the same
+loop, and the one that decides whether anyone acts on what you found.
+
+<WorkbookPrompt
+  id="ch13-audience-check"
+  prompt="One honesty check before the quiz: which audience do you currently over-report to, and which do you under-serve? Name the report you'll change first."
+  placeholder="I over-report to … (too much detail / too flattering); I under-serve … . The first report I'll change is …"
+  rows={3}
+/>
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "Your board asks how growth is going, so you forward them the weekly team review — every input metric, every experiment, the whole operational agenda. What's the problem?",
+      options: [
+        "Nothing — more detail always builds a board's trust",
+        "You've handed the highest-altitude audience the lowest-altitude data; a board wants a trend and a few outcome ratios with one narrative, not your operational dashboard",
+        "The weekly review isn't detailed enough for a board",
+        "Board updates should contain only revenue",
+      ],
+      answer: 1,
+      explain:
+        "Different audiences read at different altitudes, and one report for all of them fails. The board's job is a trend and a small set of outcome ratios; the operational input metrics are the team's report, not theirs.",
+    },
+    {
+      q: "A stakeholder is unmoved by 'activation is 44%.' The most persuasive fix is to:",
+      options: [
+        "Show that 44% beats the industry benchmark",
+        "Present a bigger cumulative number instead",
+        "Pair it with the input you moved and the outcome that followed — 'we shipped the checklist, completion went 51→68%, and that cohort's week-4 retention is +3 points'",
+        "Add three more metrics to the slide",
+      ],
+      answer: 2,
+      explain:
+        "A single number can't show cause, so it invites 'so what?'. The persuasive unit is a leading metric you controlled plus the lagging outcome it moved, with the mechanism stated between them.",
+    },
+    {
+      q: "Which of these belongs in the monthly board update but NOT the weekly team review?",
+      options: [
+        "Which experiment launches next from the backlog",
+        "Each live journey's send volume this week",
+        "Blended CAC and the referral loop's contribution to growth",
+        "The anomaly an owner is investigating this week",
+      ],
+      answer: 2,
+      explain:
+        "Weekly is operational — inputs, journeys and spend, experiments, this week's work. Monthly is outcomes and trend: North Star trend, lift, blended CAC, and one learning. CAC economics are a monthly-altitude number.",
+    },
+    {
+      q: "A skeptical investor asks how you know the welcome journey caused the retention bump. The explanation most likely to land is:",
+      options: [
+        "'We ran a two-tailed t-test and the p-value came in under 0.05'",
+        "'Open rate was 62%, well above the benchmark'",
+        "'We held back a random 10% who got nothing; the messaged group upgraded 7 points higher; that gap is what the journey added'",
+        "'Retention went up the month we launched it'",
+      ],
+      answer: 2,
+      explain:
+        "Lead with the control group (the placebo intuition), name the gap as the credit, and skip the statistics vocabulary. The last option is correlation, not proof; the first loses the room.",
+    },
+    {
+      q: "Your second-onboarding-email test came back flat. The best way to present it is to:",
+      options: [
+        "Leave it out of the report — a flat result isn't worth the airtime",
+        "Dig through segments until you find one where it won, and report that",
+        "State the hypothesis, report it flat, and say what it ruled out — 'the activation leak isn't email volume, it's earlier'",
+        "Report it as a small win to keep morale up",
+      ],
+      answer: 2,
+      explain:
+        "A loss is a learning you already paid for; hiding it — or p-hacking a win out of it — is the fastest way to lose a numbers-literate stakeholder. State the hypothesis and what the flat result ruled out.",
+    },
+    {
+      q: "What does Kohavi's Microsoft data — only about a third of well-designed experiments improve their target metric — imply for how you talk about experiments?",
+      options: [
+        "A losing test means the team designed it wrong",
+        "A normal loop produces mostly losses, so present tempo and learnings, not just wins — losing is the expected output of working experimentation",
+        "You should stop testing until your win rate is above 50%",
+        "Experiments are too unreliable to report to a board",
+      ],
+      answer: 1,
+      explain:
+        "If the best experimentation teams win only about a third of the time, most of your results will be losses too. Velocity compounds because tests fail; the report should show the tempo and the learnings, not hide the losses.",
+    },
+    {
+      q: "Which of these numbers best survives the 'so what?' test?",
+      options: [
+        "Total registered users since launch",
+        "Impressions on last week's launch tweet",
+        "Week-4 retention for the cohort that joined in May, vs April",
+        "Cumulative GMV to date",
+      ],
+      answer: 2,
+      explain:
+        "Vanity metrics are cumulative totals and raw reach that can only rise. A cohort retention rate can go down, and a change in it changes a decision — which is exactly what makes it actionable rather than decorative.",
+    },
+    {
+      q: "Your cofounder wants to tell investors 'our Product Hunt launch drove 10,000 signups' and triple ad spend on that basis. The chapter's read is:",
+      options: [
+        "Report it as-is — last-click numbers are the standard",
+        "That's a last-click hero story claiming a correlational number as causal; any number used to justify more spend is exactly the one to run incrementality on first",
+        "Halve the spend increase instead, to be safe",
+        "Drop paid entirely and rely on launches",
+      ],
+      answer: 1,
+      explain:
+        "What a channel reports and what it actually added over doing nothing are different numbers. Over-claiming discounts every future claim, and spend-justifying numbers should be held to the holdout bar.",
+    },
+    {
+      q: "Which set belongs on the monthly one-pager?",
+      options: [
+        "Total signups, emails sent, pageviews, follower count",
+        "North Star trend, activation and retention, blended CAC plus referral share, and one experiment learning",
+        "Every chart on the daily dashboard",
+        "A list of every experiment run this quarter",
+      ],
+      answer: 1,
+      explain:
+        "The one-pager is four blocks and a sentence — outcomes and trend, one learning, and the risk you're worried about. Cumulative totals and raw reach are exactly what it leaves off.",
+    },
+    {
+      q: "Why put 'the one thing you're worried about' on a board update?",
+      options: [
+        "It fills space when the results are thin",
+        "Boards are legally required to see a risks section",
+        "Naming the risk you'd want help on builds more trust than a flawless slide — it's the difference between reporting to a board and working with it",
+        "It lowers expectations so any result looks good",
+      ],
+      answer: 2,
+      explain:
+        "Surfacing a real risk signals you aren't managing the numbers for the audience — which is precisely what makes the good numbers on the same page believable.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [a16z — 16 startup metrics](https://a16z.com/16-startup-metrics/) — the canonical list of what investors read, and the "know which number you mean" discipline behind the two-number story.
+- [YC — Key startup metrics](https://www.ycombinator.com/library/KR-key-startup-metrics) — what the outcome numbers on your one-pager eventually get measured against.
+- [Brian Balfour — the weekly growth meeting](https://brianbalfour.com/essays/growth-meeting) — the fixed-agenda template the weekly-review skeleton compresses.
+- [Reforge — operating cadence](https://www.reforge.com/blog/operating-cadence) — deciding what gets read daily, weekly, and monthly, and by whom.
+- [Amplitude — vanity metrics](https://amplitude.com/blog/vanity-metrics) — the blunt definition: a number that rises while the business goes nowhere.
+- [Eric Ries — The Lean Startup](http://theleanstartup.com/) — where the vanity-versus-actionable-metrics distinction comes from.
+- [Eppo — marketing incrementality 101](https://www.geteppo.com/blog/marketing-incrementality-101) — the fuller version of "how do you know it worked," and why reported attribution overstates lift.
+- [Lenny Rachitsky & Ronny Kohavi — the ultimate guide to A/B testing](https://www.lennysnewsletter.com/p/the-ultimate-guide-to-ab-testing) — trust, invalid results, and why most experiments don't win.
+- [First Round Review](https://review.firstround.com/) — an operator's library on board management and the metrics conversations founders most often get wrong.

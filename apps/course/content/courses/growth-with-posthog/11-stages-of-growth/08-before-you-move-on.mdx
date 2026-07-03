@@ -1,0 +1,164 @@
+---
+title: "Before you move on"
+description: "A short recap of the stage arc and the one honest question to answer at each, then a quiz across all five stages and a reading list for going deeper on any of them."
+workbook: "Check yourself on the whole stage arc — ten scenarios from pre-launch to scaling — with the chapter quiz."
+---
+
+The arc of this chapter is one idea repeated: at every stage a different thing is the
+binding constraint, so what to care about changes as you grow — and the fastest way to
+stall is to run a later stage's playbook against an earlier stage's problem. Each stage
+comes down to one honest question:
+
+- **Idea and pre-launch** — *Does anyone actually want this, enough to change what they
+  do?* The instrument is conversation, not a dashboard.
+- **Just launched** — *Do the people who show up reach value, or do they just sign up?*
+  Activation, not the signup count.
+- **Finding product-market fit** — *Would my users be genuinely disappointed if this
+  vanished — and does the retention curve flatten?* Pull, read as data.
+- **Early traction** — *Can I turn on one channel and roughly predict what comes out?*
+  Repeatability, held to its unit economics.
+- **Scaling** — *Is the machine compounding on something solid, or is volume hiding a
+  leak?* Capacity without chaos.
+
+And running underneath all five: *which stage am I actually in — and am I solving its
+constraint or borrowing someone else's answer?*
+
+<Quiz
+  questions={[
+    {
+      q: "You read a Series B company's essay on its referral loop and growth-team org chart and want to copy the whole thing. You have 200 users and shaky retention. The best read is:",
+      options: [
+        "Copy it — a proven playbook de-risks your growth",
+        "Copy the org chart now so you're ready when you scale",
+        "It's the answer to a constraint that company had later; your binding constraint is retention, so their playbook spends your time on the wrong problem",
+        "Ignore all later-stage content until you're profitable",
+      ],
+      answer: 2,
+      explain:
+        "A lever is good or bad for your stage. Published playbooks are written by survivors, after the fact — running one against a constraint you don't have yet burns the resource you can't refill, time, on the wrong problem.",
+    },
+    {
+      q: "Pre-launch, a viral tweet lands you a 3,000-email waitlist. Your cofounder calls it proof of demand and wants to build the full product. The honest read:",
+      options: [
+        "3,000 is strong demand — build with confidence",
+        "An email costs nothing to give, so a waitlist measures curiosity, not demand — validate the problem in real conversations first",
+        "Double down on the tweet's channel immediately",
+        "Run paid ads to the list to warm it up",
+      ],
+      answer: 1,
+      explain:
+        "Waitlist size is a classic pre-launch vanity metric. 'No market need' sits at or near the top of startup post-mortems (directional) — the fix is observed demand, not a bigger list.",
+    },
+    {
+      q: "Two weeks after launch you have 1,200 signups and a great launch-day chart, but haven't checked how many did anything afterward. What matters most now?",
+      options: [
+        "The signup total — momentum is the leading indicator",
+        "Reaching 5,000 signups before optimising anything",
+        "The share of those signups who reached first value — a spike that never returns is activity, not traction",
+        "Adding far more event tracking before drawing any conclusion",
+      ],
+      answer: 2,
+      explain:
+        "Activation is the just-launched metric. Celebrating the signup spike and freezing to over-instrument are the two traps of this stage — one number acted on beats forty you don't read.",
+    },
+    {
+      q: "You survey 100 active users; 28 say they'd be 'very disappointed' to lose the product. A friend urges you to triple ad spend while you have momentum. The stage says:",
+      options: [
+        "28% is close enough — scale now while it's hot",
+        "You're under the ~40% bar, so spend is better on the product and retention until the pull is real — scaling only amplifies a take-it-or-leave-it product",
+        "Re-run the survey until it clears 40%",
+        "The 40% test only applies to consumer apps, so ignore it here",
+      ],
+      answer: 1,
+      explain:
+        "Sean Ellis' 40% is a rule-of-thumb gate on the tap. Scaling acquisition before fit is the most expensive mistake in the course — paid amplifies whatever exists, and 28% is a product people can still take or leave.",
+    },
+    {
+      q: "MRR is up 20% this quarter, but every monthly cohort's retention curve still decays toward zero by week 8. Have you found product-market fit?",
+      options: [
+        "Yes — revenue growth is the definition of fit",
+        "No — revenue is rising on new sales while the base churns; a curve that decays to zero has no plateau, so acquisition won't save it",
+        "Yes, as long as MRR keeps outpacing churn",
+        "Can't say without running a 40% survey",
+      ],
+      answer: 1,
+      explain:
+        "A retention curve that flattens above zero is fit expressed as data. Revenue without retention is a leaky bucket masked by fresh sales — read the curve alongside MRR, never instead of it.",
+    },
+    {
+      q: "You've found fit. You're now running Google Ads, TikTok, SEO, cold email, and a partnership — each for about two weeks — and none is clearly working. The best move:",
+      options: [
+        "Add two more channels to widen the net",
+        "Conclude paid doesn't work for you and go organic-only",
+        "Pick the one or two most promising, commit long enough to climb the learning curve, and prove one before adding a second",
+        "Split the budget evenly across all five permanently",
+      ],
+      answer: 2,
+      explain:
+        "Channel-hopping teaches almost nothing — every channel has a learning curve, and quitting early reads as 'it didn't work' when the truth is 'I didn't finish.' Depth on one beats breadth across many in early traction.",
+    },
+    {
+      q: "Your blended CAC is $40 and looks great, so you plan to 5× the paid budget. But most of that $40 is cheap organic — paid alone costs $180 per customer. The risk:",
+      options: [
+        "None — blended CAC is the number investors use",
+        "Scaling paid will lift organic too, keeping the blend low",
+        "The blend hides that paid costs $180; 5×ing paid scales the expensive channel, so true CAC and cash burn are far worse than $40 suggests",
+        "You should just raise prices instead of worrying about CAC",
+      ],
+      answer: 2,
+      explain:
+        "Blended CAC lies precisely when you're about to scale one channel. Averaging cheap organic in with expensive paid makes paid look affordable — break CAC out per channel before you pour money into it.",
+    },
+    {
+      q: "You're scaling and about to make your first dedicated growth hire. Which brief is right?",
+      options: [
+        "'Go find our growth channel and figure out product-market fit'",
+        "'Own and accelerate the working loop — the funnel, the experiment backlog, and the lifecycle system'",
+        "'Rebuild our analytics from scratch before doing anything else'",
+        "'Run the exact playbook of the big company we admire'",
+      ],
+      answer: 1,
+      explain:
+        "Hire into a working loop, not to invent one. A growth hire inherits a machine to run faster; asking them to find fit or a first channel is asking them to do an earlier stage's job.",
+    },
+    {
+      q: "At scale your team ships a new onboarding journey and reports a 55% open rate as proof it lifted retention, while 'cumulative signups keep going up.' What's wrong with the evidence?",
+      options: [
+        "55% is below the open-rate benchmark for onboarding email",
+        "Opens measure activity, not lift — without a holdout you can't attribute retention to the journey; and cumulative signups only ever rise, so they prove nothing",
+        "Nothing — open rate and total signups are the standard scaling KPIs",
+        "The journey should have been built at launch, not at scale",
+      ],
+      answer: 1,
+      explain:
+        "Activity isn't lift. Only a held-out comparison group attributes a retention change to the journey (Chapter 5), and a cumulative total that can only go up is the definition of a vanity metric.",
+    },
+    {
+      q: "Across the whole chapter, the single recurring mistake being warned against is:",
+      options: [
+        "Not instrumenting enough events",
+        "Running a later stage's playbook against an earlier stage's constraint — scaling spend before fit, hiring for growth before the loop works, treating a waitlist as demand",
+        "Choosing the wrong analytics tool",
+        "Surveying users too frequently",
+      ],
+      answer: 1,
+      explain:
+        "The same lever helps at one stage and hurts at another. The through-line is: name the stage you're actually in, then solve that stage's binding constraint instead of borrowing a stage you haven't reached.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [YC — Startup Library](https://www.ycombinator.com/library) — the founder-trusted playbooks, sortable by the stage you're in.
+- [Paul Graham — Do Things That Don't Scale](https://paulgraham.com/ds.html) — why the early-stage playbook is *supposed* to look nothing like the scaled one.
+- [Paul Graham — Startup = Growth](https://paulgraham.com/growth.html) — what "growth" actually means, and why stage frames every decision about it.
+- [Paul Graham — How to Get Startup Ideas](https://paulgraham.com/startupideas.html) — finding a real problem worth the pre-launch stage.
+- [Sean Ellis — the PMF survey](https://pmfsurvey.com/) — the 40% test that gates the tap, from the source.
+- [Rahul Vohra — how Superhuman built an engine to find product-market fit](https://review.firstround.com/how-superhuman-built-an-engine-to-find-product-market-fit/) — treating PMF as a repeatable process, not a lightning strike.
+- [Brian Balfour — essays](https://brianbalfour.com/essays) — channel/product fit and why the channel that worked for another company probably won't work for you.
+- [Lenny's Newsletter](https://www.lennysnewsletter.com/) — operator essays across every stage, including how to find your activation metric.
+- Marc Andreessen — "The Only Thing That Matters" (2007) — the essay that popularised the term product-market fit (widely archived; search the title).
+- Gabriel Weinberg & Justin Mares — *Traction* — the Bullseye framework for testing many channels cheaply and committing to the one that responds.

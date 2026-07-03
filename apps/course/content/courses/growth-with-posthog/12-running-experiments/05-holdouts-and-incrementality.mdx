@@ -1,0 +1,34 @@
+---
+title: "Holdouts and incrementality"
+description: "An A/B test compares two versions of one change. A holdout answers a bigger question — is the whole program worth anything? — by keeping a slice of users out of everything. The difference is incrementality."
+---
+
+An A/B test compares variant A against variant B of a *single* change. A **holdout** asks
+a broader question: is this whole *program* producing anything at all? You keep a random
+slice of users out of the thing entirely — no lifecycle emails, no journeys, nothing — and
+compare them to everyone who got the full treatment. The gap between the two is
+**incremental lift**: the outcome that happened *because* of the program and wouldn't have
+happened anyway.
+
+This is the honest answer to the measurement trap from Chapter 5: **opens are activity;
+lift is proof.** A 62% open rate tells you the email was sent and rendered. It tells you
+nothing about whether the journey *changed* anyone's behaviour — some of those users would
+have come back regardless. Only a held-out group, living without the program, shows you
+the counterfactual. Without it you can't separate "the journey worked" from "these were
+people who'd have converted anyway."
+
+Two flavours worth naming:
+
+- **A/B test** — for a single change. It runs for a while, you ship the winner, and the
+  test ends.
+- **Global holdout** — a small, *persistent* control (often 1–5% of users) held out of the
+  entire lifecycle program continuously, so at any time you can read the program's total
+  incremental contribution. This is the day-180 artifact from the plan (Chapter 10):
+  incremental lift reported monthly, not open rates.
+
+The cost is real and worth saying out loud: a holdout means deliberately *not* treating
+some users, which feels like leaving money on the table. It isn't — it's the price of
+knowing whether the program pays for itself. A team that can't say what its lifecycle work
+adds *over doing nothing* is flying blind, however good the open rates look.
+Incrementality is what turns "we send a lot of email" into "the program is worth \$X a
+month," and only the second sentence survives a budget review.

@@ -1,0 +1,42 @@
+---
+title: "What deserves an experiment"
+description: "Every experiment has a fixed cost — traffic you split, time you wait, and the change you didn't ship instead. Some decisions earn that cost; many should just ship. How to tell them apart."
+---
+
+An experiment is not free. It costs **traffic** — you split it, so each variant learns
+slower and you need more users to reach an answer. It costs **time** — design, build,
+wait for significance, read. And it costs **opportunity** — the change you didn't ship
+while this one ran. Testing is a way to *buy certainty* about a decision, and like
+anything you buy, it's only worth it when the certainty is worth more than the price.
+
+Two questions decide it:
+
+- **Is the change cheap and reversible?** Then ship it. If a clearer button label is
+  obviously better and trivial to roll back, a two-week test to confirm it is time you
+  won't get back — and at startup traffic the effect is probably too small to detect
+  anyway (§12.4).
+- **Is the decision expensive to get wrong, and hard to undo?** Then test it. Pricing
+  changes, removing an onboarding step, a new activation flow — these are the decisions
+  where being wrong costs months, and where certainty is worth paying for.
+
+Lenny's [guide to when *not* to run an experiment](https://www.lennysnewsletter.com/p/not-running-an-experiment)
+is a good checklist: ship without a test when the change is obviously good, too small to
+measure at your traffic, or easily reversed; test when the stakes and the uncertainty are
+both high.
+
+There's a humbling reason to test the big ones: you're bad at predicting winners, and so
+is everyone else. At Microsoft, only about **one-third of experiments moved the metric
+they were designed to move** in the intended direction — another third did nothing, and a
+third made things worse (Ronny Kohavi's data from Bing/Microsoft) *(well-attested)*. The
+famous example is a Bing ad-headline change one engineer left in the backlog for months
+because it looked trivial; it turned out to be worth roughly **\$100M a year** (Kohavi,
+["The Surprising Power of Online Experiments," HBR](https://hbr.org/2017/09/the-surprising-power-of-online-experiments))
+*(well-attested)*. If experts guessed right, you wouldn't need the test. The point of
+experimentation isn't to rubber-stamp good ideas — it's to catch the two-thirds that
+would have quietly cost you.
+
+So the rule isn't "test everything." It's: ship the cheap, reversible, obvious changes
+fast, and spend your limited testing capacity on the decisions that are expensive to get
+wrong and where your intuition genuinely might be.
+
+{/* MEDIA: podcast — Ronny Kohavi on Lenny's Podcast, "when not to run an experiment" and why most tested ideas fail; sets up the whole chapter's humility about predicting winners */}

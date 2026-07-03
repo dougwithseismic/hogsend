@@ -1,0 +1,40 @@
+---
+title: "The hypothesis format"
+description: "A test starts life as an opinion. The hypothesis format turns it into something reality can prove wrong — a change, an audience, an outcome, a metric, and the reasoning that ties them together."
+workbook: "Write your next experiment as a hypothesis in the standard format — change, audience, outcome, metric, reasoning — so it's falsifiable before you build it."
+---
+
+An idea like "let's redesign onboarding" isn't testable — there's no prediction in it. A
+**hypothesis** is the same idea written so reality can prove it wrong. The format that
+forces this:
+
+> **We believe** [change] **for** [audience] **will cause** [outcome], **measured by**
+> [metric], **because** [reasoning].
+
+Each slot does work:
+
+- **change** — the specific thing you'll build. If you can't name it in one line, it
+  isn't ready to test.
+- **audience** — who sees it: new signups? mobile users? one segment? A change can win
+  for one group and lose for another, so naming the audience keeps you honest about which
+  you're measuring.
+- **outcome** — the behaviour you expect to shift, *with a direction*. "Increases" or
+  "decreases," not "affects."
+- **metric** — the single number that will settle it (§12.3). Naming it before you build
+  is what stops you picking, afterwards, whichever number happens to look good.
+- **because** — your reasoning. This is the most valuable slot: it's the *belief* being
+  tested, so when the result comes back you learn whether the belief was right — not just
+  whether the button moved.
+
+Writing the "because" first is what separates a program from a pile of A/B tests. A test
+pinned to a belief still teaches you something when it fails; a test with no reasoning
+leaves you holding a number and no idea what it meant. Teams that skip the reasoning tend
+to run the same failed experiment twice, because nobody wrote down *why* they thought it
+would work.
+
+<WorkbookPrompt
+  id="ch12-hypothesis-format"
+  prompt="Write your next experiment as a hypothesis: We believe [change] for [audience] will cause [outcome], measured by [metric], because [reasoning]."
+  placeholder="We believe … for … will cause … , measured by … , because …"
+  rows={3}
+/>

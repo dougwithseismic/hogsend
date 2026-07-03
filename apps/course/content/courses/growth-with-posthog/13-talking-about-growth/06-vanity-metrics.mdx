@@ -1,0 +1,61 @@
+---
+title: "Vanity metrics"
+description: "The numbers that impress and mislead — cumulative totals, registered users, impressions. The 'so what?' test that catches them, and the ratios and cohorts that replace them."
+workbook: "Run your headline numbers through the 'so what?' test, and convert one vanity metric into an actionable one — a ratio or a cohort. Saves to your workbook."
+---
+
+The most common way to talk about growth *badly* is the **vanity metric** — a number
+that reliably goes up, feels like progress, and tells you nothing you can act on. Eric
+Ries named the category in *The Lean Startup*, splitting metrics into *vanity* and
+*actionable*, and the test he proposed is the one to keep: when this number moves, does
+it tell me what to do differently? If not, it's vanity.
+
+The usual suspects share a shape:
+
+- **Cumulative totals.** Total registered users, signups ever, GMV to date. A running
+  total can only go up — it literally cannot report a bad month — so it can't inform a
+  single decision. a16z's [16 startup metrics](https://a16z.com/16-startup-metrics/) makes
+  the point bluntly: show *active* users, not cumulative registered ones; the gap between
+  the two is where the truth lives.
+- **Raw reach.** Impressions, pageviews, follower counts. Big numbers that impress in a
+  deck and disconnect entirely from value delivered — [Amplitude's definition](https://amplitude.com/blog/vanity-metrics)
+  is that a vanity metric is one that can rise while the business goes nowhere.
+- **Registered, not active.** "50,000 users" that's really 50,000 signups and 800
+  weekly-actives. The number is true; the impression it creates is false.
+
+Two tests catch all of them:
+
+- **The "so what?" test.** After any number, ask: *what would I do differently if this were
+  half, or double?* If there's no answer, it's context at best and theatre at worst. (This
+  is the deletion test from the course's own writing voice, turned on your metrics.)
+- **Ratio and cohort over cumulative count.** A vanity metric becomes actionable the
+  moment you make it a *rate* (activation %, week-4 retention, paid-conversion %) or split
+  it by *cohort* (how does the group that joined in May retain, vs April?). Rates can go
+  *down*, which is exactly what makes them useful; cohorts show whether the product is
+  getting better or you're just adding more people to a leaky bucket.
+
+<Checklist
+  id="ch13-metric-test"
+  title="Does this number earn its place in the report?"
+  items={[
+    "So what? — if it were half or double, some decision would change",
+    "It's a rate or a cohort, not a cumulative running total",
+    "It measures value delivered (active, retained, paid), not reach (impressions, signups, followers)",
+    "It can go down — a metric that can only rise can't report a bad month",
+    "Someone on the team can name the work that moves it",
+  ]}
+/>
+
+The trap is that vanity metrics aren't lies — "10,000 signups" is true. They're *true
+numbers pointed away from the decision,* which is why they survive: defensible,
+flattering, and everyone nods. The discipline is to lead with the ratio and keep the big
+cumulative number where it belongs — as a trust signal for customers (§13.1), never as
+evidence for the team. Chapter 4 built this honesty habit for reading your own dashboard;
+this is the same habit applied to what you show other people.
+
+<WorkbookPrompt
+  id="ch13-vanity"
+  prompt="Take one number you currently report and run the 'so what?' test — then rewrite it as a ratio or a cohort that would actually change a decision."
+  placeholder="Vanity: … (cumulative / reach). Actionable version: … (a rate, or split by cohort) — because if it dropped, we'd …"
+  rows={3}
+/>

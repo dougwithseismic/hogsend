@@ -1,0 +1,193 @@
+---
+title: "Before you move on"
+description: "The through-line of the chapter in one page — what to test and how to read it — then flashcards on the key ideas and a quiz that runs you through the traps in scenario form."
+workbook: "Lock in the chapter with flashcards on the key ideas, then check yourself against the common experimentation traps with the quiz."
+---
+
+Two ideas hold this chapter together. First, experiments are a *cost* — traffic, time,
+opportunity — so you ship the cheap and reversible changes and save testing for decisions
+where being wrong is expensive and your intuition genuinely might be (§12.1). Second, a
+test is only worth running if you can trust the answer, which means: one hypothesis
+(§12.2), one primary metric with guardrails (§12.3), enough power to see the effect
+(§12.4), a control that proves incrementality (§12.5), and an honest read that resists the
+traps (§12.6). Wrap those in a weekly tempo (§12.7), and the learning rate — not any
+single win — is what compounds.
+
+<Flashcards
+  id="ch12-cards-experiments"
+  title="Key ideas — running experiments well"
+  cards={[
+    {
+      front: "Why isn't running an experiment free?",
+      back: "Every test costs traffic (split, so each variant learns slower), time (build, wait for significance, read), and opportunity (what you didn't ship meanwhile). Testing buys certainty — worth it only when the certainty is worth more than the cost.",
+    },
+    {
+      prompt: "The experiment hypothesis format:",
+      cloze: "We believe {{change}} for {{audience}} will cause {{outcome}}, measured by {{metric}}, because {{reasoning}} — the last slot is the belief you're actually testing.",
+    },
+    {
+      front: "Primary metric vs guardrail metrics?",
+      back: "One primary metric (Kohavi's OEC), chosen before the test, decides success. Guardrails are the short list you refuse to break whatever the primary does — revenue, unsubscribe rate, latency, retention. Watching every metric guarantees a false 'win'.",
+    },
+    {
+      front: "Why is an underpowered 'win' worse than no test?",
+      back: "Low power both misses real effects and hands you false wins that won't replicate. Acting on a false win is worse than not testing — you ship the change and trust it. Required sample grows with ~the square of the effect you want to detect.",
+    },
+    {
+      front: "What does a holdout prove that an open rate can't?",
+      back: "Incremental lift — the outcome that happened because of the program and wouldn't have anyway. Opens are activity; lift is proof. A persistent global holdout (1–5% of users) reads the whole lifecycle program's real contribution.",
+    },
+    {
+      front: "The multiple-comparisons trap?",
+      back: "Test enough metrics or slices and ~1 in 20 looks significant at 95% confidence by pure chance. Slice a result enough ways and you always find a 'winner'. The committed primary metric decides the test; everything else is a hypothesis for next time.",
+    },
+    {
+      prompt: "Every experiment ends in one of three decisions:",
+      cloze: "{{ship}} it (clear win, guardrails intact), {{kill}} it (flat or negative), or {{iterate}} (promising but inconclusive — sharpen and rerun) — then write down the hypothesis, result, and what's next.",
+    },
+    {
+      front: "What actually compounds in an experimentation program?",
+      back: "The learning rate, not any single win (Sean Ellis, high-tempo testing). An ICE-scored backlog plus a steady weekly tempo — one test launched or reported each week, results written down — beats a burst of ten then a quiet quarter.",
+    },
+  ]}
+/>
+
+---
+
+<Quiz
+  questions={[
+    {
+      q: "A one-word change to a button label looks obviously clearer, and you can revert it in a minute. Your traffic is low. The best move is:",
+      options: [
+        "Run a two-week A/B test to be sure before shipping",
+        "Ship it — it's obvious, cheap, and reversible; save testing capacity for expensive, hard-to-undo decisions",
+        "Test it, but peek daily and ship as soon as it's significant",
+        "Add it to the backlog and ICE-score it against everything else",
+      ],
+      answer: 1,
+      explain:
+        "Experiments cost traffic, time, and opportunity. Obvious, reversible, low-cost changes should just ship; testing earns its overhead on decisions that are expensive to get wrong. At low traffic a change this small probably can't be detected anyway.",
+    },
+    {
+      q: "'Our best engineers know what works — experiments just slow us down.' The strongest rebuttal is:",
+      options: [
+        "Experiments are fast now, so speed isn't a real objection",
+        "At Microsoft only about a third of tested ideas moved the metric as intended — experts routinely can't predict winners, which is the whole reason to test the expensive ones",
+        "A/B testing is an industry standard, so you should do it too",
+        "Engineers shouldn't be deciding product questions",
+      ],
+      answer: 1,
+      explain:
+        "Kohavi's data: ~1/3 of ideas win, 1/3 do nothing, 1/3 hurt. The Bing headline change worth ~$100M/year sat ignored for months because it looked trivial. If intuition were reliable you wouldn't need the test; because it isn't, testing catches the costly misses.",
+    },
+    {
+      q: "In 'We believe [change] for [audience] will cause [outcome], measured by [metric], because [reasoning]', which slot teaches you the most when the test fails?",
+      options: [
+        "The change — you learn what to build next",
+        "The metric — you learn what to measure",
+        "The reasoning ('because') — it's the belief being tested, so a failure tells you the belief was wrong, not just that a number didn't move",
+        "The audience — you learn who to target",
+      ],
+      answer: 2,
+      explain:
+        "The 'because' slot is the hypothesis's belief. A test pinned to a belief teaches you something even when it fails; a test with no reasoning leaves you a number and no idea what it meant — which is how teams re-run forgotten failures.",
+    },
+    {
+      q: "A teammate proposes judging each test on 'whichever of our fifteen metrics improves.' The problem:",
+      options: [
+        "Fifteen metrics is too few to be reliable",
+        "Some metric is always up by chance, so you'll 'win' almost every test — you need one primary metric chosen before the test, plus a few guardrails",
+        "Nothing — more metrics means more rigour",
+        "It's fine as long as revenue is one of the fifteen",
+      ],
+      answer: 1,
+      explain:
+        "Declaring victory when any metric is up is the multiple-comparisons trap. One primary metric (the OEC), committed up front, decides the test; guardrails are the few you refuse to break. More metrics feels rigorous and is the opposite.",
+    },
+    {
+      q: "You're testing an onboarding change in a two-week experiment. Which primary metric is the best choice?",
+      options: [
+        "30-day retention — it's the truest measure of value",
+        "Annual revenue per user",
+        "Week-one activation rate — a leading indicator sensitive enough to move inside the test window, and tied to the change",
+        "Lifetime value",
+      ],
+      answer: 2,
+      explain:
+        "Revenue, LTV, and 30-day retention are true but slow — they barely move in two weeks, so the test would be underpowered on them. Pick a leading indicator that can actually shift in the window and that the change plausibly drives.",
+    },
+    {
+      q: "Detecting a 2% lift needs a certain amount of traffic. Roughly how much do you need to detect a 1% lift instead?",
+      options: [
+        "Half as much — smaller effects are easier",
+        "About the same",
+        "Twice as much",
+        "About four times as much — required sample grows with roughly the square of how small an effect you want to catch",
+      ],
+      answer: 3,
+      explain:
+        "Sample size scales with ~1/MDE². Halving the effect you want to detect roughly quadruples the traffic needed. That's why small teams should test big swings, not tiny tweaks — small effects are enormously expensive to prove.",
+    },
+    {
+      q: "A test is set to run two weeks. On day 4 it crosses 95% significance and someone wants to call it and ship. The right response:",
+      options: [
+        "Ship — significance is significance, whenever it appears",
+        "Wait for the pre-committed sample size; stopping the moment it looks significant (peeking) inflates the false-positive rate, and the p-value isn't trustworthy yet",
+        "Ship, but keep the test running in the background",
+        "Extend the test to a month to be safe",
+      ],
+      answer: 1,
+      explain:
+        "Peeking and early-stopping badly inflate false positives — a null test touches significance surprisingly often if you check daily. The p-value is only valid at the sample size you committed to. Decide the finish line first, then read it there.",
+    },
+    {
+      q: "Your welcome journey has a 62% open rate and you want to prove the lifecycle program drives retention. What actually proves it?",
+      options: [
+        "A higher open rate on the next send",
+        "A persistent holdout — a small group kept out of the program entirely — showing incremental lift over doing nothing",
+        "Click-through rate on the emails",
+        "The number of journeys live",
+      ],
+      answer: 1,
+      explain:
+        "Opens are activity; lift is proof. Open and click rates can't separate 'the journey worked' from 'these users would have returned anyway.' Only a held-out control reveals the counterfactual — the program's incremental contribution.",
+    },
+    {
+      q: "Your experiment comes back flat — no detectable difference. The best move:",
+      options: [
+        "Delete it; a non-result isn't worth recording",
+        "Re-slice the data until some segment shows a win, then ship to that segment",
+        "Record it as a finding — the effect is smaller than hoped — decide kill or iterate, and note why for the backlog",
+        "Rerun it immediately with the same design until it wins",
+      ],
+      answer: 2,
+      explain:
+        "About two-thirds of ideas don't win, so flat results are most of the job. 'No detectable difference' is a real finding that saves you from shipping a change and believing it worked. Re-slicing until something's significant is p-hacking; a documented failure is what a growth team can say out loud.",
+    },
+    {
+      q: "Your team can realistically run one experiment a week. A colleague argues you should instead spend a month designing one 'perfect' high-stakes test. The program's view:",
+      options: [
+        "Agree — one rigorous test beats several rough ones",
+        "One test a week, every week, with results written down, compounds faster — velocity of tests is the asset, and you can't predict which will be the outsized winner",
+        "Do neither; wait until you have more traffic",
+        "Run ten tests this week to catch up, then pause",
+      ],
+      answer: 1,
+      explain:
+        "Sean Ellis's high-tempo argument: the learning rate compounds, not any single win, and nobody reliably predicts the winner in advance. Steady cadence beats bursts — one a week every week outperforms ten then a quiet quarter. Rigour and tempo aren't opposites; the weekly ritual enforces both.",
+    },
+  ]}
+/>
+
+---
+
+## Go deeper
+
+- [Ronny Kohavi on Lenny's Podcast — the ultimate guide to A/B testing](https://www.lennysnewsletter.com/p/the-ultimate-guide-to-ab-testing) — trust, invalid results, and when not to test at all, from the person who ran experimentation at Microsoft, Amazon, and Airbnb. ([Spotify](https://open.spotify.com/episode/3vD3c87FT7RKnvZUJRwOb4), [YouTube](https://youtu.be/hEzpiDuYFoE))
+- *Trustworthy Online Controlled Experiments* (Ronny Kohavi, Diane Tang & Ya Xu) — the standard reference on running A/B tests you can believe: the OEC, guardrails, the peeking problem, Twyman's law, and sample-ratio mismatch.
+- [Kohavi — "The Surprising Power of Online Experiments," HBR](https://hbr.org/2017/09/the-surprising-power-of-online-experiments) — the Bing example and the hard evidence that experts can't predict winners.
+- [Reforge — the growth experiment management system](https://www.reforge.com/blog/growth-experiment-management-system) — backlog, template, and velocity metrics that turn occasional tests into a program.
+- [Lenny's Newsletter — when *not* to run an experiment](https://www.lennysnewsletter.com/p/not-running-an-experiment) — the checklist for shipping without a test.
+- [Sean Ellis on high-tempo testing](https://www.saastr.com/sean-ellis-founder-ceo-of-growthhackers-building-a-company-wide-growth-culture-video-transcript/) — why the velocity of tests is the compounding asset.
+- [ProductPlan — the ICE scoring model](https://www.productplan.com/glossary/ice-scoring-model) and [Conversion.com — PIE](https://conversion.com/framework/pie-framework/) — two ways to score the backlog; pick one and stop debating.
+- [Evan Miller — "How Not to Run an A/B Test"](https://www.evanmiller.org/how-not-to-run-an-ab-test.html) and his [sample-size calculator](https://www.evanmiller.org/ab-testing/sample-size.html) — the peeking problem, and deciding run length up front.

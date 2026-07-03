@@ -1,0 +1,67 @@
+---
+title: "Metrics that lie by stage"
+description: "A synthesis: the number that misleads changes as you grow. Waitlist size pre-launch, signups at launch, revenue without retention, blended CAC in early traction, engagement without lift at scale — and how to tell vanity from actionable."
+workbook: "Flashcards on the metric to distrust at each stage, and the tell that separates a vanity number from one worth acting on."
+---
+
+A metric doesn't lie on its own — it lies *at a stage*, when it's the wrong reading for the
+constraint you're actually facing. The same signup count that's meaningless at launch is a
+perfectly good top-of-funnel input later, once activation and retention underneath it are
+solid. The skill is knowing which number is quietly standing in for the one that matters.
+
+The pattern runs the length of the arc. **Pre-launch**, waitlist and landing-page signups
+pose as demand — but an email address is free to give and predicts almost nothing.
+**At launch**, the signup count and the launch-day spike pose as traction, when a spike of
+people who never return is activity with good timing. **Finding fit**, revenue can rise
+while the base churns underneath it — new sales mask a leaky bucket, so read retention
+alongside MRR, never instead of it. **Early traction**, blended CAC averages cheap organic
+in with expensive paid, making paid look affordable when it isn't — break CAC out by
+channel before you scale one. **At scale**, opens and engagement pose as proof a journey
+works, but activity isn't lift; only a holdout attributes any change to the journey
+(Chapter 5).
+
+Underneath all of them is Eric Ries' distinction from *The Lean Startup* between *vanity*
+and *actionable* metrics. A vanity number tends to only go up (cumulative totals never
+fall), can't be tied to a decision, and measures activity instead of an outcome.
+Actionable numbers are rates, they're comparable over time, and they change what you'd
+actually do next. When a chart makes you feel good but wouldn't change a decision, treat
+that as a warning.
+
+<Flashcards
+  id="ch11-cards-metrics-that-lie"
+  title="Key ideas — the metrics that lie by stage"
+  cards={[
+    {
+      prompt: "Which number to distrust at each stage:",
+      cloze: "Pre-launch — {{waitlist / landing-page signups}}. Just launched — {{the signup count}}. Finding PMF — {{revenue without retention}}. Early traction — {{blended CAC}}. Scaling — {{engagement without holdout-measured lift}}.",
+    },
+    {
+      front: "Pre-launch, why does waitlist size mislead?",
+      back: "An email address costs nothing to give, so a big list measures curiosity, not demand. The real pre-launch signal is an observed problem and people already hacking a workaround — demand that existed before you showed up.",
+    },
+    {
+      front: "Just after launch, why is the signup count a vanity metric?",
+      back: "Signups measure hands raised, not value received. A launch-day spike of people who never come back is activity with good timing. Watch the share of new users who reach first value (activation) instead.",
+    },
+    {
+      front: "In the PMF hunt, how can revenue lie?",
+      back: "MRR can climb while the existing base churns underneath — new sales paper over a leaky bucket. Revenue is a lagging score; read it alongside a retention curve, not instead of one, or you'll scale a product that doesn't hold.",
+    },
+    {
+      front: "Why is blended CAC dangerous in early traction?",
+      back: "Blending cheap organic acquisition with expensive paid averages the paid cost down, so paid looks affordable when it isn't. Break CAC out per channel before you decide a channel is scalable — the blend hides the truth about the one you'd pour money into.",
+    },
+    {
+      front: "At scale, why don't opens and engagement prove a journey works?",
+      back: "They measure activity, not lift. Without a held-out comparison group you can't attribute any retention change to the journey (Chapter 5). A high open rate proves the email sent and rendered — nothing about cause.",
+    },
+    {
+      front: "Why isn't a rising DAU chart proof that users stay?",
+      back: "Aggregate DAU can climb purely on fresh acquisition while every cohort still decays — the line rises because you're pouring faster, not because the bucket holds. Cohort retention curves, not total DAU, tell you if users actually stick.",
+    },
+    {
+      prompt: "The tell for vanity vs. actionable metrics:",
+      cloze: "A number is probably vanity if it {{only ever goes up}}, {{can't be tied to a decision}}, or measures {{activity instead of an outcome}}. Actionable metrics are {{rates}}, are comparable over time, and change what you'd do next.",
+    },
+  ]}
+/>
