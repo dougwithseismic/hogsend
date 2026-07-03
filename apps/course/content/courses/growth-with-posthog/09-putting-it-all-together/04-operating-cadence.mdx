@@ -1,0 +1,120 @@
+---
+title: "The operating cadence"
+description: "Once it's built, the machine runs on a rhythm, not on heroics — a two-minute daily glance, a 30-minute weekly growth review with a fixed agenda, and an hour a month to zoom out."
+workbook: "The daily/weekly/monthly rhythm that turns the system from a project into an operation — watch the culture-of-experimentation talk, then lock the key ideas with the flashcards."
+---
+
+Once it's built, it runs on a rhythm, not on heroics. This is the ritual that makes you
+a growth *team* rather than a team that did a growth project once (Chapter 0). The
+principle — [Reforge calls it your operating
+cadence](https://www.reforge.com/blog/operating-cadence) — is that the *rhythm* of
+looking is itself a designed system: decide in advance what gets read daily, weekly,
+and monthly, and by whom, so attention stops depending on anyone's memory.
+
+**Daily (2 minutes).** The daily job is *noticing*, not analysing: a glance at the
+Slack alerts, the activation funnel, and the active-users trend — and the dashboard
+itself only if an alert fired. If the daily glance regularly takes more than five
+minutes, that's usually a sign the alerts need tuning, not that you need more
+discipline.
+
+**Weekly (30 minutes, the growth review).** The one meeting this course asks you to
+hold, and it has a fixed agenda — a compressed version of the weekly growth meeting
+[Brian Balfour has documented](https://brianbalfour.com/essays/growth-meeting) from
+running growth at HubSpot and Reforge:
+
+1. **Metrics read (10 min).** The retention curve and lifecycle chart — is growth real
+   or churn-and-replace? North Star vs last week. Anomalies get noted and assigned an
+   owner rather than debugged live; group debugging is how a 30-minute meeting becomes
+   a 2-hour one.
+2. **Journeys and spend (10 min).** Each live journey's send volume and holdout lift;
+   ad performance — cost per conversion, EMQ, which audiences are working. This is
+   where kill-or-scale decisions get made, out loud.
+3. **Experiments (10 min).** What finished (result and learning, a sentence each),
+   what launches next from the top of the backlog (the experimentation program), and
+   what's blocked.
+
+The discipline that makes the meeting work: it reviews **learnings and decisions**, not
+status. "The welcome-nudge holdout shows +4 points activation, we're keeping it and
+removing the day-5 email" is a growth review; "we sent 3,400 emails this week" is
+theatre.
+
+Two habits tend to close the weekly loop well. Ending the week with **3–5 session
+replays** of the biggest drop-off gives you the qualitative *why* behind the
+quantitative *where* (Chapter 4). And **writing the week's one learning down**
+somewhere permanent is cheaper than it looks — a learning that lives in one person's
+head is one the team usually pays to re-discover six months later.
+
+**Monthly (an hour).** Zoom out to the questions that are too slow to see weekly:
+
+- The **activation metric** — is it still the best predictor of retention? Chapter 2's
+  correlation-then-experiment method is there whenever you're unsure.
+- **Incremental lift** from the lifecycle program (global holdout) — the number that
+  justifies the whole Keep phase to anyone who asks.
+- **Blended CAC** and the referral loop's contribution. Is growth getting cheaper as
+  the owned audience grows? That's Chapter 8's flywheel, showing up in the finances.
+- **Pruning.** Journeys with no lift, events no one queries, ad sets that don't
+  convert — a growth system accretes cruft exactly like a codebase, and a monthly
+  prune keeps it legible.
+
+The cadence is the point. A growth system that's checked on a rhythm survives a busy
+quarter; one that depends on someone remembering to look does not.
+
+<VideoEmbed
+  id="6nkAn0xDNG4"
+  title="How to Build a Culture of Experimentation on Your Growth Team"
+  channel="Andrew Capland"
+  note="An ex-Wistia head of growth on the weekly ritual in practice — and how teams drift back into shipping without learning."
+/>
+
+<VideoTranscript id="6nkAn0xDNG4" />
+
+**What to take from it:**
+
+- Culture change is an artifact, not a pep talk: write an operating manual and a short
+  list of team values — "we experiment to find what works" first — and *launch* it
+  internally like a feature so the team knows the rhythm is real.
+- The cadence is where it lives or dies: reinforce it in the weekly planning meeting
+  and 1:1s ("where did you get to question how we've always done things this week?"),
+  so it's a standing question, not a one-time talk.
+- Lead by dogfooding failure: a leader who stands up and shares an experiment where
+  their own hypothesis was flat wrong gives the team permission to run tests that don't
+  pan out — which is the whole point of tempo.
+
+<Flashcards
+  id="cards-operating-system"
+  title="Key ideas — the operating system"
+  cards={[
+    {
+      prompt: "The ordering agreed on Day 0 — the most valuable decision in the course:",
+      cloze: "{{Measure}} → {{keep}} → {{grow}}: acquisition goes last because it {{wastes the most money when the bucket leaks}} and pays back the most when it doesn't.",
+    },
+    {
+      prompt: "The division of labour that keeps the system simple:",
+      cloze: "PostHog {{detects}} (events, funnels, retention). Hogsend {{acts}} (lifecycle journeys across email, Discord, Telegram). You {{decide}}.",
+    },
+    {
+      front: "What's the daily job in the operating cadence?",
+      back: "Two minutes of noticing, not analysing: glance at the Slack alerts, the activation funnel, and the active-users trend — dig only if an alert fired. A glance over five minutes means the alerts need tuning.",
+    },
+    {
+      front: "What does the weekly growth review look like?",
+      back: "30 minutes, fixed agenda: metrics read, journeys and spend (kill-or-scale, out loud), experiments. It reviews learnings and decisions, not status — anomalies get an owner, not live group debugging.",
+    },
+    {
+      front: "Which questions are monthly, not weekly?",
+      back: "Is activation still the best predictor of retention; incremental lift from the global holdout; blended CAC and the referral loop's contribution; and a prune of no-lift journeys, unqueried events, dead ad sets.",
+    },
+    {
+      prompt: "The growth-hypothesis format — every backlog idea enters this way, ICE-scored (impact, confidence, ease, 1–10):",
+      cloze: "If we {{make this specific change}}, {{this named metric}} will move {{in this direction}}, because {{this reasoning}}.",
+    },
+    {
+      front: "What's Sean Ellis's high-tempo testing argument?",
+      back: "The compounding asset is your velocity of tests — learning compounds even when individual tests fail. For a startup, one experiment a week, every week, beats a burst of ten followed by a quarter of nothing.",
+    },
+    {
+      front: "What are the three honest rules of an experimentation program?",
+      back: "Not everything deserves an experiment (obvious, reversible, or too-small changes just ship); sample size decides what you can learn — big swings beat button colours at startup traffic; write the losers down too.",
+    },
+  ]}
+/>

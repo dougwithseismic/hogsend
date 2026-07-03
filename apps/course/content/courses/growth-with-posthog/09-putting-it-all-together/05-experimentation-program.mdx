@@ -1,0 +1,91 @@
+---
+title: "The experimentation program"
+description: "The cadence keeps the machine observed; experiments are how it improves. The difference between a team that A/B tests and one with a program is three artifacts — a scored backlog, a steady tempo, and honest rules."
+workbook: "Write your first three hypotheses, ICE-scored — the top of the experiment backlog your first growth week runs on."
+---
+
+The cadence keeps the machine observed; experiments are how it improves. The difference
+between a team that occasionally A/B tests and a team with an experimentation *program*
+is three artifacts:
+
+**A scored backlog.** Every growth idea — a new journey, a pricing page change, an
+onboarding step removed — goes into one list as a **hypothesis** rather than a task:
+*"if we [change], [metric] will move [direction] because [reasoning]."* Scoring each on
+**[ICE](https://www.productplan.com/glossary/ice-scoring-model)** — impact, confidence,
+ease, each 1–10 — lets the scores order the list.
+([PIE](https://conversion.com/framework/pie-framework/) — potential, importance, ease —
+is the same idea with different letters; either works, and the only real mistake is
+debating frameworks instead of running tests.) The score's job isn't precision — it's
+letting the *"this would be huge"* claim meet *"how confident are we, actually?"*, and
+giving the weekly meeting a top of the list to pull from instead of the loudest idea
+in the room.
+
+**A steady tempo.** Sean Ellis — the man who coined both "growth hacking" and the
+North Star framing this course uses — argues the compounding asset is your
+**velocity of tests**: more shots on goal means faster learning, and the learning is
+what compounds even when individual tests fail.
+
+<VideoEmbed
+  id="whoQtu9Vhnw"
+  title='Sean Ellis on why "a high velocity of tests" is crucial for finding product/market fit'
+  channel="Startup Archive"
+  note="Two minutes from the originator of high-tempo testing on why the learning rate, not any single win, is the point."
+/>
+
+<VideoTranscript id="whoQtu9Vhnw" />
+
+**What to take from it:**
+
+- The best "growth hacks" aren't tricks — they're finding where people get confused in
+  the product today and making it simpler. It starts with qualitative analysis: why do
+  your must-have users actually love the product? You can't improve what you don't
+  understand.
+- Volume of experiments is the lever, echoing Bezos's line that Amazon's success is a
+  function of how many experiments it runs per day, month, and year — nobody reliably
+  knows in advance which idea will work, so the only way to find the big win is to test
+  a lot of things.
+- The Gretzky framing: you miss every shot you don't take. Running three-to-five tests
+  a week beats obsessing over one "perfect" test, because any single test might be the
+  outsized winner and you can't tell which in advance.
+
+Reforge's [experiment management
+system](https://www.reforge.com/blog/growth-experiment-management-system) puts a
+number on the same idea — a standard template plus a visible backlog roughly tripled
+one team's testing velocity — and [First Round's growth-sprint
+process](https://review.firstround.com/the-secret-to-running-effective-growth-sprints-follow-this-process-to-learn-faster/)
+wraps it in a sprint so every experiment ends in a written learning. For a startup,
+"high tempo" might mean one experiment a week. That's fine. One a week, every week,
+with results written down, beats a burst of ten followed by a quarter of nothing.
+
+**Honest rules.** Tempo without discipline manufactures false wins, so the program
+needs three:
+
+- **Not everything deserves an experiment.** Obvious fixes, reversible changes, and
+  changes too small to measure can just ship —
+  [Lenny's guide to when *not* to test](https://www.lennysnewsletter.com/p/not-running-an-experiment)
+  is a good checklist. Experiments earn their overhead on decisions that are expensive
+  to get wrong.
+- **Sample size decides what you can learn.** At startup traffic, most tests can't
+  detect small effects — which is why big swings (whole journeys, whole onboarding
+  flows) tend to beat button colours, and why "no detectable difference" is an honest,
+  common result rather than a failure.
+  [Kohavi and Lenny's A/B testing guide](https://www.lennysnewsletter.com/p/the-ultimate-guide-to-ab-testing)
+  covers the traps — peeking, underpowered wins, p-hacking by another name.
+- **The losers are worth writing down too.** A result only really counts once it's
+  recorded — hypothesis, what happened, what you'd try differently. The write-up
+  takes thirty seconds; re-running a forgotten failed experiment takes a month.
+
+<WorkbookPrompt
+  id="first-hypotheses"
+  prompt="Write your first three hypotheses, ICE-scored. Use the format: if we [change], [metric] will move [direction] because [reasoning] — I/C/E."
+  placeholder={"1. If we…, … will move up because… — I7 C5 E8\n2. …\n3. …"}
+  rows={6}
+/>
+
+Where does the *content* of the backlog come from? The machine you built:
+the funnel's biggest drop-off (Chapter 4), the journey with no lift (Chapter 5), the
+channel with decent volume but poor activation (Chapter 7), the replay where users rage-
+click (Chapter 4). If the backlog feels empty, the dashboard is being read too politely.
+[YC's growth curriculum](https://www.ycombinator.com/library/6k-growth-for-startups)
+makes the same loop explicit at whole-company scale: pick the one metric, find the
+constraint, test against it, repeat.

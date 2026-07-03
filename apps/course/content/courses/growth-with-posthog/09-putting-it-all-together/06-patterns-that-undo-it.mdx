@@ -1,0 +1,26 @@
+---
+title: "The patterns that undo it"
+description: "Every team that builds this system brushes against the same failure modes. Here they are by name, each linked back to the chapter with the escape route."
+---
+
+Every team that builds this system brushes against the same failure modes. It's worth
+knowing them by name — each one links back to the chapter with the escape route:
+
+- **Scaling acquisition into a leaky bucket** (Ch 2). The most expensive of the set —
+  retention work first is the escape.
+- **Chasing someone else's magic number** (Ch 2). The famous activation numbers are
+  rally cries, not physics; the correlation-then-experiment method finds *yours*.
+- **Building event names dynamically** (Ch 3). One of the quickest ways to ruin an
+  analytics setup — one fixed event with variables in properties keeps it queryable.
+- **Installing analytics and never looking** (Ch 0, Ch 4). The dashboard graveyard.
+  Measurement without a ritual and without action ends up as theatre.
+- **Experiment theatre** (the experimentation program). Underpowered tests
+  "validating" decisions already made, wins nobody could reproduce, losers never
+  written down. Tempo counts learnings, not launches.
+- **Trusting the Pixel alone** (Ch 7). It under-counts by a third or more; Pixel *and*
+  CAPI, deduped, fed from where you have identity, is the reliable shape.
+- **Treating server-side as a consent loophole** (Ch 7). Hashed email is pseudonymous,
+  not anonymous — consent still needs capturing.
+- **Measuring opens instead of lift** (Ch 5). Opens don't prove causation; holdouts do.
+- **Renting your whole audience** (Ch 8). Identity captured into owned channels is
+  what saves you from paying to reach the same person twice.
