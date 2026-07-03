@@ -574,7 +574,7 @@
         "id": "cards-hogsend",
         "key": "flashcards:cards-hogsend",
         "anchor": "wb-cards-hogsend",
-        "label": "Key ideas — journeys as code",
+        "label": "Key ideas — the behavioural nudge series",
         "itemCount": 8
       }
     ],
@@ -594,6 +594,50 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/13-conversion-emails": [
+      {
+        "kind": "note",
+        "id": "ch6-conversion-trigger",
+        "key": "note:ch6-conversion-trigger",
+        "anchor": "wb-ch6-conversion-trigger",
+        "label": "What's the one in-product signal that means a user is ready to pay — the wall or power-action your best upgrade email should wait for?",
+        "placeholder": "A user is ready to pay when they… (e.g. invite a teammate beyond the free seat count, or hit the export limit twice in a week)",
+        "rows": 2
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/14-feedback-and-nps": [
+      {
+        "kind": "checklist",
+        "id": "ch6-feedback-checklist",
+        "key": "checklist:ch6-feedback-checklist",
+        "anchor": "wb-ch6-feedback-checklist",
+        "label": "A feedback email that goes somewhere",
+        "items": [
+          "Triggered by a real success event (activation, purchase, resolved ticket) — not a fixed date",
+          "One question, answerable in a tap — no ten-field form behind a link",
+          "The number is directional; the free-text reason is the real signal",
+          "A detractor's answer triggers a save/reply flow, not silence",
+          "A promoter's answer triggers a referral or review ask",
+          "Answers are reviewed against the product and the other journeys, not just charted"
+        ]
+      }
+    ],
+    "06-building-lifecycle-with-hogsend/15-how-they-come-together": [
+      {
+        "kind": "checklist",
+        "id": "ch6-lifecycle-system",
+        "key": "checklist:ch6-lifecycle-system",
+        "anchor": "wb-ch6-lifecycle-system",
+        "label": "The coordination rules",
+        "items": [
+          "A global frequency cap across all journeys — no user gets more than N lifecycle emails a week",
+          "A priority order — money and trust (dunning, security, receipts) outrank promotional nudges",
+          "Every email mapped to its funnel stage, so the coverage gaps are visible",
+          "A permanent global holdout — a small slice held out of all lifecycle email to prove the program's total lift",
+          "No contradictions — a user in active onboarding shouldn't also get a win-back"
+        ]
       }
     ],
     "07-driving-traffic/01-where-you-start": [

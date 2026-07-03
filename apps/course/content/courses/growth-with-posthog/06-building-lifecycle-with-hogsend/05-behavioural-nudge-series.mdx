@@ -1,107 +1,113 @@
 ---
 title: "A behavioural nudge series (Activation)"
-description: "A multi-step activation sequence that escalates only when the user hasn't progressed and exits the instant they activate — sleep, check what happened, send only if needed. The shape most onboarding programs take."
-workbook: "Flashcards on the key ideas — the loop, durable execution, meta guardrails, if-vs-exitOn, and templates as code."
+description: "The shape most good onboarding takes: wait, check whether the desired action happened, and send only if it didn't. Why 'send only if needed' beats a fixed drip, how the nudges escalate, and when to stop."
+workbook: "Flashcards on the key ideas — send-only-if-needed, escalating on real blockers, when to stop, and how to prove the lift."
 ---
 
-A multi-step version that escalates only when the user *hasn't* progressed, and exits
-as soon as they activate. Note the second `exitOn` event:
+The welcome pair (previous atom) is the two-message version. Most onboarding programs
+grow into a **series** — three to five touches over the first week or two — and the good
+ones all share one shape:
 
-```ts
-export const activationNudgeSeries = defineJourney({
-  meta: {
-    id: "activation-nudge-series",
-    name: "Activation — Behavioural Nudges",
-    enabled: true,
-    trigger: { event: Events.USER_CREATED },
-    entryLimit: "once",
-    suppress: hours(12),
-    // Exit the instant they activate — no more nudges (suppression in action).
-    exitOn: [{ event: Events.USER_DELETED }, { event: Events.USER_ACTIVATED }],
-  },
+> **Wait a beat. Check whether the action you wanted actually happened. Send the next
+> nudge only if it didn't.**
 
-  run: async (user, ctx) => {
-    await ctx.sleep({ duration: days(2), label: "initial-nudge" });
+That single loop — sleep, check, send-only-if-needed — covers most onboarding programs
+you'll ever write. It's the §5.7 principle (branch on behaviour, not on a guess) turned
+into a repeatable rhythm.
 
-    const { found: usedFeature } = await ctx.history.hasEvent({
-      userId: user.id,
-      event: Events.FEATURE_USED,
-      within: days(2),
-    });
-    if (!usedFeature) {
-      await sendEmail({
-        to: user.email, userId: user.id, journeyStateId: user.stateId,
-        template: Templates.ACTIVATION_NUDGE_SERIES,
-        subject: "You haven't tried the key feature yet",
-        journeyName: user.journeyName,
-      });
-    }
+### Why "send only if needed" beats a fixed drip
 
-    await ctx.sleep({ duration: days(1), label: "setup-check" });
+A fixed drip fires every message to every signup on a timer, regardless of what they've
+done. The behavioural series only reaches the users who actually stalled — and that
+difference is both strategic and moral:
 
-    const { found: setupDone } = await ctx.history.hasEvent({
-      userId: user.id,
-      event: Events.SETUP_COMPLETED,
-      within: days(3),
-    });
-    if (!setupDone) {
-      await sendEmail({
-        to: user.email, userId: user.id, journeyStateId: user.stateId,
-        template: Templates.ACTIVATION_QUICKSTART,
-        subject: "Need help getting set up?",
-        journeyName: user.journeyName,
-      });
-    }
-  },
-});
-```
+- **Relevance.** "You haven't tried the key feature yet" is only a good email *if it's
+  true.* A drip sends it to the user who tried the feature an hour ago, and instantly
+  reads as "this company doesn't know what I'm doing." The behavioural check makes every
+  send true by construction.
+- **Respect.** Attention is the scarcest thing a new user gives you. Spending it only
+  when you have something the user genuinely needs is how you keep the *next* email
+  worth opening. Every irrelevant send is a small withdrawal from that account.
+- **Signal quality.** Because each touch is gated on a real event, the series doubles as
+  a funnel diagnostic: the step where most users still need nudging is your product's
+  worst stall, visible for free.
 
-This is exactly the 3–5 touch behavioural sequence Chapter 5 recommended — except every
-touch is gated on real behaviour, so an active user is left alone and a stuck user gets
-help. The pattern generalises: *sleep, check what happened during the sleep, send only if
-needed.* That single shape covers most onboarding programs you'll ever write.
+### How the nudges escalate
 
-Notice also what the `exitOn: USER_ACTIVATED` buys over the `if` checks alone: the
-checks gate *sends at known points*; the exit kills the journey *at any point*,
-including mid-sleep. Both layers matter. The `if` makes each message conditional; the
-exit guarantees the whole program stops the moment its goal is met — Chapter 5's
-suppression rule enforced by the engine rather than by your discipline.
+Escalation doesn't mean louder — it means *later.* Each touch targets the next blocker
+in the activation path, not a more urgent version of the last message:
+
+1. **First nudge** (~day 2): the first-value action from your activation funnel — the
+   thing the welcome already asked for, now unblocked more concretely.
+2. **Second nudge** (~day 3–4): the *next* step, the one that only makes sense once the
+   first is done — deeper setup, the second habit, the integration that makes the
+   product sticky.
+3. **Later touches**, if any: help, social proof, or a human offer ("reply if you're
+   stuck") — used sparingly.
+
+Each message assumes the user completed the previous step, because the behavioural
+gate guarantees the ones still receiving mail haven't. The series walks the stalls in
+order rather than dumping the whole product on day one.
+
+### When to stop
+
+This is the discipline that separates a series from nagging:
+
+- **Stop the instant they activate.** The moment the user reaches the aha moment, the
+  series has done its job — every further nudge now contradicts their behaviour and
+  erodes the trust the welcome earned. The whole program should end there, mid-sequence,
+  automatically.
+- **Cap the number of touches.** Three to five, then stop, even if they never activated.
+  A series with no end trains people to tune you out or unsubscribe — and an
+  unsubscribe costs you every *future* journey, not just this one.
+- **Never nudge a churned or unsubscribed user.** Deleted accounts exit; unsubscribes
+  are honoured at send time. Re-checking who still wants to hear from you before a late
+  send keeps the program's logic honest.
+
+### How to prove it worked
+
+Hold back a random slice of stalled users from the nudges and compare their activation
+rate against the nudged cohort. The gap is the lift the series actually *caused* — not
+the correlation you'd get by comparing "users who opened the emails" (who were always
+your keenest). When the timing, the behavioural checks, and the exit-on-activation wiring
+matter, [the Hogsend docs](https://hogsend.com/docs) cover the implementation; the
+strategy here is what decides whether it's worth wiring at all.
 
 <Flashcards
   id="cards-hogsend"
-  title="Key ideas — journeys as code"
+  title="Key ideas — the behavioural nudge series"
   cards={[
     {
-      prompt: "The Hogsend loop:",
-      cloze: "An event arrives — backend ingest, webhook source, or PostHog — the engine stores it and routes it to every journey {{subscribed to that event}}, and the journey runs and {{fires its own events back}}, so the loop is {{measurable in PostHog}}.",
+      prompt: "The shape of a behavioural nudge series:",
+      cloze: "The loop is {{wait a beat}}, {{check whether the desired action happened}}, then {{send the next nudge only if it didn't}} — so an active user is left alone and a stuck user gets help.",
     },
     {
-      front: "What does durable execution buy you?",
-      back: "The engine persists the journey's position, so a two-day sleep genuinely survives deploys and crashes — a multi-day program stays one readable function instead of cron jobs and database flags rebuilding state by hand.",
+      front: "Why does 'send only if needed' beat a fixed drip?",
+      back: "A drip fires every message to everyone on a timer regardless of behaviour; the series only reaches users who actually stalled. That's more relevant to them and more respectful of their attention — so it earns the next open instead of burning it.",
     },
     {
-      prompt: "A journey's meta guardrails:",
-      cloze: "The meta declares {{trigger}} (the subscribing event, filterable with where), {{entryLimit}} (the re-enrollment policy), {{exitOn}} (events that end the journey immediately), and {{suppress}} (a debounce against bursts of the same trigger).",
+      prompt: "What escalation actually means:",
+      cloze: "Escalation isn't {{louder}} — it's {{later}}: each nudge targets the {{next blocker in the activation path}}, assuming the previous step is done, because the behavioural gate guarantees it.",
     },
     {
-      front: "What's the difference between an if-check and exitOn?",
-      back: "An if gates one send at a known point; exitOn stops the whole journey at any point, including mid-sleep or mid-wait — Chapter 5's suppression rule enforced by the engine rather than your discipline.",
+      front: "When should a nudge series stop?",
+      back: "The instant the user activates — the goal is met, so every further nudge is noise that contradicts their behaviour. Failing that, cap it at roughly three to five touches; a series with no exit becomes nagging and trains people to unsubscribe.",
     },
     {
-      prompt: "The shape that covers most onboarding programs:",
-      cloze: "The pattern is {{sleep}}, {{check what happened during the sleep}}, then {{send only if needed}} — every touch gated on real behaviour, so an active user is left alone and a stuck user gets help.",
+      prompt: "The relevance test for every touch:",
+      cloze: "A nudge like 'you haven't tried X' is {{only a good email if it's true}} — the whole series depends on gating each send on {{the user's real behaviour}}, never on a guess.",
     },
     {
-      front: "What does ctx.waitForEvent do that a plain ctx.sleep doesn't?",
-      back: "waitForEvent races the user's own behaviour against a timeout and returns { timedOut }, so the code branches on what actually happened — a program that listens, not a timer that fires regardless.",
+      front: "What's the difference between a program that waits and one that listens?",
+      back: "A timer fires regardless of what the user did; a behavioural series races the user's own actions against the wait and branches on what actually happened. One counts down, the other pays attention.",
     },
     {
-      front: "How do email templates work in a Hogsend app?",
-      back: "React components (React Email) that render to the table-based HTML email clients tolerate, versioned in git with your code. Journeys never concatenate HTML; templates never decide who gets mail.",
+      front: "Why suppress activated users from the rest of the series?",
+      back: "Once someone reaches the aha moment the series has done its job. Continuing to nudge them contradicts their behaviour and reads as 'this company isn't watching' — the fastest way to lose the trust the welcome earned.",
     },
     {
-      front: "What does ctx.when add over a raw sleep?",
-      back: "Timezone-aware scheduling: sleepUntil(ctx.when.in(days(2)).at(\"09:00\")) lands the day-2 email at 9am in the user's own timezone and respects your send window — not exactly 48 hours after a 2am signup.",
+      prompt: "How to prove the series caused the lift:",
+      cloze: "Hold back a {{random slice}} of stalled users from the nudges and compare {{activation rate}} against the nudged cohort — the gap is the {{lift the series actually caused}}, not the correlation you'd get from 'users who opened the emails'.",
     },
   ]}
 />

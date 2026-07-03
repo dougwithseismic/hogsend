@@ -1,48 +1,51 @@
 ---
 title: "Referral (Referral)"
-description: "Ask at peak satisfaction — trigger off a milestone, wait a beat so the ask rides the good feeling, and only ask users who are still active. The referral loop itself is Chapter 8; this journey is just the ask."
+description: "The ask-for-a-referral email, timed to peak satisfaction: trigger off a real win, ask only still-active users, make sharing effortless, and reward real referrals. The referral loop itself is Chapter 8; this is the ask."
 ---
 
-Ask at peak satisfaction — trigger off a milestone, and only ask users who are still
-active:
+Your happiest customers are your cheapest, highest-converting acquisition channel — a warm
+introduction from someone who already loves the product beats any ad you could buy. The
+referral email is how you ask for that introduction. Almost everything about this journey
+is timing and taste, because a referral ask at the wrong moment doesn't just fail — it
+spends goodwill you worked to earn.
 
-```ts
-export const referralInvite = defineJourney({
-  meta: {
-    id: "referral-invite",
-    name: "Referral — Post-Achievement Invite",
-    enabled: true,
-    trigger: { event: Events.MILESTONE_REACHED },
-    entryLimit: "once_per_period",
-    entryPeriod: days(7),
-    suppress: days(2),
-    exitOn: [{ event: Events.USER_DELETED }],
-  },
+**Ask at peak satisfaction.** The rule from Chapter 5 is precise: ask right after the
+customer *feels* the value — the aha moment, a shipped result, a milestone hit, a renewal,
+a five-star support interaction. That's when they'd actually recommend you to a friend,
+because the good feeling is fresh. Ask on a random Tuesday and you're interrupting; ask a
+beat after a great outcome and you're riding a wave they're already on.
 
-  run: async (user, ctx) => {
-    await ctx.sleep({ duration: hours(2), label: "post-achievement" });
+- **The trigger is a real win, not the calendar.** Fire the journey off a *milestone* or
+  success event — the same behavioural events you're already tracking (Chapter 3) — not a
+  fixed "day 14" timer. The event *is* the moment of satisfaction.
+- **Wait a beat, don't pounce.** Let a little time pass after the win so the ask feels like
+  a natural afterglow rather than a popup bolted onto the achievement. A short delay reads
+  as thoughtful; an instant ask reads as a script.
 
-    // Only ask people who are actually engaged.
-    const { found: active30d } = await ctx.history.hasEvent({
-      userId: user.id,
-      event: Events.SESSION_COMPLETED,
-      within: days(30),
-    });
-    if (!active30d) return;
+**Only ask users who are still active.** Before the send, check that the person has
+actually used the product recently — a session, a login, real activity in the last few
+weeks. Never ask a disengaged or churning customer to vouch for you: at best it's ignored,
+at worst it reminds someone on their way out that they're on their way out. The guard is
+simple — no recent activity, no ask — and it's the whole difference between a referral
+program and a spray of hopeful emails.
 
-    await sendEmail({
-      to: user.email, userId: user.id, journeyStateId: user.stateId,
-      template: Templates.RETENTION_ACHIEVEMENT,
-      subject: "Share the love — invite a friend",
-      journeyName: user.journeyName,
-      props: { ctaText: "Invite a Friend" },
-    });
-  },
-});
-```
+**Make sharing effortless.** The email should carry a personal referral link, pre-written
+share copy the customer can send as-is, and a single obvious action. Every extra step —
+"log in, find the referrals tab, copy your code" — roughly halves the number of people who
+follow through. The easier you make the share, the more shares you get; this is mechanical,
+not motivational.
 
-This encodes the Chapter 5 rule "ask at peak satisfaction" precisely: it triggers off a
-*milestone*, waits a beat so the ask rides the good feeling, and the `if (!active30d)
-return` guard means you never ask a disengaged user to vouch for you. The referral
-*loop* — turning that invite into a tracked, rewarded conversion on an identity graph you
-own — is Chapter 8. This journey is just the ask.
+**Reward real referrals.** The ask converts far better when there's something in it — for
+the referrer, the friend, or both (double-sided rewards are the classic). But the reward
+should fire on a *real* referral: a friend who actually signed up or converted, tracked on
+an identity graph you own — not on a click or a good intention.
+
+**How you measure it.** Referral emails sent, invites generated, and — the number that
+matters — invites that convert to real signups. Watch the conversion, not the send volume;
+a small, well-timed program that converts beats a blast that gets ignored.
+
+That last point — turning the ask into a *tracked, rewarded conversion on an identity graph
+you own* — is the referral **loop**, and it's the whole of Chapter 8. This journey is just
+the ask: the well-timed tap on the shoulder that starts the loop, and getting the timing
+and the audience right here is what makes the loop worth building there. (For wiring the
+ask itself, see [the Hogsend docs](https://hogsend.com/docs).)

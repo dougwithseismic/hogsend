@@ -1,59 +1,86 @@
 ---
-title: "Win-back (Retention)"
-description: "Trigger on a dormancy event, then re-engage — but give the user a window to come back on their own before the final nudge. ctx.waitForEvent is what makes win-back feel human instead of a blind timer."
+title: "Win-back (Reactivation)"
+description: "Re-engaging a user who's gone dormant: defining dormancy for your product, giving them a real reason to return, and the one-window-then-stop discipline that keeps win-back feeling human instead of desperate."
 ---
 
-Trigger on a dormancy event (you emit `user.dormant_30d` from a scheduled check, or via
-a PostHog cohort webhook — see the triggers piece), then re-engage. Give the user a window
-to come back on their own before sending again with `ctx.waitForEvent`:
+Win-back re-engages a user who's gone dormant — slipped from active to silent without
+formally cancelling. It plugs the **resurrection** leak in AARRR: the pool of users who
+already understood the value, already got through onboarding, and then drifted. That's
+why it's worth building — reactivating a lapsed user is far cheaper than acquiring a new
+one, and you're not persuading a stranger, you're reminding someone who already believed.
+Commonly cited reactivation rates land in the **10–30% of lapsed users** band
+([Klaviyo's win-back examples](https://www.klaviyo.com/blog/winback-email-campaign-examples)
+are e-commerce but the shape transfers) — *directional*, but enough to matter.
 
-```ts
-export const reactivationWinback = defineJourney({
-  meta: {
-    id: "reactivation-winback",
-    name: "Reactivation — Win-back",
-    enabled: true,
-    trigger: { event: Events.DORMANT_30D },
-    entryLimit: "once_per_period",
-    entryPeriod: days(30),
-    exitOn: [{ event: Events.USER_DELETED }, { event: Events.APP_ACTIVE }],
-  },
+### First, define dormancy for *your* product
 
-  run: async (user, ctx) => {
-    await sendEmail({
-      to: user.email, userId: user.id, journeyStateId: user.stateId,
-      template: Templates.REACTIVATION_CHECKIN,
-      subject: "We miss you — here's what's new",
-      journeyName: user.journeyName,
-    });
+Everything about win-back depends on one number, and it's not a number you can borrow.
+Dormancy is the inactivity window that means "this user is slipping away," and it comes
+straight from your product's natural usage rhythm:
 
-    // Give them 5 days to come back before the final nudge.
-    const { timedOut } = await ctx.waitForEvent({
-      event: Events.APP_ACTIVE,
-      timeout: days(5),
-      label: "comeback-window",
-    });
+- **30 days idle in a daily-use product is churn.** In a tax-filing product, it's a
+  Tuesday. Same 30 days, opposite meaning.
+- Your threshold comes from **your retention curve** (Chapter 2) — the interval after
+  which a silent user almost never comes back on their own. Find the point where the
+  curve flattens into "gone" and set the dormancy window just before it, while a nudge
+  can still catch them.
+- Set it **too short** and you'll pester active users between normal sessions — the
+  fastest way to *cause* the churn you were trying to prevent. Set it **too long** and
+  you're emailing people who have already emotionally cancelled. The window is a tuning
+  dial, not a default.
 
-    if (timedOut) {
-      await sendEmail({
-        to: user.email, userId: user.id, journeyStateId: user.stateId,
-        template: Templates.REACTIVATION_FINAL_NUDGE,
-        subject: "One last thing before you go",
-        journeyName: user.journeyName,
-      });
-    }
-  },
-});
-```
+That threshold becomes the **trigger**: a dormancy event — "no core action in N days" —
+that you emit from a scheduled check or a PostHog cohort that fires when a user crosses
+the line. The journey subscribes to that event; getting the definition right is 80% of
+the work before a single word of copy is written.
 
-`ctx.waitForEvent` is the primitive that makes win-back feel human: instead of blindly
-sending the second email on a timer, the journey *waits to see if they came back* and
-only sends the final nudge if they didn't. And `exitOn: [{ event: Events.APP_ACTIVE }]`
-means if they return at any point, the journey stops — they won't get a "we miss you"
-email the day after they logged back in. Nothing is more corrosive to trust than a
-win-back email to someone who's already active.
+### Give them a real reason to return — not "we miss you"
 
-One habit for any journey with long waits: after the wait, re-check
-`ctx.guard.isSubscribed()` before sending. An exit event ends a journey; an unsubscribe
-doesn't — it's a preference the mailer honours at send time — but checking first keeps
-your journey's *logic* honest about who still wants to hear from you.
+The instinct is to lead with sentiment. Resist it. *"We miss you"* answers no question
+the user actually has, and it makes the email about you. Lead with what changed since
+they left — the concrete value waiting for them now:
+
+- **What's new / what they're missing.** The feature that shipped, the data that
+  accumulated, the thing that's better than when they left. Give them a reason grounded
+  in *their* interest, not your loneliness.
+- **One job, one CTA.** A win-back is a receipt, not a brochure — the single most
+  compelling reason to come back, and one link to act on it. Bury it in a feature roundup
+  and you've wasted the one open you were going to get.
+- **Personalise on their history where you can.** "Here's what happened in the project
+  you started" beats a generic "here's what's new" — the behavioural detail is what
+  makes it feel addressed to a person rather than a segment.
+
+### The one-window-then-stop discipline
+
+This is what keeps win-back from tipping into desperation. The whole program is: **send
+once, give them a bounded window to come back on their own, send exactly one final nudge
+if they don't — then stop.**
+
+- **Bound the comeback window as a tactic.** After the first email, don't fire the
+  second on a blind timer. *Wait to see if they return* — give them, say, five days — and
+  only send the final nudge if the window elapses with no sign of them. That bounded
+  wait is what makes win-back feel human: the program is listening for the user's own
+  behaviour, not counting down regardless.
+- **Exit the instant they return.** If the user becomes active at any point — even the
+  day after the first email — the journey stops immediately. Nothing is more corrosive
+  to trust than a "we miss you" email landing the morning after someone logged back in.
+  Returning is the goal; the moment it happens, the program has no further business.
+- **One window, then leave them alone.** Don't restart the sequence next week. A user who
+  ignored a genuine reason to return and a final nudge has told you something; hammering
+  them past that just earns unsubscribes and spam complaints, which cost you every future
+  journey. Cap re-entry to once per dormancy period.
+- **Re-check consent after the wait.** A long wait can straddle an unsubscribe. An exit
+  event ends the journey; an unsubscribe is a preference honoured at send time — but
+  confirming who still wants to hear from you before the final nudge keeps the program's
+  logic honest.
+
+### How to measure lift
+
+Compare the return rate of the win-back cohort against a holdout of dormant users you
+deliberately don't email. Some lapsed users drift back on their own; the holdout is the
+only way to tell how many you actually *reactivated* versus how many would have returned
+anyway. Watch the downstream number too — a user who opens the email but churns again in
+a week wasn't really won back. When the dormancy trigger, the bounded wait-for-return,
+and the exit-on-activity wiring matter,
+[the Hogsend docs](https://hogsend.com/docs) cover the implementation; the strategy above
+is what makes it worth building.

@@ -1,33 +1,61 @@
 ---
-title: "Other ways you could build this (and why durable execution)"
-description: "A growth team should know what it's choosing instead of — setTimeout, cron + a state column, job queues, durable-execution platforms, and no-code. Roughly worst-to-best, and why durable execution fits lifecycle messaging."
+title: "Build vs buy"
+description: "The honest trade-off between renting a hosted lifecycle tool (Customer.io, Braze, Loops) and owning your own on your data and identity. When hosted is the right first move, and when owning it wins."
 ---
 
-A growth team should know what it's choosing instead of. The ways teams build lifecycle
-automation, roughly worst-to-best for this job:
+You have a real choice about *where* your lifecycle program lives, and a growth team should
+make it deliberately rather than default into it. On one side: **rent** a hosted tool —
+Customer.io, Braze, Iterable, Loops, Klaviyo — and run your journeys in someone else's UI.
+On the other: **own** it — run the program on your own data and identity graph, versioned
+alongside your product code. Both are legitimate. The mistake is picking without seeing
+the trade.
 
-- **`setTimeout` / in-process timers.** The tempting first reach, and the one that
-  hurts: every wait is lost on the next deploy or crash. Fine for a 30-second
-  debounce, catastrophic for a 3-day sequence.
-- **Cron + a state column.** A nightly job scans the users table and decides who's due
-  for which email. It works, and plenty of companies run on it — but you end up
-  hand-rebuilding state, idempotency, and branching that the engine gives you for free,
-  and the logic smears across cron jobs and SQL until no one can read the program.
-  The tell: six months in, nobody can answer "what messages can user X possibly
-  receive this week?" without reading four jobs and a spreadsheet.
-- **A job queue with delayed jobs (BullMQ, Sidekiq).** Better — delays survive restarts.
-  But you're still assembling sequences, exit conditions, and exactly-once yourself, job
-  by job. Each journey becomes a distributed state machine you maintain by hand.
-- **Durable-execution platforms (Temporal, Inngest, DBOS, Restate).** The right
-  *category* — they make multi-step, long-running, restart-proof workflows a first-class
-  thing. Hogsend uses one (Hatchet) under the hood. If you're building generic
-  workflows, these are excellent; for lifecycle *messaging* specifically you'd still
-  build the email/preferences/tracking/identity layer on top, which is what Hogsend is.
-- **No-code automation (Zapier, n8n, Make).** Great glue for "when X, do Y" one-shots;
-  weak for stateful multi-day per-user journeys with branching. Useful at the edges.
+**What renting buys you.** A hosted lifecycle tool is, for a lot of teams, the right first
+move — and there's no virtue in building for its own sake:
 
-The summary: lifecycle messaging is a *durable, stateful, per-user* problem, and the
-tools that fit it are the ones that treat long waits and exactly-once delivery as solved.
-Hogsend's bet is that giving you that as ordinary TypeScript — plus the email, identity,
-and tracking layers already wired — beats both the roll-your-own stack and the no-code
-canvas for a team that codes.
+- **A non-engineer can own it.** If a marketer or lifecycle manager runs your messaging, a
+  visual tool lets them ship without a code review or a deploy. That alone is often
+  decisive.
+- **Time-to-first-journey is hours, not a sprint.** Templates, a drag-and-drop builder,
+  deliverability, and analytics come in the box. You can have a welcome flow live this
+  afternoon.
+- **Someone else runs the infrastructure.** No workers, no queues, no on-call for the
+  sending pipeline.
+- **It's mature.** Segmentation, A/B tools, multi-channel (email/SMS/push), and reporting
+  are years deep. Klaviyo on Shopify, or Customer.io for a marketing-led SaaS, will serve
+  you well for a long time.
+
+If your flows are simple drips, you need to move this week, and no engineer wants to own
+lifecycle — rent. Start there with a clear conscience.
+
+**What renting costs you — and where owning wins.** The bill for convenience comes due
+along a few predictable lines, and they're exactly the ones that matter as your program
+gets ambitious:
+
+- **Your logic lives in their UI, not your repo.** The program that decides who gets which
+  message becomes a set of flowcharts only reachable by logging into a vendor. No diff, no
+  code review, no branch, no test, no "git blame this rule." When journeys get genuinely
+  conditional — *read this user's whole event history and branch on it* — a canvas becomes
+  the bottleneck that code never is.
+- **Your identity graph fragments.** A hosted tool keeps its *own* picture of your users.
+  The moment you want messaging to share the same identity resolution as your product — the
+  graph that makes the referral loop in Chapter 8 work — a separate system holding a
+  separate copy of "who is this person" is quietly working against you. Own the messaging
+  engine and it reads the same identity you already trust.
+- **You rent your own data back.** Behavioural data flows out to the vendor to make the
+  tool work, and the interesting questions ("what's the real incremental lift of this
+  journey?") get answered in their terms, on their export schedule.
+- **Per-contact pricing scales against you.** Hosted tools bill by contacts or sends —
+  fine early, a tax later. The pricing wall arrives right when the program is working and
+  your list is growing, which is the worst possible time to be penalised for success.
+
+**The honest summary.** Lifecycle messaging is a *durable, stateful, per-user* problem, and
+both hosted tools and a purpose-built engine solve the hard parts of it — long waits, exit
+conditions, exactly-once delivery — so you're not choosing on raw capability. You're
+choosing on **ownership**: whose UI holds your logic, whose system holds your identity
+graph, and whose pricing meters your growth. For a product-led team that already codes
+(Chapter 0), owning the layer — versioned, testable, on your own identity, with no
+per-contact wall — is usually worth asking an engineer to own it. For a marketing-led team
+shipping simple flows, renting is the honest right answer. Make the call with eyes open;
+you can always start rented and bring it home once the program earns the investment. (For
+what owning it looks like in practice, see [the Hogsend docs](https://hogsend.com/docs).)

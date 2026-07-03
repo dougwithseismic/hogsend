@@ -1,65 +1,98 @@
 ---
 title: "Welcome + onboarding (Activation)"
-description: "The first journey to build: trigger on signup, welcome immediately, then two days later branch on whether the user reached the aha moment — behavioural personalisation in code."
+description: "The highest-leverage pair in the whole program: a welcome the instant someone signs up, then an activation nudge a day or two later only if they haven't hit the aha moment yet. The trigger, the timing, the audience, the content, and how to measure the lift."
 ---
 
-The first journey to build (Chapter 5, §5.3). Trigger on signup, welcome immediately,
-then branch two days later on whether the user reached the aha moment:
+This is the first journey to build (Chapter 5, §5.3), and it's the highest-leverage
+one you'll ever ship — because it patches the **widest leak in the bucket**: the gap
+between signup and activation (Chapter 2). A new user is more engaged the moment after
+signup than they will ever be again. Welcome emails post the highest open and click
+rates of any automated message — commonly **35–50%** open rates
+([Litmus's State of Email reports](https://www.litmus.com/state-of-email-reports) are
+the least salesy place to calibrate). Spend that attention on the one action that
+predicts they'll stay.
 
-```ts
-import { days, hours } from "@hogsend/core";
-import { defineJourney, sendEmail } from "@hogsend/engine";
-import { Events, Templates } from "./constants/index.js";
+Almost all of the work is done by two messages: a **welcome** the instant they sign up,
+and an **activation nudge** a day or two later — sent *only if they haven't reached the
+aha moment yet.* Together they plug the biggest hole in your funnel; separately, each
+has a job precise enough to write on an index card.
 
-export const activationWelcome = defineJourney({
-  meta: {
-    id: "activation-welcome",
-    name: "Activation — Welcome Series",
-    enabled: true,
-    trigger: { event: Events.USER_CREATED },
-    entryLimit: "once",
-    suppress: hours(12),
-    exitOn: [{ event: Events.USER_DELETED }],
-  },
+### Message one — the welcome
 
-  run: async (user, ctx) => {
-    await sendEmail({
-      to: user.email,
-      userId: user.id,
-      journeyStateId: user.stateId,
-      template: Templates.ACTIVATION_WELCOME,
-      subject: "Welcome — let's get you set up",
-      journeyName: user.journeyName,
-    });
+- **What it is, and why.** The receipt on their decision to sign up, and the single
+  push toward first value. It exists because peak intent is perishable: the further a
+  user gets from the signup click without doing the one thing that makes the product
+  *click for them*, the less likely they ever will.
+- **The trigger.** The signup event itself — the account-created / `user.created` event
+  from your backend (Chapter 3). Not a nightly batch, not a cohort sync: the moment the
+  account exists, the email should be on its way.
+- **The timing.** Immediately — within seconds. This is the one lifecycle email where
+  waiting costs you. The user is still in the tab; the welcome is a continuation of the
+  session, not an interruption of their day. Timezone and send-window discipline (below)
+  do *not* apply here — send now.
+- **The audience and suppression.** Every new signup, exactly once. Guard against the
+  double-fire (a user who submits twice, a retried webhook) with a short suppression
+  window so one person never gets two welcomes. And exit the journey the instant the
+  account is deleted — a churned or bounced signup should never receive the day-two
+  follow-up.
+- **The content: receipt, not brochure.** One job, one CTA. The CTA is *the single first
+  action from your activation funnel* (Chapter 2 / Chapter 4) — "create your first
+  project," "connect your data," "invite a teammate" — not a five-feature tour. Set
+  expectations in one line (what this list is, how often you'll write) so the next email
+  is welcome rather than a surprise. Everything that isn't the first-value action is
+  noise competing with it.
+- **How to measure it.** Opens and clicks tell you the subject line and CTA are working;
+  they don't tell you the email *did anything.* The number that matters is downstream:
+  the activation rate of welcomed users versus a small random holdout you deliberately
+  don't email. That holdout is the only honest way to separate "the email caused
+  activation" from "these users were going to activate anyway" — the same
+  correlation-vs-causation discipline from Chapter 2, applied to your own program.
 
-    await ctx.sleep({ duration: days(2), label: "post-welcome" });
+### Message two — the activation nudge
 
-    // Branch on behaviour, not on a guess (Chapter 5, §5.7).
-    const { found: activated } = await ctx.history.hasEvent({
-      userId: user.id,
-      event: Events.FEATURE_USED,
-    });
+- **What it is, and why.** A single, well-aimed follow-up for the users who signed up
+  and then *stalled* — the ones who never reached the aha moment. This is where the
+  signup→activation leak actually gets plugged. The welcome catches the users who were
+  always going to activate; the nudge is the one that recovers the ones who wouldn't
+  have.
+- **The trigger.** Not a fixed timer firing blindly — a *check.* A day or two after the
+  welcome, the journey looks at whether the user has hit the activation event yet, and
+  branches on the answer. Reached it → they don't need this email (send "here's what to
+  try next," or nothing). Didn't → send the nudge. This is behavioural personalisation:
+  the send is conditioned on what the user actually did, not on a guess (Chapter 5,
+  §5.7).
+- **The timing — and timezone as a tactic.** Roughly **48 hours** is the common window:
+  long enough that the keen users have already activated (and are filtered out), short
+  enough that the stalled ones haven't gone cold. But *when* on that day matters. A
+  fixed 48-hour delay after a 2am signup lands the nudge at 2am. Sending "at 9am in the
+  user's own timezone" instead — inside a sane send window — is a small change that makes
+  the whole program feel human rather than machine-timed. Treat send-time as a
+  deliverability and respect lever, not an afterthought.
+- **The audience and suppression.** Only the not-yet-activated. Everyone who reached the
+  aha moment in the gap is suppressed from the nudge automatically, because the branch
+  reads their behaviour before choosing what to send. And, as always, an account that's
+  been deleted exits before the check ever runs.
+- **The content.** Remove the *specific* blocker, not a generic "you haven't finished
+  setup." If the activation action is "connect your data source," the nudge is a short,
+  concrete unstick for that exact step — the one link, the one thing standing between
+  them and value. One job, one CTA, same as the welcome.
+- **How to measure lift.** Compare activation rate for the nudged cohort against a
+  holdout that gets the welcome but not the nudge. That isolates the nudge's own
+  contribution. Watch the *reason* users stall, too — if most of them are stuck on the
+  same step, that's a product signal worth more than any email.
 
-    await sendEmail({
-      to: user.email,
-      userId: user.id,
-      journeyStateId: user.stateId,
-      template: activated ? Templates.ACTIVATION_ADVANCED : Templates.ACTIVATION_NUDGE,
-      subject: activated ? "Nice work — here's what to try next" : "You haven't tried the key feature yet",
-      journeyName: user.journeyName,
-    });
-  },
-});
-```
+### Why this pair is the whole ballgame
 
-Two things to notice. The journey **reads event history** to decide what to send — that's
-behavioural personalisation in code, the §5.7 principle made literal: an activated user
-gets "here's what's next," a stuck user gets "here's how to start," from the same journey.
-And the whole thing **exits the moment `user.deleted` fires**, so a churned user never
-gets the day-2 email. That `exitOn` is the difference between a system that feels
-attentive and one that emails dead accounts.
+Activated users retain roughly **~2× better** than non-activated ones
+([Lenny Rachitsky's activation benchmarks](https://www.lennysnewsletter.com/p/what-is-a-good-activation-rate)),
+and most early churn happens in exactly the window these two emails cover. Doubling
+activation can beat doubling signups — at zero acquisition cost. That's why the welcome
+pair is built first: it's the cheapest lever you have on the traffic you already paid
+for, and it moves the metric (activation) that everything downstream compounds on.
 
-One refinement worth adding once the basic journey works: replace the raw
-`ctx.sleep(days(2))` with `ctx.sleepUntil(ctx.when.in(days(2)).at("09:00"))` so the
-day-2 email lands at 9am in *the user's* timezone instead of exactly 48 hours after a
-2am signup. Small change, visibly more human program.
+The behavioural branch is what separates this from a drip. A drip would send both
+emails to everyone on a timer; this program *reads what happened* and only sends the
+nudge to the users who need it — respect and relevance in the same move. When the
+mechanics matter (how the trigger, the wait, the behavioural check, and the timezone
+scheduling actually get wired), [the Hogsend docs](https://hogsend.com/docs) cover the
+implementation; the strategy above is what makes the implementation worth building.

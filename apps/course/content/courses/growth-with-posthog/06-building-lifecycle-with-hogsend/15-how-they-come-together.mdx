@@ -1,0 +1,51 @@
+---
+title: "How they come together"
+description: "Each email in this chapter is good on its own; running all of them at once is a different problem. A frequency cap, a priority order, a stage map, and one global holdout are what turn a pile of journeys into a system that helps rather than spams."
+workbook: "The four coordination rules that keep a full lifecycle program from overwhelming the people it's meant to help."
+---
+
+Every email so far has been good in isolation. But you won't run one — you'll run a dozen, all
+firing off different events, and the same user is eligible for several at once. A new signup
+who fails a payment is, on paper, in the welcome journey, the activation nudge, *and* dunning.
+Without coordination, they get three emails in an afternoon and unsubscribe from all of it. The
+difference between a lifecycle *system* and a pile of journeys is four rules.
+
+**A global frequency cap.** The single most important guardrail: a hard limit on how many
+lifecycle emails one person can receive in a day or a week, enforced *across every journey* so
+no combination can pile on. When journeys overlap, the cap decides who waits. It's the thing
+that protects the user from your enthusiasm, and it protects your deliverability from the spam
+complaints that overwhelmed users generate.
+
+**A priority order.** When two emails could fire at the same moment, one has to win. The rule
+of thumb: **money and trust beat promotion.** A failed-payment (dunning) email or a security
+notice outranks a feature nudge; a transactional receipt always sends. Decide the order once,
+up front, so the cap has something to sort by instead of dropping messages at random.
+
+**A stage map.** Lay every email you send against the funnel — Activation, Conversion,
+Retention, Reactivation, Revenue, Referral, Feedback — and the gaps jump out. Most teams
+discover they have three activation emails and nothing for reactivation, or a slick referral
+ask and no win-back. The map is a five-minute coverage audit that tells you the next journey
+worth building.
+
+**One global holdout.** Individual holdouts prove one email's lift; a *program* holdout proves
+the whole system's worth. Quietly hold a small random slice of users out of **all** lifecycle
+email, and compare their retention and revenue to everyone else. That gap is what the lifecycle
+program is actually worth — the number Chapter 9's monthly review asks for, and the one that
+justifies the whole effort to a skeptical cofounder (Chapter 13). Keep it running permanently;
+it's cheap insurance against a program that's quietly stopped earning its keep.
+
+<Checklist
+  id="ch6-lifecycle-system"
+  title="The coordination rules"
+  items={[
+    "A global frequency cap across all journeys — no user gets more than N lifecycle emails a week",
+    "A priority order — money and trust (dunning, security, receipts) outrank promotional nudges",
+    "Every email mapped to its funnel stage, so the coverage gaps are visible",
+    "A permanent global holdout — a small slice held out of all lifecycle email to prove the program's total lift",
+    "No contradictions — a user in active onboarding shouldn't also get a win-back",
+  ]}
+/>
+
+Build the emails one at a time, in the order of impact from earlier in this chapter — but hold
+the *system* in mind from the first one, because the second journey is where the coordination
+starts to matter.

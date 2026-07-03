@@ -1,66 +1,76 @@
 ---
-title: "The loop: event in, journey runs, event out"
-description: "Hogsend's whole model is one loop: an event arrives, the engine routes it to every subscribed journey, and the journey runs — as durable TypeScript — firing its own events back so the loop stays measurable in PostHog."
+title: "The lifecycle loop"
+description: "Every lifecycle message is the same loop: something happens, the right message goes out at the right time, and you measure whether it worked. Why a triggered, per-user loop beats a batch blast — the idea Chapter 5 argued, made concrete."
 workbook: "A quick check on who would actually own these journeys on your team."
 ---
 
-Hogsend's whole model is one loop:
+Chapter 5 made the case for lifecycle messaging as a discipline. This chapter is the
+concrete, tactical continuation: how the messages actually get built, and the decisions
+behind each one. Everything here rests on a single loop that every lifecycle message —
+welcome, dunning, win-back, all eight — runs through:
 
-1. An event arrives — from your backend (`POST /v1/ingest`), from a webhook source, or
-   from PostHog. The same server-side events you send to PostHog in Chapter 3 are the
-   events you send here.
-2. The engine stores it, then routes it to every journey **subscribed to that event**.
-3. The journey runs — it can wait days, check history, branch, send email, message
-   Discord/Telegram — and fires its own events back (`journey:completed`, `email.*`,
-   etc.) so the loop is measurable in PostHog.
+1. **Something happens.** A real thing a user did: they signed up, hit an activation
+   milestone, let their card expire, went quiet for two weeks. This is an *event* — the
+   same server-side events you're already sending to PostHog in Chapter 3.
+2. **The right message goes out at the right time.** Not to everyone — to *that one user*,
+   keyed to what they just did, after whatever delay makes it land well.
+3. **You measure whether it worked.** The message reports back — it emits its own events —
+   so you can see in PostHog whether it lifted the number you built it to lift.
 
-The key property: **a journey is durable TypeScript.** `await ctx.sleep(...)` is a
-real two-day pause that survives deploys and restarts — not a cron job, not a flowchart
-approximating control flow. You write normal code; the engine makes it durable.
+That's the whole model. A message is worth building only when you can name all three:
+the event that starts it, the thing you want to happen, and the way you'll know if it did.
 
-### Why "durable" is the whole game
+### Why per-user beats a batch blast
 
-It's worth understanding what that buys you, because it's the reason a code-first journey
-engine exists at all. A lifecycle journey is mostly *waiting* — send, wait two days,
-check, send, wait five days, check. Naively, you might reach for `setTimeout` or a
-background `sleep`. That works until your server restarts mid-wait (a deploy, a crash, an
-OOM) — and then every in-flight wait is lost, and every user mid-journey is stranded. You
-can't run a messaging program on a process that forgets what it was doing every time you
-ship.
+This loop is the difference between lifecycle messaging and a newsletter, and it's worth
+being precise about why it wins — because it's the same argument Chapter 5 made, now at
+the level of a single send.
 
-Durable execution solves this: the engine persists the journey's position, so a
-two-day sleep genuinely survives a redeploy on day one and resumes on day two as if
-nothing happened. That's what lets you write a multi-day program as a single, readable
-function instead of a pile of cron jobs and database flags reconstructing the state by
-hand. The alternatives (later in this chapter) all exist to approximate this; Hogsend
-gives it to you as plain control flow.
+A **batch blast** is calendar-driven: you pick a Tuesday, write one message, and send it
+to everyone on the list at once. It ignores what any individual user is doing. The person
+who signed up an hour ago and the person who's been paying for two years get the same
+email at the same moment — one of whom it's wrong for.
 
-There's a subtlety inside "durable" that the exactly-once piece returns to: durability is
-achieved by being able to *replay* a journey from the top after a crash and fast-forward
-through the parts that already ran. That replay model is why exactly-once sending needs
-engine support rather than hope — hold the thought.
+A **triggered, per-user loop** is behaviour-driven: each user gets the message the moment
+their own behaviour earns it. The welcome email fires when *they* sign up, not on the
+sender's schedule. The upgrade nudge fires when *they* hit the usage ceiling. Relevance
+stops being a thing you guess at and becomes a property of *when* the message is allowed
+to fire.
 
-### Send the trigger events
+The most underrated consequence of this is what the loop *doesn't* do. A batch blast has
+no way to know a user already did the thing — so it emails them anyway. A triggered loop
+only reaches the people the event actually describes, and stops the instant they move
+past it. As Chapter 5 put it, the power of a lifecycle program is as much in who it
+*doesn't* email as who it does. The loop is what makes that restraint automatic rather
+than a thing you police by hand.
 
-From your backend, the same place you call `posthog.capture(...)`, also post to Hogsend:
+### One event, two jobs
 
-```ts
-await fetch(`${HOGSEND_URL}/v1/ingest`, {
-  method: "POST",
-  headers: { "content-type": "application/json", authorization: `Bearer ${KEY}` },
-  body: JSON.stringify({
-    event: "user.created",
-    userId: "user_123",
-    userEmail: "sam@example.com",
-    properties: { plan: "free" },
-  }),
-});
-```
+The events that drive this loop are the same server-side events you're already emitting
+for analytics. You don't build a separate tracking layer for lifecycle — the moment your
+backend records "this user signed up" for PostHog, that same signal can start a journey.
+One emission, two consumers: analytics *measures* it, lifecycle *acts on* it.
 
-That `user.created` event is what triggers the welcome journey below. One server-side
-emission, two consumers: PostHog measures it, Hogsend acts on it. And because it's
-server-side, it's ad-blocker-proof (Chapter 3) — your lifecycle program never depends
-on a browser script that a third of your users block.
+Sending these events from your server rather than the browser matters for a second
+reason Chapter 3 raised: it's ad-blocker-proof. Roughly a third of users block
+client-side scripts, so a lifecycle program that depended on a browser tag would silently
+skip a third of the people it was built to reach. Server-side events don't have that
+hole — every user who does the thing gets counted, and gets the message.
+
+### The messages have to wait — reliably
+
+There's one property of lifecycle work that shapes every tool built for it: a lifecycle
+message is mostly *waiting*. Send, wait two days, check, send, wait five days, check. A
+single journey can hold a user in mid-flight for weeks.
+
+That waiting has to survive the real world. Your servers get redeployed, restarted, and
+occasionally fall over — and none of that is allowed to strand a user halfway through a
+sequence or fire a two-days-later email six days late. Getting this right by hand (a
+spreadsheet of "who's due what, when," poked by a nightly cron) is exactly the fragile
+plumbing that makes teams give up on lifecycle. It's infrastructure you want handled for
+you, so you can spend your attention on the *decisions* — which is what the rest of this
+chapter is about. (For how Hogsend makes the waiting durable, see
+[the Hogsend docs](https://hogsend.com/docs).)
 
 <CheckIn
   id="engineeringBandwidth"
