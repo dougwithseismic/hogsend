@@ -2,6 +2,7 @@ import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { MDXComponents } from "mdx/types";
 import { CheckIn } from "@/components/course/check-in";
 import { Checklist } from "@/components/course/checklist";
+import { Figure } from "@/components/course/figure";
 import { Flashcards } from "@/components/course/flashcards";
 import { PodcastLink } from "@/components/course/podcast-link";
 import { Quiz } from "@/components/course/quiz";
@@ -18,6 +19,7 @@ export function getMDXComponents(components?: MDXComponents) {
     ...defaultMdxComponents,
     CheckIn,
     Checklist,
+    Figure,
     Flashcards,
     PodcastLink,
     Quiz,
