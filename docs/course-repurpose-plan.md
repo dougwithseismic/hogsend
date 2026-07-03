@@ -110,23 +110,23 @@ Producing a chapter's atoms is mechanical — this is the line, run it per chapt
 
 ## 5. Machinery changes (small, enumerated — this is the whole engineering surface)
 
-- [ ] **3-level sidebar tree** — `lib/course-ui.tsx` `decorateTree` + the course-overview
-  page (`app/(catalog)/[course]/page.tsx`) currently assume module → lesson. Handle
-  module → chapter (folder) → atom, with completion ticks rolling up to the chapter.
-- [ ] **Quiz placement** — quiz identity is per-lesson (`quiz:<course>/<lesson>`). Keep the
-  chapter's full pooled quiz on the last atom; optionally scatter 1-question inline checks.
-  (Splitting changes the quiz's lesson key — acceptable, it's a new surface.)
-- [ ] **Gating: whole-first-chapter-free** — `isFreeLesson()` in `lib/gating.ts` today keys
-  off the single lexically-first slug. Change to "free if the lesson is under the first
-  chapter folder." Update `freeLessonParams()` (prerender) to match.
-- [ ] **Hard-coded counts** — `FLAGSHIP_CONTENT_FACTS` in `lib/courses.ts`
-  (`quizQuestions`, `workbookItems`) and the fact strip in `[course]/page.tsx` are literals;
-  re-derive or update after the manifest regenerates.
-- [ ] **Video digest** — extend `VideoEmbed` (or add `<VideoDigest>`) with optional
-  `keyPoints={[...]}` + collapsible `transcript`. Keep the privacy-light click-to-load and
-  watched-toggle behaviour intact.
-- [ ] **CheckIn ids** stay registered in `lib/profile.ts` `PROFILE_FIELDS` (no change if ids
-  are unchanged).
+- [x] **3-level tree / identity** — unified lesson identity on the full sub-path after the
+  course (`slugs.slice(1).join("/")`, backward-compatible with flat lessons): manifest
+  generator recurses folders (index→folder slug); `nextLessonOf`, `/api/progress`,
+  `getCourseModules` (flattens hub + atoms, `depth` field), the overview, and `/workbook`
+  all follow it. `decorateTree` already recursed.
+- [x] **Quiz placement** — the chapter's full pooled quiz sits on the last atom
+  (`10-set-up-account`); its per-lesson key becomes `quiz:<course>/01-what-is-posthog/10-set-up-account`.
+- [x] **Gating: whole-first-chapter-free** — `isFreeLesson()` now frees any lesson under a
+  `FREE_CHAPTERS` entry (`growth-with-posthog/01-what-is-posthog`), course-scoped, plus the
+  lexically-first lesson as before.
+- [x] **Hard-coded counts** — no change needed: atomizing preserved every block, so the
+  manifest is still 84 items / 110 quiz questions; the "Chapters" fact now counts depth-0
+  entries so it stays accurate.
+- [x] **Video digest** — added a server-rendered `<VideoTranscript id>` block (collapsible,
+  from the committed transcripts JSON — no client bloat, no MDX-escaping); "why watch" stays
+  the `VideoEmbed` note and takeaways are authored as a short list. Watched-toggle intact.
+- [x] **CheckIn ids** unchanged (`teamSize`, `analyticsStack`), so saved data + `lib/profile.ts` are untouched.
 
 ---
 
@@ -146,15 +146,21 @@ Producing a chapter's atoms is mechanical — this is the line, run it per chapt
 
 ## 7. Rollout
 
-- [ ] **Phase 0 — transcript pipeline.** `scripts/pull-transcripts.mjs` + cleaner; run over
-  Chapter 1's 3 videos to prove it, then all 30. Cheap, safe, unblocks everything.
-- [ ] **Phase 1 — structural spike.** Nested folder + 3-level sidebar + whole-chapter-free
-  gating, with Chapter 1's first ~3 atoms (incl. one watch-&-digest). **Preview on Railway**
-  to prove the pattern before mass-producing.
-- [ ] **Phase 2 — finish Chapter 1.** All ~10 atoms, whole chapter free, quiz relocated,
-  counts + manifest updated. Preview → merge.
-- [ ] **Phase 3 — Chapter 0** (the front door) through the same line; then roll chapter by
-  chapter. Capture the per-chapter steps as a checklist so it's repeatable (the "line").
+- [x] **Phase 0 — transcript pipeline.** `scripts/pull-transcripts.mjs` + cleaner + committed
+  `generate-transcripts.mjs`; run over Chapter 1's 3 videos (1640/891/549 words). Wired into
+  prebuild/predev/check-types. (Remaining: run over the other 27 videos with `--sleep-requests`.)
+- [x] **Phase 1 — structural spike.** Nested folder + 3-level tree + whole-chapter-free gating,
+  `VideoTranscript` block. Verified: build passes, all 5 surfaces render HTTP 200.
+- [x] **Phase 2 — finish Chapter 1.** All 10 atoms + hub, whole chapter free, quiz on the last
+  atom, manifest still 84 items. Verified rendering locally; **awaiting Doug's preview → merge.**
+- [x] **Phase 3 — Chapter 0** (the front door) through the same line: hub + 9 atoms, whole
+  chapter free, with **more distributed flashcards + quizzes** (4 decks + a mini-quiz added;
+  facts now 88 workbook items / 114 quiz questions). Both free chapters (0 + 1) atomized.
+  Remaining: roll chapters 2–10 through the same line (repeatable now).
+- [x] **LLM hand-off (added on request).** Every transcript has Copy + Send-to-Claude/
+  ChatGPT/Perplexity (branded chips); every lesson has "Copy for LLM". All payloads open
+  with a Hogsend brand line (`lib/llm-brand.ts`) so pasting into a model seeds hogsend.com +
+  the tagline. Article text comes from `generate-lesson-text.mjs` (JSX stripped, server-fed).
 - [ ] **Phase 4 (later, factory-native surfaces).** In-course **agent** ("ask about this
   atom"); **certification / evaluation** track built on the atom-level quiz + workbook.
   Atomization is the prerequisite for both.
