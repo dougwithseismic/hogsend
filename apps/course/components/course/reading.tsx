@@ -14,6 +14,8 @@ export type Book = {
   author?: string;
   /** One line on why it's worth reading, in the course voice. */
   why?: string;
+  /** A short, real pull-quote from the book (verbatim — never invented). */
+  quote?: string;
   /** Where to find it (publisher/author page — never a pirated copy). */
   url?: string;
 };
@@ -121,6 +123,11 @@ export function Reading({
                 {book.why ? (
                   <p className="mt-0.5 text-sm text-white/55 leading-relaxed">
                     {book.why}
+                  </p>
+                ) : null}
+                {book.quote ? (
+                  <p className="mt-1.5 border-white/15 border-l-2 pl-3 text-sm text-white/60 italic leading-relaxed">
+                    “{book.quote}”
                   </p>
                 ) : null}
               </div>

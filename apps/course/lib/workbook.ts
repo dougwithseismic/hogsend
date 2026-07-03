@@ -41,7 +41,13 @@ export type WorkbookItem = {
   /** checklist: authored items. */
   items?: string[];
   /** reading: authored books, so /workbook can render the shelf inline. */
-  books?: { title: string; author?: string; why?: string; url?: string }[];
+  books?: {
+    title: string;
+    author?: string;
+    why?: string;
+    quote?: string;
+    url?: string;
+  }[];
 };
 
 export type WorkbookManifest = Record<string, Record<string, WorkbookItem[]>>;

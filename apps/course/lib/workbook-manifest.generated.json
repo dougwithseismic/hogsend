@@ -1253,6 +1253,47 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch11-reading",
+        "key": "reading:ch11-reading",
+        "anchor": "wb-ch11-reading",
+        "label": "Reading — finding your footing",
+        "itemCount": 5,
+        "books": [
+          {
+            "title": "The Mom Test",
+            "author": "Rob Fitzpatrick",
+            "why": "How to talk to users before you build, without fooling yourself into a false yes.",
+            "quote": "The Mom Test is a set of simple rules for crafting good questions that even your mom can't lie to you about.",
+            "url": "https://www.momtestbook.com/"
+          },
+          {
+            "title": "The Lean Startup",
+            "author": "Eric Ries",
+            "why": "Build-measure-learn, validated learning, and the vanity-metrics trap.",
+            "quote": "The only way to win is to learn faster than anyone else.",
+            "url": "http://theleanstartup.com/"
+          },
+          {
+            "title": "Zero to One",
+            "author": "Peter Thiel with Blake Masters",
+            "why": "The zero-to-one mindset — build something genuinely new, not a copy of what works.",
+            "quote": "What important truth do very few people agree with you on?"
+          },
+          {
+            "title": "Traction",
+            "author": "Gabriel Weinberg & Justin Mares",
+            "why": "The Bullseye framework for finding the one channel that actually responds.",
+            "quote": "Almost every failed startup has a product. What failed startups don't have is enough customers."
+          },
+          {
+            "title": "Crossing the Chasm",
+            "author": "Geoffrey A. Moore",
+            "why": "The market stages a product crosses, and why early and mainstream buyers behave nothing alike."
+          }
+        ]
       }
     ],
     "12-running-experiments/01-what-deserves-an-experiment": [
@@ -1335,6 +1376,32 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch12-reading",
+        "key": "reading:ch12-reading",
+        "anchor": "wb-ch12-reading",
+        "label": "Reading — the experimentation craft",
+        "itemCount": 3,
+        "books": [
+          {
+            "title": "Trustworthy Online Controlled Experiments",
+            "author": "Ron Kohavi, Diane Tang & Ya Xu",
+            "why": "The definitive practical guide to A/B testing, from people who ran thousands at Microsoft, Amazon, and Airbnb.",
+            "quote": "Getting numbers is easy. Getting numbers you can trust is hard."
+          },
+          {
+            "title": "Hacking Growth",
+            "author": "Sean Ellis & Morgan Brown",
+            "why": "High-tempo testing and the growth-team operating system, from the person who coined 'growth hacking' and the 40% PMF test."
+          },
+          {
+            "title": "Experimentation Works",
+            "author": "Stefan H. Thomke",
+            "why": "The business case for making experimentation a company-wide habit, not an occasional project."
+          }
+        ]
       }
     ],
     "13-talking-about-growth/01-who-cares-about-what": [
@@ -1515,6 +1582,34 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch13-reading",
+        "key": "reading:ch13-reading",
+        "anchor": "wb-ch13-reading",
+        "label": "Reading — saying it well",
+        "itemCount": 3,
+        "books": [
+          {
+            "title": "Obviously Awesome",
+            "author": "April Dunford",
+            "why": "How to frame what you do so the right people immediately get it.",
+            "quote": "Positioning is the act of deliberately defining how you are the best at something that a defined market cares a lot about.",
+            "url": "https://www.aprildunford.com/books"
+          },
+          {
+            "title": "Measure What Matters",
+            "author": "John Doerr",
+            "why": "OKRs — turning goals into a small set of numbers a team can rally on and report against.",
+            "quote": "Ideas are easy. Execution is everything."
+          },
+          {
+            "title": "Storytelling with Data",
+            "author": "Cole Nussbaumer Knaflic",
+            "why": "How to make a chart say one thing clearly — most of good reporting is restraint."
+          }
+        ]
       }
     ],
     "14-growth-as-career-capital/01-what-its-worth": [
@@ -1650,6 +1745,39 @@
         "anchor": "wb-quiz",
         "label": "Check your understanding",
         "itemCount": 10
+      },
+      {
+        "kind": "reading",
+        "id": "ch14-reading",
+        "key": "reading:ch14-reading",
+        "anchor": "wb-ch14-reading",
+        "label": "Reading — the long game",
+        "itemCount": 4,
+        "books": [
+          {
+            "title": "So Good They Can't Ignore You",
+            "author": "Cal Newport",
+            "why": "Career capital: get good at rare and valuable skills, then trade them for autonomy.",
+            "quote": "Working right trumps finding the right work.",
+            "url": "https://calnewport.com/books/so-good/"
+          },
+          {
+            "title": "Deep Work",
+            "author": "Cal Newport",
+            "why": "The focused practice behind becoming good enough that they can't ignore you."
+          },
+          {
+            "title": "The Almanack of Naval Ravikant",
+            "author": "Eric Jorgenson",
+            "why": "Leverage, specific knowledge, and building an audience of your own — free to read online.",
+            "url": "https://www.navalmanack.com/"
+          },
+          {
+            "title": "Show Your Work!",
+            "author": "Austin Kleon",
+            "why": "The case for building in public and letting the work find the opportunities."
+          }
+        ]
       }
     ]
   }
