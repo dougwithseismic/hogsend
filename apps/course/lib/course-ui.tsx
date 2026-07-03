@@ -24,9 +24,14 @@ export function slugsFromUrl(url: string): string[] {
 
 export type CourseModuleLesson = {
   url: string;
+  /** Full path after the course (`01-what-is-posthog/why-measure`), matching
+   *  lessonProgress + the workbook manifest key. */
   slug: string;
   title: string;
   description?: string;
+  /** 0 for a flat lesson or a chapter hub; 1 for an atom inside a chapter — the
+   *  overview indents atoms under their chapter. */
+  depth: number;
 };
 
 export type CourseModule = {
@@ -52,9 +57,26 @@ function findCourseFolder(
   return undefined;
 }
 
+/** Turn a tree page/index node into a CourseModuleLesson. */
+function toLesson(node: ItemNode, depth: number): CourseModuleLesson {
+  const slugs = slugsFromUrl(node.url);
+  const page = source.getPage(slugs);
+  return {
+    url: node.url,
+    slug: slugs.slice(1).join("/"),
+    title:
+      page?.data.title ??
+      (typeof node.name === "string" ? node.name : node.url),
+    description: page?.data.description,
+    depth,
+  };
+}
+
 /**
  * Lessons grouped by their meta.json `---Module---` separators — the same tree
  * that drives the reader sidebar, so the overview and sidebar never drift.
+ * A chapter FOLDER contributes its hub (index) at depth 0 followed by its atoms
+ * at depth 1, flattened into the module's lesson list in course order.
  * Titles/descriptions come from each lesson's frontmatter via source.getPage.
  */
 export function getCourseModules(slug: string): CourseModule[] {
@@ -63,6 +85,13 @@ export function getCourseModules(slug: string): CourseModule[] {
 
   const modules: CourseModule[] = [];
   let current: CourseModule | null = null;
+  const ensureModule = (): CourseModule => {
+    if (!current) {
+      current = { name: null, lessons: [] };
+      modules.push(current);
+    }
+    return current;
+  };
 
   for (const node of folder.children) {
     if (node.type === "separator") {
@@ -72,20 +101,16 @@ export function getCourseModules(slug: string): CourseModule[] {
       };
       modules.push(current);
     } else if (node.type === "page") {
-      if (!current) {
-        current = { name: null, lessons: [] };
-        modules.push(current);
+      ensureModule().lessons.push(toLesson(node, 0));
+    } else if (node.type === "folder") {
+      // A chapter folder: hub first, then its atoms.
+      const mod = ensureModule();
+      if (node.index) mod.lessons.push(toLesson(node.index, 0));
+      for (const child of node.children) {
+        if (child.type !== "page") continue;
+        if (node.index && child.url === node.index.url) continue; // dedupe hub
+        mod.lessons.push(toLesson(child, 1));
       }
-      const slugs = slugsFromUrl(node.url);
-      const page = source.getPage(slugs);
-      current.lessons.push({
-        url: node.url,
-        slug: slugs[slugs.length - 1] ?? "",
-        title:
-          page?.data.title ??
-          (typeof node.name === "string" ? node.name : node.url),
-        description: page?.data.description,
-      });
     }
   }
 

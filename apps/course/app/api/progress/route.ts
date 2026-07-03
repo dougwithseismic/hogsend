@@ -22,7 +22,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
 
-  const page = source.getPage([course, lesson]);
+  // `lesson` is the full sub-path after the course (e.g.
+  // `01-what-is-posthog/why-measure`); getPage wants it as slug segments.
+  const page = source.getPage([course, ...lesson.split("/")]);
   if (!page) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }

@@ -49,12 +49,24 @@ export function freeLessonParams(): { slug: string[] }[] {
 }
 
 /**
+ * Chapters given away IN FULL as the top-of-funnel magnet: every lesson under
+ * one of these chapter folders is public, not just the course's first lesson.
+ * Keyed `course/chapter` (the first two slug segments) so it can't leak across
+ * courses. The lexically-first lesson of every course stays free regardless.
+ */
+const FREE_CHAPTERS = new Set<string>([
+  "growth-with-posthog/01-what-is-posthog",
+]);
+
+/**
  * Is this lesson free (public)? Non-lesson catch-all hits (`/learn`, `/learn/x`)
  * are not real lessons and aren't gated — only 2+ segment lesson pages are.
+ * Free when it's the course's first lesson OR it lives under a FREE_CHAPTER.
  */
 export function isFreeLesson(slugs: string[]): boolean {
   if (slugs.length < 2) return true;
   const course = slugs[0];
+  if (FREE_CHAPTERS.has(`${course}/${slugs[1]}`)) return true;
   return firstLessonSlugByCourse().get(course) === slugs.join("/");
 }
 

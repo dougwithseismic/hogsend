@@ -6,6 +6,7 @@ import { Flashcards } from "@/components/course/flashcards";
 import { PodcastLink } from "@/components/course/podcast-link";
 import { Quiz } from "@/components/course/quiz";
 import { VideoEmbed } from "@/components/course/video-embed";
+import { VideoTranscript } from "@/components/course/video-transcript";
 import { WorkbookPrompt } from "@/components/course/workbook-prompt";
 
 /** MDX component map for lesson rendering: Fumadocs defaults plus the
@@ -21,6 +22,7 @@ export function getMDXComponents(components?: MDXComponents) {
     PodcastLink,
     Quiz,
     VideoEmbed,
+    VideoTranscript,
     WorkbookPrompt,
     ...components,
   } satisfies MDXComponents;
