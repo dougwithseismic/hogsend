@@ -3,9 +3,11 @@ title: "Triggered beats batch-and-blast"
 description: "A message triggered by behaviour reaches a person at a moment of intent; a batch send hits everyone regardless of where they are. How a product event becomes a message, and why the performance gap is large and consistent."
 ---
 
-The core argument for the whole approach: a message triggered by behaviour reaches a
-person at a moment of intent. A batch send hits everyone regardless of where they are
-in their journey. The performance gap is large and consistent:
+A message triggered by behaviour reaches a person at a moment of intent; a batch send
+hits everyone at once, regardless of where they are in their journey. That difference —
+relevance pinned to a moment versus relevance averaged across a list — is the core
+argument for the whole approach, and the performance gap it produces is large and
+consistent:
 
 - Automated/triggered flows are a tiny fraction of send volume but drive a hugely
   disproportionate share of revenue — a common benchmark is **flows ≈ 5% of sends but
@@ -30,17 +32,18 @@ SaaS onboarding (users are wildly spread) and matters less for a weekly content 
 
 ### How a product event becomes a message
 
-The mechanism, which Chapter 6 implements:
+The mechanism, which the next chapter implements:
 
-1. You instrument a behaviour as an **event** with properties (Chapter 3) —
-   `trial_started`, `project_created`, `payment_failed { amount }`.
+1. You instrument a behaviour as an **event** with properties (the instrumentation
+   chapter shows how) — `trial_started`, `project_created`, `payment_failed { amount }`.
 2. A journey is **subscribed** to that event. When the event fires, the journey starts
    for that user.
 3. The journey runs its steps — wait, check a condition, send, branch — and an **exit
    condition** stops it the instant the goal is met (e.g. stop the "upgrade" sequence
    the moment the user upgrades).
 
-A few reliable trigger → message pairs to model yours on:
+A few reliable trigger → message pairs to model yours on, each pairing a behaviour with
+one clear **call to action** (CTA):
 
 | Behaviour | Message |
 |---|---|

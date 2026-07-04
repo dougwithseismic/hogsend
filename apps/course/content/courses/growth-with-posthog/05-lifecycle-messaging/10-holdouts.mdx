@@ -4,10 +4,10 @@ description: "Open and click rates don't tell you whether a message caused anyth
 workbook: "How to measure a journey's real, causal impact with a holdout — global vs campaign, a worked +7-point example, and the mistakes to avoid. Watch the incrementality walkthrough; the holdout logic is identical to your lifecycle program's."
 ---
 
-This is the discipline that separates a real lifecycle program from cargo-culting. Open
-and click rates do **not** tell you whether a message *caused* anything — maybe those
-users would have converted anyway. To measure real impact, you measure **incrementality**
-with a **holdout**:
+Opens and clicks tell you a message was received, not whether it changed anything —
+maybe those users would have converted regardless. The discipline that separates a real
+lifecycle program from cargo-culting is measuring what a message *caused*, and you do
+that by measuring **incrementality** with a **holdout**:
 
 - Randomly withhold the message(s) from a **control group**, and compare the outcome —
   activation, retention, revenue — between the users who got messaged and those who
@@ -18,22 +18,23 @@ Two kinds:
 
 - **Global holdout** — a small % of users excluded from *all* lifecycle messaging.
   Measures the whole program's lift. This is the number that justifies the program's
-  existence in the monthly review (Chapter 9).
+  existence in the monthly growth review.
 - **Campaign holdout** — users excluded from one specific journey. Measures that
   journey's lift, and powers the kill-or-keep decision per journey.
 
 A worked example: messaged group upgrades at 18%, held-out group at 11% → **+7
 points** of lift you can credit to the journey. A standing holdout on every important
-flow, with lift reported monthly, is the habit that keeps the whole program honest.
-This is the same correlation-vs-causation lesson
-from Chapter 2's activation section — only an experiment proves cause, and it's the same
-discipline that made your activation metric trustworthy.
+flow, with lift reported monthly, is the habit that keeps the whole program honest. It's
+the same correlation-versus-causation problem the activation metric solves: a number
+that only *correlates* with success can't tell you what to build, and only an experiment
+proves cause.
 [Eppo's incrementality primer](https://www.geteppo.com/blog/marketing-incrementality-101)
-covers the standard designs (user-level holdout, geo holdout, PSA tests) if you want
+covers the standard designs (user-level holdout, geo holdout, and PSA tests — where the
+control group sees a neutral public-service ad instead of your real one) if you want
 the fuller statistical picture, and
 [Reforge's lock-down incrementality method](https://www.reforge.com/guides/method-run-a-lock-down-incrementality-test-on-meta-ads)
-shows the same logic applied to a paid channel — worth reading now because Chapter 7
-will ask you to apply it there too.
+shows the same logic applied to a paid channel — the same holdout you're building here,
+pointed at ad spend.
 
 <VideoEmbed
   id="DeSdoaLOOoM"
@@ -54,9 +55,9 @@ will ask you to apply it there too.
 - The mechanism is a holdout: show the treatment to one randomly-chosen group, withhold
   it from a control, and attribute only the difference. It's geo holdouts in the ad
   world here, but it's exactly your lifecycle holdout with "region" swapped for "user."
-- What the platform reports isn't the true lift — in the example, reported ROAS (2.31)
-  diverged from the incremental read (2.78). That gap is the same reason opens and
-  clicks can't tell you whether a message *caused* the conversion.
+- What the platform reports isn't the true lift — in the example, reported ROAS (return
+  on ad spend) of 2.31 diverged from the incremental read of 2.78. That gap is the same
+  reason opens and clicks can't tell you whether a message *caused* the conversion.
 
 Common holdout mistakes, so you don't relearn them expensively: **too-small holdouts**
 on low-volume journeys (a 5% holdout of 200 users tells you nothing — use 20–50% until
@@ -66,9 +67,9 @@ messages** (the comparison is only clean if the held-out group's *entire* experi
 differs by exactly the thing you're measuring).
 
 A code-first engine makes holdouts natural: randomly skip enrollment for a held-out
-cohort and compare their downstream events. Chapter 6 shows where that hook lives
+cohort and compare their downstream events. The next chapter shows where that hook lives
 ([Blueshift's holdout writeup](https://blueshift.com/blog/product-spotlight-understand-the-true-impact-of-your-campaigns-with-holdout-testing/)
 shows the same idea in a no-code tool, if that's your stack). This is also where
 lifecycle messaging stops being "marketing" and becomes the growth-team experiment
-loop from Chapter 0 — every important journey is a standing A/B test with a measured
-result, not an act of faith.
+loop — every important journey a standing A/B test with a measured result, not an act of
+faith.
