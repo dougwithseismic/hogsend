@@ -1,0 +1,2548 @@
+{
+  "growth-with-posthog": {
+    "00-product-led-growth/02-what-plg-means": {
+      "flashcards:cards-plg-definition": {
+        "title": "Key ideas — what PLG is",
+        "cards": [
+          {
+            "front": "What is the strict definition of product-led growth?",
+            "back": "The product itself is the primary driver of acquisition, activation, retention, and expansion — people find it, try it, get value, and upgrade largely on their own, without a salesperson in the loop (OpenView, 2016)."
+          },
+          {
+            "front": "What sharp edge does Wes Bush put on the PLG definition?",
+            "back": "PLG is a go-to-market strategy — a choice about how you acquire and convert customers — not a product-quality aspiration. \"We care about the product\" is not PLG; \"the product does the selling\" is."
+          },
+          {
+            "front": "When does adding sales to a product-led motion work?",
+            "back": "On top of a working self-serve engine, to expand accounts the product already won (Elena Verna's rule). Sales added to a product that can't activate users just industrialises the leak."
+          },
+          {
+            "front": "How should you read OpenView's PLG Index (product-led companies at a premium)?",
+            "back": "Directional, not destiny. It's built from the survivors, so it supports \"growth that compounds through the product gets priced higher\" without proving the motion fits your price, buyer, and time-to-value."
+          }
+        ]
+      }
+    },
+    "00-product-led-growth/04-growth-is-engineering": {
+      "flashcards:cards-plg-engineering": {
+        "title": "Key ideas — growth as engineering",
+        "cards": [
+          {
+            "front": "What does \"product-led growth team\" mean in this course?",
+            "back": "A way of operating, not a job title or SaaS category: the product and its usage data are the engine of growth, and growth is an engineering discipline — instrumented, measured, iterated."
+          },
+          {
+            "prompt": "The growth-hypothesis format:",
+            "cloze": "If we {{make this specific change}}, {{this named metric}} will move {{in this direction}}, because {{a reason grounded in something we observed}}."
+          },
+          {
+            "front": "Why name the metric before you look, and why the \"because\"?",
+            "back": "Naming the metric in advance stops you declaring victory on whatever happened to move; the \"because\" forces the idea to come from your own data (a replay, a leaky funnel step) instead of a tactic you saw on Twitter."
+          },
+          {
+            "front": "Is a four-person team too small for this operating model?",
+            "back": "The opposite — the smaller the team, the more leverage, because a small company can't afford unmeasured bets. A founder who can read a retention curve and ship a journey is the whole growth team."
+          }
+        ]
+      }
+    },
+    "00-product-led-growth/06-the-machine": {
+      "quiz:growth-with-posthog/00-product-led-growth/06-the-machine": {
+        "title": "Quick check — the machine",
+        "questions": [
+          {
+            "q": "What are the three layers of the machine this course builds?",
+            "options": [
+              "Acquire, convert, retain",
+              "See it (PostHog) → act on it (Hogsend) → own it (identity + ads)",
+              "Frontend, backend, database",
+              "Awareness, consideration, decision"
+            ],
+            "answer": 1,
+            "explain": "See it — PostHog (Ch 1–4). Act on it — Hogsend (Ch 5–6). Own it — identity + ads (Ch 7–8). Three layers, one loop, run on a cadence (Ch 9–10)."
+          },
+          {
+            "q": "What's the one-line division of labour that keeps the system legible?",
+            "options": [
+              "PostHog detects, Hogsend acts, you decide",
+              "Marketing owns it, engineering supports it",
+              "The tool decides, the human executes",
+              "PostHog sends, Hogsend measures"
+            ],
+            "answer": 0,
+            "explain": "PostHog detects (events, identity, analytics); Hogsend acts (the journeys that reach users); you decide what matters. Hold that split and the system stays simple no matter how much you add."
+          },
+          {
+            "q": "Why do the journeys fire their results back as events?",
+            "options": [
+              "To bill per send",
+              "So the loop stays measurable — the action you took becomes data PostHog can read",
+              "To satisfy a compliance requirement",
+              "Because Hogsend can't send without them"
+            ],
+            "answer": 1,
+            "explain": "Hogsend acts on the events PostHog measures, and fires the outcome back as events — so the effect of every journey is itself measurable, closing the loop rather than disappearing into a black box."
+          },
+          {
+            "q": "What do the last two chapters (9 and 10) add on top of the three layers?",
+            "options": [
+              "Two more tools to install",
+              "The operation: the cadence it runs on, and the 30/60/90/180-day plan that sequences the build",
+              "A pricing model and a sales script",
+              "Nothing new — they're a recap"
+            ],
+            "answer": 1,
+            "explain": "Chapter 9 is the rhythm (daily/weekly/monthly cadence + the experimentation program); Chapter 10 is the phased 30/60/90/180-day plan with checklists and exit criteria. They turn the machine into a habit, not a project."
+          }
+        ]
+      }
+    },
+    "00-product-led-growth/07-how-teams-get-it-wrong": {
+      "flashcards:cards-plg-failures": {
+        "title": "Key ideas — how teams get it wrong",
+        "cards": [
+          {
+            "front": "The \"dashboard graveyard\" failure mode is what — and what's the fix?",
+            "back": "Analytics installed, nobody looks: the charts exist but no decision ever changed because of them. Measurement without a ritual or action is theatre. Fix: the daily cadence (Ch 4) plus the action layer (Ch 5–6)."
+          },
+          {
+            "front": "What's wrong with the \"blast list\" (a weekly newsletter to everyone)?",
+            "back": "Action without measurement — batch sends, no behavioural triggers, no holdouts. It feels like marketing and proves nothing. Fix: triggered journeys and incrementality testing (Ch 5)."
+          },
+          {
+            "front": "What's the \"rented-audience trap\"?",
+            "back": "All acquisition through paid ads, every reach re-bought, nothing captured into a channel you own. Stop paying and the pipeline goes dark. Fix: the owned-audience flywheel (Ch 8)."
+          },
+          {
+            "front": "Why is the \"tactic collector\" the most dangerous failure mode?",
+            "back": "It looks like doing everything right — constant shipping — but each tactic is copied, not derived from this product's data. The tell: nobody can say which leak the current project plugs. Tactics are the output of the loop, never the input."
+          },
+          {
+            "front": "The through-line of all five failure modes?",
+            "back": "A growth team measures honestly, acts automatically, and owns its audience. Miss any one of the three and you've got a department, not a system."
+          }
+        ]
+      }
+    },
+    "00-product-led-growth/08-measure-keep-grow": {
+      "flashcards:cards-plg-order": {
+        "title": "Key ideas — the order",
+        "cards": [
+          {
+            "front": "Why measure → keep → grow, in that order?",
+            "back": "Acquisition into a product that can't retain just buys churn. Retention is the highest-leverage, cheapest growth you have — plug the bucket before opening the tap. The order flexes with stage but never reverses."
+          },
+          {
+            "front": "Why is acquisition the last lever, not the first?",
+            "back": "Pouring traffic into a product that can't keep users wastes the spend and hides the real problem. You open the tap only once the bucket holds water — otherwise every acquired user leaks straight back out."
+          },
+          {
+            "prompt": "The three layers of the machine, and the division of labour:",
+            "cloze": "See it — {{PostHog}} (Ch 1–4). Act on it — {{Hogsend}} (Ch 5–6). Own it — {{identity + ads}} (Ch 7–8). The split that keeps it legible: PostHog {{detects}}, Hogsend {{acts}}, you decide."
+          }
+        ]
+      }
+    },
+    "00-product-led-growth/09-before-you-move-on": {
+      "quiz:growth-with-posthog/00-product-led-growth/09-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "This course's definition of a 'product-led growth team' is:",
+            "options": [
+              "A team at a self-serve SaaS company with a freemium tier",
+              "A team that operates on instrumented usage data — hypothesise, ship, measure, repeat — whatever its go-to-market",
+              "A dedicated growth department reporting to marketing",
+              "A team whose product has a viral loop built in"
+            ],
+            "answer": 1,
+            "explain": "The strict definition (product as the primary acquisition/conversion driver) is a go-to-market choice that doesn't fit every business. The operating model — instrument, measure honestly, act, repeat — applies to almost any startup, and it's what the course installs."
+          },
+          {
+            "q": "Your four-person startup sells a high-touch product to enterprises, so self-serve PLG isn't your motion. What does this chapter say applies to you anyway?",
+            "options": [
+              "Nothing — this course is for self-serve products",
+              "Only the paid-ads material in Chapter 7",
+              "The operating model: instrument what users do, read it honestly, fix the real leak, measure whether the fix worked",
+              "You should switch to a freemium model first"
+            ],
+            "answer": 2,
+            "explain": "PLG-as-go-to-market is a choice; product-led as an operating model is universal. Even a sales-assisted business has users doing measurable things, a funnel that leaks somewhere specific, and messaging that can be triggered by behaviour."
+          },
+          {
+            "q": "Why does the course insist the messaging layer lives in code, in your repo?",
+            "options": [
+              "Code-based emails render more reliably than drag-and-drop ones",
+              "It's cheaper than paying for a marketing SaaS",
+              "So the people who build the product own the layer that acts on its data — versioned, code-reviewed, and expressive enough for real logic",
+              "Because marketers shouldn't send emails"
+            ],
+            "answer": 2,
+            "explain": "The operating model says growth work is engineering work. If the lifecycle layer is a config in a SaaS UI no engineer sees, the 'act on it' half of the loop is outside the team's discipline — unversioned, unreviewed, and capped at what the canvas exposes."
+          },
+          {
+            "q": "The 'tactic collector' failure mode ships growth work constantly. What's actually wrong?",
+            "options": [
+              "The tactics are copied from other companies instead of derived from this product's own data and constraint",
+              "The team ships too fast to measure anything",
+              "Referral programs and pricing experiments never work",
+              "The team lacks a dedicated growth hire to coordinate it"
+            ],
+            "answer": 0,
+            "explain": "Tactics are the output of the loop (find the constraint → hypothesise → measure), never the input. A borrowed tactic can work — but only by luck, because it wasn't aimed at your leak. Elena Verna's 'tactics that never work' list is essentially a catalogue of this failure mode."
+          },
+          {
+            "q": "Why is 'measure → keep → grow' in that order?",
+            "options": [
+              "Measurement tools are the cheapest, so you buy them first",
+              "Acquisition into a product that can't retain just buys churn — retention multiplies every acquisition dollar, so plug the bucket before opening the tap",
+              "Ads platforms require analytics to be installed first",
+              "It's alphabetical in the original framework"
+            ],
+            "answer": 1,
+            "explain": "The leaky-bucket argument (Chapter 2): pouring traffic into a product that loses users wastes the spend and hides the real problem. Retention work is the highest-leverage, cheapest growth available because those users are already yours."
+          },
+          {
+            "q": "A founder tells you: 'We're four people — we'll adopt this operating model once we can afford a growth team.' What does the chapter say?",
+            "options": [
+              "They're right — the rituals need a dedicated team to staff them",
+              "Partly right — install analytics now, but hold off on lifecycle messaging until the hire",
+              "They're wrong, but only if they're a self-serve SaaS",
+              "They're wrong — the smaller the team, the more leverage the model has, because a small company can't afford unmeasured bets"
+            ],
+            "answer": 3,
+            "explain": "The evidence runs the other way: a four-person company can't afford a quarter spent building things nobody uses or ads that don't return, so the loop is cheapest exactly when you're small. Lovable ran this playbook to $200M ARR within a year with a team in the dozens."
+          },
+          {
+            "q": "Your self-serve signups activate poorly, and someone proposes hiring salespeople to convert more of them. What's the chapter's warning?",
+            "options": [
+              "Sales layered onto a product that can't activate users just industrialises the leak — fix activation first",
+              "Hiring sales means abandoning product-led growth entirely",
+              "Sales should never be added to a product-led company",
+              "Hire them, but keep them away from the self-serve accounts"
+            ],
+            "answer": 0,
+            "explain": "Elena Verna's rule is that sales gets added on top of a working self-serve motion, to expand and enterprise-ify accounts the product already won. Reps pushing signups into a product that can't activate them scale the loss, not the revenue — the hybrid pattern works the same funnel, it doesn't patch it."
+          },
+          {
+            "q": "A teammate adds 'try a referral program?' to next quarter's growth backlog. By the hypothesis format from this chapter, what's missing?",
+            "options": [
+              "A budget estimate and a delivery timeline",
+              "Nothing — referral programs are a proven growth tactic",
+              "A named metric committed to in advance and a 'because' grounded in something observed in your own data",
+              "The A/B testing infrastructure to run it behind a flag"
+            ],
+            "answer": 2,
+            "explain": "The format — if we [specific change], [specific metric] will move [direction], because [something observed] — makes each clause do work: naming the metric before you look stops you declaring victory on whatever moved, and the 'because' forces the idea to come from your data. A backlog of these is a growth program; 'try referral program?' is a wish list."
+          },
+          {
+            "q": "Your team installed PostHog six months ago and the dashboards exist. How does the chapter say to test which rung of the maturity ladder you're really on?",
+            "options": [
+              "Count how many events and dashboards you've configured",
+              "Ask whether any decision changed in the last month because of the data",
+              "Check that everyone on the team has a PostHog login",
+              "Compare your numbers against industry benchmarks"
+            ],
+            "answer": 1,
+            "explain": "The most common self-deception is believing you're on rung three because a dashboard exists. If no decision changed because of it, rung two — analytics installed but no one looks — is closer to the truth, and that's the dashboard-graveyard failure mode."
+          },
+          {
+            "q": "How does the chapter say to read OpenView's PLG Index, which shows product-led public companies trading at a premium?",
+            "options": [
+              "As proof that any company adopting PLG will outperform the market",
+              "As irrelevant — public-market data says nothing about startups",
+              "As evidence that product-led companies are systematically overvalued",
+              "As directional, not destiny — an index of successful PLG companies can't count the ones the motion didn't suit"
+            ],
+            "answer": 3,
+            "explain": "The Index is honest evidence with a selection-bias caveat: it's built from the survivors, so it supports the claim that growth compounding through the product gets priced at a premium without guaranteeing the motion fits your price, buyer, and time-to-value."
+          }
+        ]
+      }
+    },
+    "01-what-is-posthog/10-set-up-account": {
+      "flashcards:cards-posthog": {
+        "title": "Key ideas — PostHog",
+        "cards": [
+          {
+            "front": "What structural advantage does PostHog have over stitching point tools together?",
+            "back": "One event pipeline and one identity model under everything: the error links to the replay, the funnel, and the flag. Across four tools that join is a data-engineering project; in PostHog it's a click."
+          },
+          {
+            "front": "The funnel tells you where you lose people — what tells you why?",
+            "back": "Session replay — real sessions behind a drop-off, with console logs and network requests captured. Five minutes of replay beats an hour of staring at a chart; the jump from a data point to its recordings is a click."
+          },
+          {
+            "front": "Why can't GA4 run your activation funnel?",
+            "back": "GA4 answers aggregated, session-centric marketing questions (channels, campaigns). User-level funnels, N-day retention cohorts, and jump-to-replay need events keyed to durable persons — the product-analytics data model."
+          },
+          {
+            "front": "How does this course split the work between PostHog and Hogsend?",
+            "back": "PostHog detects: event collection, identity, cohorts, the analytics you read. Hogsend acts: code-first TypeScript journeys in your repo — versioned, code-reviewed — triggered by the same events, results fired back as events."
+          },
+          {
+            "front": "Which decision at PostHog signup is hard to undo?",
+            "back": "US vs EU cloud region. Data does not move between regions and you cannot merge across them — guessing wrong means a migration, not a setting. Pick where your users and compliance obligations are."
+          },
+          {
+            "front": "Your phc_ project key is visible in the shipped JS bundle. Problem?",
+            "back": "No — by design it can write events but cannot read your data, like a mailbox slot. Reading requires a personal API key, which never ships to the browser."
+          },
+          {
+            "prompt": "PostHog's pricing model in three facts:",
+            "cloze": "Usage-based per product, with monthly free tiers that {{reset each month}}; you're billed once {{at capture}} — storing history is {{free}}; roughly {{90% of companies}} use it for free. When cost arrives, the lever is event volume."
+          },
+          {
+            "front": "Why PostHog Cloud for analytics but self-hosted Hogsend for messaging?",
+            "back": "The asymmetry is deliberate: analytics is read-heavy and fine to delegate; the messaging spine and the identity graph are assets you want on your own infrastructure."
+          }
+        ]
+      },
+      "quiz:growth-with-posthog/01-what-is-posthog/10-set-up-account": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "What's the single biggest structural advantage PostHog has over stitching Mixpanel + Hotjar + LaunchDarkly + Sentry together?",
+            "options": [
+              "It's cheaper at every scale",
+              "Its individual products are each best-in-class",
+              "One event pipeline and one identity model under everything — the error, the replay, the funnel, and the flag are the same data about the same person",
+              "It's open source"
+            ],
+            "answer": 2,
+            "explain": "Point tools can each be deeper in their niche. What they can't do is join: 'show me the replay behind this funnel drop-off' is a click in PostHog and a data-engineering project across four tools with four identity models."
+          },
+          {
+            "q": "You already run GA4. Why can't it answer 'do users who create a project in week one retain better'?",
+            "options": [
+              "GA4 has no event tracking at all",
+              "It's built for aggregated, session-centric marketing questions — not user-level funnels and retention cohorts keyed to durable persons",
+              "GA4 only works on mobile apps",
+              "It can, but only on the paid tier"
+            ],
+            "answer": 1,
+            "explain": "GA4 technically has events, but the product answers channel/campaign questions over aggregated (and at scale, sampled) traffic. Retention-by-behaviour questions need every event tied to a durable person — the product-analytics data model, not the web-analytics one."
+          },
+          {
+            "q": "Why does the course run analytics in PostHog Cloud but messaging in self-hosted Hogsend?",
+            "options": [
+              "PostHog can't be self-hosted",
+              "Analytics is read-heavy and fine to delegate; the messaging spine and identity graph are assets you want on your own infrastructure",
+              "Hogsend doesn't offer a cloud version, so there's no choice",
+              "To avoid paying for two clouds"
+            ],
+            "answer": 1,
+            "explain": "The asymmetry is deliberate. Losing an analytics vendor costs you charts; the identity graph and the ability to reach your users are the business. Own the assets, delegate the instruments."
+          },
+          {
+            "q": "The most consequential decision in this chapter that you can't easily undo later is:",
+            "options": [
+              "Which free-tier products to enable",
+              "US vs EU cloud region — data never moves or merges between them",
+              "Whether to install autocapture",
+              "Which dashboard template to start from"
+            ],
+            "answer": 1,
+            "explain": "Nearly everything in PostHog is reversible — except the region. Getting it wrong means a migration, not a setting. Choose where your users (and your compliance obligations) are."
+          },
+          {
+            "q": "Your `phc_` project API key ends up visible in your site's JavaScript. What's the risk?",
+            "options": [
+              "An attacker can read your analytics data with it",
+              "Your account can be billed for someone else's events unless you rotate it weekly",
+              "Essentially none by design — it can write events but cannot read data; it's meant to be public",
+              "Session replays become publicly viewable"
+            ],
+            "answer": 2,
+            "explain": "The project key is write-only by design, like a mailbox slot: anyone can post through it, nobody can read through it. Reading data requires a personal API key, which never ships to the browser (Chapter 3 returns to this split)."
+          },
+          {
+            "q": "A teammate proposes adding Segment in front of PostHog 'so we collect events properly'. Per this chapter, what is Segment actually for?",
+            "options": [
+              "It's a pipe, not an analytics tool — it collects events once and fans them out to many destinations, and for a small team PostHog's own CDP plus direct capture usually cover it",
+              "It's a direct competitor to PostHog's product analytics",
+              "It's a required layer — PostHog can't ingest events without a CDP in front",
+              "It's a cheaper replacement for PostHog's session replay"
+            ],
+            "answer": 0,
+            "explain": "Segment and RudderStack are complementary, not competitive — they can even feed PostHog. The chapter's rule: reach for a dedicated CDP when you have many destinations that need one canonical event schema; before that, it's overkill."
+          },
+          {
+            "q": "Your funnel shows 41% of new users drop between signup and first project. What does the chapter suggest as the fastest way to find out why?",
+            "options": [
+              "Ship an A/B test on the signup flow immediately",
+              "Add more events to the funnel until the drop explains itself",
+              "Export everything to a warehouse and model it in SQL",
+              "Watch session replays of the users who dropped — the qualitative layer under the quantitative funnel"
+            ],
+            "answer": 3,
+            "explain": "The funnel tells you where; replay tells you why. Five minutes of watching real sessions behind a drop-off beats an hour of staring at a chart — and in PostHog the jump from data point to recordings is a click, not a project."
+          },
+          {
+            "q": "What is the chapter's core argument for authoring lifecycle journeys in code rather than on a no-code canvas?",
+            "options": [
+              "Code executes faster than canvas-based tools at send time",
+              "No-code tools can't trigger on PostHog events",
+              "Branching is ordinary TypeScript, a 48-hour wait is one line, and the whole journey lives in a pull request a colleague reviews — while canvas complexity compounds with every condition you add",
+              "Canvas tools are always more expensive per send"
+            ],
+            "answer": 2,
+            "explain": "The example journey makes it concrete: an `if` and a `waitForEvent` replace a tangle of boxes, and the logic is versioned as a dependency you pin and code-review. Picture the canvas version with three more branches — that divergence is the whole argument."
+          },
+          {
+            "q": "Which statement matches PostHog's pricing model as the chapter describes it?",
+            "options": [
+              "You're billed once when an event is captured, storing historical events costs nothing, and each product's free tier resets every month",
+              "You pay a flat monthly seat price per team member",
+              "Historical events accrue storage charges the longer you keep them",
+              "The free tier is a one-time credit that never renews"
+            ],
+            "answer": 0,
+            "explain": "The model is usage-based per product, and PostHog says roughly 90% of companies use it for free. When cost eventually arrives, the lever is event volume — which is why Chapter 3 tells you to be deliberate about what you track."
+          },
+          {
+            "q": "You run a B2B product and want Group Analytics to roll events up to the company level. What does the chapter warn you to do first?",
+            "options": [
+              "Nothing — Group Analytics is included in every product's free tier",
+              "Switch to the EU cloud, where Group Analytics is cheaper",
+              "Self-host, since Group Analytics isn't available on Cloud",
+              "Check the current pricing page — it's reportedly a paid add-on, and enabling it can cause all identified events in the project to bill, not just the grouped ones"
+            ],
+            "answer": 3,
+            "explain": "This is one of the two things the pricing piece says to verify rather than take on faith, because it bites: the setting can change what your entire identified event volume costs, not merely add a line item for company rollups."
+          }
+        ]
+      }
+    },
+    "02-aarrr-and-the-leaky-bucket/02-leaky-bucket": {
+      "calc:ch2-retention-compounder": {
+        "preset": "retention-compounder",
+        "title": "Feel the leak: retention vs. the pour"
+      },
+      "flashcards:cards-aarrr": {
+        "title": "Key ideas — AARRR",
+        "cards": [
+          {
+            "prompt": "The five AARRR stages, each as a question:",
+            "cloze": "{{Acquisition}}: how do people find you? {{Activation}}: do new users reach the value? {{Retention}}: do they come back? {{Referral}}: do they bring others? {{Revenue}}: do they pay, and how much?"
+          },
+          {
+            "front": "In the leaky-bucket model, what are the only two ways to raise the water level?",
+            "back": "The bucket is your business: water in = new customers, leaks = churn, level = active base. Pour faster (acquire more) or plug the holes (retain more) — and almost everyone reaches for the tap first."
+          },
+          {
+            "front": "What do the mobile numbers say pouring into a leaky bucket costs?",
+            "back": "The average app loses ~77% of daily users within 3 days and ~90% within 30 (Andrew Chen's dataset; directional). Acquire 100 users at $5 with that leak and ~$385 is gone in three days — you bought churn."
+          },
+          {
+            "front": "What is RARRA, and how does it differ from AARRR?",
+            "back": "Petit and Papp's 2017 reordering: Retention, Activation, Referral, Revenue, Acquisition. AARRR maps the user's journey; RARRA orders your priorities — \"if you don't have retention, you have nothing.\""
+          },
+          {
+            "front": "Why not copy Facebook's \"7 friends in 10 days\"?",
+            "back": "Magic numbers are population-level rally cries picked round on purpose — Facebook's could have been \"10 friends in 12 days.\" Their real job is alignment; yours must come from your own data."
+          },
+          {
+            "prompt": "The three-step method for finding your activation metric:",
+            "cloze": "{{Brainstorm candidate aha moments}}, {{run correlation analysis against retention}}, then {{run an experiment}} that pushes users to the candidate. Step 3 is the one teams skip — a good metric is causal, not just correlative."
+          },
+          {
+            "prompt": "The four criteria of a good North Star Metric:",
+            "cloze": "It {{reflects customer value}}, {{expresses your strategy}}, is a {{leading indicator}}, and {{isn't directly movable}} — you work on 3–5 input metrics beneath it. Revenue fails: it's the lagging score, not the play."
+          },
+          {
+            "front": "What is the one question to ask of a retention curve?",
+            "back": "Does it flatten above zero? A plateau means some cohort made the product a habit — that plateau is PMF expressed as data. Decay to zero means no amount of acquisition will save it."
+          }
+        ]
+      }
+    },
+    "02-aarrr-and-the-leaky-bucket/03-activation-aha": {
+      "calc:ch2-activation-value": {
+        "preset": "activation-value",
+        "title": "What a point of activation is worth"
+      }
+    },
+    "02-aarrr-and-the-leaky-bucket/06-framework-to-instrument": {
+      "quiz:growth-with-posthog/02-aarrr-and-the-leaky-bucket/06-framework-to-instrument": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "Your launch went well: signups tripled this month. Which AARRR question tells you whether that was worth anything?",
+            "options": [
+              "Acquisition — which channel did they come from?",
+              "Activation and retention — did they reach the value, and are they still here?",
+              "Revenue — did MRR go up this month?",
+              "Referral — did they invite anyone yet?"
+            ],
+            "answer": 1,
+            "explain": "Acquisition counts arrivals; the bucket sections are activation and retention. Tripled signups into a 90%-leak bucket is mostly money and attention set on fire — you can't judge the launch until you've watched the cohort activate and stick."
+          },
+          {
+            "q": "Why does this course tell you NOT to adopt Facebook's '7 friends in 10 days' for your product?",
+            "options": [
+              "It's outdated — the real number was recalculated later",
+              "Magic numbers are population-level rally cries, picked round on purpose; yours must be found from your own data and proven causal with an experiment",
+              "Social-network metrics never apply to other products",
+              "Seven is too ambitious for an early-stage product"
+            ],
+            "answer": 1,
+            "explain": "Facebook's own people describe the number as a round pick from a range — its job was alignment, not precision. The method that matters is: candidates → correlation → experiment. Skipping the experiment risks optimising a number users hit on their way out the door."
+          },
+          {
+            "q": "Users who watch a tutorial video retain at 71% vs 22% for those who don't. What have you learned?",
+            "options": [
+              "The tutorial causes retention — push everyone to watch it",
+              "A correlation worth testing: engaged users might watch AND retain for the same underlying reason, so run an experiment that pushes more users to watch and see if retention actually moves",
+              "Nothing — retention splits like this are noise",
+              "The tutorial is your North Star Metric"
+            ],
+            "answer": 1,
+            "explain": "This is exactly step 2 of the method — a strong correlation and nothing more. Only deliberately causing more of the behaviour (step 3) separates 'predictor of already-retained users' from 'lever that creates retained users'."
+          },
+          {
+            "q": "Why is MRR a bad North Star Metric, by the framework's own criteria?",
+            "options": [
+              "Revenue doesn't reflect customer value at all",
+              "It's too hard to measure accurately",
+              "It's a lagging output — by the time it moves, the game is played; the North Star should be the leading value-signal that causes revenue",
+              "Investors prefer ARR"
+            ],
+            "answer": 2,
+            "explain": "A North Star must be a leading indicator you move through input metrics. Revenue is the scoreboard, not the play — PostHog picking 'Discoveries' (which predicted retention 2.3× better than alternatives) over any revenue count is the model to copy."
+          },
+          {
+            "q": "Your retention curve falls for 30 days and then flattens at 12% forever. The strategic read is:",
+            "options": [
+              "12% is a failure — fix retention before anything else",
+              "A cohort has made the product a habit: evidence of PMF for that segment. Calibrate the plateau against category benchmarks, then decide if you're in 'fix the bucket' or 'open the tap' phase",
+              "Retention curves always flatten; it means nothing",
+              "Time to raise prices on the 12%"
+            ],
+            "answer": 1,
+            "explain": "A plateau above zero — at any level — means some users stick indefinitely, which decay-to-zero curves never show. Whether 12% is good depends enormously on category (consumer vs B2B differ wildly), which is why you check operator benchmarks before reacting."
+          },
+          {
+            "q": "You acquire 100 mobile app users at $5 each. Going by the dataset Andrew Chen popularised, what does the chapter say you should expect?",
+            "options": [
+              "About 77 of them gone within three days — roughly $385 effectively set on fire before you've done anything wrong except scale a leaky bucket",
+              "About half churn in the first month, which is normal and safe to scale through",
+              "Nothing can be said until you have 90 days of retention data",
+              "Most will stick if the ads targeted the right audience"
+            ],
+            "answer": 0,
+            "explain": "The chapter's math: the average app loses ~77% of daily users in three days and ~90% within 30. The figures are directional (one widely-cited dataset), but the lesson is structural — acquisition and retention multiply, so pouring into a leaky bucket is purchasing churn."
+          },
+          {
+            "q": "A teammate reads about RARRA and declares AARRR obsolete. What's the chapter's actual position on the two?",
+            "options": [
+              "AARRR is outdated; RARRA is the modern replacement and you should switch",
+              "RARRA is for mobile apps, AARRR is for SaaS",
+              "They contradict each other, so pick one and stay consistent",
+              "Same five letters, different jobs: AARRR maps the user's journey, RARRA orders your priorities — fix retention and activation first because that's where the leverage is"
+            ],
+            "answer": 3,
+            "explain": "Petit and Papp reordered the acronym specifically to break the start-with-acquisition habit — 'if you don't have retention, you have nothing.' Nothing about the categories changed; what changed is what you fix first."
+          },
+          {
+            "q": "Your 60 retained users sent 48 invites and 18 converted — a K-factor of 0.3. What does that number mean for your growth?",
+            "options": [
+              "The product is viral: each user brings more users, so referral compounds on its own",
+              "The referral program failed and should be cut",
+              "Below 1, referral is a discount on CAC — real value, but each cycle shrinks; only above 1 does it compound into self-sustaining growth",
+              "K-factor only matters for consumer social apps"
+            ],
+            "answer": 2,
+            "explain": "A K of 0.3 means each cohort brings in 30% of its own size — cheaper effective acquisition, which is genuinely worth having. But the loop decays every cycle, so it can't replace other acquisition until K crosses 1."
+          },
+          {
+            "q": "You've used your funnel to find where users drop off. Now you want growth that sustains itself without constantly refilling the top. Which lens does the chapter hand you?",
+            "options": [
+              "Stay with the funnel — loops are just funnels drawn in a circle",
+              "HEART, because it's the most granular framework",
+              "The PMF survey, to confirm fit before designing anything",
+              "Growth loops — a system where one cycle's output (a user creating shareable content) becomes the next cycle's input"
+            ],
+            "answer": 3,
+            "explain": "Reforge's critique is that a funnel is linear — people fall out the bottom and you're always refilling the top. The funnel is the right lens for seeing leaks; the loop is the right lens for designing growth that feeds itself, like the owned-audience flywheel in Chapter 8."
+          },
+          {
+            "q": "Before sinking months into activation optimisation, the chapter offers a cheap gut-check on whether you have product-market fit at all. What is it?",
+            "options": [
+              "Ask users how they'd feel if they could no longer use the product — 40%+ saying 'very disappointed' suggests PMF",
+              "Check whether MRR grew last quarter",
+              "Ask users whether they'd recommend you (NPS above 50)",
+              "Compare your download count against the category average"
+            ],
+            "answer": 0,
+            "explain": "That's the Sean Ellis test from The Startup Pyramid: above the 40% bar, pour into growth; below it, fix the product first. It complements the retention curve — two independent reads on whether you're in the 'fix the bucket' phase or the 'open the tap' phase."
+          }
+        ]
+      }
+    },
+    "03-instrument-posthog/04-identify-users": {
+      "flashcards:cards-instrumentation": {
+        "title": "Key ideas — instrumentation",
+        "cards": [
+          {
+            "front": "Where do money- and decision-critical events fire?",
+            "back": "Server-side (posthog-node): signup, activation, subscription, purchase. It's reliable and ad-blocker-immune — and the source of truth for subscription_started is the payment webhook, not the checkout success page."
+          },
+          {
+            "front": "What does autocapture give you, and where does it stop?",
+            "back": "Pageviews, clicks, form submits, rageclicks, and automatic properties (UTMs, ad-click IDs) with no code — but it records interface events, not meaning. Your funnels need a deliberate set of named custom events."
+          },
+          {
+            "front": "What actually happens when you call posthog.identify?",
+            "back": "The browser's anonymous person merges into the identified one, so pre- and post-signup activity become one timeline. Merges are effectively permanent — unstable or shared ids are the expensive mistakes."
+          },
+          {
+            "front": "Why call posthog.reset() on logout?",
+            "back": "Without it, the next person on a shared machine gets merged into the previous user's profile — and merges don't cleanly undo. It's the pair to identify() that keeps identities whole."
+          },
+          {
+            "prompt": "The single biggest cost decision in the whole setup:",
+            "cloze": "Set person_profiles to {{\"identified_only\"}} on day one — anonymous events are roughly {{4× cheaper}} than identified ones, so logged-out traffic bills at the cheap rate until you call {{identify}}."
+          },
+          {
+            "front": "What naming rule most reliably saves an analytics setup?",
+            "back": "Never build event names dynamically. capture(`page_viewed_${page}`) mints thousands of un-queryable event types; capture(\"page_viewed\", { page_name }) keeps one event with the variable in a property."
+          },
+          {
+            "prompt": "A tracking plan is a short, shared spec of every event:",
+            "cloze": "Its {{name}}, {{trigger}}, {{source}}, and {{key properties}} — owned, not vibes. Keep it in the repo so a new event and its plan row land in the same PR; eight rows is a real plan for an early product."
+          },
+          {
+            "front": "How do you beat ad blockers eating 10–30% of events?",
+            "back": "Two fixes together: a reverse proxy on your own subdomain recovers blocked client-side analytics, and server-side events never touch the browser at all. The proxy mitigates analytics; server-side fixes the triggers."
+          }
+        ]
+      }
+    },
+    "03-instrument-posthog/10-before-you-move-on": {
+      "quiz:growth-with-posthog/03-instrument-posthog/10-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "Where should subscription_started fire, and from what trigger?",
+            "options": [
+              "Client-side, on the checkout success page",
+              "Client-side, when the user clicks 'Subscribe'",
+              "Server-side, from the payment provider's webhook after signature verification",
+              "Both client and server, so you're covered either way"
+            ],
+            "answer": 2,
+            "explain": "Success pages get closed early, refreshed (double-firing), and ad-blocked. The webhook is the source of truth: it fires exactly once, server-side, regardless of what the browser did. Firing from both sides double-counts revenue."
+          },
+          {
+            "q": "What does person_profiles: 'identified_only' actually do?",
+            "options": [
+              "Blocks anonymous visitors from being tracked at all",
+              "Keeps events anonymous (≈4× cheaper) until you call identify, then builds full person profiles",
+              "Hides personal data from the PostHog UI",
+              "Only tracks users who accepted the cookie banner"
+            ],
+            "answer": 1,
+            "explain": "It's a cost lever, not a privacy switch: logged-out traffic stays at the cheap anonymous rate, and profiles are only created once you identify someone. For a typical SaaS it's the single biggest billing decision in the setup."
+          },
+          {
+            "q": "An engineer ships posthog.capture(`export_clicked_${format}`) with format taking 30 values. What's wrong?",
+            "options": [
+              "Nothing — more granular events mean better analytics",
+              "It creates 30 un-queryable event types; the format belongs in a property of one export_clicked event",
+              "Template literals aren't supported by posthog-js",
+              "Client-side capture should never carry variables"
+            ],
+            "answer": 1,
+            "explain": "Dynamic event names are the classic taxonomy-ruining mistake: you can't build one funnel or trend across 30 spellings. One fixed event name with { format } as a property keeps it queryable and keeps your event dictionary readable."
+          },
+          {
+            "q": "You forgot posthog.reset() on logout. What's the failure mode?",
+            "options": [
+              "Sessions expire early for logged-out users",
+              "Events stop being captured after logout",
+              "The next person to log in on that browser gets merged into the previous user's profile",
+              "The anonymous id is regenerated on every pageview"
+            ],
+            "answer": 2,
+            "explain": "identify merges the browser's current distinct id into the identified person — and merges are effectively permanent. Without reset(), a shared or second-hand browser welds two humans into one person, and no filter cleanly separates them again."
+          },
+          {
+            "q": "Ad blockers are eating client-side events. Which statement is precise?",
+            "options": [
+              "A reverse proxy makes all your tracking immune to blockers",
+              "Server-side capture recovers your client-side analytics too",
+              "A proxy mitigates client-side analytics loss; server-side events (your journey triggers) were never blockable in the first place",
+              "There's no fix — accept the 10–30% loss"
+            ],
+            "answer": 2,
+            "explain": "Keep the two mechanisms distinct: the proxy recovers a chunk of browser events by using your own domain, while backend events never touch the user's browser at all — which is why money-critical events and lifecycle triggers belong server-side."
+          },
+          {
+            "q": "A security review flags your phc_ project key sitting visible in the shipped JS bundle. What's the right response?",
+            "options": [
+              "Nothing to fix — the project key can only write events; reading your data needs a separate personal API key, which you do keep secret",
+              "Rotate the key immediately and move every capture call server-side",
+              "Proxy the key through your backend so it never reaches the browser",
+              "Restrict the key to your domain in PostHog settings before re-shipping"
+            ],
+            "answer": 0,
+            "explain": "The write/read split is by design, not a leak: the phc_ key in your bundle can send events but cannot query anything back. It's the personal API key — the one that reads data — that must never ship client-side."
+          },
+          {
+            "q": "Autocapture is on and busily recording clicks, pageviews, and rageclicks. Why can't it power your activation funnel by itself?",
+            "options": [
+              "Autocapture samples at high volume, so funnels systematically under-count",
+              "Autocapture only works on marketing pages, not inside a logged-in product",
+              "Autocaptured events can't carry properties, so there's nothing to filter on",
+              "It records interface events — 'a button was clicked' — not meaning like 'the user activated'; that signal needs named custom events"
+            ],
+            "answer": 3,
+            "explain": "Autocapture is the safety net, not the signal: it can't know which click was your aha moment. The mature pattern is autocapture on for discovery plus a small, deliberate set of named events for the funnels you actually report on."
+          },
+          {
+            "q": "PostHog is your only analytics destination, and a teammate proposes routing all events through Segment first 'to do it properly'. What does this chapter advise?",
+            "options": [
+              "Skip the CDP for now — with one destination it adds a hop and a bill for nothing, and it earns its keep only once a second destination exists",
+              "Adopt Segment early, because retrofitting a CDP later means re-instrumenting everything",
+              "Route through Google Tag Manager instead, since it needs no deploy",
+              "Split the difference: Segment for client events, PostHog SDKs for server events"
+            ],
+            "answer": 0,
+            "explain": "A CDP is worth it when the same events fan out to many destinations under one canonical schema. With PostHog as the sole destination, your own front-end and back-end doing the capturing is the cheaper, simpler default."
+          },
+          {
+            "q": "Months in, you discover three differently-named events all mean 'started checkout'. What's the cheapest fix that keeps your history?",
+            "options": [
+              "Rename the events in code and backfill the old data with a migration",
+              "Define an Action in PostHog that groups the three events — actions apply retroactively, with no code to ship",
+              "Delete the old events and start over with one clean checkout_started",
+              "Build three parallel funnels and sum the numbers in a spreadsheet"
+            ],
+            "answer": 1,
+            "explain": "Actions are groupings defined inside PostHog that apply to events you already captured — the escape hatch for the inevitable taxonomy miss. It's why a good taxonomy matters but a perfect one isn't worth blocking on."
+          },
+          {
+            "q": "Your team wants to start A/B testing, but the goal metric project_created currently fires from two places under three names. What's the right order of operations?",
+            "options": [
+              "Run the experiment anyway — instrumentation noise averages out across variants",
+              "Use a before/after comparison instead, since it doesn't depend on event quality",
+              "Switch the goal metric to pageviews, which autocapture already tracks cleanly",
+              "Clean the instrumentation first — experiments measure a variant against an event, so dirty events make results measure your tracking, not your product"
+            ],
+            "answer": 3,
+            "explain": "The dependency runs one direction: instrument first, test second. And before/after comparisons are no refuge — they feel like measurement but can't separate your change from the newsletter that went out the same day."
+          }
+        ]
+      }
+    },
+    "04-your-daily-dashboard/03-retention-curve": {
+      "flashcards:cards-dashboard": {
+        "title": "Key ideas — your daily dashboard",
+        "cards": [
+          {
+            "prompt": "The daily four:",
+            "cloze": "Of PostHog's seven insight types, the four you'll read daily are {{Trends}}, {{Funnels}}, {{Retention}}, and {{Lifecycle}}."
+          },
+          {
+            "front": "What is the Trends failure mode?",
+            "back": "Counting events when you mean people: ten pageviews from one user and one pageview from ten users look identical until you switch the series to unique users."
+          },
+          {
+            "front": "Which two funnel settings do people commonly miss?",
+            "back": "The conversion window (a day-15 convert in a 7-day window counts as dropped) and exclusion steps. If conversion looks impossibly low, check User Paths — your steps may not match the order users follow."
+          },
+          {
+            "front": "What does a big Dormant band under modest New growth mean?",
+            "back": "Churn-and-replace, not growth — the same users leaving and being replaced. It's the leaky bucket drawn for you; acquisition can wait, retention (Chapters 5–6) is the work."
+          },
+          {
+            "prompt": "The three retention-curve shapes:",
+            "cloze": "A curve that {{slides to zero}} means no PMF, one that {{declines then flattens above zero}} is the product-market-fit signal, and the rare one that {{ticks back up}} means resurrection exceeds churn — the flattening level is roughly your ceiling without intervention."
+          },
+          {
+            "front": "Why do small cohorts lie?",
+            "back": "In a 12-user cohort a 40% to 25% swing is three people — not roadmap material. The signal worth acting on is the trend across several cohorts, not one noisy row."
+          },
+          {
+            "front": "How do you keep session replay cheap and diagnostic?",
+            "back": "Arrive from a chart — a funnel drop-off, error, or rage-click filter — so every replay is pre-selected to show a problem. What you're looking for is the moment of hesitation."
+          },
+          {
+            "front": "Why know your funnel baseline by heart?",
+            "back": "So a change registers as a change, not a guess (say, 62% reach step 2, 31% activate). The fixed list read the same way every morning is what makes a deviation register instantly."
+          }
+        ]
+      }
+    },
+    "04-your-daily-dashboard/08-before-you-move-on": {
+      "quiz:growth-with-posthog/04-your-daily-dashboard/08-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "Your lifecycle chart shows New users steady, but the Dormant band is growing every week. What is it telling you?",
+            "options": [
+              "Acquisition is failing — spend more on ads",
+              "Growth is churn-and-replace: you're refilling a leaking bucket, and the priority is retention (Chapters 5–6)",
+              "The chart needs a longer date range",
+              "Users are switching devices, splitting their identity"
+            ],
+            "answer": 1,
+            "explain": "Lifecycle decomposes 'active users' into New, Returning, Resurrecting, and Dormant. Steady New with swelling Dormant means the same users churn and get replaced — the leaky bucket drawn for you. More acquisition makes that worse, not better."
+          },
+          {
+            "q": "A retention curve declines for four weeks and then flattens at 30%. The honest reading is:",
+            "options": [
+              "The product is losing 70% of users — it's failing",
+              "Roughly three in ten users stick long-term — a real sign of product pull, and the flattening level is the ceiling lifecycle messaging works to lift",
+              "Retention is 30% so the product has reached its potential",
+              "The curve must reach zero eventually; the flattening is a data artifact"
+            ],
+            "answer": 1,
+            "explain": "Shape first, height second: any flattening above zero means some cohort found durable value — the core PMF signal. The level it flattens at is your ceiling without intervention, which is exactly what Chapters 5–6 work on raising."
+          },
+          {
+            "q": "Your activation funnel shows an impossibly low conversion. Before redesigning onboarding, what should you check?",
+            "options": [
+              "Whether the conversion window is shorter than the time users actually take, and whether the steps match the order users really follow (User Paths)",
+              "Whether the dashboard's date filter is set to 'all time'",
+              "Whether autocapture is enabled",
+              "Whether the funnel uses unique users instead of events"
+            ],
+            "answer": 0,
+            "explain": "The two silent funnel-killers are a conversion window that expires before real users convert, and steps in an order users don't follow. Both make a healthy product look broken. Verify the instrument before treating the reading."
+          },
+          {
+            "q": "What's the right way to use session replay in the daily ritual?",
+            "options": [
+              "Browse recent replays for 15 minutes to get a feel for users",
+              "Watch every new user's first session",
+              "Arrive from a chart — a funnel drop-off, error, or rage-click filter — so each replay is pre-selected to show a known problem",
+              "Only watch replays when a customer complains"
+            ],
+            "answer": 2,
+            "explain": "Cold-browsing replays is expensive and anecdotal. Chart-first selection means the quantitative layer finds where the leak is and replay supplies the why — five minutes of watching becomes diagnosis instead of tourism."
+          },
+          {
+            "q": "An alert has fired every morning for two weeks and nobody has done anything about it. The correct move is:",
+            "options": [
+              "Leave it — better safe than sorry",
+              "Act on it or re-threshold it; an alert that's ignorable trains the team to ignore the one that matters",
+              "Move it from Slack to email",
+              "Add three more alerts so patterns are easier to spot"
+            ],
+            "answer": 1,
+            "explain": "Alert fatigue is the failure mode of §4.5: every fired alert gets acted on or re-tuned, no third option. Few loud alerts that always mean something beat many quiet ones that never do."
+          },
+          {
+            "q": "Your pageviews Trend doubled overnight, but signups and activation are flat. Before celebrating, what should you check first?",
+            "options": [
+              "Whether a new marketing channel just kicked in",
+              "Whether the dashboard date filter got changed",
+              "Whether autocapture is double-counting pageviews",
+              "Whether the series counts events instead of unique users — ten pageviews from one user look identical to one pageview from ten"
+            ],
+            "answer": 3,
+            "explain": "The Trends failure mode is counting events when you mean people. Switching the series to unique users tells you whether more humans actually showed up or the same ones just clicked more."
+          },
+          {
+            "q": "A weekly retention cohort of 12 users drops from 40% to 25%, and a teammate wants to re-plan the roadmap. The right response is:",
+            "options": [
+              "That swing is about three people — wait for a trend across several cohorts before concluding anything",
+              "Act now: a 15-point drop is a crisis at any cohort size",
+              "Switch the grid to unbounded retention, which is more forgiving",
+              "Widen the return-event definition so more users count as retained"
+            ],
+            "answer": 0,
+            "explain": "Small cohorts lie: in a 12-user cohort each person is worth over eight points, so 40% to 25% is three people. The signal worth acting on is the trend across several cohorts, not one noisy row."
+          },
+          {
+            "q": "Your activation funnel reads 24% against the 31% baseline you know by heart. Following the chapter's Monday read, what comes next?",
+            "options": [
+              "Rewrite the onboarding copy on the worst step",
+              "Increase acquisition spend to compensate for lost activations",
+              "Check Error Tracking for new exceptions, then watch replays of the drop-off — an error spike often explains an activation dip",
+              "Wait a few weeks to see whether the number recovers on its own"
+            ],
+            "answer": 2,
+            "explain": "In the worked example, the 31%-to-24% dip traced to a new validation exception, not bad copy — errors get checked before blaming onboarding. Knowing the baseline by heart is what made the deviation register at all."
+          },
+          {
+            "q": "You want to know what separates your power users — the ones who fire the core action five days a week — from everyone else. Which insight fits?",
+            "options": [
+              "Retention — it shows whether users came back",
+              "Stickiness — it measures how many times users did something in a period, and what the deep-usage group shares is an activation-bar candidate",
+              "User Paths — it maps every route through the product",
+              "Funnels — the biggest drop is your biggest leak"
+            ],
+            "answer": 1,
+            "explain": "Retention asks whether users returned; Stickiness asks how often. The chapter's example: if five-day-a-week users all created three projects in week one, 'three projects' becomes an activation bar worth testing with Chapter 2's method."
+          },
+          {
+            "q": "A teammate proposes a dedicated dashboard per feature — forty boards, so nothing gets missed. The chapter's position is:",
+            "options": [
+              "Good idea — more visibility always beats less",
+              "Fine, as long as each board has a named owner",
+              "Split the difference with one dashboard per team",
+              "Dashboard sprawl means none is canonical — one pinned board everyone reads the same way beats a wall of charts nobody trusts"
+            ],
+            "answer": 3,
+            "explain": "A team with forty dashboards has none, because nobody knows which one is canonical. The daily read works precisely because it's one fixed list read against a known baseline — sprawl dissolves that baseline."
+          }
+        ]
+      }
+    },
+    "05-lifecycle-messaging/05-touch-points": {
+      "flashcards:cards-lifecycle": {
+        "title": "Key ideas — lifecycle messaging",
+        "cards": [
+          {
+            "front": "What is lifecycle messaging?",
+            "back": "The right message, triggered by the right behaviour, at the right time — the operational layer that moves users between AARRR stages, and the cheapest retention lever because the users are already yours."
+          },
+          {
+            "prompt": "The Reforge retention model:",
+            "cloze": "Retention is an {{output}}, not a stage you push on directly — its inputs are {{activation}}, {{engagement}}, and {{resurrection}}, and lifecycle messaging is how you move each one."
+          },
+          {
+            "front": "Why build welcome + onboarding first?",
+            "back": "Peak intent — welcome opens commonly run 35–50% — the signup-to-activation gap is the biggest leak, and activated users retain roughly 2× better. Dunning comes next if you charge, then win-back."
+          },
+          {
+            "front": "Why is dunning the highest dollar-ROI journey?",
+            "back": "Involuntary churn (failed cards, expirations) is 20–40% of SaaS churn, and these users want to keep paying — you're removing friction, not persuading. Exit the instant a payment succeeds."
+          },
+          {
+            "prompt": "Triggered vs batch, the benchmark:",
+            "cloze": "Automated flows are roughly {{5% of sends}} but about {{40% of email revenue}} (directional) — a batch send's relevance is the list's average, while a triggered send's is pinned to a moment of intent."
+          },
+          {
+            "front": "What role may time play in a trigger?",
+            "back": "Only as a window on behaviour — 'not done in 24–72h' — never as the reason to send. A trigger column filling with durations is the time-based drip quietly creeping back in."
+          },
+          {
+            "front": "What's the honest signal that you're over-messaging?",
+            "back": "Engagement per send drops as you add messages — opens, clicks, or revenue-per-email falling with volume is the program telling you it's reached the useful maximum."
+          },
+          {
+            "front": "What is frequency capping, and why is it load-bearing?",
+            "back": "A ceiling on total messages per user across all journeys and channels. It prevents the pile-up where several individually-justified journeys fire in the same bad week — the pattern that gets you marked as spam."
+          }
+        ]
+      }
+    },
+    "05-lifecycle-messaging/12-before-you-move-on": {
+      "quiz:growth-with-posthog/05-lifecycle-messaging/12-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "Why does the build order start with welcome + onboarding rather than win-back or referral?",
+            "options": [
+              "Welcome emails are the easiest to write",
+              "New users are at peak intent, and the signup→activation gap is the biggest leak in the bucket",
+              "Win-back requires a paid email tool",
+              "Referral programs are illegal in some jurisdictions"
+            ],
+            "answer": 1,
+            "explain": "Engagement is never higher than right after signup, and most early churn happens before activation — so the first journey targets the widest hole at the moment of highest attention. Everything else compounds off users who activated."
+          },
+          {
+            "q": "A subscription user's card expires and their payment fails. Which is true?",
+            "options": [
+              "This is voluntary churn and should get a win-back offer",
+              "This is involuntary churn — commonly 20–40% of SaaS churn — and a dunning sequence recovers it by removing friction, not persuading",
+              "Nothing can be done until the user notices",
+              "The correct response is a discount"
+            ],
+            "answer": 1,
+            "explain": "Dunning is the highest dollar-ROI journey for a paid product precisely because the user already wants to pay. Retries plus a one-click card-update link recover revenue you'd otherwise silently lose."
+          },
+          {
+            "q": "What's the honest signal that you're over-messaging?",
+            "options": [
+              "Any unsubscribes at all",
+              "Sending more than one email per week",
+              "Engagement per send drops as you add messages",
+              "Your open rate is below 50%"
+            ],
+            "answer": 2,
+            "explain": "Cadence has no universal right answer — the dial is calibrated per product by watching whether each added touch still earns engagement. Falling opens/clicks/revenue-per-email as volume rises is the stop signal."
+          },
+          {
+            "q": "Since 2024, which of these is a hard requirement for bulk senders to reach Gmail/Yahoo inboxes?",
+            "options": [
+              "A minimum open rate of 20%",
+              "SPF, DKIM and DMARC authentication plus one-click unsubscribe, with spam complaints under 0.3%",
+              "Sending only on weekdays",
+              "Using a dedicated IP address"
+            ],
+            "answer": 1,
+            "explain": "Google and Yahoo turned the old soft best-practices into enforced rules: authenticate your domain, honour one-click unsubscribe within two days, and keep complaint rates under 0.3% — or your mail simply doesn't land."
+          },
+          {
+            "q": "Your welcome journey shows a 45% open rate and the upgrade rate of messaged users is 18%. What do you still not know?",
+            "options": [
+              "Whether the subject lines are good",
+              "Whether the emails render on mobile",
+              "Whether the journey caused any of those upgrades — you need a holdout comparison to measure incremental lift",
+              "Whether users read to the end"
+            ],
+            "answer": 2,
+            "explain": "Opens and even conversions among messaged users can't distinguish 'the email worked' from 'these users would have upgraded anyway.' Only the difference against a randomly held-out group is causal — that's the incrementality discipline."
+          },
+          {
+            "q": "A user's card fails the same week they go dormant and approach a plan limit — and three separate journeys each send twice. Every message was individually justified. What practice prevents this?",
+            "options": [
+              "Better subject lines so the messages feel less repetitive",
+              "Pausing all journeys whenever a payment fails",
+              "Merging everything into one mega-journey",
+              "A frequency cap — a ceiling on total messages per user across all journeys and channels"
+            ],
+            "answer": 3,
+            "explain": "Each journey can be correct in isolation and still produce a spam-worthy pile-up in combination — that's exactly the failure frequency capping exists for. It becomes load-bearing the moment you run more than one journey."
+          },
+          {
+            "q": "Reviewing your journey table, you notice the trigger column filling up with entries like 'it's been 7 days since email #2'. What does the chapter say about this?",
+            "options": [
+              "Time should appear only as a window on behaviour ('not done in 24–72h'), never as the reason to send — this is the drip you were escaping, creeping back in",
+              "It's fine, since the welcome cadence is every 2–3 days anyway",
+              "Time-based triggers are preferable because they're easier to test",
+              "It's fine as long as open rates stay healthy"
+            ],
+            "answer": 0,
+            "explain": "The core argument for triggered-beats-batch is because relevance is pinned to a behavioural moment. When durations replace behaviours as the reason to send, you've rebuilt the rigid time-based drip the chapter says to drop."
+          },
+          {
+            "q": "You're writing the first touch of a win-back for users of a tax product who've been idle 30 days. What's the chapter-aligned move?",
+            "options": [
+              "Send 'we miss you' with a discount — incentives drive the highest reactivation",
+              "Treat 30 days idle as churned and send a final-notice offer immediately",
+              "Check your own usage interval first — 30 days idle in a tax product may be normal — and lead with what changed since they left",
+              "Skip win-back entirely; reactivation is more expensive than acquiring new users"
+            ],
+            "answer": 2,
+            "explain": "Dormancy thresholds come from your retention curve, not a template — 30 days idle in a daily-use product is churn, in a tax product it's Tuesday. And 'we miss you' answers no question the user has; 'here's what's new' does, with incentives held for last."
+          },
+          {
+            "q": "A journey enrolls about 200 users a month. You set a 5% holdout, and after one week the messaged group looks clearly ahead, so you call it a win. What went wrong?",
+            "options": [
+              "The holdout is too small for the volume (use 20–50% until it grows), and peeking early biases the read — the read date should be decided in advance",
+              "Nothing — a week is enough when the lift looks that large",
+              "You should have compared against last month's cohort instead of a holdout",
+              "5% is the right size, but the test needed to run a full quarter regardless of volume"
+            ],
+            "answer": 0,
+            "explain": "A 5% holdout of 200 users is ~10 people — far too few to detect anything — and stopping the moment numbers look good is the peeking mistake the holdouts piece warns about. Both errors make the 'lift' you report indistinguishable from noise."
+          },
+          {
+            "q": "Which of these messages passes the chapter's test for real personalisation — 'could this exact message have been sent to a user in a different state?'",
+            "options": [
+              "'Hi {first name}, here are five tips for getting started'",
+              "A weekly product digest sent to the whole list",
+              "'Hi {first name}, welcome to the community!'",
+              "'You created 3 projects but haven't invited a teammate yet'"
+            ],
+            "answer": 3,
+            "explain": "Real personalisation branches on what the user did or didn't do — a message tied to their actual product state couldn't be sent to anyone else. First-name merge fields and generic tips fail the test, and fake personalisation quietly teaches users your emails aren't worth opening."
+          }
+        ]
+      }
+    },
+    "06-building-lifecycle-with-hogsend/05-behavioural-nudge-series": {
+      "flashcards:cards-hogsend": {
+        "title": "Key ideas — the behavioural nudge series",
+        "cards": [
+          {
+            "prompt": "The shape of a behavioural nudge series:",
+            "cloze": "The loop is {{wait a beat}}, {{check whether the desired action happened}}, then {{send the next nudge only if it didn't}} — so an active user is left alone and a stuck user gets help."
+          },
+          {
+            "front": "Why does 'send only if needed' beat a fixed drip?",
+            "back": "A drip fires every message to everyone on a timer regardless of behaviour; the series only reaches users who actually stalled. That's more relevant to them and more respectful of their attention — so it earns the next open instead of burning it."
+          },
+          {
+            "prompt": "What escalation actually means:",
+            "cloze": "Escalation isn't {{louder}} — it's {{later}}: each nudge targets the {{next blocker in the activation path}}, assuming the previous step is done, because the behavioural gate guarantees it."
+          },
+          {
+            "front": "When should a nudge series stop?",
+            "back": "The instant the user activates — the goal is met, so every further nudge is noise that contradicts their behaviour. Failing that, cap it at roughly three to five touches; a series with no exit becomes nagging and trains people to unsubscribe."
+          },
+          {
+            "prompt": "The relevance test for every touch:",
+            "cloze": "A nudge like 'you haven't tried X' is {{only a good email if it's true}} — the whole series depends on gating each send on {{the user's real behaviour}}, never on a guess."
+          },
+          {
+            "front": "What's the difference between a program that waits and one that listens?",
+            "back": "A timer fires regardless of what the user did; a behavioural series races the user's own actions against the wait and branches on what actually happened. One counts down, the other pays attention."
+          },
+          {
+            "front": "Why suppress activated users from the rest of the series?",
+            "back": "Once someone reaches the aha moment the series has done its job. Continuing to nudge them contradicts their behaviour and reads as 'this company isn't watching' — the fastest way to lose the trust the welcome earned."
+          },
+          {
+            "prompt": "How to prove the series caused the lift:",
+            "cloze": "Hold back a {{random slice}} of stalled users from the nudges and compare {{activation rate}} against the nudged cohort — the gap is the {{lift the series actually caused}}, not the correlation you'd get from 'users who opened the emails'."
+          }
+        ]
+      }
+    },
+    "06-building-lifecycle-with-hogsend/07-dunning": {
+      "calc:ch6-dunning-recovery": {
+        "preset": "dunning-recovery",
+        "title": "What dunning is worth to you"
+      }
+    },
+    "06-building-lifecycle-with-hogsend/12-before-you-move-on": {
+      "quiz:growth-with-posthog/06-building-lifecycle-with-hogsend/12-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "You have time to build exactly one lifecycle email this week. For almost every product, which one has the highest return?",
+            "options": [
+              "A win-back for dormant users — reactivation is the most neglected stage",
+              "The welcome + activation nudge — the signup-to-activation gap is nearly always the biggest leak",
+              "A referral ask — it's the cheapest acquisition there is",
+              "A monthly newsletter — it keeps everyone warm"
+            ],
+            "answer": 1,
+            "explain": "Emails are built in order of expected impact, and the biggest leak for almost every product sits between signup and activation. Fixing that saves users you already paid to acquire, which is why it comes before everything else."
+          },
+          {
+            "q": "A free user hasn't done the core action yet, and your instinct is to send them an 'upgrade to paid' email. The chapter's read:",
+            "options": [
+              "Send it — more upgrade prompts lift conversion",
+              "Don't — conversion is earned by activation; asking someone who hasn't felt the value to pay just earns an unsubscribe",
+              "Send it, but offer a discount to compensate",
+              "Send it only if they opened the welcome email"
+            ],
+            "answer": 1,
+            "explain": "The most common mistake in the funnel is asking for money before the user reached the aha moment. Conversion emails work on activated users; on unactivated ones they push on a door that never opened."
+          },
+          {
+            "q": "Why is dunning (failed-payment recovery) usually the fastest revenue win in the course?",
+            "options": [
+              "It's the easiest email to design",
+              "It recovers involuntary churn — customers who already chose to pay and just had a card fail — so you're saving revenue that's already yours",
+              "It lets you raise prices without complaints",
+              "It brings back users who cancelled on purpose"
+            ],
+            "answer": 1,
+            "explain": "A meaningful share of churn is involuntary — expired cards, insufficient funds. Those customers wanted to keep paying, so a retry-plus-reminder sequence recovers real revenue for almost no acquisition cost."
+          },
+          {
+            "q": "When should the referral ask fire?",
+            "options": [
+              "On signup, while enthusiasm is highest",
+              "On a fixed monthly schedule to everyone",
+              "At a moment of peak satisfaction — just after the aha or a great outcome — and only to still-active users",
+              "When a user is about to churn, as a last-ditch effort"
+            ],
+            "answer": 2,
+            "explain": "People refer when they've just felt the value, not before they've felt it and not on your calendar. Asking dormant or unhappy users wastes the ask and can annoy them; timing it to a real win is the whole tactic."
+          },
+          {
+            "q": "You're running a dozen journeys and a single user is eligible for several at once. The single most important guardrail is:",
+            "options": [
+              "A global frequency cap enforced across all journeys, so no combination can pile on",
+              "Sending everything at 9am so it arrives together",
+              "Turning off every journey but the most important one",
+              "Asking users to pick which emails they want"
+            ],
+            "answer": 0,
+            "explain": "Overlapping journeys are how a helpful program becomes spam. A cap enforced across every journey — not per-journey — is what protects the user from your enthusiasm and your deliverability from complaints."
+          },
+          {
+            "q": "Two journeys could fire for the same user at the same moment: a dunning email and a new-feature nudge. Which should win, and on what principle?",
+            "options": [
+              "The feature nudge — new features drive engagement",
+              "Whichever was scheduled first",
+              "Dunning — the rule of thumb is money and trust (payments, security, receipts) outrank promotional nudges",
+              "Neither — hold both until tomorrow"
+            ],
+            "answer": 2,
+            "explain": "When the frequency cap forces a choice, you need a priority order decided up front. Revenue-critical and trust-critical messages outrank promotion, so the failed-payment email sends and the feature nudge waits."
+          },
+          {
+            "q": "Your welcome journey's open rate is 61% and you want to report the lifecycle program as a win. What actually proves the program's worth?",
+            "options": [
+              "The open rate, since it's well above benchmark",
+              "The total number of emails sent this month",
+              "A global holdout — a small random slice held out of all lifecycle email — compared to everyone else on retention and revenue",
+              "The number of journeys live"
+            ],
+            "answer": 2,
+            "explain": "Opens measure sending, not lift. A permanent program holdout is the only thing that shows what the whole lifecycle system is actually worth — the number your monthly growth review and a skeptical cofounder both ask for."
+          },
+          {
+            "q": "A feedback email comes back with a detractor score and an angry comment. In a lifecycle system, what should happen next?",
+            "options": [
+              "Log it to a dashboard and move on",
+              "It triggers a save flow — a real reply or a 'what went wrong' journey — rather than vanishing into silence",
+              "Immediately send a discount code",
+              "Remove them from all future emails"
+            ],
+            "answer": 1,
+            "explain": "The feedback email isn't the end of a journey; it's a fork. A detractor should trigger a save/reply flow and a promoter a referral or review ask — routing the answer is what turns a survey into a system."
+          },
+          {
+            "q": "It's a trial-ending sequence. A teammate suggests a countdown timer that resets on every page refresh to boost urgency. The chapter's view:",
+            "options": [
+              "Do it — manufactured urgency reliably lifts conversion",
+              "Don't — fake scarcity converts a few once and costs trust with everyone who notices; honest urgency ('your trial ends Friday, here's what changes') converts about as well without spending credibility",
+              "Do it, but only for users who haven't activated",
+              "Only use it in the final email, not the whole sequence"
+            ],
+            "answer": 1,
+            "explain": "Real deadlines are honest urgency; a timer that resets is a trick. It works once and quietly erodes the trust the rest of your lifecycle program depends on — a bad trade."
+          },
+          {
+            "q": "What makes a triggered, per-user lifecycle email beat a batch blast to your whole list?",
+            "options": [
+              "It's cheaper to send",
+              "It reaches the right person at the moment their behaviour makes the message relevant — a receipt-not-brochure email doing one job, rather than the same mail to everyone regardless of where they are",
+              "It always has higher open rates",
+              "It doesn't need an unsubscribe link"
+            ],
+            "answer": 1,
+            "explain": "The whole point of a lifecycle system is relevance: the email fires off what the user actually did, so it lands when it's useful. A batch blast ignores where each person is in the funnel, which is why it's the thing this course is built to replace."
+          }
+        ]
+      }
+    },
+    "07-driving-traffic/03-cac-ltv-payback": {
+      "calc:ch7-cac-ltv-payback": {
+        "preset": "cac-ltv-payback",
+        "title": "Your CAC, LTV, and payback"
+      }
+    },
+    "07-driving-traffic/05-three-audiences": {
+      "flashcards:cards-traffic": {
+        "title": "Key ideas — driving traffic",
+        "cards": [
+          {
+            "front": "What is the law of shitty clickthroughs?",
+            "back": "Every channel's performance degrades as it saturates — banner ads fell from 78% CTR in 1994 to ~0.05%. The counter is capturing what the channel brings into something you own, not channel-hopping."
+          },
+          {
+            "front": "Should a dev tool lead with paid social?",
+            "back": "Mostly no — developers block ads at the highest rate and discover tools through content, GitHub, HN, docs, and each other. Treat paid as fuel for the loop and point most energy at owned channels (Chapter 8)."
+          },
+          {
+            "front": "How do you compute CAC honestly?",
+            "back": "Fully loaded spend — ads plus the content, tools, and people behind them — divided by paying customers, not signups. Per-channel CAC is the operating metric; blended CAC can hide an unprofitable channel."
+          },
+          {
+            "prompt": "The LTV:CAC maths:",
+            "cloze": "LTV is the {{gross-margin}} contribution over a customer's lifetime — roughly monthly margin ÷ {{monthly churn}}, never revenue — and the folk benchmark is LTV:CAC of at least {{3}} with payback (months of margin to recover CAC) inside {{about 12 months}}."
+          },
+          {
+            "front": "What's the most consequential choice in a Meta campaign?",
+            "back": "The objective — it tells the delivery algorithm which kind of person to go find. Traffic buys visitors who click; Sales buys visitors who act. They are different people."
+          },
+          {
+            "prompt": "The 50-conversions rule:",
+            "cloze": "Meta's algorithm needs roughly {{50 conversions}} per ad set per {{week}} to exit the {{learning phase}} — optimise the deepest event you can feed at that volume, pass deeper conversions back server-side, and change things weekly, since {{edits reset learning}}."
+          },
+          {
+            "front": "Why is creative now the targeting?",
+            "back": "With broad and Advantage+ audiences the ad itself selects the audience — only developers watch a video about deploy previews. Winners fatigue in weeks, and the first three seconds are where qualification happens."
+          },
+          {
+            "front": "What makes a good lookalike seed?",
+            "back": "Seed quality dominates the result: your best customers — recent purchasers, high-LTV — beat 'everyone who ever signed up.' A 1% lookalike is the tightest match; widening to 3–10% trades match for scale."
+          }
+        ]
+      }
+    },
+    "07-driving-traffic/10-before-you-move-on": {
+      "quiz:growth-with-posthog/07-driving-traffic/10-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "You're a dev tool with $2k/month to spend on growth. Based on this chapter, the best default allocation is:",
+            "options": [
+              "All of it on Meta ads with broad targeting",
+              "Mostly content, docs, and community — with paid (if any) as a small, honestly-measured test",
+              "All of it on LinkedIn, since developers are professionals",
+              "Split evenly across every channel to A/B test them"
+            ],
+            "answer": 1,
+            "explain": "Developers block ads, distrust interruption, and discover tools through content, GitHub, HN, and each other. Paid social is weak for dev tools — the chapter's advice is to learn how paid works but put the energy into owned channels (Chapter 8)."
+          },
+          {
+            "q": "Your blended CAC looks healthy, but you spend heavily on paid. What's the trap?",
+            "options": [
+              "Blended CAC double-counts organic users",
+              "Blended averages free organic acquisition into the paid number — a per-channel CAC could reveal paid is unprofitable on its own",
+              "CAC should never include ad spend",
+              "There is no trap; blended CAC is the standard"
+            ],
+            "answer": 1,
+            "explain": "Blended CAC is a board metric; per-channel CAC is the operating metric. Paid-social cohorts also tend to retain worse than organic, so segment LTV by source too before declaring a channel profitable."
+          },
+          {
+            "q": "You get ~10 purchases a week but optimised your Meta ad set for Purchase anyway. What happens?",
+            "options": [
+              "Meta refunds under-delivered budget",
+              "The ad set stays starved in the learning phase and never finds the right people — optimise a higher-funnel event and send the purchase back via CAPI instead",
+              "Nothing — the algorithm works the same at any volume",
+              "Meta automatically switches your objective to Traffic"
+            ],
+            "answer": 1,
+            "explain": "The delivery algorithm needs roughly 50 conversions per ad set per week to learn. Below that, optimise for an event you CAN feed at volume (signup, lead) and pass the deeper conversion server-side so the system still learns from it."
+          },
+          {
+            "q": "You've set up CAPI alongside the Pixel and conversions doubled overnight. Most likely explanation?",
+            "options": [
+              "CAPI recovered conversions ad blockers were hiding",
+              "The campaign hit its learning-phase exit",
+              "You're double-counting: Pixel and CAPI events need the same event_id so Meta can deduplicate",
+              "EMQ improved, so Meta found more buyers"
+            ],
+            "answer": 2,
+            "explain": "Recovered conversions from blockers/ITP are real but incremental (think a fifth, not a doubling). A sudden 2× is the classic missing-event_id dedup failure — and it corrupts the ROAS you built the setup to measure."
+          },
+          {
+            "q": "Which of these does server-side tracking genuinely fix?",
+            "options": [
+              "The need for user consent when sharing PII with ad platforms",
+              "Per-user iOS app-install attribution",
+              "Sending high-value back-office conversions (trial→paid, qualified-lead) that the browser never sees",
+              "Low-quality events that carry no email, phone, or external_id"
+            ],
+            "answer": 2,
+            "explain": "Back-office conversions are CAPI's biggest genuine win — your most valuable events, invisible to any pixel. It is NOT a consent loophole (hashed email is pseudonymous, not anonymous), doesn't restore iOS install attribution (SKAdNetwork territory), and can't match events that carry no identifiers."
+          },
+          {
+            "q": "The channel that reliably brought you users last year keeps getting more expensive per acquisition. Per the law of shitty clickthroughs, the right response is:",
+            "options": [
+              "Keep working it while capturing what it brings into channels you own — decay is normal and expected",
+              "Hop to the newest channel immediately, since a decaying channel never recovers",
+              "Double the budget to buy back the lost efficiency",
+              "Pause all acquisition until the channel's performance returns"
+            ],
+            "answer": 0,
+            "explain": "Andrew Chen's observation is that every channel degrades as it saturates — banner ads went from 78% CTR in 1994 to ~0.05%. The counter isn't channel-hopping; it's converting the channel's traffic into an owned audience (Chapter 8) while the channel still works."
+          },
+          {
+            "q": "You ran a Traffic campaign, got thousands of cheap clicks, and almost no signups. What went wrong?",
+            "options": [
+              "Your landing page must be broken",
+              "Meta throttled conversions because the ad account is new",
+              "Traffic campaigns can't convert without a Pixel installed",
+              "Traffic optimises for people who click, not people who act — a Sales or Leads objective finds different people"
+            ],
+            "answer": 3,
+            "explain": "The campaign objective tells Meta's delivery algorithm which kind of person to go find. Traffic buys visitors who clicked; Sales buys visitors who act — they are different people, and cheap clicks that never convert is the classic beginner trap."
+          },
+          {
+            "q": "Your ad set has been live four days and performance looks shaky, so you're tempted to tweak the budget and swap creative daily until it improves. The chapter's advice?",
+            "options": [
+              "Hold off — significant edits reset the learning phase, so daily tweaks keep the ad set permanently learning and permanently expensive",
+              "Edit daily — fresh creative always beats algorithmic stability",
+              "Split into five smaller ad sets so each one can learn independently",
+              "Switch the objective to Traffic, which exits learning faster"
+            ],
+            "answer": 0,
+            "explain": "Every significant change can send the ad set back to school, so the check-daily-worry-edit pattern is permanently expensive; weekly changes on Chapter 9's cadence give the system time to settle. And five ad sets splitting 10 conversions a week will all starve — fewer, bigger ad sets learn faster."
+          },
+          {
+            "q": "You're building your first lookalike audience. Which seed does the chapter say will perform best?",
+            "options": [
+              "Everyone who ever signed up — the biggest seed gives Meta the most data",
+              "A 10% lookalike of all site visitors, for maximum scale",
+              "Your best customers — recent purchasers or high-LTV users — even though the list is smaller",
+              "A hand-built interest stack matching your ideal demographics"
+            ],
+            "answer": 2,
+            "explain": "Seed quality dominates the result: Meta finds people resembling the seed, so your best customers make a far better seed than 'everyone who ever signed up.' A 1% lookalike is the tightest match; widening to 3–10% trades match quality for scale."
+          },
+          {
+            "q": "A vendor pitches you server-side CAPI with SHA-256-hashed emails as a way to skip consent, since the data is 'anonymised.' What's wrong with that?",
+            "options": [
+              "Nothing — hashing is a recognised anonymisation technique",
+              "Consent only applies to the browser Pixel, not server events",
+              "It's only a concern for companies based in Germany",
+              "Hashed emails are pseudonymous, not anonymous — same input, same hash — and since January 2025 Meta itself requires explicit consent before you send PII via CAPI"
+            ],
+            "answer": 3,
+            "explain": "Server-side is not a consent loophole: hashing does not make data anonymous in law, you are the data controller when you share contact data, and a German regulator has ruled unconsented list uploads unlawful. The compliant machine starts with opt-in consent at the moment you capture the email."
+          }
+        ]
+      }
+    },
+    "08-owned-audience-identity-flywheel/06-identity-graph": {
+      "flashcards:cards-owned-audience": {
+        "title": "Key ideas — the owned-audience flywheel",
+        "cards": [
+          {
+            "front": "What's the difference between an owned audience and a rented one?",
+            "back": "Ad audiences and social followings are rented: you pay, or the algorithm taxes, every reach. A verified email or linked Discord/Telegram is owned — no algorithm tax, near-free reactivation, and portable."
+          },
+          {
+            "front": "How should you treat \"acquiring costs 5–25× more than retaining\"?",
+            "back": "As direction, not decimals — the multiples are loosely-sourced folklore. The load-bearing mechanism is real: an ad spend that captures a contact into an owned channel turns a rented impression into a reusable asset."
+          },
+          {
+            "prompt": "The capture mechanic:",
+            "cloze": "\"Link your account or verify your email → get {{a perk}}\" — the perk is {{the conversion event}}, and the conversion is {{the identity capture}}."
+          },
+          {
+            "front": "How valuable should the linking perk be?",
+            "back": "Worth the link and no more — over-rewarding harvests perk-hunters who churn once the reward lands. The best perks are things a genuine user wanted anyway: community access, product credits, early features."
+          },
+          {
+            "front": "Why is the typed email never trusted in the /link flow?",
+            "back": "The delivered-and-clicked email IS the proof of inbox ownership, making the address real and consented. An unverified typed address is worthless as an ad-audience input — possibly unlawful to upload."
+          },
+          {
+            "front": "What is the identity graph?",
+            "back": "Every link event writes an edge: email ↔ Discord ↔ Telegram ↔ wallet ↔ anon id ↔ PostHog person. Enough edges give one profile across devices and channels: retroactive stitching, cheaper reactivation, better ads."
+          },
+          {
+            "prompt": "The community playbook — the part the tooling can't do:",
+            "cloze": "Start with {{a mission}}, not a server; {{fewer channels}} than feels right (three active beat twenty empty); recurring {{rituals}}; and a {{hand-recruited}} first 100 members, until conversation self-sustains."
+          },
+          {
+            "front": "What do referral programs deliver when done right — and what do they need to work?",
+            "back": "Done right, referrals drive 15–50% of new-user growth, yet most programs see under 10% of users ever refer (Lenny Rachitsky's survey). And a program only works if you can attribute it — exactly what the owned identity graph provides."
+          }
+        ]
+      }
+    },
+    "08-owned-audience-identity-flywheel/07-referral-loop": {
+      "calc:ch8-viral-k-factor": {
+        "preset": "viral-k-factor",
+        "title": "Your referral loop's k-factor"
+      }
+    },
+    "08-owned-audience-identity-flywheel/10-before-you-move-on": {
+      "quiz:growth-with-posthog/08-owned-audience-identity-flywheel/10-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "Your product has 40,000 followers on X and a 900-person verified-email list. Which is the owned audience, and why?",
+            "options": [
+              "The X following — it's 44× bigger",
+              "Both, equally — they're both audiences you built",
+              "The email list — the platform algorithm decides which followers see a post, while the list is reachable directly and portable",
+              "Neither — only a Discord server counts as owned"
+            ],
+            "answer": 2,
+            "explain": "A social following is rented reach with a subtler landlord: the feed algorithm taxes every post, and the platform can change the deal at any time. A verified list is directly reachable, exportable, and — per 1,000 True Fans — a few thousand engaged reachable people beat a large rented count."
+          },
+          {
+            "q": "Why does the /link flow email a confirmation link instead of trusting the address the user types?",
+            "options": [
+              "To comply with Discord's API terms",
+              "Because the clicked email is the proof of inbox ownership — an unverified address is worthless as an owned contact and possibly unlawful to upload as an ad audience",
+              "To slow down the flow and reduce server load",
+              "Because Discord hides members' real emails"
+            ],
+            "answer": 1,
+            "explain": "The delivered-and-clicked email IS the verification. It makes the captured email real (deliverable), consented (they acted on it), and therefore usable — both for lifecycle messaging and as a legal, high-quality custom-audience input for Chapter 7."
+          },
+          {
+            "q": "You launch a referral program offering $25 cash per signup. Six weeks later invites are up but referred-cohort retention is terrible. What happened?",
+            "options": [
+              "The reward was too small to attract serious users",
+              "The incentive did the selecting: cash-per-signup attracts perk-hunters and farmers, not people who want the product — reward verified activation milestones with product-aligned value instead",
+              "Referral programs simply don't work for most products",
+              "The attribution is broken, so the cohort data is wrong"
+            ],
+            "answer": 1,
+            "explain": "This is Andrew Chen's 'worst users' pattern: heavily-incentivised channels select for people who want the incentive. The fixes: reward verified behaviour (activation, not signup), align the reward to product value like Dropbox's storage, and judge the program on retained users, not invites."
+          },
+          {
+            "q": "A friend shares a referral link; the recipient clicks it on their phone, then signs up on a laptop three weeks later. How does the owned identity graph credit the referrer when cookie-based tracking can't?",
+            "options": [
+              "It fingerprints the user's devices",
+              "It stores a longer-lived third-party cookie",
+              "The anonymous visit recorded the referral edge; when the visitor later identifies (email verify, Discord link), the graph resolves them to one person and back-credits the referrer",
+              "It asks the user who referred them at signup"
+            ],
+            "answer": 2,
+            "explain": "First-party referral attribution rides the graph: the anonymous id from the phone click and the identified laptop signup both stitch to the same person once identity lands, so the referrer ↔ referee edge survives the cross-device gap that kills cookie attribution."
+          },
+          {
+            "q": "You stood up a Discord with 22 channels and a verification gate; 300 people joined via the perk and the server is silent. The chapter's diagnosis:",
+            "options": [
+              "The perk wasn't valuable enough",
+              "You need a bigger moderation team",
+              "You built the capture mechanic but not the community: too many channels dilute conversation, there's no mission or ritual, and the first hundred members were never hand-recruited into talking",
+              "Discord is the wrong platform — move to Slack"
+            ],
+            "answer": 2,
+            "explain": "Linking captures identity; it doesn't create conversation. The playbook: a mission people join, three channels instead of twenty (density is the product), a weekly ritual, and unscalable personal recruiting until conversation self-sustains."
+          },
+          {
+            "q": "A teammate's slide cites 'acquiring costs 5–25× more than retaining' as a precise, sourced fact. How does the chapter say to treat numbers like these?",
+            "options": [
+              "As direction, not decimals — the multiples are loosely-sourced folklore, but the load-bearing mechanism is real: an ad spend that captures an owned contact turns a rented impression into a reusable asset",
+              "As reliable benchmarks — they're cited across the industry for a reason",
+              "As irrelevant — cost comparisons don't apply to owned channels",
+              "As underestimates — owned channels are effectively free to build"
+            ],
+            "answer": 0,
+            "explain": "The chapter flags these multiples as directional folklore with loose sourcing. What it stakes the argument on is the mechanism: pay once to capture the contact, then reach them as often as you like for free — which holds whatever the true multiple is."
+          },
+          {
+            "q": "To boost Discord linking, you raise the perk to $100 of product credit. Link conversions triple. What does the chapter predict comes next?",
+            "options": [
+              "Sustainable growth — a stronger perk compounds the flywheel",
+              "Discord will flag the server for incentivised invites",
+              "Nothing changes — perk size only affects the conversion rate",
+              "A wave of perk-hunters who churn the moment the reward lands — the perk should be worth the link and no more, ideally something a genuine user wanted anyway"
+            ],
+            "answer": 3,
+            "explain": "Over-rewarding means the incentive does the selecting — the same failure mode as referral bounties in §8.7. The best perks (community access, credits a real user would spend, early features) convert the people who wanted the product anyway."
+          },
+          {
+            "q": "Telegram members already have verified phone numbers, so why does the Telegram /link flow still email a single-use confirmation link?",
+            "options": [
+              "Telegram's bot API requires email verification before a bot can DM",
+              "Telegram identity is phone-based with no native email field — the deep-link plus email-confirm flow is the same proof-by-clicking pattern as Discord, and it's what binds telegram ↔ email into the graph",
+              "The phone number is captured as the owned contact; the email is just a backup",
+              "To rate-limit how often members can run /link"
+            ],
+            "answer": 1,
+            "explain": "The asset being captured is the verified email edge, not the phone number. Clicking the emailed link proves inbox ownership and stitches the analytics identity from the client — the same never-trust-the-typed-address standard the Discord flow sets."
+          },
+          {
+            "q": "You want a simple give-get credit referral live this week, on one channel, web only. Per the chapter's build-vs-buy split, what's the right first move?",
+            "options": [
+              "A hosted referral tool like Rewardful or GrowSurf — buy when link-based attribution is enough; build on your own graph when referrals go cross-device, live in your community, or attract fraud",
+              "Build it on your identity graph from day one — hosted tools are a dead end",
+              "PartnerStack — it's the standard for user-to-user referral programs",
+              "Skip referrals entirely — under 10% of users ever refer, so the channel rarely pays"
+            ],
+            "answer": 0,
+            "explain": "The chapter's honest split: hosted SaaS is the right first move for a simple single-channel cash or credit program, while the owned-graph build wins when attribution must survive the phone-click → laptop-signup gap, rewards live in the community, or anti-fraud needs verified identity. PartnerStack is affiliate/partner-shaped, and the under-10% figure describes median programs, not the ceiling."
+          },
+          {
+            "q": "A well-funded competitor ships a feature-for-feature clone of your product in a single quarter. Why does the chapter argue you can still be defensible?",
+            "options": [
+              "Feature velocity — you can out-ship them",
+              "Brand loyalty means users ignore clones",
+              "You can't — feature parity means the moat is gone",
+              "The consented identity graph is a hidden network: it has to be earned edge by edge, it's reachable by you and no competitor, and every new link makes the next turn of the loop cheaper"
+            ],
+            "answer": 3,
+            "explain": "This is the Dixon/a16z layer: the tool earns the user, the network keeps them — and an identity graph is a network effect that doesn't look like one. Features can be copied in a quarter; a dense, consented graph is accumulated one verified link at a time."
+          }
+        ]
+      }
+    },
+    "09-putting-it-all-together/04-operating-cadence": {
+      "flashcards:cards-operating-system": {
+        "title": "Key ideas — the operating system",
+        "cards": [
+          {
+            "prompt": "The ordering agreed on Day 0 — the most valuable decision in the course:",
+            "cloze": "{{Measure}} → {{keep}} → {{grow}}: acquisition goes last because it {{wastes the most money when the bucket leaks}} and pays back the most when it doesn't."
+          },
+          {
+            "prompt": "The division of labour that keeps the system simple:",
+            "cloze": "PostHog {{detects}} (events, funnels, retention). Hogsend {{acts}} (lifecycle journeys across email, Discord, Telegram). You {{decide}}."
+          },
+          {
+            "front": "What's the daily job in the operating cadence?",
+            "back": "Two minutes of noticing, not analysing: glance at the Slack alerts, the activation funnel, and the active-users trend — dig only if an alert fired. A glance over five minutes means the alerts need tuning."
+          },
+          {
+            "front": "What does the weekly growth review look like?",
+            "back": "30 minutes, fixed agenda: metrics read, journeys and spend (kill-or-scale, out loud), experiments. It reviews learnings and decisions, not status — anomalies get an owner, not live group debugging."
+          },
+          {
+            "front": "Which questions are monthly, not weekly?",
+            "back": "Is activation still the best predictor of retention; incremental lift from the global holdout; blended CAC and the referral loop's contribution; and a prune of no-lift journeys, unqueried events, dead ad sets."
+          },
+          {
+            "prompt": "The growth-hypothesis format — every backlog idea enters this way, ICE-scored (impact, confidence, ease, 1–10):",
+            "cloze": "If we {{make this specific change}}, {{this named metric}} will move {{in this direction}}, because {{this reasoning}}."
+          },
+          {
+            "front": "What's Sean Ellis's high-tempo testing argument?",
+            "back": "The compounding asset is your velocity of tests — learning compounds even when individual tests fail. For a startup, one experiment a week, every week, beats a burst of ten followed by a quarter of nothing."
+          },
+          {
+            "front": "What are the three honest rules of an experimentation program?",
+            "back": "Not everything deserves an experiment (obvious, reversible, or too-small changes just ship); sample size decides what you can learn — big swings beat button colours at startup traffic; write the losers down too."
+          }
+        ]
+      }
+    },
+    "09-putting-it-all-together/08-before-you-move-on": {
+      "quiz:growth-with-posthog/09-putting-it-all-together/08-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "What's the daily job in the operating cadence?",
+            "options": [
+              "A full read of the dashboard with notes",
+              "Noticing — read alerts, glance at the funnel and active-users trend, dig only if something fired",
+              "Reviewing every live journey's send volume",
+              "Triaging the experiment backlog"
+            ],
+            "answer": 1,
+            "explain": "Daily is 2 minutes of noticing; analysis happens weekly and monthly. If the daily glance takes longer, tune the alerts rather than summoning more discipline."
+          },
+          {
+            "q": "In the weekly growth review, which of these belongs on the agenda?",
+            "options": [
+              "A status round where everyone says what they worked on",
+              "Debugging the anomaly in the retention curve, live, as a group",
+              "Each finished experiment's result and learning, in a sentence, plus the kill-or-scale decisions",
+              "Re-litigating the choice of ICE vs PIE scoring"
+            ],
+            "answer": 2,
+            "explain": "The meeting reviews learnings and decisions, not status. Anomalies get an owner and are debugged outside the meeting; framework debates are explicitly a thing to stop having."
+          },
+          {
+            "q": "Sean Ellis's high-tempo testing argument is that the compounding asset is:",
+            "options": [
+              "The size of each winning experiment",
+              "The velocity of tests — learning rate compounds even when individual tests fail",
+              "The sophistication of your statistics",
+              "The number of channels you test in parallel"
+            ],
+            "answer": 1,
+            "explain": "More shots on goal means faster learning about what moves YOUR product's numbers. A startup's version of high tempo can be one honest experiment a week, every week."
+          },
+          {
+            "q": "Your test 'won' with 40 users per arm over three days, and the team wants to ship and announce it. The honest read is:",
+            "options": [
+              "Ship it — a win is a win",
+              "The sample is almost certainly too small to detect anything real; treat it as a hunch, not a result",
+              "Run it again and pick the better of the two results",
+              "It counts as long as p < 0.05 at the moment you stopped"
+            ],
+            "answer": 1,
+            "explain": "Underpowered wins are how experiment theatre starts — at startup traffic, prefer big swings you can actually measure, and treat 'no detectable difference' as a common honest outcome. Peeking-until-significant is p-hacking."
+          },
+          {
+            "q": "The monthly ritual exists because some questions are too slow for the weekly view. Which is a monthly question?",
+            "options": [
+              "Did any alert fire today?",
+              "What's this week's cost per conversion?",
+              "Is the activation metric still the best predictor of retention, and is the lifecycle program showing incremental lift against the global holdout?",
+              "Which experiment launches next from the backlog?"
+            ],
+            "answer": 2,
+            "explain": "Re-validating the activation metric, reporting holdout lift, and reviewing blended CAC move on month timescales. The weekly meeting would just be staring at noise."
+          },
+          {
+            "q": "A new teammate proposes flipping the order: run ads first to get traffic data, fix retention later. Per the course's ordering, what's wrong with that?",
+            "options": [
+              "Acquisition is the lever that wastes the most money when the bucket leaks — retention work first is what makes later spend pay back",
+              "Ads take longer to set up than analytics, so it's simply slower",
+              "Nothing — the order is arbitrary as long as all three phases eventually happen",
+              "Paid traffic pollutes analytics, so nothing can be measured until the ads are switched off"
+            ],
+            "answer": 0,
+            "explain": "The leaky bucket from Chapter 2 is why the order is measure → keep → grow and not the reverse. That single ordering decision, agreed as a team on Day 0, is called the most valuable thing in the course."
+          },
+          {
+            "q": "Someone adds 'redesign the pricing page' to the experiment backlog. What does the chapter say it needs before it can be scored?",
+            "options": [
+              "A designer's mockup, so the team has something concrete to react to",
+              "Sign-off from the weekly growth review",
+              "A switch from ICE to PIE, which handles design changes better",
+              "Rewriting as a hypothesis — if we [change], [metric] will move [direction] because [reasoning] — then an ICE score"
+            ],
+            "answer": 3,
+            "explain": "Ideas enter the backlog as hypotheses, not tasks, so 'this would be huge' has to meet 'how confident are we, actually?'. The score's job is ordering the list — and debating ICE vs PIE is named as the only real mistake."
+          },
+          {
+            "q": "The dashboard shows a retention dip and someone asks which tool will fix it. Under the course's division of labour, the right frame is:",
+            "options": [
+              "PostHog should fix it — it detected the problem",
+              "Hogsend should fix it automatically — that's what automation is for",
+              "Neither tool decides anything — PostHog detects, Hogsend acts, and a human decides what to do",
+              "Whichever tool the growth department owns"
+            ],
+            "answer": 2,
+            "explain": "The split — PostHog detects, Hogsend acts, you decide — is what keeps the system simple no matter how much you add to it. Kill-or-scale calls are made by people, out loud, in the weekly review."
+          },
+          {
+            "q": "The team wants to A/B test a fix for an error message that's clearly broken. Per the chapter's honest rules, you should:",
+            "options": [
+              "Just ship it — obvious fixes, reversible changes, and changes too small to measure don't earn an experiment's overhead",
+              "Test it anyway — a culture of experimentation means testing everything",
+              "Add it to the backlog and wait for its ICE score to reach the top",
+              "Run it against the global holdout so the lift is provable"
+            ],
+            "answer": 0,
+            "explain": "Not everything deserves an experiment: experiments earn their overhead on decisions that are expensive to get wrong. At startup traffic that discipline is what keeps tempo honest instead of theatrical."
+          },
+          {
+            "q": "An experiment finishes with no detectable difference and the team moves on without writing anything down. What's the cost the chapter warns about?",
+            "options": [
+              "None — only winning experiments are worth documenting",
+              "The result becomes statistically invalid after the fact",
+              "The weekly meeting runs over its 30 minutes",
+              "Someone re-runs the forgotten experiment later — the thirty-second write-up is what stops the team paying a month to re-learn it"
+            ],
+            "answer": 3,
+            "explain": "A result only counts once it's recorded — hypothesis, what happened, what you'd try differently. 'No detectable difference' is an honest, common outcome, and a learning that lives in one head is one the team usually pays to re-discover."
+          }
+        ]
+      }
+    },
+    "10-your-30-60-90-180-day-plan/02-day-0-commit": {
+      "flashcards:cards-plan": {
+        "title": "Key ideas — the 30/60/90/180 plan",
+        "cards": [
+          {
+            "front": "How rigid are the 30/60/90/180 timings?",
+            "back": "Phases are gates, not dates — the numbers assume roughly a founder-day per week; compress or stretch freely. Protect the order: each phase's exit criteria are the next phase's entry requirements."
+          },
+          {
+            "prompt": "The day-30 gate — three sayable sentences, with numbers:",
+            "cloze": "Where {{the funnel loses the most people}}, roughly what {{week-4 retention}} is, and which {{phase of product-market fit}} you're in. Chart volume doesn't count."
+          },
+          {
+            "front": "What's the Measure phase's named anti-pattern?",
+            "back": "Instrumenting forever. Thirty days is enough to measure a funnel honestly, not to build a data platform — a schema registry in week three is growth work quietly traded for tooling work."
+          },
+          {
+            "prompt": "The Keep-phase build order, by expected impact:",
+            "cloze": "{{Welcome + onboarding nudge}} first (signup→activation is nearly always the biggest leak), then {{dunning}} (the fastest revenue win in the course), then {{win-back}} for users inactive 14+ days."
+          },
+          {
+            "front": "What's the day-60 gate — when does the bucket hold?",
+            "back": "Holdout-measured lift on activation or early retention — opens and clicks are activity, lift is proof. The bucket holds water well enough that pouring traffic into it isn't waste."
+          },
+          {
+            "front": "What does the day-90 gate require?",
+            "back": "Traffic flows from a channel you chose on purpose; conversions are tracked accurately enough to optimise on; and a visible share of new users land in a channel you own — verified email or linked Discord/Telegram."
+          },
+          {
+            "front": "What's the Grow phase's anti-pattern?",
+            "back": "Scaling spend before measurement is trustworthy — with low EMQ or missing events the platform optimises on noise, and the tuition comes out of your budget. A day on conversion quality beats a week of creative testing."
+          },
+          {
+            "front": "What gates day 180 — and what's the real finish line?",
+            "back": "Lift and blended CAC reported monthly; major paid step-ups gated on PMF evidence (the Sean Ellis 40% test). The finish line: the plan dissolves into an operating rhythm that no longer needs this chapter."
+          }
+        ]
+      }
+    },
+    "10-your-30-60-90-180-day-plan/05-days-61-90-grow": {
+      "calc:ch10-paid-readiness": {
+        "preset": "paid-readiness",
+        "title": "Can you afford to open the tap?"
+      }
+    },
+    "10-your-30-60-90-180-day-plan/06-days-91-180-compound": {
+      "calc:ch10-pmf-40": {
+        "preset": "pmf-40",
+        "title": "Run the 40% PMF test"
+      }
+    },
+    "10-your-30-60-90-180-day-plan/08-before-you-move-on": {
+      "quiz:growth-with-posthog/10-your-30-60-90-180-day-plan/08-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "Your welcome journey's open rate is 62% and you want to report it as proof the lifecycle program works. What's the problem?",
+            "options": [
+              "Open rates are underreported, so the real number is higher",
+              "Opens measure sending activity, not lift — without a holdout you can't attribute any retention change to the journey",
+              "62% is below the benchmark for welcome emails",
+              "Nothing — open rate is the standard lifecycle KPI"
+            ],
+            "answer": 1,
+            "explain": "The plan's day-60 exit criterion is holdout-measured lift, not engagement metrics. Opens prove the email was sent and rendered; only a held-out comparison group proves the journey caused anything."
+          },
+          {
+            "q": "It's day 45. Activation is leaking badly, but a friend's startup doubled signups with Meta ads and you're tempted to copy them. The plan says:",
+            "options": [
+              "Run the ads — acquisition data will help diagnose activation",
+              "Split the budget 50/50 between ads and activation work",
+              "Stay in the Keep phase — the day-60 gate (holdout-measured lift) hasn't been passed, so paid traffic would pour into a leaking bucket",
+              "Skip to the day-90 gate and run the PMF survey instead"
+            ],
+            "answer": 2,
+            "explain": "Phases are gates, not dates. Scaling acquisition into a broken activation funnel is the most expensive mistake in the course — you'd be buying churn at ad-market prices."
+          },
+          {
+            "q": "In the 91–180 phase, what does ICE scoring order?",
+            "options": [
+              "Which journeys to prune each quarter",
+              "The experiment backlog — by impact, confidence, and ease",
+              "Which acquisition channels to fund",
+              "Alert thresholds on the daily dashboard"
+            ],
+            "answer": 1,
+            "explain": "ICE (Sean Ellis) scores growth hypotheses so the weekly ritual always pulls the highest-expected-value test from the top of the backlog instead of the loudest idea in the room."
+          },
+          {
+            "q": "What gates a major step-up in paid spend around day 180?",
+            "options": [
+              "Reaching 10,000 registered users",
+              "A blended CAC under $50",
+              "Evidence of product-market fit — e.g. the Sean Ellis 40% test",
+              "Having all eight lifecycle journeys live"
+            ],
+            "answer": 2,
+            "explain": "Scaling spend amplifies whatever exists. If under 40% of surveyed users would be 'very disappointed' to lose the product, the money is better spent on the product and the Keep phase than on traffic."
+          },
+          {
+            "q": "The plan's definition of success at day 180 is:",
+            "options": [
+              "Every checklist in this chapter fully ticked",
+              "A dedicated growth hire owning the system",
+              "North Star growth of at least 10% month over month",
+              "The plan dissolved into a weekly operating rhythm — steady test tempo, decisions citing the funnel, learnings reported from failures"
+            ],
+            "answer": 3,
+            "explain": "The finish line is cultural, not numeric: the machine runs on a cadence that no longer needs the plan. Checklists and hires are means; the operating rhythm is the outcome."
+          },
+          {
+            "q": "It's day 20 of the Measure phase. An engineer proposes pausing the dashboard to build a schema registry and event pipeline 'so the data is right forever'. The plan's read:",
+            "options": [
+              "That's tooling work quietly traded for growth work — thirty days is enough to measure a funnel honestly, not to build a data platform",
+              "Good call — trustworthy data is the phase's whole goal, so more infrastructure is better",
+              "Fine, as long as the registry ships before the day-30 gate",
+              "Skip the dashboard entirely — replays and alerts are enough to exit the phase"
+            ],
+            "answer": 0,
+            "explain": "The Measure phase's named anti-pattern is instrumenting forever. The exit criteria need a trusted funnel read, not a data platform — a schema registry in week three delays the read without improving it."
+          },
+          {
+            "q": "You're starting the Keep phase with time for exactly one journey this week. For almost every product, the plan says build:",
+            "options": [
+              "Win-back first — dormant users are the most neglected segment",
+              "Dunning first — it's the fastest revenue win in the whole course",
+              "Welcome + onboarding nudge first — the signup-to-activation gap is nearly always the biggest leak",
+              "Whichever journey is easiest to ship, to build momentum"
+            ],
+            "answer": 2,
+            "explain": "Journeys are ordered by expected impact, and the biggest leak for almost every product sits between signup and activation. Dunning really is the fastest revenue win — which is why it's second, not first."
+          },
+          {
+            "q": "Day 75: your Meta campaign is live, but EMQ is sitting at 3 and some conversion events aren't arriving. Your cofounder wants to triple the budget while momentum is high. The plan says:",
+            "options": [
+              "Triple it — more volume will raise EMQ on its own",
+              "Hold spend flat and shift the week to fresh creative testing",
+              "Kill paid entirely and pivot to content and launches",
+              "Fix conversion quality first — with low EMQ the platform optimises on noise, and the tuition comes out of your budget"
+            ],
+            "answer": 3,
+            "explain": "The Grow phase's anti-pattern is scaling spend before the measurement is trustworthy. A day spent on conversion quality routinely beats a week of creative testing, because the algorithm can only optimise on what it can see."
+          },
+          {
+            "q": "You're pre-launch with no users yet. How does the plan change?",
+            "options": [
+              "Same sequence — phase 1 becomes 'instrument before launch' and phase 3 becomes launch channels rather than paid scaling",
+              "Skip straight to phase 3 — measurement means nothing until you have users",
+              "Run phases 1 and 3 in parallel, then add retention work after launch",
+              "It doesn't apply until you have product-market fit"
+            ],
+            "answer": 0,
+            "explain": "The plan is stage-agnostic even though the targets aren't: the one thing worth protecting is the order, because each phase's exit criteria are the next phase's entry requirements."
+          },
+          {
+            "q": "At the day-30 gate review, which of these tells you you're ready to leave the Measure phase?",
+            "options": [
+              "The dashboard has a chart for every event in the tracking plan",
+              "You can say, with numbers, where the funnel loses the most people, roughly what week-4 retention is, and which PMF phase you're in",
+              "PostHog has collected a full 30 days of data",
+              "Every teammate has logged into PostHog at least once"
+            ],
+            "answer": 1,
+            "explain": "The gate is three sayable sentences, not chart volume — echoing YC's point that a startup's first analytics problem is trusting what the few important charts say, not producing more of them."
+          },
+          {
+            "q": "You're pre-launch with no users yet. In the zero-to-one version of the plan, the Measure phase is mostly:",
+            "options": [
+              "Building the full daily dashboard before launch",
+              "Talking to users and instrumenting the one activation signal — quantitative dashboards are noise with no traffic",
+              "Running ads to generate enough traffic to measure",
+              "Skipping measurement entirely until you have product-market fit"
+            ],
+            "answer": 1,
+            "explain": "With almost no users, the measurement that matters is qualitative — problem interviews and watching the first people try it — plus instrumenting the single activation event so you can read value the moment traffic arrives. The order holds; the first phase changes shape."
+          },
+          {
+            "q": "A team scaling a working paid channel wants to skip the Measure phase because 'we already have traction'. The plan's read:",
+            "options": [
+              "Fine — traction proves the measurement, so skip to Compound",
+              "Measurement only matters before product-market fit",
+              "A scaling team that never verified its measurement is optimising on noise — the gates catch the stage-appropriate version of the same mistake",
+              "Skip Measure but repeat the Keep phase instead"
+            ],
+            "answer": 2,
+            "explain": "The plan is stage-agnostic in order, not in weighting. Don't skip a phase because your stage lets you feel past it: a scaling team's Measure phase is a tune-up, not a build, but skipping it entirely means optimising spend on numbers nobody checked."
+          },
+          {
+            "q": "Your weekly growth review only ever reports winning experiments. According to the plan, the risk is:",
+            "options": [
+              "None — winners are the point of a review",
+              "It quietly teaches the team to stop taking risks, and the learning rate is the thing that compounds",
+              "You'll run out of ideas to test",
+              "The review will run over 30 minutes"
+            ],
+            "answer": 1,
+            "explain": "A review where only wins get airtime trains people to avoid risk. A team that can name last week's most useful failed test without embarrassment is running the loop the way it's meant to run — the losers carry the learning."
+          },
+          {
+            "q": "You have one paid channel working, with a known CAC and payback. When does the plan say to add a second channel?",
+            "options": [
+              "Immediately, to reduce the risk of depending on one platform",
+              "Only once the first is measured and profitable — then add the next deliberately and hold it to the same gate",
+              "Never — focus on the one that works",
+              "Only after you've made your first growth hire"
+            ],
+            "answer": 1,
+            "explain": "A single channel is a real single point of failure, but adding one before the first is understood just splits attention across two things you can't yet read. The signal to diversify is a stable, known CAC and payback on the first — then the second earns its place through the same gate."
+          }
+        ]
+      }
+    },
+    "10-your-30-60-90-180-day-plan/13-the-experiment-doc": {
+      "calc:ch10-ice-score": {
+        "preset": "ice-score",
+        "title": "Score the next experiment (ICE)"
+      }
+    },
+    "11-stages-of-growth/04-finding-pmf": {
+      "calc:ch11-pmf-40": {
+        "preset": "pmf-40",
+        "title": "The 40% PMF test — are you above the bar?"
+      }
+    },
+    "11-stages-of-growth/05-early-traction": {
+      "calc:ch11-paid-readiness": {
+        "preset": "paid-readiness",
+        "title": "Can you actually afford this channel yet?"
+      }
+    },
+    "11-stages-of-growth/07-metrics-that-lie-by-stage": {
+      "flashcards:ch11-cards-metrics-that-lie": {
+        "title": "Key ideas — the metrics that lie by stage",
+        "cards": [
+          {
+            "prompt": "Which number to distrust at each stage:",
+            "cloze": "Pre-launch — {{waitlist / landing-page signups}}. Just launched — {{the signup count}}. Finding PMF — {{revenue without retention}}. Early traction — {{blended CAC}}. Scaling — {{engagement without holdout-measured lift}}."
+          },
+          {
+            "front": "Pre-launch, why does waitlist size mislead?",
+            "back": "An email address costs nothing to give, so a big list measures curiosity, not demand. The real pre-launch signal is an observed problem and people already hacking a workaround — demand that existed before you showed up."
+          },
+          {
+            "front": "Just after launch, why is the signup count a vanity metric?",
+            "back": "Signups measure hands raised, not value received. A launch-day spike of people who never come back is activity with good timing. Watch the share of new users who reach first value (activation) instead."
+          },
+          {
+            "front": "In the PMF hunt, how can revenue lie?",
+            "back": "MRR can climb while the existing base churns underneath — new sales paper over a leaky bucket. Revenue is a lagging score; read it alongside a retention curve, not instead of one, or you'll scale a product that doesn't hold."
+          },
+          {
+            "front": "Why is blended CAC dangerous in early traction?",
+            "back": "Blending cheap organic acquisition with expensive paid averages the paid cost down, so paid looks affordable when it isn't. Break CAC out per channel before you decide a channel is scalable — the blend hides the truth about the one you'd pour money into."
+          },
+          {
+            "front": "At scale, why don't opens and engagement prove a journey works?",
+            "back": "They measure activity, not lift. Without a held-out comparison group you can't attribute any retention change to the journey (Chapter 5). A high open rate proves the email sent and rendered — nothing about cause."
+          },
+          {
+            "front": "Why isn't a rising DAU chart proof that users stay?",
+            "back": "Aggregate DAU can climb purely on fresh acquisition while every cohort still decays — the line rises because you're pouring faster, not because the bucket holds. Cohort retention curves, not total DAU, tell you if users actually stick."
+          },
+          {
+            "prompt": "The tell for vanity vs. actionable metrics:",
+            "cloze": "A number is probably vanity if it {{only ever goes up}}, {{can't be tied to a decision}}, or measures {{activity instead of an outcome}}. Actionable metrics are {{rates}}, are comparable over time, and change what you'd do next."
+          }
+        ]
+      }
+    },
+    "11-stages-of-growth/08-before-you-move-on": {
+      "quiz:growth-with-posthog/11-stages-of-growth/08-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "You read a Series B company's essay on its referral loop and growth-team org chart and want to copy the whole thing. You have 200 users and shaky retention. The best read is:",
+            "options": [
+              "Copy it — a proven playbook de-risks your growth",
+              "Copy the org chart now so you're ready when you scale",
+              "It's the answer to a constraint that company had later; your binding constraint is retention, so their playbook spends your time on the wrong problem",
+              "Ignore all later-stage content until you're profitable"
+            ],
+            "answer": 2,
+            "explain": "A lever is good or bad for your stage. Published playbooks are written by survivors, after the fact — running one against a constraint you don't have yet burns the resource you can't refill, time, on the wrong problem."
+          },
+          {
+            "q": "Pre-launch, a viral tweet lands you a 3,000-email waitlist. Your cofounder calls it proof of demand and wants to build the full product. The honest read:",
+            "options": [
+              "3,000 is strong demand — build with confidence",
+              "An email costs nothing to give, so a waitlist measures curiosity, not demand — validate the problem in real conversations first",
+              "Double down on the tweet's channel immediately",
+              "Run paid ads to the list to warm it up"
+            ],
+            "answer": 1,
+            "explain": "Waitlist size is a classic pre-launch vanity metric. 'No market need' sits at or near the top of startup post-mortems (directional) — the fix is observed demand, not a bigger list."
+          },
+          {
+            "q": "Two weeks after launch you have 1,200 signups and a great launch-day chart, but haven't checked how many did anything afterward. What matters most now?",
+            "options": [
+              "The signup total — momentum is the leading indicator",
+              "Reaching 5,000 signups before optimising anything",
+              "The share of those signups who reached first value — a spike that never returns is activity, not traction",
+              "Adding far more event tracking before drawing any conclusion"
+            ],
+            "answer": 2,
+            "explain": "Activation is the just-launched metric. Celebrating the signup spike and freezing to over-instrument are the two traps of this stage — one number acted on beats forty you don't read."
+          },
+          {
+            "q": "You survey 100 active users; 28 say they'd be 'very disappointed' to lose the product. A friend urges you to triple ad spend while you have momentum. The stage says:",
+            "options": [
+              "28% is close enough — scale now while it's hot",
+              "You're under the ~40% bar, so spend is better on the product and retention until the pull is real — scaling only amplifies a take-it-or-leave-it product",
+              "Re-run the survey until it clears 40%",
+              "The 40% test only applies to consumer apps, so ignore it here"
+            ],
+            "answer": 1,
+            "explain": "Sean Ellis' 40% is a rule-of-thumb gate on the tap. Scaling acquisition before fit is the most expensive mistake in the course — paid amplifies whatever exists, and 28% is a product people can still take or leave."
+          },
+          {
+            "q": "MRR is up 20% this quarter, but every monthly cohort's retention curve still decays toward zero by week 8. Have you found product-market fit?",
+            "options": [
+              "Yes — revenue growth is the definition of fit",
+              "No — revenue is rising on new sales while the base churns; a curve that decays to zero has no plateau, so acquisition won't save it",
+              "Yes, as long as MRR keeps outpacing churn",
+              "Can't say without running a 40% survey"
+            ],
+            "answer": 1,
+            "explain": "A retention curve that flattens above zero is fit expressed as data. Revenue without retention is a leaky bucket masked by fresh sales — read the curve alongside MRR, never instead of it."
+          },
+          {
+            "q": "You've found fit. You're now running Google Ads, TikTok, SEO, cold email, and a partnership — each for about two weeks — and none is clearly working. The best move:",
+            "options": [
+              "Add two more channels to widen the net",
+              "Conclude paid doesn't work for you and go organic-only",
+              "Pick the one or two most promising, commit long enough to climb the learning curve, and prove one before adding a second",
+              "Split the budget evenly across all five permanently"
+            ],
+            "answer": 2,
+            "explain": "Channel-hopping teaches almost nothing — every channel has a learning curve, and quitting early reads as 'it didn't work' when the truth is 'I didn't finish.' Depth on one beats breadth across many in early traction."
+          },
+          {
+            "q": "Your blended CAC is $40 and looks great, so you plan to 5× the paid budget. But most of that $40 is cheap organic — paid alone costs $180 per customer. The risk:",
+            "options": [
+              "None — blended CAC is the number investors use",
+              "Scaling paid will lift organic too, keeping the blend low",
+              "The blend hides that paid costs $180; 5×ing paid scales the expensive channel, so true CAC and cash burn are far worse than $40 suggests",
+              "You should just raise prices instead of worrying about CAC"
+            ],
+            "answer": 2,
+            "explain": "Blended CAC lies precisely when you're about to scale one channel. Averaging cheap organic in with expensive paid makes paid look affordable — break CAC out per channel before you pour money into it."
+          },
+          {
+            "q": "You're scaling and about to make your first dedicated growth hire. Which brief is right?",
+            "options": [
+              "'Go find our growth channel and figure out product-market fit'",
+              "'Own and accelerate the working loop — the funnel, the experiment backlog, and the lifecycle system'",
+              "'Rebuild our analytics from scratch before doing anything else'",
+              "'Run the exact playbook of the big company we admire'"
+            ],
+            "answer": 1,
+            "explain": "Hire into a working loop, not to invent one. A growth hire inherits a machine to run faster; asking them to find fit or a first channel is asking them to do an earlier stage's job."
+          },
+          {
+            "q": "At scale your team ships a new onboarding journey and reports a 55% open rate as proof it lifted retention, while 'cumulative signups keep going up.' What's wrong with the evidence?",
+            "options": [
+              "55% is below the open-rate benchmark for onboarding email",
+              "Opens measure activity, not lift — without a holdout you can't attribute retention to the journey; and cumulative signups only ever rise, so they prove nothing",
+              "Nothing — open rate and total signups are the standard scaling KPIs",
+              "The journey should have been built at launch, not at scale"
+            ],
+            "answer": 1,
+            "explain": "Activity isn't lift. Only a held-out comparison group attributes a retention change to the journey (Chapter 5), and a cumulative total that can only go up is the definition of a vanity metric."
+          },
+          {
+            "q": "Across the whole chapter, the single recurring mistake being warned against is:",
+            "options": [
+              "Not instrumenting enough events",
+              "Running a later stage's playbook against an earlier stage's constraint — scaling spend before fit, hiring for growth before the loop works, treating a waitlist as demand",
+              "Choosing the wrong analytics tool",
+              "Surveying users too frequently"
+            ],
+            "answer": 1,
+            "explain": "The same lever helps at one stage and hurts at another. The through-line is: name the stage you're actually in, then solve that stage's binding constraint instead of borrowing a stage you haven't reached."
+          }
+        ]
+      }
+    },
+    "12-running-experiments/07-tempo-and-the-backlog": {
+      "calc:ch12-ice-score": {
+        "preset": "ice-score",
+        "title": "Score an experiment (ICE)"
+      }
+    },
+    "12-running-experiments/08-before-you-move-on": {
+      "flashcards:ch12-cards-experiments": {
+        "title": "Key ideas — running experiments well",
+        "cards": [
+          {
+            "front": "Why isn't running an experiment free?",
+            "back": "Every test costs traffic (split, so each variant learns slower), time (build, wait for significance, read), and opportunity (what you didn't ship meanwhile). Testing buys certainty — worth it only when the certainty is worth more than the cost."
+          },
+          {
+            "prompt": "The experiment hypothesis format:",
+            "cloze": "We believe {{change}} for {{audience}} will cause {{outcome}}, measured by {{metric}}, because {{reasoning}} — the last slot is the belief you're actually testing."
+          },
+          {
+            "front": "Primary metric vs guardrail metrics?",
+            "back": "One primary metric (Kohavi's OEC), chosen before the test, decides success. Guardrails are the short list you refuse to break whatever the primary does — revenue, unsubscribe rate, latency, retention. Watching every metric guarantees a false 'win'."
+          },
+          {
+            "front": "Why is an underpowered 'win' worse than no test?",
+            "back": "Low power both misses real effects and hands you false wins that won't replicate. Acting on a false win is worse than not testing — you ship the change and trust it. Required sample grows with ~the square of the effect you want to detect."
+          },
+          {
+            "front": "What does a holdout prove that an open rate can't?",
+            "back": "Incremental lift — the outcome that happened because of the program and wouldn't have anyway. Opens are activity; lift is proof. A persistent global holdout (1–5% of users) reads the whole lifecycle program's real contribution."
+          },
+          {
+            "front": "The multiple-comparisons trap?",
+            "back": "Test enough metrics or slices and ~1 in 20 looks significant at 95% confidence by pure chance. Slice a result enough ways and you always find a 'winner'. The committed primary metric decides the test; everything else is a hypothesis for next time."
+          },
+          {
+            "prompt": "Every experiment ends in one of three decisions:",
+            "cloze": "{{ship}} it (clear win, guardrails intact), {{kill}} it (flat or negative), or {{iterate}} (promising but inconclusive — sharpen and rerun) — then write down the hypothesis, result, and what's next."
+          },
+          {
+            "front": "What actually compounds in an experimentation program?",
+            "back": "The learning rate, not any single win (Sean Ellis, high-tempo testing). An ICE-scored backlog plus a steady weekly tempo — one test launched or reported each week, results written down — beats a burst of ten then a quiet quarter."
+          }
+        ]
+      },
+      "quiz:growth-with-posthog/12-running-experiments/08-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "A one-word change to a button label looks obviously clearer, and you can revert it in a minute. Your traffic is low. The best move is:",
+            "options": [
+              "Run a two-week A/B test to be sure before shipping",
+              "Ship it — it's obvious, cheap, and reversible; save testing capacity for expensive, hard-to-undo decisions",
+              "Test it, but peek daily and ship as soon as it's significant",
+              "Add it to the backlog and ICE-score it against everything else"
+            ],
+            "answer": 1,
+            "explain": "Experiments cost traffic, time, and opportunity. Obvious, reversible, low-cost changes should just ship; testing earns its overhead on decisions that are expensive to get wrong. At low traffic a change this small probably can't be detected anyway."
+          },
+          {
+            "q": "'Our best engineers know what works — experiments just slow us down.' The strongest rebuttal is:",
+            "options": [
+              "Experiments are fast now, so speed isn't a real objection",
+              "At Microsoft only about a third of tested ideas moved the metric as intended — experts routinely can't predict winners, which is the whole reason to test the expensive ones",
+              "A/B testing is an industry standard, so you should do it too",
+              "Engineers shouldn't be deciding product questions"
+            ],
+            "answer": 1,
+            "explain": "Kohavi's data: ~1/3 of ideas win, 1/3 do nothing, 1/3 hurt. The Bing headline change worth ~$100M/year sat ignored for months because it looked trivial. If intuition were reliable you wouldn't need the test; because it isn't, testing catches the costly misses."
+          },
+          {
+            "q": "In 'We believe [change] for [audience] will cause [outcome], measured by [metric], because [reasoning]', which slot teaches you the most when the test fails?",
+            "options": [
+              "The change — you learn what to build next",
+              "The metric — you learn what to measure",
+              "The reasoning ('because') — it's the belief being tested, so a failure tells you the belief was wrong, not just that a number didn't move",
+              "The audience — you learn who to target"
+            ],
+            "answer": 2,
+            "explain": "The 'because' slot is the hypothesis's belief. A test pinned to a belief teaches you something even when it fails; a test with no reasoning leaves you a number and no idea what it meant — which is how teams re-run forgotten failures."
+          },
+          {
+            "q": "A teammate proposes judging each test on 'whichever of our fifteen metrics improves.' The problem:",
+            "options": [
+              "Fifteen metrics is too few to be reliable",
+              "Some metric is always up by chance, so you'll 'win' almost every test — you need one primary metric chosen before the test, plus a few guardrails",
+              "Nothing — more metrics means more rigour",
+              "It's fine as long as revenue is one of the fifteen"
+            ],
+            "answer": 1,
+            "explain": "Declaring victory when any metric is up is the multiple-comparisons trap. One primary metric (the OEC), committed up front, decides the test; guardrails are the few you refuse to break. More metrics feels rigorous and is the opposite."
+          },
+          {
+            "q": "You're testing an onboarding change in a two-week experiment. Which primary metric is the best choice?",
+            "options": [
+              "30-day retention — it's the truest measure of value",
+              "Annual revenue per user",
+              "Week-one activation rate — a leading indicator sensitive enough to move inside the test window, and tied to the change",
+              "Lifetime value"
+            ],
+            "answer": 2,
+            "explain": "Revenue, LTV, and 30-day retention are true but slow — they barely move in two weeks, so the test would be underpowered on them. Pick a leading indicator that can actually shift in the window and that the change plausibly drives."
+          },
+          {
+            "q": "Detecting a 2% lift needs a certain amount of traffic. Roughly how much do you need to detect a 1% lift instead?",
+            "options": [
+              "Half as much — smaller effects are easier",
+              "About the same",
+              "Twice as much",
+              "About four times as much — required sample grows with roughly the square of how small an effect you want to catch"
+            ],
+            "answer": 3,
+            "explain": "Sample size scales with ~1/MDE². Halving the effect you want to detect roughly quadruples the traffic needed. That's why small teams should test big swings, not tiny tweaks — small effects are enormously expensive to prove."
+          },
+          {
+            "q": "A test is set to run two weeks. On day 4 it crosses 95% significance and someone wants to call it and ship. The right response:",
+            "options": [
+              "Ship — significance is significance, whenever it appears",
+              "Wait for the pre-committed sample size; stopping the moment it looks significant (peeking) inflates the false-positive rate, and the p-value isn't trustworthy yet",
+              "Ship, but keep the test running in the background",
+              "Extend the test to a month to be safe"
+            ],
+            "answer": 1,
+            "explain": "Peeking and early-stopping badly inflate false positives — a null test touches significance surprisingly often if you check daily. The p-value is only valid at the sample size you committed to. Decide the finish line first, then read it there."
+          },
+          {
+            "q": "Your welcome journey has a 62% open rate and you want to prove the lifecycle program drives retention. What actually proves it?",
+            "options": [
+              "A higher open rate on the next send",
+              "A persistent holdout — a small group kept out of the program entirely — showing incremental lift over doing nothing",
+              "Click-through rate on the emails",
+              "The number of journeys live"
+            ],
+            "answer": 1,
+            "explain": "Opens are activity; lift is proof. Open and click rates can't separate 'the journey worked' from 'these users would have returned anyway.' Only a held-out control reveals the counterfactual — the program's incremental contribution."
+          },
+          {
+            "q": "Your experiment comes back flat — no detectable difference. The best move:",
+            "options": [
+              "Delete it; a non-result isn't worth recording",
+              "Re-slice the data until some segment shows a win, then ship to that segment",
+              "Record it as a finding — the effect is smaller than hoped — decide kill or iterate, and note why for the backlog",
+              "Rerun it immediately with the same design until it wins"
+            ],
+            "answer": 2,
+            "explain": "About two-thirds of ideas don't win, so flat results are most of the job. 'No detectable difference' is a real finding that saves you from shipping a change and believing it worked. Re-slicing until something's significant is p-hacking; a documented failure is what a growth team can say out loud."
+          },
+          {
+            "q": "Your team can realistically run one experiment a week. A colleague argues you should instead spend a month designing one 'perfect' high-stakes test. The program's view:",
+            "options": [
+              "Agree — one rigorous test beats several rough ones",
+              "One test a week, every week, with results written down, compounds faster — velocity of tests is the asset, and you can't predict which will be the outsized winner",
+              "Do neither; wait until you have more traffic",
+              "Run ten tests this week to catch up, then pause"
+            ],
+            "answer": 1,
+            "explain": "Sean Ellis's high-tempo argument: the learning rate compounds, not any single win, and nobody reliably predicts the winner in advance. Steady cadence beats bursts — one a week every week outperforms ten then a quiet quarter. Rigour and tempo aren't opposites; the weekly ritual enforces both."
+          }
+        ]
+      }
+    },
+    "13-talking-about-growth/08-the-one-report-you-share": {
+      "flashcards:ch13-cards-talking": {
+        "title": "Key ideas — talking about growth",
+        "cards": [
+          {
+            "prompt": "The four audiences and the altitude each cares about:",
+            "cloze": "{{Investors/board}}: a few outcome ratios and the trend. {{Cofounders}}: the whole picture, unpolished. {{The team}}: input metrics they can move this week. {{Customers}}: the outcome for them, not your numbers."
+          },
+          {
+            "front": "Why does a single number never persuade?",
+            "back": "Alone it can't show cause — it invites 'so what?'. The persuasive unit is a pair: a leading metric you control and the lagging outcome it moved, with the mechanism stated between them."
+          },
+          {
+            "prompt": "The two cadences and what each reports:",
+            "cloze": "{{Weekly team review}}: operational — input metrics, journeys and spend, experiments, decisions not status. {{Monthly/board update}}: outcomes — North Star trend, retention, lift, CAC, and one learning."
+          },
+          {
+            "front": "How do you explain a holdout to a skeptic without a stats lecture?",
+            "back": "Use the placebo intuition: 'we held back a random slice and sent them nothing; the messaged group beat them by X points; that gap is what the journey added.' Name the gap as the credit, and say what would have changed your mind."
+          },
+          {
+            "front": "Why is a losing experiment worth presenting well?",
+            "back": "Most experiments lose — only ~a third improve their target metric even at Microsoft (Kohavi). A loss is a learning you already paid for; hiding it wastes it. State the hypothesis, say what it ruled out, show your tempo."
+          },
+          {
+            "front": "What is a vanity metric, and what replaces it?",
+            "back": "A number that reliably rises and informs no decision — cumulative totals, impressions, registered users. Replace it with a rate or a cohort (something that can go down), and apply the 'so what?' test (Eric Ries, The Lean Startup)."
+          },
+          {
+            "front": "What's the long-run cost of over-claiming attribution?",
+            "back": "The first hero story that doesn't survive a holdout discounts every future number you present. Credibility is priced by your least defensible claim — so say the smaller, defensible number and name what you can't prove."
+          },
+          {
+            "prompt": "The monthly one-pager — four blocks and a sentence:",
+            "cloze": "{{North Star + trend}}, {{activation + retention}}, {{blended CAC + referral contribution}}, {{one experiment learning}} — plus one sentence: {{the risk you're most worried about}}."
+          }
+        ]
+      }
+    },
+    "13-talking-about-growth/09-before-you-move-on": {
+      "quiz:growth-with-posthog/13-talking-about-growth/09-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "Your board asks how growth is going, so you forward them the weekly team review — every input metric, every experiment, the whole operational agenda. What's the problem?",
+            "options": [
+              "Nothing — more detail always builds a board's trust",
+              "You've handed the highest-altitude audience the lowest-altitude data; a board wants a trend and a few outcome ratios with one narrative, not your operational dashboard",
+              "The weekly review isn't detailed enough for a board",
+              "Board updates should contain only revenue"
+            ],
+            "answer": 1,
+            "explain": "Different audiences read at different altitudes, and one report for all of them fails. The board's job is a trend and a small set of outcome ratios; the operational input metrics are the team's report, not theirs."
+          },
+          {
+            "q": "A stakeholder is unmoved by 'activation is 44%.' The most persuasive fix is to:",
+            "options": [
+              "Show that 44% beats the industry benchmark",
+              "Present a bigger cumulative number instead",
+              "Pair it with the input you moved and the outcome that followed — 'we shipped the checklist, completion went 51→68%, and that cohort's week-4 retention is +3 points'",
+              "Add three more metrics to the slide"
+            ],
+            "answer": 2,
+            "explain": "A single number can't show cause, so it invites 'so what?'. The persuasive unit is a leading metric you controlled plus the lagging outcome it moved, with the mechanism stated between them."
+          },
+          {
+            "q": "Which of these belongs in the monthly board update but NOT the weekly team review?",
+            "options": [
+              "Which experiment launches next from the backlog",
+              "Each live journey's send volume this week",
+              "Blended CAC and the referral loop's contribution to growth",
+              "The anomaly an owner is investigating this week"
+            ],
+            "answer": 2,
+            "explain": "Weekly is operational — inputs, journeys and spend, experiments, this week's work. Monthly is outcomes and trend: North Star trend, lift, blended CAC, and one learning. CAC economics are a monthly-altitude number."
+          },
+          {
+            "q": "A skeptical investor asks how you know the welcome journey caused the retention bump. The explanation most likely to land is:",
+            "options": [
+              "'We ran a two-tailed t-test and the p-value came in under 0.05'",
+              "'Open rate was 62%, well above the benchmark'",
+              "'We held back a random 10% who got nothing; the messaged group upgraded 7 points higher; that gap is what the journey added'",
+              "'Retention went up the month we launched it'"
+            ],
+            "answer": 2,
+            "explain": "Lead with the control group (the placebo intuition), name the gap as the credit, and skip the statistics vocabulary. The last option is correlation, not proof; the first loses the room."
+          },
+          {
+            "q": "Your second-onboarding-email test came back flat. The best way to present it is to:",
+            "options": [
+              "Leave it out of the report — a flat result isn't worth the airtime",
+              "Dig through segments until you find one where it won, and report that",
+              "State the hypothesis, report it flat, and say what it ruled out — 'the activation leak isn't email volume, it's earlier'",
+              "Report it as a small win to keep morale up"
+            ],
+            "answer": 2,
+            "explain": "A loss is a learning you already paid for; hiding it — or p-hacking a win out of it — is the fastest way to lose a numbers-literate stakeholder. State the hypothesis and what the flat result ruled out."
+          },
+          {
+            "q": "What does Kohavi's Microsoft data — only about a third of well-designed experiments improve their target metric — imply for how you talk about experiments?",
+            "options": [
+              "A losing test means the team designed it wrong",
+              "A normal loop produces mostly losses, so present tempo and learnings, not just wins — losing is the expected output of working experimentation",
+              "You should stop testing until your win rate is above 50%",
+              "Experiments are too unreliable to report to a board"
+            ],
+            "answer": 1,
+            "explain": "If the best experimentation teams win only about a third of the time, most of your results will be losses too. Velocity compounds because tests fail; the report should show the tempo and the learnings, not hide the losses."
+          },
+          {
+            "q": "Which of these numbers best survives the 'so what?' test?",
+            "options": [
+              "Total registered users since launch",
+              "Impressions on last week's launch tweet",
+              "Week-4 retention for the cohort that joined in May, vs April",
+              "Cumulative GMV to date"
+            ],
+            "answer": 2,
+            "explain": "Vanity metrics are cumulative totals and raw reach that can only rise. A cohort retention rate can go down, and a change in it changes a decision — which is exactly what makes it actionable rather than decorative."
+          },
+          {
+            "q": "Your cofounder wants to tell investors 'our Product Hunt launch drove 10,000 signups' and triple ad spend on that basis. The chapter's read is:",
+            "options": [
+              "Report it as-is — last-click numbers are the standard",
+              "That's a last-click hero story claiming a correlational number as causal; any number used to justify more spend is exactly the one to run incrementality on first",
+              "Halve the spend increase instead, to be safe",
+              "Drop paid entirely and rely on launches"
+            ],
+            "answer": 1,
+            "explain": "What a channel reports and what it actually added over doing nothing are different numbers. Over-claiming discounts every future claim, and spend-justifying numbers should be held to the holdout bar."
+          },
+          {
+            "q": "Which set belongs on the monthly one-pager?",
+            "options": [
+              "Total signups, emails sent, pageviews, follower count",
+              "North Star trend, activation and retention, blended CAC plus referral share, and one experiment learning",
+              "Every chart on the daily dashboard",
+              "A list of every experiment run this quarter"
+            ],
+            "answer": 1,
+            "explain": "The one-pager is four blocks and a sentence — outcomes and trend, one learning, and the risk you're worried about. Cumulative totals and raw reach are exactly what it leaves off."
+          },
+          {
+            "q": "Why put 'the one thing you're worried about' on a board update?",
+            "options": [
+              "It fills space when the results are thin",
+              "Boards are legally required to see a risks section",
+              "Naming the risk you'd want help on builds more trust than a flawless slide — it's the difference between reporting to a board and working with it",
+              "It lowers expectations so any result looks good"
+            ],
+            "answer": 2,
+            "explain": "Surfacing a real risk signals you aren't managing the numbers for the audience — which is precisely what makes the good numbers on the same page believable."
+          }
+        ]
+      }
+    },
+    "14-growth-as-career-capital/06-reading-a-growth-jd": {
+      "flashcards:ch14-cards-roles": {
+        "title": "Key ideas — reading a growth role",
+        "cards": [
+          {
+            "prompt": "The three shapes of a growth role, by where they sit on the loop:",
+            "cloze": "{{Growth marketer}} leans on acquisition and top-of-funnel; {{growth PM}} owns a funnel slice as a product surface (activation, retention, monetisation); {{growth engineer}} builds the instrumentation and experimentation machinery."
+          },
+          {
+            "front": "Why read the responsibilities, not the title?",
+            "back": "The same title means different jobs at different companies — a data-driven loop-owner at one, a cold-email operator at another. The verbs in the responsibilities tell you which stage of the loop you'd actually own."
+          },
+          {
+            "front": "What's the single non-negotiable green flag?",
+            "back": "Data access. If the role owns a metric, you must be able to see and instrument it. A posting that names the analytics stack is telling you the loop is real."
+          },
+          {
+            "front": "Which green flag separates a real loop from a channel job?",
+            "back": "Experimentation as a norm — A/B tests, holdouts, a backlog — plus retention language, not just 'drive signups'. It signals a team that knows activity from lift."
+          },
+          {
+            "front": "The clearest red flag in a growth JD?",
+            "back": "Growth = cold outreach only, with no analytics — a sales-development job relabelled. Close behind: no mention of data or measurement anywhere in the responsibilities."
+          },
+          {
+            "front": "What does an all-acquisition, no-retention posting tell you?",
+            "back": "It's the leaky-bucket team from Chapter 2 hiring someone to pour faster. Everything is top-of-funnel; nothing about activation or retention. You'd be scaling into a leak."
+          },
+          {
+            "front": "Which door tends to fit an engineer coming from this course?",
+            "back": "Growth engineer — building instrumentation, experimentation tooling, and the internal surfaces that let the loop run fast. Though a growth PM role rewards the whole-loop thinking this course taught too."
+          }
+        ]
+      }
+    },
+    "14-growth-as-career-capital/09-before-you-move-on": {
+      "quiz:growth-with-posthog/14-growth-as-career-capital/09-before-you-move-on": {
+        "title": "Check your understanding",
+        "questions": [
+          {
+            "q": "An interviewer asks about your best growth work. Which framing does an experienced interviewer score highest?",
+            "options": [
+              "'We ran a referral push and signups went up 20%' — a clear, concrete result",
+              "'I saw activation leaking, shipped an onboarding journey, held out 10% to measure it, saw a few points of retention lift against the holdout, then moved to the next-biggest leak'",
+              "'I own our entire growth funnel end to end and drive all our key metrics'",
+              "'I ran about a dozen growth experiments last quarter across every channel'"
+            ],
+            "answer": 1,
+            "explain": "That answer reads as a loop, not a project: a system, a control group, measured lift, and a decision about where to go next. The 20% story has no baseline; the others assert scope or count without showing measurement judgement."
+          },
+          {
+            "q": "You increased retention while an onboarding journey was live, but a pricing change and a seasonal bump landed the same month. How should you describe your impact in an interview?",
+            "options": [
+              "'I increased retention 40%' — round up, confidence sells",
+              "Don't mention it — if you can't claim it cleanly, leave it out",
+              "'Retention rose while my journey ran; several things moved at once, so I'd trust the holdout comparison over the raw number, and I'd want a repeat before calling it durable'",
+              "Attribute all of the lift to your journey — you shipped it, so it's yours"
+            ],
+            "answer": 2,
+            "explain": "Attribution humility wins. Pairing the claim with how you'd know — and naming what you're still unsure of — reads as someone who's been accountable for a number. Over-claiming a clean figure with confounders present is the fastest way to lose a numerate interviewer."
+          },
+          {
+            "q": "A job posting titled 'Growth Lead' describes the role entirely as cold outbound volume, with no mention of analytics, metrics, or experimentation. What is it, most likely?",
+            "options": [
+              "A strong growth-PM role — outbound is a legitimate growth channel",
+              "A sales-development job relabelled 'growth' — a red flag, not a growth loop",
+              "A growth-engineering role, since outreach can be automated",
+              "Impossible to tell without applying"
+            ],
+            "answer": 1,
+            "explain": "Growth = cold outreach only, with no data or measurement anywhere in the responsibilities, is the clearest red flag in the chapter. Read the verbs, not the title: a growth role without data access or experimentation is a growth role in name only."
+          },
+          {
+            "q": "An interview ends with 'what would your first 90 days here look like?' What makes the strongest answer?",
+            "options": [
+              "Bold targets and a specific tactic for each stage, promising a number by day 30",
+              "A plan that leads with what you'd instrument and look at first, sequences retention before acquisition, and sets gates you can be held to",
+              "A promise to drive growth aggressively from week one",
+              "Declining to answer until you have access to their internal data"
+            ],
+            "answer": 1,
+            "explain": "The Chapter 10 shape — learn the data first, early wins in activation/retention, then scale — is the deliverable this question asks for. A confident plan for a funnel you've never seen reads as someone who acts before they look; leading with measurement reads as maturity."
+          },
+          {
+            "q": "Why does the chapter call your course workbook a portfolio rather than just study notes?",
+            "options": [
+              "Because it's long, and length signals effort to a hiring manager",
+              "Because it records the full loop — instrumented funnel, shipped journeys, holdout results, a plan — with your reasoning attached, which is evidence of judgement a résumé bullet can't carry",
+              "Because portfolios are required for growth roles",
+              "Because it proves you completed a paid course"
+            ],
+            "answer": 1,
+            "explain": "A portfolio beats an assertion because it shows judgement, not just claimed outcomes. The workbook holds your reasoning at each step — including results that didn't work — which is exactly what an interviewer can't get from a bullet point."
+          },
+          {
+            "q": "Two candidates answer 'how would you grow this product?'. One lists ten growth tactics; the other says 'first I'd want a holdout before claiming any of that worked'. Who tends to score higher, and why?",
+            "options": [
+              "The tactics list — it shows breadth and energy",
+              "The second — measurement judgement beats buzzwords, because they'll be trusted to spend money and report on it honestly",
+              "They score the same; it's a matter of interviewer taste",
+              "The tactics list, as long as the tactics are current"
+            ],
+            "answer": 1,
+            "explain": "In every growth-interview question type, judgement about measurement outscores a pile of tactics. The holdout answer signals someone who's been accountable for a number and won't fool the team or themselves."
+          },
+          {
+            "q": "The chapter borrows 'career capital' from Cal Newport. What's the core claim?",
+            "options": [
+              "Follow your passion first, and the skills will come",
+              "Rare, valuable skills are the capital you trade for autonomy and better work — and mastery usually comes before passion, not after",
+              "Career capital means saving enough money to take risks",
+              "The more job titles you hold, the more capital you accumulate"
+            ],
+            "answer": 1,
+            "explain": "Newport's argument in So Good They Can't Ignore You runs against 'follow your passion': you build rare and valuable skills, then trade that capital for control and interesting problems. A full-loop growth capability is exactly that kind of rare skill."
+          },
+          {
+            "q": "The chapter applies the course's owned-audience lesson to your career. What's the payoff of a small owned audience?",
+            "options": [
+              "Nothing until it's large — reach is the only thing that counts",
+              "It's a compounding, self-owned flywheel: a handful of the right people who've seen your work is worth more than a big anonymous following, and it doesn't depend on a recruiter's inbox",
+              "It replaces the need for a portfolio or interviews",
+              "It only helps if you want to become a full-time content creator"
+            ],
+            "answer": 1,
+            "explain": "The owned-audience-over-vanity-metric lesson from Chapter 8, pointed at you: you own the relationship, it compounds while you sleep, and it differentiates you before an interview starts. A few of the right people beats a big anonymous number."
+          },
+          {
+            "q": "Which question, asked of an interviewer, best signals that you think like a growth operator?",
+            "options": [
+              "'What's the salary band and equity for this role?'",
+              "'How many people are on the growth team?'",
+              "'Is the product instrumented, will I have data access, and who owns the growth loop today?'",
+              "'What's the tech stack?'"
+            ],
+            "answer": 2,
+            "explain": "Operator questions probe the conditions you'd need to do the job — data access is non-negotiable for anyone owning a metric — and their answers also tell you whether the role is a real loop or a growth job in name only."
+          },
+          {
+            "q": "What single distinction is the chapter most concerned that you can demonstrate?",
+            "options": [
+              "Knowing more growth tactics than the next candidate",
+              "The difference between running a growth project once and running a growth loop — shown through systems thinking, measurement, and incrementality",
+              "Having worked at a well-known company",
+              "Fluency in the latest growth tooling"
+            ],
+            "answer": 1,
+            "explain": "Project-vs-loop is the distinction strong interviewers probe for, and every other piece in the chapter serves it: the portfolio, the STAR story, the 90-day plan, and attribution humility all exist to make your work read as a loop you run, not a project you ran once."
+          }
+        ]
+      }
+    }
+  }
+}

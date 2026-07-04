@@ -7,7 +7,10 @@
         "key": "media:JSMvq9dXKxA",
         "anchor": "wb-media-JSMvq9dXKxA",
         "label": "The Evolution of Product-Led Growth: PLG x AI",
-        "media": "video"
+        "media": "video",
+        "channel": "ProductLed",
+        "duration": "15:00",
+        "note": "Wes Bush — the person who literally wrote the book — on where PLG-as-strategy stands in the AI era, in fifteen minutes. A tight current framing of the strict definition before this course broadens it."
       },
       {
         "kind": "flashcards",
@@ -25,7 +28,9 @@
         "key": "media:IHwS2By9UKM",
         "anchor": "wb-media-IHwS2By9UKM",
         "label": "10 growth tactics that never work | Elena Verna (Amplitude, Miro, Dropbox, SurveyMonkey)",
-        "media": "video"
+        "media": "video",
+        "channel": "Lenny's Podcast",
+        "note": "A veteran of four growth orgs on the tactics that reliably waste a quarter — and what the durable work looks like instead. Worth watching before any of the ten gets tempting."
       },
       {
         "kind": "flashcards",
@@ -109,7 +114,13 @@
         "key": "media:lenny-verna-ai-growth-playbook",
         "anchor": "wb-media-lenny-verna-ai-growth-playbook",
         "label": "The new AI growth playbook for 2026: how Lovable hit $200M ARR in one year",
-        "media": "podcast"
+        "media": "podcast",
+        "show": "Lenny's Podcast",
+        "guest": "Elena Verna",
+        "note": "The operator this chapter keeps citing, on what changes — and what doesn't — when the PLG playbook meets AI-speed products. Listen for how much of Lovable's growth is still the instrument → measure → iterate loop.",
+        "spotify": "https://open.spotify.com/episode/2tjRRxdTXpTl2vki4HTczP",
+        "youtube": "https://youtu.be/6qAB6aUMIeA",
+        "apple": "https://podcasts.apple.com/us/podcast/the-new-ai-growth-playbook-for-2026-how-lovable-hit/id1627920305?i=1000741838304"
       }
     ],
     "01-what-is-posthog/01-why-measure": [
@@ -134,7 +145,10 @@
         "key": "media:1FZji2L-LmM",
         "anchor": "wb-media-1FZji2L-LmM",
         "label": "What is PostHog? (Official Demo & Tutorial)",
-        "media": "video"
+        "media": "video",
+        "channel": "PostHog",
+        "duration": "8:50",
+        "note": "Watch this first — the official nine-minute tour. The suite in the next piece will map onto things you've now seen on screen."
       }
     ],
     "01-what-is-posthog/04-two-demos": [
@@ -144,7 +158,10 @@
         "key": "media:WPjJLpNxI6s",
         "anchor": "wb-media-WPjJLpNxI6s",
         "label": "How PostHog AI makes product analytics EASY! – PostHog Product Analytics Demo",
-        "media": "video"
+        "media": "video",
+        "channel": "PostHog",
+        "duration": "5:51",
+        "note": "Six minutes of the analytics workflow you'll use daily from Chapter 4 on — including the AI assistant writing the queries you don't know how to write yet."
       },
       {
         "kind": "media",
@@ -152,7 +169,10 @@
         "key": "media:ALR9iuXQVqg",
         "anchor": "wb-media-ALR9iuXQVqg",
         "label": "Solve support tickets 10x faster with Session Replay – PostHog Session Replay Demo",
-        "media": "video"
+        "media": "video",
+        "channel": "PostHog",
+        "duration": "3:18",
+        "note": "Three minutes on the replay workflow. The framing is support tickets, but the mechanics — jump from a data point to the recordings behind it — is exactly the drop-off debugging you'll do in Chapter 4."
       }
     ],
     "01-what-is-posthog/09-why-posthog": [
@@ -197,7 +217,9 @@
         "key": "media:irjgfW0BIrw",
         "anchor": "wb-media-irjgfW0BIrw",
         "label": "Startup Metrics for Pirates: AARRR! - Dave McClure",
-        "media": "video"
+        "media": "video",
+        "channel": "Ignite Seattle",
+        "note": "The original 2007 talk, from McClure himself, in five minutes. The primary source is worth the time — nearly twenty years of blog posts about AARRR are summaries of this."
       }
     ],
     "02-aarrr-and-the-leaky-bucket/02-leaky-bucket": [
@@ -269,7 +291,9 @@
         "key": "media:0LNQxT9LvM0",
         "anchor": "wb-media-0LNQxT9LvM0",
         "label": "David Rusenko - How To Find Product Market Fit",
-        "media": "video"
+        "media": "video",
+        "channel": "Y Combinator",
+        "note": "The canonical YC talk on reading retention curves as the PMF signal — Weebly's founder on the flattening curve, and what he did in the years before his flattened. Older, but this is the talk everyone cites."
       }
     ],
     "02-aarrr-and-the-leaky-bucket/06-framework-to-instrument": [
@@ -302,7 +326,14 @@
         "key": "media:lenny-sean-ellis-hacking-growth",
         "anchor": "wb-media-lenny-sean-ellis-hacking-growth",
         "label": "The original growth hacker reveals his secrets",
-        "media": "podcast"
+        "media": "podcast",
+        "show": "Lenny's Podcast",
+        "guest": "Sean Ellis",
+        "duration": "1h 44m",
+        "note": "The inventor of the 40% PMF test and the ICE framework on activation, retention, and North Star metrics — this chapter's toolkit, from the person who built it.",
+        "spotify": "https://open.spotify.com/episode/4V5wt6luPeF4YiJ1lWDY5e",
+        "youtube": "https://youtu.be/VjJ6xcv7e8s",
+        "apple": "https://podcasts.apple.com/us/podcast/the-original-growth-hacker-reveals-his-secrets-sean/id1627920305?i=1000668463120"
       }
     ],
     "03-instrument-posthog/02-autocapture": [
@@ -312,7 +343,10 @@
         "key": "media:FFgzJYi4GQA",
         "anchor": "wb-media-FFgzJYi4GQA",
         "label": "Understanding PostHog Events: From Auto-Capture to Backend Integration",
-        "media": "video"
+        "media": "video",
+        "channel": "Vision Labs",
+        "duration": "14:36",
+        "note": "A hands-on walk from autocapture through custom events to server-side capture — the exact arc of §3.2–3.3, shown live."
       }
     ],
     "03-instrument-posthog/04-identify-users": [
@@ -322,7 +356,10 @@
         "key": "media:3afzkLS-zQA",
         "anchor": "wb-media-3afzkLS-zQA",
         "label": "PostHog identify and alias",
-        "media": "video"
+        "media": "video",
+        "channel": "PostHog",
+        "duration": "10:15",
+        "note": "The official explainer on how anonymous and identified events merge into one person — ten minutes that are much cheaper before your first identify call ships than after."
       },
       {
         "kind": "flashcards",
@@ -340,7 +377,10 @@
         "key": "media:RkCg1cgZzHc",
         "anchor": "wb-media-RkCg1cgZzHc",
         "label": "How to Create an Effective Tracking Plan (Mixpanel, Segment.com, Amplitude and more)",
-        "media": "video"
+        "media": "video",
+        "channel": "Ruben Ugarte",
+        "duration": "11:35",
+        "note": "A tool-agnostic method for the plan itself — core events, properties, and how to keep the doc from dying. Everything transfers to PostHog directly."
       },
       {
         "kind": "note",
@@ -383,7 +423,9 @@
         "key": "media:cMFz_xFlHaE",
         "anchor": "wb-media-cMFz_xFlHaE",
         "label": "Conversion funnels: building, analyzing, and optimizing - PostHog tutorial",
-        "media": "video"
+        "media": "video",
+        "channel": "PostHog",
+        "note": "The canonical official funnels tutorial — building one, reading drop-off, and jumping to the users behind a step. Older, but nothing essential has changed."
       }
     ],
     "04-your-daily-dashboard/02-daily-checklist": [
@@ -406,7 +448,9 @@
         "key": "media:IJJKLxhcsIA",
         "anchor": "wb-media-IJJKLxhcsIA",
         "label": "How we debug production issues at PostHog (Complete Walkthrough)",
-        "media": "video"
+        "media": "video",
+        "channel": "PostHog",
+        "note": "The chart-to-replay workflow from item 7, run for real by the team that builds the tool — from anomaly to watched session to diagnosis."
       }
     ],
     "04-your-daily-dashboard/03-retention-curve": [
@@ -426,7 +470,9 @@
         "key": "media:EQMPvqpRPuQ",
         "anchor": "wb-media-EQMPvqpRPuQ",
         "label": "My app analytics process (real numbers 👀+ quick tutorial)",
-        "media": "video"
+        "media": "video",
+        "channel": "Chris Raroque",
+        "note": "An indie founder's actual daily/weekly read — which charts he checks, which he ignores, and how decisions come out of it. Good calibration for how light this can be."
       }
     ],
     "04-your-daily-dashboard/08-before-you-move-on": [
@@ -445,7 +491,10 @@
         "key": "media:iGzVM8ygjTk",
         "anchor": "wb-media-iGzVM8ygjTk",
         "label": "Mastering Lifecycle Marketing: Real-World Tactics from Leading B2B Teams",
-        "media": "video"
+        "media": "video",
+        "channel": "Exit Five",
+        "duration": "54:21",
+        "note": "Practitioners walking real lifecycle programs end to end — useful for hearing how teams decide which stage to work on next, which is exactly the build-order question."
       },
       {
         "kind": "profile",
@@ -468,7 +517,10 @@
         "key": "media:vp4SwMY-QrM",
         "anchor": "wb-media-vp4SwMY-QrM",
         "label": "How to Recover 89% of Failed Payments (SaaS Dunning Strategy)",
-        "media": "video"
+        "media": "video",
+        "channel": "Churnkey",
+        "duration": "3:23",
+        "note": "Three minutes on the retry + reminder mechanics. The 89% in the title is a vendor's best case — watch it for the playbook, not the number."
       }
     ],
     "05-lifecycle-messaging/05-touch-points": [
@@ -488,7 +540,10 @@
         "key": "media:eDoHvKiB2Lc",
         "anchor": "wb-media-eDoHvKiB2Lc",
         "label": "Best Email Deliverability Tips for 2025",
-        "media": "video"
+        "media": "video",
+        "channel": "Resend",
+        "duration": "3:50",
+        "note": "Four minutes from an email provider on auth + reputation basics — the minimum viable deliverability briefing before your first journey sends."
       }
     ],
     "05-lifecycle-messaging/09-the-tools": [
@@ -515,7 +570,10 @@
         "key": "media:DeSdoaLOOoM",
         "anchor": "wb-media-DeSdoaLOOoM",
         "label": "Incrementality 101: Everything You Need to Know",
-        "media": "video"
+        "media": "video",
+        "channel": "Common Thread Collective",
+        "duration": "16:45",
+        "note": "A clear conceptual walkthrough of incrementality vs attribution. Ad-world framing, but the holdout logic is identical to your lifecycle program's."
       }
     ],
     "05-lifecycle-messaging/12-before-you-move-on": [
@@ -549,7 +607,10 @@
         "key": "media:xlA5XD8CSdo",
         "anchor": "wb-media-xlA5XD8CSdo",
         "label": "Send emails with React components (with Zeno from Resend)",
-        "media": "video"
+        "media": "video",
+        "channel": "Vercel",
+        "duration": "23:54",
+        "note": "Resend's founder building and sending a React Email template end to end — the modern authoring model these lifecycle emails use."
       },
       {
         "kind": "media",
@@ -557,7 +618,10 @@
         "key": "media:cQy24szSsBw",
         "anchor": "wb-media-cQy24szSsBw",
         "label": "Modern emails using React",
-        "media": "video"
+        "media": "video",
+        "channel": "React Conf",
+        "duration": "11:18",
+        "note": "A 2026 conference take on why the component model fits email's brutal rendering constraints — background on the problem before you design a layout."
       },
       {
         "kind": "media",
@@ -565,7 +629,10 @@
         "key": "media:d4UZg3l8JvQ",
         "anchor": "wb-media-d4UZg3l8JvQ",
         "label": "react.email now tests your emails",
-        "media": "video"
+        "media": "video",
+        "channel": "Resend",
+        "duration": "4:14",
+        "note": "The linting/compatibility side of the toolchain — catching the Outlook-breaks-this and spam-word class of bug before it ships."
       }
     ],
     "06-building-lifecycle-with-hogsend/05-behavioural-nudge-series": [
@@ -663,7 +730,10 @@
         "key": "media:Sxn1ji7vYzU",
         "anchor": "wb-media-Sxn1ji7vYzU",
         "label": "If I Started SaaS in 2026, Here's My B2B Content Strategy for $1M ARR",
-        "media": "video"
+        "media": "video",
+        "channel": "Rob Walling",
+        "duration": "28:34",
+        "note": "A credible bootstrapper's content/SEO channel strategy — the realistic timelines and effort levels, not the 'content is free' myth."
       },
       {
         "kind": "media",
@@ -671,7 +741,10 @@
         "key": "media:MWwH-12N5TA",
         "anchor": "wb-media-MWwH-12N5TA",
         "label": "The Ultimate Guide to Developer Marketing | Lee Robinson (Vercel)",
-        "media": "video"
+        "media": "video",
+        "channel": "Peter Yang",
+        "duration": "45:09",
+        "note": "Vercel's former VP of DevRel on what actually moves developers: docs, templates, examples, community — and why paid ads mostly don't."
       },
       {
         "kind": "profile",
@@ -699,7 +772,10 @@
         "key": "media:zo3QHrXiprs",
         "anchor": "wb-media-zo3QHrXiprs",
         "label": "11 essential SaaS metrics explained in 11 minutes",
-        "media": "video"
+        "media": "video",
+        "channel": "ChartMogul",
+        "duration": "11:04",
+        "note": "A fast, straight primer on CAC, LTV, churn, and the rest of the vocabulary this section leans on."
       },
       {
         "kind": "calc",
@@ -735,7 +811,10 @@
         "key": "media:7zZ8LIOWFd8",
         "anchor": "wb-media-7zZ8LIOWFd8",
         "label": "Why 90% of B2B Brands Are Wasting Money on Rented Audiences (And What Works Instead)",
-        "media": "video"
+        "media": "video",
+        "channel": "Pipe Dream Podcast from B2B Better",
+        "duration": "30:27",
+        "note": "The rented-vs-owned argument made from the B2B marketing side — same conclusion this chapter reaches from the identity side."
       },
       {
         "kind": "profile",
@@ -758,7 +837,10 @@
         "key": "media:waU5Cm1FENA",
         "anchor": "wb-media-waU5Cm1FENA",
         "label": "Build a Movement, Not a Discord (A Community Guide)",
-        "media": "video"
+        "media": "video",
+        "channel": "Jono Bacon",
+        "duration": "9:26",
+        "note": "The community authority on why servers die: you launched a chat room, not a movement. Nine minutes, saves months."
       },
       {
         "kind": "media",
@@ -766,7 +848,9 @@
         "key": "media:SJi469BuU6g",
         "anchor": "wb-media-SJi469BuU6g",
         "label": "30 PROVEN Discord Hacks For Building Communities",
-        "media": "video"
+        "media": "video",
+        "channel": "Jono Bacon",
+        "note": "The tactical companion — concrete server-structure, onboarding, and engagement mechanics for when you're past the mission stage."
       },
       {
         "kind": "profile",
@@ -837,7 +921,9 @@
         "key": "media:6nkAn0xDNG4",
         "anchor": "wb-media-6nkAn0xDNG4",
         "label": "How to Build a Culture of Experimentation on Your Growth Team",
-        "media": "video"
+        "media": "video",
+        "channel": "Andrew Capland",
+        "note": "An ex-Wistia head of growth on the weekly ritual in practice — and how teams drift back into shipping without learning."
       },
       {
         "kind": "flashcards",
@@ -855,7 +941,9 @@
         "key": "media:whoQtu9Vhnw",
         "anchor": "wb-media-whoQtu9Vhnw",
         "label": "Sean Ellis on why \"a high velocity of tests\" is crucial for finding product/market fit",
-        "media": "video"
+        "media": "video",
+        "channel": "Startup Archive",
+        "note": "Two minutes from the originator of high-tempo testing on why the learning rate, not any single win, is the point."
       },
       {
         "kind": "note",
@@ -883,7 +971,9 @@
         "key": "media:rBCdgcFZ0uA",
         "anchor": "wb-media-rBCdgcFZ0uA",
         "label": "Your first 90 Days as a Growth Marketer: A Practical Blueprint",
-        "media": "video"
+        "media": "video",
+        "channel": "Andrew Capland",
+        "note": "A 2026 operator's version of the same shape this chapter runs: diagnose from the data first, earn early wins, then scale. Watch for how much of the first month is just *looking*."
       },
       {
         "kind": "profile",
@@ -986,7 +1076,9 @@
         "key": "media:nYTSIuC3ScY",
         "anchor": "wb-media-nYTSIuC3ScY",
         "label": "Your First 90 Days as Head of Growth (The Exact Plan I Give Every Client)",
-        "media": "video"
+        "media": "video",
+        "channel": "Andrew Capland",
+        "note": "The 90-day mark is where an operator would zoom out and re-plan. Useful cross-check that your first two phases produced what a growth lead would need to scale from."
       },
       {
         "kind": "checklist",
@@ -1066,7 +1158,13 @@
         "key": "media:lenny-kohavi-ab-testing",
         "anchor": "wb-media-lenny-kohavi-ab-testing",
         "label": "The ultimate guide to A/B testing",
-        "media": "podcast"
+        "media": "podcast",
+        "show": "Lenny's Podcast",
+        "guest": "Ronny Kohavi",
+        "note": "The Compound phase's experimentation rigor, from the person who ran experimentation at Microsoft, Amazon, and Airbnb — trust, invalid results, and when not to test at all.",
+        "spotify": "https://open.spotify.com/episode/3vD3c87FT7RKnvZUJRwOb4",
+        "youtube": "https://youtu.be/hEzpiDuYFoE",
+        "apple": "https://podcasts.apple.com/us/podcast/the-ultimate-guide-to-a-b-testing-ronny-kohavi/id1627920305?i=1000622516586"
       }
     ],
     "10-your-30-60-90-180-day-plan/09-zero-to-one": [
@@ -1196,7 +1294,9 @@
         "key": "media:rBCdgcFZ0uA",
         "anchor": "wb-media-rBCdgcFZ0uA",
         "label": "Your first 90 Days as a Growth Marketer: A Practical Blueprint",
-        "media": "video"
+        "media": "video",
+        "channel": "Andrew Capland",
+        "note": "An operator's first-90-days arc is this chapter's 'the constraint moves' idea at personal scale — what you work on shifts deliberately from learning, to quick wins, to longer bets."
       }
     ],
     "11-stages-of-growth/02-idea-and-pre-launch": [
@@ -1235,7 +1335,9 @@
         "key": "media:0LNQxT9LvM0",
         "anchor": "wb-media-0LNQxT9LvM0",
         "label": "David Rusenko - How To Find Product Market Fit",
-        "media": "video"
+        "media": "video",
+        "channel": "Y Combinator",
+        "note": "The Weebly founder on what fit actually feels like and how you hunt for it — the felt side of the three measurable readings above."
       }
     ],
     "11-stages-of-growth/05-early-traction": [
@@ -1252,7 +1354,9 @@
         "key": "media:Sxn1ji7vYzU",
         "anchor": "wb-media-Sxn1ji7vYzU",
         "label": "If I Started SaaS in 2026, Here's My B2B Content Strategy for $1M ARR",
-        "media": "video"
+        "media": "video",
+        "channel": "Rob Walling",
+        "note": "Walling's content playbook is the depth-over-breadth argument inside one channel: commit, prioritise with a framework, and stop spraying generic posts."
       }
     ],
     "11-stages-of-growth/06-scaling": [
@@ -1277,7 +1381,9 @@
         "key": "media:nYTSIuC3ScY",
         "anchor": "wb-media-nYTSIuC3ScY",
         "label": "Your First 90 Days as Head of Growth (The Exact Plan I Give Every Client)",
-        "media": "video"
+        "media": "video",
+        "channel": "Andrew Capland",
+        "note": "The plan a growth lead runs when hired into a working function — inherit the machine, then build the operating cadence to scale it, which is exactly this stage."
       }
     ],
     "11-stages-of-growth/07-metrics-that-lie-by-stage": [
@@ -1347,7 +1453,9 @@
         "key": "media:hEzpiDuYFoE",
         "anchor": "wb-media-hEzpiDuYFoE",
         "label": "The ultimate guide to A/B testing",
-        "media": "video"
+        "media": "video",
+        "channel": "Lenny's Podcast",
+        "note": "Kohavi, the field's leading voice on experimentation, on why most ideas fail and when a test isn't worth running — the humility this whole chapter is built on."
       }
     ],
     "12-running-experiments/02-the-hypothesis-format": [
@@ -1379,7 +1487,9 @@
         "key": "media:HEGI5QN3fXE",
         "anchor": "wb-media-HEGI5QN3fXE",
         "label": "Ronny Kohavi: A/B Testing Pitfalls: Getting Numbers You Can Trust is Hard - CXL LIVE 2016",
-        "media": "video"
+        "media": "video",
+        "channel": "CXL",
+        "note": "The person who ran experimentation at Bing walks the pitfalls that turn a significant result into a wrong one — the reason 'trustworthy' is a harder bar than 'significant.'"
       }
     ],
     "12-running-experiments/07-tempo-and-the-backlog": [
@@ -1396,7 +1506,9 @@
         "key": "media:whoQtu9Vhnw",
         "anchor": "wb-media-whoQtu9Vhnw",
         "label": "Sean Ellis on why \"a high velocity of tests\" is crucial for finding product/market fit",
-        "media": "video"
+        "media": "video",
+        "channel": "Startup Archive",
+        "note": "The case for tempo in one clip: the compounding asset is how many tests you run, not how good any single one is — the premise of the backlog-and-tempo ritual here."
       },
       {
         "kind": "checklist",
@@ -1465,7 +1577,9 @@
         "key": "media:hdjlCLb9Hl8",
         "anchor": "wb-media-hdjlCLb9Hl8",
         "label": "How to nail your product positioning | April Dunford (Obviously Awesome)",
-        "media": "video"
+        "media": "video",
+        "channel": "Lenny's Podcast",
+        "note": "Positioning is choosing the value and context that make a product instantly obvious to one specific buyer — the customer-facing sibling of the audience framing this atom teaches."
       },
       {
         "kind": "note",
@@ -1526,7 +1640,9 @@
         "key": "media:DeSdoaLOOoM",
         "anchor": "wb-media-DeSdoaLOOoM",
         "label": "Incrementality 101: Everything You Need to Know",
-        "media": "video"
+        "media": "video",
+        "channel": "Common Thread Collective",
+        "note": "The paid-media version of the same holdout idea — why lift, not activity, is the honest measure, explained for a skeptic."
       },
       {
         "kind": "note",
@@ -1545,7 +1661,9 @@
         "key": "media:6nkAn0xDNG4",
         "anchor": "wb-media-6nkAn0xDNG4",
         "label": "How to Build a Culture of Experimentation on Your Growth Team",
-        "media": "video"
+        "media": "video",
+        "channel": "Andrew Capland",
+        "note": "The process and psychological safety that make reporting a loss routine rather than a confession — the culture that has to exist for this whole atom to work."
       },
       {
         "kind": "note",
@@ -1616,7 +1734,9 @@
         "key": "media:dgz-Ud4fq6w",
         "anchor": "wb-media-dgz-Ud4fq6w",
         "label": "How to Write Investor Updates + Startup Metrics (CAC, LTV, Chrun)",
-        "media": "video"
+        "media": "video",
+        "channel": "Founder University",
+        "note": "A working example of the one report this atom is about — what belongs in a monthly investor update and which metrics carry it."
       },
       {
         "kind": "note",
@@ -1689,7 +1809,9 @@
         "key": "media:IHwS2By9UKM",
         "anchor": "wb-media-IHwS2By9UKM",
         "label": "10 growth tactics that never work | Elena Verna (Amplitude, Miro, Dropbox, SurveyMonkey)",
-        "media": "video"
+        "media": "video",
+        "channel": "Lenny's Podcast",
+        "note": "A veteran growth leader on why the hacks fail and loop-thinking wins — a direct read on the capability this chapter says is scarce and valuable."
       }
     ],
     "14-growth-as-career-capital/02-your-workbook-is-your-portfolio": [
@@ -1748,7 +1870,9 @@
         "key": "media:UhASMW6X4AY",
         "anchor": "wb-media-UhASMW6X4AY",
         "label": "My favorite interview questions from 100+ guests",
-        "media": "video"
+        "media": "video",
+        "channel": "Lenny's Podcast",
+        "note": "The questions strong operators actually ask candidates — and that you'll be asked — plus what a good answer is meant to reveal."
       },
       {
         "kind": "checklist",
@@ -1813,7 +1937,9 @@
         "key": "media:MWwH-12N5TA",
         "anchor": "wb-media-MWwH-12N5TA",
         "label": "The Ultimate Guide to Developer Marketing | Lee Robinson (Vercel)",
-        "media": "video"
+        "media": "video",
+        "channel": "Peter Yang",
+        "note": "An operator on building an owned audience by being useful in public — the career flywheel this atom asks you to start."
       }
     ],
     "14-growth-as-career-capital/09-before-you-move-on": [

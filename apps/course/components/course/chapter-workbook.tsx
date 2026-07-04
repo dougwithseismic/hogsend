@@ -12,6 +12,7 @@ import {
   type WorkbookItem,
   workbookProgress,
 } from "@/lib/workbook";
+import { chapterSlugOfLesson } from "@/lib/workbook-chapters";
 
 /**
  * The chapter's workbook, surfaced at the top of every lesson: what this
@@ -129,7 +130,7 @@ export function ChapterWorkbook({ signedIn }: { signedIn: boolean }) {
           <span className="text-sm text-white/50">
             {done}/{total} done ·{" "}
             <a
-              href="/workbook"
+              href={`/workbook/${lesson.course}/${chapterSlugOfLesson(lesson.lesson)}`}
               className="underline transition-colors hover:text-white"
             >
               your workbook
@@ -204,7 +205,7 @@ export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
           <span className="flex items-center gap-4">
             <CopyLinkButton url={lessonPath} label="Share chapter" />
             <a
-              href="/workbook"
+              href={`/workbook/${lesson.course}/${chapterSlugOfLesson(lesson.lesson)}`}
               className="text-sm text-white/70 underline transition-colors hover:text-white"
             >
               Review it in your workbook →
@@ -245,7 +246,7 @@ export function ChapterRecap({ signedIn }: { signedIn: boolean }) {
             <p className="mt-3 text-sm text-white/40">
               ✓ {doneCount} already done —{" "}
               <a
-                href="/workbook"
+                href={`/workbook/${lesson.course}/${chapterSlugOfLesson(lesson.lesson)}`}
                 className="underline transition-colors hover:text-white/70"
               >
                 see them in your workbook

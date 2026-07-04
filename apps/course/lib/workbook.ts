@@ -31,6 +31,16 @@ export type WorkbookItem = {
   itemCount?: number;
   /** Only for kind "media". */
   media?: "video" | "podcast";
+  /** media video: authored caption metadata (id doubles as the YouTube id). */
+  channel?: string;
+  duration?: string;
+  note?: string;
+  /** media podcast: authored show + outbound listen links. */
+  show?: string;
+  guest?: string;
+  spotify?: string;
+  youtube?: string;
+  apple?: string;
   /** note: authored textarea hints. */
   placeholder?: string;
   rows?: number;
