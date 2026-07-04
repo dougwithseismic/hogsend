@@ -42,6 +42,17 @@ export function GlowMedia({
     </div>
   );
 }
+
+/** Glow-backed media header for a FeatureCard — a vignette cropped like a
+ *  screenshot over the red radial treatment (matches the course cards). */
+export function VignetteMedia({ children }: { children: ReactNode }) {
+  return (
+    <GlowMedia className="min-h-[200px]">
+      <div className="absolute inset-x-5 top-5">{children}</div>
+    </GlowMedia>
+  );
+}
+
 const MICRO_LABEL =
   "font-medium text-[11px] text-accent uppercase tracking-[0.14em]";
 
@@ -180,7 +191,13 @@ export function PlanVignette({ className }: VignetteProps) {
  * right. The course analog of the product homepage's live-demo window.
  * aria-hidden — the hero copy and catalog below restate everything it shows.
  */
-export function CoursePreviewWindow({ className }: VignetteProps) {
+export function CoursePreviewWindow({
+  className,
+  chapterCount,
+}: VignetteProps & {
+  /** Real chapter total — derived by the caller, never hardcoded here. */
+  chapterCount: number;
+}) {
   const chapters = [
     { n: "00", title: "Start here — product-led growth", state: "done" },
     {
@@ -219,7 +236,7 @@ export function CoursePreviewWindow({ className }: VignetteProps) {
           </span>
         </div>
         <span className="font-mono text-[11px] text-accent">
-          Chapter 1 of 11
+          Chapter 1 of {chapterCount}
         </span>
       </div>
 
@@ -255,7 +272,7 @@ export function CoursePreviewWindow({ className }: VignetteProps) {
             ))}
           </ul>
           <p className="mt-4 text-white/35 text-xs">
-            11 chapters · the first lesson is free
+            {chapterCount} chapters · the first two chapters are free
           </p>
         </div>
 

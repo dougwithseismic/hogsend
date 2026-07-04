@@ -10,10 +10,11 @@ import {
   loadGettingStarted,
 } from "@/components/getting-started";
 import { getCourseModules } from "@/lib/course-ui";
-import { COURSES, FLAGSHIP_CONTENT_FACTS, getCourse } from "@/lib/courses";
+import { COURSES, getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { lessonProgress } from "@/lib/db/schema";
 import { hasAccess } from "@/lib/entitlements";
+import { FLAGSHIP_CONTENT_FACTS } from "@/lib/flagship-facts";
 import { ensureEnrollment, getSession } from "@/lib/gating";
 import { safeNext } from "@/lib/safe-next";
 import { DISCORD_INVITE_URL } from "@/lib/site";
@@ -122,12 +123,12 @@ export default async function WelcomePage(props: {
     {
       n: "02",
       title: "Work the workbook",
-      description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items save to your account as you read — 18 profiling check-ins, 28 writing prompts, 11 calculators, and every checklist. All of it lands on one page, editable in place.`,
+      description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items save to your account as you read — ${FLAGSHIP_CONTENT_FACTS.checkIns} profiling check-ins, ${FLAGSHIP_CONTENT_FACTS.writingPrompts} writing prompts, ${FLAGSHIP_CONTENT_FACTS.calculators} calculators, and every checklist. All of it lands on one page, editable in place.`,
     },
     {
       n: "03",
       title: "Test yourself",
-      description: `16 quizzes drawing on a pool of ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus 127 flashcards across 18 decks.`,
+      description: `${FLAGSHIP_CONTENT_FACTS.quizzes} quizzes drawing on a pool of ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus ${FLAGSHIP_CONTENT_FACTS.flashcards} flashcards across ${FLAGSHIP_CONTENT_FACTS.flashcardDecks} decks.`,
     },
     {
       n: "04",

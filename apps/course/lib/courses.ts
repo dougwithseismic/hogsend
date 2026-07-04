@@ -13,6 +13,10 @@
  */
 export const ALL_ACCESS_SLUG = "all-access";
 
+/** The flagship course — the one real course today; marketing surfaces
+ *  (catalog stat band, landing sections, derived facts) key off this slug. */
+export const FLAGSHIP_SLUG = "growth-with-posthog";
+
 export type CourseMeta = {
   /** Folder slug under content/courses/ and the route segment. */
   slug: string;
@@ -38,7 +42,7 @@ export type CourseMeta = {
 
 export const COURSES: CourseMeta[] = [
   {
-    slug: "growth-with-posthog",
+    slug: FLAGSHIP_SLUG,
     title: "Measure, Keep, and Grow",
     tagline:
       "A start-to-finish growth program with PostHog + Hogsend — for the people who build it.",
@@ -81,17 +85,9 @@ export const ALL_ACCESS = {
   priceLabel: "$99",
 } as const;
 
-/**
- * Canonical headline content facts for the flagship course — the numbers that
- * appear in the fact strip, the catalog stat band, and marketing prose. One
- * source so the trio can't drift between surfaces. Secondary prose numbers
- * (check-ins, prompts, flashcards, plan items) stay literal at their call site.
- */
-export const FLAGSHIP_CONTENT_FACTS = {
-  quizQuestions: 158,
-  workbookItems: 152,
-  dayPlan: "30/60/90/180",
-} as const;
+// Headline content facts for the flagship course live in lib/flagship-facts
+// (server-only, derived from the generated workbook manifest so they can't
+// drift from the actual content).
 
 export function getCourse(slug: string): CourseMeta | undefined {
   return COURSES.find((c) => c.slug === slug);
@@ -113,7 +109,7 @@ export function skuTitle(slug: string): string {
  * the same code. A slug absent here (or whose env var is unset) is NOT paywalled.
  */
 const PRICE_ENV_BY_SLUG: Record<string, string> = {
-  "growth-with-posthog": "STRIPE_PRICE_GROWTH_WITH_POSTHOG",
+  [FLAGSHIP_SLUG]: "STRIPE_PRICE_GROWTH_WITH_POSTHOG",
   [ALL_ACCESS_SLUG]: "STRIPE_PRICE_ALL_ACCESS",
 };
 

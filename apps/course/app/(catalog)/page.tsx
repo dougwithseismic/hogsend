@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 import Link from "next/link";
-import type { JSX, ReactNode } from "react";
+import type { JSX } from "react";
 import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
 import { AnnouncePill, Eyebrow } from "@/components/ds/badge";
@@ -10,13 +10,13 @@ import { Card, FeatureCard } from "@/components/ds/card";
 import {
   CoursePreviewWindow,
   FlashcardVignette,
-  GlowMedia,
   PlanVignette,
   QuizVignette,
+  VignetteMedia,
   WorkbookVignette,
 } from "@/components/ds/course-vignettes";
 import { CtaPanel } from "@/components/ds/cta-panel";
-import { WaveLines } from "@/components/ds/decor";
+import { HorizonGlowCanvas } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
 import { LogoMarquee } from "@/components/ds/marquee";
 import { ProcessSteps } from "@/components/ds/process";
@@ -25,7 +25,10 @@ import { Section, SectionHeading } from "@/components/ds/section";
 import { StatBand } from "@/components/ds/stat-band";
 import { WordReveal } from "@/components/ds/word-reveal";
 import { type AllAccessView, getCatalog } from "@/lib/catalog";
-import { FLAGSHIP_CONTENT_FACTS } from "@/lib/courses";
+import { countChapters } from "@/lib/course-ui";
+import { FLAGSHIP_SLUG } from "@/lib/courses";
+import { faqPageJsonLd } from "@/lib/faq-jsonld";
+import { FLAGSHIP_CONTENT_FACTS } from "@/lib/flagship-facts";
 import { getSession } from "@/lib/gating";
 import { source } from "@/lib/source";
 
@@ -33,7 +36,8 @@ import { source } from "@/lib/source";
 // Anon requests still render identical HTML for everyone (indexable).
 export const dynamic = "force-dynamic";
 
-const FLAGSHIP_SLUG = "growth-with-posthog";
+// Content is fixed at build — count once per process, not per request.
+const FLAGSHIP_CHAPTERS = countChapters(FLAGSHIP_SLUG);
 
 const PILLARS = [
   {
@@ -56,7 +60,7 @@ const MANIFESTO =
 const FAQ_ITEMS = [
   {
     q: "Is the first lesson really free?",
-    a: "Yes. The first lesson of every course is free to read with no account at all. Paid courses unlock the rest with a one-time purchase; free courses just need a free account.",
+    a: "Yes. The first lesson of every course is free to read with no account at all — and the flagship course gives away its first two chapters in full. Paid courses unlock the rest with a one-time purchase; free courses just need a free account.",
   },
   {
     q: "Is this a subscription?",
@@ -72,15 +76,7 @@ const FAQ_ITEMS = [
   },
 ];
 
-const FAQ_JSON_LD = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: FAQ_ITEMS.map((item) => ({
-    "@type": "Question",
-    name: item.q,
-    acceptedAnswer: { "@type": "Answer", text: item.a },
-  })),
-};
+const FAQ_JSON_LD = faqPageJsonLd(FAQ_ITEMS);
 
 /** All-access value banner: a direct buy form when it's for sale, an owned
  *  confirmation once held, or a link to pricing when not yet configured. */
@@ -129,25 +125,15 @@ function AllAccessBanner({ view }: { view: AllAccessView }): JSX.Element {
   );
 }
 
-/** Glow-backed media header for a FeatureCard — a vignette cropped like a
- *  screenshot over the red radial treatment (matches the course cards). */
-function VignetteMedia({ children }: { children: ReactNode }): JSX.Element {
-  return (
-    <GlowMedia className="min-h-[200px]">
-      <div className="absolute inset-x-5 top-5">{children}</div>
-    </GlowMedia>
-  );
-}
-
 const INSIDE_CARDS = [
   {
     title: "The workbook",
-    description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items — 18 profiling check-ins, 28 writing prompts, 11 calculators — everything you type saves to your account.`,
+    description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items — ${FLAGSHIP_CONTENT_FACTS.checkIns} profiling check-ins, ${FLAGSHIP_CONTENT_FACTS.writingPrompts} writing prompts, ${FLAGSHIP_CONTENT_FACTS.calculators} calculators — everything you type saves to your account.`,
     media: <WorkbookVignette />,
   },
   {
     title: "Quizzes & flashcards",
-    description: `16 quizzes pooling ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus 127 flashcards across 18 decks.`,
+    description: `${FLAGSHIP_CONTENT_FACTS.quizzes} quizzes pooling ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus ${FLAGSHIP_CONTENT_FACTS.flashcards} flashcards across ${FLAGSHIP_CONTENT_FACTS.flashcardDecks} decks.`,
     // A flashcard peeking behind the quiz, cropped by the media area — both
     // halves of the card title in one stack.
     media: (
@@ -159,8 +145,7 @@ const INSIDE_CARDS = [
   },
   {
     title: `Your ${FLAGSHIP_CONTENT_FACTS.dayPlan} plan`,
-    description:
-      "Chapter 10 assembles your answers into a 37-item plan you run after the course.",
+    description: `Chapter 10 assembles your answers into a ${FLAGSHIP_CONTENT_FACTS.planItems}-item plan you run after the course.`,
     media: <PlanVignette />,
   },
 ];
@@ -213,38 +198,14 @@ export default async function CatalogPage() {
           </Reveal>
         </div>
 
-        {/* Glow canvas — a contained ink panel carrying the crimzon
-            planet-horizon glow; the course preview window floats over it. */}
+        {/* Glow canvas — the course preview window floats over it. */}
         <div className="container-page relative mt-14">
-          <div className="relative h-[300px] overflow-hidden rounded-2xl bg-[#070303] md:h-[340px]">
-            <WaveLines
-              className="absolute inset-0 h-full w-full opacity-80"
-              stroke="rgba(255,140,118,0.5)"
-              count={8}
-            />
-            <div
-              aria-hidden="true"
-              className="absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
-              }}
-            />
-            {/* The crisp horizon arc. */}
-            <div
-              aria-hidden="true"
-              className="absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
-              }}
-            />
-          </div>
+          <HorizonGlowCanvas />
         </div>
 
         <div className="container-page relative z-10 -mt-[210px] pb-14 md:-mt-[230px]">
           <Reveal>
-            <CoursePreviewWindow />
+            <CoursePreviewWindow chapterCount={FLAGSHIP_CHAPTERS} />
           </Reveal>
           <p className="mt-5 text-center text-[13px] text-white/40">
             The syllabus, quizzes, and workbook are the real course —{" "}
@@ -290,7 +251,7 @@ export default async function CatalogPage() {
           <StatBand
             label="One course today, built to be worked, not just read."
             stats={[
-              { value: "11", caption: "Chapters" },
+              { value: String(FLAGSHIP_CHAPTERS), caption: "Chapters" },
               {
                 value: String(FLAGSHIP_CONTENT_FACTS.quizQuestions),
                 caption: "Quiz questions",

@@ -90,6 +90,54 @@ export function WaveLines({
   );
 }
 
+type HorizonGlowCanvasProps = {
+  /** Height utilities for the panel (e.g. "h-[240px] md:h-[280px]"). */
+  heightClassName?: string;
+  waveCount?: number;
+};
+
+/**
+ * The contained crimzon planet-horizon glow panel that hero media floats
+ * over (catalog, pricing, course landing): WaveLines over an ink panel, a
+ * warm radial bloom from below the fold, and a crisp horizon arc.
+ */
+export function HorizonGlowCanvas({
+  heightClassName = "h-[300px] md:h-[340px]",
+  waveCount = 8,
+}: HorizonGlowCanvasProps) {
+  return (
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-2xl bg-[#070303]",
+        heightClassName,
+      )}
+    >
+      <WaveLines
+        className="absolute inset-0 h-full w-full opacity-80"
+        stroke="rgba(255,140,118,0.5)"
+        count={waveCount}
+      />
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
+        }}
+      />
+      {/* The crisp horizon arc. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
+        }}
+      />
+    </div>
+  );
+}
+
 type WordmarkProps = {
   text?: string;
   className?: string;
