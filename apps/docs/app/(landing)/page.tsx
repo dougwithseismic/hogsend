@@ -3177,7 +3177,7 @@ function PsFrame() {
 
 export default function HomePage(): JSX.Element {
   return (
-    <main className="tracking-normal">
+    <main className="overflow-x-clip tracking-normal">
       <script
         type="application/ld+json"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD built from our own constants

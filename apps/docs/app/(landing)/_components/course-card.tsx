@@ -5,10 +5,19 @@ import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 
 /**
- * Floating course promo — a fixed bottom-right card pointing at
- * course.hogsend.com, on the crimzon ink scheme (matches the hero's "Course"
- * announcement pill). Dismissible (persisted in localStorage) and slides up
- * after a short delay so it never competes with the hero on first paint.
+ * Floating course promo pointing at course.hogsend.com, on the crimzon ink
+ * scheme (matches the hero's "Course" announcement pill).
+ *
+ * Responsive shape:
+ * - Desktop (sm+): a floating bottom-right card, 330px wide.
+ * - Mobile: a full-width bar pinned to the bottom edge. It is NOT sized with
+ *   `100vw` (which includes the scrollbar gutter and overflowed the viewport,
+ *   forcing a horizontal scroll that stretched the whole page) — it spans via
+ *   `inset-x-0`, which is exactly the viewport width.
+ *
+ * Dismissible (persisted in localStorage) and hides itself as you scroll down,
+ * returning when you scroll back up, so it never sits over the content you're
+ * reading.
  */
 
 const STORAGE_KEY = "hs-course-card-dismissed";
@@ -19,6 +28,7 @@ export function CourseCard() {
   // read the dismissed flag).
   const [dismissed, setDismissed] = useState(true);
   const [shown, setShown] = useState(false);
+  const [hiddenByScroll, setHiddenByScroll] = useState(false);
 
   useEffect(() => {
     if (localStorage.getItem(STORAGE_KEY) === "1") return;
@@ -26,6 +36,30 @@ export function CourseCard() {
     const t = setTimeout(() => setShown(true), 1200);
     return () => clearTimeout(t);
   }, []);
+
+  // Hide on scroll-down, reveal on scroll-up (rAF-throttled). Near the very top
+  // it always shows.
+  useEffect(() => {
+    if (dismissed) return;
+    let lastY = window.scrollY;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const y = window.scrollY;
+        const delta = y - lastY;
+        if (Math.abs(delta) < 6) return; // ignore jitter
+        setHiddenByScroll(delta > 0 && y > 80);
+        lastY = y;
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [dismissed]);
 
   if (dismissed) return null;
 
@@ -39,19 +73,28 @@ export function CourseCard() {
     setTimeout(() => setDismissed(true), 300);
   };
 
+  const visible = shown && !hiddenByScroll;
+
   return (
     <div
       className={cn(
-        "fixed right-4 bottom-4 z-50 w-[calc(100vw-2rem)] max-w-[330px]",
+        "fixed bottom-0 inset-x-0 z-50 sm:inset-x-auto sm:right-4 sm:bottom-4 sm:w-[330px]",
         "transition-all duration-500 ease-out motion-reduce:transition-none",
-        shown
+        visible
           ? "translate-y-0 opacity-100"
-          : "pointer-events-none translate-y-4 opacity-0",
+          : "pointer-events-none translate-y-full opacity-0",
       )}
     >
       <Link
         href={COURSE_URL}
-        className="group block overflow-hidden rounded-[10px] border border-white/15 bg-[#0a0606] p-5 shadow-2xl transition-colors hover:border-white/25"
+        className={cn(
+          "group relative block overflow-hidden border-white/15 bg-[#0a0606] p-5 shadow-2xl transition-colors hover:border-white/25",
+          // Mobile: full-width bar with only the top corners rounded and a top
+          // hairline; extra bottom padding clears the iOS home indicator.
+          "rounded-t-[14px] border-t pb-[calc(1.25rem+env(safe-area-inset-bottom))]",
+          // Desktop: a fully-bordered rounded card.
+          "sm:rounded-[10px] sm:border sm:pb-5",
+        )}
       >
         {/* Crimzon corner glow — the ink-glow-panel idiom. */}
         <div
@@ -70,7 +113,8 @@ export function CourseCard() {
         <h3 className="relative mt-3.5 font-normal text-[20px] text-white leading-[1.15] tracking-[-0.02em] [font-family:var(--ps-display)]">
           Measure → Keep → Grow
         </h3>
-        <p className="relative mt-1.5 max-w-[260px] text-[13.5px] text-white/55 leading-[19px] tracking-[-0.02em]">
+        {/* Hidden on the mobile bar to keep it compact; shown in the desktop card. */}
+        <p className="relative mt-1.5 hidden max-w-[260px] text-[13.5px] text-white/55 leading-[19px] tracking-[-0.02em] sm:block">
           How to be a modern growth practitioner — the PostHog + Hogsend course.
         </p>
 
