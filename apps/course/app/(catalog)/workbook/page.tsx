@@ -3,35 +3,28 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckIn } from "@/components/course/check-in";
-import { Checklist } from "@/components/course/checklist";
-import { LessonProvider } from "@/components/course/lesson-context";
-import { Reading } from "@/components/course/reading";
-import { CopyLinkButton } from "@/components/course/share-link";
-import {
-  WorkbookCalcRow,
-  WorkbookChapterMeter,
-  WorkbookCourseProgress,
-  WorkbookFlashcardsRow,
-  WorkbookJumpNav,
-  WorkbookMediaCluster,
-  WorkbookQuizRow,
-} from "@/components/course/workbook-extras";
-import { WorkbookPrompt } from "@/components/course/workbook-prompt";
+import { WorkbookChapterMeter } from "@/components/course/workbook-extras";
+import { LegacyWorkbookHash } from "@/components/course/workbook-legacy-hash";
 import { WorkbookStateProvider } from "@/components/course/workbook-state";
+import { ProgressBar } from "@/components/ds/progress-bar";
 import { auth } from "@/lib/auth";
-import { getCourseModules, slugsFromUrl } from "@/lib/course-ui";
+import { getCourseModules } from "@/lib/course-ui";
 import { getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { enrollment, response } from "@/lib/db/schema";
-import { source } from "@/lib/source";
 import {
   itemState,
   lessonWorkbookItems,
   type SavedValue,
   WORKBOOK_MANIFEST,
   type WorkbookItem,
+  type WorkbookItemKind,
+  workbookProgress,
 } from "@/lib/workbook";
+import {
+  buildWorkbookChapters,
+  type WorkbookChapter,
+} from "@/lib/workbook-chapters";
 
 // Reads the session + the user's DB rows — always per-request.
 export const dynamic = "force-dynamic";
@@ -42,77 +35,34 @@ export const metadata: Metadata = {
 };
 
 /**
- * The reader's workbook: every interactive item each course will ask of them,
- * structured the way the course is — module groups (Measure/Keep/Grow/Run) →
- * chapter sections, each with its own intro (the `workbook` frontmatter), live
- * done-count, share anchor, and the chapter's items. Notes, check-ins, and
- * checklists are the REAL lesson blocks, editable in place; videos/podcasts
- * collapse into one "Watch & listen" card per chapter; quizzes link out. A
- * sticky jump-nav with live per-chapter counts keeps the whole thing
- * navigable, and a "continue where you left off" pointer keeps the next
- * action obvious.
+ * The workbook's front door: one card per chapter, grouped by module, each
+ * with its live done-count — the whole thing scannable in one screen. The
+ * items themselves live on per-chapter pages (/workbook/[course]/[chapter]),
+ * completable start to finish. A "continue where you left off" pointer jumps
+ * straight to the first open item's chapter, and legacy share links
+ * (/workbook#wb-ch-…) are redirected to their chapter page client-side.
  */
-
-type ChapterEntry = {
-  lesson: string;
-  title: string;
-  url: string;
-  anchor: string;
-  /** Chapter number pill label, from the slug's numeric prefix ("Ch 3"). */
-  num: string;
-  intro?: string;
-  items: WorkbookItem[]; // deduped against earlier chapters
-};
-
-type ModuleGroup = { name: string | null; chapters: ChapterEntry[] };
 
 type CourseSection = {
   slug: string;
   title: string;
-  items: WorkbookItem[]; // all chapters, course order — for progress
-  modules: ModuleGroup[];
-  chapters: ChapterEntry[]; // flattened, for the jump-nav + continue pointer
+  chapters: WorkbookChapter[];
+  /** Every chapter's items, flat — the same set the chapter meters count, so
+   *  the course total always equals the sum of the chapter meters (a prompt
+   *  deliberately re-rendered in a later chapter counts there too, and ticks
+   *  everywhere at once since state is keyed). */
+  items: WorkbookItem[];
 };
 
 function buildCourseSection(slug: string): CourseSection {
-  const seen = new Set<string>();
-  const modules: ModuleGroup[] = [];
-
-  for (const courseModule of getCourseModules(slug)) {
-    const chapters: ChapterEntry[] = [];
-    for (const lesson of courseModule.lessons) {
-      const fresh = lessonWorkbookItems(slug, lesson.slug).filter((item) => {
-        if (seen.has(item.key)) return false;
-        seen.add(item.key);
-        return true;
-      });
-      if (fresh.length === 0) continue;
-      // lesson.slug is the full sub-path (e.g. `01-what-is-posthog/why-measure`);
-      // getPage wants slug segments, and a DOM id can't carry a slash.
-      const page = source.getPage(slugsFromUrl(lesson.url));
-      const numeric = lesson.slug.match(/^(\d+)/)?.[1];
-      chapters.push({
-        lesson: lesson.slug,
-        title: lesson.title,
-        url: lesson.url,
-        anchor: `wb-ch-${slug}-${lesson.slug.replace(/\//g, "-")}`,
-        num: numeric ? `Ch ${Number.parseInt(numeric, 10)}` : lesson.slug,
-        intro: page?.data.workbook ?? page?.data.description,
-        items: fresh,
-      });
-    }
-    if (chapters.length > 0) {
-      modules.push({ name: courseModule.name, chapters });
-    }
-  }
-
-  const chapters = modules.flatMap((m) => m.chapters);
+  const chapters = buildWorkbookChapters(slug, getCourseModules(slug), (l) =>
+    lessonWorkbookItems(slug, l),
+  );
   return {
     slug,
     title: getCourse(slug)?.title ?? slug,
-    items: chapters.flatMap((c) => c.items),
-    modules,
     chapters,
+    items: chapters.flatMap((c) => c.items),
   };
 }
 
@@ -120,93 +70,68 @@ function buildCourseSection(slug: string): CourseSection {
 function nextOpenItem(
   section: CourseSection,
   values: Record<string, SavedValue>,
-): { item: WorkbookItem; lessonTitle: string; href: string } | null {
+): { item: WorkbookItem; chapter: WorkbookChapter } | null {
   for (const chapter of section.chapters) {
     for (const item of chapter.items) {
       if (itemState(item, values[item.key] ?? null).status !== "done") {
-        return {
-          item,
-          lessonTitle: chapter.title,
-          href: `${chapter.url}#${item.anchor}`,
-        };
+        return { item, chapter };
       }
     }
   }
   return null;
 }
 
+/** Display order + singular/plural per kind — typed against WorkbookItemKind
+ *  (media split into its two sub-kinds) so a new kind is a compile error here
+ *  rather than a silent omission from the summary line. */
+type SummaryKind = Exclude<WorkbookItemKind, "media"> | "video" | "podcast";
+const SUMMARY_LABEL: Record<SummaryKind, [string, string]> = {
+  note: ["prompt", "prompts"],
+  profile: ["check-in", "check-ins"],
+  checklist: ["checklist", "checklists"],
+  video: ["video", "videos"],
+  podcast: ["podcast", "podcasts"],
+  flashcards: ["flashcard deck", "flashcard decks"],
+  quiz: ["quiz", "quizzes"],
+  calc: ["calculator", "calculators"],
+  reading: ["reading list", "reading lists"],
+};
+
+/** "4 prompts · 2 videos · 1 flashcard deck · 1 quiz" — what a chapter asks. */
+function chapterSummary(items: WorkbookItem[]): string {
+  const counts = new Map<SummaryKind, number>();
+  for (const item of items) {
+    const kind: SummaryKind =
+      item.kind === "media" ? (item.media ?? "video") : item.kind;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return (Object.keys(SUMMARY_LABEL) as SummaryKind[])
+    .filter((kind) => counts.has(kind))
+    .map((kind) => {
+      const n = counts.get(kind) ?? 0;
+      return `${n} ${SUMMARY_LABEL[kind][n === 1 ? 0 : 1]}`;
+    })
+    .join(" · ");
+}
+
 /**
- * One chapter's items: the real editable blocks in lesson order, with the
- * media items pulled out into the compact "Watch & listen" cluster at the end.
+ * Old one-page chapter anchors (#wb-ch-<course>-<lesson>) → their chapter
+ * page. Chapter anchors only: they encode course+lesson so they're unique,
+ * and they're what the old page's Share buttons actually emitted. Item-level
+ * anchors are NOT mapped — they aren't globally unique (every quiz was
+ * #wb-quiz, and a re-rendered prompt appears in two chapters).
  */
-function ChapterItems({
-  courseSlug,
-  chapter,
-}: {
-  courseSlug: string;
-  chapter: ChapterEntry;
-}) {
-  const media = chapter.items.filter((item) => item.kind === "media");
-  const rest = chapter.items.filter((item) => item.kind !== "media");
-  return (
-    <LessonProvider course={courseSlug} lesson={chapter.lesson}>
-      {rest.map((item) => {
-        const href = `${chapter.url}#${item.anchor}`;
-        switch (item.kind) {
-          case "note":
-            return (
-              <WorkbookPrompt
-                key={item.key}
-                id={item.id ?? ""}
-                prompt={item.label}
-                placeholder={item.placeholder}
-                rows={item.rows}
-              />
-            );
-          case "profile":
-            return (
-              <CheckIn
-                key={item.key}
-                id={item.id ?? ""}
-                question={item.label}
-                options={item.options ?? []}
-                multi={item.multi}
-                freeText={item.freeText}
-              />
-            );
-          case "checklist":
-            return (
-              <Checklist
-                key={item.key}
-                id={item.id ?? ""}
-                title={item.label}
-                items={item.items ?? []}
-              />
-            );
-          case "quiz":
-            return <WorkbookQuizRow key={item.key} item={item} href={href} />;
-          case "flashcards":
-            return (
-              <WorkbookFlashcardsRow key={item.key} item={item} href={href} />
-            );
-          case "calc":
-            return <WorkbookCalcRow key={item.key} item={item} href={href} />;
-          case "reading":
-            return (
-              <Reading
-                key={item.key}
-                id={item.id ?? ""}
-                title={item.label}
-                books={item.books ?? []}
-              />
-            );
-          default:
-            return null;
-        }
-      })}
-      <WorkbookMediaCluster items={media} url={chapter.url} />
-    </LessonProvider>
-  );
+function legacyAnchorMap(sections: CourseSection[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const section of sections) {
+    for (const chapter of section.chapters) {
+      for (const atom of chapter.atoms) {
+        map[`wb-ch-${section.slug}-${atom.lesson.replace(/\//g, "-")}`] =
+          `/workbook/${section.slug}/${chapter.slug}`;
+      }
+    }
+  }
+  return map;
 }
 
 export default async function WorkbookPage() {
@@ -229,27 +154,34 @@ export default async function WorkbookPage() {
   );
 
   // A course belongs in the workbook once the reader is enrolled OR has any
-  // saved answer for one of its items (free-lesson answers precede enrollment).
+  // saved answer for one of its items (free-lesson answers precede
+  // enrollment). Filter on the raw manifest BEFORE building sections — no
+  // tree walk for irrelevant courses — and require the course to be
+  // registered (getCourse), since the chapter routes 404 unregistered ones.
   const enrolled = new Set(enrollments.map((e) => e.courseSlug));
   const savedKeys = new Set(Object.keys(values));
   const sections = Object.keys(WORKBOOK_MANIFEST)
-    .map(buildCourseSection)
     .filter(
-      (section) =>
-        enrolled.has(section.slug) ||
-        section.items.some((item) => savedKeys.has(item.key)),
-    );
+      (slug) =>
+        getCourse(slug) &&
+        (enrolled.has(slug) ||
+          Object.values(WORKBOOK_MANIFEST[slug] ?? {})
+            .flat()
+            .some((item) => savedKeys.has(item.key))),
+    )
+    .map(buildCourseSection);
 
   return (
     <div className="mx-auto w-full max-w-3xl px-6 py-16">
+      <LegacyWorkbookHash map={legacyAnchorMap(sections)} />
       <h1 className="font-display text-3xl tracking-[-0.02em]">
         Your workbook
       </h1>
       <p className="mt-2 text-sm text-white/55 leading-6">
-        Every exercise your courses ask of you, in one place — completable start
-        to finish right here. Each chapter opens with what it covers and what
-        you'll produce; what you've written is editable in place, and everything
-        links back to the chapter it lives in.
+        Every exercise your courses ask of you, one chapter per page —
+        completable start to finish without opening a lesson. Videos play, decks
+        flip, and quizzes run right inside; everything you write is editable in
+        place.
       </p>
 
       {sections.length === 0 ? (
@@ -269,10 +201,12 @@ export default async function WorkbookPage() {
         <WorkbookStateProvider initial={values}>
           <div className="mt-10 flex flex-col gap-16">
             {sections.map((section) => {
+              const { done, total } = workbookProgress(section.items, values);
               const next = nextOpenItem(section, values);
+              const modules = groupByModule(section.chapters);
               return (
                 <section key={section.slug} id={`wb-${section.slug}`}>
-                  <div className="border-white/[0.08] border-b pb-4">
+                  <div className="border-white/[0.08] border-b pb-5">
                     <div className="flex items-baseline justify-between gap-3">
                       <h2 className="font-display text-white text-xl tracking-[-0.02em]">
                         {section.title}
@@ -284,12 +218,20 @@ export default async function WorkbookPage() {
                         Course overview →
                       </Link>
                     </div>
-                    <WorkbookCourseProgress items={section.items} />
+                    <div className="mt-3 flex items-baseline justify-between gap-3">
+                      <span className="text-sm text-white/50">
+                        {done} of {total} workbook items done
+                      </span>
+                      {done === total && total > 0 ? (
+                        <span className="text-good text-sm">Complete ✓</span>
+                      ) : null}
+                    </div>
+                    <ProgressBar value={done} max={total} className="mt-2" />
                     {next ? (
                       <p className="mt-3 text-sm text-white/55">
                         Continue where you left off:{" "}
                         <Link
-                          href={next.href}
+                          href={`/workbook/${section.slug}/${next.chapter.slug}#${next.item.anchor}`}
                           className="text-white/80 underline transition-colors hover:text-white"
                         >
                           {next.item.label.length > 80
@@ -297,65 +239,51 @@ export default async function WorkbookPage() {
                             : next.item.label}
                         </Link>{" "}
                         <span className="text-white/35">
-                          ({next.lessonTitle})
+                          (Chapter {next.chapter.num})
                         </span>
                       </p>
                     ) : null}
                   </div>
 
-                  <WorkbookJumpNav
-                    chapters={section.chapters.map((chapter) => ({
-                      anchor: chapter.anchor,
-                      num: chapter.num,
-                      items: chapter.items,
-                    }))}
-                  />
-
-                  <div className="mt-4 flex flex-col gap-12">
-                    {section.modules.map((courseModule) => (
-                      <div key={courseModule.name ?? "ungrouped"}>
-                        {courseModule.name ? (
+                  <div className="mt-8 flex flex-col gap-10">
+                    {modules.map((group) => (
+                      <div key={group.name ?? "ungrouped"}>
+                        {group.name ? (
                           <p className="font-medium text-[11px] text-accent uppercase tracking-[0.18em]">
-                            {courseModule.name}
+                            {group.name}
                           </p>
                         ) : null}
-                        <div className="mt-4 flex flex-col gap-10">
-                          {courseModule.chapters.map((chapter) => (
-                            <section
-                              key={chapter.lesson}
-                              id={chapter.anchor}
-                              className="scroll-mt-36"
-                            >
-                              <div className="flex items-baseline justify-between gap-3">
-                                <h3 className="min-w-0 font-medium text-base text-white tracking-[-0.01em]">
-                                  {chapter.title}
-                                </h3>
-                                <div className="flex shrink-0 items-baseline gap-3">
+                        <ol className="mt-3 flex flex-col gap-2">
+                          {group.chapters.map((chapter) => (
+                            <li key={chapter.slug}>
+                              <Link
+                                href={`/workbook/${section.slug}/${chapter.slug}`}
+                                className="group flex items-center gap-4 rounded-md border border-white/[0.08] bg-white/[0.015] px-4 py-3.5 transition-colors hover:border-white/25"
+                              >
+                                <span className="w-12 shrink-0 font-medium text-white/40 text-xs">
+                                  Ch {chapter.num}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-medium text-sm text-white/90 group-hover:text-white">
+                                    {chapter.title}
+                                  </span>
+                                  <span className="mt-0.5 block truncate text-white/40 text-xs">
+                                    {chapterSummary(chapter.items)}
+                                  </span>
+                                </span>
+                                <span className="shrink-0">
                                   <WorkbookChapterMeter items={chapter.items} />
-                                  <Link
-                                    href={chapter.url}
-                                    className="whitespace-nowrap text-sm text-white/50 underline transition-colors hover:text-white"
-                                  >
-                                    Revisit chapter →
-                                  </Link>
-                                  <CopyLinkButton
-                                    url={`/workbook#${chapter.anchor}`}
-                                    label="Share"
-                                  />
-                                </div>
-                              </div>
-                              {chapter.intro ? (
-                                <p className="mt-2 text-sm text-white/55 leading-6">
-                                  {chapter.intro}
-                                </p>
-                              ) : null}
-                              <ChapterItems
-                                courseSlug={section.slug}
-                                chapter={chapter}
-                              />
-                            </section>
+                                </span>
+                                <span
+                                  aria-hidden
+                                  className="shrink-0 text-white/30 transition-colors group-hover:text-white/70"
+                                >
+                                  →
+                                </span>
+                              </Link>
+                            </li>
                           ))}
-                        </div>
+                        </ol>
                       </div>
                     ))}
                   </div>
@@ -367,4 +295,21 @@ export default async function WorkbookPage() {
       )}
     </div>
   );
+}
+
+/** Chapters regrouped by their module label, preserving course order. */
+function groupByModule(
+  chapters: WorkbookChapter[],
+): Array<{ name: string | null; chapters: WorkbookChapter[] }> {
+  const groups: Array<{ name: string | null; chapters: WorkbookChapter[] }> =
+    [];
+  for (const chapter of chapters) {
+    const last = groups[groups.length - 1];
+    if (last && last.name === chapter.moduleName) {
+      last.chapters.push(chapter);
+    } else {
+      groups.push({ name: chapter.moduleName, chapters: [chapter] });
+    }
+  }
+  return groups;
 }

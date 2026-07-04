@@ -1,11 +1,23 @@
-// Generates lib/workbook-manifest.generated.json — the per-lesson inventory of
-// interactive blocks (WorkbookPrompt / CheckIn / Checklist / Quiz / Flashcards /
-// Calculator / VideoEmbed / PodcastLink) parsed straight from the course MDX. The manifest is what lets
-// the chapter callout, the end-of-chapter recap, and /workbook know which
-// answers COULD exist (and ghost the ones that don't yet), without shipping an
-// MDX parser to the server. Runs before build / check-types (see package.json),
-// so it can't drift from the content; it THROWS on any block it can't parse
-// rather than silently omitting it.
+// Generates TWO files from the course MDX in one parse:
+//
+// 1. lib/workbook-manifest.generated.json — the per-lesson inventory of
+//    interactive blocks (WorkbookPrompt / CheckIn / Checklist / Quiz /
+//    Flashcards / Calculator / VideoEmbed / PodcastLink). The manifest is what
+//    lets the chapter callout, the end-of-chapter recap, and /workbook know
+//    which answers COULD exist (and ghost the ones that don't yet), without
+//    shipping an MDX parser to the server. It is imported by CLIENT components
+//    (lib/workbook.ts), so it carries only light, public metadata — labels,
+//    counts, media titles/links — never paid chapter content.
+//
+// 2. lib/workbook-content.generated.json — the rich, PAID block content the
+//    workbook chapter pages re-render inline: flashcard decks, quiz question
+//    pools, calculator presets. Server-only (lib/workbook-content.ts guards it
+//    with `import "server-only"`); it must never be imported from a client
+//    module, or the whole course's paid content ships in the public JS bundle.
+//
+// Runs before build / check-types (see package.json), so neither file can
+// drift from the content; it THROWS on any block it can't parse rather than
+// silently omitting it.
 //
 // Keys mirror /api/responses exactly:
 //   note:<id> · profile:<id> · checklist:<id> · quiz:<course>/<lesson> · media:<id> · calc:<id> · reading:<id>
@@ -21,6 +33,7 @@ import { visit } from "unist-util-visit";
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const contentDir = join(appDir, "content/courses");
 const outFile = join(appDir, "lib/workbook-manifest.generated.json");
+const contentOutFile = join(appDir, "lib/workbook-content.generated.json");
 
 const parser = remark().use(remarkMdx);
 
@@ -55,10 +68,12 @@ function requireAttr(node, name, file) {
   return value;
 }
 
-/** One lesson MDX file → its ordered workbook items. */
+/** One lesson MDX file → its ordered workbook items (light manifest) plus the
+ *  rich block content (server-only file), keyed by item key. */
 function extractItems(filePath, course, lesson) {
   const tree = parser.parse(readFileSync(filePath, "utf8"));
   const items = [];
+  const rich = {};
 
   visit(tree, "mdxJsxFlowElement", (node) => {
     switch (node.name) {
@@ -114,13 +129,20 @@ function extractItems(filePath, course, lesson) {
       }
       case "Quiz": {
         const questions = requireAttr(node, "questions", filePath);
+        if (!Array.isArray(questions)) {
+          throw new Error(`${filePath}: <Quiz> questions is not an array`);
+        }
+        const title =
+          attr(node, "title", filePath) ?? "Check your understanding";
+        const key = `quiz:${course}/${lesson}`;
         items.push({
           kind: "quiz",
-          key: `quiz:${course}/${lesson}`,
+          key,
           anchor: "wb-quiz",
-          label: attr(node, "title", filePath) ?? "Check your understanding",
-          itemCount: Array.isArray(questions) ? questions.length : 0,
+          label: title,
+          itemCount: questions.length,
         });
+        rich[key] = { title, questions };
         break;
       }
       case "Flashcards": {
@@ -131,25 +153,31 @@ function extractItems(filePath, course, lesson) {
             `${filePath}: <Flashcards ${id}> cards is not an array`,
           );
         }
+        const title = attr(node, "title", filePath) ?? "Flashcards";
+        const key = `flashcards:${id}`;
         items.push({
           kind: "flashcards",
           id,
-          key: `flashcards:${id}`,
+          key,
           anchor: `wb-${id}`,
-          label: attr(node, "title", filePath) ?? "Flashcards",
+          label: title,
           itemCount: cards.length,
         });
+        rich[key] = { title, cards };
         break;
       }
       case "Calculator": {
         const id = requireAttr(node, "id", filePath);
+        const title = requireAttr(node, "title", filePath);
+        const key = `calc:${id}`;
         items.push({
           kind: "calc",
           id,
-          key: `calc:${id}`,
+          key,
           anchor: `wb-${id}`,
-          label: requireAttr(node, "title", filePath),
+          label: title,
         });
+        rich[key] = { preset: requireAttr(node, "preset", filePath), title };
         break;
       }
       case "Reading": {
@@ -171,6 +199,8 @@ function extractItems(filePath, course, lesson) {
       }
       case "VideoEmbed": {
         const id = requireAttr(node, "id", filePath);
+        const duration = attr(node, "duration", filePath);
+        const note = attr(node, "note", filePath);
         items.push({
           kind: "media",
           id,
@@ -178,11 +208,26 @@ function extractItems(filePath, course, lesson) {
           anchor: `wb-media-${id}`,
           label: requireAttr(node, "title", filePath),
           media: "video",
+          channel: requireAttr(node, "channel", filePath),
+          ...(duration ? { duration } : {}),
+          ...(note ? { note } : {}),
         });
         break;
       }
       case "PodcastLink": {
         const id = requireAttr(node, "id", filePath);
+        const optional = {};
+        for (const name of [
+          "guest",
+          "duration",
+          "note",
+          "spotify",
+          "youtube",
+          "apple",
+        ]) {
+          const value = attr(node, name, filePath);
+          if (value) optional[name] = value;
+        }
         items.push({
           kind: "media",
           id,
@@ -190,6 +235,8 @@ function extractItems(filePath, course, lesson) {
           anchor: `wb-media-${id}`,
           label: requireAttr(node, "title", filePath),
           media: "podcast",
+          show: requireAttr(node, "show", filePath),
+          ...optional,
         });
         break;
       }
@@ -198,7 +245,7 @@ function extractItems(filePath, course, lesson) {
     }
   });
 
-  return items;
+  return { items, rich };
 }
 
 /**
@@ -226,15 +273,19 @@ function walkLessons(dir, courseDir) {
 }
 
 const manifest = {};
+const content = {};
 for (const course of readdirSync(contentDir).sort()) {
   const courseDir = join(contentDir, course);
   if (!statSync(courseDir).isDirectory()) continue;
   const lessons = {};
+  const richLessons = {};
   for (const { lesson, filePath } of walkLessons(courseDir, courseDir)) {
-    const items = extractItems(filePath, course, lesson);
+    const { items, rich } = extractItems(filePath, course, lesson);
     if (items.length > 0) lessons[lesson] = items;
+    if (Object.keys(rich).length > 0) richLessons[lesson] = rich;
   }
   if (Object.keys(lessons).length > 0) manifest[course] = lessons;
+  if (Object.keys(richLessons).length > 0) content[course] = richLessons;
 }
 
 // Note: the same key MAY appear in more than one lesson on purpose — chapter 10
@@ -242,9 +293,16 @@ for (const course of readdirSync(contentDir).sort()) {
 // Display surfaces dedupe by key; the manifest records every render site.
 
 writeFileSync(outFile, `${JSON.stringify(manifest, null, 2)}\n`);
+writeFileSync(contentOutFile, `${JSON.stringify(content, null, 2)}\n`);
 const total = Object.values(manifest)
   .flatMap((lessons) => Object.values(lessons))
   .reduce((n, items) => n + items.length, 0);
+const richTotal = Object.values(content)
+  .flatMap((lessons) => Object.values(lessons))
+  .reduce((n, rich) => n + Object.keys(rich).length, 0);
 console.log(
   `workbook manifest: ${total} items across ${Object.keys(manifest).length} course(s) -> ${outFile}`,
+);
+console.log(
+  `workbook content: ${richTotal} rich blocks (server-only) -> ${contentOutFile}`,
 );
