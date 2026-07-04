@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
+import { AnnouncementBanner } from "@/components/announcement-banner";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { CodeHighlight } from "@/components/ds/code-highlight";
 import { CopyButton } from "@/components/ds/copy-button";
@@ -411,7 +412,7 @@ function PsHero() {
             DISPLAY,
           )}
         >
-          Build your growth in code.
+          Build your growth engine in code.
         </h1>
         <p className="mt-6 max-w-[640px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
           Lifecycle marketing as TypeScript in your repo — the welcome series,
@@ -3177,12 +3178,15 @@ function PsFrame() {
 
 export default function HomePage(): JSX.Element {
   return (
-    <main className="tracking-normal">
+    <main className="overflow-x-clip tracking-normal">
       <script
         type="application/ld+json"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD built from our own constants
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
+      {/* Notification bar (the live "chat to Doug" ticker) — shared with the
+          interior pages; sits above the sticky nav and scrolls away with it. */}
+      <AnnouncementBanner />
       <PsNav />
       <PsHero />
       <PsProofStrip />

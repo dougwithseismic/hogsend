@@ -16,7 +16,12 @@ import { DiscordMark, GitHubMark, InkLogo } from "./brand";
 /* The landing nav — the spike-polar 54px bar, now carrying the same surfaced
  * navigation as the interior SiteNav: the Use-cases and Recipes mega panels
  * (shared data + panel component, restyled trigger) plus the flat links and a
- * mobile panel (the old PsNav had NO links at all below md). */
+ * mobile panel (the old PsNav had NO links at all below md).
+ *
+ * This is the site-wide marketing nav. The homepage renders it `sticky top-0`
+ * (in flow, below its own hero); the interior marketing layout renders it
+ * `fixed` below the announcement banner (`fixed` prop) so the existing pages'
+ * top clearance (pt-32) keeps working with no per-page changes. */
 
 const FLAT_LINKS = [
   { label: "Templates", href: "/emails" },
@@ -28,7 +33,7 @@ const FLAT_LINKS = [
 const TRIGGER_CLASS =
   "font-medium text-white text-sm tracking-[-0.025em] transition-opacity hover:opacity-70";
 
-export function PsNav() {
+export function PsNav({ fixed = false }: { fixed?: boolean }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Close the mobile panel on Escape for keyboard accessibility.
@@ -42,7 +47,16 @@ export function PsNav() {
   }, [menuOpen]);
 
   return (
-    <header className="sticky top-0 z-50 border-[#f6483833] border-b bg-[#050101]/85 backdrop-blur">
+    <header
+      className={cn(
+        "z-50 border-[#f6483833] border-b bg-[#050101]/85 backdrop-blur",
+        // Homepage: sticky in flow. Interior marketing pages: fixed below the
+        // announcement banner (its height drives --fd-banner-height).
+        fixed
+          ? "fixed inset-x-0 top-[var(--fd-banner-height,0px)]"
+          : "sticky top-0",
+      )}
+    >
       <div className="mx-auto flex h-[54px] w-full max-w-[1256px] items-center justify-between px-6 md:px-10">
         <div className="flex items-center gap-8">
           <Link href="/">
