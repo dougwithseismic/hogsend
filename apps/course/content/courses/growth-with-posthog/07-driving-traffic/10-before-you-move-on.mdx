@@ -6,21 +6,22 @@ workbook: "Work the end-of-chapter checklist, then check your understanding with
 
 A few things worth doing while this chapter is fresh:
 
-1. **Settle whether paid social is even your channel** (§7.2). For a dev tool or
-   community product, the honest answer is usually "mostly no" — in which case Chapter
-   8 is where your energy goes, with paid kept to small tests.
-2. **Write down your per-channel CAC and payback** for whatever you're doing today
-   (§7.3), even roughly. A new channel can only be judged against a baseline, and most
-   teams discover they don't have one.
-3. If Meta is your channel: the **Meta Pixel** on your site (browser side) is step one…
-4. …and the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered to
-   conversion events, is step two — that's the dedup working for you.
-5. It's worth checking your conversions carry **email + `fbc` + `external_id`** — that's
-   what gets EMQ to 6 or higher, and EMQ is targeting quality.
-6. **One campaign** is the right amount to start with: a Sales/Leads objective, broad
-   audience, strong creative, optimising on the deepest event you can feed 50/week.
-7. And wherever you collect email, **opt-in consent** at that moment is what makes the
-   whole audience machine in §7.8 legal to run.
+1. **Settle whether paid social is even your channel.** For a dev tool or community
+   product the honest answer is usually *mostly no* — in which case the next chapter, on
+   owned audiences, is where your energy goes, with paid kept to small tests.
+2. **Write down your per-channel CAC and payback** for whatever you're doing today, even
+   roughly. A new channel can only be judged against a baseline, and most teams discover
+   they don't have one.
+3. **If Meta is your channel, get the dedup working.** The **Meta Pixel** on your site is
+   step one; the **PostHog → Meta Ads** destination with the **same Pixel ID**, filtered
+   to conversion events, is step two — together they're the deduplication working for you.
+4. **Check your conversions carry email, `fbc`, and `external_id`.** That's what lifts EMQ
+   (Meta's 0–10 match-quality score) to 6 or higher, and match quality is targeting
+   quality.
+5. **Start with one campaign, not five:** a Sales or Leads objective, a broad audience,
+   strong creative, optimising on the deepest event you can feed ~50 of a week.
+6. **Take opt-in consent at the moment you collect the email.** That's what makes the
+   whole audience machine this chapter described legal to run.
 
 With traffic flowing and honestly measured, the last piece is the one that compounds:
 turning that traffic into an audience you never have to pay to reach again.
@@ -164,5 +165,5 @@ turning that traffic into an audience you never have to pay to reach again.
 - [First Round — Retool's Path to Product-Market Fit](https://review.firstround.com/retools-path-to-product-market-fit-lessons-for-getting-to-100-happy-customers-faster/) — a real dev-tool's first-100-customers playbook, no paid ads in sight.
 - [First Round Review — Go-to-Market hub](https://review.firstround.com/articles/go-to-market/) — a library of channel and positioning essays worth raiding.
 - [Show HN — the official rules](https://news.ycombinator.com/showhn.html) — read before launching; the norms are the strategy.
-- [Meta — Conversions API docs](https://developers.facebook.com/docs/marketing-api/conversions-api/) — the primary source for §7.7.
+- [Meta — Conversions API docs](https://developers.facebook.com/docs/marketing-api/conversions-api/) — the primary source for the Pixel-and-CAPI mechanics.
 - [PostHog — Meta Ads destination](https://posthog.com/docs/cdp/destinations/meta-ads) — the managed CAPI path this course recommends.

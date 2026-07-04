@@ -1,28 +1,28 @@
 ---
 title: "Your conversion tracking is lying to you"
-description: "The Meta Pixel is browser-side JavaScript, and iOS ATT, Safari/Firefox cookie caps, ad blockers, and third-party-cookie death all break it — so it under-counts, and the algorithm optimises on the partial data it can still see."
+description: "The Meta Pixel is browser-side JavaScript, and App Tracking Transparency, Safari and Firefox cookie caps, ad blockers and third-party-cookie death all break it — so it under-counts, and Meta's algorithm optimises on the partial data it can still see."
 ---
 
-Here's the part that trips up everyone who just installs the Meta Pixel and trusts the
-numbers.
+The **Meta Pixel** is browser-side JavaScript — a snippet that fires from the user's
+browser and depends on cookies and the request actually completing — and that single fact
+is why the conversion numbers it reports are always an under-count. A stack of things now
+breaks it:
 
-The **Meta Pixel** is browser-side JavaScript. It fires from the user's browser and
-depends on cookies and the request actually completing. A stack of things now breaks
-that:
-
-- **iOS App Tracking Transparency** — most iOS users decline cross-app tracking *(opt-in
-  is commonly cited around 20–25%, varies a lot by source and region — directional)*.
-- **Safari/Firefox/Brave** cap or expire the cookies the Pixel relies on.
-- **Ad blockers** drop the Pixel outright for ~10–30% of users (the same blocking you
-  met in Chapter 3).
+- **iOS App Tracking Transparency (ATT)** — Apple's prompt that lets users refuse
+  cross-app tracking, and most iOS users decline it *(opt-in is commonly cited around
+  20–25%, though it varies a lot by source and region — directional)*.
+- **Safari / Firefox / Brave** cap or expire the cookies the Pixel relies on.
+- **Ad blockers** drop the Pixel outright for ~10–30% of users — the same blocking that
+  already eats into your client-side analytics.
 - **Third-party cookie deprecation** — the date keeps slipping, but the direction is
   certain.
 
 The result: the Pixel under-counts conversions, Meta's algorithm optimises on partial
-data, and your reported ROAS is wrong. You can't fix bid strategy on numbers that are
-quietly missing a third of reality. This is the same lesson as Chapter 3's ad-blocker
-section, now with money attached: browser-only measurement under-counts, and the fix is
-to move the important events server-side.
+data, and your reported ROAS (return on ad spend — revenue divided by what you spent to
+get it) is wrong. You can't fix bid strategy on numbers that are quietly missing a third
+of reality. It's the same lesson as client-side analytics loss, now with money attached:
+browser-only measurement under-counts, and the fix is to move the important events
+server-side.
 
 The knock-on effect is worse than bad reporting: **the algorithm optimises on what it
 sees.** If the Pixel disproportionately loses conversions from privacy-conscious,

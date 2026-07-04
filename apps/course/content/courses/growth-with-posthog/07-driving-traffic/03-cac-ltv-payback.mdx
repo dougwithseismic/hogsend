@@ -28,12 +28,13 @@ knowing your numbers and their trend. Two habits follow from that:
 - **CAC is most useful per channel, not blended.** A blended CAC averages your free
   organic users into the paid number, which can hide a channel that's quietly
   unprofitable. Blended CAC is a board metric; per-channel CAC is the operating one.
-  (Chapter 9's monthly ritual reviews blended CAC precisely to see whether
-  owned/referral growth is pulling it down over time.)
-- **LTV is worth segmenting by cohort and source.** Users from different channels
-  retain differently — paid-social users commonly churn faster than organic (they had
-  less intent). If paid cohorts' LTV is half your organic LTV, your real paid LTV:CAC
-  may be under water while the blended number looks fine.
+  Watching the blended figure fall over time is a useful signal in its own right — it
+  usually means owned and referral growth is pulling your average cost down.
+- **LTV is worth segmenting by cohort and source.** A **cohort** here is a group of
+  customers bucketed by when they signed up or where they came from, and users from
+  different sources retain differently — paid-social users commonly churn faster than
+  organic, having arrived with less intent. If paid cohorts' LTV is half your organic
+  LTV, your real paid LTV:CAC may be under water while the blended number looks fine.
 
 <VideoEmbed
   id="zo3QHrXiprs"
@@ -47,22 +48,25 @@ knowing your numbers and their trend. Two habits follow from that:
 
 **What to take from it:**
 
-- LTV falls out of ARPA and churn: average revenue per account ÷ churn rate, then taken
-  down to margin — a $100 ARPA at 10% monthly churn is a $1,000 lifetime value, which is
-  the ceiling on what you can spend to acquire that customer.
-- Track **gross** revenue retention (churn + contraction only), not just the flashier
-  net revenue retention — net can exceed 100% on expansion and quietly hide the bad news
+- LTV falls out of ARPA and churn: average revenue per account ÷ churn rate, taken down
+  to margin — a $100 ARPA at 10% monthly churn is a $1,000 lifetime value, the ceiling on
+  what you can spend to acquire that customer.
+- Track **gross** revenue retention (churn and contraction only), not just the flashier
+  net revenue retention, which can exceed 100% on expansion and quietly hide the bad news
   gross retention would show you.
-- MRR is not cash flow (a $1,200 annual deal is $100 of MRR), and segmenting churn and
-  CAC by customer size or source tells you far more than the blended number.
+- MRR (monthly recurring revenue) is not cash flow — a $1,200 annual deal is $100 of MRR —
+  and segmenting churn and CAC by customer size or source tells you far more than any
+  blended number.
 
-Where do the numbers come from? The machine you already built: revenue events are
-server-side in PostHog (Chapter 3), source/UTM landed as person properties (§7.8), so
-"LTV by acquisition source" is a PostHog insight, not a spreadsheet safari.
+Where do the numbers come from? The machine you already built: revenue events captured
+server-side in PostHog (the instrumentation chapter sets that up), and source plus UTM
+tags — the `utm_source`/`utm_medium` parameters on a campaign link — landed as person
+properties (the PostHog-feeding piece later shows how). So "LTV by acquisition source" is
+a PostHog insight, not a spreadsheet safari.
 
-Benchmarks are worth less than your own numbers, so put them in. Watch the payback
-figure most when cash is tight — a healthy LTV:CAC with a payback longer than your
-runway still sinks you.
+Benchmarks are worth less than your own numbers, so put them in. Watch the payback figure
+most when cash is tight — a healthy LTV:CAC with a payback longer than your runway still
+sinks you.
 
 <Calculator
   preset="cac-ltv-payback"

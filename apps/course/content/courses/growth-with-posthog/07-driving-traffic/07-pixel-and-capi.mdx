@@ -3,35 +3,33 @@ title: "The fix: Pixel and Conversions API"
 description: "The Conversions API sends events server-side, surviving ad blockers and cookie expiry — but Meta's guidance is both, deduplicated on a shared event_id. What server-side genuinely fixes, what it doesn't, and how EMQ scores your match quality."
 ---
 
-The **Conversions API (CAPI)** sends events **server-side** — from your server (or a
-tool/CDP) directly to Meta's endpoint, skipping the browser entirely. Because it never
-touches the user's browser, it survives ad blockers, cookie expiry, and failed Pixel
-loads.
+The **Conversions API (CAPI)** sends events **server-side** — from your server (or a tool
+such as a CDP, a customer data platform that collects and routes your events) directly to
+Meta's endpoint, skipping the browser entirely. Because it never touches the user's
+browser, it survives ad blockers, cookie expiry, and failed Pixel loads.
 
 Meta's own guidance is not "CAPI instead of Pixel" — it's **both, deduplicated.** You
-send the same event from the browser (Pixel) and the server (CAPI), and Meta merges
-them. Redundancy plus better matching.
+send the same event from the browser (Pixel) and the server (CAPI), and Meta merges them.
+Redundancy plus better matching.
 
-### What server-side **does** fix
+Server-side genuinely fixes three things. It **recovers web conversions** lost to ad
+blockers, to Safari's Intelligent Tracking Prevention (ITP — its system for capping and
+expiring tracking cookies), and to failed Pixel loads. It raises **match quality**,
+because your server holds the user's hashed email or phone that the browser often doesn't.
+And it lets you send **back-office conversions the browser never sees** — trial→paid,
+qualified-lead, refunds, LTV, offline events. That last one is the real prize: these are
+usually your *most valuable* conversions, and no pixel can see a single one of them.
 
-- Recovers web conversions lost to blockers, ITP, and failed Pixel loads.
-- **Higher match quality** — your server has the user's hashed email/phone that the
-  browser often doesn't.
-- Lets you send **back-office conversions the browser never sees**: trial→paid,
-  qualified-lead, refunds, LTV, offline events. This is huge — these are usually your
-  *most valuable* conversions, and the Pixel can't see any of them.
-
-### What server-side does **not** fix (worth being precise — this is where a lot of advice overpromises)
-
-- **It is not a consent loophole.** You still need a lawful basis to collect, hash, and
-  share user data (§7.9). A SHA-256-hashed email is **pseudonymous, not anonymous** —
-  same input, same hash, re-identifiable.
-- **It does not restore iOS *app-install* attribution.** That's governed by Apple's
-  SKAdNetwork plus Meta's Aggregated Event Measurement — aggregated, delayed, modelled,
-  *not* user-level. Web CAPI doesn't bring back per-user iOS attribution.
-- **It doesn't fix bad inputs.** CAPI with no email/phone/external_id matches poorly and
-  barely helps. Garbage in, garbage matched.
-- **It doesn't dedupe by magic** — see below.
+It's worth being precise about what server-side does *not* fix, because this is where a
+lot of advice overpromises. **It is not a consent loophole** — you still need a lawful
+basis to collect, hash and share user data (the consent piece is next), and a
+SHA-256-hashed email is **pseudonymous, not anonymous**: same input, same hash,
+re-identifiable. **It does not restore iOS *app-install* attribution** — that's governed
+by Apple's SKAdNetwork plus Meta's Aggregated Event Measurement, which is aggregated,
+delayed and modelled, *not* user-level, and web CAPI doesn't bring per-user iOS
+attribution back. **It doesn't fix bad inputs** — CAPI with no email, phone or
+external_id matches poorly and barely helps; garbage in, garbage matched. And it doesn't
+dedupe by magic, which is the next thing to get right.
 
 > ⚠️ **A dated claim you'll still run into: the AEM "8 prioritised events" limit.**
 > Meta removed the 8-event cap and manual configuration around **June 2025** and now
@@ -39,19 +37,16 @@ them. Redundancy plus better matching.
 > Older blogs and courses still teach the cap — if a guide mentions it, that's a good
 > sign the rest is stale too.
 
-### Deduplication (the thing people get wrong)
+**Deduplication is the thing people get wrong.** When an event goes out from both Pixel
+and CAPI, both copies need the **same `event_id`** (and a matching `event_name`) — Meta
+dedupes on `event_id` and counts it once. Without it, a hybrid setup **double-counts**
+conversions, corrupting the very ROAS it was built to measure. It's the single most
+common CAPI mistake, and it stays silent until you notice the numbers look too good.
 
-When an event goes out from both Pixel and CAPI, both copies need the **same
-`event_id`** (and matching `event_name`) — Meta dedupes on `event_id` and counts it
-once. Without it, a hybrid setup **double-counts** conversions, corrupting the very
-ROAS it was built to measure. This is the single most common CAPI mistake, and it's
-silent until you notice the numbers look too good.
-
-### Event Match Quality (EMQ)
-
-Meta scores each event source 0–10 on how well its data matches real Meta users. Aim
-for **6 or higher** (8+ is better). The score goes up with more and better identifiers,
-roughly weighted:
+The measure of how well all this lands is **Event Match Quality (EMQ)** — Meta's 0–10
+score for how well each event source's data matches real Meta users. Aim for **6 or
+higher** (8+ is better). The score climbs with more and better identifiers, roughly
+weighted:
 
 - **Strongest:** email, the click ID (`fbc`, from the `fbclid` on the landing URL),
   Facebook Login ID.
@@ -59,7 +54,8 @@ roughly weighted:
   user/contact id).
 - **Weaker:** name, city, IP, user agent.
 
-All PII must be normalised (trim, lowercase) and **SHA-256 hashed** before sending. The
-way to raise EMQ is to **feed CAPI from where you actually have identity** — your
-backend/CRM, which holds the email and phone the browser never sees. Which is exactly
-where PostHog and Hogsend come in.
+All PII (personally identifiable information — email, phone, name) must be normalised
+(trim, lowercase) and **SHA-256 hashed** before sending. The way to raise EMQ is to
+**feed CAPI from where you actually have identity** — your backend or CRM, which holds
+the email and phone the browser never sees. Which is exactly where PostHog and Hogsend
+come in.
