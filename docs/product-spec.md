@@ -388,7 +388,7 @@ export const activationWelcome: JourneyDefinition = {
       action: {
         type: "send_email",
         templateKey: "activation/welcome",
-        subject: "Welcome to RACEMAKE — your first lap in 5 minutes",
+        subject: "Welcome to Acme — your first lap in 5 minutes",
       },
       next: "wait_48h",
     },
@@ -669,8 +669,8 @@ export const WelcomeEmail = ({ userName, trackingPixelUrl, unsubscribeUrl }: Wel
     <Body>
       <Container>
         <Text>Hey {userName},</Text>
-        <Text>Welcome to RACEMAKE. Let's get your first lap recorded.</Text>
-        <Button href="https://racemake.com/setup">Get Started</Button>
+        <Text>Welcome to Acme. Let's get your first lap recorded.</Text>
+        <Button href="https://example.com/setup">Get Started</Button>
         <Text style={{ fontSize: "12px", color: "#666" }}>
           <a href={unsubscribeUrl}>Unsubscribe</a>
         </Text>
@@ -996,7 +996,7 @@ journey_engine.errors.count — action failures per hour
 | 11 | PostHog event push-back (close the loop) |
 | 12 | Admin/debug API endpoints |
 | 13 | First 3 React Email templates (welcome, pitgpt explainer, community) |
-| 14 | Activation welcome journey live on RACEMAKE |
+| 14 | Activation welcome journey live on Acme |
 
 Post-launch:
 - Week 3: PB celebration + reactivation journeys
