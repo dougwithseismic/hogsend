@@ -10,25 +10,29 @@ experiment is optimising, agreed up front. One metric, chosen in advance, is wha
 the after-the-fact hunt for whichever number happens to look good.
 
 The trap is watching everything. If you track fifteen metrics and declare victory when
-*any* of them is up, you'll "win" almost every test — some metric is always up by chance
-(§12.6). More metrics feels more rigorous; it's the opposite.
+*any* of them is up, you'll "win" almost every test — some metric is always up by chance.
+More metrics feels more rigorous; it's the opposite.
 
 But you can't watch *only* the primary metric, because a change that lifts your target can
 quietly wreck something else. That's what **guardrail metrics** are for: a short list of
 things the test is not allowed to break, whatever it does to the primary. Common
 guardrails are revenue, unsubscribe/opt-out rate, latency and error rates, support
-tickets, and core retention. A new onboarding flow that lifts activation but doubles the
-unsubscribe rate hasn't won — the guardrail caught a bad trade before you shipped it.
+tickets, and core retention. A new onboarding flow that lifts **activation** — the share
+of new users who reach first real value — but doubles the unsubscribe rate hasn't won; the
+guardrail caught a bad trade before you shipped it.
 
 Two more properties of a good primary metric:
 
 - **Sensitive enough to move.** Revenue and 30-day retention are true but slow — they
-  barely budge inside a two-week test (§12.4). Pick a leading indicator you can actually
-  detect moving: activation rate, a key action in week one, the step-completion you're
-  targeting.
-- **Tied to the hypothesis.** The primary metric is the "measured by" slot from §12.2. If
-  the change is about onboarding, the primary metric is an onboarding metric — not a
-  downstream number the change only touches faintly, where any movement is mostly noise.
+  barely budge inside a two-week test. Pick a leading indicator you can actually detect
+  moving: activation rate, a key action in week one, the step-completion you're targeting.
+- **Tied to the hypothesis.** The primary metric is the "measured by" slot of your
+  hypothesis. If the change is about onboarding, the primary metric is an onboarding metric
+  — not a downstream number the change only touches faintly, where any movement is mostly
+  noise.
+
+One metric that decides, a few that protect: that's the whole discipline, and it's worth
+writing down before the test starts rather than after the result tempts you.
 
 <WorkbookPrompt
   id="ch12-primary-metric"
