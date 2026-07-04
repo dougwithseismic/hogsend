@@ -4,60 +4,70 @@ description: "Once it's built, the machine runs on a rhythm, not on heroics — 
 workbook: "The daily/weekly/monthly rhythm that turns the system from a project into an operation — watch the culture-of-experimentation talk, then lock the key ideas with the flashcards."
 ---
 
-Once it's built, it runs on a rhythm, not on heroics. This is the ritual that makes you
-a growth *team* rather than a team that did a growth project once (Chapter 0). The
-principle — [Reforge calls it your operating
-cadence](https://www.reforge.com/blog/operating-cadence) — is that the *rhythm* of
-looking is itself a designed system: decide in advance what gets read daily, weekly,
-and monthly, and by whom, so attention stops depending on anyone's memory.
+Once it's built, it runs on a rhythm, not on heroics. This is the ritual that turns a
+one-off growth project into a growth *team* — a team that keeps looking, not one that
+looked once. The principle — [Reforge calls it your operating
+cadence](https://www.reforge.com/blog/operating-cadence) — is that the *rhythm* of looking
+is itself a designed system: decide in advance what gets read daily, weekly, and monthly,
+and by whom, so attention stops depending on anyone's memory.
 
-**Daily (2 minutes).** The daily job is *noticing*, not analysing: a glance at the
-Slack alerts, the activation funnel, and the active-users trend — and the dashboard
-itself only if an alert fired. If the daily glance regularly takes more than five
-minutes, that's usually a sign the alerts need tuning, not that you need more
-discipline.
+**Daily (2 minutes).** The daily job is *noticing*, not analysing: a glance at the Slack
+alerts, the activation funnel, and the active-users trend — and the dashboard itself only
+if an alert fired. If the daily glance regularly takes more than five minutes, that's
+usually a sign the alerts need tuning, not that you need more discipline.
 
-**Weekly (30 minutes, the growth review).** The one meeting this course asks you to
-hold, and it has a fixed agenda — a compressed version of the weekly growth meeting
-[Brian Balfour has documented](https://brianbalfour.com/essays/growth-meeting) from
-running growth at HubSpot and Reforge:
+**Weekly (30 minutes, the growth review).** The one meeting this course asks you to hold,
+and it has a fixed agenda — a compressed version of the weekly growth meeting [Brian
+Balfour has documented](https://brianbalfour.com/essays/growth-meeting) from running growth
+at HubSpot and Reforge:
 
-1. **Metrics read (10 min).** The retention curve and lifecycle chart — is growth real
-   or churn-and-replace? North Star vs last week. Anomalies get noted and assigned an
-   owner rather than debugged live; group debugging is how a 30-minute meeting becomes
-   a 2-hour one.
-2. **Journeys and spend (10 min).** Each live journey's send volume and holdout lift;
-   ad performance — cost per conversion, EMQ, which audiences are working. This is
-   where kill-or-scale decisions get made, out loud.
-3. **Experiments (10 min).** What finished (result and learning, a sentence each),
-   what launches next from the top of the backlog (the experimentation program), and
-   what's blocked.
+1. **Metrics read (10 min).** The retention curve and the **lifecycle chart** — PostHog's
+   weekly breakdown of how many users are new, returning, dormant or resurrecting — answer
+   one question: is growth real, or just churn-and-replace? Then your **North Star**, the
+   single metric that best tracks the value you deliver, read against last week. Anomalies
+   get noted and assigned an owner rather than debugged live; group debugging is how a
+   30-minute meeting becomes a 2-hour one.
+2. **Journeys and spend (10 min).** Each live journey's send volume and its **holdout
+   lift** — the extra activation or retention it causes, measured against a held-back
+   control group. Then ad performance: cost per conversion, **EMQ** (Event Match Quality —
+   Meta's score for how well your conversion data resolves to a real person), and which
+   audiences are working. This is where kill-or-scale decisions get made, out loud.
+3. **Experiments (10 min).** What finished (result and learning, a sentence each), what
+   launches next from the top of the scored backlog, and what's blocked.
 
 The discipline that makes the meeting work: it reviews **learnings and decisions**, not
 status. "The welcome-nudge holdout shows +4 points activation, we're keeping it and
-removing the day-5 email" is a growth review; "we sent 3,400 emails this week" is
-theatre.
+removing the day-5 email" is a growth review; "we sent 3,400 emails this week" is theatre.
 
 Two habits tend to close the weekly loop well. Ending the week with **3–5 session
-replays** of the biggest drop-off gives you the qualitative *why* behind the
-quantitative *where* (Chapter 4). And **writing the week's one learning down**
-somewhere permanent is cheaper than it looks — a learning that lives in one person's
+replays** — recordings of real user sessions — of the biggest drop-off gives you the
+qualitative *why* behind the quantitative *where*. And **writing the week's one learning
+down** somewhere permanent is cheaper than it looks — a learning that lives in one person's
 head is one the team usually pays to re-discover six months later.
 
 **Monthly (an hour).** Zoom out to the questions that are too slow to see weekly:
 
-- The **activation metric** — is it still the best predictor of retention? Chapter 2's
-  correlation-then-experiment method is there whenever you're unsure.
-- **Incremental lift** from the lifecycle program (global holdout) — the number that
+- The **activation metric** — is it still the best predictor of retention? The way to check
+  is the method that first proved it: correlate the candidate behaviour against retention,
+  then run an experiment to confirm it *causes* the retention rather than merely
+  accompanying it.
+- **Incremental lift** from the lifecycle program, measured against a **global holdout** (a
+  slice of users held out of every journey, so the baseline stays honest) — the number that
   justifies the whole Keep phase to anyone who asks.
-- **Blended CAC** and the referral loop's contribution. Is growth getting cheaper as
-  the owned audience grows? That's Chapter 8's flywheel, showing up in the finances.
-- **Pruning.** Journeys with no lift, events no one queries, ad sets that don't
-  convert — a growth system accretes cruft exactly like a codebase, and a monthly
-  prune keeps it legible.
+- **Blended CAC** — your customer-acquisition cost averaged across every channel — and the
+  referral loop's contribution to it. Is growth getting cheaper as the owned audience
+  grows? That compounding, where a denser owned audience makes each new user cheaper to
+  reach, is the flywheel the whole Grow phase exists to start — and this is where it shows
+  up, in the finances.
+- **Pruning.** Journeys with no lift, events no one queries, ad sets that don't convert — a
+  growth system accretes cruft exactly like a codebase, and a monthly prune keeps it
+  legible.
 
 The cadence is the point. A growth system that's checked on a rhythm survives a busy
-quarter; one that depends on someone remembering to look does not.
+quarter; one that depends on someone remembering to look does not. Andrew Capland — who
+ran growth at Wistia — has watched teams build exactly this rhythm and lose it, and his
+talk is about the drift: how a weekly ritual decays back into shipping without learning,
+and what keeps it alive:
 
 <VideoEmbed
   id="6nkAn0xDNG4"
@@ -70,15 +80,15 @@ quarter; one that depends on someone remembering to look does not.
 
 **What to take from it:**
 
-- Culture change is an artifact, not a pep talk: write an operating manual and a short
-  list of team values — "we experiment to find what works" first — and *launch* it
-  internally like a feature so the team knows the rhythm is real.
-- The cadence is where it lives or dies: reinforce it in the weekly planning meeting
-  and 1:1s ("where did you get to question how we've always done things this week?"),
-  so it's a standing question, not a one-time talk.
-- Lead by dogfooding failure: a leader who stands up and shares an experiment where
-  their own hypothesis was flat wrong gives the team permission to run tests that don't
-  pan out — which is the whole point of tempo.
+- Culture change is an artifact, not a pep talk — write the operating manual and a short
+  list of team values, then *launch* it internally like a feature so everyone knows the
+  rhythm is real.
+- The cadence lives or dies in the small rituals: keep "where did you get to question how
+  we've always done things this week?" a standing line in planning and 1:1s, not a one-time
+  speech.
+- Lead by dogfooding failure — a leader who shares an experiment where their own hypothesis
+  was flat wrong gives the team permission to run tests that don't pan out, which is the
+  whole point of tempo.
 
 <Flashcards
   id="cards-operating-system"

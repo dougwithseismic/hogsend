@@ -1,26 +1,47 @@
 ---
 title: "The patterns that undo it"
-description: "Every team that builds this system brushes against the same failure modes. Here they are by name, each linked back to the chapter with the escape route."
+description: "Every team that builds this system brushes against the same handful of failure modes — the predictable ways a good machine quietly stops working, each named, with the escape route taught alongside it."
 ---
 
-Every team that builds this system brushes against the same failure modes. It's worth
-knowing them by name — each one links back to the chapter with the escape route:
+Every team that builds this system brushes against the same handful of failure modes —
+not exotic ones, but the predictable ways a good machine quietly stops working. Naming
+them is half the defence, because the escape route for each is something you already have
+in hand:
 
-- **Scaling acquisition into a leaky bucket** (Ch 2). The most expensive of the set —
-  retention work first is the escape.
-- **Chasing someone else's magic number** (Ch 2). The famous activation numbers are
-  rally cries, not physics; the correlation-then-experiment method finds *yours*.
-- **Building event names dynamically** (Ch 3). One of the quickest ways to ruin an
-  analytics setup — one fixed event with variables in properties keeps it queryable.
-- **Installing analytics and never looking** (Ch 0, Ch 4). The dashboard graveyard.
-  Measurement without a ritual and without action ends up as theatre.
-- **Experiment theatre** (the experimentation program). Underpowered tests
-  "validating" decisions already made, wins nobody could reproduce, losers never
-  written down. Tempo counts learnings, not launches.
-- **Trusting the Pixel alone** (Ch 7). It under-counts by a third or more; Pixel *and*
-  CAPI, deduped, fed from where you have identity, is the reliable shape.
-- **Treating server-side as a consent loophole** (Ch 7). Hashed email is pseudonymous,
-  not anonymous — consent still needs capturing.
-- **Measuring opens instead of lift** (Ch 5). Opens don't prove causation; holdouts do.
-- **Renting your whole audience** (Ch 8). Identity captured into owned channels is
-  what saves you from paying to reach the same person twice.
+- **Scaling acquisition into a leaky bucket.** The most expensive mistake of the set:
+  pouring paid traffic into a product that loses users about as fast as it wins them. The
+  escape is order — fix retention first, so the users you buy actually stay long enough to
+  pay you back.
+- **Chasing someone else's magic number.** "Add seven friends in ten days" was *Facebook's*
+  activation threshold, not a law of nature. Find your own by correlating candidate
+  behaviours against retention and confirming the winner with an experiment; a borrowed
+  number is a rally cry, not physics.
+- **Building event names dynamically.** Generating event names on the fly —
+  `clicked_button_blue`, `clicked_button_red` — is one of the quickest ways to ruin an
+  analytics setup, because nothing stays queryable. One fixed event (`button_clicked`) with
+  the colour in a property keeps every chart intact.
+- **Installing analytics and never looking.** The **dashboard graveyard** — a beautifully
+  instrumented product nobody opens. Measurement without a ritual to act on it is theatre;
+  the operating cadence, a rhythm of who reads what and when, is what keeps the dashboard
+  from going quiet.
+- **Experiment theatre.** Underpowered tests "validating" a decision already made, wins
+  nobody can reproduce, losers never written down. The fix is counting learnings rather
+  than launches, and being honest about what your sample size can actually detect.
+- **Trusting the Pixel alone.** The browser **Pixel** — Meta's client-side tracking
+  snippet — is blocked or lost for a third of users or more, so it under-counts conversions
+  badly. The reliable shape is Pixel *and* **CAPI** (Meta's server-side Conversions API,
+  which reports conversions straight from your backend), deduplicated, and fed from wherever
+  you actually hold identity.
+- **Treating server-side as a consent loophole.** Sending conversions from your server
+  doesn't sidestep privacy law: a hashed email is *pseudonymous*, not anonymous, so consent
+  still has to be captured before you send it.
+- **Measuring opens instead of lift.** An email open doesn't prove the email caused
+  anything — plenty of those users would have come back regardless. Only a **holdout**, a
+  comparable group you deliberately don't message, tells you the journey's real effect.
+- **Renting your whole audience.** If every user lives only on someone else's platform, you
+  pay again each time you want to reach them. Capturing identity into channels you own —
+  email, Discord, Telegram — is what turns a rented audience into one you can reach for
+  free.
+
+None of these is exotic; each is just the system run with one of its disciplines skipped.
+The machine rarely breaks loudly — it drifts, one dropped habit at a time.

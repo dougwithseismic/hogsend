@@ -1,18 +1,21 @@
 ---
 title: "The whole thing, in one loop"
-description: "Everything in this course is a single loop with the identity graph at its hub — measure to see the leaks, keep users so the bucket holds, then drive traffic into an audience you own. Read as one sentence."
+description: "Everything in this course is a single loop with the identity graph at its hub — measure to see the leaks, keep users so the bucket holds, then drive traffic into an audience you own. Read it as one sentence."
 ---
 
-Everything in this course is one loop with the **identity graph** at its hub:
+Everything in this course is a single loop, and the **identity graph** sits at its hub —
+the linked record of who each person is across email, Discord, Telegram and the anonymous
+session they first arrived in. Every arm of the loop either writes to that graph or reads
+back from it:
 
 ```
         ┌─────────────────────────────────────────────────────────┐
         │                                                         │
-   drive traffic (Ch 7)                                           │
+   drive traffic                                                  │
    ads · content · community                                      │
         │                                                         │
         ▼                                                         │
-   capture identity (Ch 8)          measure everything (Ch 1–4)   │
+   capture identity                 measure everything            │
    email verify · link Discord  ───► PostHog: funnels, retention  │
    /Telegram · perks for linking     the daily dashboard          │
         │                                  │                      │
@@ -22,19 +25,21 @@ Everything in this course is one loop with the **identity graph** at its hub:
    └──────────────────┬───────────────────┘                      │
                       │                                           │
                       ▼                                           │
-   keep them (Ch 5–6)                                             │
+   keep them                                                      │
    lifecycle journeys in Hogsend ──► fire conversions + audiences ┘
-   welcome · nudge · win-back ·       back to the ads (Ch 7)
-   dunning · referral                 → referrals lower CAC (Ch 8)
+   welcome · nudge · win-back ·       back to the ads
+   dunning · referral                 → referrals lower CAC
 ```
 
-Read it as a sentence: **you measure so you can see the leaks; you keep users with
-lifecycle journeys so the bucket holds; then you drive traffic and capture every visitor
-into an audience you own; that audience feeds better ads and a referral loop, which
-lowers your cost of growth — and the whole thing is measurable because every step fires
-an event.**
+Read it as one sentence: **you measure so you can see the leaks; you keep users with
+lifecycle journeys — welcome, nudge, win-back, dunning (the automated recovery of failed
+payments), referral — so the bucket holds; then you drive traffic and fold every visitor
+into an audience you own; that audience feeds better ads and a referral loop, which lowers
+your customer-acquisition cost (CAC — what you pay to win one user); and the whole thing
+stays measurable because every step fires an event.**
 
-The reason the order is *measure → keep → grow* and not the reverse is the leaky bucket
-(Chapter 2). Acquisition is the last lever because it's the one that wastes the most
-money when the bucket leaks and pays back the most when it doesn't. That single ordering
-decision, agreed by the team back in Chapter 0, is the most valuable thing in the course.
+The order runs *measure → keep → grow*, and never the reverse, because of the **leaky
+bucket** — a product that loses users about as fast as it wins them. Acquisition is the
+last lever precisely because it wastes the most money while the bucket leaks and pays back
+the most once it doesn't. Agreeing that order as a team, before anyone spends a pound on an
+ad, is the single most valuable decision in the course.
