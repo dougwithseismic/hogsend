@@ -1,17 +1,14 @@
 ---
 title: "PostHog Workflows vs Hogsend"
-description: "This wouldn't be a Hogsend course without talking about Hogsend — this is where it earns its place. What Hogsend is, why it makes PostHog dramatically better for teams that live in code, and how it splits from PostHog's own no-code messaging product."
+description: "What Hogsend is — a code-first lifecycle engine — why it makes PostHog dramatically better for teams that live in code, and how it splits from PostHog's own no-code messaging product."
 ---
 
-This wouldn't be a Hogsend course without us talking about Hogsend — and this is the piece
-where it earns its place. So, quickly: **Hogsend is a code-first lifecycle &
-marketing-automation engine.** You write your onboarding emails, drip campaigns, and
-Discord/Telegram nudges as TypeScript *journeys* that live in your repo, run on your own
-infrastructure, and are triggered by the same PostHog events you're already capturing. It's
-what makes PostHog **dramatically better for growth teams that live in code**: the
-measurement stays in PostHog, and Hogsend turns those measurements into action you can
-version, code-review, and trust. With that on the table, here's why the course pairs the
-two rather than using PostHog's own messaging layer.
+**Hogsend is a code-first lifecycle & marketing-automation engine.** You write your
+onboarding emails, drip campaigns, and Discord/Telegram nudges as TypeScript *journeys*
+that live in your repo, run on your own infrastructure, and are triggered by the same
+PostHog events you're already capturing. It's what makes PostHog **dramatically better
+for growth teams that live in code**: the measurement stays in PostHog, and Hogsend turns
+those measurements into action you can version, code-review, and trust.
 
 PostHog has its own messaging product (PostHog Workflows, formerly the open-source
 Laudspeaker). It's a no-code canvas for marketers, and it's good at what it does:
@@ -27,7 +24,7 @@ batch sends and simple drip campaigns targeted on PostHog data.
 
 This course pairs PostHog with **Hogsend** instead, for the lifecycle layer, because
 the audience here is people who build, and because the messaging layer is where the
-"owned by the people who build" principle from Chapter 0 actually bites. The split is
+"owned by the people who build" principle actually bites. The split is
 deliberate:
 
 | | PostHog Workflows | Hogsend |
@@ -44,8 +41,8 @@ The clean division of labour, which the rest of the course follows:
 - **Hogsend acts** — the journeys that send the emails and Discord/Telegram messages,
   triggered by events, with the results fired back as events PostHog can measure.
 
-To make "code-first" concrete before Chapter 6 builds it properly — this is a real
-journey shape, abbreviated:
+To make "code-first" concrete before the lifecycle chapter builds it properly — this is
+a real journey shape, abbreviated:
 
 ```ts
 defineJourney({
@@ -68,6 +65,6 @@ canvas — then picture the version with three more branches. That divergence is
 whole argument, and it compounds with every condition you add.
 
 You don't have to choose one forever. The point is that the *measurement* lives in
-PostHog and the *code-first lifecycle automation* lives in Hogsend — and Chapters 5 and 6
-are entirely about why a code-first journey beats a flowchart once your logic gets real
-(behavioural branching, exact-once sends, holdouts you can prove).
+PostHog and the *code-first lifecycle automation* lives in Hogsend — and the lifecycle
+chapters are entirely about why a code-first journey beats a flowchart once your logic
+gets real (behavioural branching, exact-once sends, holdouts you can prove).

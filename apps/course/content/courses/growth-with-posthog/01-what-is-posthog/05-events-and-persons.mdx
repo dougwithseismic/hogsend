@@ -7,8 +7,8 @@ Everything in PostHog hangs off **events** (a thing that happened) attached to a
 **person** (who it happened to). "User signed up", "project created", "page viewed" —
 each is an event with properties, tied to a person
 ([capture docs](https://posthog.com/docs/product-analytics/capture-events)). Get those
-two things right and every chart in the product just works. Chapter 3 is about getting
-them right.
+two things right and every chart in the product just works. The instrumentation chapter
+is about getting them right.
 
 This sounds obvious, but it's the exact place where **web analytics and product
 analytics part ways**, and the reason "we already have Google Analytics" isn't an
@@ -26,7 +26,7 @@ about what each is for).
 
 For a growth team, events are also the team's **shared language**. "Activated" stops
 being a vibe and becomes `project_created` fired within seven days of signup. When
-everyone names the same events the same way, the dashboard, the lifecycle journeys
-(Chapter 6), and the ad conversions (Chapter 7) all speak to each other for free. The
-event taxonomy you set up in Chapter 3 is, quietly, the most important architectural
-decision in the whole course.
+everyone names the same events the same way, the dashboard, the lifecycle journeys,
+and the ad conversions all speak to each other for free. The event taxonomy you set up
+in the instrumentation chapter is, quietly, the most important architectural decision in
+the whole course.

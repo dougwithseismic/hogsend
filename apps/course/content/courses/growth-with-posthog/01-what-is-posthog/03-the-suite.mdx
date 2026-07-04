@@ -14,21 +14,22 @@ each piece does for a growth team specifically:
   of the course — it's where you find the leaks.
 - **Web Analytics** — a Google-Analytics-style dashboard (visitors, sessions, bounce
   rate, channels, geography) sitting on the same data, with far less setup. The
-  marketing-site view, for the acquisition numbers in Chapter 2.
+  marketing-site view, for the acquisition numbers.
 - **Session Replay** — watch real user sessions play back, with console logs and
   network requests captured ([docs](https://posthog.com/docs/session-replay)). This is
   how you find the *why* behind a drop-off — the qualitative layer under the quantitative
   funnel. Five minutes of replay beats an hour of staring at a chart.
 - **Feature Flags** — turn features on/off for a percentage of users or a targeted
-  cohort, without deploying ([docs](https://posthog.com/docs/feature-flags)). The "ship
-  behind a flag" half of the growth-as-engineering loop (Chapter 0).
+  **cohort** (a saved group of users defined by shared traits or behaviour — everyone on
+  the paid plan, say), without deploying ([docs](https://posthog.com/docs/feature-flags)).
+  The "ship behind a flag" half of the growth-as-engineering loop.
 - **Experiments (A/B testing)** — built on feature flags; measures whether a change
   actually moved a metric, with statistical significance
   ([docs](https://posthog.com/docs/experiments)). This is how a hypothesis becomes a
   *measured* result rather than a hunch — and the instrument behind the experimentation
-  program you'll run in Chapter 9.
-- **Surveys** — in-app surveys (NPS, feedback) targeted at specific users. The cheapest
-  way to get the *why* straight from the user.
+  program you'll run in the experiments chapter.
+- **Surveys** — in-app surveys — NPS (Net Promoter Score) and open feedback — targeted
+  at specific users. The cheapest way to get the *why* straight from the user.
 - **Error Tracking** — captures exceptions, groups them into issues, and links each
   one to the session where it happened. Production health that's joined to behaviour.
 - **LLM Analytics** — PostHog's headline 2026 product: traces of individual LLM calls
@@ -36,11 +37,11 @@ each piece does for a growth team specifically:
   AI features and need to see what they cost per user.
 - **Data Warehouse** — connect external sources (Stripe, HubSpot, your database) and
   join them to your event data with SQL. This is how revenue from Stripe meets behaviour
-  from your app without a separate ETL tool.
-- **Data Pipelines (CDP)** — *Sources* (managed ingestion), *Destinations* (send your
-  events out to Snowflake, ad platforms, Slack, a CRM), and *Transformations* (clean
-  or enrich events in flight). You'll use a Destination in Chapter 7 to send
-  conversions to Meta.
+  from your app without a separate ETL (extract, transform, load) tool.
+- **Data Pipelines (CDP, a customer data platform)** — *Sources* (managed ingestion),
+  *Destinations* (send your events out to Snowflake, ad platforms, Slack, a CRM), and
+  *Transformations* (clean or enrich events in flight). You'll use a Destination in the
+  ads chapter to send conversions to Meta.
 - **PostHog AI ("Max")** — an in-product assistant that answers questions in plain
   language, writes SQL for you, and builds insights. Useful when you don't yet know
   the query language, which is most people on day one.
