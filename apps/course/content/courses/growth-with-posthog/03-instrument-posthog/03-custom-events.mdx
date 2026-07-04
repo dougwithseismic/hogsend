@@ -29,9 +29,10 @@ client.capture({
 
 If you're wondering where a given event should fire, one question settles most cases:
 is it money- or decision-critical? **Signup, activation, subscription, purchase — these
-belong on your backend, not in the browser.** It's more reliable (no dropped requests)
-and, as §3.7 explains, ad blockers can't touch it. UI interactions and journey steps
-can stay client-side, where some loss is acceptable.
+belong on your backend, not in the browser.** It's more reliable (no dropped requests),
+and because a request fired from your server never reaches the user's browser, ad
+blockers can't touch it. UI interactions and journey steps can stay client-side, where
+some loss is acceptable.
 
 A worked example of why this matters. The naive place to fire `subscription_started`
 is the checkout success page. But users close the tab before the redirect lands, the
@@ -63,4 +64,5 @@ This server-side rule is also the seam where Hogsend lives: the same backend eve
 that you send to PostHog can be sent to Hogsend's ingest endpoint to trigger lifecycle
 journeys. One event, two consumers — PostHog measures it, Hogsend acts on it. Designing
 your important events as *server-side* from the start means you get accurate analytics and
-ad-blocker-proof journey triggers from the same line of code (Chapter 6).
+ad-blocker-proof journey triggers from the same line of code (the lifecycle chapters
+turn those triggers into real journeys).

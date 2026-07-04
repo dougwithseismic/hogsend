@@ -66,12 +66,10 @@ posthog.capture("user_signed_up", {
 });
 ```
 
-Two things that tend to get forgotten:
-
-- **`posthog.reset()` on logout.** Without it, the next person on a shared machine
-  gets merged into the previous user's profile — and merges don't cleanly undo.
-- **`$set_once` checks whether the key exists, not which event is newest.** With
-  out-of-order delivery, the first event *ingested* wins.
+One subtlety hides inside `$set_once`: it checks whether the key already *exists*, not
+which event is newest. So with out-of-order delivery, the first event *ingested* wins —
+not the earliest one that actually happened. Reach for it only on facts that are truly
+write-once, like a signup date.
 
 ### The cost lever: anonymous vs identified
 
@@ -85,9 +83,9 @@ The `person_profiles` setting controls this:
   need person data on everything.
 
 For a typical SaaS, `identified_only` is the sane default and can cut your bill
-significantly. It's the single biggest cost decision in the whole setup (Chapter 1,
-§1.5), and it's much easier to set on day one than to untangle later — which is why
-it's in the very first code sample of this chapter.
+significantly. It's the single biggest cost decision in the whole setup — the PostHog
+pricing piece lays out the billing model behind it — and it's much easier to set on day
+one than to untangle later.
 
 ### B2B: group analytics
 
@@ -100,8 +98,8 @@ posthog.group("company", "company_456", { name: "Acme", plan: "enterprise" });
 
 Two gotchas worth knowing going in: unlike `identify`, the group has to ride along with
 **every** relevant event or you lose the rollup — and group analytics is often a paid
-add-on with billing implications (Chapter 1, §1.5), so it's worth a look at the pricing
-page before switching it on.
+add-on with billing implications, so it's worth a look at the pricing page before
+switching it on.
 
 <Flashcards
   id="cards-instrumentation"

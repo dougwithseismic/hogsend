@@ -7,14 +7,16 @@ workbook: "Watch the hands-on tour from autocapture through custom events to ser
 The moment `init()` runs, `posthog-js` starts recording a lot with no further code
 ([autocapture docs](https://posthog.com/docs/product-analytics/autocapture)):
 
-- **`$pageview`** and **`$pageleave`** — every navigation, with URL, referrer, and UTM
-  parameters.
+- **`$pageview`** and **`$pageleave`** — every navigation, with URL, referrer, and **UTM
+  parameters** (the `utm_source`/`utm_medium` tags appended to a link that record where a
+  click came from).
 - **`$autocapture`** — clicks, input changes, and form submissions on `a`, `button`,
   `form`, `input`, `select`, `textarea`, and `label` elements.
 - **`$rageclick`** — three-plus clicks in about a second (a frustration signal),
   plus dead clicks and copy/paste events.
 - **Automatic properties** on everything — browser, OS, device, viewport, referrer,
-  UTMs, and ad-click IDs like `gclid`/`fbclid` (these matter in Chapter 7).
+  UTMs, and ad-click IDs like `gclid`/`fbclid` (which earn their keep the moment you
+  start attributing paid traffic).
 
 Autocapture has sane privacy defaults: it records input *names* and *ids*, never input
 *values*, and excludes password fields. You can suppress capture on any element by
@@ -23,12 +25,12 @@ allowlist if volume becomes a problem.
 
 Autocapture is your safety net — it means you're never *not* collecting data while you
 decide what matters. Its limit is that it captures *interface* events ("a button was
-clicked"), not *meaning* ("the user activated"). That gap is the next section, and it's
-the difference between data and signal.
+clicked"), not *meaning* ("the user activated"). Closing that gap is what custom events
+are for, and it's the difference between data and signal.
 
 > **Trade-off worth naming:** autocapture is fast to start and great for exploration, but
 > it can get noisy and, at high volume, expensive. The mature pattern is autocapture *on*
-> for discovery, plus a deliberate set of named custom events (§3.5) for the funnels you
+> for discovery, plus a deliberate set of named custom events for the funnels you
 > actually report on. Some teams turn autocapture off in production once their custom
 > events are solid; most leave it on for the replay/debugging value.
 
@@ -49,8 +51,8 @@ the difference between data and signal.
   anything but a very low-volume site, and why this chapter treats it as discovery, not
   your reporting layer.
 - Event names carry real weight: use the object-action shape (`cta_viewed`) and push the
-  specifics — the CTA's name — into a *property*, not the event name. That's the same rule
-  §3.5 makes.
+  specifics — the CTA's name — into a *property*, not the event name. That's the same
+  naming rule this chapter settles on when it draws up the starter kit.
 - The whole payoff is one story per person: a browser event and a later backend/CRM event
   (lead → qualified → info gathered) stitch onto a single profile through a shared distinct
   id — which is exactly why `identify` and server-side capture come next.

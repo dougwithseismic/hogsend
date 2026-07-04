@@ -1,12 +1,13 @@
 ---
 title: "The events to track first"
-description: "A small, deliberately named starter kit builds every AARRR chart — including the activation event most teams forget. Plus the naming rules and the tracking plan that keeps a team honest."
+description: "A small, deliberately named starter kit builds every growth chart you need — including the activation event most teams forget — and the naming rules and shared tracking plan keep the whole thing honest."
 workbook: "The starter event kit and naming rules, the tracking plan as a cross-team contract, and a prompt to draft your own plan's first rows."
 ---
 
-You don't need a hundred events — a small, deliberately named set is enough to build
-every AARRR chart from Chapter 2, and it's a lot easier to keep clean. A good starter
-kit looks like this:
+You don't need a hundred events. A small, deliberately named set is enough to build
+every chart in the **AARRR funnel** (Acquisition, Activation, Retention, Referral,
+Revenue — the five stages a growth funnel breaks into), and it's far easier to keep
+clean. A good starter kit looks like this:
 
 ```
 user_signed_up          # Acquisition  — fire server-side
@@ -19,12 +20,13 @@ payment_succeeded       # Revenue      — fire server-side
 <your_core_action>      # Retention    — the thing users do repeatedly
 ```
 
-The one most teams forget is the explicit **activation event**. Teams that skip firing
-`project_created` (or whatever their aha action is) usually end up trying to
-reverse-engineer it later from autocaptured button clicks — at which point the
-activation funnel, retention cohorts, and LTV analysis are all built on guesswork.
-Since Chapter 2 (§2.3) already helped you decide *which* action it is, this is the
-moment to give it a name and a capture call.
+The one most teams forget is the explicit **activation event** — the "aha" action that
+best predicts a user will stick, like `project_created`. Teams that skip firing it
+usually end up trying to reverse-engineer it later from autocaptured button clicks, at
+which point the activation funnel, retention **cohorts** (users grouped by signup week
+and tracked over time), and **lifetime-value (LTV)** analysis are all built on
+guesswork. Once you've settled which action is your aha moment, this is the moment to
+give it a name and a capture call.
 
 ### Naming: the rules that keep this usable
 
@@ -86,9 +88,9 @@ Eight rows. That's a real, working tracking plan for an early-stage product — 
 40-tab spreadsheet, and emphatically not nothing.
 
 Why it earns its keep: it stops two engineers inventing `signup` and `user_signed_up` for
-the same thing; it makes "events are part of done" (Chapter 0) enforceable in code review;
-and it's the reference Chapter 6's journeys and Chapter 7's ad conversions both read from.
-Two habits make it stick:
+the same thing; it makes "events are part of done" — the operating principle this course
+opens with — enforceable in code review; and it's the reference the lifecycle journeys
+and the ad-conversion pixels both read from later. Two habits make it stick:
 
 - **The plan lives where code review happens.** A Markdown file in the repo means a new
   event and its plan row land in the same pull request, and a reviewer can reject an

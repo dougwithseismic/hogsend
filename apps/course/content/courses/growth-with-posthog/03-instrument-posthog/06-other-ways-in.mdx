@@ -6,10 +6,11 @@ description: "Capturing from your own code is the cheap default — but CDPs, Go
 Capturing from your own code is the default and the cheapest. But it's worth knowing the
 alternatives so you choose deliberately:
 
-- **A CDP pipe (Segment / RudderStack).** Instrument once against the CDP's API; it fans
-  the same events out to PostHog *and* your warehouse *and* your ad tools. **Worth it
-  when** you have many destinations and want one canonical schema; **overkill when**
-  PostHog is your only destination — then you're adding a hop and a bill for nothing.
+- **A CDP (customer data platform) pipe — Segment or RudderStack.** A CDP captures your
+  events once and fans the same stream out to PostHog *and* your warehouse *and* your ad
+  tools. **Worth it when** you have many destinations and want one canonical schema;
+  **overkill when** PostHog is your only destination — then you're adding a hop and a
+  bill for nothing.
 - **Google Tag Manager.** Marketers love it because it adds tags without a deploy. The
   catch for a product team: GTM-injected tags are *more* likely to be ad-blocked (they
   load from Google's domains), and it pulls your event logic out of the codebase where it

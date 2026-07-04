@@ -11,10 +11,10 @@ work, and everything later builds on them:
    that's painful to change later.
 2. `posthog.identify()` at login and `posthog.reset()` at logout — the pair that keeps
    identities whole and unmixed.
-3. The starter events from §3.5, with **signup, subscription, and payment firing from
-   your backend** — webhook sources of truth, so the numbers stay honest.
-4. A **tracking plan** (§3.5), even if it's ten rows in a Markdown file in the repo —
-   the doc that stops two engineers inventing two names for one thing.
+3. The starter events, with **signup, subscription, and payment firing from your
+   backend** — webhook sources of truth, so the numbers stay honest.
+4. A **tracking plan**, even if it's ten rows in a Markdown file in the repo — the doc
+   that stops two engineers inventing two names for one thing.
 5. The managed reverse proxy — a few minutes of DNS that recovers the blocked slice of
    your client-side events.
 6. Your one **activation event** firing, QA'd against a session replay — the event the

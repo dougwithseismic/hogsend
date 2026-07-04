@@ -22,14 +22,14 @@ import posthog from "posthog-js";
 
 posthog.init("phc_YOUR_PROJECT_KEY", {
   api_host: "https://us.i.posthog.com", // use eu.i.posthog.com on EU Cloud
-  person_profiles: "identified_only",   // see §3.4 — this is the cost-sane default
+  person_profiles: "identified_only",   // the cost-sane default — the identify piece explains why
 });
 ```
 
 **Server-side** — `posthog-node`, plus official libraries for Python, Ruby, Go, PHP,
-Java, and more. This is where your *important* events should fire (§3.3), and it's the
-half most beginner setups skip. A server SDK needs the user's id passed explicitly,
-because there's no browser cookie to read it from.
+Java, and more. This is where your *important* events belong — signup, payment,
+activation — and it's the half most beginner setups skip. A server SDK needs the user's
+id passed explicitly, because there's no browser cookie to read it from.
 
 **Mobile** — React Native, iOS (Swift), Android (Kotlin), and Flutter SDKs, with their
 own autocapture and session-replay support. If you ship an app, the native SDK is the
@@ -42,8 +42,8 @@ A decision table, since "which SDK" is really "which events live where":
 |---|---|---|
 | Marketing-site pageviews, UTM landings | Snippet or npm | Anonymous, high-volume, loss-tolerant |
 | Product UI interactions, journey steps | npm (`posthog-js`) | Typed, reviewable, framework-aware |
-| Signup, subscription, payment, activation | `posthog-node` (server) | Reliable, ad-blocker-immune (§3.7) |
-| Back-office facts (refunds, fulfilment) | Server SDK or reverse-ETL (§3.6) | They never happen in a browser |
+| Signup, subscription, payment, activation | `posthog-node` (server) | Reliable, immune to ad blockers |
+| Back-office facts (refunds, fulfilment) | Server SDK or reverse-ETL | They never happen in a browser |
 
 That `phc_` key is your **project API key**. It's safe in client-side code: it can
 *write* events but cannot *read* your data. (Reading data needs a separate personal API

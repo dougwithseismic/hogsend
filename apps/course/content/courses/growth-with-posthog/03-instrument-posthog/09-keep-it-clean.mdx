@@ -1,14 +1,19 @@
 ---
 title: "Keep it clean"
-description: "A few habits that prevent the most common messes — filtering internal users, keeping PII out of names, versioning events, QA'ing instrumentation like code — plus the tweaks for your kind of startup."
+description: "Clean instrumentation is a maintenance habit, not a one-time install: filter out your own traffic, keep personal data out of event names, version events when their meaning changes, and QA each one like code — with a few tweaks per kind of startup."
 ---
 
-A few habits that prevent the most common messes:
+Clean instrumentation is a maintenance discipline, not a one-time install. An event
+taxonomy rots the way a codebase rots — quietly, one shortcut at a time — until the
+funnels start to lie and nobody quite trusts the dashboard. The good news is that the
+habits which keep it honest are cheap, and they cost far less than the clean-up they
+head off:
 
 - **Filter out internal/test users** — by email domain, IP, or a test flag — so your
   own activity doesn't pollute the funnels. (Founders refreshing their own app is the
   number-one source of fake activation.)
-- **Don't leak PII into event or property *names*** (values are fine; names are not).
+- **Don't leak PII (personally identifiable information — emails, full names, and the
+  like) into event or property *names*** — values are fine; names are not.
 - **Version events on breaking changes** (`registration_v2`) rather than silently
   changing a name's meaning.
 - **Keep the website and app in one project** so you see the full journey from first
@@ -17,6 +22,9 @@ A few habits that prevent the most common messes:
   arrive in PostHog's activity view, checking its properties, and watching one session
   replay of the flow to confirm it fires when you think it does. The trade is ten
   minutes now against a quarter's worth of subtly wrong funnels later.
+
+Those habits are universal, but the emphasis shifts with what you're building — the same
+discipline just bites in a different place first.
 
 ### For your kind of startup
 
@@ -30,3 +38,6 @@ A few habits that prevent the most common messes:
   properties for merchandising analysis.
 - **Dev tool** — instrument the docs and the first successful API call; the docs-to-first-
   call path is your real activation funnel.
+
+The rules don't change from startup to startup; only which one you'll wish you'd kept
+does.
