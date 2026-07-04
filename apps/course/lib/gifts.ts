@@ -18,11 +18,12 @@ import { getStripe } from "@/lib/stripe";
 /** Unambiguous code alphabet (no 0/O/1/I). */
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
-function generateCode(): string {
+/** `PREFIX-XXXXXXXX` from the unambiguous alphabet (shared with share codes). */
+export function generateCode(prefix = "GIFT"): string {
   const bytes = randomBytes(8);
   let out = "";
   for (const b of bytes) out += CODE_ALPHABET[b % CODE_ALPHABET.length];
-  return `GIFT-${out}`;
+  return `${prefix}-${out}`;
 }
 
 /**

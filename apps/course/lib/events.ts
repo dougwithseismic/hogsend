@@ -420,6 +420,38 @@ export async function emitGiftRedeemed(
   );
 }
 
+/**
+ * The SHARER's loop-close when the discount code they passed on gets used:
+ * a discounted purchase traced back to a share coupon (metadata.shareUserId).
+ * Keyed on the redeeming checkout session so a retried webhook delivery
+ * can't thank the sharer twice.
+ */
+export async function emitShareRedeemed(
+  sharer: AuthUser,
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    sessionId: string;
+    redeemerName?: string | null;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.share_redeemed",
+      email: sharer.email,
+      contactProperties: { courseUserId: sharer.id },
+      eventProperties: {
+        source: SOURCE,
+        course: input.courseSlug,
+        courseTitle: input.courseTitle,
+        ...(input.redeemerName ? { redeemerName: input.redeemerName } : {}),
+      },
+    },
+    `course-share-redeemed-${sharer.id}-${input.sessionId}`,
+  );
+}
+
 export async function emitAccountDeleted(user: AuthUser): Promise<void> {
   if (!ingestConfigured()) return;
   await forwardToIngest(
