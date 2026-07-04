@@ -12,10 +12,12 @@ Journeys are best built in the order of expected impact, which for almost every
 product looks like:
 
 1. **Welcome + onboarding nudge** — the gap between signup and activation is nearly
-   always the biggest leak (Chapter 5). One journey: welcome on signup, a nudge at
-   +48h if the activation event hasn't fired.
-2. **Dunning** — if you charge money, failed payments are pure, recoverable churn
-   (Chapter 6). This tends to be the fastest revenue win in the whole course.
+   always the biggest leak, which is why the lifecycle chapter builds this journey
+   first. One journey: welcome on signup, a nudge at +48h if the activation event
+   hasn't fired.
+2. **Dunning** — the automated recovery of failed card payments. If you charge money,
+   those failures are pure, recoverable churn, and building the sequence in Hogsend
+   (the Hogsend chapter) tends to be the fastest revenue win in the whole course.
 3. **Win-back** — dormant-user re-engagement, triggered by an inactivity window, with
    something concrete to come back to.
 
@@ -35,9 +37,12 @@ product looks like:
 />
 
 **Exit criteria.** Either your activation or early-retention number has visibly moved,
-or — more honestly — your **holdout comparison** shows the journeys lifting it
-(Chapter 5's incrementality argument: opens and clicks are activity, lift is proof).
-The bucket holds water well enough that pouring into it isn't waste.
+or — more honestly — your **holdout comparison** shows the journeys lifting it. A holdout
+is a slice of users you deliberately leave *out* of the journey, kept as a baseline; the
+gap between them and the messaged group is the **incremental lift**, the change the
+journey actually caused rather than one that would have happened anyway. It's the
+lifecycle chapter's whole argument in one number: opens and clicks are activity, lift is
+proof. The bucket holds water well enough that pouring into it isn't waste.
 
 **The pattern to watch for** is building all eight journeys you can imagine instead of
 the three that matter — volume of automation isn't the goal; measured lift is. A
