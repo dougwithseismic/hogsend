@@ -90,6 +90,42 @@ export async function emitCompleted(
   );
 }
 
+/**
+ * A progress milestone crossed (25/50/75% of lessons completed — 100% is
+ * course.completed). Fired at most once per (user, course, threshold): the
+ * idempotency key carries no timestamp, so a re-fire of the same crossing
+ * dedupes upstream. `lessonsDone`/`lessonsTotal` ride along so the lifecycle
+ * side can state real numbers.
+ */
+export async function emitMilestoneReached(
+  user: AuthUser,
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    milestone: number;
+    lessonsDone: number;
+    lessonsTotal: number;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.milestone_reached",
+      email: user.email,
+      contactProperties: { courseUserId: user.id },
+      eventProperties: {
+        source: SOURCE,
+        course: input.courseSlug,
+        courseTitle: input.courseTitle,
+        milestone: input.milestone,
+        lessonsDone: input.lessonsDone,
+        lessonsTotal: input.lessonsTotal,
+      },
+    },
+    `course-milestone-${user.id}-${input.courseSlug}-${input.milestone}`,
+  );
+}
+
 export async function emitPurchased(
   user: AuthUser,
   courseSlug: string,

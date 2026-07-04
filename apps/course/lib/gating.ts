@@ -5,7 +5,12 @@ import { auth } from "@/lib/auth";
 import { getCourse } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { enrollment, lessonProgress } from "@/lib/db/schema";
-import { emitCompleted, emitEnrolled, emitLessonCompleted } from "@/lib/events";
+import {
+  emitCompleted,
+  emitEnrolled,
+  emitLessonCompleted,
+  emitMilestoneReached,
+} from "@/lib/events";
 import { source } from "@/lib/source";
 
 type AuthUser = { id: string; email: string; name?: string | null };
@@ -129,7 +134,27 @@ export async function recordLessonProgress(
         eq(lessonProgress.courseSlug, courseSlug),
       ),
     );
-  if (Number(done) < total) return;
+
+  // Progress milestone (25/50/75% — 100% is course.completed below). The row
+  // insert above is the +1, so the previous count is done-1; emit only when
+  // THIS lesson crosses a threshold, and only the highest one crossed (a tiny
+  // course can cross two at once — one email, not two). The emit's idempotency
+  // key (user+course+threshold, no timestamp) makes a re-fire harmless.
+  const doneCount = Number(done);
+  const prevPct = ((doneCount - 1) / total) * 100;
+  const newPct = (doneCount / total) * 100;
+  const milestone = [75, 50, 25].find((t) => prevPct < t && newPct >= t);
+  if (milestone && newPct < 100) {
+    await emitMilestoneReached(user, {
+      courseSlug,
+      courseTitle: getCourse(courseSlug)?.title ?? courseSlug,
+      milestone,
+      lessonsDone: doneCount,
+      lessonsTotal: total,
+    });
+  }
+
+  if (doneCount < total) return;
 
   // Mark the enrollment complete once (the WHERE on completedAt IS NULL makes
   // the course.completed emit fire exactly once).
