@@ -14,14 +14,14 @@ Three sources feed your triggers, and most programs use all three:
 - **Your product backend.** Your own application emits the events that describe what
   customers do — signed up, activated, hit a milestone, paid, cancelled. This is the
   primary source, and because it's sent server-side from your backend it's immune to
-  ad-blockers (Chapter 3) in a way client-side tracking never is. These are events you
+  ad-blockers in a way client-side browser tracking never is. These are events you
   already own; the lifecycle program just listens to them.
 - **External webhooks.** Systems you don't control — Stripe, a form provider, a CRM, your
   billing platform — already emit webhooks when something happens. You point those at your
   lifecycle system, map each provider's payload onto your own event names once, and from
   then on a Stripe invoice failure is just another event in the same pipeline as a product
-  signup. This is how the dunning trigger arrives (§07): the *billing system* is the source
-  of truth, not a scheduled guess. ([The Hogsend docs](https://hogsend.com/docs) cover
+  signup. This is how a dunning trigger arrives: the *billing system* is the source of
+  truth, not a scheduled guess. ([The Hogsend docs](https://hogsend.com/docs) cover
   wiring up a webhook source.)
 - **PostHog cohorts.** Some audiences aren't a single event — they're a *pattern* best
   computed in your analytics tool: "signed up but didn't activate within 7 days," "active
@@ -31,7 +31,7 @@ Three sources feed your triggers, and most programs use all three:
   the analytics layer that's already computing it tells you.
 
 That last source is the clean expression of the whole course's spine — **"PostHog detects,
-the lifecycle acts"** (Chapter 0). The thing that's genuinely hard to compute in real time
+the lifecycle acts."** The thing that's genuinely hard to compute in real time
 (30-day dormancy across every user) is a cohort PostHog maintains for free; your program
 just receives the verdict and runs. Detection and action stay in the tools that are best at
 each.
@@ -40,8 +40,7 @@ each.
 
 Shipping a journey is not the same as knowing it worked. Opens and clicks tell you a message
 was *seen*; they tell you nothing about whether it *caused* anything — those users might
-have converted anyway. The only honest way to know is a **holdout**, the exact discipline
-from Chapter 5:
+have converted anyway. The only honest way to know is a **holdout**:
 
 - **Quietly withhold the messages from a small random slice of otherwise-eligible users.**
   They qualify for the journey in every way; they just don't get the emails. Everyone else
@@ -56,13 +55,13 @@ from Chapter 5:
   messaged group versus the held-out group. The *difference* is the incremental lift you
   can actually credit to the program — the number that survives scrutiny.
 
-A worked read looks like Chapter 5's: messaged users convert at 18%, held-out users at 11%,
+A worked read looks like this: messaged users convert at 18%, held-out users at 11%,
 so the journey is worth **+7 points** of conversion you can attribute to it — not
 correlation, cause. Use a *larger* holdout (20–50%) on low-volume journeys so the
 comparison means something, decide your read date in advance so you don't stop the moment
 it looks good, and hold out the *whole* experience rather than just some of the messages.
 
-This is the growth-team experiment loop from Chapter 0 running continuously, in production,
-on the journey you just shipped. And it's exactly where the answer comes from when Chapter
-9's monthly review asks the only question that ultimately matters: **what is the lifecycle
-program actually worth?**
+This is the growth-team experiment loop — ship, hold out a control, read the lift — running
+continuously, in production, on the journey you just shipped. And it's exactly where the
+answer comes from when your monthly growth review asks the only question that ultimately
+matters: **what is the lifecycle program actually worth?**

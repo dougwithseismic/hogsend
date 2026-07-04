@@ -1,7 +1,7 @@
 ---
 title: "Dunning (Revenue / Churn prevention)"
 description: "The highest dollar-ROI message in the funnel: recover a failed payment. Why involuntary churn is pure recoverable revenue, the retry-plus-reminder sequence, exiting the instant the card clears, and how to size it in dollars."
-workbook: "Put your own MRR and failure rate into the dunning-recovery calculator — this is usually the fastest revenue the whole course pays for, and the number is worth seeing in dollars."
+workbook: "Put your own monthly recurring revenue (MRR) and failure rate into the dunning-recovery calculator — this is usually the fastest revenue the whole course pays for, and the number is worth seeing in dollars."
 ---
 
 Of every message in your lifecycle program, this is the one that pays for the rest.
@@ -9,15 +9,16 @@ Dunning is the sequence that recovers a **failed payment** — and it earns more
 sent than anything else you'll build, because it's aimed squarely at revenue you've
 already won and are about to lose for no good reason.
 
-**Why it's the highest-ROI message you'll send.** Somewhere between 20% and 40% of churn
-is *involuntary* (Chapter 5, §5.3): not a customer who decided to leave, but a card that
-expired, a bank that declined a charge, a limit that was briefly hit. These people still
-want your product — they chose to pay and simply don't know they've stopped. A short,
+The reason it out-earns every other message is the churn it targets. Somewhere between
+20% and 40% of churn is *involuntary* — not a customer who decided to leave, but a card
+that expired, a bank that declined a charge, a limit that was briefly hit. These people
+still want your product; they chose to pay and simply don't know they've stopped. A short,
 well-timed nudge recovers a large fraction of them, which makes dunning the closest thing
 to free money in the whole funnel. Every point of involuntary churn you claw back drops
-straight to retained MRR.
+straight to retained **MRR** (monthly recurring revenue) — the predictable subscription
+income you'd otherwise just lose.
 
-**The trigger: a failed-charge webhook.** The sequence starts when your payment provider
+The trigger is a failed-charge webhook. The sequence starts when your payment provider
 tells you a charge failed — a Stripe `invoice.payment_failed`, or the equivalent from
 whoever bills your customers. That webhook becomes an event in your pipeline, and that
 event enrolls the customer in the dunning journey. The billing system is the source of
@@ -25,7 +26,7 @@ truth here, not a scheduled guess — you react the moment money actually fails 
 (Wiring an external webhook into a trigger is covered in
 [the Hogsend docs](https://hogsend.com/docs).)
 
-**The shape: retry plus reminder.** Your payment processor is already retrying the card on
+The shape is retry plus reminder. Your payment processor is already retrying the card on
 its own schedule (Stripe's Smart Retries, for example). Your job is the *human* half — the
 message that says "your payment didn't go through, here's the one thing to fix it." So the
 sequence is short and specific:
@@ -38,28 +39,27 @@ sequence is short and specific:
   subscription — typically about two weeks. Two messages, at most three. Dunning is not a
   drip campaign; it's a fix-this-one-thing prompt.
 
-**The single most important rule: exit the instant payment clears.** The moment the retry
-succeeds — or the customer updates their card — the journey must stop, cancelling any
+The single most important rule is to **exit the instant payment clears.** The moment the
+retry succeeds — or the customer updates their card — the journey must stop, cancelling any
 pending reminder. Nothing corrodes trust faster than a "your payment failed" email landing
 *after* the payment went through: it makes your billing look broken and your company look
 asleep. So the journey watches for the payment-succeeded event and exits on it. This is
 the same "exit the instant the reason is gone" discipline as win-back stopping when a user
 returns — here it's just worth real dollars.
 
-**Content: a receipt, not a brochure.** Dunning email is transactional in tone. State the
+The content is a receipt, not a brochure. Dunning email is transactional in tone. State the
 amount, name the card if you can ("your Visa ending 4242"), give one action (update
 payment method) behind one link, and say what happens next. No product marketing, no
 upsell, no "we miss you." The customer isn't lapsed — they're one click from staying. Get
 out of their way.
 
-**How you measure it.** Two numbers: **recovery rate** — of the charges that failed, what
-fraction were paid within the window — and **dollars recovered per month**. Watch recovery
-rate over time; if it sags, your copy or your timing has drifted. And because this journey
+You measure it on two numbers: recovery rate — of the charges that failed, what fraction
+were paid within the window — and dollars recovered per month. Watch recovery rate over
+time; if it sags, your copy or your timing has drifted. And because this journey
 deliberately sends the same "update your card" message more than once, it leans harder
-than any other on your tooling being *reliable* about repeat sends — which is the next
-piece.
+than any other on your tooling being *reliable* about repeat sends.
 
-**Why the number matters.** Involuntary churn is a slice of your MRR bleeding out every
+The number matters because involuntary churn is a slice of your MRR bleeding out every
 single month, and a retry-plus-reminder sequence recovers most of it — from customers who
 already decided to pay you. Put your own numbers in below. For most paid products this is
 the single calculation that justifies the entire afternoon it takes to build the journey —

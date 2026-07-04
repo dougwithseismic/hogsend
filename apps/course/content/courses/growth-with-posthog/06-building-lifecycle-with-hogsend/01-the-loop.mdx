@@ -1,17 +1,17 @@
 ---
 title: "The lifecycle loop"
-description: "Every lifecycle message is the same loop: something happens, the right message goes out at the right time, and you measure whether it worked. Why a triggered, per-user loop beats a batch blast — the idea Chapter 5 argued, made concrete."
+description: "Every lifecycle message is the same loop: something happens, the right message goes out at the right time, and you measure whether it worked. Why a triggered, per-user loop beats a batch blast — the lifecycle discipline made concrete, one send at a time."
 workbook: "A quick check on who would actually own these journeys on your team."
 ---
 
-Chapter 5 made the case for lifecycle messaging as a discipline. This chapter is the
-concrete, tactical continuation: how the messages actually get built, and the decisions
-behind each one. Everything here rests on a single loop that every lifecycle message —
-welcome, dunning, win-back, all eight — runs through:
+Every lifecycle message runs through the same small loop, whatever its job — the welcome,
+the **dunning** notice that recovers a failed payment, the **win-back** that re-engages a
+user who's gone quiet, all eight of them. Strip away the copy and each one is the same
+three beats:
 
 1. **Something happens.** A real thing a user did: they signed up, hit an activation
    milestone, let their card expire, went quiet for two weeks. This is an *event* — the
-   same server-side events you're already sending to PostHog in Chapter 3.
+   same server-side events you're already sending to PostHog when you instrument the product.
 2. **The right message goes out at the right time.** Not to everyone — to *that one user*,
    keyed to what they just did, after whatever delay makes it land well.
 3. **You measure whether it worked.** The message reports back — it emits its own events —
@@ -23,8 +23,8 @@ the event that starts it, the thing you want to happen, and the way you'll know 
 ### Why per-user beats a batch blast
 
 This loop is the difference between lifecycle messaging and a newsletter, and it's worth
-being precise about why it wins — because it's the same argument Chapter 5 made, now at
-the level of a single send.
+being precise about why it wins — the case for lifecycle as a discipline, brought all the
+way down to the level of a single send.
 
 A **batch blast** is calendar-driven: you pick a Tuesday, write one message, and send it
 to everyone on the list at once. It ignores what any individual user is doing. The person
@@ -40,19 +40,20 @@ to fire.
 The most underrated consequence of this is what the loop *doesn't* do. A batch blast has
 no way to know a user already did the thing — so it emails them anyway. A triggered loop
 only reaches the people the event actually describes, and stops the instant they move
-past it. As Chapter 5 put it, the power of a lifecycle program is as much in who it
-*doesn't* email as who it does. The loop is what makes that restraint automatic rather
-than a thing you police by hand.
+past it. The power of a lifecycle program is as much in who it *doesn't* email as who it
+does, and the loop is what makes that restraint automatic rather than a thing you police
+by hand.
 
 ### One event, two jobs
 
 The events that drive this loop are the same server-side events you're already emitting
 for analytics. You don't build a separate tracking layer for lifecycle — the moment your
-backend records "this user signed up" for PostHog, that same signal can start a journey.
+backend records "this user signed up" for PostHog, that same signal can start a **journey**
+(the automated, multi-step sequence that carries one user through the emails that follow).
 One emission, two consumers: analytics *measures* it, lifecycle *acts on* it.
 
 Sending these events from your server rather than the browser matters for a second
-reason Chapter 3 raised: it's ad-blocker-proof. Roughly a third of users block
+reason: it's ad-blocker-proof. Roughly a third of users block
 client-side scripts, so a lifecycle program that depended on a browser tag would silently
 skip a third of the people it was built to reach. Server-side events don't have that
 hole — every user who does the thing gets counted, and gets the message.

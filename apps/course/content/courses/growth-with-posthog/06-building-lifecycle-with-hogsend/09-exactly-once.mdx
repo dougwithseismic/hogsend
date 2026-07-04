@@ -17,7 +17,7 @@ they mark you as spam, and internally your own team stops trusting the program e
 add to it. Reliability isn't a polish item you get to later. It's the foundation the whole
 program stands on.
 
-**Why this is genuinely hard — and why you should care that it's handled.** Durable
+This is genuinely hard to get right, and worth caring that it's handled. Durable
 lifecycle systems survive crashes and deploys by *replaying* a journey from the top and
 fast-forwarding through the steps that already happened. That's exactly what lets a
 three-day wait survive a Tuesday redeploy. But it also means that if a worker dies at the
@@ -27,7 +27,7 @@ scale, every deploy becomes a small chance of embarrassing some slice of your us
 mechanism that makes long waits reliable is the same mechanism that, done carelessly,
 double-sends.
 
-**So here's what to demand from your tooling, as the growth owner:**
+So here's what to demand from your tooling, as the growth owner:
 
 - **Exactly-once delivery by default.** A crash, a redeploy, or a retry mid-journey must
   never turn one intended message into two. This should be the engine's job — automatic,
@@ -42,9 +42,9 @@ double-sends.
 - **A clear re-enrollment policy.** Separate from crashes, you need a deliberate answer to
   "can this customer enter this journey again?" A welcome should fire **once** — a person
   signs up once. Win-back and dunning should be **once per period** — a customer can
-  genuinely lapse again, but shouldn't be re-nudged daily. A few counting journeys (like
-  the Discord engagement loop in Chapter 8) are **unlimited** by design. This is a policy
-  decision you make per journey; the tool just has to enforce it.
+  genuinely lapse again, but shouldn't be re-nudged daily. A few counting journeys (a
+  Discord loop that tallies every reaction, say) are **unlimited** by design. This is a
+  policy decision you make per journey; the tool just has to enforce it.
 - **Determinism where a choice drives the message.** If something non-deterministic picks
   *what* to send — an LLM choosing a variant, a random A/B split — a replay must not
   re-roll that choice into a different-but-duplicate message. The decision has to be
@@ -53,8 +53,8 @@ double-sends.
 
 You get this kind of correctness *because* the journey runs inside a system purpose-built
 for it. Exactly-once delivery across redeploys is brutally hard to get right by hand — it's
-one of the subtlest reasons a dedicated engine beats a roll-your-own stack, which is
-exactly the trade-off the next piece weighs. For how the engine actually guarantees it —
+one of the subtlest reasons a dedicated engine beats a roll-your-own stack, and a real
+weight on the build-versus-buy scale. For how the engine actually guarantees it —
 the idempotency keys, the replay-safe primitives, the loud dev-time errors — see
 [the Hogsend docs](https://hogsend.com/docs). The point for you as the growth owner is
 simpler: reliability is a requirement you get to *assume*, and a program you can't trust to

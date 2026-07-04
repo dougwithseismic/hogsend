@@ -38,10 +38,11 @@ gets ambitious:
   conditional — *read this user's whole event history and branch on it* — a canvas becomes
   the bottleneck that code never is.
 - **Your identity graph fragments.** A hosted tool keeps its *own* picture of your users.
-  The moment you want messaging to share the same identity resolution as your product — the
-  graph that makes the referral loop in Chapter 8 work — a separate system holding a
-  separate copy of "who is this person" is quietly working against you. Own the messaging
-  engine and it reads the same identity you already trust.
+  Your **identity graph** — the map that ties one person's many devices, emails, and
+  sessions to a single identity, the thing a real referral loop is built on — is what lets
+  messaging share the same resolution as your product. A separate system holding a separate
+  copy of "who is this person" is quietly working against that. Own the messaging engine and
+  it reads the same identity you already trust.
 - **You rent your own data back.** Behavioural data flows out to the vendor to make the
   tool work, and the interesting questions ("what's the real incremental lift of this
   journey?") get answered in their terms, on their export schedule.
@@ -53,9 +54,9 @@ gets ambitious:
 both hosted tools and a purpose-built engine solve the hard parts of it — long waits, exit
 conditions, exactly-once delivery — so you're not choosing on raw capability. You're
 choosing on **ownership**: whose UI holds your logic, whose system holds your identity
-graph, and whose pricing meters your growth. For a product-led team that already codes
-(Chapter 0), owning the layer — versioned, testable, on your own identity, with no
-per-contact wall — is usually worth asking an engineer to own it. For a marketing-led team
+graph, and whose pricing meters your growth. For a product-led team that already codes,
+owning the layer — versioned, testable, on your own identity, with no per-contact wall — is
+usually worth asking an engineer to own it. For a marketing-led team
 shipping simple flows, renting is the honest right answer. Make the call with eyes open;
 you can always start rented and bring it home once the program earns the investment. (For
 what owning it looks like in practice, see [the Hogsend docs](https://hogsend.com/docs).)

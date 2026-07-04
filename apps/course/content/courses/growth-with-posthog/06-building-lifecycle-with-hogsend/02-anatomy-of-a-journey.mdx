@@ -18,9 +18,9 @@ or "no activity for fourteen days."
 Precision here is everything. "Signed up" and "signed up *and is on the free plan*" are
 different triggers that produce different programs — the second one never wastes an
 upgrade sequence on someone who paid at the door. The tighter you can describe the
-moment, the less filtering you have to do later. The events you defined back in Chapter 3
-are exactly the raw material; the craft is picking the one that most precisely marks the
-moment this message earns its place in the inbox.
+moment, the less filtering you have to do later. The events you already defined when you
+instrumented your product are exactly the raw material; the craft is picking the one
+that most precisely marks the moment this message earns its place in the inbox.
 
 ### 2. The audience — who's eligible, and who to suppress
 
@@ -40,8 +40,8 @@ Two separate questions live here:
   second occasion.
 
 This is a correctness decision, not a copy decision. The best-written email sent to the
-wrong person is a complaint waiting to happen — and Chapter 5's deliverability math is
-unforgiving about complaint rate.
+wrong person is a complaint waiting to happen — and a high complaint rate is the fastest
+way to wreck your sender reputation and drop the rest of your mail into spam.
 
 ### 3. The timing — the delay, and the time of day
 
@@ -66,8 +66,9 @@ A lifecycle email is closer to a *receipt* than a *brochure*: one job, one call 
 plain and fast. The content decision is really a decision about *restraint* — what to
 leave out. Every lifecycle message should be able to answer "what is the one thing I want
 this person to do?" in a single sentence. If it can't, it's two emails wearing a trench
-coat. The next atom goes deep on the craft of the email itself; for now, the anatomical
-point is that "one job" is a design constraint you set here, before a word is written.
+coat. The craft of the email itself — how to make it land — is a subject of its own; for
+now, the anatomical point is that "one job" is a design constraint you set here, before a
+word is written.
 
 ### 5. The exit — the event that stops it
 
@@ -77,8 +78,8 @@ event that ends the journey early, the instant it happens.
 The canonical case: an upgrade sequence should stop the *moment* the user upgrades. If it
 doesn't, they get "still thinking about upgrading?" a day after they already paid — which
 reads as "we don't even know you're a customer," the most trust-eroding message you can
-send. This is Chapter 5's suppression principle made concrete: the exit is how a journey
-knows when it has been overtaken by events and should get out of the way.
+send. This is the suppression principle made concrete: the exit is how a journey knows
+when it has been overtaken by events and should get out of the way.
 
 A journey that's parked mid-wait — say, five days into a check-in delay — has to be able
 to abort cleanly when its exit event arrives, so no later step fires after the reason for
@@ -88,8 +89,8 @@ fires even mid-wait is engine territory
 
 ### 6. The measurement — did it lift anything
 
-The last decision closes the loop from the previous atom: how will you know this message
-worked? A lifecycle email exists to move a number — activation, recovered revenue,
+The last decision closes the lifecycle loop every message runs: how will you know this
+message worked? A lifecycle email exists to move a number — activation, recovered revenue,
 reactivation. If you can't say which number and can't see it move, you've built a message
 you can neither improve nor safely retire.
 
