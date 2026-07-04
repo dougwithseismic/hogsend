@@ -3,13 +3,12 @@ title: "Linking Telegram"
 description: "Telegram has no native email field — identity is phone-based — so linking uses a bot deep-link plus an email-confirm flow, the same proof-by-clicking pattern as Discord. Referrals ride the same deep-link mechanism."
 ---
 
-Why bring Telegram into your identity graph at all? Because for whole categories of
-product — crypto, gaming, indie-maker, creator communities — Telegram is where the
-audience actually gathers, and a group member is worth far more to you once they're an
-*addressable, owned contact* than a username in a channel (the argument this whole chapter
-makes). Linking is how you cross that line: a verified email tied to their Telegram account
-turns an anonymous member into someone your lifecycle can reach and your referral loop can
-credit.
+Telegram earns a place in your identity graph because for whole categories of product —
+crypto, gaming, indie-maker, creator communities — it's where the audience actually
+gathers, and a group member is worth far more to you once they're an *addressable, owned
+contact* than a username in a channel. Linking is how you cross that line: a verified
+email tied to their Telegram account turns an anonymous member into someone your
+lifecycle can reach and your referral loop can credit.
 
 The catch is that Telegram, unlike Discord, exposes no email — identity is phone-based — so
 you can't just read the address off the profile; the link has to be *earned* with a confirm
@@ -63,4 +62,4 @@ export const telegramLinkRequest = defineJourney({
 Clicking the link binds `telegram ↔ email` and stitches the analytics identity from the
 client (so you get the real geo/IP). Referrals on Telegram ride the same deep-link
 mechanism: a unique `t.me/<bot>?start=<referrerId>` link lets the bot record who brought
-whom — which is the attribution primitive the referral loop (§8.7) is built on.
+whom — the attribution primitive the referral loop is built on.

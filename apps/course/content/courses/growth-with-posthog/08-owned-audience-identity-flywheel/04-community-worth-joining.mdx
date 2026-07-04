@@ -4,26 +4,26 @@ description: "The linking mechanic captures identity; it does not create a commu
 workbook: "The part the tooling can't do — mission, fewer channels, rituals, hand-recruited first members — plus the two community talks. Note where your audience gathers today."
 ---
 
-A warning before the next code block, because this is where most "build a Discord"
-advice quietly fails: **the linking mechanic captures identity; it does not create a
-community.** A server with a verification gate, twenty channels, and no conversation is
-a list with extra steps — and everyone who joins can *see* it's dead, which a mailing
-list at least hides.
+**The linking mechanic captures identity; it does not create a community.** A server
+with a verification gate, twenty channels, and no conversation is *a list with extra
+steps* — and worse than a list, because everyone who joins can *see* it's dead, which a
+mailing list at least hides. The tooling delivers members; it cannot deliver a reason for
+them to talk to each other. That reason is the whole job of this piece.
 
-The practitioners' consensus (Jono Bacon, who wrote the standard books on this, is the
-clearest voice) compresses to:
-
-- **Start with a mission, not a server.** People join a movement or a topic, not your
-  product's support channel. Frame the community around the thing your users are trying
-  to *become* — better at growth, better at shipping — with your product as the venue.
-- **Fewer channels than feels right.** Three active channels beat twenty empty ones.
-  Conversation density is the product; split channels only when volume forces it.
-- **Rituals create the habit.** A weekly show-and-tell, a changelog thread, an office
-  hour — recurring, hosted moments give members a reason to come back on a schedule
-  (the community version of Chapter 9's operating cadence).
-- **The first 100 members are hand-recruited.** Like Chapter 7's do-things-that-don't-
-  scale: personally invite, personally welcome, personally introduce members to each
-  other until conversation is self-sustaining.
+The practitioner who wrote the standard books on this, Jono Bacon, is the clearest voice
+on what keeps a server alive, and the consensus he anchors comes down to four moves. It
+starts with a **mission, not a server** — people join a movement or a topic, not a
+product's support channel, so you frame the community around what your users are trying
+to *become* (better at growth, better at shipping) with your product as the venue. It
+runs on **fewer channels than feels right** — three active channels beat twenty empty
+ones, because conversation density is the product, and you split a channel only when
+volume forces it. It's held together by **rituals** — a weekly show-and-tell, a changelog
+thread, an office hour: recurring hosted moments that give members a reason to come back
+on a schedule (the operating-cadence chapter makes the same case for a company's own
+week). And it's seeded by hand — **the first hundred members are hand-recruited**, the
+community version of doing the things that don't scale: personally invited, personally
+welcomed, personally introduced to each other until the conversation sustains itself
+without you.
 
 <VideoEmbed
   id="waU5Cm1FENA"
@@ -37,16 +37,18 @@ clearest voice) compresses to:
 
 **What to take from it:**
 
-- A community isn't a platform, it's a belief system — "platforms are where people talk;
-  movements are why they care." Define your creed (the principles your audience already
-  holds), your non-believers (who does it the wrong way), and your rituals (repeatable
-  actions) *before* you open any server.
-- Don't start with a platform — start with an event. Gather even ten people into a live
-  session to share and learn, *then* give them the lightest possible digital home on
-  whatever platform they already use (Discord, Slack, even a mailing list).
-- Engagement is orchestrated, not automatic: seed two or three easy conversation-starters
-  a week, then do the "awkward small talk" — follow up, make introductions, broker
-  connections — and measure DAU/MAU as the heartbeat.
+- **A community is a belief system, not a platform** — "platforms are where people talk;
+  movements are why they care." Define your creed and your rituals before you open a
+  single channel.
+- **Start with an event, not a server** — gather even ten people into one live session to
+  share and learn, then give them the lightest possible home on a tool they already use.
+- **Engagement is orchestrated, not automatic** — seed a couple of conversation-starters
+  a week and broker the introductions yourself, watching daily-over-monthly active users
+  (DAU/MAU) — the share of members who show up on a given day — as the heartbeat.
+
+The movement comes first, but a movement still needs a room to happen in. Bacon's second
+talk is about that room — the concrete server mechanics for once you're past the mission
+stage:
 
 <VideoEmbed
   id="SJi469BuU6g"
@@ -59,23 +61,22 @@ clearest voice) compresses to:
 
 **What to take from it:**
 
-- Foundation first: state a clear purpose in the welcome channel, build a real onboarding
-  experience (start-here channel, FAQ, a "how did you find us?" prompt), and keep channels
-  few — merge or archive underused ones so conversation stays dense.
-- Drive engagement with recurring rituals: scheduled events with reminders, polls for
-  feedback, celebrating member milestones, icebreakers, and channels for user-generated
-  content and contests.
-- Let bots do the heavy lifting: welcome bots, automated moderation, reaction-roles for
-  self-service interests, gamified XP/leaderboards, and stat bots — then share the metrics
-  back to the community to build momentum.
+- **Foundation before tactics** — a clear purpose stated in the welcome channel, a real
+  start-here onboarding path, and few enough channels that conversation stays dense.
+- **Rituals carry the engagement** — scheduled events with reminders, polls for feedback,
+  celebrated member milestones, and channels for member-made content.
+- **Let bots do the heavy lifting** — welcome flows, reaction-roles for self-service
+  interests, and gamified XP, with the stats shared back to the room to build momentum.
 
-The measurement lens from this course applies here too: instrument the community like
-a product. `member.joined`, first message, reactions given/received — Hogsend's
-connector events — give you an activation funnel for the community itself (what
-fraction of joiners post within a week?) and feed the engagement-role journeys above.
+The measurement discipline from the rest of this course applies here too: instrument the
+community like a product. `member.joined`, first message, reactions given and received —
+Hogsend's connector events — give you an *activation* funnel for the community itself (the
+share of joiners who reach first value, here a first post within a week) and feed the same
+engagement-role journeys the Discord flow grants roles with.
 [Discord's own community resources](https://discord.com/community) and the
 [CMX community-building guide](https://www.cmxhub.com/reports/the-cmx-guide-to-building-a-community)
-are the fuller playbooks.
+are the fuller playbooks. The tooling builds the room in an afternoon; filling it is the
+year of work, and the part no bot does for you.
 
 <CheckIn
   id="community"
