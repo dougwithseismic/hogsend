@@ -37,6 +37,17 @@ export function getCourseModules(slug: string) {
   );
 }
 
+/**
+ * Chapter count for a course — depth-0 lessons (flat lessons + chapter hubs).
+ * The single "what is a chapter" rule shared by the catalog stat band and the
+ * course landing page, so marketed counts can't drift from the content.
+ */
+export function countChapters(slug: string): number {
+  return getCourseModules(slug)
+    .flatMap((m) => m.lessons)
+    .filter((l) => l.depth === 0).length;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Sidebar lock decoration (lesson reader)                                   */
 /* -------------------------------------------------------------------------- */

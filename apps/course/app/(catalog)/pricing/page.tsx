@@ -5,16 +5,16 @@ import { CheckoutButton } from "@/components/checkout-button";
 import { CourseCard } from "@/components/course-card";
 import { AnnouncePill, TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
-import { Card } from "@/components/ds/card";
 import { PlanVignette } from "@/components/ds/course-vignettes";
 import { CtaPanel } from "@/components/ds/cta-panel";
-import { WaveLines } from "@/components/ds/decor";
+import { HorizonGlowCanvas } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
+import { PlanCard } from "@/components/ds/plan-card";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { type AllAccessView, getCatalog } from "@/lib/catalog";
-import { cn } from "@/lib/cn";
-import { getCourse } from "@/lib/courses";
+import { FLAGSHIP_SLUG, getCourse } from "@/lib/courses";
+import { faqPageJsonLd } from "@/lib/faq-jsonld";
 import { getSession } from "@/lib/gating";
 
 export const dynamic = "force-dynamic";
@@ -25,11 +25,11 @@ export const metadata: Metadata = {
     "Buy a single course for a one-time fee, or get All-Access — every course, including future ones, for one payment. No subscription.",
 };
 
-const FLAGSHIP_PRICE = getCourse("growth-with-posthog")?.priceLabel ?? "$49";
+const FLAGSHIP_PRICE = getCourse(FLAGSHIP_SLUG)?.priceLabel ?? "$49";
 
 const SINGLE_INCLUDES: ReactNode[] = [
   "That course on your account, forever",
-  "All 11 chapters, quizzes, and the workbook",
+  "Every chapter, quiz, and workbook item in it",
   "First lesson free before you buy",
 ];
 
@@ -65,40 +65,11 @@ const FAQ_ITEMS = [
   },
   {
     q: "How do refunds work?",
-    a: "If something isn't right, get in touch. A refund revokes access to that purchase; everything else you own stays yours.",
+    a: "There are no refunds. The first lesson of every course is free — and the flagship course gives away its first two chapters in full — so you can judge before you buy.",
   },
 ];
 
-const FAQ_JSON_LD = {
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: FAQ_ITEMS.map((item) => ({
-    "@type": "Question",
-    name: item.q,
-    acceptedAnswer: { "@type": "Answer", text: item.a },
-  })),
-};
-
-function CheckList({ items }: { items: ReactNode[] }): JSX.Element {
-  return (
-    <ul className="mt-4 flex flex-col gap-3">
-      {items.map((item, i) => (
-        <li
-          // biome-ignore lint/suspicious/noArrayIndexKey: static, never-reordered list
-          key={i}
-          className="flex items-start gap-3 text-base text-white/80 leading-6"
-        >
-          <Check
-            aria-hidden="true"
-            className="mt-1 size-4 shrink-0 text-accent"
-            strokeWidth={2}
-          />
-          <span>{item}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
+const FAQ_JSON_LD = faqPageJsonLd(FAQ_ITEMS);
 
 /** The All-Access plan CTA — owned / buyable / not-yet-live, in that order. */
 function AllAccessCta({ view }: { view: AllAccessView }): JSX.Element {
@@ -124,71 +95,6 @@ function AllAccessCta({ view }: { view: AllAccessView }): JSX.Element {
     <span className="inline-flex h-12 w-full items-center justify-center rounded-[10px] border border-white/15 px-5 text-sm text-white/50">
       Available soon
     </span>
-  );
-}
-
-/**
- * One pricing card: name row (chip on the popular tier), a huge numeral,
- * FEATURES label + check rows, and a bottom-pinned CTA above a hairline.
- * The popular tier gets the accent border and a warm glow from the bottom.
- */
-function PlanCard({
-  name,
-  badge,
-  price,
-  priceSuffix,
-  description,
-  features,
-  cta,
-  popular = false,
-}: {
-  name: string;
-  badge?: ReactNode;
-  price: string;
-  priceSuffix: string;
-  description: string;
-  features: ReactNode[];
-  cta: ReactNode;
-  popular?: boolean;
-}): JSX.Element {
-  return (
-    <Card
-      className={cn(
-        // Opaque fill so the card reads cleanly where it floats over the hero
-        // glow (the base Card is near-transparent).
-        "relative h-full overflow-hidden bg-[#0a0606] p-8",
-        popular && "border-accent/40",
-      )}
-    >
-      {popular ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(90% 55% at 50% 100%, rgba(246, 72, 56, 0.25), transparent 70%)",
-          }}
-        />
-      ) : null}
-      <div className="relative flex h-full flex-col">
-        <div className="flex items-center justify-between gap-4">
-          <span className="text-base text-white">{name}</span>
-          {badge}
-        </div>
-        <div className="mt-6 flex items-baseline gap-1.5">
-          <span className="font-display text-[56px] text-white leading-none tracking-[-0.02em]">
-            {price}
-          </span>
-          <span className="text-base text-white/60">{priceSuffix}</span>
-        </div>
-        <p className="mt-4 text-base text-white/70 leading-6">{description}</p>
-        <p className="eyebrow mt-8 text-white/50">Features</p>
-        <CheckList items={features} />
-        <div className="mt-8 flex flex-1 flex-col justify-end">
-          <div className="border-white/[0.08] border-t pt-6">{cta}</div>
-        </div>
-      </div>
-    </Card>
   );
 }
 
@@ -221,30 +127,10 @@ export default async function PricingPage() {
 
         {/* Glow canvas */}
         <div className="container-page relative mt-14">
-          <div className="relative h-[240px] overflow-hidden rounded-2xl bg-[#070303] md:h-[280px]">
-            <WaveLines
-              className="absolute inset-0 h-full w-full opacity-80"
-              stroke="rgba(255,140,118,0.5)"
-              count={7}
-            />
-            <div
-              aria-hidden="true"
-              className="absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(80% 70% at 50% 118%, rgba(246,72,56,0.85) 0%, rgba(246,72,56,0.3) 40%, rgba(246,72,56,0.07) 65%, transparent 82%)",
-              }}
-            />
-            {/* The crisp horizon arc. */}
-            <div
-              aria-hidden="true"
-              className="absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(58% 46% at 50% 116%, transparent 59%, rgba(255,150,128,0.9) 61.5%, rgba(255,150,128,0.12) 66%, transparent 71%)",
-              }}
-            />
-          </div>
+          <HorizonGlowCanvas
+            heightClassName="h-[240px] md:h-[280px]"
+            waveCount={7}
+          />
         </div>
 
         {/* Offer grid floats up over the glow. */}
@@ -292,7 +178,7 @@ export default async function PricingPage() {
                 features={GIFT_INCLUDES}
                 cta={
                   <Button
-                    href="/growth-with-posthog#gift"
+                    href={`/${FLAGSHIP_SLUG}#gift`}
                     variant="outline"
                     icon
                     className="w-full justify-center"
