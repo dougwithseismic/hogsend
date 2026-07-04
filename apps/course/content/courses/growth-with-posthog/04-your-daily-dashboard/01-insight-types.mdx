@@ -23,8 +23,9 @@ common reason a founder ends up staring at a chart that can't answer their quest
   follow — check User Paths first if conversion looks impossibly low.
 - **Retention** — a cohort grid ([docs](https://posthog.com/docs/product-analytics/retention)):
   pick a start event ("signed up") and a return event ("did the core action"). Each row
-  is a cohort, each column a later period. *Read it for the shape* (the retention piece
-  walks through it) — this is the leaky-bucket test made visual.
+  is a cohort (the users who started in one period), each column a later period. *Read it
+  for the shape* (the retention piece walks through it) — this is the leaky-bucket test
+  made visual.
 - **Lifecycle** — splits your active users each period into **New**, **Returning**,
   **Resurrecting**, and **Dormant**. *Read it for whether growth is real:* a big Dormant
   band under modest New growth means churn-and-replace, not growth.
@@ -32,7 +33,7 @@ common reason a founder ends up staring at a chart that can't answer their quest
   to retention's *whether they came back*. *Read it to find your power users* and what
   separates them: if users who fire your core action 5+ days a week all created three
   or more projects in week one, "three projects" is a candidate activation bar worth
-  testing (Chapter 2's method).
+  testing — the way the activation chapter defines one.
 - **User Paths** — a flow diagram of how people move through the product. *Read it to
   discover* unexpected routes and dead ends you didn't think to build a funnel for —
   the classic find is a settings or pricing page appearing in the middle of what you
