@@ -10,9 +10,10 @@ import {
   emitGiftPurchased,
   emitGiftRedeemed,
   emitPurchased,
+  emitShareRedeemed,
 } from "@/lib/events";
 import {
-  giftIdFromSession,
+  couponAttributionFromSession,
   markGiftRedeemed,
   recordGiftAndMintCode,
 } from "@/lib/gifts";
@@ -90,32 +91,56 @@ async function handleGiftSession(s: Stripe.Checkout.Session): Promise<void> {
 }
 
 /**
- * A discounted purchase MAY be a gift redemption — trace the applied coupon
- * back to its gift row via metadata and notify the buyer once.
+ * A discounted purchase MAY be a redemption of a coupon we minted — one walk
+ * over the applied discounts (couponAttributionFromSession) tells us which
+ * kind. Gift → mark the gift row redeemed and notify the buyer once.
+ * Share code → close the sharer's loop (idempotent on the session id).
+ * Ordinary promotion codes attribute to neither and return after the single
+ * walk, exactly as before share codes existed.
  */
 async function handlePossibleRedemption(
   s: Stripe.Checkout.Session,
   redeemedByUserId: string,
 ): Promise<void> {
   if (!s.total_details?.amount_discount) return;
-  const giftId = await giftIdFromSession(s);
-  if (!giftId) return; // an ordinary promotion code
+  const attribution = await couponAttributionFromSession(s);
+  if (!attribution) return; // an ordinary promotion code
 
-  const redeemed = await markGiftRedeemed(giftId, redeemedByUserId);
-  if (!redeemed) return; // already marked (retry) or unknown gift
-  const [buyer, redeemer] = await Promise.all([
-    userById(redeemed.buyerUserId),
+  if (attribution.giftId) {
+    const redeemed = await markGiftRedeemed(
+      attribution.giftId,
+      redeemedByUserId,
+    );
+    if (!redeemed) return; // already marked (retry) or unknown gift
+    const [buyer, redeemer] = await Promise.all([
+      userById(redeemed.buyerUserId),
+      userById(redeemedByUserId),
+    ]);
+    if (buyer) {
+      await emitGiftRedeemed(buyer, {
+        courseSlug: redeemed.courseSlug,
+        courseTitle: skuTitle(redeemed.courseSlug),
+        redeemerName: redeemer?.name ?? null,
+        redeemerEmail: redeemer?.email ?? null,
+        recipientEmail: redeemed.recipientEmail,
+      });
+    }
+    return;
+  }
+
+  if (!attribution.shareUserId) return;
+  const [sharer, redeemer] = await Promise.all([
+    userById(attribution.shareUserId),
     userById(redeemedByUserId),
   ]);
-  if (buyer) {
-    await emitGiftRedeemed(buyer, {
-      courseSlug: redeemed.courseSlug,
-      courseTitle: skuTitle(redeemed.courseSlug),
-      redeemerName: redeemer?.name ?? null,
-      redeemerEmail: redeemer?.email ?? null,
-      recipientEmail: redeemed.recipientEmail,
-    });
-  }
+  if (!sharer) return;
+  const courseSlug = attribution.courseSlug ?? s.metadata?.courseSlug ?? "";
+  await emitShareRedeemed(sharer, {
+    courseSlug,
+    courseTitle: skuTitle(courseSlug),
+    sessionId: s.id,
+    redeemerName: redeemer?.name ?? null,
+  });
 }
 export async function POST(req: NextRequest): Promise<Response> {
   if (!paywallConfigured() || !webhookConfigured()) {
