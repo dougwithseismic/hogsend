@@ -1,14 +1,15 @@
 ---
 title: "From framework to instrument"
-description: "How the theory in this chapter becomes the charts in Chapter 4 — each AARRR stage mapped to what you build in PostHog, with the retention curve as the one chart that answers the only strategic question that matters now."
+description: "How the theory in this chapter becomes the charts you build next — each AARRR stage mapped to what you build in PostHog, with the retention curve as the one chart that answers the only strategic question that matters now."
 workbook: "Mark where your bucket leaks most today, then check yourself on the whole chapter with the quiz. Go deeper links close it out, including Sean Ellis on Lenny's Podcast."
 ---
 
-Here's how the theory in this chapter becomes the charts in Chapter 4:
+Every AARRR stage maps to a specific chart you can build in PostHog — the framework
+stops being theory the moment each stage has a number on a dashboard:
 
 | AARRR stage | What you build in PostHog |
 |---|---|
-| Acquisition | A **funnel** from first-touch → signup, broken down by channel/UTM; CAC per channel |
+| Acquisition | A **funnel** from first-touch → signup, split by channel and UTM (the tags on a link that mark where a click came from); CAC per channel |
 | Activation | The **activation funnel** (signup → aha threshold); regression to find the aha; experiments to prove it |
 | Retention | The **retention curve** (does it flatten above zero?) and **cohort** tables |
 | Referral | A funnel of invites sent → accepted → activated; the K-factor |
@@ -176,12 +177,12 @@ You now know what to measure and why. Next, you'll wire PostHog up to measure it
 
 - [Sean Ellis — The Startup Pyramid](https://seanellis.substack.com/p/the-startup-pyramid) — the primary source for the 40% "very disappointed" PMF survey.
 - [Sean Ellis — Find a growth hacker for your startup (2010)](https://www.startup-marketing.com/where-are-all-the-growth-hackers/) — where "growth hacking" was coined, and what it originally meant.
-- [Amplitude — The North Star Playbook](https://amplitude.com/resources/north-star-playbook) — the full framework §2.4 summarises, with worked input trees.
+- [Amplitude — The North Star Playbook](https://amplitude.com/resources/north-star-playbook) — the full framework the North Star piece draws on, with worked input trees.
 - [Reforge — How to choose and measure North Star metrics](https://www.reforge.com/blog/north-star-metrics) — the input-vs-output metric distinction that makes an NSM operable.
 - [Lenny Rachitsky — What is good retention?](https://www.lennysnewsletter.com/p/what-is-good-retention-issue-29) — operator-surveyed benchmarks by category; calibrate your plateau here.
-- [Lenny Rachitsky — How to determine your activation metric](https://www.lennysnewsletter.com/p/how-to-determine-your-activation) — the three-step method from §2.3 in full.
+- [Lenny Rachitsky — How to determine your activation metric](https://www.lennysnewsletter.com/p/how-to-determine-your-activation) — the three-step method from the activation piece, in full.
 - [Amplitude — The leaky bucket problem](https://amplitude.com/blog/leaky-bucket-problem) — the bucket, drawn with cohort charts.
 - [Andrew Chen — Is your website a leaky bucket?](https://andrewchen.com/is-your-website-a-leaky-bucket-4-scenarios-for-user-retention/) and [losing 80% of mobile users is normal](https://andrewchen.com/new-data-shows-why-losing-80-of-your-mobile-users-is-normal/) — the acquisition×retention multiplication, and the brutal mobile data.
 - [Brian Balfour — Retention essays](https://brianbalfour.com/essays/category/Retention) — why retention multiplies every other growth lever.
-- [Mixpanel — Magic numbers are an illusion](https://mixpanel.com/blog/magic-numbers-are-an-illusion/) — the useful-illusion argument quoted in §2.3.
+- [Mixpanel — Magic numbers are an illusion](https://mixpanel.com/blog/magic-numbers-are-an-illusion/) — the useful-illusion argument quoted in the activation piece.
 - [Ehrenberg-Bass — The hole in the leaky bucket theory](https://marketingscience.info/the-hole-in-the-leaky-bucket-theory/) — the credible counterpoint, so you don't over-rotate on retention.

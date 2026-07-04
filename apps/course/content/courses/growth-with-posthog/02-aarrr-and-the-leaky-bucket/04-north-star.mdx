@@ -1,13 +1,13 @@
 ---
 title: "The North Star Metric"
-description: "AARRR gives you five categories; a North Star gives you the one number on top. The four criteria of a good one, why revenue fails them, and how you operate it through 3–5 input metrics."
+description: "AARRR gives you five categories; a North Star gives you the one number on top. The four criteria of a good one, why revenue fails every one of them, and how you operate it through 3–5 input metrics that teams can actually move."
 workbook: "The four criteria of a good North Star and a worked input tree — then write your own North Star candidate and the causal chain that justifies it. It saves to your workbook for the dashboards and the plan."
 ---
 
 AARRR gives you five categories. A **North Star Metric (NSM)** gives you the *one*
 number on top — the single measure that best captures the value your product delivers,
-that the whole team can rally around. It's the metric a growth team puts at the top of
-the dashboard (Chapter 4) and reads first.
+and that the whole team can rally around. It's the metric a growth team pins to the top
+of the dashboard and reads first.
 
 A good North Star (criteria from
 [Amplitude's North Star Playbook](https://amplitude.com/resources/north-star-playbook),
@@ -23,9 +23,9 @@ the framework's main steward):
   Star. You move it *through* inputs.
 
 Bad North Stars are vanity or lagging metrics: registered users, downloads, page
-views, and — importantly — **revenue itself** (ARR/MRR). Revenue is the score at the
-end of the quarter; by the time it moves, the game is already played. The North Star
-is the leading thing that *causes* the revenue.
+views, and — importantly — **revenue itself** (ARR/MRR, annual and monthly recurring
+revenue). Revenue is the score at the end of the quarter; by the time it moves, the game
+is already played. The North Star is the leading thing that *causes* the revenue.
 
 Examples that capture value:
 
@@ -38,26 +38,29 @@ Examples that capture value:
 
 PostHog's own choice is instructive: they picked "Discoveries" because it predicted
 retention 2.3× better than the alternatives. They chose an *activation-quality* signal
-over a vanity count — exactly the lesson from §2.3.
+over a vanity count — exactly the lesson from the activation piece earlier in this
+chapter.
 
-**How you operate it:** the NSM sits too high for any one team to move directly, so you
-break it into **3–5 input metrics** that teams *can* move —
+A North Star sits too high for any one team to move directly, so you operate it through
+**3–5 input metrics** that teams *can* move.
 [Reforge's treatment](https://www.reforge.com/blog/north-star-metrics) formalises this
-as the input/output distinction: outputs (the North Star, revenue) are for *watching*,
-inputs are for *working on*. The inputs usually map straight onto AARRR stages
-(acquisition volume, activation rate, frequency, referral rate). When the inputs work,
-the North Star rises, and that's your early warning *before* revenue reacts. One
-headline number on top, a handful of input metrics beneath it, each owned by someone.
-That ownership — "you own activation rate, you own weekly frequency" — is how a small
-team distributes the growth work without a growth department.
+as the input/output distinction: outputs — the North Star, revenue — are for *watching*;
+inputs are for *working on*. The inputs usually map straight onto AARRR stages:
+acquisition volume, activation rate, frequency, referral rate.
 
-A worked input tree, for the design-collaboration tool from §2.3: North Star = *weekly
-files collaborated on* (value delivered, leading, not directly movable). Inputs: new
-signups (acquisition), % inviting a teammate in week one (activation — the §2.3
-metric), files-per-active-team (frequency/depth), % of new signups arriving via a
-shared file (the growth loop, §2.5). Four numbers, four owners, one story: every input
-plausibly *causes* the North Star, and the North Star plausibly causes revenue. If the
-causal chain won't draw for your candidate NSM, that's usually the sign to pick again.
+When the inputs move, the North Star rises, and that's your early warning *before*
+revenue reacts. One headline number on top, a handful of inputs beneath it, each owned by
+someone — "you own activation rate, you own weekly frequency." That ownership is how a
+small team distributes the growth work without needing a growth department.
+
+A worked input tree, for the design-collaboration tool the activation piece used: North
+Star = *weekly files collaborated on* (value delivered, leading, not directly movable).
+Inputs: new signups (acquisition), % inviting a teammate in week one (activation — the
+metric that piece landed on), files-per-active-team (frequency/depth), % of new signups
+arriving via a shared file (a growth loop, unpacked in the other-frameworks piece). Four numbers,
+four owners, one story: every input plausibly *causes* the North Star, and the North Star
+plausibly causes revenue. If the causal chain won't draw for your candidate NSM, that's
+usually the sign to pick again.
 
 <WorkbookPrompt
   id="north-star"
