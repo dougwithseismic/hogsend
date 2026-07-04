@@ -1,7 +1,13 @@
 import Link from "next/link";
 import { Logo } from "@/components/landing/logo";
 import { cn } from "@/lib/cn";
-import { CONTACT_EMAIL, ENGINE_VERSION, GITHUB_URL, NPM_URL } from "@/lib/site";
+import {
+  CONTACT_EMAIL,
+  ENGINE_VERSION,
+  GITHUB_URL,
+  NPM_URL,
+  WITHSEISMIC_URL,
+} from "@/lib/site";
 
 type FooterLink = {
   label: string;
@@ -169,7 +175,17 @@ export function SiteFooter({ className }: { className?: string }) {
       {/* Bottom bar — full-width hairline, single slim line. */}
       <div className="border-t border-hairline-faint">
         <div className="container-page flex flex-col items-start gap-3 py-6 text-sm text-white/50 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 Hogsend</p>
+          <p>
+            © 2026 Hogsend · Built by{" "}
+            <a
+              href={WITHSEISMIC_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-white/70 transition-colors hover:text-white"
+            >
+              withseismic
+            </a>
+          </p>
           <p className="eyebrow text-white/50">Source-available · ELv2</p>
           <div className="flex items-center gap-5">
             <Link

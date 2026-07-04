@@ -2,7 +2,12 @@ import Link from "next/link";
 import type { JSX } from "react";
 import { Logo } from "@/components/logo";
 import { cn } from "@/lib/cn";
-import { DISCORD_INVITE_URL, GITHUB_URL, HOGSEND_URL } from "@/lib/site";
+import {
+  DISCORD_INVITE_URL,
+  GITHUB_URL,
+  HOGSEND_URL,
+  WITHSEISMIC_URL,
+} from "@/lib/site";
 
 type FooterLink = { label: string; href: string; external?: boolean };
 type FooterColumn = { heading: string; links: FooterLink[] };
@@ -98,7 +103,17 @@ export function SiteFooter({ className }: { className?: string }): JSX.Element {
 
       <div className="border-hairline-faint border-t">
         <div className="container-page flex flex-col items-start gap-3 py-6 text-sm text-white/50 sm:flex-row sm:items-center sm:justify-between">
-          <p>© 2026 Hogsend</p>
+          <p>
+            © 2026 Hogsend · Built by{" "}
+            <a
+              href={WITHSEISMIC_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-white/70 transition-colors hover:text-white"
+            >
+              withseismic
+            </a>
+          </p>
           <a
             href={HOGSEND_URL}
             target="_blank"
