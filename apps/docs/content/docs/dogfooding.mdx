@@ -1,0 +1,154 @@
+---
+title: How we dogfood Hogsend
+description: We sell a growth course, and every email, survey, Discord role, and referral code in its lifecycle runs on the same Hogsend engine we ship. Here's the whole loop, journey by journey.
+---
+
+We sell a course — [Measure, Keep, and Grow](https://course.hogsend.com), on
+running growth with PostHog. Its entire lifecycle runs on Hogsend: every email
+a student receives, every in-app notification, every survey, the private
+Discord channel, and the referral codes are `defineJourney()` calls in a
+TypeScript repo, executing on the same engine you'd scaffold with
+`create-hogsend`. Twenty journeys, versioned in git, reviewed in pull
+requests.
+
+This page walks the loop end to end. It exists so you can see what a real
+production lifecycle looks like in Hogsend — not a demo with three nodes, but
+the thing we actually use to sell a product.
+
+## The event spine
+
+The course app knows nothing about email. It records what happened — server
+side, so ad blockers never see it — and forwards each fact to the engine's
+ingest endpoint:
+
+- `course.signed_up`, `course.enrolled`, `course.purchased`
+- `course.lesson_completed` — one per section, from the "mark complete" button
+- `course.milestone_reached` — fired when a completed section crosses 25, 50,
+  or 75% of the course
+- `course.completed` — the final section
+- `course.quiz_completed`, `course.flashcards_completed`,
+  `course.note_saved`, `course.profile_answered` — the workbook surface
+- `course.gift_purchased` / `course.gifted` / `course.gift_redeemed` — gifting
+- `course.share_redeemed` — someone used a student's share code
+
+Identity is always the reader's email; the journeys and the in-app
+notification feed resolve to the same contact. Everything below hangs off
+these events.
+
+## Purchase → onboarding
+
+Buying triggers three journeys at once. A receipt-and-welcome email lands in
+seconds. A milestone-gated walkthrough arms a durable wait for the first
+completed section — three quiet days earns a start nudge, and each later step
+(the workbook tour, the quiz explainer) waits for the behavior it follows
+rather than firing on a dumb timer. And a day later, buyers who haven't
+joined the Discord get the community invite.
+
+```ts
+const first = await ctx.waitForEvent({
+  event: Events.COURSE_LESSON_COMPLETED,
+  timeout: days(3),
+  lookback: minutes(30),
+  label: "await-first-chapter",
+});
+if (first.timedOut) {
+  await sendEmail({ template: Templates.COURSE_START_NUDGE /* … */ });
+}
+```
+
+## Milestones, with a pulse check
+
+At 25, 50, and 75% the student gets a celebration email with their real
+numbers ("52 of 104 sections") and one question: *how is the course so far?*
+The three answers are [semantic links](/docs/guides/semantic-links) — the
+click itself is the answer, no form, no login:
+
+```tsx
+<EmailAction
+  event={Events.COURSE_FEEDBACK_SUBMITTED}
+  properties={{ question: "pulse", answer: "meh", milestone }}
+  href={HOSTED_ANSWER_HREF}
+>
+  Not landing
+</EmailAction>
+```
+
+Every answer is written onto the PostHog person (`course_pulse_50: "great"`),
+so mid-course sentiment is segmentable. A "not landing" does something more
+direct: it fires an internal `course.lead.flagged` event, and a Hatchet task
+emails me — with whatever free text the student typed on the answer page —
+inside five minutes. A milestone is also posted to the students-only Discord
+channel for anyone who linked their account.
+
+## NPS that doesn't nag
+
+Finishing the course shows an NPS card in the in-app notification feed (the
+bell — also Hogsend, via `sendSurvey`). Students who answer there are done.
+Students who don't get *one* email two days later: a 0–10 row of semantic
+links firing the same `course.nps_submitted` event, so both surfaces feed one
+score stream. Then the journey branches on the answer it was waiting for:
+
+```ts
+const answer = await ctx.waitForEvent({
+  event: Events.COURSE_NPS_SUBMITTED,
+  timeout: days(10),
+  label: "await-nps",
+});
+const score = num(answer.properties?.score);
+if (score >= 9) {
+  // the testimonial ask — the answer page's free-text box IS the testimonial
+} else if (score <= 6) {
+  // I get an email, personally, not an automated apology
+}
+```
+
+Promoters get a testimonial ask whose "happy to — quote me" button opens a
+comment box; what they write lands in my inbox, not a dashboard. Detractors
+don't get a drip sequence — they get me.
+
+## Discord access without a code to paste
+
+The course includes a private `#course` channel in the
+[Hogsend Discord](https://discord.gg/rv6eZNvYrr). There's nothing to redeem:
+running `/link` in the server verifies your email against your contact, and
+two journeys grant the 🎓 Student role the moment *purchased* and *linked*
+are both true — in either order. Buy first and link later, or hang out in the
+community for a month and buy eventually; the conjunction is checked from
+event history both ways, deduped by a marker event so the welcome only fires
+once. Milestones and finishes post into the channel automatically.
+
+## Share codes for students who show up
+
+A week after purchase, a journey checks one thing: did they actually complete
+at least three sections? If so, it asks the course app to mint a single-use
+Stripe promotion code — 30% off, expires in 60 days — and emails it as
+something to *give away*, not use. The mint is non-deterministic (a fresh
+code every call), so it's wrapped in `ctx.once`, which records the first
+result durably; if the worker is replayed, the student gets the same code,
+not a second one.
+
+The coupon carries the sharer's id in its metadata. When someone redeems it
+at checkout, the Stripe webhook traces it back, fires
+`course.share_redeemed`, and the sharer gets a thank-you naming who they
+brought in. Word of mouth, with attribution, on our own identity graph — no
+ad pixels involved.
+
+## What this exercises
+
+Running a real product on your own engine is the harshest test suite there
+is. This one loop covers durable waits and timeouts (`ctx.waitForEvent`),
+timezone-aware sleeps, entry limits (`once`, `once_per_period`, `unlimited`),
+exit conditions, semantic links with hosted free-text answers, the in-app
+feed and surveys, PostHog person writes, Discord connector actions (role
+grants, DMs, channel posts), cross-event conjunctions from history,
+exactly-once side effects across replays (`ctx.once`, marker events,
+idempotency keys), and operator alerting as an out-of-journey task.
+
+When something is awkward to author, we feel it before you do. Several engine
+features — the `where` condition builder, wait `lookback`, replay-safe
+auto-keying — exist because this course lifecycle needed them.
+
+The whole thing is the standard consumer shape: a `create-hogsend` app with
+journeys in `src/journeys/`, templates in `src/emails/`, deployed as an API
+plus a worker. If you want the same loop for your product,
+[start here](/docs/getting-started).
