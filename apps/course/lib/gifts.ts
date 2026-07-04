@@ -87,6 +87,18 @@ export async function recordGiftAndMintCode(
   return { giftId, code: minted.code, isNew: true };
 }
 
+/** The Stripe product behind a course's configured price. */
+export async function resolveCourseProductId(
+  courseSlug: string,
+): Promise<string> {
+  const priceId = priceIdForCourse(courseSlug);
+  if (!priceId) {
+    throw new Error(`no Stripe price configured for "${courseSlug}"`);
+  }
+  const price = await getStripe().prices.retrieve(priceId);
+  return typeof price.product === "string" ? price.product : price.product.id;
+}
+
 /**
  * One single-use 100%-off promotion code restricted to the course's product.
  * Standalone so the admin free-copy script can mint codes outside a gift row.
@@ -96,14 +108,7 @@ export async function mintPromotionCode(
   giftId?: string,
 ): Promise<{ code: string; couponId: string; promotionCodeId: string }> {
   const stripe = getStripe();
-
-  const priceId = priceIdForCourse(courseSlug);
-  if (!priceId) {
-    throw new Error(`no Stripe price configured for "${courseSlug}"`);
-  }
-  const price = await stripe.prices.retrieve(priceId);
-  const productId =
-    typeof price.product === "string" ? price.product : price.product.id;
+  const productId = await resolveCourseProductId(courseSlug);
 
   const coupon = await stripe.coupons.create({
     percent_off: 100,
@@ -171,13 +176,25 @@ export async function markGiftRedeemed(
   };
 }
 
+/** What a redeeming session's applied coupon says about its origin. */
+export interface CouponAttribution {
+  /** Set when the coupon was minted by a gift purchase (metadata.giftId). */
+  giftId?: string;
+  /** Set when the coupon is a student share code (metadata.shareUserId). */
+  shareUserId?: string;
+  /** The course the coupon was minted for, when stamped. */
+  courseSlug?: string;
+}
+
 /**
- * A redeeming session's gift id: the session's applied discounts carry the
- * coupon (id or object); a gift coupon has `metadata.giftId`.
+ * ONE walk over a redeeming session's applied discounts: resolve each coupon
+ * (id or object) and read our minting metadata off it. Gift attribution wins
+ * over share when a coupon somehow carries both. Returns null for ordinary
+ * promotion codes — without a second walk or extra Stripe round-trips.
  */
-export async function giftIdFromSession(
+export async function couponAttributionFromSession(
   session: Stripe.Checkout.Session,
-): Promise<string | null> {
+): Promise<CouponAttribution | null> {
   let discounts = session.discounts;
   if (!discounts || discounts.length === 0) {
     // Webhook payloads occasionally omit the array — re-fetch the session.
@@ -191,8 +208,9 @@ export async function giftIdFromSession(
       typeof coupon === "string"
         ? await getStripe().coupons.retrieve(coupon)
         : coupon;
-    const giftId = full.metadata?.giftId;
-    if (giftId) return giftId;
+    const { giftId, shareUserId, courseSlug } = full.metadata ?? {};
+    if (giftId) return { giftId, courseSlug };
+    if (shareUserId) return { shareUserId, courseSlug };
   }
   return null;
 }

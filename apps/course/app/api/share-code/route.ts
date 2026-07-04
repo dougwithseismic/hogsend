@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
@@ -21,12 +22,19 @@ export const runtime = "nodejs";
  * "once", so one code per student. A response lost in transit can orphan a
  * minted coupon; orphans are single-use, product-restricted, and expire.
  */
+/** Constant-time compare (length leak only — lengths differ → early false). */
+function secretsMatch(given: string, expected: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export async function POST(req: NextRequest): Promise<Response> {
   if (!shareCodeConfigured()) {
     return new Response("share codes not configured", { status: 503 });
   }
   const secret = req.headers.get("x-share-code-secret");
-  if (!secret || secret !== process.env.SHARE_CODE_SECRET) {
+  if (!secret || !secretsMatch(secret, process.env.SHARE_CODE_SECRET ?? "")) {
     return new Response("unauthorized", { status: 401 });
   }
 

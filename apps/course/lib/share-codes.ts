@@ -1,6 +1,4 @@
-import type Stripe from "stripe";
-import { priceIdForCourse } from "@/lib/courses";
-import { generateCode } from "@/lib/gifts";
+import { generateCode, resolveCourseProductId } from "@/lib/gifts";
 import { getStripe, paywallConfigured } from "@/lib/stripe";
 
 /**
@@ -11,7 +9,8 @@ import { getStripe, paywallConfigured } from "@/lib/stripe";
  * share code is a discount the redeemer still pays against — so there is no
  * gift row and no entitlement transfer; the redeemer's own purchase webhook
  * grants their access. The coupon carries `metadata.shareUserId`, which is
- * how a redeeming session is traced back to the sharer (the webhook emits
+ * how a redeeming session is traced back to the sharer (the webhook reads it
+ * via gifts.ts `couponAttributionFromSession` and emits
  * `course.share_redeemed` to close their loop).
  *
  * Codes expire (REDEEM_BY_DAYS) so an unused code — or one orphaned by a
@@ -41,14 +40,7 @@ export async function mintShareCode(input: {
   courseSlug: string;
 }): Promise<{ code: string; percentOff: number; expiresAt: string }> {
   const stripe = getStripe();
-
-  const priceId = priceIdForCourse(input.courseSlug);
-  if (!priceId) {
-    throw new Error(`no Stripe price configured for "${input.courseSlug}"`);
-  }
-  const price = await stripe.prices.retrieve(priceId);
-  const productId =
-    typeof price.product === "string" ? price.product : price.product.id;
+  const productId = await resolveCourseProductId(input.courseSlug);
 
   const percentOff = shareDiscountPercent();
   const redeemBy = Math.floor(Date.now() / 1000) + REDEEM_BY_DAYS * 86400;
@@ -91,32 +83,4 @@ export async function mintShareCode(input: {
   throw lastError instanceof Error
     ? lastError
     : new Error("could not create a share promotion code");
-}
-
-/**
- * A redeeming session's sharer, when its applied coupon carries share
- * metadata. Mirrors giftIdFromSession — gift coupons take precedence there,
- * so the webhook checks gifts first and only then shares.
- */
-export async function shareAttributionFromSession(
-  session: Stripe.Checkout.Session,
-): Promise<{ shareUserId: string; courseSlug?: string } | null> {
-  let discounts = session.discounts;
-  if (!discounts || discounts.length === 0) {
-    const full = await getStripe().checkout.sessions.retrieve(session.id);
-    discounts = full.discounts;
-  }
-  for (const entry of discounts ?? []) {
-    const coupon = entry.coupon;
-    if (!coupon) continue;
-    const full =
-      typeof coupon === "string"
-        ? await getStripe().coupons.retrieve(coupon)
-        : coupon;
-    const shareUserId = full.metadata?.shareUserId;
-    if (shareUserId) {
-      return { shareUserId, courseSlug: full.metadata?.courseSlug };
-    }
-  }
-  return null;
 }

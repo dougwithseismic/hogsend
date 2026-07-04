@@ -140,6 +140,10 @@ export async function recordLessonProgress(
   // THIS lesson crosses a threshold, and only the highest one crossed (a tiny
   // course can cross two at once — one email, not two). The emit's idempotency
   // key (user+course+threshold, no timestamp) makes a re-fire harmless.
+  // Known edge: two lessons completed in truly concurrent requests can both
+  // read the same post-insert count and skip an intermediate threshold — the
+  // UI's one-button-per-page flow makes that vanishingly rare, and the cost
+  // is one missed celebration email, so it isn't worth a lock here.
   const doneCount = Number(done);
   const prevPct = ((doneCount - 1) / total) * 100;
   const newPct = (doneCount / total) * 100;

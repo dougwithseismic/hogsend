@@ -13,11 +13,10 @@ import {
   emitShareRedeemed,
 } from "@/lib/events";
 import {
-  giftIdFromSession,
+  couponAttributionFromSession,
   markGiftRedeemed,
   recordGiftAndMintCode,
 } from "@/lib/gifts";
-import { shareAttributionFromSession } from "@/lib/share-codes";
 import { getStripe, paywallConfigured, webhookConfigured } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -92,19 +91,26 @@ async function handleGiftSession(s: Stripe.Checkout.Session): Promise<void> {
 }
 
 /**
- * A discounted purchase MAY be a gift redemption — trace the applied coupon
- * back to its gift row via metadata and notify the buyer once. Failing that,
- * it may be a SHARE-code redemption (metadata.shareUserId) — close the
- * sharer's loop instead (idempotent on the redeeming session id).
+ * A discounted purchase MAY be a redemption of a coupon we minted — one walk
+ * over the applied discounts (couponAttributionFromSession) tells us which
+ * kind. Gift → mark the gift row redeemed and notify the buyer once.
+ * Share code → close the sharer's loop (idempotent on the session id).
+ * Ordinary promotion codes attribute to neither and return after the single
+ * walk, exactly as before share codes existed.
  */
 async function handlePossibleRedemption(
   s: Stripe.Checkout.Session,
   redeemedByUserId: string,
 ): Promise<void> {
   if (!s.total_details?.amount_discount) return;
-  const giftId = await giftIdFromSession(s);
-  if (giftId) {
-    const redeemed = await markGiftRedeemed(giftId, redeemedByUserId);
+  const attribution = await couponAttributionFromSession(s);
+  if (!attribution) return; // an ordinary promotion code
+
+  if (attribution.giftId) {
+    const redeemed = await markGiftRedeemed(
+      attribution.giftId,
+      redeemedByUserId,
+    );
     if (!redeemed) return; // already marked (retry) or unknown gift
     const [buyer, redeemer] = await Promise.all([
       userById(redeemed.buyerUserId),
@@ -122,14 +128,13 @@ async function handlePossibleRedemption(
     return;
   }
 
-  const share = await shareAttributionFromSession(s);
-  if (!share) return; // an ordinary promotion code
+  if (!attribution.shareUserId) return;
   const [sharer, redeemer] = await Promise.all([
-    userById(share.shareUserId),
+    userById(attribution.shareUserId),
     userById(redeemedByUserId),
   ]);
   if (!sharer) return;
-  const courseSlug = share.courseSlug ?? s.metadata?.courseSlug ?? "";
+  const courseSlug = attribution.courseSlug ?? s.metadata?.courseSlug ?? "";
   await emitShareRedeemed(sharer, {
     courseSlug,
     courseTitle: skuTitle(courseSlug),
