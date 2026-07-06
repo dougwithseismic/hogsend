@@ -160,11 +160,31 @@ export function identify(
 export const DURABLE_PERSISTENCE = "localStorage+cookie" as const;
 
 /**
- * Consent ledger key. Written to localStorage ONLY after explicit consent, so
- * the pre-consent visitor stays strictly cookieless (no storage write at all).
- * Read at boot so a returning consented visitor starts durable immediately.
+ * Consent ledger key. Written to localStorage ONLY after an explicit decision,
+ * so the undecided visitor stays strictly cookieless (no storage write at
+ * all). Read at boot so a returning consented visitor starts durable
+ * immediately. Values: "granted" | "denied" (remembering a refusal is itself
+ * strictly necessary, so the one small write on deny is allowed).
  */
 const CONSENT_KEY = "hs_consent";
+
+export type ConsentStatus = "granted" | "denied" | null;
+
+/**
+ * getConsentStatus — this device's recorded decision, or null when the
+ * visitor has never been asked / never answered (the banner shows on null).
+ * Safe on the server (returns null) and tolerant of storage being unavailable
+ * (private mode, blocked) — best-effort, defaults to undecided.
+ */
+export function getConsentStatus(): ConsentStatus {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = window.localStorage.getItem(CONSENT_KEY);
+    return value === "granted" || value === "denied" ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * hasConsented — whether this device previously granted analytics-persistence
@@ -172,12 +192,77 @@ const CONSENT_KEY = "hs_consent";
  * unavailable (private mode, blocked) — best-effort, defaults to no-consent.
  */
 export function hasConsented(): boolean {
-  if (typeof window === "undefined") return false;
+  return getConsentStatus() === "granted";
+}
+
+/**
+ * Consent-change subscribers — the banner, the Hogsend storage gate, and any
+ * future surface that must react the moment the decision flips. Same-document
+ * only (the `storage` event doesn't fire in the writing tab); dispatched by
+ * the three writers below.
+ */
+type ConsentListener = (status: ConsentStatus) => void;
+const consentListeners = new Set<ConsentListener>();
+
+export function onConsentChange(listener: ConsentListener): () => void {
+  consentListeners.add(listener);
+  return () => consentListeners.delete(listener);
+}
+
+function writeConsent(status: "granted" | "denied"): void {
   try {
-    return window.localStorage.getItem(CONSENT_KEY) === "granted";
+    window.localStorage.setItem(CONSENT_KEY, status);
   } catch {
-    return false;
+    // Private mode / storage blocked: the in-session effect still applies;
+    // only the cross-visit memory of the decision is lost. Best-effort.
   }
+  for (const listener of consentListeners) listener(status);
+}
+
+/**
+ * grantStorageConsent — the banner's "allow" path: storage consent WITHOUT
+ * identification (no PII is in play — that stays exclusive to the EmailCapture
+ * checkbox via `grantConsent`). Persists the decision, then flips PostHog to
+ * durable persistence via `set_config` — the in-memory distinct_id carries
+ * over, so the session's anonymous history becomes this device's one durable
+ * person. The Hogsend SDK side reacts through `onConsentChange` (the gated
+ * storage adapter in consent-storage.ts).
+ */
+export function grantStorageConsent(): void {
+  if (typeof window === "undefined") return;
+  writeConsent("granted");
+  if (!posthog.__loaded) return;
+  posthog.set_config({ persistence: DURABLE_PERSISTENCE });
+}
+
+/**
+ * denyConsent — the banner's "stay cookieless" path. Records the refusal so
+ * the banner never re-asks, and leaves everything exactly as it was: PostHog
+ * stays on "memory" persistence, the Hogsend SDK stays on its non-persisting
+ * adapter. Nothing to tear down because nothing was ever written.
+ */
+export function denyConsent(): void {
+  if (typeof window === "undefined") return;
+  writeConsent("denied");
+}
+
+/**
+ * withdrawConsent — flips a previously-granted device back to cookieless.
+ * Records "denied", then reverses the durable footprint: PostHog drops back to
+ * "memory" persistence and `reset()` clears its localStorage/cookie state
+ * (including the `.hogsend.com` distinct_id cookie) and rotates the id. The
+ * Hogsend `hs_anon_id` cleanup happens in the gated storage adapter via
+ * `onConsentChange`. Callers wanting an audit event must send it BEFORE
+ * calling this, while the durable id still exists.
+ */
+export function withdrawConsent(): void {
+  if (typeof window === "undefined") return;
+  writeConsent("denied");
+  if (!posthog.__loaded) return;
+  // reset() first (it clears the persisted state), then drop to memory so
+  // nothing durable is re-minted afterwards.
+  posthog.reset();
+  posthog.set_config({ persistence: "memory" });
 }
 
 /**
@@ -197,12 +282,7 @@ export function grantConsent(
   personProperties?: Record<string, unknown>,
 ): void {
   if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(CONSENT_KEY, "granted");
-  } catch {
-    // Private mode / storage blocked: the upgrade still applies for this
-    // session; only the cross-visit durable boot is lost. Best-effort.
-  }
+  writeConsent("granted");
   if (!posthog.__loaded) return;
   posthog.set_config({ persistence: DURABLE_PERSISTENCE });
   posthog.identify(id, personProperties);

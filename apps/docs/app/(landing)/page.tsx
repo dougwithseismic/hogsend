@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
 import { AnnouncementBanner } from "@/components/announcement-banner";
+import { CookieSettingsLink } from "@/components/consent/cookie-settings-link";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
 import { CodeHighlight } from "@/components/ds/code-highlight";
 import { CopyButton } from "@/components/ds/copy-button";
@@ -3136,6 +3137,7 @@ function PsFooter() {
           <p className="mt-2 text-sm text-white/40 tracking-[-0.02em]">
             © 2026 Hogsend. All rights reserved.
           </p>
+          <CookieSettingsLink className="mt-2 text-sm text-white/40 tracking-[-0.02em] transition-colors hover:text-white" />
         </div>
         <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
           {FOOTER_COLS.map((col) => (

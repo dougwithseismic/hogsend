@@ -28,6 +28,10 @@ export type {
   FeedPageInfo,
   MarkState,
 } from "./feed/index.js";
+export {
+  createLocalStorage,
+  createMemoryStorage,
+} from "./identity/storage.js";
 export type {
   PollFetcher,
   PollTransportOptions,

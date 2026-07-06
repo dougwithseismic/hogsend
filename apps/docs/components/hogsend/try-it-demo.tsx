@@ -143,13 +143,11 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
     }
   }, [client]);
 
+  // In-session state only while typing: the name is PII, so it reaches
+  // localStorage exclusively at signup (submitSignup below), where the
+  // consent checkbox rides the same submit.
   function onName(value: string) {
     setName(value);
-    try {
-      window.localStorage.setItem(NAME_KEY, value);
-    } catch {
-      // Best-effort — the in-session value still personalizes the demo.
-    }
   }
 
   function copyAnon() {

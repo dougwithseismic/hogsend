@@ -33,6 +33,14 @@ const COLUMNS: FooterColumn[] = [
       { label: "Discord", href: DISCORD_INVITE_URL, external: true },
     ],
   },
+  {
+    heading: "Legal",
+    links: [
+      { label: "Cookies", href: "/cookies" },
+      { label: "Privacy", href: `${HOGSEND_URL}/privacy`, external: true },
+      { label: "Terms", href: `${HOGSEND_URL}/terms`, external: true },
+    ],
+  },
 ];
 
 function FooterLinkItem({ link }: { link: FooterLink }): JSX.Element {
@@ -70,7 +78,7 @@ export function SiteFooter({ className }: { className?: string }): JSX.Element {
       )}
     >
       <div className="container-page py-20">
-        <div className="grid grid-cols-2 gap-x-8 gap-y-12 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-12 sm:grid-cols-3 lg:grid-cols-5">
           <div className="col-span-2 max-w-sm sm:col-span-1 sm:pr-6">
             <Logo />
             <p className="mt-5 text-base text-white/60 leading-6 tracking-[-0.02em]">

@@ -1,5 +1,6 @@
 "use client";
 
+import { createMemoryStorage } from "@hogsend/js";
 import { HogsendProvider } from "@hogsend/react";
 import "@hogsend/react/styles.css";
 // Loaded AFTER the package skin so our equal-specificity `.hsr` overrides win
@@ -62,6 +63,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
   }, [userId]);
 
   const identified = userId && token ? { userId, userToken: token } : {};
+  // Memory-only storage: this site never persists `hs_anon_id`. Identity for
+  // the feed is the server-minted userToken (signed-in), and an anonymous
+  // visitor's feed is empty by design — so there is nothing a durable anon id
+  // would add, and without it the site stores nothing beyond the sign-in
+  // session cookie (no cookie banner needed; see /cookies).
+  const [storage] = useState(createMemoryStorage);
   return (
     <HogsendProvider
       // HogsendProvider constructs its client ONCE (useState initializer) — a
@@ -76,6 +83,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // Falsy return = refresh failed; the SDK keeps the old token and the
       // next 403 retries. Never throws.
       onUserTokenExpiring={async () => (await fetchFeedToken()) ?? ""}
+      storage={storage}
       {...identified}
     >
       {children}

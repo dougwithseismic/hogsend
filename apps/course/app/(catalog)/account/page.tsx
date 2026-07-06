@@ -5,6 +5,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { BillingSection } from "@/components/account/billing-section";
+import { CommunicationsSection } from "@/components/account/communications-section";
 import { DangerZone } from "@/components/account/danger-zone";
 import { LicenseSection } from "@/components/account/license-section";
 import { ProfileForm } from "@/components/account/profile-form";
@@ -153,6 +154,18 @@ export default async function AccountPage() {
 
         {/* Renders nothing when the user has no team-licence packs. */}
         <LicenseSection userId={user.id} />
+
+        {/* Hidden until the two NEXT_PUBLIC_HOGSEND_* env vars are set (same
+            gate the nav bell uses). */}
+        {process.env.NEXT_PUBLIC_HOGSEND_API_URL &&
+        process.env.NEXT_PUBLIC_HOGSEND_PUBLISHABLE_KEY ? (
+          <Section
+            title="Communications"
+            description="Which emails you get from us. Changes apply immediately — the same controls are linked from every email."
+          >
+            <CommunicationsSection />
+          </Section>
+        ) : null}
 
         <Section title="Security">
           <div className="flex flex-col gap-6">
