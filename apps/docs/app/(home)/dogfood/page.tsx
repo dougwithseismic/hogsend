@@ -1,8 +1,13 @@
+import { Bell } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
+import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
+import { Card } from "@/components/ds/card";
 import { CodeWindow } from "@/components/ds/code-window";
+import { MockupFrame } from "@/components/ds/mockup";
+import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { GITHUB_URL } from "@/lib/site";
@@ -11,182 +16,427 @@ import { GITHUB_URL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "How we run Hogsend on Hogsend",
   description:
-    "What we do with our own product: the docs funnel, the course lifecycle, the Discord community, and the referral loop — why each exists, how they fit together, and the code behind them.",
+    "The four loops our production instance runs — the docs check-in, the course lifecycle, the referral credit, and the Discord /link — shown as the real emails, DMs, and journeys they are.",
 };
 
 /* ------------------------------------------------------------------------ */
-/*  Code excerpts — real files from the production instance, trimmed.       */
-/*  Source of truth: the hogsend-dogfood app this page describes.           */
+/*  The one code window on the page — the check-in listener, trimmed from   */
+/*  the production journey (hogsend-dogfood/src/journeys/docs-subscriber).  */
 /* ------------------------------------------------------------------------ */
 
-const DOCS_CHECKIN_CODE = `// 6. Day 10 — the one-tap check-in. The yes/no buttons are
-//    SEMANTIC LINKS: the click fires \`docs.checkin.answered { answer }\`
-//    through the full pipeline and lands on the engine-hosted answer
-//    page (comments arrive as \`docs.checkin.answered.comment\`). The wait
-//    below resumes with the answer's payload.
+const CHECKIN_LISTENER_CODE = `// Day 10 — the buttons in the email ARE the answer.
 const checkin = await ctx.waitForEvent({
   event: Events.DOCS_CHECKIN_ANSWERED,
   timeout: days(5),
-  label: "await-checkin",
 });
 
-const answer = checkin.timedOut ? undefined : checkin.properties?.answer;
+const answer = checkin.timedOut
+  ? undefined
+  : checkin.properties?.answer;
 
 if (answer === "yes") {
-  // Activated — a couple of days from now, the referral favour.
+  // Winning → the favour (the referral loop).
   await ctx.trigger({
     event: Events.DOCS_REFERRAL_ELIGIBLE,
     userId: user.id,
-    properties: { reason: "activated", source: "docs-checkin" },
   });
-  return;
 }
 
 if (answer === "no") {
-  // Struggler — the setup-week offer path.
+  // Stuck → real help (the setup week).
   await ctx.trigger({
     event: Events.DOCS_SETUP_ELIGIBLE,
     userId: user.id,
-    properties: { reason: "needs-help", source: "docs-checkin" },
-  });
-  return;
-}
-
-// Silent (timed out). A deploy click since the check-in went out means
-// they got moving on their own — withdraw the pitch, ask the favour
-// instead.
-const { found: deployedSinceCheckin } = await ctx.history.hasEvent({
-  userId: user.id,
-  event: Events.DOCS_DEPLOY_CLICKED,
-  within: days(6),
-});`;
-
-const COURSE_NPS_CODE = `// The click IS the answer (the 0–10 EmailActions emit
-// course.nps_submitted). Lookback covers a tap that lands between the
-// send and this wait being established.
-const answer = await ctx.waitForEvent({
-  event: Events.COURSE_NPS_SUBMITTED,
-  timeout: days(10),
-  lookback: minutes(30),
-  label: "await-nps",
-});
-if (answer.timedOut) return;
-
-const score = num(answer.properties?.score);
-if (score === undefined) return;
-
-if (score >= 9) {
-  // Promoter → the testimonial ask.
-  if (!(await ctx.guard.isSubscribed())) return;
-  await sendEmail({
-    to: user.email,
-    userId: user.id,
-    journeyStateId: user.stateId,
-    template: Templates.COURSE_TESTIMONIAL_ASK,
-    subject: "Thank you — one small ask",
-    journeyName: user.journeyName,
-    props: {
-      name: firstName ?? "there",
-      score,
-      courseTitle,
-      giftUrl: \`\${courseUrl(str(user.properties.course))}#gift\`,
-    },
-  });
-} else if (score <= 6) {
-  // Detractor → Doug, personally, not an automated apology.
-  await ctx.trigger({
-    event: Events.COURSE_LEAD_FLAGGED,
-    userId: user.id,
-    properties: {
-      reason: "course-detractor",
-      answer: String(score),
-      sourceEvent: Events.COURSE_NPS_SUBMITTED,
-      sourceTemplate: Templates.COURSE_NPS,
-      answeredAt: new Date().toISOString(),
-    },
   });
 }`;
 
-const REFERRAL_CONVERT_CODE = `run: async (user, ctx) => {
-  // The visit that attributed this person to a referrer, within the
-  // window.
-  const visits = await ctx.history.events({
-    userId: user.id,
-    event: Events.REFERRAL_VISITED,
-    within: days(Referral.ATTRIBUTION_WINDOW_DAYS),
-    limit: 10,
-  });
-  const referrerKey = visits
-    .map((e) => e.properties?.referred_by)
-    .find((k): k is string => typeof k === "string" && k.length > 0);
-
-  // No attribution, or a self-referral (the identity merge collapsed
-  // referrer and referee onto one contact) — nothing to credit.
-  if (!referrerKey || referrerKey === user.id) return;
-  await ctx.checkpoint("attributed");
-
-  // Cross-person hop: enroll the REFERRER in the reward journey. The
-  // engine auto-keys ctx.trigger, so this is exactly-once across a
-  // replay.
-  await ctx.trigger({
-    event: Events.REFERRAL_CREDITED,
-    userId: referrerKey,
-    properties: { refereeId: user.id },
-  });
-},`;
-
-const DISCORD_WELCOME_CODE = `// 1) The DM — a PERSONAL tracked link (stitches this member's click to
-//    their contact key). \`dmMember\` soft-fails if their DMs are closed.
-const dmLink = await mintLink({
-  db,
-  url: GETTING_STARTED_URL,
-  baseUrl: API_PUBLIC_URL,
-  source: "discord",
-  type: "personal",
-  distinctId: user.id,
-  label: "Discord welcome DM",
-  campaign: "discord-welcome",
-});
-await dmMember(
-  discordId,
-  "Hey — welcome to the Hogsend community, and thanks for verifying! 🎉\\n\\n" +
-    \`If you're getting started, here's the quickest path in: \${dmLink.url}\\n\\n\` +
-    "Ask anything in the server — we read everything.",
-);
-
-// 1b) Drop an in-app notification into their feed — the SAME bell the docs
-//     site polls. Linking folded their discord_id + email onto ONE contact,
-//     so this lands on the web session they signed up with: a real,
-//     cross-channel "your Discord is linked" moment driven by the actual
-//     \`/link\` slash command, not a demo button.
-await sendFeedItem({
-  recipient: { anonymousId: user.id },
-  type: "success",
-  title: "You linked your Discord 🎉",
-  body: "Your Discord is now connected to your Hogsend identity. This reached your bell because linking stitched your web session to your contact — one identity across web and Discord.",
-  actionUrl: GETTING_STARTED_URL,
-  journeyStateId: user.stateId,
-});`;
-
 /* ------------------------------------------------------------------------ */
-/*  Primitives                                                               */
+/*  Mock shells — every artifact below mirrors a real send from the         */
+/*  production dogfood app: real subjects, real button labels, real copy.   */
 /* ------------------------------------------------------------------------ */
 
-function InlineCode({ children }: { children: ReactNode }): JSX.Element {
-  return (
-    <code className="rounded bg-white/[0.08] px-1.5 py-0.5 font-mono text-[13px] text-white/90">
-      {children}
-    </code>
-  );
+/** Small sentence-case label above a mocked artifact. */
+function MockLabel({ children }: { children: ReactNode }): JSX.Element {
+  return <p className="mb-3 text-[12px] text-white/40">{children}</p>;
 }
 
-function Prose({ children }: { children: ReactNode }): JSX.Element {
+/**
+ * A rendered email, from site tokens only: sender line, subject, body,
+ * whatever the email's interactive row is, and the journey footer.
+ */
+function EmailShell({
+  subject,
+  children,
+}: {
+  subject: string;
+  children: ReactNode;
+}): JSX.Element {
   return (
-    <div className="flex max-w-2xl flex-col gap-5 text-[15px] text-white/65 leading-7">
+    <div className="text-left">
+      <p className="font-mono text-[11px] text-white/40">
+        From: hello@hogsend.com
+      </p>
+      <h3 className="mt-2 font-medium text-[16px] text-white">{subject}</h3>
       {children}
+      <p className="mt-7 text-[12px] text-white/40">
+        Sent by a journey · Unsubscribe
+      </p>
     </div>
   );
 }
+
+/** The day-10 check-in — subject, copy, and button labels verbatim. */
+function CheckinEmailMock(): JSX.Element {
+  return (
+    <EmailShell subject="Did you get a journey running?">
+      <p className="mt-3 text-[14px] text-white/70 leading-6">
+        It&rsquo;s Doug. Ten days in: did you get a journey running?
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2.5">
+        <span className="inline-flex rounded-lg border border-white/20 bg-white/[0.06] px-5 py-2 font-semibold text-sm text-white">
+          Yes, it&rsquo;s live
+        </span>
+        <span className="inline-flex rounded-lg border border-white/20 bg-white/[0.06] px-5 py-2 font-semibold text-sm text-white">
+          Not yet
+        </span>
+      </div>
+      <p className="mt-4 text-[13px] text-white/50 leading-5">
+        Your answer tells me whether to send help or leave you to it —
+        that&rsquo;s all I do with it.
+      </p>
+    </EmailShell>
+  );
+}
+
+/** The post-completion NPS email — subject and 0–10 row verbatim. */
+function NpsEmailMock(): JSX.Element {
+  return (
+    <EmailShell subject="Would you recommend Measure, Keep, and Grow?">
+      <p className="mt-3 text-[14px] text-white/70 leading-6">
+        One tap, honestly given, and you&rsquo;re done.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-1.5">
+        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
+          <span
+            key={score}
+            className="inline-flex min-w-9 items-center justify-center rounded-md border border-white/15 bg-white/[0.05] px-2.5 py-1.5 font-semibold text-[13px] text-white/85"
+          >
+            {score}
+          </span>
+        ))}
+      </div>
+      <p className="mt-3 text-[13px] text-white/50 leading-5">
+        0 = not at all, 10 = absolutely.
+      </p>
+      <div className="mt-5 flex flex-col gap-2.5 border-white/[0.08] border-t pt-5">
+        <p className="flex flex-wrap items-center gap-2.5 text-[13px] text-white/60">
+          <TagPill accent>9–10</TagPill>
+          &ldquo;Thank you — one small ask&rdquo; — the testimonial.
+        </p>
+        <p className="flex flex-wrap items-center gap-2.5 text-[13px] text-white/60">
+          <TagPill>0–6</TagPill>
+          Doug, personally — a flag in his inbox, not an automated apology.
+        </p>
+      </div>
+    </EmailShell>
+  );
+}
+
+/** The referral credit email — subject and copy verbatim. */
+function ReferralEmailMock(): JSX.Element {
+  return (
+    <EmailShell subject="Someone you referred just joined">
+      <p className="mt-3 text-[14px] text-white/70 leading-6">
+        A new person came in through your referral link. Thank you for spreading
+        the word.
+      </p>
+    </EmailShell>
+  );
+}
+
+/** The Discord welcome DM — message copy verbatim from the welcome journey. */
+function DiscordDmMock(): JSX.Element {
+  return (
+    <div className="rounded-xl border border-white/10 bg-[#0a0606]/80 p-5 md:p-6">
+      <div className="flex items-start gap-3.5">
+        <span
+          aria-hidden="true"
+          className="grid size-9 shrink-0 place-items-center rounded-full border border-accent/40 bg-accent-tint font-medium text-sm text-white"
+        >
+          H
+        </span>
+        <div className="min-w-0">
+          <p className="flex items-center gap-2">
+            <span className="font-medium text-sm text-white">Hogsend</span>
+            <TagPill className="px-1.5 py-0.5 text-[10px]">APP</TagPill>
+          </p>
+          <div className="mt-1.5 flex flex-col gap-3 text-[14px] text-white/75 leading-6">
+            <p>
+              Hey — welcome to the Hogsend community, and thanks for verifying!
+              🎉
+            </p>
+            <p>
+              If you&rsquo;re getting started, here&rsquo;s the quickest path
+              in:{" "}
+              <span className="text-accent underline underline-offset-2">
+                your personal getting-started link
+              </span>
+            </p>
+            <p>Ask anything in the server — we read everything.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The same moment in the web bell — title and copy from the same journey. */
+function BellFeedMock(): JSX.Element {
+  return (
+    <div className="rounded-xl border border-white/10 bg-[#0a0606]/80 p-5 md:p-6">
+      <p className="flex items-center gap-2 text-white/50 text-xs">
+        <Bell className="size-3.5" strokeWidth={1.5} aria-hidden="true" />
+        Notifications
+      </p>
+      <div className="mt-4 rounded-lg border border-white/[0.08] bg-white/[0.03] p-4">
+        <p className="font-medium text-sm text-white">
+          You linked your Discord 🎉
+        </p>
+        <p className="mt-1.5 text-[13px] text-white/60 leading-5">
+          Your Discord is now connected to your Hogsend identity — one identity
+          across web and Discord.
+        </p>
+        <p className="mt-3 font-medium text-accent text-sm">
+          Getting started →
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/*  The bucket — the strategy, as a picture.                                */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Four ways in pour into one bucket; each leak is plugged by a journey; the
+ * paid-traffic tap stays off until the bucket holds. Accent red is spent on
+ * the water and the patches — the nurture is what holds it.
+ */
+function BucketDiagram(): JSX.Element {
+  const inlets = [
+    { x: 180, label: "Docs" },
+    { x: 262, label: "The course" },
+    { x: 344, label: "Discord" },
+    { x: 426, label: "A friend's link" },
+  ];
+  const patches = [
+    { x: 186, y: 168, w: 104, label: "the check-in" },
+    { x: 312, y: 192, w: 116, label: "the walkthrough" },
+    { x: 208, y: 232, w: 104, label: "the thank-you" },
+    { x: 326, y: 258, w: 100, label: "the welcome" },
+  ];
+
+  return (
+    <svg
+      viewBox="0 0 560 348"
+      width="100%"
+      height="auto"
+      role="img"
+      aria-label="Four ways in — docs, the course, Discord, a friend's link — pour into one bucket. Every leak is plugged by a journey: the check-in, the walkthrough, the thank-you, the welcome. The paid-traffic tap stays off until the bucket holds."
+    >
+      {/* Paid-traffic tap — drawn dashed and dry: it waits. */}
+      <rect
+        x="34"
+        y="44"
+        width="66"
+        height="20"
+        rx="4"
+        fill="none"
+        stroke="rgba(255,255,255,0.25)"
+        strokeWidth="1"
+        strokeDasharray="4 4"
+      />
+      <text
+        x="67"
+        y="36"
+        fill="rgba(255,255,255,0.55)"
+        fontSize="12"
+        textAnchor="middle"
+      >
+        Paid traffic
+      </text>
+      <text
+        x="67"
+        y="58"
+        fill="rgba(246,72,56,0.9)"
+        fontSize="10"
+        fontFamily="monospace"
+        textAnchor="middle"
+      >
+        later
+      </text>
+      <line
+        x1="88"
+        y1="70"
+        x2="146"
+        y2="106"
+        stroke="rgba(255,255,255,0.18)"
+        strokeWidth="1"
+        strokeDasharray="2 6"
+      />
+
+      {/* Four inlets — labels and arrows into the bucket mouth. */}
+      {inlets.map((inlet) => (
+        <g key={inlet.label}>
+          <text
+            x={inlet.x}
+            y="36"
+            fill="rgba(255,255,255,0.7)"
+            fontSize="12"
+            textAnchor="middle"
+          >
+            {inlet.label}
+          </text>
+          <line
+            x1={inlet.x}
+            y1="46"
+            x2={inlet.x}
+            y2="82"
+            stroke="rgba(255,255,255,0.3)"
+            strokeWidth="1.5"
+          />
+          <path
+            d={`M${inlet.x - 4} 80 L${inlet.x} 90 L${inlet.x + 4} 80 Z`}
+            fill="rgba(255,255,255,0.3)"
+          />
+        </g>
+      ))}
+
+      {/* Bucket silhouette. */}
+      <path
+        d="M150 108 L450 108 L418 328 L182 328 Z"
+        fill="rgba(255,255,255,0.02)"
+        stroke="rgba(255,255,255,0.22)"
+        strokeWidth="1.5"
+      />
+
+      {/* Water — it holds. */}
+      <path
+        d="M156 148 L444 148 L418 328 L182 328 Z"
+        fill="rgba(246,72,56,0.08)"
+      />
+      <line
+        x1="156"
+        y1="148"
+        x2="444"
+        y2="148"
+        stroke="rgba(246,72,56,0.5)"
+        strokeWidth="1.5"
+      />
+
+      {/* Patches — one journey over every hole. */}
+      {patches.map((patch) => (
+        <g key={patch.label}>
+          <rect
+            x={patch.x}
+            y={patch.y}
+            width={patch.w}
+            height="28"
+            rx="6"
+            fill="rgba(246,72,56,0.14)"
+            stroke="rgba(246,72,56,0.5)"
+            strokeWidth="1"
+          />
+          <text
+            x={patch.x + patch.w / 2}
+            y={patch.y + 18}
+            fill="rgba(255,255,255,0.9)"
+            fontSize="11"
+            fontFamily="monospace"
+            textAnchor="middle"
+          >
+            {patch.label}
+          </text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/*  The purchase fan-out — one event, five journeys, drawn as a trace.      */
+/* ------------------------------------------------------------------------ */
+
+const PURCHASE_FANOUT: { name: string; artifact: string }[] = [
+  {
+    name: "The receipt",
+    artifact: "“That's yours now — all eleven chapters” · immediately",
+  },
+  {
+    name: "The walkthrough",
+    artifact:
+      "watches three days for a first chapter; one nudge — “Twenty minutes gets you chapter 0” — then silence",
+  },
+  {
+    name: "The community invite",
+    artifact: "“Your seat in the private #course channel” · the next day",
+  },
+  {
+    name: "Discord access",
+    artifact: "the 🎓 role, granted without asking if your account is linked",
+  },
+  {
+    name: "Your share code",
+    artifact: "a discount code to give away",
+  },
+];
+
+function PurchaseFanout(): JSX.Element {
+  return (
+    <div>
+      <span className="inline-flex items-center rounded-md border border-accent/40 bg-accent-tint px-3 py-1.5 font-mono text-[13px] text-white">
+        course.purchased
+      </span>
+      <ul className="mt-2 ml-3 flex flex-col border-white/10 border-l">
+        {PURCHASE_FANOUT.map((row) => (
+          <li key={row.name} className="relative py-3 pl-6">
+            <span
+              aria-hidden="true"
+              className="absolute top-1/2 left-0 h-px w-4 bg-white/10"
+            />
+            <p className="font-medium text-sm text-white">{row.name}</p>
+            <p className="mt-0.5 text-[13px] text-white/55 leading-5">
+              {row.artifact}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/*  The three check-in outcomes — real subjects as the artifacts.           */
+/* ------------------------------------------------------------------------ */
+
+const CHECKIN_OUTCOMES: { answer: string; title: string; line: string }[] = [
+  {
+    answer: "Yes, it's live",
+    title: "“A small favour”",
+    line: "Two days later we ask you to tell a friend — the referral loop below.",
+  },
+  {
+    answer: "Not yet",
+    title: "“If the install is the blocker”",
+    line: "Real help: the setup week, a human installing it with you.",
+  },
+  {
+    answer: "Silence",
+    title: "We look at what you did instead",
+    line: "A deploy click since the check-in means you got moving — the pitch is withdrawn, the favour asked instead.",
+  },
+];
 
 /* ------------------------------------------------------------------------ */
 /*  Page                                                                     */
@@ -202,15 +452,15 @@ export default function DogfoodPage(): JSX.Element {
             <SectionHeading
               eyebrow="How we use it"
               title="How we run Hogsend on Hogsend"
-              subtitle="Hogsend is one business, and it runs its own marketing on one production Hogsend instance. This page walks through what we're actually doing with it — the docs funnel, the course, the Discord community, the referral loop — and the thinking behind each one. Real journeys, real emails, and the occasional bit of real code."
+              subtitle="Hogsend is one business, and its marketing runs on one production Hogsend instance. These are the four loops it runs — shown as the real emails, DMs, and journeys they are."
             />
           </Reveal>
           <Reveal
             delay={0.1}
             className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4"
           >
-            <Button href="#aim" variant="accent" icon>
-              Start with the why
+            <Button href="#bucket" variant="accent" icon>
+              See the loops
             </Button>
             <Button href={GITHUB_URL} variant="outline" external>
               The engine, on GitHub
@@ -219,45 +469,24 @@ export default function DogfoodPage(): JSX.Element {
         </div>
       </section>
 
-      {/* ---- The aim ----------------------------------------------------- */}
-      <Section id="aim">
+      {/* ---- The bucket --------------------------------------------------- */}
+      <Section id="bucket">
         <Reveal>
           <SectionHeading
+            align="center"
             eyebrow="The aim"
             title="Fix the bucket before paying to fill it"
-            subtitle="The strategy behind every loop on this page is the same one the course teaches: paid traffic comes last."
+            subtitle="We nurture every step of the way — so when we turn paid traffic on, the bucket has no holes."
           />
         </Reveal>
-        <Reveal delay={0.08} className="mt-10">
-          <Prose>
-            <p>
-              At some point we&rsquo;ll put money behind Hogsend — ads,
-              sponsorships, the usual. Paid clicks are also the most expensive
-              possible way to find out that people fall through the cracks after
-              they arrive. So the work right now is closing the cracks: making
-              sure that every way somebody can meet Hogsend, there&rsquo;s a
-              next step waiting for them, and a step after that.
-            </p>
-            <p>
-              Read the docs and tap <em>keep me posted</em> — a journey walks
-              you toward your first running journey and then checks in on how it
-              went. Join the Discord — a journey welcomes you and connects your
-              account to your email, so the community isn&rsquo;t a separate
-              island of strangers. Buy the course — a set of journeys picks you
-              up from the receipt through to finishing, and asks how it landed.
-              Tell a friend — a journey notices and says thank you properly.
-              Nobody enters and just&hellip; sits there.
-            </p>
-            <p>
-              When the ads eventually switch on, that&rsquo;s what they pour
-              into: a bucket that holds water. And because we sell the tool that
-              does this, the whole program doubles as proof — it&rsquo;s all one
-              standard <InlineCode>create-hogsend</InlineCode> app, a few dozen
-              journeys and emails in one TypeScript repo, on the same engine
-              you&rsquo;d scaffold today. The four loops below are the ones that
-              matter.
-            </p>
-          </Prose>
+        <Reveal delay={0.1} className="mx-auto mt-12 max-w-3xl">
+          <MockupFrame>
+            <BucketDiagram />
+          </MockupFrame>
+          <p className="mt-4 text-center text-[13px] text-white/45 leading-5">
+            Paid clicks are the most expensive way to find a leak. Every loop
+            below plugs one first.
+          </p>
         </Reveal>
       </Section>
 
@@ -265,47 +494,42 @@ export default function DogfoodPage(): JSX.Element {
       <Section id="docs-funnel">
         <Reveal>
           <SectionHeading
-            eyebrow="The docs funnel"
+            eyebrow="Loop 1 · The docs funnel"
             title="Get readers to a running journey"
-            subtitle="Most people meet Hogsend through the docs. The aim of the first ten days isn't to sell anything — it's to get you to a journey running in your own repo, because that's the moment this stops being a docs site you read and starts being a tool you use."
+            subtitle="Six short notes over ten days, then one question. The tap is the answer — it flows back into the journey and decides what happens next."
           />
         </Reveal>
         <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
           <Reveal>
-            <Prose>
-              <p>
-                Subscribing starts a six-email series over ten days that walks
-                the same path the docs do — why lifecycle, the recipes, the
-                agents, the community. Then, on day ten, we just ask:{" "}
-                <em>&ldquo;Did you get a journey running?&rdquo;</em> The yes/no
-                buttons in that email <em>are</em> the answer — a tap flows back
-                into the journey as an event, and the code on the right picks it
-                up and decides what happens next.
-              </p>
-              <p>
-                Say <em>yes</em> and a couple of days later we ask a small
-                favour — that&rsquo;s the referral loop further down. Say{" "}
-                <em>no</em> and we offer actual help: the setup week, a human
-                installing it with you. Say nothing, and we look at what you did
-                instead — if you clicked deploy since the check-in went out, you
-                clearly got moving on your own, so the offer is withdrawn and we
-                ask the favour instead.
-              </p>
-              <p>
-                Two details we care about. The offer journey exits the moment
-                you click deploy, even mid-conversation — nobody should be
-                pitched help they&rsquo;ve stopped needing. And a genuine{" "}
-                <em>interested</em> doesn&rsquo;t become a row in a CRM; it
-                becomes an email in Doug&rsquo;s inbox.
-              </p>
-            </Prose>
+            <MockLabel>The day-10 email, as sent</MockLabel>
+            <MockupFrame>
+              <CheckinEmailMock />
+            </MockupFrame>
           </Reveal>
           <Reveal delay={0.1}>
+            <MockLabel>The journey listening for the tap</MockLabel>
             <CodeWindow
               filename="src/journeys/docs-subscriber.ts (trimmed)"
-              code={DOCS_CHECKIN_CODE}
+              code={CHECKIN_LISTENER_CODE}
             />
           </Reveal>
+        </div>
+        <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
+          {CHECKIN_OUTCOMES.map((outcome, index) => (
+            <Reveal key={outcome.answer} delay={index * 0.05}>
+              <Card className="h-full">
+                <TagPill accent={outcome.answer === "Yes, it's live"}>
+                  {outcome.answer}
+                </TagPill>
+                <h3 className="mt-4 font-medium text-[16px] text-white leading-[1.3] tracking-[-0.02em]">
+                  {outcome.title}
+                </h3>
+                <p className="mt-2 text-[13px] text-white/55 leading-5">
+                  {outcome.line}
+                </p>
+              </Card>
+            </Reveal>
+          ))}
         </div>
       </Section>
 
@@ -313,148 +537,83 @@ export default function DogfoodPage(): JSX.Element {
       <Section id="course">
         <Reveal>
           <SectionHeading
-            eyebrow="The course"
+            eyebrow="Loop 2 · The course"
             title="The course runs on what it teaches"
-            subtitle="The course teaches lifecycle marketing on PostHog and Hogsend — so buying it enrolls you in exactly the kind of program the chapters describe. If our own course didn't nurture properly, why would you believe the chapters?"
+            subtitle="One purchase starts five journeys, each with one job. When you finish, one tap decides what we do next."
           />
         </Reveal>
         <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
           <Reveal>
-            <Prose>
-              <p>
-                A purchase kicks off several journeys at once, each with one
-                job: the receipt lands immediately, a walkthrough gets you into
-                chapter one, the next day comes the community invite, Discord
-                access unlocks if your account is linked, and your share code is
-                issued. Splitting them means a second purchase still gets its
-                receipt while the walkthrough carries on undisturbed.
-              </p>
-              <p>
-                The walkthrough is the part we sweat. It watches for three days
-                for your first completed chapter. If you never start, you get
-                one honest nudge, one more watch — and then silence. Nurture
-                isn&rsquo;t nagging; someone who bought and didn&rsquo;t start
-                doesn&rsquo;t need a fourth email, they need the next real
-                reason to open the thing.
-              </p>
-              <p>
-                And when you finish, we wait two days and ask the 0&ndash;10
-                question. The in-app card gets first go; the email is the
-                fallback; both feed one score stream. Promoters get a small
-                testimonial ask. Detractors get Doug, personally — a flag in his
-                inbox, not an automated apology. Finish a second course within
-                six months and you won&rsquo;t be surveyed again.
-              </p>
-            </Prose>
+            <MockLabel>What a purchase kicks off</MockLabel>
+            <MockupFrame>
+              <PurchaseFanout />
+            </MockupFrame>
           </Reveal>
           <Reveal delay={0.1}>
-            <CodeWindow
-              filename="src/journeys/course-feedback.ts (trimmed)"
-              code={COURSE_NPS_CODE}
-            />
+            <MockLabel>Two days after you finish</MockLabel>
+            <MockupFrame>
+              <NpsEmailMock />
+            </MockupFrame>
           </Reveal>
         </div>
       </Section>
 
-      {/* ---- Loop 3: referrals ------------------------------------------- */}
-      <Section id="referrals">
-        <Reveal>
-          <SectionHeading
-            eyebrow="Referrals"
-            title="Ask the favour when it's earned"
-            subtitle="Referrals only work when you ask people who are already winning — which is why the ask lives at the end of the docs funnel's happy path, not in a banner. The other half is making sure the credit lands reliably enough that the favour feels worth doing."
-          />
-        </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-          <Reveal>
-            <Prose>
-              <p>
-                A friend visits through your link and that visit is remembered
-                against them. The conversion moment is deliberately strict:
-                it&rsquo;s when they verify in the Discord — the point where an
-                anonymous visitor becomes a real, reachable person. That&rsquo;s
-                when the journey on the right runs: it reads the attributing
-                visit back out of their history, and credits <em>you</em> from
-                inside <em>their</em> journey.
-              </p>
-              <p>
-                There&rsquo;s no codes table and no ledger to reconcile — the
-                events are the ledger, and the attribution survives the moment
-                the anonymous visitor and the verified member get folded into
-                one identity. Each credit thanks you with a DM and an email, and
-                crossing the milestone grants the 🏅 Ambassador role in the
-                server — once, ever, no matter how many times you cross it.
-              </p>
-            </Prose>
-          </Reveal>
-          <Reveal delay={0.1}>
-            <CodeWindow
-              filename="src/journeys/referral-convert.ts (trimmed)"
-              code={REFERRAL_CONVERT_CODE}
-            />
-          </Reveal>
-        </div>
+      {/* ---- Loop 3: referrals -------------------------------------------- */}
+      <Section id="referrals" className="overflow-visible">
+        <ProcessSteps
+          eyebrow="Loop 3 · Referrals"
+          title="Ask the favour when it's earned"
+          subtitle="The ask lives at the end of the docs funnel's happy path, not in a banner. And the credit is strict about the moment it counts."
+          steps={[
+            {
+              n: "01",
+              title: "A friend arrives through your link",
+              description:
+                "The visit is remembered against them. No codes table, no ledger to reconcile — the events are the ledger.",
+            },
+            {
+              n: "02",
+              title: "They verify in the Discord",
+              description:
+                "That's the conversion — the moment an anonymous visitor becomes a real, reachable person.",
+            },
+            {
+              n: "03",
+              title: "The credit lands on you",
+              description:
+                "A thank-you email and DM each time, and the 🏅 Ambassador role in the server when you cross the milestone — once, ever.",
+              media: (
+                <MockupFrame>
+                  <ReferralEmailMock />
+                </MockupFrame>
+              ),
+            },
+          ]}
+        />
       </Section>
 
       {/* ---- Loop 4: the Discord community -------------------------------- */}
       <Section id="discord">
         <Reveal>
           <SectionHeading
-            eyebrow="The Discord community"
+            eyebrow="Loop 4 · The community"
             title="One identity across web, email, and Discord"
-            subtitle="Communities usually sit on an island: the person in your server and the person on your list are two strangers who happen to be the same human. The /link command is how we join them — and most of the loops above only work because of it."
+            subtitle="Verify with /link and the welcome reaches you twice — a DM in Discord, and a notification in the web bell. Both, because both now belong to one contact."
           />
         </Reveal>
         <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
           <Reveal>
-            <Prose>
-              <p>
-                Verify in the server and a welcome journey greets you twice: a
-                DM with a personal getting-started link, and — because linking
-                just connected your Discord to your email — a notification in
-                the same in-app bell you&rsquo;d see on the docs site. That
-                second one is the quiet proof of the whole model: something you
-                did in Discord showing up on your web session, because both now
-                belong to one contact.
-              </p>
-              <p>
-                From there the graph does the work. Course buyers with a linked
-                account get the private channel and the 🎓 role without asking.
-                Referral credits fire off the verification moment. And a re-link
-                never re-greets — the journey runs once per person, full stop.
-              </p>
-            </Prose>
+            <MockLabel>In your Discord DMs</MockLabel>
+            <DiscordDmMock />
           </Reveal>
           <Reveal delay={0.1}>
-            <CodeWindow
-              filename="src/journeys/discord-welcome.ts (trimmed)"
-              code={DISCORD_WELCOME_CODE}
-            />
+            <MockLabel>The same moment, in the web bell</MockLabel>
+            <BellFeedMock />
           </Reveal>
         </div>
-      </Section>
-
-      {/* ---- Why run it this way ------------------------------------------ */}
-      <Section id="why">
-        <Reveal>
-          <SectionHeading
-            eyebrow="Why bother"
-            title="The loops are also the test suite"
-            subtitle="Running the business on the engine means every feature gets used in anger on real customers — ours — before it ships to you."
-          />
-        </Reveal>
-        <Reveal delay={0.08} className="mt-10">
-          <Prose>
-            <p>
-              When something is awkward to author, we feel it before you do.
-              Several engine features — the <InlineCode>where</InlineCode>{" "}
-              condition builder, wait <InlineCode>lookback</InlineCode>,
-              replay-safe auto-keying — exist because one of the loops on this
-              page needed them. That&rsquo;s the other half of why we run it
-              this way: the nurture program and the product roadmap are the same
-              feedback loop.
-            </p>
-          </Prose>
+        <Reveal delay={0.15} className="mt-8 flex flex-wrap gap-2.5">
+          <TagPill>🎓 course channel unlocks automatically once linked</TagPill>
+          <TagPill>a re-link never re-greets — once per person</TagPill>
         </Reveal>
       </Section>
 
@@ -466,7 +625,7 @@ export default function DogfoodPage(): JSX.Element {
               align="center"
               eyebrow="Go deeper"
               title="Read the loops, then run your own"
-              subtitle="The course lifecycle has its own journey-by-journey walkthrough in the docs, and everything on this page runs on the same code create-hogsend scaffolds — source-available, on GitHub."
+              subtitle="The course loop has a journey-by-journey walkthrough in the docs — and everything on this page runs on the same code create-hogsend scaffolds."
             />
           </Reveal>
           <Reveal
