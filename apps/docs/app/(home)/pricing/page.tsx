@@ -497,7 +497,9 @@ export default function PricingPage(): JSX.Element {
               <p className="mt-4 text-base text-white/60 leading-6">
                 The entire stack — API, worker, Postgres/TimescaleDB, Redis, and
                 the Hatchet orchestrator — runs on Railway for roughly
-                $20–40/month at 5,000–50,000 contacts.
+                $20–40/month at 5,000–50,000 contacts. That range isn't a
+                guess: one of our own production instances metered at about
+                $20/month of compute in July 2026.
               </p>
             </Card>
           </Reveal>
