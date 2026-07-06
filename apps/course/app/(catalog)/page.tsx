@@ -20,16 +20,18 @@ import { HorizonGlowCanvas } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
 import { LogoMarquee } from "@/components/ds/marquee";
 import { ProcessSteps } from "@/components/ds/process";
+import { ReaderQuotes } from "@/components/ds/reader-quotes";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { StatBand } from "@/components/ds/stat-band";
 import { WordReveal } from "@/components/ds/word-reveal";
 import { type AllAccessView, getCatalog } from "@/lib/catalog";
 import { countChapters } from "@/lib/course-ui";
-import { FLAGSHIP_SLUG } from "@/lib/courses";
+import { FLAGSHIP_SLUG, getCourse } from "@/lib/courses";
 import { faqPageJsonLd } from "@/lib/faq-jsonld";
 import { FLAGSHIP_CONTENT_FACTS } from "@/lib/flagship-facts";
 import { getSession } from "@/lib/gating";
+import { READER_QUOTES } from "@/lib/reader-quotes";
 import { source } from "@/lib/source";
 
 // Reads the session to resolve owned/locked card state, so it's per-request.
@@ -38,6 +40,7 @@ export const dynamic = "force-dynamic";
 
 // Content is fixed at build — count once per process, not per request.
 const FLAGSHIP_CHAPTERS = countChapters(FLAGSHIP_SLUG);
+const FLAGSHIP_PRICE = getCourse(FLAGSHIP_SLUG)?.priceLabel ?? "$49";
 
 const PILLARS = [
   {
@@ -73,6 +76,10 @@ const FAQ_ITEMS = [
   {
     q: "Do I need a PostHog account?",
     a: "The flagship course teaches PostHog + Hogsend hands-on, so a free PostHog account helps you follow along — but you can read the whole thing first and set it up after.",
+  },
+  {
+    q: "Can I expense it?",
+    a: "Yes — checkout issues a proper invoice, and the flagship course page has a pre-written approval email you can copy and send to your manager. Gifting a copy to a teammate mints a single-use unlock code.",
   },
 ];
 
@@ -127,13 +134,15 @@ function AllAccessBanner({ view }: { view: AllAccessView }): JSX.Element {
 
 const INSIDE_CARDS = [
   {
-    title: "The workbook",
-    description: `${FLAGSHIP_CONTENT_FACTS.workbookItems} interactive items — ${FLAGSHIP_CONTENT_FACTS.checkIns} profiling check-ins, ${FLAGSHIP_CONTENT_FACTS.writingPrompts} writing prompts, ${FLAGSHIP_CONTENT_FACTS.calculators} calculators — everything you type saves to your account.`,
+    title: "A workbook, not highlights",
+    description:
+      "Everything you type — check-ins, writing prompts, calculator read-outs — saves to one page on your account. You finish with your numbers and your plan, not a pile of notes.",
     media: <WorkbookVignette />,
   },
   {
-    title: "Quizzes & flashcards",
-    description: `${FLAGSHIP_CONTENT_FACTS.quizzes} quizzes pooling ${FLAGSHIP_CONTENT_FACTS.quizQuestions} authored questions — each run samples 5 — plus ${FLAGSHIP_CONTENT_FACTS.flashcards} flashcards across ${FLAGSHIP_CONTENT_FACTS.flashcardDecks} decks.`,
+    title: "Quizzes & flashcards that stick",
+    description:
+      "Every chapter ends with a quiz that samples fresh questions from a bigger pool, plus a flashcard deck written as full answers — retakes test the ideas, not your memory.",
     // A flashcard peeking behind the quiz, cropped by the media area — both
     // halves of the card title in one stack.
     media: (
@@ -145,7 +154,8 @@ const INSIDE_CARDS = [
   },
   {
     title: `Your ${FLAGSHIP_CONTENT_FACTS.dayPlan} plan`,
-    description: `Chapter 10 assembles your answers into a ${FLAGSHIP_CONTENT_FACTS.planItems}-item plan you run after the course.`,
+    description:
+      "The final chapters assemble your workbook answers into a staged plan for days 0–180 — the thing you actually run after the course.",
     media: <PlanVignette />,
   },
 ];
@@ -249,17 +259,11 @@ export default async function CatalogPage() {
       <Section>
         <Reveal>
           <StatBand
-            label="One course today, built to be worked, not just read."
+            label="One course today, built to be worked, not just read — everything you type saves to a workbook you keep."
             stats={[
-              { value: String(FLAGSHIP_CHAPTERS), caption: "Chapters" },
-              {
-                value: String(FLAGSHIP_CONTENT_FACTS.quizQuestions),
-                caption: "Quiz questions",
-              },
-              {
-                value: String(FLAGSHIP_CONTENT_FACTS.workbookItems),
-                caption: "Workbook exercises",
-              },
+              { value: "2", caption: "Chapters free, in full" },
+              { value: FLAGSHIP_PRICE, caption: "Once — lifetime access" },
+              { value: "~6 hrs", caption: "Of focused reading" },
             ]}
           />
         </Reveal>
@@ -294,13 +298,23 @@ export default async function CatalogPage() {
         </div>
       </Section>
 
+      {/* Reader quotes — real feedback only, appended as it arrives. */}
+      {READER_QUOTES.length > 0 ? (
+        <Section>
+          <Reveal className="flex flex-col items-center">
+            <Eyebrow className="mb-8">From early readers</Eyebrow>
+            <ReaderQuotes quotes={READER_QUOTES} />
+          </Reveal>
+        </Section>
+      ) : null}
+
       {/* The method — sticky left column; no Reveal/transform wrapper (it
           would break position: sticky inside ProcessSteps). */}
       <Section>
         <ProcessSteps
           eyebrow="The method"
           title="Measure, keep, then grow"
-          subtitle="The flagship course runs in this order: five chapters on measurement, two on retention, two on growth, and two on running it week to week."
+          subtitle="One operating model, taught in the order the work runs — written for founders wearing the growth hat, consultants setting it up for clients, and people breaking into the field."
           steps={PILLARS.map((pillar, i) => ({
             n: String(i + 1).padStart(2, "0"),
             title: pillar.name,

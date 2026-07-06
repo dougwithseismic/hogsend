@@ -22,11 +22,14 @@ import { HorizonGlowCanvas } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
 import { PlanCard } from "@/components/ds/plan-card";
 import { ProgressBar } from "@/components/ds/progress-bar";
+import { ReaderQuotes } from "@/components/ds/reader-quotes";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { StatBand } from "@/components/ds/stat-band";
 import { WordReveal } from "@/components/ds/word-reveal";
+import { ExpenseCourse } from "@/components/expense-course";
 import { GiftBanner, GiftCourse } from "@/components/gift-course";
+import { TeamBanner, TeamLicense } from "@/components/team-license";
 import {
   type CourseModuleLesson,
   getCourseModules,
@@ -49,6 +52,7 @@ import {
 import { faqPageJsonLd } from "@/lib/faq-jsonld";
 import { FLAGSHIP_CONTENT_FACTS as FACTS } from "@/lib/flagship-facts";
 import { getSession, isFreeLesson } from "@/lib/gating";
+import { READER_QUOTES } from "@/lib/reader-quotes";
 
 // Reads the session for owned/completed state, so it's per-request.
 export const dynamic = "force-dynamic";
@@ -98,41 +102,92 @@ const BENCHMARKS = [
   },
 ];
 
+/** The three readers the course is written for, and what each walks out with.
+ *  Every claim maps to real content (chapters, calculators, the workbook). */
+const AUDIENCES: {
+  kicker: string;
+  title: string;
+  body: string;
+  takeaways: string[];
+}[] = [
+  {
+    kicker: "For technical founders",
+    title: "Growth as a hat, not a hire",
+    body:
+      "You can already ship. This adds the operating model: instrument " +
+      "PostHog so you can see what's actually happening, fix retention " +
+      "before buying traffic, and run the whole thing on a plan that " +
+      "survives busy weeks.",
+    takeaways: [
+      "Your own numbers in every calculator — payback, compounding retention, paid readiness",
+      "The lifecycle playbook: which emails to send, in what order, built in code",
+      "A 30/60/90/180-day plan assembled from your own answers",
+    ],
+  },
+  {
+    kicker: "For consultants",
+    title: "A playbook you can charge for",
+    body:
+      "The chapter order is the setup order for a client engagement: " +
+      "measurement first, retention second, acquisition last. Every stage " +
+      "produces an artefact a client can hold.",
+    takeaways: [
+      "A repeatable setup sequence — event taxonomy, the daily dashboard, lifecycle sends",
+      "Deliverables that justify the retainer: the dashboard, the experiment doc, the staged plan",
+      "The arguments, with sources, for why retention work comes before ad spend",
+    ],
+  },
+  {
+    kicker: "For people breaking into growth",
+    title: "The vocabulary and the reasoning",
+    body:
+      "Every term is defined the moment it appears — acronyms expanded, " +
+      "jargon cashed out into things you can measure. You learn why each " +
+      "tactic works, not just what it's called.",
+    takeaways: [
+      "Working fluency: AARRR, CAC, LTV, cohorts, holdouts — each defined, then used",
+      "A workbook and plan you can show — evidence you can do the work, not just discuss it",
+      "A chapter on talking about growth credibly, and one on what the skill is worth to you",
+    ],
+  },
+];
+
 const INSIDE_CARDS: {
   title: string;
   description: string;
   media?: ReactNode;
 }[] = [
   {
-    title: `${FACTS.quizzes} quizzes, ${FACTS.quizQuestions} questions`,
+    title: "Quizzes you can't memorise",
     description:
-      "Each run samples five questions from the chapter's pool, so a retake is a fresh test rather than a memory test.",
+      "Every chapter ends with one, and each run samples five questions from a bigger pool — so a retake is a fresh test of the ideas, not of your memory.",
     media: <QuizVignette />,
   },
   {
-    title: `${FACTS.flashcards} flashcards in ${FACTS.flashcardDecks} decks`,
+    title: "Flashcards for the ideas worth keeping",
     description:
-      "Written as full answers in the course voice, not keyword prompts — for the ideas worth keeping.",
+      "One deck per chapter, written as full answers in the course voice rather than keyword prompts — for spaced review long after you finish reading.",
     media: <FlashcardVignette />,
   },
   {
-    title: `${FACTS.calculatorPresets} calculators, your numbers`,
+    title: "Calculators that run on your numbers",
     description:
-      "Retention compounding, CAC/LTV payback, paid readiness, dunning recovery, viral K-factor, ICE scoring, PMF-40, and activation value — each runs on your inputs and saves its read-out.",
+      "Retention compounding, CAC/LTV payback, paid readiness, dunning recovery, viral K-factor, ICE scoring, PMF-40, activation value — each takes your inputs and saves its read-out to your workbook.",
   },
   {
-    title: `${FACTS.videos} videos, each distilled`,
-    description: `Every embedded talk (plus ${FACTS.podcasts} podcasts) carries a transcript and a what-to-take-from-it digest — watch it, or read the digest and keep moving.`,
+    title: "Watch the video, or read its digest",
+    description:
+      "Every embedded talk and podcast carries a transcript and a what-to-take-from-it summary — press play when it's worth the minutes, keep moving when it isn't.",
   },
   {
-    title: `${FACTS.checkIns} check-ins, ${FACTS.writingPrompts} writing prompts`,
+    title: "Answers you commit to in writing",
     description:
-      "Check-ins profile your stage and stack as you read; prompts make you commit answers in writing. Both persist to your workbook.",
+      "Check-ins profile your stage and stack as you read; writing prompts make you put decisions into words. Both persist to your workbook.",
   },
   {
-    title: `${FACTS.readingLists} reading lists`,
+    title: "The deeper end, verified",
     description:
-      "The books and essays behind the arguments, quoted and verified — the deeper end for any chapter you want more of.",
+      "Reading lists with the books and essays behind the arguments — quoted and checked against the source — for any chapter you want more of.",
   },
 ];
 
@@ -171,8 +226,8 @@ function buildFaqItems(priceLabel: string): { q: string; a: string }[] {
       a: `No. ${priceLabel} once for lifetime access to this course and every update to it. All-Access is the same deal across every course — current and future — for ${ALL_ACCESS.priceLabel}.`,
     },
     {
-      q: "Can I gift it or expense it?",
-      a: "Both. Gifting mints a single-use unlock code — emailed to your recipient, or to you to forward — and it never expires. For expensing, checkout issues a proper invoice.",
+      q: "Can I gift it, expense it, or buy it for a team?",
+      a: "All three. Gifting mints a single-use unlock code — emailed to your recipient, or to you to forward — and it never expires. A team pack does the same for 2–25 seats: one checkout, one invoice, one code per seat, emailed to you to hand out. For expensing, checkout issues a proper invoice, and there's a pre-written approval email on this page you can copy and send to your manager.",
     },
     {
       q: "What's the refund policy?",
@@ -327,10 +382,10 @@ function ComingSoonOverview({ course }: { course: CourseMeta }): JSX.Element {
 
 export default async function CourseOverview(props: {
   params: Promise<{ course: string }>;
-  searchParams: Promise<{ gift?: string }>;
+  searchParams: Promise<{ gift?: string; team?: string }>;
 }) {
   const { course: slug } = await props.params;
-  const { gift: giftStatus } = await props.searchParams;
+  const { gift: giftStatus, team: teamStatus } = await props.searchParams;
   const course = getCourse(slug);
   if (!course) notFound();
 
@@ -475,6 +530,7 @@ export default async function CourseOverview(props: {
 
             <div className="w-full max-w-xl text-left">
               <GiftBanner status={giftStatus} />
+              <TeamBanner status={teamStatus} />
             </div>
 
             <div className="mt-9 flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
@@ -562,16 +618,9 @@ export default async function CourseOverview(props: {
             <StatBand
               label="Built to be worked, not watched — everything you type saves to a workbook you keep."
               stats={[
-                { value: String(chapterCount), caption: "Chapters" },
-                { value: String(FACTS.videos), caption: "Videos" },
-                {
-                  value: String(FACTS.quizQuestions),
-                  caption: "Quiz questions",
-                },
-                {
-                  value: String(FACTS.workbookItems),
-                  caption: "Workbook items",
-                },
+                { value: "2", caption: "Chapters free, in full" },
+                { value: priceLabel, caption: "Once — lifetime access" },
+                { value: "~6 hrs", caption: "Of focused reading" },
               ]}
             />
           </Reveal>
@@ -618,6 +667,61 @@ export default async function CourseOverview(props: {
                       {b.source}
                     </span>
                   </span>
+                </Card>
+              </Reveal>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+
+      {/* Reader quotes — real feedback only, appended as it arrives. */}
+      {flagship && READER_QUOTES.length > 0 ? (
+        <Section>
+          <Reveal className="flex flex-col items-center">
+            <Eyebrow className="mb-8">From early readers</Eyebrow>
+            <ReaderQuotes quotes={READER_QUOTES} />
+          </Reveal>
+        </Section>
+      ) : null}
+
+      {/* Who this is for */}
+      {flagship ? (
+        <Section id="who-its-for">
+          <Reveal>
+            <SectionHeading
+              eyebrow="Who it's for"
+              title="Three readers, one operating model"
+              subtitle="The course teaches one system. What you take from it depends on the seat you're sitting in."
+            />
+          </Reveal>
+          <div className="mt-12 grid gap-6 lg:grid-cols-3">
+            {AUDIENCES.map((a, i) => (
+              <Reveal key={a.kicker} delay={i * 0.08}>
+                <Card className="flex h-full flex-col">
+                  <p className="kicker">{a.kicker}</p>
+                  <h3 className="mt-3 font-display text-2xl tracking-[-0.02em]">
+                    {a.title}
+                  </h3>
+                  <p className="mt-3 text-sm text-white/55 leading-6">
+                    {a.body}
+                  </p>
+                  <p className="mt-6 font-mono text-[11px] text-white/40 uppercase tracking-[0.06em]">
+                    You leave with
+                  </p>
+                  <ul className="mt-3 flex flex-col gap-2.5">
+                    {a.takeaways.map((t) => (
+                      <li key={t} className="flex items-start gap-2.5">
+                        <Check
+                          className="mt-1 size-3.5 shrink-0 text-accent"
+                          strokeWidth={2.5}
+                          aria-hidden
+                        />
+                        <span className="text-sm text-white/70 leading-6">
+                          {t}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </Card>
               </Reveal>
             ))}
@@ -779,7 +883,7 @@ export default async function CourseOverview(props: {
                 ))}
               </dl>
               <p className="mt-6 text-sm text-white/45">
-                {FACTS.workbookItems} items in total, on one page.
+                All of it on one page, for as long as you want it.
               </p>
             </Reveal>
             <Reveal delay={0.08}>
@@ -807,11 +911,11 @@ export default async function CourseOverview(props: {
             <Reveal className="max-lg:order-1">
               <SectionHeading
                 eyebrow="After the course"
-                title={`A ${FACTS.planItems}-item plan for days 0–180`}
+                title="Leave with a plan for days 0–180"
               />
               <p className="mt-6 max-w-xl text-base text-white/60 leading-7">
                 The plan chapter assembles your workbook answers into a staged
-                checklist: five day-0 commitments, then eight items each for
+                checklist: five day-0 commitments, then a short list each for
                 days 1–30, 31–60, 61–90, and 91–180. A weekly-review ritual and
                 an experiment doc keep it running past the last page.
               </p>
@@ -841,7 +945,7 @@ export default async function CourseOverview(props: {
                   `All ${chapterCount} chapters, every quiz, calculator, and deck`,
                   ...(flagship
                     ? [
-                        `The ${FACTS.workbookItems}-item workbook, saved to your account`,
+                        "The full workbook, saved to your account",
                         "Two full chapters free before you pay",
                       ]
                     : ["First lesson free before you buy"]),
@@ -889,16 +993,38 @@ export default async function CourseOverview(props: {
           </p>
           <div className="mx-auto max-w-3xl">
             <GiftCourse course={course} />
+            <TeamLicense course={course} />
           </div>
         </Section>
       ) : paywalled ? (
-        // Owned: keep the gift affordance (people gift courses they own).
+        // Owned: keep the gift + team affordances (owners buy for their team).
         <Section>
           <SectionHeading
             eyebrow="Gifting"
             title="Give it to someone on your team"
           />
           <GiftCourse course={course} />
+          <TeamLicense course={course} />
+        </Section>
+      ) : null}
+
+      {/* Expense it — only worth showing while the course isn't unlocked. */}
+      {flagship && locked ? (
+        <Section id="expense-it">
+          <SectionHeading
+            eyebrow="Expense it"
+            title="Get this course for free"
+            subtitle="Most teams have a learning budget that goes unused. We've written the email — edit the brackets and send it."
+            align="center"
+            className="items-center"
+          />
+          <Reveal className="mx-auto mt-12 max-w-2xl">
+            <ExpenseCourse
+              courseTitle={course.title}
+              courseSlug={slug}
+              priceLabel={priceLabel}
+            />
+          </Reveal>
         </Section>
       ) : null}
 

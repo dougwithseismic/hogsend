@@ -452,6 +452,79 @@ export async function emitShareRedeemed(
   );
 }
 
+/**
+ * A team-licence checkout completed: the BUYER's event. The codes themselves
+ * ride the direct transactional email (lib/email.ts), not the event stream —
+ * only the shape of the purchase goes to analytics/lifecycle. Keyed on the
+ * checkout session so a resumed webhook delivery can't double-fire.
+ */
+export async function emitTeamPurchased(
+  user: AuthUser,
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    seats: number;
+    sessionId: string;
+    amount?: number | null;
+    currency?: string | null;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.team_purchased",
+      email: user.email,
+      contactProperties: { courseUserId: user.id, ...firstName(user.name) },
+      eventProperties: {
+        source: SOURCE,
+        course: input.courseSlug,
+        courseTitle: input.courseTitle,
+        seats: input.seats,
+        ...(typeof input.amount === "number" ? { amount: input.amount } : {}),
+        ...(input.currency ? { currency: input.currency } : {}),
+      },
+    },
+    `course-team-purchased-${user.id}-${input.sessionId}`,
+  );
+}
+
+/**
+ * The buyer's loop-close when one of their team codes gets redeemed — carries
+ * WHO claimed it and the N-of-M progress so the email can say "3 of 5 seats
+ * are now active". Keyed on the redeeming checkout session (retry-safe).
+ */
+export async function emitTeamSeatRedeemed(
+  buyer: AuthUser,
+  input: {
+    courseSlug: string;
+    courseTitle: string;
+    sessionId: string;
+    seats: number;
+    seatsRedeemed: number;
+    redeemerName?: string | null;
+    redeemerEmail?: string | null;
+  },
+): Promise<void> {
+  if (!ingestConfigured()) return;
+  await forwardToIngest(
+    {
+      name: "course.team_seat_redeemed",
+      email: buyer.email,
+      contactProperties: { courseUserId: buyer.id },
+      eventProperties: {
+        source: SOURCE,
+        course: input.courseSlug,
+        courseTitle: input.courseTitle,
+        seats: input.seats,
+        seatsRedeemed: input.seatsRedeemed,
+        ...(input.redeemerName ? { redeemerName: input.redeemerName } : {}),
+        ...(input.redeemerEmail ? { redeemerEmail: input.redeemerEmail } : {}),
+      },
+    },
+    `course-team-seat-redeemed-${buyer.id}-${input.sessionId}`,
+  );
+}
+
 export async function emitAccountDeleted(user: AuthUser): Promise<void> {
   if (!ingestConfigured()) return;
   await forwardToIngest(

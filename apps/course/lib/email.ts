@@ -81,6 +81,67 @@ export async function sendDeleteAccountEmail(
   });
 }
 
+/**
+ * Send a team-licence buyer their minted seat codes. Resend-direct (like the
+ * auth emails) because delivery is transactional-critical: the codes exist
+ * nowhere else the buyer can see except the account page. Soft-skips when
+ * RESEND_API_KEY is unset; the caller only marks the pack emailed on success.
+ */
+export async function sendTeamCodesEmail(
+  to: string,
+  input: {
+    courseTitle: string;
+    courseUrl: string;
+    codes: string[];
+  },
+): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn("[course-team] RESEND_API_KEY unset — codes email not sent");
+    return false;
+  }
+  const from = process.env.COURSE_FROM_EMAIL ?? FALLBACK_FROM;
+  const resend = new Resend(apiKey);
+
+  await resend.emails.send({
+    from,
+    to,
+    subject: `Your ${input.codes.length} team codes for ${input.courseTitle}`,
+    html: teamCodesHtml(input),
+  });
+  return true;
+}
+
+function teamCodesHtml(input: {
+  courseTitle: string;
+  courseUrl: string;
+  codes: string[];
+}): string {
+  const codeBlocks = input.codes
+    .map(
+      (code) =>
+        `<div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:12px 16px;margin:0 0 8px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:16px;font-weight:600;letter-spacing:2px">${code}</div>`,
+    )
+    .join("");
+  return `<!doctype html><html><body style="margin:0;background:#050101;color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif">
+  <div style="max-width:480px;margin:0 auto;padding:40px 24px">
+    <p style="font-size:18px;font-weight:600;margin:0 0 8px">Hogsend Courses</p>
+    <p style="color:rgba(255,255,255,0.6);font-size:15px;line-height:22px;margin:0 0 24px">
+      Your team licences for <strong style="color:#ffffff">${input.courseTitle}</strong> are ready.
+      Each code below unlocks one copy — send one to each person on your team.
+    </p>
+    ${codeBlocks}
+    <p style="color:rgba(255,255,255,0.6);font-size:15px;line-height:22px;margin:24px 0 0">
+      To redeem: sign in at <a href="${input.courseUrl}" style="color:#f64838">${input.courseUrl}</a>,
+      hit <strong style="color:#ffffff">Unlock the course</strong>, and enter the code in the
+      promo-code field at checkout — it zeroes the price. Codes are single-use and never expire.
+    </p>
+    <p style="color:rgba(255,255,255,0.4);font-size:13px;line-height:20px;margin:28px 0 0">
+      These codes are also listed on your account page, with each one's redemption status.
+    </p>
+  </div></body></html>`;
+}
+
 function deleteAccountHtml(url: string): string {
   return `<!doctype html><html><body style="margin:0;background:#050101;color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,sans-serif">
   <div style="max-width:480px;margin:0 auto;padding:40px 24px">
