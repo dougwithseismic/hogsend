@@ -103,42 +103,6 @@ export function defineJourney(options: {
         string | number | boolean | null
       >;
 
-      if (!meta.enabled) {
-        return { status: "skipped", reason: "journey_disabled" };
-      }
-
-      const configOverride = await db.query.journeyConfigs.findFirst({
-        where: eq(journeyConfigs.journeyId, meta.id),
-      });
-      if (configOverride && !configOverride.enabled) {
-        return { status: "skipped", reason: "journey_disabled_by_admin" };
-      }
-
-      if (meta.trigger.where?.length) {
-        if (
-          !evaluatePropertyConditions({
-            conditions: meta.trigger.where,
-            properties,
-          })
-        ) {
-          return { status: "skipped", reason: "trigger_conditions_not_met" };
-        }
-      }
-
-      const entryAllowed = await checkEntryLimit({
-        db,
-        journey: meta,
-        userId,
-      });
-      if (!entryAllowed.allowed) {
-        return { status: "skipped", reason: entryAllowed.reason };
-      }
-
-      const prefs = await checkEmailPreferences({ db, userId });
-      if (prefs.unsubscribed) {
-        return { status: "skipped", reason: "user_unsubscribed" };
-      }
-
       // The replay-stable anchor for this enrollment: the Hatchet run id is
       // preserved across replays of the SAME logical durable run (crash / OOM /
       // eviction / redeploy mid-run), whereas a freshly-minted journeyStates.id
@@ -146,14 +110,19 @@ export function defineJourney(options: {
       // on it so a replay re-derives the SAME stateId and the SAME keys.
       const workflowRunId = hatchetCtx.workflowRunId();
 
-      // REPLAY RECOVERY (must run before the active-state guard / insert).
-      // A replay-from-top of the same run must reuse the enrollment it already
-      // created — otherwise, for a journey whose prior enrollment reached a
-      // TERMINAL status (the normal end state for unlimited/once_per_period), the
-      // active-state guard would miss it, a fresh stateId would be minted, and the
-      // derived keys would no longer collide → a duplicate send. Recovering by the
-      // run-stable id makes the replay deterministic regardless of the prior row's
-      // status.
+      // REPLAY RECOVERY — must run BEFORE the enrollment guards below. An
+      // eviction-capable Hatchet engine (hatchet-lite >= v0.80.0) replays `fn`
+      // from the top on every durable-wait resume, so every statement above the
+      // first durable primitive re-runs on each resume. The enrollment guards
+      // (entryLimit / preferences / trigger conditions / enabled / active-state)
+      // are ENTRY gates: re-running them on a resume is wrong. In particular a
+      // `once` journey's own entry-limit guard would find the row it created on
+      // first entry and skip EVERY resume, stranding the journey in `waiting` and
+      // silently dropping all sends after the first. Recovering by the run-stable
+      // id first lets a resume reuse its enrollment and bypass the entry gates (a
+      // resume is not an entry). It also keeps the original purpose: a journey
+      // whose prior enrollment reached a TERMINAL status (unlimited /
+      // once_per_period) recovers the SAME stateId so derived keys still collide.
       const recovered = workflowRunId
         ? await db.query.journeyStates.findFirst({
             where: and(
@@ -164,7 +133,49 @@ export function defineJourney(options: {
         : undefined;
 
       let state = recovered;
+
+      // FIRST ENTRY ONLY — the enrollment guards gate ENTRY, not resume. A
+      // recovered enrollment already passed them on first entry, so it skips
+      // straight to resuming the run. (Sends inside `run` still re-check
+      // subscription via `ctx.guard.isSubscribed()` after every wait, so
+      // bypassing the entry-time preference gate never emails an unsubscriber.)
       if (!state) {
+        if (!meta.enabled) {
+          return { status: "skipped", reason: "journey_disabled" };
+        }
+
+        const configOverride = await db.query.journeyConfigs.findFirst({
+          where: eq(journeyConfigs.journeyId, meta.id),
+        });
+        if (configOverride && !configOverride.enabled) {
+          return { status: "skipped", reason: "journey_disabled_by_admin" };
+        }
+
+        if (meta.trigger.where?.length) {
+          if (
+            !evaluatePropertyConditions({
+              conditions: meta.trigger.where,
+              properties,
+            })
+          ) {
+            return { status: "skipped", reason: "trigger_conditions_not_met" };
+          }
+        }
+
+        const entryAllowed = await checkEntryLimit({
+          db,
+          journey: meta,
+          userId,
+        });
+        if (!entryAllowed.allowed) {
+          return { status: "skipped", reason: entryAllowed.reason };
+        }
+
+        const prefs = await checkEmailPreferences({ db, userId });
+        if (prefs.unsubscribed) {
+          return { status: "skipped", reason: "user_unsubscribed" };
+        }
+
         const activeState = await db.query.journeyStates.findFirst({
           where: and(
             eq(journeyStates.userId, userId),
