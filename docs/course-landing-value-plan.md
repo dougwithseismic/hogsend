@@ -39,7 +39,7 @@ Status legend: `[ ]` todo · `[~]` built-to-seam · `[x]` done
   lead with the benefit (numbers demoted to clauses); rework the StatBand into
   a value-led band (at most quiet supporting numbers); soften the workbook
   receipt framing. No new components; facts still derived.
-- [ ] **F2. "Who this is for" section** — three cards: technical founders
+- [x] **F2. "Who this is for" section** — three cards: technical founders
   (run your own growth without hiring for it), consultants (a repeatable
   playbook + the artefacts to sell the engagement), people breaking into
   growth (the vocabulary, the calculators, the portfolio-ready plan). Each

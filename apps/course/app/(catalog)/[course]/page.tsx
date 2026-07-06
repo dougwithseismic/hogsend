@@ -98,6 +98,56 @@ const BENCHMARKS = [
   },
 ];
 
+/** The three readers the course is written for, and what each walks out with.
+ *  Every claim maps to real content (chapters, calculators, the workbook). */
+const AUDIENCES: {
+  kicker: string;
+  title: string;
+  body: string;
+  takeaways: string[];
+}[] = [
+  {
+    kicker: "For technical founders",
+    title: "Growth as a hat, not a hire",
+    body:
+      "You can already ship. This adds the operating model: instrument " +
+      "PostHog so you can see what's actually happening, fix retention " +
+      "before buying traffic, and run the whole thing on a plan that " +
+      "survives busy weeks.",
+    takeaways: [
+      "Your own numbers in every calculator — payback, compounding retention, paid readiness",
+      "The lifecycle playbook: which emails to send, in what order, built in code",
+      "A 30/60/90/180-day plan assembled from your own answers",
+    ],
+  },
+  {
+    kicker: "For consultants",
+    title: "A playbook you can charge for",
+    body:
+      "The chapter order is the setup order for a client engagement: " +
+      "measurement first, retention second, acquisition last. Every stage " +
+      "produces an artefact a client can hold.",
+    takeaways: [
+      "A repeatable setup sequence — event taxonomy, the daily dashboard, lifecycle sends",
+      "Deliverables that justify the retainer: the dashboard, the experiment doc, the staged plan",
+      "The arguments, with sources, for why retention work comes before ad spend",
+    ],
+  },
+  {
+    kicker: "For people breaking into growth",
+    title: "The vocabulary and the reasoning",
+    body:
+      "Every term is defined the moment it appears — acronyms expanded, " +
+      "jargon cashed out into things you can measure. You learn why each " +
+      "tactic works, not just what it's called.",
+    takeaways: [
+      "Working fluency: AARRR, CAC, LTV, cohorts, holdouts — each defined, then used",
+      "A workbook and plan you can show — evidence you can do the work, not just discuss it",
+      "A chapter on talking about growth credibly, and one on what the skill is worth to you",
+    ],
+  },
+];
+
 const INSIDE_CARDS: {
   title: string;
   description: string;
@@ -612,6 +662,51 @@ export default async function CourseOverview(props: {
                       {b.source}
                     </span>
                   </span>
+                </Card>
+              </Reveal>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+
+      {/* Who this is for */}
+      {flagship ? (
+        <Section id="who-its-for">
+          <Reveal>
+            <SectionHeading
+              eyebrow="Who it's for"
+              title="Three readers, one operating model"
+              subtitle="The course teaches one system. What you take from it depends on the seat you're sitting in."
+            />
+          </Reveal>
+          <div className="mt-12 grid gap-6 lg:grid-cols-3">
+            {AUDIENCES.map((a, i) => (
+              <Reveal key={a.kicker} delay={i * 0.08}>
+                <Card className="flex h-full flex-col">
+                  <p className="kicker">{a.kicker}</p>
+                  <h3 className="mt-3 font-display text-2xl tracking-[-0.02em]">
+                    {a.title}
+                  </h3>
+                  <p className="mt-3 text-sm text-white/55 leading-6">
+                    {a.body}
+                  </p>
+                  <p className="mt-6 font-mono text-[11px] text-white/40 uppercase tracking-[0.06em]">
+                    You leave with
+                  </p>
+                  <ul className="mt-3 flex flex-col gap-2.5">
+                    {a.takeaways.map((t) => (
+                      <li key={t} className="flex items-start gap-2.5">
+                        <Check
+                          className="mt-1 size-3.5 shrink-0 text-accent"
+                          strokeWidth={2.5}
+                          aria-hidden
+                        />
+                        <span className="text-sm text-white/70 leading-6">
+                          {t}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </Card>
               </Reveal>
             ))}
