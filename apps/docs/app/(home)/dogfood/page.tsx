@@ -488,15 +488,15 @@ function LiveDemoWindow(): JSX.Element {
 /** The three live surfaces on THIS page — every claim wired in this repo. */
 const LIVE_SURFACES = [
   {
-    lead: "The bell, above you.",
+    lead: "The bell in the nav.",
     rest: "A real @hogsend/react feed on a publishable key — journeys on our production instance drop notifications straight into it.",
   },
   {
-    lead: "The ticker, at the very top.",
-    rest: "Your newest notification, ambient. Click it and the bell's feed opens.",
+    lead: "The ticker above it.",
+    rest: "It shows your newest notification. Click it and the bell’s feed opens.",
   },
   {
-    lead: "The sign-up, below.",
+    lead: "The sign-up form below.",
     rest: "Fires a real docs.subscribed event into the ingest pipeline — Loop 1 picks you up from there.",
   },
 ];
@@ -512,7 +512,7 @@ const CHECKIN_OUTCOMES = [
     rest: "“If the install is the blocker” — the setup week, a human installing it with you.",
   },
   {
-    lead: "Silence.",
+    lead: "No reply.",
     rest: "We look at what you did instead — a deploy click since the check-in withdraws the pitch and asks the favour instead.",
   },
 ];
@@ -582,8 +582,10 @@ export default function DogfoodPage(): JSX.Element {
             />
             <p className="mt-6 max-w-[620px] text-base text-white/75 leading-[24px] tracking-[-0.02em]">
               Hogsend is one business, and all of its marketing runs on one
-              production Hogsend instance. Everything below is a real email, DM,
-              or notification it sends — including a few aimed at you.
+              production Hogsend instance. Everything on this page is a real
+              email, DM, or notification that instance sends. Subscribe, join
+              the Discord, or take the course, and these are the journeys that
+              run for you.
             </p>
           </Reveal>
           <Reveal
@@ -608,7 +610,7 @@ export default function DogfoodPage(): JSX.Element {
             <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
               <Headline
                 lead="You're inside one of the loops right now."
-                tail="This page is a surface."
+                tail="The bell above is live."
                 className="max-w-[720px]"
               />
               <div className="pb-1">
@@ -616,8 +618,10 @@ export default function DogfoodPage(): JSX.Element {
               </div>
             </div>
             <p className="mt-6 max-w-[620px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
-              This site runs on the instance it documents. Neither the bell nor
-              anything it shows you is a mock.
+              This documentation site is itself a Hogsend customer. The bell in
+              the nav, the ticker above it, and the sign-up form below all talk
+              to the production instance — open the bell and you're reading a
+              real feed.
             </p>
           </Reveal>
 
@@ -649,7 +653,7 @@ export default function DogfoodPage(): JSX.Element {
             <Eyebrow>Loop 1 · The docs site</Eyebrow>
             <Headline
               lead="Six short notes, then one question."
-              tail="Your tap is the answer."
+              tail="One tap answers it."
             />
             <p className="mt-6 max-w-[620px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
               Subscribe and docs.subscribed enrolls you: welcome on day 0, one
@@ -691,8 +695,9 @@ export default function DogfoodPage(): JSX.Element {
               tail="One purchase starts five journeys."
             />
             <p className="mt-6 max-w-[620px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
-              course.hogsend.com is another surface on the same instance —
-              Measure, Keep, and Grow sells with the loops it teaches.
+              course.hogsend.com is another surface on the same instance — the
+              course's emails, milestones, and Discord access run on the same
+              loops its chapters teach.
             </p>
           </Reveal>
           <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
@@ -728,7 +733,7 @@ export default function DogfoodPage(): JSX.Element {
             <Eyebrow>Loop 3 · The community</Eyebrow>
             <Headline
               lead="One identity across web, email, and Discord."
-              tail="/link is the hinge."
+              tail="/link connects them."
             />
             <p className="mt-6 max-w-[680px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
               Verify with /link and the welcome reaches you twice — a DM in
@@ -789,7 +794,7 @@ export default function DogfoodPage(): JSX.Element {
           <ProcessSteps
             eyebrow="Loop 4 · Referrals"
             title="Ask the favour when it's earned"
-            subtitle="The ask lives at the end of the docs funnel's happy path, not in a banner — and the credit is strict about the moment it counts."
+            subtitle="We only ask people who told us things went well, at the end of the docs funnel. The credit is applied when the referred person verifies in Discord, so it always lands on a real, reachable contact."
             steps={[
               {
                 n: "01",
