@@ -1,0 +1,75 @@
+---
+title: hogsend import
+description: Migrate contacts and suppression lists into Hogsend from a CSV, Loops, or Customer.io via the admin bulk-import API.
+---
+
+Import contacts **and their suppression state** (unsubscribes, bounces, spam complaints) into a running instance. The command transforms the source data locally, then submits async import jobs to `POST /v1/admin/contacts/import` and `POST /v1/admin/suppressions/import` — one job per 5,000 rows — and polls each job to completion, printing a summary (totals, failed rows, first errors) at the end.
+
+```bash
+hogsend import <subcommand> [options]
+```
+
+The global `--url`, `--admin-key`, and `--json` flags apply — see the [CLI Reference](/docs/cli) overview for connection details. Suppression imports are historical: they do **not** emit per-row `contact.unsubscribed` outbound events.
+
+## Subcommands
+
+| Subcommand | What it does |
+|---|---|
+| `csv` | Import a generic header CSV of contacts, or (with `--suppressions`) a suppression list. |
+| `loops` | Import a Loops dashboard audience CSV, with optional API enrichment. |
+| `customerio` | Export people from the Customer.io App API and import them. |
+
+## `import csv`
+
+| Option | Description |
+|---|---|
+| `--file <path>` | The CSV to import (required). Header row expected. |
+| `--suppressions` | Treat the file as a suppression list instead of contacts. |
+
+Contacts mode: the `email` and `externalId` columns map to identity; every other column becomes a contact property. Suppressions mode: columns are `email` (required), `reason` (`unsubscribed` \| `bounced` \| `complained`, default `unsubscribed`), and `externalId` (optional).
+
+```bash
+hogsend import csv --file contacts.csv
+hogsend import csv --file unsubscribes.csv --suppressions
+```
+
+## `import loops`
+
+Loops has **no bulk contacts API** — the dashboard CSV (Audience page → export) is the only full-audience export. Download it first, then:
+
+```bash
+hogsend import loops --csv audience.csv
+hogsend import loops --csv audience.csv --api-key $LOOPS_API_KEY --check-suppressions
+```
+
+| Option | Description |
+|---|---|
+| `--csv <path>` | The audience CSV from the Loops dashboard (required). |
+| `--api-key <key>` | Loops API key. Fetches your custom property definitions (`GET /v1/contacts/properties`) so number/boolean columns import typed, and lists your mailing lists for reference. |
+| `--check-suppressions` | Also query `GET /v1/contacts/suppression` for every contact (requires `--api-key`). |
+
+Mapping: `userId` → `externalId`, `email` → `email`, everything else (names, `source`, `userGroup`, custom properties) → `properties`. Rows with `subscribed=false` additionally become suppression rows with reason `unsubscribed`.
+
+`--check-suppressions` is slow by construction: Loops only exposes suppression as a per-contact lookup, so it's one request per contact at 10 requests/second (the command prints a time estimate before starting). Loops merges hard bounces and spam complaints into a single suppression flag with no way to tell them apart, so a suppressed contact imports with reason `bounced`.
+
+## `import customerio`
+
+Runs the Customer.io App API's async people export (`POST /v1/exports/customers` → poll → download), then imports the resulting CSV:
+
+```bash
+hogsend import customerio --app-key $CIO_APP_KEY --region eu
+hogsend import customerio --app-key $CIO_APP_KEY --segment 7 --esp-suppressions
+```
+
+| Option | Description |
+|---|---|
+| `--app-key <key>` | Customer.io **App API** key (Bearer; required). Not the Track API site/key pair. |
+| `--region <us\|eu>` | API region (default `us`). |
+| `--segment <id>` | Export one segment instead of everyone. |
+| `--esp-suppressions` | Also import the ESP suppression list. |
+
+Mapping: `id` (preferred) or `cio_id` → `externalId`, `email` → `email`, other attribute columns → `properties`. People with the reserved `unsubscribed` attribute set to true additionally become suppression rows with reason `unsubscribed`.
+
+`--esp-suppressions` pages `GET /v1/esp/suppression/bounces` (reason `bounced`) and `/spam_reports` (reason `complained`). This list only exists when Customer.io's own ESP delivers your email — on custom-SMTP workspaces the endpoint errors and the command warns and continues.
+
+Customer.io's *workspace* suppression list (people deleted + blocked via the Track API `suppress` endpoint) has no API: support provides it as a CSV with SHA-256-hashed identifiers, which cannot be imported as addresses.

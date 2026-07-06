@@ -18,6 +18,11 @@ const logger = createLogger(process.env.LOG_LEVEL);
  * `externalId` is the `user_id` column value: the contact's `external_id` when it
  * has one, else the contact `id` (uuid) fallback for an email-only contact (risk
  * 10). `email` is REQUIRED — both columns are NOT NULL and form the PK.
+ *
+ * `emitOutbound` (default true) gates the `contact.unsubscribed` outbound emit.
+ * Bulk historical imports (import-suppressions) pass false: a 50k-row import
+ * must not fan out 50k opt-out events for opt-outs that happened on another
+ * platform months ago. Every interactive caller keeps the default.
  */
 export async function upsertEmailPreference(opts: {
   db: Database;
@@ -26,9 +31,18 @@ export async function upsertEmailPreference(opts: {
   update: {
     unsubscribedAll?: boolean;
     suppressed?: boolean;
+    /** Set `suppressed_at` explicitly (used alongside `suppressed: true`). */
+    suppressedAt?: Date;
+    /**
+     * Record an imported hard bounce: `bounce_count = GREATEST(bounce_count, 1)`
+     * + `last_bounce_at = now`. GREATEST (not increment) so re-running an import
+     * is idempotent and never inflates a genuine bounce history.
+     */
+    recordBounce?: boolean;
     categoryKey?: string;
     categoryValue?: boolean;
   };
+  emitOutbound?: boolean;
 }): Promise<void> {
   const { db, externalId, email, update } = opts;
 
@@ -39,6 +53,13 @@ export async function upsertEmailPreference(opts: {
   }
   if (update.suppressed !== undefined) {
     setClause.suppressed = update.suppressed;
+  }
+  if (update.suppressedAt !== undefined) {
+    setClause.suppressedAt = update.suppressedAt;
+  }
+  if (update.recordBounce) {
+    setClause.bounceCount = sql`GREATEST(${emailPreferences.bounceCount}, 1)`;
+    setClause.lastBounceAt = new Date();
   }
   if (update.categoryKey !== undefined) {
     const jsonValue = update.categoryValue ? "true" : "false";
@@ -55,6 +76,12 @@ export async function upsertEmailPreference(opts: {
         : {}),
       ...(update.suppressed !== undefined
         ? { suppressed: update.suppressed }
+        : {}),
+      ...(update.suppressedAt !== undefined
+        ? { suppressedAt: update.suppressedAt }
+        : {}),
+      ...(update.recordBounce
+        ? { bounceCount: 1, lastBounceAt: new Date() }
         : {}),
       ...(update.categoryKey !== undefined
         ? {
@@ -76,7 +103,7 @@ export async function upsertEmailPreference(opts: {
   // fire-and-forget so a transient outbound error never fails the pref write.
   const isUnsubscribe =
     update.unsubscribedAll === true || update.categoryValue === false;
-  if (isUnsubscribe) {
+  if (isUnsubscribe && (opts.emitOutbound ?? true)) {
     const scope: "all" | "category" =
       update.unsubscribedAll === true ? "all" : "category";
     void emitOutbound({

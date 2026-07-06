@@ -20,7 +20,13 @@ const importRoute = createRoute({
         "application/json": {
           schema: z.object({
             format: z.enum(["csv", "json"]),
-            data: z.string().min(1),
+            // Cap matches Hatchet's ~4MB gRPC message ceiling — a bigger
+            // payload could never be enqueued anyway. Split large lists into
+            // multiple jobs (the CLI chunks at 5,000 rows per job).
+            data: z
+              .string()
+              .min(1)
+              .max(4_000_000, "data exceeds 4MB — split into smaller jobs"),
             fileName: z.string().optional(),
           }),
         },
@@ -241,7 +247,7 @@ const batchEnrollRoute = createRoute({
 
 export const bulkRouter = new OpenAPIHono<AppEnv>()
   .openapi(importRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, logger } = c.get("container");
     const body = c.req.valid("json");
 
     const [job] = await db
@@ -254,11 +260,35 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
 
     if (!job) throw new Error("Failed to create import job");
 
-    await importContactsTask.run({
-      jobId: job.id,
-      data: body.data,
-      format: body.format,
-    });
+    // Fire-and-forget (`runNoWait`, not the old awaited `run`): the route's
+    // contract is a 202 "queued" — awaiting the task to completion before
+    // responding defeated the async job + status-poll design on large imports.
+    // A failed enqueue marks the durable job row `failed` so pollers get a
+    // terminal state instead of `pending` forever.
+    void importContactsTask
+      .runNoWait({ jobId: job.id, data: body.data, format: body.format })
+      .catch(async (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn("contacts/import: task enqueue failed", {
+          jobId: job.id,
+          error: message,
+        });
+        try {
+          await db
+            .update(importJobs)
+            .set({
+              status: "failed",
+              errors: [{ row: 0, error: `Task enqueue failed: ${message}` }],
+              updatedAt: new Date(),
+            })
+            .where(eq(importJobs.id, job.id));
+        } catch (dbError: unknown) {
+          logger.warn("contacts/import: could not mark job failed", {
+            jobId: job.id,
+            error: dbError instanceof Error ? dbError.message : String(dbError),
+          });
+        }
+      });
 
     return c.json({ jobId: job.id, status: "pending" }, 202);
   })

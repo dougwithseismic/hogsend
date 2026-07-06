@@ -167,6 +167,12 @@ function makeFakeDb(opts: { prefsRows?: unknown[] } = {}) {
       return selectChain;
     },
     limit: () => Promise.resolve(opts.prefsRows ?? []),
+    // `checkSuppression` awaits the WHERE directly (it aggregates ALL rows for
+    // the address, no .limit) — a thenable chain lets both `await chain` and
+    // `await chain.limit()` resolve the rows.
+    // biome-ignore lint/suspicious/noThenProperty: intentionally thenable, mirroring drizzle's awaitable query builder
+    then: (resolve: (rows: unknown[]) => unknown) =>
+      resolve(opts.prefsRows ?? []),
   };
   const db = {
     select() {

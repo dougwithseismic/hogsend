@@ -521,16 +521,19 @@ async function checkSuppression(
   email: string,
   category?: string,
 ): Promise<SuppressionReason> {
+  // An address can legitimately have MORE THAN ONE `email_preferences` row:
+  // the PK is (user_id, email), and a suppression imported before the contact
+  // existed is keyed (email, email) while later interactive writes key
+  // (external_id, email). Aggregate across ALL rows — any suppression signal
+  // on any row blocks the send — so an imported unsubscribe/bounce can never
+  // be shadowed by a newer clean row for the same address.
   const rows = await db
     .select()
     .from(emailPreferences)
-    .where(eq(emailPreferences.email, email))
-    .limit(1);
+    .where(eq(emailPreferences.email, email));
 
-  const prefs = rows[0];
-
-  if (prefs?.suppressed) return "suppressed";
-  if (prefs?.unsubscribedAll) return "unsubscribed";
+  if (rows.some((prefs) => prefs.suppressed)) return "suppressed";
+  if (rows.some((prefs) => prefs.unsubscribedAll)) return "unsubscribed";
 
   // Registry-aware polarity (§2.6, D3) — applied through the SINGLE source of
   // truth `ListRegistry.isSubscribed` so it matches the preference center EXACTLY
@@ -540,8 +543,18 @@ async function checkSuppression(
   // so absence-of-true (the common "never opted in" case) MUST block — otherwise
   // a contact the preference center shows as "Unsubscribed" would still receive
   // the mail (the two surfaces would disagree, which §2.6 forbids).
+  // Category maps are merged across rows with explicit FALSE winning: an
+  // opt-out recorded on any row blocks, matching the conservative aggregation
+  // above. (In the common single-row case this is identical to reading the
+  // row's map directly.)
   if (category) {
-    const categories = (prefs?.categories ?? {}) as Record<string, boolean>;
+    const categories: Record<string, boolean> = {};
+    for (const prefs of rows) {
+      const map = (prefs.categories ?? {}) as Record<string, boolean>;
+      for (const [key, value] of Object.entries(map)) {
+        categories[key] = (categories[key] ?? true) && value;
+      }
+    }
     if (!getListRegistry().isSubscribed(categories, category)) {
       return "category_unsubscribed";
     }
