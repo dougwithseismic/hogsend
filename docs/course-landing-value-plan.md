@@ -45,7 +45,7 @@ Status legend: `[ ]` todo · `[~]` built-to-seam · `[x]` done
   growth (the vocabulary, the calculators, the portfolio-ready plan). Each
   card: what you walk away with, phrased as outcomes. New shared component or
   local data + existing Card/FeatureCard.
-- [ ] **F3. Reader quotes section** — `ReaderQuotes` ds component (data-driven)
+- [x] **F3. Reader quotes section** — `ReaderQuotes` ds component (data-driven)
   rendering Will's real pull-quotes with honest attribution; placed after the
   benchmarks. No invented people.
 - [ ] **F4. "Expense it" section** — pre-written manager-approval email in a

@@ -22,6 +22,7 @@ import { HorizonGlowCanvas } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
 import { PlanCard } from "@/components/ds/plan-card";
 import { ProgressBar } from "@/components/ds/progress-bar";
+import { type ReaderQuote, ReaderQuotes } from "@/components/ds/reader-quotes";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { StatBand } from "@/components/ds/stat-band";
@@ -95,6 +96,20 @@ const BENCHMARKS = [
     claim:
       "what acquiring a new customer costs vs. keeping one — a range the course teaches you to treat as direction, not decimals",
     source: "Harvard Business Review",
+  },
+];
+
+/**
+ * Real reader feedback, verbatim. Append new quotes here as they arrive —
+ * the section renders one as a pull-quote and several as a grid. Never add
+ * a quote that wasn't actually said by a real reader.
+ */
+const READER_QUOTES: ReaderQuote[] = [
+  {
+    quote:
+      "I can see some real value in here. There is a ton of content — I'm quite shocked that it's so free. The first two chapters were amazing.",
+    name: "Will",
+    role: "Early reader",
   },
 ];
 
@@ -666,6 +681,16 @@ export default async function CourseOverview(props: {
               </Reveal>
             ))}
           </div>
+        </Section>
+      ) : null}
+
+      {/* Reader quotes — real feedback only, appended as it arrives. */}
+      {flagship && READER_QUOTES.length > 0 ? (
+        <Section>
+          <Reveal className="flex flex-col items-center">
+            <Eyebrow className="mb-8">From early readers</Eyebrow>
+            <ReaderQuotes quotes={READER_QUOTES} />
+          </Reveal>
         </Section>
       ) : null}
 
