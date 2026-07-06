@@ -19,9 +19,11 @@ export const metadata: Metadata = {
 /*  Source of truth: the hogsend-dogfood app this page describes.           */
 /* ------------------------------------------------------------------------ */
 
-const DOCS_CHECKIN_CODE = `// The one-tap check-in: the yes/no buttons are semantic links — a
-// click fires \`docs.checkin.answered { answer }\` through the full
-// pipeline, and the wait below resumes with the answer's payload.
+const DOCS_CHECKIN_CODE = `// 6. Day 10 — the one-tap check-in. The yes/no buttons are
+//    SEMANTIC LINKS: the click fires \`docs.checkin.answered { answer }\`
+//    through the full pipeline and lands on the engine-hosted answer
+//    page (comments arrive as \`docs.checkin.answered.comment\`). The wait
+//    below resumes with the answer's payload.
 const checkin = await ctx.waitForEvent({
   event: Events.DOCS_CHECKIN_ANSWERED,
   timeout: days(5),
@@ -83,14 +85,25 @@ if (score >= 9) {
     template: Templates.COURSE_TESTIMONIAL_ASK,
     subject: "Thank you — one small ask",
     journeyName: user.journeyName,
-    props: { name: firstName ?? "there", score, courseTitle },
+    props: {
+      name: firstName ?? "there",
+      score,
+      courseTitle,
+      giftUrl: \`\${courseUrl(str(user.properties.course))}#gift\`,
+    },
   });
 } else if (score <= 6) {
   // Detractor → Doug, personally, not an automated apology.
   await ctx.trigger({
     event: Events.COURSE_LEAD_FLAGGED,
     userId: user.id,
-    properties: { reason: "course-detractor", answer: String(score) },
+    properties: {
+      reason: "course-detractor",
+      answer: String(score),
+      sourceEvent: Events.COURSE_NPS_SUBMITTED,
+      sourceTemplate: Templates.COURSE_NPS,
+      answeredAt: new Date().toISOString(),
+    },
   });
 }`;
 
