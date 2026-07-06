@@ -17,7 +17,7 @@ import { CONTACT_EMAIL, GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Pricing: free to self-host, no per-contact billing",
   description:
-    "Hogsend is free to self-host under ELv2. You pay your own infra and email provider — no per-contact, per-profile, or per-send pricing. Here's the math.",
+    "Hogsend is free to self-host under ELv2 — no per-contact, per-profile, or per-send pricing. Rather not run it? We run your single-tenant instance for $149/month, install it for $2,300, or install and operate the lifecycle program for $1,500/month.",
 };
 
 const SCAFFOLD_COMMAND = "pnpm dlx create-hogsend@latest my-app";
@@ -343,9 +343,8 @@ export default function PricingPage(): JSX.Element {
                 <CheckList items={MANAGED_ITEMS} />
 
                 <p className="mt-6 text-base text-white/60 leading-6">
-                  At 50,000 contacts that&apos;s less than what the
-                  contact-billed tools charge for the software alone — with the
-                  operating handled.
+                  At 50,000 contacts that&apos;s less than the $249/month Loops
+                  lists for the software alone, and here running it is included.
                 </p>
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
@@ -615,8 +614,9 @@ export default function PricingPage(): JSX.Element {
             Loops meters subscribed contacts. Customer.io meters profiles,
             emails, and credits. PostHog Workflows is free to 10,000 messages a
             month, then from $0.003 per send (at the time of writing). Those are
-            the prices for software they host and run for you. Hogsend you host
-            yourself, so there is no per-contact or per-send line.
+            the prices for software they host and run for you. Hogsend runs on
+            your own infrastructure — whether you operate it or we do — so there
+            is no per-contact or per-send line.
           </p>
 
           <p className="mt-8 text-sm text-white/60">
