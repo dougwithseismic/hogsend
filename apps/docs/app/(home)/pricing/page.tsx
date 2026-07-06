@@ -12,7 +12,7 @@ import { CodeMock } from "@/components/ds/mockup";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { PricingCalculator } from "@/components/landing/pricing-calculator";
-import { GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
+import { CONTACT_EMAIL, GITHUB_URL, RAILWAY_DEPLOY_URL } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Pricing: free to self-host, no per-contact billing",
@@ -51,12 +51,28 @@ const ZERO_DOLLAR_ITEMS: ReactNode[] = [
   </>,
 ];
 
+const MANAGED_ITEMS: ReactNode[] = [
+  "Your own single-tenant instance in its own Railway project",
+  "Upgrades applied as they ship",
+  "The stack monitored and kept healthy",
+  "Your data, your API keys, your sending domain",
+  "Infrastructure cost included",
+  "The Railway project is yours — take it over or cancel anytime",
+];
+
 const SETUP_WEEK_ITEMS: ReactNode[] = [
   "Deployed on your infrastructure — Railway, Docker, or your own host",
   "PostHog webhooks wired in, event taxonomy agreed",
   "Resend or Postmark connected, domain auth sorted",
   "Your templates ported to React Email",
   "First journeys live, handover in your repo",
+];
+
+const DONE_FOR_YOU_ITEMS: ReactNode[] = [
+  "Month one: everything in the setup week",
+  "New journeys and experiments as your product and funnel change",
+  "Monitoring, so a stalled or broken send gets caught",
+  "A weekly report on the program",
 ];
 
 type RentRow = {
@@ -85,7 +101,7 @@ const RENT_ROWS: RentRow[] = [
   {
     vendor: "Hogsend",
     chargesBy: "nothing — it's your infra",
-    whenYouGrow: "same software, same infra bill",
+    whenYouGrow: "roughly $20–40/mo of Railway infra at 50k contacts*",
     highlight: true,
   },
 ];
@@ -111,7 +127,11 @@ const LICENSE_CAN = [
 const FAQ_ITEMS = [
   {
     q: "Is there a cloud or managed version of Hogsend?",
-    a: "No. Hogsend is single-tenant and self-hosted only — and ELv2 means nobody else can sell you a managed version either. The Railway template is the closest thing to one-click hosting, and it deploys into your Railway account.",
+    a: "There is no multi-tenant cloud, and there never will be one. There is a managed option: for $149/month we run your own single-tenant instance — provisioned in its own Railway project, kept upgraded and monitored, with your data and your API keys. ELv2 still means nobody else can sell you a managed Hogsend.",
+  },
+  {
+    q: "What does the managed instance include?",
+    a: "Running the software: your own single-tenant Hogsend provisioned in its own Railway project, upgrades applied as they ship, monitoring, and the infrastructure cost. It does not include lifecycle work — journey authoring and strategy are the setup week and the done-for-you plan. The Railway project belongs to you from day one, so leaving means taking over the project or cancelling — nothing migrates.",
   },
   {
     q: "What infrastructure does Hogsend need?",
@@ -127,7 +147,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "Can someone set Hogsend up for me?",
-    a: "Yes. The setup week is a one-time, remote engagement at $2,300: Hogsend deployed on your infrastructure, PostHog and your email provider wired in, templates ported to React Email, and your first journeys live in your repo. Email doug@withseismic.com with what you're working on.",
+    a: "Yes, at three levels. The setup week is a one-time, remote engagement at $2,300: Hogsend deployed on your infrastructure, PostHog and your email provider wired in, templates ported to React Email, and your first journeys live in your repo. Done-for-you is $1,500/month with a three-month minimum: month one is the install, and from month two we operate the program — new journeys, experiments, and a weekly report. If you only want the software run, the managed instance is $149/month. Email doug@withseismic.com with what you're working on.",
   },
   {
     q: "Will features move behind a paid tier later?",
@@ -180,6 +200,29 @@ function Microcopy({ children }: { children: ReactNode }): JSX.Element {
   return <p className="eyebrow mt-5 text-white/50">{children}</p>;
 }
 
+/** Accent-bulleted checklist — shared by the plan cards. */
+function CheckList({ items }: { items: ReactNode[] }): JSX.Element {
+  return (
+    <ul className="mt-4 flex flex-col gap-3">
+      {items.map((item, index) => (
+        <li
+          // Static, never-reordered checklist.
+          // biome-ignore lint/suspicious/noArrayIndexKey: stable list
+          key={index}
+          className="flex items-start gap-3 text-base text-white/80 leading-6"
+        >
+          <Check
+            aria-hidden="true"
+            className="mt-1 size-4 shrink-0 text-accent"
+            strokeWidth={2}
+          />
+          <span>{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /* ------------------------------------------------------------------------ */
 /*  Page                                                                     */
 /* ------------------------------------------------------------------------ */
@@ -201,8 +244,8 @@ export default function PricingPage(): JSX.Element {
           <p className="mt-5 max-w-2xl text-base text-white/70 leading-6">
             There is no paid tier. You pay for hosting and for your own Resend
             or Postmark account — contact count appears in neither bill. If
-            you&apos;d rather have it installed for you, that&apos;s a one-week
-            engagement with the person who built it.
+            you&apos;d rather not run it yourself, we&apos;ll run your instance
+            for $149/month — or install it for you in a week.
           </p>
           <div className="mt-10">
             <CtaTrio centered />
@@ -219,10 +262,10 @@ export default function PricingPage(): JSX.Element {
           align="center"
           eyebrow="The plans"
           title="What $0 gets you"
-          subtitle="The software is one column with everything in it. The second column is a week of my time, if you'd like the install done for you."
+          subtitle="The software is one card with everything in it. The other three buy operations: we run your instance, install it once, or install it and run the whole lifecycle program."
         />
 
-        <div className="mt-12 grid items-start justify-center gap-6 lg:grid-cols-[minmax(0,36rem)_minmax(0,26rem)]">
+        <div className="mt-12 grid items-start gap-6 md:grid-cols-2">
           <Reveal delay={0.08}>
             <Card className="relative w-full overflow-hidden border-accent/40 p-8">
               {/* Red radial glow rising from the card's bottom edge. */}
@@ -250,30 +293,15 @@ export default function PricingPage(): JSX.Element {
 
                 <p className="mt-4 text-base text-white/70 leading-6">
                   The engine, the scaffold, the tooling, and every release after
-                  this one. Nothing is held back for a second column.
+                  this one. Nothing is held back for the other cards — they buy
+                  operations, not features.
                 </p>
 
                 <p className="eyebrow mt-8 text-white/50">
                   What&apos;s included
                 </p>
 
-                <ul className="mt-4 flex flex-col gap-3">
-                  {ZERO_DOLLAR_ITEMS.map((item, index) => (
-                    <li
-                      // Static, never-reordered checklist.
-                      // biome-ignore lint/suspicious/noArrayIndexKey: stable list
-                      key={index}
-                      className="flex items-start gap-3 text-base text-white/80 leading-6"
-                    >
-                      <Check
-                        aria-hidden="true"
-                        className="mt-1 size-4 shrink-0 text-accent"
-                        strokeWidth={2}
-                      />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                <CheckList items={ZERO_DOLLAR_ITEMS} />
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
                   <Button href="/docs/getting-started" variant="accent" icon>
@@ -288,13 +316,62 @@ export default function PricingPage(): JSX.Element {
             </Card>
           </Reveal>
 
+          {/* Managed instance — we run your single-tenant Hogsend. */}
+          <Reveal delay={0.12}>
+            <Card className="relative w-full overflow-hidden p-8">
+              <div className="relative flex flex-col">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-base text-white">Managed instance</span>
+                  <TagPill>We run it</TagPill>
+                </div>
+
+                <div className="mt-5 flex items-baseline gap-1.5">
+                  <span className="font-display text-[40px] text-white leading-[48px]">
+                    $149
+                  </span>
+                  <span className="text-base text-white/60">/per month</span>
+                </div>
+
+                <p className="mt-4 text-base text-white/70 leading-6">
+                  Your own single-tenant Hogsend, run by us. It covers running
+                  the software, not working on your lifecycle — journeys and
+                  strategy are the two cards below.
+                </p>
+
+                <p className="eyebrow mt-8 text-white/50">What it covers</p>
+
+                <CheckList items={MANAGED_ITEMS} />
+
+                <p className="mt-6 text-base text-white/60 leading-6">
+                  At 50,000 contacts that&apos;s less than what the
+                  contact-billed tools charge for the software alone — with the
+                  operating handled.
+                </p>
+
+                <div className="mt-8 border-white/[0.08] border-t pt-6">
+                  <Button
+                    href={`mailto:${CONTACT_EMAIL}?subject=Managed%20Hogsend%20instance`}
+                    variant="outline"
+                    icon
+                  >
+                    Email doug@withseismic.com
+                  </Button>
+                </div>
+
+                <p className="eyebrow mt-6 text-white/50">
+                  Monthly · single-tenant · yours to take over
+                </p>
+              </div>
+            </Card>
+          </Reveal>
+
           {/* The setup week — done-for-you installation. */}
           <Reveal delay={0.16}>
             <Card className="relative w-full overflow-hidden p-8">
               <div className="relative flex flex-col">
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-base text-white">Setup week</span>
-                  <TagPill>Done for you</TagPill>
+                  <TagPill>The install</TagPill>
                 </div>
 
                 <div className="mt-5 flex items-baseline gap-1.5">
@@ -305,34 +382,18 @@ export default function PricingPage(): JSX.Element {
                 </div>
 
                 <p className="mt-4 text-base text-white/70 leading-6">
-                  Hogsend installed by the person who built it. You keep
-                  everything — it&apos;s your repo and your accounts from day
-                  one.
+                  Hogsend installed by the person who built it — the install
+                  only, no ongoing engagement. It&apos;s your repo and your
+                  accounts from day one.
                 </p>
 
                 <p className="eyebrow mt-8 text-white/50">How the week runs</p>
 
-                <ul className="mt-4 flex flex-col gap-3">
-                  {SETUP_WEEK_ITEMS.map((item, index) => (
-                    <li
-                      // Static, never-reordered checklist.
-                      // biome-ignore lint/suspicious/noArrayIndexKey: stable list
-                      key={index}
-                      className="flex items-start gap-3 text-base text-white/80 leading-6"
-                    >
-                      <Check
-                        aria-hidden="true"
-                        className="mt-1 size-4 shrink-0 text-accent"
-                        strokeWidth={2}
-                      />
-                      <span>{item}</span>
-                    </li>
-                  ))}
-                </ul>
+                <CheckList items={SETUP_WEEK_ITEMS} />
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
                   <Button
-                    href="mailto:doug@withseismic.com"
+                    href={`mailto:${CONTACT_EMAIL}?subject=Hogsend%20setup%20week`}
                     variant="outline"
                     icon
                   >
@@ -342,6 +403,61 @@ export default function PricingPage(): JSX.Element {
 
                 <p className="eyebrow mt-6 text-white/50">
                   One-time · remote · yours to keep
+                </p>
+              </div>
+            </Card>
+          </Reveal>
+
+          {/* Done-for-you — install in month one, then operate. */}
+          <Reveal delay={0.2}>
+            <Card className="relative w-full overflow-hidden p-8">
+              <div className="relative flex flex-col">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-base text-white">
+                    Done-for-you lifecycle
+                  </span>
+                  <TagPill>Install + operate</TagPill>
+                </div>
+
+                <div className="mt-5 flex items-baseline gap-1.5">
+                  <span className="font-display text-[40px] text-white leading-[48px]">
+                    $1,500
+                  </span>
+                  <span className="text-base text-white/60">/per month</span>
+                </div>
+
+                <p className="mt-4 text-base text-white/70 leading-6">
+                  Three-month minimum. Month one is the install — everything in
+                  the setup week. From month two onward we operate it.
+                </p>
+
+                <p className="eyebrow mt-8 text-white/50">What it covers</p>
+
+                <CheckList items={DONE_FOR_YOU_ITEMS} />
+
+                <p className="mt-6 text-base text-white/60 leading-6">
+                  Full detail on the{" "}
+                  <Link
+                    href="/service"
+                    className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
+                  >
+                    service page
+                  </Link>
+                  .
+                </p>
+
+                <div className="mt-8 border-white/[0.08] border-t pt-6">
+                  <Button
+                    href={`mailto:${CONTACT_EMAIL}?subject=Done-for-you%20lifecycle`}
+                    variant="outline"
+                    icon
+                  >
+                    Email doug@withseismic.com
+                  </Button>
+                </div>
+
+                <p className="eyebrow mt-6 text-white/50">
+                  Monthly · 3-month minimum · your accounts
                 </p>
               </div>
             </Card>
@@ -379,6 +495,11 @@ export default function PricingPage(): JSX.Element {
                 it up locally. The Hatchet token is minted by your own
                 Hatchet-Lite instance, not bought.
               </p>
+              <p className="mt-4 text-base text-white/60 leading-6">
+                The entire stack — API, worker, Postgres/TimescaleDB, Redis, and
+                the Hatchet orchestrator — runs on Railway for roughly
+                $20–40/month at 5,000–50,000 contacts.
+              </p>
             </Card>
           </Reveal>
 
@@ -389,7 +510,9 @@ export default function PricingPage(): JSX.Element {
               </h3>
               <p className="mt-2.5 text-base text-white/60 leading-6">
                 Your own Resend or Postmark account, at their rates, on your
-                domain reputation.
+                domain reputation. On Resend&apos;s transactional plans, Pro at
+                $20/month covers 50,000 emails; 100,000 emails is about
+                $35/month.
               </p>
             </Card>
           </Reveal>
@@ -406,6 +529,10 @@ export default function PricingPage(): JSX.Element {
             </Card>
           </Reveal>
         </div>
+
+        <p className="eyebrow mt-6 text-white/50">
+          Railway and Resend list prices checked July 2026.
+        </p>
       </Section>
 
       {/* ---- 3.3b Pricing calculator ------------------------------------ */}
@@ -478,8 +605,8 @@ export default function PricingPage(): JSX.Element {
           </div>
 
           <p className="eyebrow mt-4 text-white/50">
-            *List prices at the time of writing — pricing last checked June
-            2026.
+            *List prices at the time of writing — competitor pricing checked
+            June 2026, Railway rates July 2026.
           </p>
         </Reveal>
 
