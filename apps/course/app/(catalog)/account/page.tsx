@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { BillingSection } from "@/components/account/billing-section";
 import { DangerZone } from "@/components/account/danger-zone";
+import { LicenseSection } from "@/components/account/license-section";
 import { ProfileForm } from "@/components/account/profile-form";
 import { SecuritySection } from "@/components/account/security-section";
 import { SignOutButton } from "@/components/auth/sign-out-button";
@@ -149,6 +150,9 @@ export default async function AccountPage() {
         <Section title="Billing & invoices">
           <BillingSection userId={user.id} />
         </Section>
+
+        {/* Renders nothing when the user has no team-licence packs. */}
+        <LicenseSection userId={user.id} />
 
         <Section title="Security">
           <div className="flex flex-col gap-6">

@@ -29,6 +29,7 @@ import { StatBand } from "@/components/ds/stat-band";
 import { WordReveal } from "@/components/ds/word-reveal";
 import { ExpenseCourse } from "@/components/expense-course";
 import { GiftBanner, GiftCourse } from "@/components/gift-course";
+import { TeamBanner, TeamLicense } from "@/components/team-license";
 import {
   type CourseModuleLesson,
   getCourseModules,
@@ -225,8 +226,8 @@ function buildFaqItems(priceLabel: string): { q: string; a: string }[] {
       a: `No. ${priceLabel} once for lifetime access to this course and every update to it. All-Access is the same deal across every course — current and future — for ${ALL_ACCESS.priceLabel}.`,
     },
     {
-      q: "Can I gift it or expense it?",
-      a: "Both. Gifting mints a single-use unlock code — emailed to your recipient, or to you to forward — and it never expires. For expensing, checkout issues a proper invoice, and there's a pre-written approval email on this page you can copy and send to your manager.",
+      q: "Can I gift it, expense it, or buy it for a team?",
+      a: "All three. Gifting mints a single-use unlock code — emailed to your recipient, or to you to forward — and it never expires. A team pack does the same for 2–25 seats: one checkout, one invoice, one code per seat, emailed to you to hand out. For expensing, checkout issues a proper invoice, and there's a pre-written approval email on this page you can copy and send to your manager.",
     },
     {
       q: "What's the refund policy?",
@@ -381,10 +382,10 @@ function ComingSoonOverview({ course }: { course: CourseMeta }): JSX.Element {
 
 export default async function CourseOverview(props: {
   params: Promise<{ course: string }>;
-  searchParams: Promise<{ gift?: string }>;
+  searchParams: Promise<{ gift?: string; team?: string }>;
 }) {
   const { course: slug } = await props.params;
-  const { gift: giftStatus } = await props.searchParams;
+  const { gift: giftStatus, team: teamStatus } = await props.searchParams;
   const course = getCourse(slug);
   if (!course) notFound();
 
@@ -529,6 +530,7 @@ export default async function CourseOverview(props: {
 
             <div className="w-full max-w-xl text-left">
               <GiftBanner status={giftStatus} />
+              <TeamBanner status={teamStatus} />
             </div>
 
             <div className="mt-9 flex flex-wrap items-center justify-center gap-x-4 gap-y-3">
@@ -991,16 +993,18 @@ export default async function CourseOverview(props: {
           </p>
           <div className="mx-auto max-w-3xl">
             <GiftCourse course={course} />
+            <TeamLicense course={course} />
           </div>
         </Section>
       ) : paywalled ? (
-        // Owned: keep the gift affordance (people gift courses they own).
+        // Owned: keep the gift + team affordances (owners buy for their team).
         <Section>
           <SectionHeading
             eyebrow="Gifting"
             title="Give it to someone on your team"
           />
           <GiftCourse course={course} />
+          <TeamLicense course={course} />
         </Section>
       ) : null}
 

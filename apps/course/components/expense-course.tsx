@@ -47,15 +47,18 @@ Thanks,
     <div>
       <CodeWindow filename="manager_email.txt" code={email} lang="text" />
       <p className="mt-5 text-center text-sm text-white/45">
-        Buying for several people? Each gift purchase mints a single-use unlock
-        code — or write to{" "}
+        Buying for several people?{" "}
+        <a href="#team" className="text-accent hover:underline">
+          Get a team pack
+        </a>{" "}
+        — one invoice, one unlock code per seat. For anything bigger, write to{" "}
         <a
           href={`mailto:${CONTACT_EMAIL}`}
           className="text-accent hover:underline"
         >
           {CONTACT_EMAIL}
-        </a>{" "}
-        about a team deal.
+        </a>
+        .
       </p>
     </div>
   );

@@ -88,7 +88,7 @@ emitted to the ingest spine for lifecycle/analytics.
   `emailedAt` gate so a resumed retry still delivers exactly one email), emit
   `course.team_purchased`; extend `handlePossibleRedemption` to mark license
   codes redeemed and emit `course.team_seat_redeemed` (with N-of-M progress).
-- [ ] **F9. UI** — "Team licences" purchase block in the pricing section
+- [x] **F9. UI** — "Team licences" purchase block in the pricing section
   (zero-JS form, seats input, price math label); `?team=success|cancelled`
   banner; account-page "Team licences" section listing packs with per-code
   redeemed status; expense-it footer line points at the team block instead of
