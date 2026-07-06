@@ -413,14 +413,13 @@ function PsHero() {
             DISPLAY,
           )}
         >
-          Own marketing in an afternoon.
+          Build your growth engine in code.
         </h1>
         <p className="mt-6 max-w-[640px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
           Lifecycle marketing as TypeScript in your repo — the welcome series,
-          trial nudges, and win-backs that keep users. One command scaffolds ten
-          journeys; the PostHog events you already have trigger them; your own
-          Resend or Postmark sends them — and the same journeys reach Discord,
-          Slack, and the in-app feed. No second platform, no marketing hire.
+          trial nudges, and win-backs that keep users. Email goes through your
+          own Resend or Postmark; the same journeys reach Discord, Slack, and
+          the in-app feed.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
