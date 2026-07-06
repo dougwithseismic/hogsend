@@ -412,13 +412,14 @@ function PsHero() {
             DISPLAY,
           )}
         >
-          Build your growth engine in code.
+          Own marketing in an afternoon.
         </h1>
         <p className="mt-6 max-w-[640px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
           Lifecycle marketing as TypeScript in your repo — the welcome series,
-          trial nudges, and win-backs that keep users. Email goes through your
-          own Resend or Postmark; the same journeys reach Discord, Slack, and
-          the in-app feed.
+          trial nudges, and win-backs that keep users. One command scaffolds ten
+          journeys; the PostHog events you already have trigger them; your own
+          Resend or Postmark sends them — and the same journeys reach Discord,
+          Slack, and the in-app feed. No second platform, no marketing hire.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -477,9 +478,22 @@ function PsHero() {
       <Container className="-mt-[210px] relative z-10 pb-14 md:-mt-[230px]">
         <PsHeroDemo />
         <p className="mt-5 text-center text-white/40 text-[13px] tracking-[-0.02em]">
-          The feed, bell, and survey card are real{" "}
-          <code className="font-mono text-white/75">@hogsend/react</code>{" "}
-          components — live on hogsend.com.{" "}
+          {isHogsendConfigured ? (
+            <>
+              This isn&rsquo;t a mock — it&rsquo;s our own install, a stock
+              create-hogsend app in production. The welcome email arrives from
+              hello@hogsend.com in seconds; the feed, bell, and survey card are
+              real{" "}
+              <code className="font-mono text-white/75">@hogsend/react</code>{" "}
+              components.{" "}
+            </>
+          ) : (
+            <>
+              The feed, bell, and survey card are real{" "}
+              <code className="font-mono text-white/75">@hogsend/react</code>{" "}
+              components — live on hogsend.com.{" "}
+            </>
+          )}
           <Link href="/components" className="font-medium text-white">
             See the full set →
           </Link>
@@ -623,7 +637,8 @@ function PsProblem() {
               PostHog shows you where users drop off; acting on it meant buying
               a second platform and syncing your data into it. Hogsend deletes
               that step — journeys are TypeScript, triggered by the events you
-              already have.{" "}
+              already have. It&rsquo;s work your existing engineers finish in an
+              afternoon, not a role you hire for.{" "}
               <Link href="/docs" className="font-medium text-white">
                 Learn more →
               </Link>
@@ -771,7 +786,19 @@ function PsPlaybook() {
             signup, a nudge when a trial stalls, a win-back when a regular goes
             quiet. Sending the response automatically, per person, on the right
             channel is the whole discipline. PostHog already records the
-            moments; Hogsend is where you write what happens next.
+            moments; Hogsend is where you write what happens next.{" "}
+            <a
+              href="https://course.hogsend.com"
+              className="font-medium text-white"
+            >
+              The course
+            </a>{" "}
+            teaches the whole loop — Measure → Keep → Grow, from instrumenting
+            PostHog to your 30/60/90-day plan; the first chapter is free. Or
+            have it{" "}
+            <Link href="/service" className="font-medium text-white">
+              set up for you →
+            </Link>
           </p>
         </div>
 
@@ -1294,6 +1321,43 @@ export const winback = defineJourney({
     await sendEmail({ to: user.email, template: "reactivation-final-nudge" });
   },
 });`,
+  community: `import { days } from "@hogsend/core";
+import {
+  defineJourney,
+  sendConnectorAction,
+  sendEmail,
+  sendFeedItem,
+} from "@hogsend/engine";
+
+export const milestone = defineJourney({
+  meta: {
+    id: "milestone-celebration",
+    trigger: { event: "usage.milestone_reached" },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+  },
+  run: async (user, ctx) => {
+    // One moment, three channels — the same contact everywhere.
+    await sendFeedItem({
+      recipient: { userId: user.id },
+      type: "milestone",
+      title: "You just hit 1,000 events 🎉",
+      body: "Your first-month milestone — see what changed.",
+    });
+
+    // Linked their Discord with /link? Congratulate them where they hang out.
+    const dm = (await sendConnectorAction({
+      connectorId: "discord",
+      action: "dmMember",
+      args: { member: user.email, content: "1,000 events — nice. 🎉" },
+    })) as { delivered: boolean };
+
+    // No linked Discord, or DMs closed? The email carries it instead.
+    if (!dm.delivered) {
+      await sendEmail({ to: user.email, template: "milestone-celebration" });
+    }
+  },
+});`,
 };
 
 /* Provider choice is config, not journey code — the toggle swaps only this. */
@@ -1309,14 +1373,21 @@ POSTMARK_SERVER_TOKEN=…`,
 /** Async RSC wrapper: Shiki-highlights the samples server-side and hands the
  * rendered nodes to the client picker (the homepage composition pattern). */
 async function PsCode() {
-  const [onboarding, trialConversion, winback, resendEnv, postmarkEnv] =
-    await Promise.all([
-      CodeHighlight({ code: JOURNEY_SAMPLES.onboarding, lang: "ts" }),
-      CodeHighlight({ code: JOURNEY_SAMPLES.trial_conversion, lang: "ts" }),
-      CodeHighlight({ code: JOURNEY_SAMPLES.winback, lang: "ts" }),
-      CodeHighlight({ code: ENV_SAMPLES.resend, lang: "bash" }),
-      CodeHighlight({ code: ENV_SAMPLES.postmark, lang: "bash" }),
-    ]);
+  const [
+    onboarding,
+    trialConversion,
+    winback,
+    community,
+    resendEnv,
+    postmarkEnv,
+  ] = await Promise.all([
+    CodeHighlight({ code: JOURNEY_SAMPLES.onboarding, lang: "ts" }),
+    CodeHighlight({ code: JOURNEY_SAMPLES.trial_conversion, lang: "ts" }),
+    CodeHighlight({ code: JOURNEY_SAMPLES.winback, lang: "ts" }),
+    CodeHighlight({ code: JOURNEY_SAMPLES.community, lang: "ts" }),
+    CodeHighlight({ code: ENV_SAMPLES.resend, lang: "bash" }),
+    CodeHighlight({ code: ENV_SAMPLES.postmark, lang: "bash" }),
+  ]);
 
   return (
     <section className="relative border-[#f6483826] border-t overflow-hidden">
@@ -1345,6 +1416,7 @@ async function PsCode() {
               onboarding,
               trial_conversion: trialConversion,
               winback,
+              community,
             }}
             envs={{ resend: resendEnv, postmark: postmarkEnv }}
             raw={JOURNEY_SAMPLES}
@@ -1658,12 +1730,14 @@ function PsHowItWorks() {
                 DISPLAY,
               )}
             >
-              The whole job is one loop.
+              The whole job is one afternoon.
             </h2>
             <p className="mt-6 max-w-[420px] text-white/55 text-base leading-[24px] tracking-[-0.02em]">
               Activity comes in from PostHog or any webhook, the right emails go
               out through your provider, and what people do with them fans back
-              out to your tools. Nothing new to buy or keep in sync.
+              out to your tools. Scaffolding is one command, the ten journeys
+              ship pre-written, and deploy is a git push — the afternoon goes on
+              editing copy and timings to fit your product.
             </p>
           </div>
 
@@ -2694,7 +2768,7 @@ function PsEconomics() {
           ))}
         </div>
         <p className="mt-6 text-white/40 text-[12px] tracking-[-0.02em]">
-          *Published pricing, checked June 2026.
+          *Published pricing, checked July 2026.
         </p>
       </Container>
     </section>
@@ -2879,7 +2953,7 @@ const FAQ = [
   },
   {
     q: "Does Hogsend replace Resend or use it?",
-    a: "It uses it. Hogsend is the orchestration layer — journeys, segments, suppression, tracking — and sends through your own Resend account by default, with Postmark as a one-env-var swap.",
+    a: "It uses it. Hogsend is the orchestration layer — journeys, segments, suppression, tracking — and sends through your own Resend account by default, with Postmark as a one-env-var swap. Resend's own Automations cover simple dashboard-built sequences; Hogsend is for when the logic belongs in your repo — PostHog-triggered, type-checked, and portable across providers.",
   },
   {
     q: "Do I need PostHog to use Hogsend?",
@@ -3191,17 +3265,17 @@ export default function HomePage(): JSX.Element {
       <PsHero />
       <PsProofStrip />
       <PsProblem />
+      <PsHowItWorks />
+      <PsCode />
+      <PsUseCases />
       <PsPlaybook />
       <PsFanning />
-      <PsUseCases />
       <PsStats />
       <PsRepo />
       <PsAgents />
-      <PsCode />
       <PsElephant />
       <PsSetup />
       <PsCorePlatform />
-      <PsHowItWorks />
       <PsBuildingBlocks />
       <PsOpen />
       <PsFeatures />
