@@ -79,7 +79,7 @@ emitted to the ingest spine for lifecycle/analytics.
   prefix, coupon metadata `{packId, licenseCodeId}`; extend
   `CouponAttribution` to surface `licenseCodeId`; `markLicenseCodeRedeemed`
   (idempotent first-write-wins) with pack progress read-back.
-- [ ] **F7. Checkout team mode** — `/api/checkout` accepts `team=1&seats=N`
+- [x] **F7. Checkout team mode** — `/api/checkout` accepts `team=1&seats=N`
   (clamped 2–25): quantity-N line item, `team`/`seats` metadata,
   `allow_promotion_codes: false` for team sessions (a single-use 100%-off
   code must not zero an N-seat purchase), success URL `?team=success`.

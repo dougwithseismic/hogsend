@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { ALL_ACCESS_SLUG, priceIdForCourse } from "@/lib/courses";
 import { env } from "@/lib/env";
 import { EMAIL_PATTERN } from "@/lib/ingest";
+import { clampSeats } from "@/lib/licenses";
 import { getStripe, paywallConfigured } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -16,6 +17,10 @@ export const runtime = "nodejs";
  * Gift mode (`gift=1`, optional `recipientEmail`): the buyer pays full price
  * but gets NO entitlement — the webhook mints a single-use 100%-off code
  * instead (see lib/gifts.ts) and the lifecycle emails deliver it.
+ *
+ * Team mode (`team=1`, `seats=N`, clamped 2–25): the buyer pays N × price in
+ * one session and gets NO entitlement — the webhook mints N single-use codes
+ * (see lib/licenses.ts) and emails them to the buyer to distribute.
  */
 
 /** Only allow same-site relative return paths (no open redirect). */
@@ -28,7 +33,10 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const form = await req.formData();
   const course = String(form.get("course") ?? "");
-  const isGift = form.get("gift") === "1";
+  const isTeam = form.get("team") === "1";
+  const seats = isTeam ? clampSeats(form.get("seats")) : 1;
+  // Team wins over gift if a form somehow posts both — they're separate modes.
+  const isGift = !isTeam && form.get("gift") === "1";
   const recipientRaw = String(form.get("recipientEmail") ?? "")
     .trim()
     .toLowerCase();
@@ -64,30 +72,36 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const checkout = await getStripe().checkout.sessions.create({
     mode: "payment",
-    line_items: [{ price: priceId, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: seats }],
     client_reference_id: session.user.id,
     customer_email: session.user.email,
     metadata: {
       courseSlug: course,
       userId: session.user.id,
+      ...(isTeam ? { team: "true", seats: String(seats) } : {}),
       ...(isGift ? { gift: "true" } : {}),
       ...(recipientEmail ? { recipientEmail } : {}),
     },
     // Discount codes (including single-use 100%-off gift/free copies) are
     // entered on Stripe's hosted page; a fully-discounted session still
-    // completes and the webhook grants the entitlement unchanged.
-    allow_promotion_codes: true,
+    // completes and the webhook grants the entitlement unchanged. Team
+    // sessions accept NO codes — a single-use 100%-off code must not zero an
+    // N-seat purchase and mint N fresh codes for free.
+    allow_promotion_codes: !isTeam,
     // Generate a proper invoice (PDF) per purchase so it shows in the account
     // billing section and the customer gets a receipt.
     invoice_creation: { enabled: true },
     // Non-gift buyers land on the /welcome tour (which re-validates `next`
-    // itself); gift buyers return to the overview's GiftBanner unchanged.
+    // itself); gift buyers return to the overview's GiftBanner unchanged, and
+    // team buyers to the overview's team banner.
     // `paid=1` marks a completed purchase redirect so /welcome shows the
     // "unlocking" hint only to real buyers (not to anyone who lands with ?course).
-    success_url: isGift
-      ? `${base}${next}?gift=success`
-      : `${base}/welcome?course=${encodeURIComponent(course)}&next=${encodeURIComponent(next)}&paid=1`,
-    cancel_url: `${base}${next}?${isGift ? "gift" : "purchase"}=cancelled`,
+    success_url: isTeam
+      ? `${base}${next}?team=success`
+      : isGift
+        ? `${base}${next}?gift=success`
+        : `${base}/welcome?course=${encodeURIComponent(course)}&next=${encodeURIComponent(next)}&paid=1`,
+    cancel_url: `${base}${next}?${isTeam ? "team" : isGift ? "gift" : "purchase"}=cancelled`,
   });
 
   if (!checkout.url) {
