@@ -343,8 +343,8 @@ export default function PricingPage(): JSX.Element {
                 <CheckList items={MANAGED_ITEMS} />
 
                 <p className="mt-6 text-base text-white/60 leading-6">
-                  At 50,000 contacts that&apos;s less than the $249/month Loops
-                  lists for the software alone, and here running it is included.
+                  At 50,000 contacts Loops lists $249/month, priced per contact;
+                  this is $149 flat on your own single-tenant stack.
                 </p>
 
                 <div className="mt-8 border-white/[0.08] border-t pt-6">
@@ -497,9 +497,10 @@ export default function PricingPage(): JSX.Element {
               <p className="mt-4 text-base text-white/60 leading-6">
                 The entire stack — API, worker, Postgres/TimescaleDB, Redis, and
                 the Hatchet orchestrator — runs on Railway for roughly
-                $20–40/month at 5,000–50,000 contacts. That range isn't a guess:
-                one of our own production instances metered at about $20/month
-                of compute in July 2026.
+                $20–40/month at 5,000–50,000 contacts. The floor of that range
+                is measured — a small production instance of ours metered at
+                about $20/month of compute in July 2026 — and the top is an
+                estimate with headroom.
               </p>
             </Card>
           </Reveal>
