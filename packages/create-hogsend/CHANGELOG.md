@@ -1,5 +1,21 @@
 # create-hogsend
 
+## 0.38.0
+
+### Minor Changes
+
+- b7a4a2d: Bulk suppression-list import + migration importer CLI.
+
+  **Engine — `POST /v1/admin/suppressions/import`** (+ `GET /v1/admin/suppressions/import/{jobId}`): async bulk import of unsubscribes / bounces / spam complaints via a new `import-suppressions` Hatchet task (CSV or JSON, batches of 500, `import_jobs` lifecycle, errors capped at 100). Rows are `email` (required), `reason` (`unsubscribed` | `bounced` | `complained`, default `unsubscribed`), `externalId` (optional), mapped onto the existing `email_preferences` semantics — no schema change: `unsubscribed` → `unsubscribed_all`, `bounced` → `suppressed` + `bounce_count = GREATEST(bounce_count, 1)` (idempotent re-runs) + bounce timestamps, `complained` → `suppressed` with the bounce count untouched. Writes go through the single `upsertEmailPreference` choke point, which gains an `emitOutbound` opt-out (default `true`; the import passes `false`) so a historical import does not fan out per-row `contact.unsubscribed` outbound events.
+
+  **Behavior change — `POST /v1/admin/contacts/import` no longer awaits the task run.** The route previously `await`ed `importContactsTask.run(...)` to completion before returning its 202, defeating the async job + status-poll contract on large imports. Both import routes now enqueue with `runNoWait()` fire-and-forget: the 202 means "queued", and a failed enqueue marks the job row `failed` (with the error recorded) so status pollers get a terminal state. Both routes also cap `data` at 4MB — the Hatchet gRPC message ceiling a bigger payload could never clear anyway.
+
+  **Send-time suppression gate aggregates per address.** `checkSuppression` now reads every `email_preferences` row for the recipient address (the PK is `(user_id, email)`, so a suppression imported before the contact existed lives on a different row than later interactive writes) — any suppressed / unsubscribed-all signal on any row blocks the send, and category maps merge with explicit false winning.
+
+  **CLI — new `hogsend import` command** (`@hogsend/cli`): migrates contacts _and_ suppression state into a running instance over the admin API, chunking large inputs into one import job per 5,000 rows and polling each to completion. `hogsend import csv --file <path> [--suppressions]` for generic header CSVs; `hogsend import loops --csv <audience.csv> [--api-key] [--check-suppressions]` for the Loops dashboard export (typed custom properties via the Loops API; per-contact suppression lookups at 10 req/s, imported as reason `bounced` since Loops merges bounces + complaints); `hogsend import customerio --app-key <key> [--region us|eu] [--segment <id>] [--esp-suppressions]` drives the Customer.io App API async people export end-to-end and optionally imports the ESP bounce/spam-report lists. Source-platform requests are rate-limited (10 req/s) with retry-on-429 backoff. Job polling aborts with an error (naming the job id) after 10 minutes without progress instead of hanging forever; the Loops suppression check aborts on auth/terminal errors rather than silently importing zero suppressions; the Customer.io export download inflates gzipped files.
+
+  Other engine-line packages ride along to keep the version line uniform.
+
 ## 0.37.3
 
 ### Patch Changes
@@ -23,7 +39,6 @@
 ### Minor Changes
 
 - f21fb2b: In-app component kit — survey/rating primitive, preference center, swipe-to-archive, BYO toast, and a notification-badge fix.
-
   - **Survey / rating primitive** — a surface-neutral `<Survey>` email component and an in-app survey feed block (`SurveyBlockView`) plus `sendSurvey()`. Answers ride the existing event spine (no new write path) and are readable from journeys via `ctx.waitForEvent`. New read-only `GET /v1/admin/reporting/breakdown` aggregates any event by a property value (count, average, optional NPS).
   - **`<PreferenceCenter>`** — per-category × per-channel notification preferences over `usePreferences`, bundleable into `<FeedPopover>` as a tab. New read-only `GET /v1/lists` catalog.
   - **Swipe-to-archive** — brought into `@hogsend/react` as a first-class affordance (pointer/touch swipe + an accessible archive button, wired to the existing `markAsArchived`).
@@ -45,7 +60,6 @@
 ### Minor Changes
 
 - 02dab59: Client-side layer: `@hogsend/js` (zero-dependency browser core — identity, capture, preferences, in-app feed, banners, toasts, reactive store) and `@hogsend/react` (provider, hooks, and the `NotificationBell`/`FeedPopover`/`NotificationFeed`/`Banner`/`Toast` components with a `--hs-*` themed override surface), plus the engine pieces that power them:
-
   - Publishable-key (`pk_`) browser-ingest auth (`requirePublishableOrIngest`, per-key origin allowlist, `allowed_origins` migration, reflective CORS, `GET /v1/lists/preferences`).
   - The in-app feed backend: `feed_items` table, `sendFeedItem()` + `send-feed` workflow, recipient-scoped `/v1/feed/*` routes with SSE fan-out.
   - `sendBanner()` on the feed primitive, and the server-side `generateUserToken` mint helper for identified browser sessions.
@@ -69,7 +83,6 @@
   Adds an in-Studio co-working agent: a bottom-right chat panel that reads the live
   instance (contacts, events, journeys, buckets, sends) and can act through the
   existing data plane — every write gated behind a human-in-the-loop confirmation.
-
   - Engine: streaming `POST /v1/admin/agent/chat` (Vercel AI SDK + OpenRouter,
     default model `z-ai/glm-5.2`) under the admin auth/rate-limit/audit stack; the
     OpenRouter key never leaves the server. Read tools auto-run; write tools mint a
@@ -179,12 +192,10 @@
   Discord invite (`discord.gg/rv6eZNvYrr`), and the docs — instead of dropping the user
   at the Hatchet dashboard. The bootstrap summary also states plainly that local infra
   is up but the app itself is NOT running yet: the compose stack is only Postgres + Redis
-
   - Hatchet, while the API and worker are your code, started with `dev` + `worker:dev`.
     A closing "Welcome to Hogsend" bookends the scaffolder's opening note.
 
   Two fixes ride along:
-
   - The CLI's git-init and dependency-install now run as async `spawn` instead of the
     blocking `spawnSync`. A clack spinner animates on a `setInterval`, and `spawnSync`
     froze the event loop for the whole (often 30s+) install — so the spinner sat dead on
@@ -249,7 +260,6 @@
 
   Journeys in Studio were a single list with an inline funnel — there was no way to
   drill into one. Clicking a journey now opens a dedicated `/journeys/:id` page:
-
   - **Definition** — trigger event + `where` conditions, `exitOn` rules, `entryLimit`,
     and the `suppress` window.
   - **Funnel** — the existing enrolled → sent → opened → clicked → completed funnel.
@@ -310,7 +320,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 ### Minor Changes
 
 - 8422893: Restyle the cold-connect confirmation page + realign the scaffolder to the engine line.
-
   - **`@hogsend/engine`** — the engine-served cold-connect connect page (`GET /connect/<connector>`) is restyled to the Hogsend Studio "Crimzon" design language (ink surface, hairline-bordered card, Inter, eyebrow label, faint grain). New optional `ColdConnectBranding` fields — `iconSvg` (inline platform-logo SVG, shape-checked and fail-closed to the emoji badge), `eyebrow`, and `reassurance` (an "if this wasn't you, ignore this" footnote). Hardening: branding JSON embedded in the page's inline `<script>` is escaped against a `</script>` breakout, the page clears WCAG AA contrast, and it no longer pulls a third-party webfont.
   - **`@hogsend/plugin-telegram`** — the Telegram cold-connect branding now ships the real Telegram paper-plane logo + the reassurance copy, and its accent is darkened to `#1f6feb` so the white Confirm-button label clears WCAG AA.
   - **`create-hogsend`** — realigned to the engine version line. It had silently drifted to `0.22.0` on npm (8 minors behind) because it sits outside the `@hogsend/*` scope the release gate enforces uniformity on, so `create-hogsend@latest` scaffolded a stale app. `release-doctor` now asserts the scaffolder tracks the engine version so this can't recur.
@@ -322,7 +331,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 ### Minor Changes
 
 - a637866: feat: AI agent integration — recent-events history read, AI SDK journeys, and Eve durable churn-save
-
   - **`@hogsend/core` / `@hogsend/engine`**: add `ctx.history.events({ userId, limit?, within? })` — a generic newest-first read of a user's recent events (with `RecentEventsOptions` / `RecentEvent` types), the foundation for assembling agent context bundles.
   - **`@hogsend/engine`**: the webhook-source route now resolves a source's auth secret from `process.env[auth.envKey]` when the engine's validated env doesn't declare that key, so a consumer-defined `signature`/`match` webhook source can bring its own secret. Behavior is unchanged for engine presets and stays fail-closed (an unset `signature` secret is still a 401) — this fixes BYO signature sources (e.g. an Eve HITL callback) that previously could not resolve their secret.
   - **`create-hogsend`**: a freshly scaffolded app now ships a working Tier-1 AI onboarding journey (`src/agents/` + `ctx.history.events()`-backed user context) and gains `ai` + `@ai-sdk/anthropic`; new docs cover the three AI SDK integration tiers (inline, tools, and Eve durable HITL).
@@ -336,7 +344,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 - 4a742dd: fix(connect): purge derived credentials on disconnect, enforce minted secret immediately, validate region URL
 
   Fast-follows on the one-click PostHog connect:
-
   - Disconnect (`DELETE /v1/admin/provider-credentials/:providerId`) now purges
     the `derived` credential row (minted webhook secret + grabbed `phc_`) too,
     not just the oauth grant — no orphaned rows linger.
@@ -354,7 +361,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 - 6fe64f6: fix(connect): purge derived credentials on disconnect, enforce minted secret immediately, validate region URL
 
   Fast-follows on the one-click PostHog connect:
-
   - Disconnect (`DELETE /v1/admin/provider-credentials/:providerId`) now purges
     the `derived` credential row (minted webhook secret + grabbed `phc_`) too,
     not just the oauth grant — no orphaned rows linger.
@@ -538,7 +544,6 @@ posthog`. Skipping the prompt leaves the scaffold byte-identical to
   journeys, persist to `user_events`, and fan out to destinations as the new
   `email.action` outbound type (the PostHog preset captures it under the
   consumer's event name).
-
   - First answer wins per (send, event name) via a `sem:` idempotency key.
     Answers are confirmed by a deferred task after a ~30s window, so scanner
     click-bursts (SafeLinks/Proofpoint) are judged with the WHOLE burst visible
@@ -580,7 +585,6 @@ posthog`. Skipping the prompt leaves the scaffold byte-identical to
   own inbox) until the domain's DNS verifies.
 
   Core (`@hogsend/core`):
-
   - **Domains capability contract** (`providers/domains.ts`, new): `DnsRecord`,
     `DomainStatus`, `DomainVerificationState`, and the optional
     `DomainsCapability` (`create`/`get`/`records`/`verify?`). `EmailProvider`
@@ -588,7 +592,6 @@ posthog`. Skipping the prompt leaves the scaffold byte-identical to
     gate; providers without it degrade gracefully everywhere.
 
   Engine (`@hogsend/engine`):
-
   - **Domain-status service** (`lib/domain-status.ts`, exposed as
     `client.domainStatus`): the cached `EngineDomainStatus` snapshot every
     surface consumes (admin route, CLI, Studio, mailer). In-memory cache —
@@ -614,7 +617,6 @@ posthog`. Skipping the prompt leaves the scaffold byte-identical to
     `auto`), `HOGSEND_TEST_EMAIL`, `POSTMARK_ACCOUNT_TOKEN`.
 
   CLI (`@hogsend/cli`):
-
   - **`hogsend dev`** — the one-command local loop: detect/start infra, ensure
     `.env` + auth secret, migrate, spawn API + worker (line-prefixed), wait for
     health, print the URL block (API / Studio / Hatchet / docs) and a
@@ -670,7 +672,6 @@ posthog`. Skipping the prompt leaves the scaffold byte-identical to
   path that creates any user**.
 
   Engine (`@hogsend/engine`):
-
   - **Public sign-up disabled** (`lib/auth.ts` `disableSignUp: true`). In
     better-auth 1.6.11 the check lives inside the sign-up endpoint handler, so
     `POST /api/auth/sign-up/email` returns `400 EMAIL_PASSWORD_SIGN_UP_DISABLED`
@@ -712,7 +713,6 @@ posthog`. Skipping the prompt leaves the scaffold byte-identical to
     web setup-token gate and `lib/setup-token.ts` are gone).
 
   CLI (`@hogsend/cli`):
-
   - **`hogsend studio admin <create|reset|list>`** — a shell-gated create +
     recovery primitive (no HTTP, no running API). Gated by holding `DATABASE_URL` +
     `BETTER_AUTH_SECRET`, read from the environment only (not a `.env` file).
@@ -747,7 +747,6 @@ create`, loading `.env` the same way `dev` does); and an interactive, skippable
   traffics in Resend's wire shapes.
 
   What changed (compile-caught, plus one deprecated alias for handler bodies):
-
   - **`EmailEvent` replaces the Resend-shaped webhook union.**
     `verifyWebhook`/`parseWebhook` now return a provider-neutral `EmailEvent`
     (`{ type, messageId, recipients, occurredAt, bounce?, click?, raw }`,
@@ -812,7 +811,6 @@ bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
   yet return.
 
   ## Consumer-visible behavioral changes (read before upgrading)
-
   - **BREAKING: `ctx.posthog.capture` and `ctx.identify` were REMOVED from the
     journey context.** These were single-vendor, fire-and-forget PostHog shims;
     they no longer exist on `JourneyContext` (`@hogsend/core`). Now that PostHog is
@@ -863,7 +861,6 @@ bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
     whose transform is not registered at delivery still DLQs as a config error).
 
   ## What's new
-
   - `defineDestination()` + a `DestinationRegistry`, threaded into
     `createHogsendClient({ destinations })` and `createWorker`. Four shipped
     presets: `webhook` (default), `posthog`, `segment`, `slack`.
@@ -919,7 +916,6 @@ bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
 ### Minor Changes
 
 - cd86e13: Bucket lifecycle: colocated reactions + member access on `defineBucket`
-
   - Typed transition refs `bucket.entered` / `bucket.left` (literal-typed off the
     bucket's own id) usable directly as journey `trigger` / `exitOn` values.
   - Colocated reactions `bucket.on("enter" | "leave" | "dwell", opts?, handler)`
@@ -951,7 +947,6 @@ bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
 ### Patch Changes
 
 - 8a6aa5f: Ship Claude Code agent skills with scaffolded apps, plus a one-step engine + skills upgrade path.
-
   - **Exhaustive skill set** (8 skills) authored once in `packages/cli/skills/` — the single source `@hogsend/cli` ships and `hogsend skills add` installs: `hogsend-cli`, `hogsend-authoring-journeys`, `hogsend-authoring-emails` (incl. tracking + unsubscribe), `hogsend-authoring-buckets`, `hogsend-conditions`, `hogsend-webhooks-and-workflows`, `hogsend-database`, `hogsend-deploy`. Each is a lean `SKILL.md` with progressive-disclosure `references/`.
   - **`create-hogsend`** now prompts to include skills (default yes; `--skills` / `--no-skills`) and emits committed `.claude/skills/` + a tailored `CLAUDE.md` (app-name + engine-version substituted) that routes agents to the right skill. Skills are build-copied into the template by a new `sync-skills` prebuild, so the scaffold and the CLI never drift.
   - **`hogsend upgrade`** — new CLI command that bumps every `@hogsend/*` dependency to latest (or `--to`) and refreshes the vendored skills in one step. A provenance stamp + a `hogsend doctor` nudge surface when installed skills fall behind the latest CLI.
@@ -962,7 +957,6 @@ bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
 ### Patch Changes
 
 - abed12b: Magical local onboarding + a smoother scaffolder CLI:
-
   - **One-command `pnpm bootstrap`** in scaffolded apps — checks Docker, generates `.env` with a real `BETTER_AUTH_SECRET`, auto-remaps conflicting host ports (so multiple stacks coexist), mints a Hatchet token, and runs migrations. Idempotent.
   - **`--yes` / `-y`** for a fully non-interactive scaffold, and **`.`** to scaffold into the current folder.
   - **Package-manager-aware** command hints (npm/yarn/bun) and clearer step-by-step progress, pointing at docs.hogsend.com.
@@ -977,7 +971,6 @@ bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
   Rounds the Buckets primitive out to a complete dynamic-membership feature and aligns its vocabulary with journeys.
 
   **BREAKING (cheap now, at ~zero adoption): `reentry` → `entryLimit`.** `BucketMeta.reentry`/`reentryPeriod` are renamed to `entryLimit`/`entryPeriod` to match `defineJourney` exactly (same `"once" | "once_per_period" | "unlimited"` values). The `/v1/admin/buckets` responses use the new keys too. Rename the field in your `defineBucket` calls. Note: on a bucket, `entryLimit` throttles the emitted `bucket:entered` _event_ — membership itself is always live (it re-computes every time criteria match); the journey a bucket triggers has its own `entryLimit` for enrollment.
-
   - `@hogsend/core` — `defineBucket` `criteria` now accepts a fluent builder
     `(b) => b.all(b.event(X).exists(), b.event(X).within(days(7)).notExists())`
     alongside the declarative `ConditionEval` tree. It runs once at definition time
@@ -1029,7 +1022,6 @@ bounceReason`. Auto-suppression now fires ONLY on `class === 'permanent'`;
   ingest pipeline, so a bucket join/leave can trigger a journey via the journey's
   `trigger.event` (Hatchet `onEvents`). Criteria reuse the existing `@hogsend/core`
   condition engine.
-
   - `@hogsend/core` — `BucketMeta`, `bucketMetaSchema`, and `BucketRegistry`
     (event/property indexes for candidate narrowing).
   - `@hogsend/db` — `bucket_memberships` (re-entry-safe partial unique active

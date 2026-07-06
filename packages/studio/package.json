@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/studio",
-  "version": "0.37.3",
+  "version": "0.38.0",
   "private": false,
   "type": "module",
   "main": "./dist/index.html",

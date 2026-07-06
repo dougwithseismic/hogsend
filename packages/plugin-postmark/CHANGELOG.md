@@ -1,5 +1,34 @@
 # @hogsend/plugin-postmark
 
+## 0.38.0
+
+### Minor Changes
+
+- b7a4a2d: Bulk suppression-list import + migration importer CLI.
+
+  **Engine — `POST /v1/admin/suppressions/import`** (+ `GET /v1/admin/suppressions/import/{jobId}`): async bulk import of unsubscribes / bounces / spam complaints via a new `import-suppressions` Hatchet task (CSV or JSON, batches of 500, `import_jobs` lifecycle, errors capped at 100). Rows are `email` (required), `reason` (`unsubscribed` | `bounced` | `complained`, default `unsubscribed`), `externalId` (optional), mapped onto the existing `email_preferences` semantics — no schema change: `unsubscribed` → `unsubscribed_all`, `bounced` → `suppressed` + `bounce_count = GREATEST(bounce_count, 1)` (idempotent re-runs) + bounce timestamps, `complained` → `suppressed` with the bounce count untouched. Writes go through the single `upsertEmailPreference` choke point, which gains an `emitOutbound` opt-out (default `true`; the import passes `false`) so a historical import does not fan out per-row `contact.unsubscribed` outbound events.
+
+  **Behavior change — `POST /v1/admin/contacts/import` no longer awaits the task run.** The route previously `await`ed `importContactsTask.run(...)` to completion before returning its 202, defeating the async job + status-poll contract on large imports. Both import routes now enqueue with `runNoWait()` fire-and-forget: the 202 means "queued", and a failed enqueue marks the job row `failed` (with the error recorded) so status pollers get a terminal state. Both routes also cap `data` at 4MB — the Hatchet gRPC message ceiling a bigger payload could never clear anyway.
+
+  **Send-time suppression gate aggregates per address.** `checkSuppression` now reads every `email_preferences` row for the recipient address (the PK is `(user_id, email)`, so a suppression imported before the contact existed lives on a different row than later interactive writes) — any suppressed / unsubscribed-all signal on any row blocks the send, and category maps merge with explicit false winning.
+
+  **CLI — new `hogsend import` command** (`@hogsend/cli`): migrates contacts _and_ suppression state into a running instance over the admin API, chunking large inputs into one import job per 5,000 rows and polling each to completion. `hogsend import csv --file <path> [--suppressions]` for generic header CSVs; `hogsend import loops --csv <audience.csv> [--api-key] [--check-suppressions]` for the Loops dashboard export (typed custom properties via the Loops API; per-contact suppression lookups at 10 req/s, imported as reason `bounced` since Loops merges bounces + complaints); `hogsend import customerio --app-key <key> [--region us|eu] [--segment <id>] [--esp-suppressions]` drives the Customer.io App API async people export end-to-end and optionally imports the ESP bounce/spam-report lists. Source-platform requests are rate-limited (10 req/s) with retry-on-429 backoff. Job polling aborts with an error (naming the job id) after 10 minutes without progress instead of hanging forever; the Loops suppression check aborts on auth/terminal errors rather than silently importing zero suppressions; the Customer.io export download inflates gzipped files.
+
+  Other engine-line packages ride along to keep the version line uniform.
+
+### Patch Changes
+
+- 27ca9ea: Consent-gated storage seam: `@hogsend/js` now exports its storage adapters
+  (`createMemoryStorage`, `createLocalStorage`) and `HogsendProvider` accepts a
+  `storage` prop forwarded to `createHogsend` — so a host app can keep the SDK
+  from persisting `hs_anon_id` until the visitor grants cookie/storage consent
+  (pass a memory or consent-gated adapter), matching the cookieless-until-consent
+  pattern already used for PostHog. Other engine-line packages ride along to
+  keep the version line uniform.
+- Updated dependencies [27ca9ea]
+- Updated dependencies [b7a4a2d]
+  - @hogsend/core@0.38.0
+
 ## 0.37.3
 
 ### Patch Changes
@@ -29,7 +58,6 @@
 ### Minor Changes
 
 - f21fb2b: In-app component kit — survey/rating primitive, preference center, swipe-to-archive, BYO toast, and a notification-badge fix.
-
   - **Survey / rating primitive** — a surface-neutral `<Survey>` email component and an in-app survey feed block (`SurveyBlockView`) plus `sendSurvey()`. Answers ride the existing event spine (no new write path) and are readable from journeys via `ctx.waitForEvent`. New read-only `GET /v1/admin/reporting/breakdown` aggregates any event by a property value (count, average, optional NPS).
   - **`<PreferenceCenter>`** — per-category × per-channel notification preferences over `usePreferences`, bundleable into `<FeedPopover>` as a tab. New read-only `GET /v1/lists` catalog.
   - **Swipe-to-archive** — brought into `@hogsend/react` as a first-class affordance (pointer/touch swipe + an accessible archive button, wired to the existing `markAsArchived`).
@@ -59,7 +87,6 @@
 ### Minor Changes
 
 - 02dab59: Client-side layer: `@hogsend/js` (zero-dependency browser core — identity, capture, preferences, in-app feed, banners, toasts, reactive store) and `@hogsend/react` (provider, hooks, and the `NotificationBell`/`FeedPopover`/`NotificationFeed`/`Banner`/`Toast` components with a `--hs-*` themed override surface), plus the engine pieces that power them:
-
   - Publishable-key (`pk_`) browser-ingest auth (`requirePublishableOrIngest`, per-key origin allowlist, `allowed_origins` migration, reflective CORS, `GET /v1/lists/preferences`).
   - The in-app feed backend: `feed_items` table, `sendFeedItem()` + `send-feed` workflow, recipient-scoped `/v1/feed/*` routes with SSE fan-out.
   - `sendBanner()` on the feed primitive, and the server-side `generateUserToken` mint helper for identified browser sessions.
@@ -91,7 +118,6 @@
   Adds an in-Studio co-working agent: a bottom-right chat panel that reads the live
   instance (contacts, events, journeys, buckets, sends) and can act through the
   existing data plane — every write gated behind a human-in-the-loop confirmation.
-
   - Engine: streaming `POST /v1/admin/agent/chat` (Vercel AI SDK + OpenRouter,
     default model `z-ai/glm-5.2`) under the admin auth/rate-limit/audit stack; the
     OpenRouter key never leaves the server. Read tools auto-run; write tools mint a
@@ -219,12 +245,10 @@
   Discord invite (`discord.gg/rv6eZNvYrr`), and the docs — instead of dropping the user
   at the Hatchet dashboard. The bootstrap summary also states plainly that local infra
   is up but the app itself is NOT running yet: the compose stack is only Postgres + Redis
-
   - Hatchet, while the API and worker are your code, started with `dev` + `worker:dev`.
     A closing "Welcome to Hogsend" bookends the scaffolder's opening note.
 
   Two fixes ride along:
-
   - The CLI's git-init and dependency-install now run as async `spawn` instead of the
     blocking `spawnSync`. A clack spinner animates on a `setInterval`, and `spawnSync`
     froze the event loop for the whole (often 30s+) install — so the spinner sat dead on
@@ -289,7 +313,6 @@
 
   Journeys in Studio were a single list with an inline funnel — there was no way to
   drill into one. Clicking a journey now opens a dedicated `/journeys/:id` page:
-
   - **Definition** — trigger event + `where` conditions, `exitOn` rules, `entryLimit`,
     and the `suppress` window.
   - **Funnel** — the existing enrolled → sent → opened → clicked → completed funnel.
@@ -362,7 +385,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 ### Minor Changes
 
 - 8422893: Restyle the cold-connect confirmation page + realign the scaffolder to the engine line.
-
   - **`@hogsend/engine`** — the engine-served cold-connect connect page (`GET /connect/<connector>`) is restyled to the Hogsend Studio "Crimzon" design language (ink surface, hairline-bordered card, Inter, eyebrow label, faint grain). New optional `ColdConnectBranding` fields — `iconSvg` (inline platform-logo SVG, shape-checked and fail-closed to the emoji badge), `eyebrow`, and `reassurance` (an "if this wasn't you, ignore this" footnote). Hardening: branding JSON embedded in the page's inline `<script>` is escaped against a `</script>` breakout, the page clears WCAG AA contrast, and it no longer pulls a third-party webfont.
   - **`@hogsend/plugin-telegram`** — the Telegram cold-connect branding now ships the real Telegram paper-plane logo + the reassurance copy, and its accent is darkened to `#1f6feb` so the white Confirm-button label clears WCAG AA.
   - **`create-hogsend`** — realigned to the engine version line. It had silently drifted to `0.22.0` on npm (8 minors behind) because it sits outside the `@hogsend/*` scope the release gate enforces uniformity on, so `create-hogsend@latest` scaffolded a stale app. `release-doctor` now asserts the scaffolder tracks the engine version so this can't recur.
@@ -381,7 +403,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 - e5f720e: feat(plugin-discord): adopt the cold-connect link-confirm flow (drop the typed-code /verify)
 
   Refactors `@hogsend/plugin-discord` onto the engine `createColdConnect()` primitive so Discord linking matches Telegram: `/link <email>` → emailed one-click confirm LINK → click → the engine-served connect page binds `discord_id` + email onto one contact + client-identifies. **`/verify` and the typed-code path are removed.**
-
   - **`@hogsend/plugin-discord`** — `InteractionDeps` is reworked (breaking): the code-flow callbacks (`mintCode`, `sendLinkCode`, `redeemCode`, `recordVerifyAttempt`) are dropped in favour of a single consumer-supplied **`requestConfirm({ discordUserId, email }) → { ok } | { ok: false, reason }`** that mints a server-sealed cold-connect token and emails the confirm link (the token never reaches the handler). The Enter-code component/modal, the `/verify` slash command, and the `CODE_MODAL`/`ENTER_CODE_BUTTON` custom-ids are deleted; `CustomIds` is now just `{ EMAIL_MODAL }`. The mint throttle moved entirely into `mintConfirm` (Redis-INCR, fail-closed). New export: `RequestConfirmResult`.
   - **`member_link` OAuth path is preserved** — its `resolveContact` (which runs `linkContact` + role-grant + the `discord.linked` emit for the operator/known-contact web-bind) is kept and is used ONLY by the OAuth branch, not the `/link` interactions path. Both bind paths stay at parity: `/link` grants the role via the cold-connect `afterBind` + emits via the exchange's `ingestEvent`; the OAuth branch keeps doing it via `resolveContact`.
   - **`apps/api`** is the in-monorepo reference consumer: it constructs `discordColdConnect = createColdConnect({ identityKind: "discordId", platformKey: id => id, buildIngest: scalar discordId, … })`, wires `requestConfirm` to `mintConfirm` + the transactional confirm email, and mounts the routes via the array form of `CreateAppOptions.routes`. The now-orphaned `transactional/discord-link-code` template is removed.
@@ -400,7 +421,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 - bbfd270: feat(engine): createColdConnect() — a reusable cold-connect primitive (generalizes the Telegram email-link flow)
 
   Extracts the Telegram cold-connect flow (`/link <email>` → emailed confirm link → click → server-sealed bind → client-side `posthog.identify`) into a channel-agnostic engine primitive so Discord, Telegram, and future connectors share one mechanism.
-
   - **`@hogsend/engine`**: new `createColdConnect({ connectorId, identityKind, platformKey, linkedEvent, identifyPropKey, buildIngest, branding, ttlSeconds?, throttle?, afterBind? })` → `{ mintConfirm, confirmUrl, routes }`. The factory owns the sealed-token store (Redis, `connectorId` sealed in the value), the connect page, and the `peek → ingestEvent → consume` exchange. Security invariants baked in: the bind runs only on a human POST (never a GET prefetch); the exchange body is `{tok}`-only (ids come solely from the sealed token — no graft); single-use peek-then-consume (a webhook/retry can't burn the link), and the token is consumed even if `afterBind` throws (at-least-once, idempotent-required); a fail-closed Redis-INCR mint throttle; cross-connector token isolation (basePath + idempotency key + a `binding.connectorId === connectorId` assert, 410 on mismatch). The exchange uses `ingestEvent` (folds the platform key + email onto one contact and routes the welcome journey) and returns the canonical `contactKey`, which the page hands to `posthog.identify` — keyed to the server-proven id, never a client-supplied one.
   - **`CreateAppOptions.routes`** now accepts a single fn **or an array** of route fns, so a consumer can mount `[existingRoutes, coldConnect.routes]` without clobbering.
   - **`@hogsend/plugin-telegram`**: refactored onto the primitive (`telegramColdConnect = createColdConnect(...)`); the bespoke `telegram-connect.ts` page/exchange and the confirm-token family in `link.ts` are removed (the `/start` deep-link path stays). The connect basePath is unchanged (`/connect/telegram`), so confirmation emails in flight keep resolving.
@@ -446,7 +466,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 
   Extracts the email link-tracking machinery into a channel-agnostic primitive so any
   channel (Studio, Discord, SMS, share links) can mint first-party tracked links.
-
   - **`@hogsend/engine`**: new `mintLink({ db, url, baseUrl, source, type, label?, campaign?, distinctId?, createdBy? })` — the managed counterpart to the email HTML-rewrite path. Inserts a durable `links` row (operator/campaign identity) plus a `tracked_links` click-counter row that back-references it via `link_id`, and returns the `/v1/t/c/:id` redirect URL. Email is unchanged: it keeps rewriting HTML at send time with `tracked_links.link_id` NULL, so the two stay independent consumers of the same click spine.
   - **Share-safe by construction**: a link is identity-bearing (carries a `distinctId` the click can stitch) ONLY when `type: "personal"`. A `public` link NEVER carries a person token — a reshared public link attributes by campaign only. Destinations are validated http(s) at mint time (closes the latent open-redirect).
   - **Single-use identity-token burn**: the `hs_t` redirect token is now single-use — the first `POST /v1/t/identify` exchange wins; a replayed/reshared token is a 200 no-op (Redis `SET NX` on a sha256 of the token, TTL = token lifetime). Best-effort: a Redis fault degrades to the pre-burn behaviour rather than coupling the exchange to Redis liveness.
@@ -465,7 +484,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 ### Minor Changes
 
 - 78c9ef6: feat(connectors): connect-DX polish + multi-bot-shaped readiness
-
   - **`@hogsend/engine`**: the connect-info `ingressSecretConfigured` field is renamed `legacyIngressSecretConfigured` (deprecated, kept one minor) — readiness is now driven off `workerOnline` (the owned heartbeat), since the inline runtime never uses the ingress secret. The connector runtime also logs a loud, actionable error when a configured runtime can't acquire its lease for ~30s (Redis unreachable or contended) instead of silently never connecting (which previously mis-read as "intents not enabled").
   - **`@hogsend/plugin-discord`**: the gateway runtime auto-registers the `/link` + `/verify` slash commands (globally + idempotently) when the socket comes up — no more separate `discord:register-commands` step, and it self-heals after a token rotation. Exports `registerSlashCommands` + `LINK_VERIFY_COMMANDS`.
   - **`@hogsend/cli`**: `hogsend connect discord --status` drops the stale ingress-secret line for `worker online`, adds a worker-offline hint, and returns a 404-specific error when the consumer `/secrets`+`/wire` routes aren't mounted.
@@ -483,7 +501,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 ### Minor Changes
 
 - 9a87335: feat(engine): the connector runtime — a worker-hosted, leader-leased inbound gateway socket plus a journey-callable outbound action API.
-
   - **`@hogsend/engine`**: gateway-transport connectors (Discord) now run their long-lived socket **inline inside the Hatchet worker** — no separate service, no `CONNECTOR_INGRESS_SECRET`. A Redis leader lease guarantees exactly one replica holds the socket per bot token, with bounded automatic failover; dispatches feed `transform`→`ingest` in-process, and only the lease-holder writes the (now connector-neutral) liveness heartbeat Studio reads, so "Worker Online / Bot Installed" reflects OWNED liveness a stray process cannot fake. Activation is automatic when a gateway connector + its bot token are present (`ENABLE_CONNECTOR_RUNTIMES`, `CONNECTOR_RUNTIME_HOST=worker` by default). Wire it with `createWorker({ connectorRuntimes: { discord: createDiscordRuntime } })`. The seam is connector-agnostic — a second connector (Slack, …) implements only `defineConnector` + a `ConnectorRuntime` factory and reuses lease election, the heartbeat, and the admin projection unchanged.
   - **`@hogsend/engine`**: outbound actions are a separate, socket-free face — `sendConnectorAction({ connectorId, action, args })` (a standalone import, not on `ctx`) invokes registered `defineConnectorAction`s, independent of the inbound socket (a deployment with the gateway off can still send).
   - **`@hogsend/plugin-discord`**: ships `createDiscordRuntime` (the gateway runtime factory) and `discordActions` (`sendChannelMessage`, `broadcastToChannel`, `mentionMembers`, `mentionRole`, `dmMember`); register the actions via `createHogsendClient({ connectorActions: discordActions })`. The standalone `discord-worker` entry remains as an advanced escape hatch (`CONNECTOR_RUNTIME_HOST=standalone`).
@@ -500,7 +517,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
 ### Minor Changes
 
 - a637866: feat: AI agent integration — recent-events history read, AI SDK journeys, and Eve durable churn-save
-
   - **`@hogsend/core` / `@hogsend/engine`**: add `ctx.history.events({ userId, limit?, within? })` — a generic newest-first read of a user's recent events (with `RecentEventsOptions` / `RecentEvent` types), the foundation for assembling agent context bundles.
   - **`@hogsend/engine`**: the webhook-source route now resolves a source's auth secret from `process.env[auth.envKey]` when the engine's validated env doesn't declare that key, so a consumer-defined `signature`/`match` webhook source can bring its own secret. Behavior is unchanged for engine presets and stays fail-closed (an unset `signature` secret is still a 401) — this fixes BYO signature sources (e.g. an Eve HITL callback) that previously could not resolve their secret.
   - **`create-hogsend`**: a freshly scaffolded app now ships a working Tier-1 AI onboarding journey (`src/agents/` + `ctx.history.events()`-backed user context) and gains `ai` + `@ai-sdk/anthropic`; new docs cover the three AI SDK integration tiers (inline, tools, and Eve durable HITL).
@@ -524,7 +540,6 @@ posthog` surfaced as a guided post-deploy step (shown even when PostHog is chose
   the send-gate only blocks on `suppressed`/`unsubscribedAll`). The "All" case now
   restricts to genuinely-suppressed recipients (`suppressed OR unsubscribedAll OR
 bounceCount > 0`).
-
   - **preferences PUT**: un-suppressing (`suppressed: false`) now also clears
     `bounceCount`/`lastBounceAt`, so a bounced recipient actually leaves the list
     instead of being pinned there forever.
@@ -548,7 +563,6 @@ false` too, so it works for unsubscribed contacts (previously a no-op for them).
   Establishes one canonical, ever-identified `distinct_id` per person (the Hogsend
   contact key) and absorbs every other id into it while still anonymous, fixing
   the one-email-many-persons fragmentation.
-
   - `@hogsend/core`: provider-neutral `mergeIdentities` + `identityMerge`
     capability on the `AnalyticsProvider` contract (both optional; `distinctId` is
     the surviving/canonical id, `alias` the absorbed anonymous one).
@@ -580,7 +594,6 @@ false` too, so it works for unsubscribed contacts (previously a no-op for them).
 
   Adds `@hogsend/plugin-discord` — both faces of one integration under
   `meta.id = "discord"`, plus the engine connector subsystem it rides on.
-
   - **Inbound** — a `transport: "gateway"` connector. A separate long-lived
     Gateway worker (`@hogsend/plugin-discord/gateway`, its own process) dials
     Discord and POSTs raw dispatches to `POST /v1/connectors/discord/ingress`
@@ -631,7 +644,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
 - 4a742dd: fix(connect): purge derived credentials on disconnect, enforce minted secret immediately, validate region URL
 
   Fast-follows on the one-click PostHog connect:
-
   - Disconnect (`DELETE /v1/admin/provider-credentials/:providerId`) now purges
     the `derived` credential row (minted webhook secret + grabbed `phc_`) too,
     not just the oauth grant — no orphaned rows linger.
@@ -653,7 +665,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
 - 6fe64f6: fix(connect): purge derived credentials on disconnect, enforce minted secret immediately, validate region URL
 
   Fast-follows on the one-click PostHog connect:
-
   - Disconnect (`DELETE /v1/admin/provider-credentials/:providerId`) now purges
     the `derived` credential row (minted webhook secret + grabbed `phc_`) too,
     not just the oauth grant — no orphaned rows linger.
@@ -879,7 +890,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
   journeys, persist to `user_events`, and fan out to destinations as the new
   `email.action` outbound type (the PostHog preset captures it under the
   consumer's event name).
-
   - First answer wins per (send, event name) via a `sem:` idempotency key.
     Answers are confirmed by a deferred task after a ~30s window, so scanner
     click-bursts (SafeLinks/Proofpoint) are judged with the WHOLE burst visible
@@ -929,7 +939,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
 ### Minor Changes
 
 - 4d605bd: First-run experience hardening, found by dogfooding a fresh create-hogsend app:
-
   - `/v1/health` gains a non-breaking `activity` section (24h failed/completed journeys, failed/sent emails) so silent failures are visible; `check-alerts` now surfaces recent failures even with zero alert rules configured; journey run failures get a proper error log line.
   - First boot with an empty `api_keys` table mints an ingest-scoped key and prints it once to the deploy log (opt out with `HOGSEND_BOOTSTRAP_API_KEY=false`) — a template deploy now has a working data-plane credential out of the box.
   - New `hogsend hatchet token` CLI command mints a Hatchet client token headlessly (register/login → tenant → token) against a hatchet-lite instance.
@@ -984,7 +993,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
   own inbox) until the domain's DNS verifies.
 
   Core (`@hogsend/core`):
-
   - **Domains capability contract** (`providers/domains.ts`, new): `DnsRecord`,
     `DomainStatus`, `DomainVerificationState`, and the optional
     `DomainsCapability` (`create`/`get`/`records`/`verify?`). `EmailProvider`
@@ -992,7 +1000,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
     gate; providers without it degrade gracefully everywhere.
 
   Engine (`@hogsend/engine`):
-
   - **Domain-status service** (`lib/domain-status.ts`, exposed as
     `client.domainStatus`): the cached `EngineDomainStatus` snapshot every
     surface consumes (admin route, CLI, Studio, mailer). In-memory cache —
@@ -1018,7 +1025,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
     `auto`), `HOGSEND_TEST_EMAIL`, `POSTMARK_ACCOUNT_TOKEN`.
 
   CLI (`@hogsend/cli`):
-
   - **`hogsend dev`** — the one-command local loop: detect/start infra, ensure
     `.env` + auth secret, migrate, spawn API + worker (line-prefixed), wait for
     health, print the URL block (API / Studio / Hatchet / docs) and a
@@ -1079,7 +1085,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
   path that creates any user**.
 
   Engine (`@hogsend/engine`):
-
   - **Public sign-up disabled** (`lib/auth.ts` `disableSignUp: true`). In
     better-auth 1.6.11 the check lives inside the sign-up endpoint handler, so
     `POST /api/auth/sign-up/email` returns `400 EMAIL_PASSWORD_SIGN_UP_DISABLED`
@@ -1121,7 +1126,6 @@ oauth/callback}` (per-IP rate-limited at 60/min except `/ingress` and
     web setup-token gate and `lib/setup-token.ts` are gone).
 
   CLI (`@hogsend/cli`):
-
   - **`hogsend studio admin <create|reset|list>`** — a shell-gated create +
     recovery primitive (no HTTP, no running API). Gated by holding `DATABASE_URL` +
     `BETTER_AUTH_SECRET`, read from the environment only (not a `.env` file).
@@ -1161,7 +1165,6 @@ create`, loading `.env` the same way `dev` does); and an interactive, skippable
   traffics in Resend's wire shapes.
 
   What changed (compile-caught, plus one deprecated alias for handler bodies):
-
   - **`EmailEvent` replaces the Resend-shaped webhook union.**
     `verifyWebhook`/`parseWebhook` now return a provider-neutral `EmailEvent`
     (`{ type, messageId, recipients, occurredAt, bounce?, click?, raw }`,
