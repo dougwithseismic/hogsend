@@ -22,7 +22,7 @@ import { HorizonGlowCanvas } from "@/components/ds/decor";
 import { FaqAccordion } from "@/components/ds/faq";
 import { PlanCard } from "@/components/ds/plan-card";
 import { ProgressBar } from "@/components/ds/progress-bar";
-import { type ReaderQuote, ReaderQuotes } from "@/components/ds/reader-quotes";
+import { ReaderQuotes } from "@/components/ds/reader-quotes";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { StatBand } from "@/components/ds/stat-band";
@@ -51,6 +51,7 @@ import {
 import { faqPageJsonLd } from "@/lib/faq-jsonld";
 import { FLAGSHIP_CONTENT_FACTS as FACTS } from "@/lib/flagship-facts";
 import { getSession, isFreeLesson } from "@/lib/gating";
+import { READER_QUOTES } from "@/lib/reader-quotes";
 
 // Reads the session for owned/completed state, so it's per-request.
 export const dynamic = "force-dynamic";
@@ -97,20 +98,6 @@ const BENCHMARKS = [
     claim:
       "what acquiring a new customer costs vs. keeping one — a range the course teaches you to treat as direction, not decimals",
     source: "Harvard Business Review",
-  },
-];
-
-/**
- * Real reader feedback, verbatim. Append new quotes here as they arrive —
- * the section renders one as a pull-quote and several as a grid. Never add
- * a quote that wasn't actually said by a real reader.
- */
-const READER_QUOTES: ReaderQuote[] = [
-  {
-    quote:
-      "I can see some real value in here. There is a ton of content — I'm quite shocked that it's so free. The first two chapters were amazing.",
-    name: "Will",
-    role: "Early reader",
   },
 ];
 

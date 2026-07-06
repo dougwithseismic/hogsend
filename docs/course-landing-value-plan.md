@@ -55,7 +55,7 @@ Status legend: `[ ]` todo · `[~]` built-to-seam · `[x]` done
 
 ## Phase 2 — Catalog home page (`apps/course/app/(catalog)/page.tsx`)
 
-- [ ] **F5. Catalog alignment** — same de-numbering pass on the catalog
+- [x] **F5. Catalog alignment** — same de-numbering pass on the catalog
   INSIDE_CARDS + stat band; add the reader-quotes strip; audience line in the
   method/manifesto area; link to the flagship expense-it section.
 
