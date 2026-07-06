@@ -100,35 +100,38 @@ export async function resolveCourseProductId(
 }
 
 /**
- * One single-use 100%-off promotion code restricted to the course's product.
- * Standalone so the admin free-copy script can mint codes outside a gift row.
+ * One single-use 100%-off promotion code restricted to a course's product —
+ * the shared mint under gift codes and team licence codes. `metadata` is
+ * stamped on BOTH the coupon and the promotion code; the coupon copy is what
+ * couponAttributionFromSession reads back on redemption.
  */
-export async function mintPromotionCode(
+export async function mintRestrictedCode(
   courseSlug: string,
-  giftId?: string,
+  opts: { name: string; prefix: string; metadata: Record<string, string> },
 ): Promise<{ code: string; couponId: string; promotionCodeId: string }> {
   const stripe = getStripe();
   const productId = await resolveCourseProductId(courseSlug);
+  const metadata = { courseSlug, ...opts.metadata };
 
   const coupon = await stripe.coupons.create({
     percent_off: 100,
     duration: "once",
     max_redemptions: 1,
     applies_to: { products: [productId] },
-    name: `Gift: ${courseSlug}`,
-    metadata: { courseSlug, ...(giftId ? { giftId } : {}) },
+    name: opts.name,
+    metadata,
   });
 
   // Retry on the (unlikely) code collision — Stripe rejects duplicates.
   let lastError: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const code = generateCode();
+    const code = generateCode(opts.prefix);
     try {
       const promotionCode = await stripe.promotionCodes.create({
         promotion: { type: "coupon", coupon: coupon.id },
         code,
         max_redemptions: 1,
-        metadata: { courseSlug, ...(giftId ? { giftId } : {}) },
+        metadata,
       });
       return { code, couponId: coupon.id, promotionCodeId: promotionCode.id };
     } catch (err) {
@@ -138,6 +141,21 @@ export async function mintPromotionCode(
   throw lastError instanceof Error
     ? lastError
     : new Error("could not create a promotion code");
+}
+
+/**
+ * One single-use 100%-off promotion code restricted to the course's product.
+ * Standalone so the admin free-copy script can mint codes outside a gift row.
+ */
+export async function mintPromotionCode(
+  courseSlug: string,
+  giftId?: string,
+): Promise<{ code: string; couponId: string; promotionCodeId: string }> {
+  return mintRestrictedCode(courseSlug, {
+    name: `Gift: ${courseSlug}`,
+    prefix: "GIFT",
+    metadata: giftId ? { giftId } : {},
+  });
 }
 
 /**
@@ -180,6 +198,8 @@ export async function markGiftRedeemed(
 export interface CouponAttribution {
   /** Set when the coupon was minted by a gift purchase (metadata.giftId). */
   giftId?: string;
+  /** Set when the coupon is a team licence seat (metadata.licenseCodeId). */
+  licenseCodeId?: string;
   /** Set when the coupon is a student share code (metadata.shareUserId). */
   shareUserId?: string;
   /** The course the coupon was minted for, when stamped. */
@@ -188,9 +208,10 @@ export interface CouponAttribution {
 
 /**
  * ONE walk over a redeeming session's applied discounts: resolve each coupon
- * (id or object) and read our minting metadata off it. Gift attribution wins
- * over share when a coupon somehow carries both. Returns null for ordinary
- * promotion codes — without a second walk or extra Stripe round-trips.
+ * (id or object) and read our minting metadata off it. Each coupon carries at
+ * most one of our origin keys; gift > licence > share ordering only decides
+ * the impossible both-stamped case. Returns null for ordinary promotion
+ * codes — without a second walk or extra Stripe round-trips.
  */
 export async function couponAttributionFromSession(
   session: Stripe.Checkout.Session,
@@ -208,8 +229,10 @@ export async function couponAttributionFromSession(
       typeof coupon === "string"
         ? await getStripe().coupons.retrieve(coupon)
         : coupon;
-    const { giftId, shareUserId, courseSlug } = full.metadata ?? {};
+    const { giftId, licenseCodeId, shareUserId, courseSlug } =
+      full.metadata ?? {};
     if (giftId) return { giftId, courseSlug };
+    if (licenseCodeId) return { licenseCodeId, courseSlug };
     if (shareUserId) return { shareUserId, courseSlug };
   }
   return null;

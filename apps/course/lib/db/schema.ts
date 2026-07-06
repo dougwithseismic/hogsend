@@ -201,6 +201,68 @@ export const gift = pgTable(
 );
 
 /**
+ * A team licence pack: one checkout buys `seats` copies of a course, and the
+ * webhook mints `seats` single-use 100%-off codes (one licenseCode row each)
+ * which are emailed to the buyer to distribute. The pack row is claimed
+ * idempotently on the checkout-session id BEFORE any code is minted, so a
+ * retried webhook delivery resumes a half-finished mint (only the missing
+ * remainder is minted), and `emailedAt` gates the codes email so a resumed
+ * retry still sends it exactly once.
+ */
+export const licensePack = pgTable(
+  "license_pack",
+  {
+    id: text("id").primaryKey(),
+    buyerUserId: text("buyer_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    courseSlug: text("course_slug").notNull(),
+    seats: integer("seats").notNull(),
+    stripeCheckoutSessionId: text("stripe_checkout_session_id").notNull(),
+    amount: integer("amount"),
+    currency: text("currency"),
+    emailedAt: timestamp("emailed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("license_pack_checkout_session_uq").on(
+      t.stripeCheckoutSessionId,
+    ),
+    index("license_pack_buyer_idx").on(t.buyerUserId),
+  ],
+);
+
+/**
+ * One minted seat code in a licence pack. Rows are inserted only AFTER the
+ * Stripe mint succeeds, so every row carries a real redeemable code (a crash
+ * between mint and insert leaks an orphan Stripe coupon that is never sent to
+ * anyone — the resumed mint replaces it).
+ */
+export const licenseCode = pgTable(
+  "license_code",
+  {
+    id: text("id").primaryKey(),
+    packId: text("pack_id")
+      .notNull()
+      .references(() => licensePack.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    stripePromotionCodeId: text("stripe_promotion_code_id").notNull(),
+    stripeCouponId: text("stripe_coupon_id").notNull(),
+    redeemedByUserId: text("redeemed_by_user_id"),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("license_code_code_uq").on(t.code),
+    index("license_code_pack_idx").on(t.packId),
+  ],
+);
+
+/**
  * A one-time course purchase (entitlement). One active grant per user × course.
  * Written by the Stripe webhook (checkout.session.completed), read by the gate
  * (hasAccess). `status` flips to "refunded" on charge.refunded → access is

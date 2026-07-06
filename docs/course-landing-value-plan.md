@@ -59,6 +59,44 @@ Status legend: `[ ]` todo · `[~]` built-to-seam · `[x]` done
   INSIDE_CARDS + stat band; add the reader-quotes strip; audience line in the
   method/manifesto area; link to the flagship expense-it section.
 
+## Phase 3 — Team licences (group purchase → minted codes → email)
+
+Doug (2026-07-06): "let's do proper licensing with the groups and stuff and
+emails" — ctxdc-style: a team buys N seats in one checkout, we mint N
+single-use unlock codes and email them to the buyer, who distributes them.
+Design rides the proven gift machinery: codes are single-use 100%-off Stripe
+promotion codes (coupon-per-code, product-restricted, metadata-attributed),
+redeemed through normal $0 checkout so entitlements/receipts/refunds ride the
+existing purchase path unchanged. Codes email is sent DIRECT via Resend (like
+auth emails — transactional, must-deliver), with `course.team_*` events also
+emitted to the ingest spine for lifecycle/analytics.
+
+- [x] **F6. Schema + mint machinery** — `license_pack` (buyer, sku, seats,
+  session id unique, amount, emailedAt) + `license_code` (packId, code,
+  stripe ids, redeemedBy/At) tables + migration; `lib/licenses.ts` with
+  `recordPackAndMintCodes` (pack claimed idempotently on session id; codes
+  minted resumably — retry mints only the missing remainder), TEAM- code
+  prefix, coupon metadata `{packId, licenseCodeId}`; extend
+  `CouponAttribution` to surface `licenseCodeId`; `markLicenseCodeRedeemed`
+  (idempotent first-write-wins) with pack progress read-back.
+- [ ] **F7. Checkout team mode** — `/api/checkout` accepts `team=1&seats=N`
+  (clamped 2–25): quantity-N line item, `team`/`seats` metadata,
+  `allow_promotion_codes: false` for team sessions (a single-use 100%-off
+  code must not zero an N-seat purchase), success URL `?team=success`.
+- [ ] **F8. Webhook fulfillment + email + events** — `handleTeamSession`:
+  record pack, mint codes, send the buyer the codes email (Resend-direct,
+  `emailedAt` gate so a resumed retry still delivers exactly one email), emit
+  `course.team_purchased`; extend `handlePossibleRedemption` to mark license
+  codes redeemed and emit `course.team_seat_redeemed` (with N-of-M progress).
+- [ ] **F9. UI** — "Team licences" purchase block in the pricing section
+  (zero-JS form, seats input, price math label); `?team=success|cancelled`
+  banner; account-page "Team licences" section listing packs with per-code
+  redeemed status; expense-it footer line points at the team block instead of
+  bare mailto.
+- [ ] **F10. Tests** — vitest for the resumable mint (inject fake mint like
+  gifts' injectable), idempotent redemption marking, and checkout seat
+  clamping.
+
 ## Quality gates (run per feature)
 
 ```bash
