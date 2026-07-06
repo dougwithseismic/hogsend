@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CookieSettingsLink } from "@/components/consent/cookie-settings-link";
 import { Logo } from "@/components/landing/logo";
 import { cn } from "@/lib/cn";
 import { CONTACT_EMAIL, ENGINE_VERSION, GITHUB_URL, NPM_URL } from "@/lib/site";
@@ -172,6 +173,7 @@ export function SiteFooter({ className }: { className?: string }) {
           <p>© 2026 Hogsend</p>
           <p className="eyebrow text-white/50">Source-available · ELv2</p>
           <div className="flex items-center gap-5">
+            <CookieSettingsLink />
             <Link
               href="/changelog"
               className="transition-colors hover:text-white"

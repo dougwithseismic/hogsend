@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { PageViewTracker } from "@/components/analytics/page-view-tracker";
 import { PosthogBoot } from "@/components/analytics/posthog-boot";
+import { CookieBanner } from "@/components/consent/cookie-banner";
 import { DevTools } from "@/components/devtools";
 import { HogsendDocsProvider } from "@/components/hogsend/provider";
 import {
@@ -46,6 +47,10 @@ export default function Layout({ children }: { children: ReactNode }) {
             component for why build-time inlining is banned here). */}
         <PosthogBoot />
         <PageViewTracker />
+        {/* Cookieless-by-default consent card: offers the durable-analytics
+            upgrade to visitors who never hit the EmailCapture checkbox, and
+            is reopenable via the footer's "Cookie settings" link. */}
+        <CookieBanner />
         <SoftwareApplicationJsonLd />
         <OrganizationJsonLd />
         {/* Unified TanStack Devtools shell (built-in + product panels). Always

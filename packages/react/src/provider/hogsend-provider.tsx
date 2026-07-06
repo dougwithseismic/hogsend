@@ -8,7 +8,12 @@
  * so reactive data flows through the store, not context.
  */
 
-import { type ColorMode, createHogsend, type Hogsend } from "@hogsend/js";
+import {
+  type ColorMode,
+  createHogsend,
+  type Hogsend,
+  type StorageAdapter,
+} from "@hogsend/js";
 import {
   type ReactNode,
   useCallback,
@@ -39,6 +44,15 @@ export interface HogsendProviderProps {
    * the browser `Origin` header JS cannot set). Omit in production.
    */
   fetch?: typeof fetch;
+  /**
+   * Storage backend for the identity slice (`hs_anon_id`). Forwarded verbatim
+   * to `createHogsend`; pass `createMemoryStorage()` (or a consent-gated
+   * adapter) to keep the SDK from persisting anything until the visitor
+   * consents. Omit for the default localStorage-with-memory-fallback.
+   * Construction-time only — like the rest of the client config, changing it
+   * later requires a remount (key the provider).
+   */
+  storage?: StorageAdapter;
   children: ReactNode;
 }
 
@@ -57,6 +71,7 @@ export function HogsendProvider(props: HogsendProviderProps): ReactNode {
         ? { onUserTokenExpiring: props.onUserTokenExpiring }
         : {}),
       ...(props.fetch ? { fetch: props.fetch } : {}),
+      ...(props.storage ? { storage: props.storage } : {}),
     }),
   );
 
