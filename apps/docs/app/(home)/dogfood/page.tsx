@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
-import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
-import { Card } from "@/components/ds/card";
 import { CodeWindow } from "@/components/ds/code-window";
-import { Stat } from "@/components/ds/decor";
 import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { GITHUB_URL } from "@/lib/site";
@@ -14,7 +11,7 @@ import { GITHUB_URL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "How we run Hogsend on Hogsend",
   description:
-    "The vendor's own production instance, torn down: 45 journeys, 39 email templates, a Discord connector, and a referral program — the docs funnel, the course lifecycle, and the community, all running on the engine we ship.",
+    "What we do with our own product: the docs funnel, the course lifecycle, the Discord community, and the referral loop — why each exists, how they fit together, and the code behind them.",
 };
 
 /* ------------------------------------------------------------------------ */
@@ -61,16 +58,6 @@ const { found: deployedSinceCheckin } = await ctx.history.hasEvent({
   event: Events.DOCS_DEPLOY_CLICKED,
   within: days(6),
 });`;
-
-const SETUP_OFFER_META_CODE = `meta: {
-  id: "docs-setup-offer",
-  trigger: { event: Events.DOCS_SETUP_ELIGIBLE },
-  entryLimit: "once",
-  suppress: hours(12),
-  // A deploy click at ANY point exits the offer mid-wait — they're
-  // moving on their own and the pitch is withdrawn.
-  exitOn: [{ event: Events.DOCS_DEPLOY_CLICKED }],
-},`;
 
 const COURSE_NPS_CODE = `// The click IS the answer (the 0–10 EmailActions emit
 // course.nps_submitted). Lookback covers a tap that lands between the
@@ -169,53 +156,6 @@ await sendFeedItem({
 });`;
 
 /* ------------------------------------------------------------------------ */
-/*  Copy data                                                                */
-/* ------------------------------------------------------------------------ */
-
-const EXERCISES: Array<{ token: string; body: string }> = [
-  {
-    token: "ctx.waitForEvent",
-    body: "Every “did they respond?” on this page is a durable wait — the docs check-in, both setup-offer answers, the first-chapter watch, the NPS score. The answer arrives in the wait's payload; the branch is plain TypeScript.",
-  },
-  {
-    token: "semantic links",
-    body: "The yes/no and 0–10 buttons in our emails are EmailAction links. A click fires the consumer event (docs.checkin.answered, course.nps_submitted) through the full pipeline, confirmed after the scanner burst window so a link-scanning bot never answers a survey.",
-  },
-  {
-    token: "durable sleeps",
-    body: "The six-email docs series and the day-one breathers park in Hatchet with ctx.sleep. A deploy or worker restart resumes them; nobody is dropped three days into a sequence.",
-  },
-  {
-    token: "exitOn",
-    body: "A docs.deploy_clicked event cancels the setup-week pitch mid-wait; course.purchased exits the convert nudges the same way. The journey never pitches someone who already moved.",
-  },
-  {
-    token: "entryLimit + suppress",
-    body: "“once” on greetings and offers, “unlimited” where re-entry is the point (referral credits, milestones), “once_per_period” on the NPS so a second course finished within 180 days isn't re-surveyed. suppress absorbs webhook storms.",
-  },
-  {
-    token: "ctx.trigger",
-    body: "Cross-journey routing (check-in → referral ask or setup offer), cross-person hops (crediting the referrer from the referee's journey), and operator flags (docs.lead.flagged, course.lead.flagged) are all real ingested events any journey can trigger on.",
-  },
-  {
-    token: "ctx.history + markers",
-    body: "Attribution lookups, purchase checks, and exactly-once role grants all read the event history. The Ambassador and 🎓 Student roles are deduped by marker events, so unlimited re-enrollment never re-grants.",
-  },
-  {
-    token: "cold-connect identity",
-    body: "The Discord /link handshake folds a member's discord_id and email onto one contact. That single fold is what makes the referral conversion, the #course access conjunction, and the cross-channel feed item possible.",
-  },
-  {
-    token: "mintLink + the feed",
-    body: "The welcome DM carries a personal tracked link and the #welcome post a public campaign link — first-party link tracking on a non-email channel. sendFeedItem drops the same lifecycle into the in-app bell the docs site polls.",
-  },
-  {
-    token: "connector actions + custom tasks",
-    body: "Journeys call the Discord connector directly — grantRole, DMs, channel posts. The notify-lead Hatchet task emails Doug outside any journey's exitOn scope, and a custom outbound destination fans events into the Discord server.",
-  },
-];
-
-/* ------------------------------------------------------------------------ */
 /*  Primitives                                                               */
 /* ------------------------------------------------------------------------ */
 
@@ -227,29 +167,10 @@ function InlineCode({ children }: { children: ReactNode }): JSX.Element {
   );
 }
 
-function FactList({ items }: { items: ReactNode[] }): JSX.Element {
+function Prose({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <ul className="flex flex-col gap-3">
-      {items.map((item, index) => (
-        // Static copy list — index keys are fine.
-        // biome-ignore lint/suspicious/noArrayIndexKey: static content
-        <li key={index} className="flex gap-3 text-[15px] leading-6">
-          <span aria-hidden className="mt-[9px] h-px w-4 shrink-0 bg-accent" />
-          <span className="text-white/60">{item}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function PrimitivePills({ pills }: { pills: string[] }): JSX.Element {
-  return (
-    <div className="mt-6 flex flex-wrap gap-2">
-      {pills.map((pill) => (
-        <TagPill key={pill} className="font-mono">
-          {pill}
-        </TagPill>
-      ))}
+    <div className="flex max-w-2xl flex-col gap-5 text-[15px] text-white/65 leading-7">
+      {children}
     </div>
   );
 }
@@ -266,17 +187,17 @@ export default function DogfoodPage(): JSX.Element {
         <div className="container-page pt-32 pb-20">
           <Reveal>
             <SectionHeading
-              eyebrow="Receipts"
+              eyebrow="How we use it"
               title="How we run Hogsend on Hogsend"
-              subtitle="Hogsend is one business running one production Hogsend instance, at t.hogsend.com. The docs-site lifecycle, the paid course, the Discord community, and the referral program are all defineJourney() calls in one TypeScript repo — a standard create-hogsend app on the same engine you'd scaffold. This page tears the real loops down, with the real code."
+              subtitle="Hogsend is one business, and it runs its own marketing on one production Hogsend instance. This page walks through what we're actually doing with it — the docs funnel, the course, the Discord community, the referral loop — and the thinking behind each one. Real journeys, real emails, and the occasional bit of real code."
             />
           </Reveal>
           <Reveal
             delay={0.1}
             className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4"
           >
-            <Button href="#loops" variant="accent" icon>
-              See the loops
+            <Button href="#aim" variant="accent" icon>
+              Start with the why
             </Button>
             <Button href={GITHUB_URL} variant="outline" external>
               The engine, on GitHub
@@ -285,108 +206,91 @@ export default function DogfoodPage(): JSX.Element {
         </div>
       </section>
 
-      {/* ---- The instance at a glance ----------------------------------- */}
-      <Section id="glance">
+      {/* ---- The aim ----------------------------------------------------- */}
+      <Section id="aim">
         <Reveal>
           <SectionHeading
-            eyebrow="The instance at a glance"
-            title="Counts from the source, not a dashboard"
-            subtitle="Every number below is a count of code in the instance's repo — journey definitions, template registry keys, registered sources — not an analytics screenshot."
+            eyebrow="The aim"
+            title="Fix the bucket before paying to fill it"
+            subtitle="The strategy behind every loop on this page is the same one the course teaches: paid traffic comes last."
           />
         </Reveal>
-        <Reveal delay={0.08} className="mt-12">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4">
-            <Stat value="45" label="Journeys registered" />
-            <Stat value="39" label="Email templates" />
-            <Stat value="2" label="Custom webhook sources" />
-            <Stat value="1" label="Discord connector" />
-          </dl>
-        </Reveal>
-        <Reveal delay={0.14} className="mt-10 max-w-2xl">
-          <p className="text-[15px] text-white/60 leading-6">
-            Plus one custom outbound destination (Discord) and two custom
-            Hatchet workflows — a lead-alert task and a backfill job. Twenty of
-            the forty-five journeys run the course lifecycle and seven run the
-            Discord community — a welcome plus six role journeys. The rest cover
-            the docs funnel, the in-app demo, referrals, and the
-            scaffold&rsquo;s example journeys. The instance publishes its own
-            health — database, Redis, worker heartbeat, and last-24-hour send
-            and journey counters — publicly at{" "}
-            <a
-              href="https://t.hogsend.com/v1/health"
-              target="_blank"
-              rel="noreferrer"
-              className="text-white/80 underline-offset-2 hover:text-white hover:underline"
-            >
-              t.hogsend.com/v1/health
-            </a>
-            .
-          </p>
+        <Reveal delay={0.08} className="mt-10">
+          <Prose>
+            <p>
+              At some point we&rsquo;ll put money behind Hogsend — ads,
+              sponsorships, the usual. Paid clicks are also the most expensive
+              possible way to find out that people fall through the cracks after
+              they arrive. So the work right now is closing the cracks: making
+              sure that every way somebody can meet Hogsend, there&rsquo;s a
+              next step waiting for them, and a step after that.
+            </p>
+            <p>
+              Read the docs and tap <em>keep me posted</em> — a journey walks
+              you toward your first running journey and then checks in on how it
+              went. Join the Discord — a journey welcomes you and connects your
+              account to your email, so the community isn&rsquo;t a separate
+              island of strangers. Buy the course — a set of journeys picks you
+              up from the receipt through to finishing, and asks how it landed.
+              Tell a friend — a journey notices and says thank you properly.
+              Nobody enters and just&hellip; sits there.
+            </p>
+            <p>
+              When the ads eventually switch on, that&rsquo;s what they pour
+              into: a bucket that holds water. And because we sell the tool that
+              does this, the whole program doubles as proof — it&rsquo;s all one
+              standard <InlineCode>create-hogsend</InlineCode> app, a few dozen
+              journeys and emails in one TypeScript repo, on the same engine
+              you&rsquo;d scaffold today. The four loops below are the ones that
+              matter.
+            </p>
+          </Prose>
         </Reveal>
       </Section>
 
       {/* ---- Loop 1: the docs funnel ------------------------------------ */}
-      <Section id="loops">
+      <Section id="docs-funnel">
         <Reveal>
           <SectionHeading
-            eyebrow="Loop 1 — the docs funnel"
-            title="A subscriber, a check-in, and two exits"
-            subtitle="The docs site's keep-me-posted form fires docs.subscribed, which enrolls a six-email series over ten days: welcome, why lifecycle, recipes, agents, the Discord, and — on day ten — a one-tap check-in that decides what happens next."
+            eyebrow="The docs funnel"
+            title="Get readers to a running journey"
+            subtitle="Most people meet Hogsend through the docs. The aim of the first ten days isn't to sell anything — it's to get you to a journey running in your own repo, because that's the moment this stops being a docs site you read and starts being a tool you use."
           />
         </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
           <Reveal>
-            <div className="flex flex-col gap-8">
-              <FactList
-                items={[
-                  <>
-                    The check-in email asks{" "}
-                    <em>&ldquo;Did you get a journey running?&rdquo;</em> with
-                    yes/no semantic-link buttons. The click is the answer —{" "}
-                    <InlineCode>ctx.waitForEvent</InlineCode> resumes with its
-                    payload.
-                  </>,
-                  <>
-                    &ldquo;Yes&rdquo; routes into the referral ask;
-                    &ldquo;no&rdquo; routes into the setup-week offer; silence
-                    checks <InlineCode>ctx.history</InlineCode> for a deploy
-                    click and picks accordingly. All three routes are{" "}
-                    <InlineCode>ctx.trigger</InlineCode> events, so the
-                    follow-on journeys re-check preferences at enrollment.
-                  </>,
-                  <>
-                    The follow-on offer journey carries{" "}
-                    <InlineCode>exitOn: docs.deploy_clicked</InlineCode> — a
-                    deploy click at any point cancels the pitch mid-wait.
-                  </>,
-                  <>
-                    A confirmed &ldquo;interested&rdquo; fires{" "}
-                    <InlineCode>docs.lead.flagged</InlineCode>, which the custom{" "}
-                    <InlineCode>notify-lead</InlineCode> Hatchet task turns into
-                    an alert email to Doug — outside any journey&rsquo;s{" "}
-                    <InlineCode>exitOn</InlineCode> scope.
-                  </>,
-                ]}
-              />
-              <CodeWindow
-                filename="src/journeys/docs-setup-offer.ts (meta, trimmed)"
-                code={SETUP_OFFER_META_CODE}
-              />
-            </div>
+            <Prose>
+              <p>
+                Subscribing starts a six-email series over ten days that walks
+                the same path the docs do — why lifecycle, the recipes, the
+                agents, the community. Then, on day ten, we just ask:{" "}
+                <em>&ldquo;Did you get a journey running?&rdquo;</em> The yes/no
+                buttons in that email <em>are</em> the answer — a tap flows back
+                into the journey as an event, and the code on the right picks it
+                up and decides what happens next.
+              </p>
+              <p>
+                Say <em>yes</em> and a couple of days later we ask a small
+                favour — that&rsquo;s the referral loop further down. Say{" "}
+                <em>no</em> and we offer actual help: the setup week, a human
+                installing it with you. Say nothing, and we look at what you did
+                instead — if you clicked deploy since the check-in went out, you
+                clearly got moving on your own, so the offer is withdrawn and we
+                ask the favour instead.
+              </p>
+              <p>
+                Two details we care about. The offer journey exits the moment
+                you click deploy, even mid-conversation — nobody should be
+                pitched help they&rsquo;ve stopped needing. And a genuine{" "}
+                <em>interested</em> doesn&rsquo;t become a row in a CRM; it
+                becomes an email in Doug&rsquo;s inbox.
+              </p>
+            </Prose>
           </Reveal>
           <Reveal delay={0.1}>
             <CodeWindow
               filename="src/journeys/docs-subscriber.ts (trimmed)"
               code={DOCS_CHECKIN_CODE}
-            />
-            <PrimitivePills
-              pills={[
-                "ctx.waitForEvent",
-                "semantic links",
-                "ctx.trigger",
-                "ctx.history.hasEvent",
-                "exitOn",
-              ]}
             />
           </Reveal>
         </div>
@@ -396,70 +300,44 @@ export default function DogfoodPage(): JSX.Element {
       <Section id="course">
         <Reveal>
           <SectionHeading
-            eyebrow="Loop 2 — the course"
-            title="One purchase event, five journeys"
-            subtitle="A course purchase fires course.purchased, and five journeys enroll on it at once: the receipt welcome, the onboarding walkthrough, the next-day community invite, the Discord access grant, and the share-code issuer. Each owns one job."
+            eyebrow="The course"
+            title="The course runs on what it teaches"
+            subtitle="The course teaches lifecycle marketing on PostHog and Hogsend — so buying it enrolls you in exactly the kind of program the chapters describe. If our own course didn't nurture properly, why would you believe the chapters?"
           />
         </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
           <Reveal>
-            <FactList
-              items={[
-                <>
-                  The welcome is{" "}
-                  <InlineCode>entryLimit: &quot;unlimited&quot;</InlineCode> so
-                  a second SKU still gets its receipt; the walkthrough is{" "}
-                  <InlineCode>&quot;once&quot;</InlineCode> per reader. Split on
-                  purpose — the walkthrough holds an active state for days and
-                  would otherwise swallow a later purchase&rsquo;s welcome.
-                </>,
-                <>
-                  The walkthrough watches three days for a first completed
-                  chapter (<InlineCode>ctx.waitForEvent</InlineCode> with a
-                  lookback covering the webhook-to-wait gap). A buyer who never
-                  starts gets one honest nudge, one more watch, then silence.
-                </>,
-                <>
-                  On <InlineCode>course.completed</InlineCode>, the NPS email
-                  waits two days first — the in-app card gets first go, and both
-                  surfaces emit the same{" "}
-                  <InlineCode>course.nps_submitted</InlineCode> event, so the
-                  score stream is one stream.
-                </>,
-                <>
-                  The journey branches on the awaited score: promoters
-                  (9&ndash;10) get the testimonial ask, detractors (0&ndash;6)
-                  flag Doug personally via{" "}
-                  <InlineCode>course.lead.flagged</InlineCode>.{" "}
-                  <InlineCode>
-                    entryLimit: &quot;once_per_period&quot;
-                  </InlineCode>{" "}
-                  (180 days) means finishing a second course isn&rsquo;t
-                  re-surveyed.
-                </>,
-                <>
-                  Access to the private #course channel is the conjunction of
-                  two facts the engine already holds — a purchase on the contact
-                  and a linked <InlineCode>discord_id</InlineCode>. Two journeys
-                  cover both orders of arrival, and a marker event makes the 🎓
-                  role grant exactly-once.
-                </>,
-              ]}
-            />
+            <Prose>
+              <p>
+                A purchase kicks off several journeys at once, each with one
+                job: the receipt lands immediately, a walkthrough gets you into
+                chapter one, the next day comes the community invite, Discord
+                access unlocks if your account is linked, and your share code is
+                issued. Splitting them means a second purchase still gets its
+                receipt while the walkthrough carries on undisturbed.
+              </p>
+              <p>
+                The walkthrough is the part we sweat. It watches for three days
+                for your first completed chapter. If you never start, you get
+                one honest nudge, one more watch — and then silence. Nurture
+                isn&rsquo;t nagging; someone who bought and didn&rsquo;t start
+                doesn&rsquo;t need a fourth email, they need the next real
+                reason to open the thing.
+              </p>
+              <p>
+                And when you finish, we wait two days and ask the 0&ndash;10
+                question. The in-app card gets first go; the email is the
+                fallback; both feed one score stream. Promoters get a small
+                testimonial ask. Detractors get Doug, personally — a flag in his
+                inbox, not an automated apology. Finish a second course within
+                six months and you won&rsquo;t be surveyed again.
+              </p>
+            </Prose>
           </Reveal>
           <Reveal delay={0.1}>
             <CodeWindow
               filename="src/journeys/course-feedback.ts (trimmed)"
               code={COURSE_NPS_CODE}
-            />
-            <PrimitivePills
-              pills={[
-                "ctx.waitForEvent + lookback",
-                "entryLimit: once_per_period",
-                "semantic links",
-                "connector actions",
-                "marker events",
-              ]}
             />
           </Reveal>
         </div>
@@ -469,57 +347,37 @@ export default function DogfoodPage(): JSX.Element {
       <Section id="referrals">
         <Reveal>
           <SectionHeading
-            eyebrow="Loop 3 — referrals"
-            title="Attribution without a ledger table"
-            subtitle="A visit through someone's ?ref= link lands as referral.visited on the visitor, via a custom webhook source. The qualifying conversion is the Discord /link handshake — the exact moment an anonymous referee becomes an email-identified contact."
+            eyebrow="Referrals"
+            title="Ask the favour when it's earned"
+            subtitle="Referrals only work when you ask people who are already winning — which is why the ask lives at the end of the docs funnel's happy path, not in a banner. The other half is making sure the credit lands reliably enough that the favour feels worth doing."
           />
         </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
           <Reveal>
-            <FactList
-              items={[
-                <>
-                  <InlineCode>referral-convert</InlineCode> reads the
-                  attributing visit back from the referee&rsquo;s own event
-                  history — attribution survives the identity merge that folds
-                  the anonymous visitor onto the signed-up person, because
-                  history re-points to the surviving contact.
-                </>,
-                <>
-                  There is no referral-codes table and no ledger.{" "}
-                  <InlineCode>entryLimit: &quot;once&quot;</InlineCode> makes a
-                  referee credit at most once, ever; the reward side is deduped
-                  by a marker event.
-                </>,
-                <>
-                  The credit is a cross-person hop:{" "}
-                  <InlineCode>ctx.trigger</InlineCode> enrolls the{" "}
-                  <em>referrer</em> in <InlineCode>referral-reward</InlineCode>{" "}
-                  from inside the referee&rsquo;s journey.
-                </>,
-                <>
-                  <InlineCode>referral-reward</InlineCode> is{" "}
-                  <InlineCode>entryLimit: &quot;unlimited&quot;</InlineCode> —
-                  every conversion re-enrolls and re-counts. Each one pays a
-                  Discord DM and an email; crossing the milestone grants the 🏅
-                  Ambassador role exactly once, marker-guarded.
-                </>,
-              ]}
-            />
+            <Prose>
+              <p>
+                A friend visits through your link and that visit is remembered
+                against them. The conversion moment is deliberately strict:
+                it&rsquo;s when they verify in the Discord — the point where an
+                anonymous visitor becomes a real, reachable person. That&rsquo;s
+                when the journey on the right runs: it reads the attributing
+                visit back out of their history, and credits <em>you</em> from
+                inside <em>their</em> journey.
+              </p>
+              <p>
+                There&rsquo;s no codes table and no ledger to reconcile — the
+                events are the ledger, and the attribution survives the moment
+                the anonymous visitor and the verified member get folded into
+                one identity. Each credit thanks you with a DM and an email, and
+                crossing the milestone grants the 🏅 Ambassador role in the
+                server — once, ever, no matter how many times you cross it.
+              </p>
+            </Prose>
           </Reveal>
           <Reveal delay={0.1}>
             <CodeWindow
               filename="src/journeys/referral-convert.ts (trimmed)"
               code={REFERRAL_CONVERT_CODE}
-            />
-            <PrimitivePills
-              pills={[
-                "ctx.history.events",
-                "cross-person ctx.trigger",
-                "entryLimit: once",
-                "identity merge",
-                "webhook source",
-              ]}
             />
           </Reveal>
         </div>
@@ -529,88 +387,61 @@ export default function DogfoodPage(): JSX.Element {
       <Section id="discord">
         <Reveal>
           <SectionHeading
-            eyebrow="Loop 4 — the Discord community"
-            title="One /link, four journeys"
-            subtitle="Running /link in the community server binds a member's Discord account to their email contact — the cold-connect handshake. The resulting discord.linked event enrolls four journeys at once: the welcome, the role ladder, the referral conversion above, and the course-access check."
+            eyebrow="The Discord community"
+            title="One identity across web, email, and Discord"
+            subtitle="Communities usually sit on an island: the person in your server and the person on your list are two strangers who happen to be the same human. The /link command is how we join them — and most of the loops above only work because of it."
           />
         </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
           <Reveal>
-            <FactList
-              items={[
-                <>
-                  The welcome DM carries a <em>personal</em> tracked link minted
-                  with <InlineCode>mintLink</InlineCode> — a click stitches that
-                  member&rsquo;s web session to their contact. The public
-                  #welcome post gets a separate <em>campaign</em> link that
-                  attributes by campaign only.
-                </>,
-                <>
-                  The same journey drops a feed item into the in-app bell the
-                  docs site polls — linking folded the member&rsquo;s{" "}
-                  <InlineCode>discord_id</InlineCode> and email onto one
-                  contact, so the notification lands on the web session they
-                  signed up with.
-                </>,
-                <>
-                  <InlineCode>entryLimit: &quot;once&quot;</InlineCode> plus a
-                  one-day <InlineCode>suppress</InlineCode> window means a
-                  re-link never re-greets.
-                </>,
-                <>
-                  Both outbound actions — the DM and the channel post — are
-                  journey-callable Discord connector actions, and both soft-fail
-                  (closed DMs, unset channel id) rather than crash the run.
-                </>,
-              ]}
-            />
+            <Prose>
+              <p>
+                Verify in the server and a welcome journey greets you twice: a
+                DM with a personal getting-started link, and — because linking
+                just connected your Discord to your email — a notification in
+                the same in-app bell you&rsquo;d see on the docs site. That
+                second one is the quiet proof of the whole model: something you
+                did in Discord showing up on your web session, because both now
+                belong to one contact.
+              </p>
+              <p>
+                From there the graph does the work. Course buyers with a linked
+                account get the private channel and the 🎓 role without asking.
+                Referral credits fire off the verification moment. And a re-link
+                never re-greets — the journey runs once per person, full stop.
+              </p>
+            </Prose>
           </Reveal>
           <Reveal delay={0.1}>
             <CodeWindow
               filename="src/journeys/discord-welcome.ts (trimmed)"
               code={DISCORD_WELCOME_CODE}
             />
-            <PrimitivePills
-              pills={[
-                "cold-connect /link",
-                "mintLink",
-                "sendFeedItem",
-                "connector actions",
-                "entryLimit + suppress",
-              ]}
-            />
           </Reveal>
         </div>
       </Section>
 
-      {/* ---- What this exercises ------------------------------------------ */}
-      <Section id="exercises">
+      {/* ---- Why run it this way ------------------------------------------ */}
+      <Section id="why">
         <Reveal>
           <SectionHeading
-            eyebrow="What this exercises"
-            title="The loops above are the engine's test suite"
-            subtitle="Running the business on the engine means every primitive gets used in anger before it ships to you. Each card names the feature and where the loops above lean on it."
+            eyebrow="Why bother"
+            title="The loops are also the test suite"
+            subtitle="Running the business on the engine means every feature gets used in anger on real customers — ours — before it ships to you."
           />
         </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2">
-          {EXERCISES.map((item, index) => (
-            <Reveal key={item.token} delay={(index % 2) * 0.05}>
-              <Card>
-                <InlineCode>{item.token}</InlineCode>
-                <p className="mt-3 text-[15px] text-white/60 leading-6">
-                  {item.body}
-                </p>
-              </Card>
-            </Reveal>
-          ))}
-        </div>
-        <Reveal delay={0.15} className="mt-10 max-w-2xl">
-          <p className="text-[15px] text-white/55 leading-6">
-            When something is awkward to author, we feel it before you do.
-            Several engine features — the <InlineCode>where</InlineCode>{" "}
-            condition builder, wait <InlineCode>lookback</InlineCode>,
-            replay-safe auto-keying — exist because these loops needed them.
-          </p>
+        <Reveal delay={0.08} className="mt-10">
+          <Prose>
+            <p>
+              When something is awkward to author, we feel it before you do.
+              Several engine features — the <InlineCode>where</InlineCode>{" "}
+              condition builder, wait <InlineCode>lookback</InlineCode>,
+              replay-safe auto-keying — exist because one of the loops on this
+              page needed them. That&rsquo;s the other half of why we run it
+              this way: the nurture program and the product roadmap are the same
+              feedback loop.
+            </p>
+          </Prose>
         </Reveal>
       </Section>
 
@@ -622,7 +453,7 @@ export default function DogfoodPage(): JSX.Element {
               align="center"
               eyebrow="Go deeper"
               title="Read the loops, then run your own"
-              subtitle="The course lifecycle has its own journey-by-journey teardown in the docs. The engine everything on this page runs on is the same code create-hogsend scaffolds — source-available, on GitHub."
+              subtitle="The course lifecycle has its own journey-by-journey walkthrough in the docs, and everything on this page runs on the same code create-hogsend scaffolds — source-available, on GitHub."
             />
           </Reveal>
           <Reveal
