@@ -4,24 +4,163 @@ import Link from "next/link";
 import type { JSX, ReactNode } from "react";
 import { TagPill } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
-import { Card } from "@/components/ds/card";
 import { CodeWindow } from "@/components/ds/code-window";
 import { MockupFrame } from "@/components/ds/mockup";
 import { ProcessSteps } from "@/components/ds/process";
 import { Reveal } from "@/components/ds/reveal";
-import { Section, SectionHeading } from "@/components/ds/section";
+import { isHogsendConfigured } from "@/components/hogsend/config";
+import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
+import { cn } from "@/lib/cn";
 import { GITHUB_URL } from "@/lib/site";
+import { OpenBellButton } from "./open-bell-button";
+// The homepage's animation keyframes (ps-pulse, ps-dash) — this page is a
+// sibling of the homepage and borrows its live-dot + contour-line idioms.
+import "@/app/(landing)/home.css";
 
 // Bare label — the root layout template appends " — Hogsend".
 export const metadata: Metadata = {
   title: "How we run Hogsend on Hogsend",
   description:
-    "The four loops our production instance runs — the docs check-in, the course lifecycle, the referral credit, and the Discord /link — shown as the real emails, DMs, and journeys they are.",
+    "Hogsend's own marketing runs on one production Hogsend instance — the docs funnel, the course lifecycle, the Discord community, and referrals. This page shows the real emails, DMs, and journeys, and the live bell you're already inside.",
 };
+
+/* ========================================================================== */
+/*  Homepage idiom, lifted faithfully (app/(landing)/page.tsx): Montserrat    */
+/*  display h2s (--ps-display is loaded by the (home) layout for the nav),    */
+/*  the ▲ mono eyebrow, two-tone headlines, crimzon section rules, and the    */
+/*  tinted lead+rest cards. Content frame is the (home) chrome's 1200px       */
+/*  .container-page so sections align with the PageFrame hairlines.           */
+/* ========================================================================== */
+
+const DISPLAY = "[font-family:var(--ps-display)]";
+
+/** The homepage eyebrow: red ▲ + mono uppercase. */
+function Eyebrow({
+  children,
+  light,
+  className,
+}: {
+  children: ReactNode;
+  light?: boolean;
+  className?: string;
+}): JSX.Element {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.08em]",
+        light ? "text-white/80" : "text-white",
+        className,
+      )}
+    >
+      <svg
+        width="9"
+        height="8"
+        viewBox="0 0 9 8"
+        aria-hidden="true"
+        className="text-[#f64838]"
+      >
+        <path d="M4.5 0L9 8H0z" fill="currentColor" />
+      </svg>
+      {children}
+    </span>
+  );
+}
+
+/** The homepage two-tone display h2 — white lead, faint tail. */
+function Headline({
+  lead,
+  tail,
+  as: Tag = "h2",
+  className,
+}: {
+  lead: string;
+  tail?: string;
+  as?: "h1" | "h2";
+  className?: string;
+}): JSX.Element {
+  return (
+    <Tag
+      className={cn(
+        "mt-8 max-w-[860px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+        DISPLAY,
+        className,
+      )}
+    >
+      <span className="text-white">{lead}</span>{" "}
+      {tail ? <span className="text-white/40">{tail}</span> : null}
+    </Tag>
+  );
+}
+
+/** The homepage tinted scenario card: bold lead sentence + gray rest. */
+function LeadCard({
+  lead,
+  rest,
+  index,
+}: {
+  lead: string;
+  rest: string;
+  index: number;
+}): JSX.Element {
+  return (
+    <div
+      className="h-full p-6"
+      style={{
+        background:
+          index % 2 === 0 ? "rgba(255,255,255,0.04)" : "rgba(246,72,56,0.07)",
+      }}
+    >
+      <p className="text-[14.5px] leading-[22px] tracking-[-0.02em]">
+        <span className="font-medium text-white">{lead}</span>{" "}
+        <span className="text-white/55">{rest}</span>
+      </p>
+    </div>
+  );
+}
+
+/** Fanned contour lines with a slow dash-drift — the homepage decoration. */
+function WaveLines({
+  className,
+  stroke = "rgba(255,150,128,0.45)",
+  count = 7,
+}: {
+  className?: string;
+  stroke?: string;
+  count?: number;
+}): JSX.Element {
+  const paths = Array.from({ length: count }, (_, i) => {
+    const y = 16 + i * 26;
+    const lift = 24 + ((i * 13) % 26);
+    return `M-20 ${y} C 180 ${y - lift}, 380 ${y + lift}, 620 ${y - lift / 2} S 980 ${y + lift}, 1240 ${y - lift}`;
+  });
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 1200 200"
+      fill="none"
+      preserveAspectRatio="none"
+      className={cn("pointer-events-none", className)}
+    >
+      {paths.map((d, i) => (
+        <path
+          // biome-ignore lint/suspicious/noArrayIndexKey: static deterministic art
+          key={i}
+          d={d}
+          stroke={stroke}
+          strokeWidth="1"
+          strokeOpacity={0.3 + (i % 4) * 0.16}
+          className="ps-dash"
+          style={{ animationDelay: `${i * -3.5}s` }}
+        />
+      ))}
+    </svg>
+  );
+}
 
 /* ------------------------------------------------------------------------ */
 /*  The one code window on the page — the check-in listener, trimmed from   */
 /*  the production journey (hogsend-dogfood/src/journeys/docs-subscriber).  */
+/*  Comments verbatim from source.                                          */
 /* ------------------------------------------------------------------------ */
 
 const CHECKIN_LISTENER_CODE = `// Day 10 — the buttons in the email ARE the answer.
@@ -35,7 +174,7 @@ const answer = checkin.timedOut
   : checkin.properties?.answer;
 
 if (answer === "yes") {
-  // Winning → the favour (the referral loop).
+  // Activated — a couple of days from now, the referral favour.
   await ctx.trigger({
     event: Events.DOCS_REFERRAL_ELIGIBLE,
     userId: user.id,
@@ -43,7 +182,7 @@ if (answer === "yes") {
 }
 
 if (answer === "no") {
-  // Stuck → real help (the setup week).
+  // Struggler — the setup-week offer path.
   await ctx.trigger({
     event: Events.DOCS_SETUP_ELIGIBLE,
     userId: user.id,
@@ -55,9 +194,13 @@ if (answer === "no") {
 /*  production dogfood app: real subjects, real button labels, real copy.   */
 /* ------------------------------------------------------------------------ */
 
-/** Small sentence-case label above a mocked artifact. */
+/** Small mono label above a mocked artifact, homepage window-title style. */
 function MockLabel({ children }: { children: ReactNode }): JSX.Element {
-  return <p className="mb-3 text-[12px] text-white/40">{children}</p>;
+  return (
+    <p className="mb-3 font-mono text-[11px] text-white/40 tracking-wide">
+      {children}
+    </p>
+  );
 }
 
 /**
@@ -111,9 +254,10 @@ function CheckinEmailMock(): JSX.Element {
 /** The post-completion NPS email — subject and 0–10 row verbatim. */
 function NpsEmailMock(): JSX.Element {
   return (
-    <EmailShell subject="Would you recommend Measure, Keep, and Grow?">
+    <EmailShell subject="Would you recommend Measure, Keep, and Grow? One tap.">
       <p className="mt-3 text-[14px] text-white/70 leading-6">
-        One tap, honestly given, and you&rsquo;re done.
+        You finished the course a couple of days ago. One tap, honestly given,
+        and you&rsquo;re done.
       </p>
       <div className="mt-4 flex flex-wrap gap-1.5">
         {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
@@ -161,7 +305,7 @@ function DiscordDmMock(): JSX.Element {
       <div className="flex items-start gap-3.5">
         <span
           aria-hidden="true"
-          className="grid size-9 shrink-0 place-items-center rounded-full border border-accent/40 bg-accent-tint font-medium text-sm text-white"
+          className="grid size-9 shrink-0 place-items-center rounded-full border border-[#f64838]/40 bg-[#f64838]/[0.08] font-medium text-sm text-white"
         >
           H
         </span>
@@ -178,7 +322,7 @@ function DiscordDmMock(): JSX.Element {
             <p>
               If you&rsquo;re getting started, here&rsquo;s the quickest path
               in:{" "}
-              <span className="text-accent underline underline-offset-2">
+              <span className="text-[#f64838] underline underline-offset-2">
                 your personal getting-started link
               </span>
             </p>
@@ -190,7 +334,7 @@ function DiscordDmMock(): JSX.Element {
   );
 }
 
-/** The same moment in the web bell — title and copy from the same journey. */
+/** The same moment in the web bell — title and body verbatim. */
 function BellFeedMock(): JSX.Element {
   return (
     <div className="rounded-xl border border-white/10 bg-[#0a0606]/80 p-5 md:p-6">
@@ -203,10 +347,11 @@ function BellFeedMock(): JSX.Element {
           You linked your Discord 🎉
         </p>
         <p className="mt-1.5 text-[13px] text-white/60 leading-5">
-          Your Discord is now connected to your Hogsend identity — one identity
-          across web and Discord.
+          Your Discord is now connected to your Hogsend identity. This reached
+          your bell because linking stitched your web session to your contact —
+          one identity across web and Discord.
         </p>
-        <p className="mt-3 font-medium text-accent text-sm">
+        <p className="mt-3 font-medium text-[#f64838] text-sm">
           Getting started →
         </p>
       </div>
@@ -215,226 +360,205 @@ function BellFeedMock(): JSX.Element {
 }
 
 /* ------------------------------------------------------------------------ */
-/*  The bucket — the strategy, as a picture.                                */
+/*  The purchase fan-out — one event, five journeys, drawn in the homepage  */
+/*  journey-trace idiom (dots, connecting rail, mono labels).               */
 /* ------------------------------------------------------------------------ */
 
-/**
- * Four ways in pour into one bucket; each leak is plugged by a journey; the
- * paid-traffic tap stays off until the bucket holds. Accent red is spent on
- * the water and the patches — the nurture is what holds it.
- */
-function BucketDiagram(): JSX.Element {
-  const inlets = [
-    { x: 180, label: "Docs" },
-    { x: 262, label: "The course" },
-    { x: 344, label: "Discord" },
-    { x: 426, label: "A friend's link" },
-  ];
-  const patches = [
-    { x: 186, y: 168, w: 104, label: "the check-in" },
-    { x: 312, y: 192, w: 116, label: "the walkthrough" },
-    { x: 208, y: 232, w: 104, label: "the thank-you" },
-    { x: 326, y: 258, w: 100, label: "the welcome" },
-  ];
-
-  return (
-    <svg
-      viewBox="0 0 560 348"
-      width="100%"
-      height="auto"
-      role="img"
-      aria-label="Four ways in — docs, the course, Discord, a friend's link — pour into one bucket. Every leak is plugged by a journey: the check-in, the walkthrough, the thank-you, the welcome. The paid-traffic tap stays off until the bucket holds."
-    >
-      {/* Paid-traffic tap — drawn dashed and dry: it waits. */}
-      <rect
-        x="34"
-        y="44"
-        width="66"
-        height="20"
-        rx="4"
-        fill="none"
-        stroke="rgba(255,255,255,0.25)"
-        strokeWidth="1"
-        strokeDasharray="4 4"
-      />
-      <text
-        x="67"
-        y="36"
-        fill="rgba(255,255,255,0.55)"
-        fontSize="12"
-        textAnchor="middle"
-      >
-        Paid traffic
-      </text>
-      <text
-        x="67"
-        y="58"
-        fill="rgba(246,72,56,0.9)"
-        fontSize="10"
-        fontFamily="monospace"
-        textAnchor="middle"
-      >
-        later
-      </text>
-      <line
-        x1="88"
-        y1="70"
-        x2="146"
-        y2="106"
-        stroke="rgba(255,255,255,0.18)"
-        strokeWidth="1"
-        strokeDasharray="2 6"
-      />
-
-      {/* Four inlets — labels and arrows into the bucket mouth. */}
-      {inlets.map((inlet) => (
-        <g key={inlet.label}>
-          <text
-            x={inlet.x}
-            y="36"
-            fill="rgba(255,255,255,0.7)"
-            fontSize="12"
-            textAnchor="middle"
-          >
-            {inlet.label}
-          </text>
-          <line
-            x1={inlet.x}
-            y1="46"
-            x2={inlet.x}
-            y2="82"
-            stroke="rgba(255,255,255,0.3)"
-            strokeWidth="1.5"
-          />
-          <path
-            d={`M${inlet.x - 4} 80 L${inlet.x} 90 L${inlet.x + 4} 80 Z`}
-            fill="rgba(255,255,255,0.3)"
-          />
-        </g>
-      ))}
-
-      {/* Bucket silhouette. */}
-      <path
-        d="M150 108 L450 108 L418 328 L182 328 Z"
-        fill="rgba(255,255,255,0.02)"
-        stroke="rgba(255,255,255,0.22)"
-        strokeWidth="1.5"
-      />
-
-      {/* Water — it holds. */}
-      <path
-        d="M156 148 L444 148 L418 328 L182 328 Z"
-        fill="rgba(246,72,56,0.08)"
-      />
-      <line
-        x1="156"
-        y1="148"
-        x2="444"
-        y2="148"
-        stroke="rgba(246,72,56,0.5)"
-        strokeWidth="1.5"
-      />
-
-      {/* Patches — one journey over every hole. */}
-      {patches.map((patch) => (
-        <g key={patch.label}>
-          <rect
-            x={patch.x}
-            y={patch.y}
-            width={patch.w}
-            height="28"
-            rx="6"
-            fill="rgba(246,72,56,0.14)"
-            stroke="rgba(246,72,56,0.5)"
-            strokeWidth="1"
-          />
-          <text
-            x={patch.x + patch.w / 2}
-            y={patch.y + 18}
-            fill="rgba(255,255,255,0.9)"
-            fontSize="11"
-            fontFamily="monospace"
-            textAnchor="middle"
-          >
-            {patch.label}
-          </text>
-        </g>
-      ))}
-    </svg>
-  );
-}
-
-/* ------------------------------------------------------------------------ */
-/*  The purchase fan-out — one event, five journeys, drawn as a trace.      */
-/* ------------------------------------------------------------------------ */
-
-const PURCHASE_FANOUT: { name: string; artifact: string }[] = [
+const PURCHASE_FANOUT: {
+  kind: "trigger" | "send" | "wait";
+  label: string;
+  note: string;
+}[] = [
   {
-    name: "The receipt",
-    artifact: "“That's yours now — all eleven chapters” · immediately",
+    kind: "trigger",
+    label: "course.purchased",
+    note: "recorded server-side by course.hogsend.com",
   },
   {
-    name: "The walkthrough",
-    artifact:
-      "watches three days for a first chapter; one nudge — “Twenty minutes gets you chapter 0” — then silence",
+    kind: "send",
+    label: "course-purchase-welcome",
+    note: "“That's yours now — all eleven chapters” · immediately",
   },
   {
-    name: "The community invite",
-    artifact: "“Your seat in the private #course channel” · the next day",
+    kind: "wait",
+    label: "course-purchase-onboarding",
+    note: "waits for your first chapter — “Twenty minutes gets you chapter 0” only if you stall",
   },
   {
-    name: "Discord access",
-    artifact: "the 🎓 role, granted without asking if your account is linked",
+    kind: "send",
+    label: "course-community-invite",
+    note: "“Your seat in the private #course channel” · the next day",
   },
   {
-    name: "Your share code",
-    artifact: "a discount code to give away",
+    kind: "send",
+    label: "course-discord-access",
+    note: "the 🎓 Student role, granted without asking if your Discord is linked",
+  },
+  {
+    kind: "wait",
+    label: "course-share-code",
+    note: "a week in, if you've done the work — a discount code to give away",
   },
 ];
 
-function PurchaseFanout(): JSX.Element {
+function PurchaseFanoutTrace(): JSX.Element {
   return (
-    <div>
-      <span className="inline-flex items-center rounded-md border border-accent/40 bg-accent-tint px-3 py-1.5 font-mono text-[13px] text-white">
-        course.purchased
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-6">
+      <span className="font-mono text-[11px] text-white/40 tracking-wide">
+        one event, five journeys — each with one job
       </span>
-      <ul className="mt-2 ml-3 flex flex-col border-white/10 border-l">
-        {PURCHASE_FANOUT.map((row) => (
-          <li key={row.name} className="relative py-3 pl-6">
-            <span
-              aria-hidden="true"
-              className="absolute top-1/2 left-0 h-px w-4 bg-white/10"
-            />
-            <p className="font-medium text-sm text-white">{row.name}</p>
-            <p className="mt-0.5 text-[13px] text-white/55 leading-5">
-              {row.artifact}
-            </p>
-          </li>
+      <div className="mt-4 flex flex-col">
+        {PURCHASE_FANOUT.map((step, i) => (
+          <div key={step.label} className="flex gap-4">
+            <div className="flex flex-col items-center">
+              <span
+                className={cn(
+                  "mt-1 inline-flex size-3 shrink-0 rounded-full",
+                  step.kind === "wait"
+                    ? "ps-pulse bg-[#f64838]"
+                    : step.kind === "trigger"
+                      ? "bg-white"
+                      : "border-2 border-white/30 bg-transparent",
+                )}
+              />
+              {i < PURCHASE_FANOUT.length - 1 && (
+                <span className="my-1 w-px flex-1 bg-white/15" />
+              )}
+            </div>
+            <div className="pb-5">
+              <p className="font-mono text-[13px] text-white">{step.label}</p>
+              <p className="mt-0.5 text-[12px] text-white/50 leading-5">
+                {step.note}
+              </p>
+            </div>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------------ */
-/*  The three check-in outcomes — real subjects as the artifacts.           */
+/*  The live demo window — the homepage hero demo, hosted here too. Same    */
+/*  chrome, same InAppDemoBody (a REAL sign-up + the live in-app feed).     */
 /* ------------------------------------------------------------------------ */
 
-const CHECKIN_OUTCOMES: { answer: string; title: string; line: string }[] = [
+function LiveDemoWindow(): JSX.Element {
+  return (
+    <div className="overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-2xl">
+      <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
+        <div className="flex items-center gap-3">
+          <div aria-hidden="true" className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+            <span className="size-2.5 rounded-full bg-white/15" />
+          </div>
+          <span className="font-mono text-[11px] text-white/40 tracking-wide">
+            hogsend.com — live demo
+          </span>
+        </div>
+        <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
+          <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
+          {isHogsendConfigured ? "live" : "offline"}
+        </span>
+      </div>
+      {isHogsendConfigured ? (
+        <div className="p-4 text-left md:p-6">
+          <InAppDemoBody />
+        </div>
+      ) : (
+        <div className="p-8 text-center">
+          <p className="text-sm text-white/55">
+            The live demo needs the production keys — see it running on the{" "}
+            <Link href="/" className="font-medium text-white">
+              homepage
+            </Link>
+            .
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------------ */
+/*  Card copy                                                                */
+/* ------------------------------------------------------------------------ */
+
+/** The three live surfaces on THIS page — every claim wired in this repo. */
+const LIVE_SURFACES = [
   {
-    answer: "Yes, it's live",
-    title: "“A small favour”",
-    line: "Two days later we ask you to tell a friend — the referral loop below.",
+    lead: "The bell, above you.",
+    rest: "A real @hogsend/react feed on a publishable key — journeys on our production instance drop notifications straight into it.",
   },
   {
-    answer: "Not yet",
-    title: "“If the install is the blocker”",
-    line: "Real help: the setup week, a human installing it with you.",
+    lead: "The ticker, at the very top.",
+    rest: "Your newest notification, ambient. Click it and the bell's feed opens.",
   },
   {
-    answer: "Silence",
-    title: "We look at what you did instead",
-    line: "A deploy click since the check-in means you got moving — the pitch is withdrawn, the favour asked instead.",
+    lead: "The sign-up, below.",
+    rest: "Fires a real docs.subscribed event into the ingest pipeline — Loop 1 picks you up from there.",
+  },
+];
+
+/** The three check-in outcomes — real subjects as the artifacts. */
+const CHECKIN_OUTCOMES = [
+  {
+    lead: "Yes, it's live.",
+    rest: "Two days later, “A small favour” — the referral ask, only ever on the happy path.",
+  },
+  {
+    lead: "Not yet.",
+    rest: "“If the install is the blocker” — the setup week, a human installing it with you.",
+  },
+  {
+    lead: "Silence.",
+    rest: "We look at what you did instead — a deploy click since the check-in withdraws the pitch and asks the favour instead.",
+  },
+];
+
+/** More course surfaces on the same instance — all real journeys. */
+const COURSE_SURFACES = [
+  {
+    lead: "Milestones.",
+    rest: "Crossing 25, 50, 75% each gets a note — “You're halfway — most people never get here.”",
+  },
+  {
+    lead: "Gifts.",
+    rest: "Three journeys: the code to the buyer, the unwrap to the recipient, a note back when it's redeemed.",
+  },
+  {
+    lead: "The plan's gate reviews.",
+    rest: "The course ends with a 30/60/90-day plan — “Day 30 — your gate review is due” holds you to it.",
+  },
+];
+
+/** The Discord role ladder — every promotion is a journey. */
+const ROLE_LADDER = [
+  {
+    emoji: "🧍",
+    role: "Stranger",
+    how: "Joined the server, unlinked — a DM nudges you to run /link.",
+  },
+  {
+    emoji: "🐷",
+    role: "Piglet",
+    how: "Verified with /link — the role flips the moment the identities fold.",
+  },
+  {
+    emoji: "🐗",
+    role: "Hog",
+    how: "Seven days in plus one message — a durable wait graduates you.",
+  },
+  {
+    emoji: "🎓",
+    role: "Student",
+    how: "Bought the course — granted without asking once your Discord is linked.",
+  },
+  {
+    emoji: "🏅",
+    role: "Ambassador",
+    how: "Referrals crossing the milestone — granted once, ever.",
   },
 ];
 
@@ -444,22 +568,29 @@ const CHECKIN_OUTCOMES: { answer: string; title: string; line: string }[] = [
 
 export default function DogfoodPage(): JSX.Element {
   return (
-    <main className="flex flex-1 flex-col">
+    <main className="flex flex-1 flex-col overflow-x-clip">
       {/* ---- Hero ------------------------------------------------------ */}
-      <section className="relative overflow-hidden text-white">
+      <section className="relative overflow-hidden">
         <div className="container-page pt-32 pb-20">
           <Reveal>
-            <SectionHeading
-              eyebrow="How we use it"
-              title="How we run Hogsend on Hogsend"
-              subtitle="Hogsend is one business, and its marketing runs on one production Hogsend instance. These are the four loops it runs — shown as the real emails, DMs, and journeys they are."
+            <Eyebrow>How we use it</Eyebrow>
+            <Headline
+              as="h1"
+              lead="Hogsend runs on Hogsend."
+              tail="These are the loops."
+              className="max-w-[880px] md:text-[56px] md:leading-[63px]"
             />
+            <p className="mt-6 max-w-[620px] text-base text-white/75 leading-[24px] tracking-[-0.02em]">
+              Hogsend is one business, and all of its marketing runs on one
+              production Hogsend instance. Everything below is a real email, DM,
+              or notification it sends — including a few aimed at you.
+            </p>
           </Reveal>
           <Reveal
             delay={0.1}
-            className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4"
+            className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-4"
           >
-            <Button href="#bucket" variant="accent" icon>
+            <Button href="#live" variant="accent" icon>
               See the loops
             </Button>
             <Button href={GITHUB_URL} variant="outline" external>
@@ -469,190 +600,279 @@ export default function DogfoodPage(): JSX.Element {
         </div>
       </section>
 
-      {/* ---- The bucket --------------------------------------------------- */}
-      <Section id="bucket">
-        <Reveal>
-          <SectionHeading
-            align="center"
-            eyebrow="The aim"
-            title="Fix the bucket before paying to fill it"
-            subtitle="We nurture every step of the way — so when we turn paid traffic on, the bucket has no holes."
-          />
-        </Reveal>
-        <Reveal delay={0.1} className="mx-auto mt-12 max-w-3xl">
-          <MockupFrame>
-            <BucketDiagram />
-          </MockupFrame>
-          <p className="mt-4 text-center text-[13px] text-white/45 leading-5">
-            Paid clicks are the most expensive way to find a leak. Every loop
-            below plugs one first.
-          </p>
-        </Reveal>
-      </Section>
-
-      {/* ---- Loop 1: the docs funnel ------------------------------------ */}
-      <Section id="docs-funnel">
-        <Reveal>
-          <SectionHeading
-            eyebrow="Loop 1 · The docs funnel"
-            title="Get readers to a running journey"
-            subtitle="Six short notes over ten days, then one question. The tap is the answer — it flows back into the journey and decides what happens next."
-          />
-        </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
+      {/* ---- You're inside it ------------------------------------------- */}
+      <section id="live" className="relative border-[#f6483826] border-t">
+        <div className="container-page pt-16 pb-24">
           <Reveal>
-            <MockLabel>The day-10 email, as sent</MockLabel>
-            <MockupFrame>
-              <CheckinEmailMock />
-            </MockupFrame>
+            <Eyebrow>Live right now</Eyebrow>
+            <div className="flex flex-col justify-between gap-8 lg:flex-row lg:items-end">
+              <Headline
+                lead="You're inside one of the loops right now."
+                tail="This page is a surface."
+                className="max-w-[720px]"
+              />
+              <div className="pb-1">
+                <OpenBellButton />
+              </div>
+            </div>
+            <p className="mt-6 max-w-[620px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
+              This site runs on the instance it documents. Neither the bell nor
+              anything it shows you is a mock.
+            </p>
           </Reveal>
-          <Reveal delay={0.1}>
-            <MockLabel>The journey listening for the tap</MockLabel>
-            <CodeWindow
-              filename="src/journeys/docs-subscriber.ts (trimmed)"
-              code={CHECKIN_LISTENER_CODE}
-            />
-          </Reveal>
-        </div>
-        <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-3">
-          {CHECKIN_OUTCOMES.map((outcome, index) => (
-            <Reveal key={outcome.answer} delay={index * 0.05}>
-              <Card className="h-full">
-                <TagPill accent={outcome.answer === "Yes, it's live"}>
-                  {outcome.answer}
-                </TagPill>
-                <h3 className="mt-4 font-medium text-[16px] text-white leading-[1.3] tracking-[-0.02em]">
-                  {outcome.title}
-                </h3>
-                <p className="mt-2 text-[13px] text-white/55 leading-5">
-                  {outcome.line}
-                </p>
-              </Card>
-            </Reveal>
-          ))}
-        </div>
-      </Section>
 
-      {/* ---- Loop 2: the course ------------------------------------------ */}
-      <Section id="course">
-        <Reveal>
-          <SectionHeading
-            eyebrow="Loop 2 · The course"
-            title="The course runs on what it teaches"
-            subtitle="One purchase starts five journeys, each with one job. When you finish, one tap decides what we do next."
-          />
-        </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-          <Reveal>
-            <MockLabel>What a purchase kicks off</MockLabel>
-            <MockupFrame>
-              <PurchaseFanout />
-            </MockupFrame>
-          </Reveal>
-          <Reveal delay={0.1}>
-            <MockLabel>Two days after you finish</MockLabel>
-            <MockupFrame>
-              <NpsEmailMock />
-            </MockupFrame>
-          </Reveal>
-        </div>
-      </Section>
+          <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {LIVE_SURFACES.map((surface, i) => (
+              <Reveal key={surface.lead} delay={i * 0.05} className="h-full">
+                <LeadCard lead={surface.lead} rest={surface.rest} index={i} />
+              </Reveal>
+            ))}
+          </div>
 
-      {/* ---- Loop 3: referrals -------------------------------------------- */}
-      <Section id="referrals" className="overflow-visible">
-        <ProcessSteps
-          eyebrow="Loop 3 · Referrals"
-          title="Ask the favour when it's earned"
-          subtitle="The ask lives at the end of the docs funnel's happy path, not in a banner. And the credit is strict about the moment it counts."
-          steps={[
-            {
-              n: "01",
-              title: "A friend arrives through your link",
-              description:
-                "The visit is remembered against them. No codes table, no ledger to reconcile — the events are the ledger.",
-            },
-            {
-              n: "02",
-              title: "They verify in the Discord",
-              description:
-                "That's the conversion — the moment an anonymous visitor becomes a real, reachable person.",
-            },
-            {
-              n: "03",
-              title: "The credit lands on you",
-              description:
-                "A thank-you email and DM each time, and the 🏅 Ambassador role in the server when you cross the milestone — once, ever.",
-              media: (
-                <MockupFrame>
-                  <ReferralEmailMock />
-                </MockupFrame>
-              ),
-            },
-          ]}
-        />
-      </Section>
-
-      {/* ---- Loop 4: the Discord community -------------------------------- */}
-      <Section id="discord">
-        <Reveal>
-          <SectionHeading
-            eyebrow="Loop 4 · The community"
-            title="One identity across web, email, and Discord"
-            subtitle="Verify with /link and the welcome reaches you twice — a DM in Discord, and a notification in the web bell. Both, because both now belong to one contact."
-          />
-        </Reveal>
-        <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
-          <Reveal>
-            <MockLabel>In your Discord DMs</MockLabel>
-            <DiscordDmMock />
-          </Reveal>
-          <Reveal delay={0.1}>
-            <MockLabel>The same moment, in the web bell</MockLabel>
-            <BellFeedMock />
-          </Reveal>
-        </div>
-        <Reveal delay={0.15} className="mt-8 flex flex-wrap gap-2.5">
-          <TagPill>🎓 course channel unlocks automatically once linked</TagPill>
-          <TagPill>a re-link never re-greets — once per person</TagPill>
-        </Reveal>
-      </Section>
-
-      {/* ---- Closing ------------------------------------------------------ */}
-      <Section id="next">
-        <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
-          <Reveal>
-            <SectionHeading
-              align="center"
-              eyebrow="Go deeper"
-              title="Read the loops, then run your own"
-              subtitle="The course loop has a journey-by-journey walkthrough in the docs — and everything on this page runs on the same code create-hogsend scaffolds."
-            />
-          </Reveal>
-          <Reveal
-            delay={0.1}
-            className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-4"
-          >
-            <Button href="/docs/dogfooding" variant="accent" icon>
-              The course-loop deep dive
-            </Button>
-            <Button href={GITHUB_URL} variant="outline" external>
-              Source on GitHub
-            </Button>
-          </Reveal>
-          <Reveal delay={0.16}>
-            <p className="mt-6 text-sm text-white/50">
-              Hogsend is free to self-host —{" "}
-              <Link
-                href="/pricing"
-                className="text-white/70 underline-offset-2 transition-colors hover:text-white hover:underline"
-              >
-                pricing
-              </Link>{" "}
-              covers what you actually pay for.
+          <Reveal delay={0.1} className="mt-12 block">
+            <div className="mx-auto max-w-[1024px]">
+              <LiveDemoWindow />
+            </div>
+            <p className="mt-5 text-center text-[13px] text-white/40 tracking-[-0.02em]">
+              The homepage demo, live here too — the welcome email arrives from
+              hello@hogsend.com in seconds, and the feed it unlocks is the same
+              one behind the bell.
             </p>
           </Reveal>
         </div>
-      </Section>
+      </section>
+
+      {/* ---- Loop 1: the docs site --------------------------------------- */}
+      <section id="docs" className="relative border-[#f6483826] border-t">
+        <div className="container-page pt-16 pb-24">
+          <Reveal>
+            <Eyebrow>Loop 1 · The docs site</Eyebrow>
+            <Headline
+              lead="Six short notes, then one question."
+              tail="Your tap is the answer."
+            />
+            <p className="mt-6 max-w-[620px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
+              Subscribe and docs.subscribed enrolls you: welcome on day 0, one
+              benefit per note, and on day 10 an email that asks how it went.
+            </p>
+          </Reveal>
+          <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
+            <Reveal>
+              <MockLabel>the day-10 email, as sent</MockLabel>
+              <MockupFrame>
+                <CheckinEmailMock />
+              </MockupFrame>
+            </Reveal>
+            <Reveal delay={0.1}>
+              <MockLabel>the journey listening for the tap</MockLabel>
+              <CodeWindow
+                filename="src/journeys/docs-subscriber.ts (trimmed)"
+                code={CHECKIN_LISTENER_CODE}
+              />
+            </Reveal>
+          </div>
+          <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {CHECKIN_OUTCOMES.map((outcome, i) => (
+              <Reveal key={outcome.lead} delay={i * 0.05} className="h-full">
+                <LeadCard lead={outcome.lead} rest={outcome.rest} index={i} />
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- Loop 2: the course ------------------------------------------ */}
+      <section id="course" className="relative border-[#f6483826] border-t">
+        <div className="container-page pt-16 pb-24">
+          <Reveal>
+            <Eyebrow>Loop 2 · The course</Eyebrow>
+            <Headline
+              lead="The course runs on what it teaches."
+              tail="One purchase starts five journeys."
+            />
+            <p className="mt-6 max-w-[620px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
+              course.hogsend.com is another surface on the same instance —
+              Measure, Keep, and Grow sells with the loops it teaches.
+            </p>
+          </Reveal>
+          <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
+            <Reveal>
+              <MockLabel>what a purchase kicks off</MockLabel>
+              <PurchaseFanoutTrace />
+            </Reveal>
+            <Reveal delay={0.1}>
+              <MockLabel>two days after you finish</MockLabel>
+              <MockupFrame>
+                <NpsEmailMock />
+              </MockupFrame>
+            </Reveal>
+          </div>
+          <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-3">
+            {COURSE_SURFACES.map((surface, i) => (
+              <Reveal key={surface.lead} delay={i * 0.05} className="h-full">
+                <LeadCard
+                  lead={surface.lead}
+                  rest={surface.rest}
+                  index={i + 1}
+                />
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---- Loop 3: the community ---------------------------------------- */}
+      <section id="community" className="relative border-[#f6483826] border-t">
+        <div className="container-page pt-16 pb-24">
+          <Reveal>
+            <Eyebrow>Loop 3 · The community</Eyebrow>
+            <Headline
+              lead="One identity across web, email, and Discord."
+              tail="/link is the hinge."
+            />
+            <p className="mt-6 max-w-[680px] text-base text-white/55 leading-[24px] tracking-[-0.02em]">
+              Verify with /link and the welcome reaches you twice — a DM in
+              Discord, and a notification in the same bell at the top of this
+              page. Both, because both now belong to one contact.
+            </p>
+          </Reveal>
+          <div className="mt-12 grid grid-cols-1 gap-10 lg:grid-cols-2 lg:items-start">
+            <Reveal>
+              <MockLabel>in your Discord DMs</MockLabel>
+              <DiscordDmMock />
+            </Reveal>
+            <Reveal delay={0.1}>
+              <MockLabel>the same moment, in the web bell</MockLabel>
+              <BellFeedMock />
+            </Reveal>
+          </div>
+          <Reveal delay={0.1} className="mt-12 block">
+            <MockLabel>
+              the role ladder — every promotion is a journey
+            </MockLabel>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              {ROLE_LADDER.map((rung, i) => (
+                <div
+                  key={rung.role}
+                  className="h-full p-5"
+                  style={{
+                    background:
+                      i % 2 === 0
+                        ? "rgba(255,255,255,0.04)"
+                        : "rgba(246,72,56,0.07)",
+                  }}
+                >
+                  <p className="flex items-center gap-2.5">
+                    <span aria-hidden="true" className="text-[18px]">
+                      {rung.emoji}
+                    </span>
+                    <span className="font-medium text-[15px] text-white tracking-[-0.02em]">
+                      {rung.role}
+                    </span>
+                  </p>
+                  <p className="mt-2 text-[13px] text-white/55 leading-5 tracking-[-0.02em]">
+                    {rung.how}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ---- Loop 4: referrals -------------------------------------------- */}
+      <section
+        id="referrals"
+        className="relative overflow-visible border-[#f6483826] border-t"
+      >
+        <div className="container-page pt-16 pb-24">
+          <ProcessSteps
+            eyebrow="Loop 4 · Referrals"
+            title="Ask the favour when it's earned"
+            subtitle="The ask lives at the end of the docs funnel's happy path, not in a banner — and the credit is strict about the moment it counts."
+            steps={[
+              {
+                n: "01",
+                title: "A friend arrives through your link",
+                description:
+                  "The visit is remembered against them. No codes table, no ledger to reconcile — the events are the ledger.",
+              },
+              {
+                n: "02",
+                title: "They verify in the Discord",
+                description:
+                  "That's the conversion — the moment an anonymous visitor becomes a real, reachable person.",
+              },
+              {
+                n: "03",
+                title: "The credit lands on you",
+                description:
+                  "A thank-you email and DM each time, and the 🏅 Ambassador role in the server when you cross the milestone — once, ever.",
+                media: (
+                  <MockupFrame>
+                    <ReferralEmailMock />
+                  </MockupFrame>
+                ),
+              },
+            ]}
+          />
+        </div>
+      </section>
+
+      {/* ---- Go deeper ----------------------------------------------------- */}
+      <section className="relative">
+        <div className="container-page py-20">
+          <div className="relative overflow-hidden rounded-2xl bg-[#070303]">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0"
+              style={{
+                background:
+                  "radial-gradient(70% 100% at 0% 60%, rgba(246,72,56,0.3), rgba(246,72,56,0.08) 45%, transparent 70%)",
+              }}
+            />
+            <WaveLines
+              className="absolute inset-y-0 right-0 h-full w-[58%] opacity-70"
+              stroke="rgba(255,140,118,0.4)"
+              count={9}
+            />
+            <div className="relative p-8 md:p-14">
+              <Eyebrow light>Go deeper</Eyebrow>
+              <h2
+                className={cn(
+                  "mt-6 max-w-[640px] font-normal text-[36px] text-white leading-[1.15] tracking-[-0.02em] md:text-[48px] md:leading-[56px]",
+                  DISPLAY,
+                )}
+              >
+                Read the loops, then run your own.
+              </h2>
+              <p className="mt-5 max-w-[560px] text-sm text-white/60 leading-[22px] tracking-[-0.02em]">
+                The course loop has a journey-by-journey walkthrough in the docs
+                — and everything on this page runs on the same code
+                create-hogsend scaffolds.
+              </p>
+              <div className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
+                <Button href="/docs/dogfooding" variant="accent" icon>
+                  The course-loop deep dive
+                </Button>
+                <Button href={GITHUB_URL} variant="outline" external>
+                  Source on GitHub
+                </Button>
+              </div>
+              <p className="mt-6 text-sm text-white/50">
+                Hogsend is free to self-host —{" "}
+                <Link
+                  href="/pricing"
+                  className="text-white/70 underline-offset-2 transition-colors hover:text-white hover:underline"
+                >
+                  pricing
+                </Link>{" "}
+                covers what you actually pay for.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }
