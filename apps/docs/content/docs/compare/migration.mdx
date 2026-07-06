@@ -22,11 +22,27 @@ Once the app boots, the migration is three concrete tasks: bring your contacts o
 
 ## What migrates
 
-**Contacts.** Export your contact list from your current platform as CSV or JSON. Hogsend's bulk import endpoint (`POST /v1/admin/contacts/import`) accepts both formats. Map your fields to Hogsend's contact schema: `externalId`, `email`, `properties` (a JSON object for everything else). Most platforms export in a format that maps cleanly.
+**Contacts.** Export your contact list from your current platform as CSV or JSON and run it through the CLI's [`hogsend import`](/docs/cli/import) command, which maps fields to Hogsend's contact schema (`externalId`, `email`, `properties`), splits large lists into async import jobs, and polls them to completion. There are dedicated importers for Loops and Customer.io (below) and a generic CSV mode for everything else. Under the hood it's the bulk import endpoint (`POST /v1/admin/contacts/import`), which you can also call directly.
+
+**Suppression lists.** Unsubscribes, hard bounces, and spam complaints must come with the contacts — see the next section.
 
 **Email templates.** You'll rewrite these as React Email components, not import them. This sounds like more work than it is -- React Email templates are typically shorter and more maintainable than the markup most platforms export. They live in **your** repo under `src/emails/` as `.tsx` components with typed props (rendered through `@hogsend/email`'s machinery), so your editor catches mistakes before they reach a user's inbox.
 
 **Journey logic.** This is the core of the migration. Each visual workflow or automation rule in your current platform becomes a `defineJourney()` call in TypeScript, living in your app's `src/journeys/`. The translation is usually straightforward: "wait 2 days" becomes `ctx.sleep({ duration: days(2) })`, "check if user did X" becomes `ctx.history.hasEvent()`, and branching logic becomes `if/else` statements.
+
+## Suppressions and unsubscribes
+
+Do not import contacts without their suppression state. Someone who unsubscribed on your old platform has withdrawn consent — emailing them from Hogsend because the import dropped that bit is a compliance problem (GDPR, CAN-SPAM) and a fast route to spam complaints. Bounced addresses are just as important for a different reason: re-mailing addresses your old provider already knows are dead damages your sending domain's reputation with mailbox providers before your first real campaign.
+
+Hogsend has a dedicated bulk endpoint for this: `POST /v1/admin/suppressions/import` (the CLI importers below call it for you). Each row is an `email`, an optional `reason` (`unsubscribed` | `bounced` | `complained`, default `unsubscribed`), and an optional `externalId`. Rows map onto `email_preferences` — the same table Hogsend's own unsubscribe links and bounce handling write to — so imported suppressions are enforced by the exact same send-time gate as native ones:
+
+- `unsubscribed` → the contact is globally unsubscribed
+- `bounced` → suppressed, with the bounce recorded
+- `complained` → suppressed as a spam complaint
+
+Two properties of the import worth knowing: it's **idempotent** (re-running it never inflates bounce counts or duplicates rows), and it's **quiet** — a historical import does not emit per-row `contact.unsubscribed` outbound events, so it won't trigger journeys or fan out webhooks for opt-outs that happened months ago on another platform. A suppression row is written even when no matching contact exists yet, because the send gate checks by email address.
+
+The platform sections below cover where each platform keeps this data and what its API will and won't give you.
 
 ## What doesn't migrate
 
@@ -40,24 +56,33 @@ Once the app boots, the migration is three concrete tasks: bring your contacts o
 
 Customer.io is the most common platform teams migrate from, usually because of pricing.
 
-### 1. Export contacts
+### 1. Import contacts + suppressions
 
-Use Customer.io's People export to download your contacts as CSV. Map the fields:
+The CLI drives Customer.io's App API export for you — it creates the async people export, polls it, downloads the CSV, and imports it:
+
+```bash
+hogsend import customerio --app-key $CIO_APP_KEY --region eu --esp-suppressions
+```
+
+You need an **App API key** (Settings → API credentials → App API keys), not the Track API site/key pair. `--region` matches your account's data residency. `--segment <id>` exports one segment instead of everyone.
+
+Field mapping:
 
 | Customer.io field | Hogsend field |
 |---|---|
-| `id` or `cio_id` | `externalId` |
+| `id` (preferred) or `cio_id` | `externalId` |
 | `email` | `email` |
-| Custom attributes | `properties` (JSON object) |
+| Other attributes | `properties` |
+| `unsubscribed` attribute = true | suppression row, reason `unsubscribed` |
 
-Import via the bulk endpoint:
+`--esp-suppressions` additionally imports the ESP suppression list — `GET /v1/esp/suppression/bounces` as reason `bounced` and `/spam_reports` as reason `complained`. That list only exists when Customer.io's own ESP delivers your email; on custom-SMTP workspaces the command warns and moves on.
 
-```bash
-curl -X POST https://your-hogsend.example.com/v1/admin/contacts/import \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d @contacts.json
-```
+What Customer.io **won't** give you via API:
+
+- **The workspace suppression list** (people deleted + blocked via the Track API `suppress` call). There's no endpoint; support provides it as a CSV with SHA-256-hashed emails and IDs, so you can check membership against it but cannot recover the addresses.
+- **Segment definitions.** `GET /v1/segments` returns metadata only — the conditions of a dynamic segment are not in the response. Re-express the ones you need as `trigger.where` conditions or journey code.
+- **Workflow graphs.** Campaign endpoints return names and IDs, not the branch/delay/exit structure. Translating those by hand is step 2.
+- **Historical events.** The activities endpoints guarantee only about 30 days of history.
 
 ### 2. Translate workflows
 
@@ -127,13 +152,48 @@ If you're already on PostHog, your events are already flowing. Point your PostHo
 
 If Customer.io was receiving events directly from your app (not via PostHog), update your app's event calls to either send to PostHog (recommended) or directly to Hogsend's ingest endpoint.
 
-## From Loops, Brevo, or ActiveCampaign
+## From Loops
+
+Loops has **no bulk contacts API** — the complete Contacts API surface is create/update/find/delete, with no list endpoint. The only full-audience export is the CSV download on the dashboard's Audience page. Download that first, then:
+
+```bash
+hogsend import loops --csv audience.csv --api-key $LOOPS_API_KEY
+```
+
+Field mapping:
+
+| Loops field | Hogsend field |
+|---|---|
+| `userId` | `externalId` |
+| `email` | `email` |
+| Names, `source`, `userGroup`, custom properties | `properties` |
+| `subscribed` = false | suppression row, reason `unsubscribed` |
+
+`--api-key` is optional but useful: the importer fetches your custom property definitions (`GET /v1/contacts/properties`) so number and boolean columns import typed instead of as strings, and lists your mailing lists for reference (per-list membership is not in the CSV export).
+
+Loops' deliverability suppression list (hard bounces + spam complaints) is also not bulk-exportable — the API only offers a per-contact lookup. `--check-suppressions` (requires `--api-key`) queries it for every contact at Loops' 10 requests/second limit; the command prints a time estimate before starting, because on a big list this takes a while. Loops merges bounces and complaints into a single flag with no way to tell them apart, so a suppressed contact imports with reason `bounced`.
+
+What Loops **won't** give you at all: send history and per-contact engagement (no endpoint of any kind), event history (`/v1/events/send` is write-only), campaign/workflow analytics, and rendered email HTML (email bodies export as Loops' proprietary LMX markup, not HTML — which matters less here, since you're rewriting templates as React Email anyway).
+
+Then rewrite journeys and templates as below.
+
+## From Brevo, ActiveCampaign, or anywhere else
 
 The process is the same pattern regardless of the source platform:
 
-### 1. Export contacts
+### 1. Export contacts + suppressions
 
-Every platform has a contact export feature. Download as CSV, map to Hogsend's schema (`externalId`, `email`, `properties`), and import via the bulk endpoint.
+Every platform has a contact CSV export. The generic importer maps `email` / `externalId` columns to identity and every other column to properties:
+
+```bash
+hogsend import csv --file contacts.csv
+```
+
+Export the platform's unsubscribe and bounce lists too (most platforms have a separate export for these, often under "campaign statistics" or "contact status"), shape them into `email,reason` columns, and import them as suppressions:
+
+```bash
+hogsend import csv --file unsubscribes.csv --suppressions
+```
 
 ### 2. Rewrite journeys
 

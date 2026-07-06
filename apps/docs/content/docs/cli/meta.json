@@ -6,6 +6,7 @@
     "doctor",
     "journeys",
     "contacts",
+    "import",
     "stats",
     "events",
     "webhooks",

@@ -26,6 +26,7 @@ import {
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
+import { importSuppressionsTask } from "./workflows/import-suppressions.js";
 import {
   reapStuckCampaignsTask,
   sendCampaignTask,
@@ -92,6 +93,7 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     sendEmailTask,
     sendFeedTask,
     importContactsTask,
+    importSuppressionsTask,
     sendCampaignTask,
     reapStuckCampaignsTask,
     deliverWebhookTask,

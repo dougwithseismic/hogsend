@@ -241,7 +241,7 @@ const batchEnrollRoute = createRoute({
 
 export const bulkRouter = new OpenAPIHono<AppEnv>()
   .openapi(importRoute, async (c) => {
-    const { db } = c.get("container");
+    const { db, logger } = c.get("container");
     const body = c.req.valid("json");
 
     const [job] = await db
@@ -254,11 +254,19 @@ export const bulkRouter = new OpenAPIHono<AppEnv>()
 
     if (!job) throw new Error("Failed to create import job");
 
-    await importContactsTask.run({
-      jobId: job.id,
-      data: body.data,
-      format: body.format,
-    });
+    // Fire-and-forget (`runNoWait`, not the old awaited `run`): the route's
+    // contract is a 202 "queued" — awaiting the task to completion before
+    // responding defeated the async job + status-poll design on large imports.
+    // Mirrors the outbound emit spine: a failed enqueue is logged and the job
+    // row stays `pending` (visible via the status route).
+    void importContactsTask
+      .runNoWait({ jobId: job.id, data: body.data, format: body.format })
+      .catch((error: unknown) => {
+        logger.warn("contacts/import: task enqueue failed", {
+          jobId: job.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
 
     return c.json({ jobId: job.id, status: "pending" }, 202);
   })

@@ -564,6 +564,14 @@ export {
   reapDueWebhookDeliveriesTask,
 } from "./workflows/deliver-webhook.js";
 export { importContactsTask } from "./workflows/import-contacts.js";
+export {
+  importSuppressionsTask,
+  type MappedSuppressionRow,
+  mapSuppressionRow,
+  SUPPRESSION_REASONS,
+  type SuppressionImportRow,
+  type SuppressionReason,
+} from "./workflows/import-suppressions.js";
 export { sendCampaignTask } from "./workflows/send-campaign.js";
 // --- Built-in Hatchet workflow tasks ---
 export { sendEmailTask } from "./workflows/send-email.js";
