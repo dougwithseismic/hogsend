@@ -25,7 +25,7 @@ import { CONTACT_EMAIL } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Done-for-you lifecycle email for PostHog-native startups",
   description:
-    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program for you. A one-time $2,300 setup week, then a managed retainer from $1,000/month.",
+    "I find the moments where your funnel loses customers — stalled trials, cancels, one-and-done buyers — build the emails that recover them, and run the whole program for you. Done-for-you at $1,500/month with a three-month minimum, month one is the install — or the install alone as a $2,300 setup week.",
 };
 
 const MAILTO = `mailto:${CONTACT_EMAIL}`;
@@ -106,10 +106,11 @@ const SETUP_ITEMS: string[] = [
   "You can see every send and result, without touching the build.",
 ];
 
-const RETAINER_ITEMS: string[] = [
-  "Ongoing email and sequence work as your product and funnel change.",
+const DONE_FOR_YOU_ITEMS: string[] = [
+  "Month one: everything in the setup week, from mapping to live journeys.",
+  "New journeys and experiments as your product and funnel change.",
   "Monitoring, so a stalled or broken send gets caught — not discovered months later.",
-  "The program keeps improving instead of going stale.",
+  "A weekly report on the program.",
 ];
 
 const OWNERSHIP_TAGS: string[] = [
@@ -221,8 +222,8 @@ export default function ServicePage(): JSX.Element {
               </Button>
             </div>
             <p className="eyebrow mt-6 text-white/50">
-              $2,300 setup week · Managed retainer from $1,000/month · No
-              per-contact billing
+              Done-for-you $1,500/month · 3-month minimum · $2,300 setup week ·
+              No per-contact billing
             </p>
           </Reveal>
 
@@ -236,9 +237,9 @@ export default function ServicePage(): JSX.Element {
       <Section>
         <Reveal>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-10 md:grid-cols-4">
-            <Stat value="$2,300" label="Setup, one-time" />
-            <Stat value="$1,000+" label="Managed, per month" />
-            <Stat value="Done for you" label="Nothing for you to build" />
+            <Stat value="$1,500/mo" label="Done-for-you, 3-month minimum" />
+            <Stat value="Month one" label="Is the install" />
+            <Stat value="$2,300" label="Setup week, one-time" />
             <Stat value="$0" label="Per-contact fees" />
           </dl>
         </Reveal>
@@ -278,16 +279,16 @@ export default function ServicePage(): JSX.Element {
         </Reveal>
       </Section>
 
-      {/* ---- Pricing: the setup + the retainer ------------------------ */}
+      {/* ---- Pricing: done-for-you + the setup week -------------------- */}
       <Section id="pricing">
         <SectionHeading
           eyebrow="How it's priced"
-          title="Set it up, then keep it running"
-          subtitle="A scoped build first, then a managed retainer — both billed simply, with no per-contact meter."
+          title="Installed and run, or the install alone"
+          subtitle="One price if you want the program installed and operated; one if you only want the install. No per-contact meter."
         />
 
         <div className="mt-12 grid items-stretch gap-6 md:grid-cols-2">
-          {/* The setup — the accent-highlighted entry point. */}
+          {/* Done-for-you — the accent-highlighted main offer. */}
           <Reveal delay={0.08}>
             <Card className="relative flex h-full flex-col overflow-hidden border-accent/40 p-8">
               <div
@@ -300,8 +301,45 @@ export default function ServicePage(): JSX.Element {
               />
               <div className="relative flex flex-1 flex-col">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">The setup</span>
-                  <TagPill accent>Find + build</TagPill>
+                  <span className="text-base text-white">Done-for-you</span>
+                  <TagPill accent>Install + operate</TagPill>
+                </div>
+
+                <div className="mt-5 flex items-baseline gap-1.5">
+                  <span className="font-display text-[40px] text-white leading-[48px]">
+                    $1,500
+                  </span>
+                  <span className="text-base text-white/60">/per month</span>
+                </div>
+
+                <p className="mt-4 text-base text-white/70 leading-6">
+                  Three-month minimum. Month one is the install — everything in
+                  the setup week. From month two onward I operate it: new
+                  journeys, experiments, and a weekly report.
+                </p>
+
+                <p className="eyebrow mt-8 text-white/50">What it covers</p>
+                <CheckList items={DONE_FOR_YOU_ITEMS} />
+
+                <div className="mt-auto border-white/[0.08] border-t pt-6">
+                  <Button href={MAILTO} variant="accent" icon>
+                    Email doug@withseismic.com
+                  </Button>
+                  <p className="eyebrow mt-6 text-white/50">
+                    Monthly · 3-month minimum · your accounts
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </Reveal>
+
+          {/* The setup week — the install alone. */}
+          <Reveal delay={0.16}>
+            <Card className="relative flex h-full flex-col overflow-hidden p-8">
+              <div className="relative flex flex-1 flex-col">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-base text-white">The setup week</span>
+                  <TagPill>Just the install</TagPill>
                 </div>
 
                 <div className="mt-5 flex items-baseline gap-1.5">
@@ -312,12 +350,13 @@ export default function ServicePage(): JSX.Element {
                 </div>
 
                 <p className="mt-4 text-base text-white/70 leading-6">
-                  A fixed one-week engagement. It&apos;s where your program gets
-                  found, designed, and built, not just switched on.
+                  A fixed one-week engagement — the install only. Your program
+                  gets found, designed, built, and handed over; running it from
+                  there is yours.
                 </p>
 
                 <p className="eyebrow mt-8 text-white/50">
-                  What the engagement covers
+                  What the week covers
                 </p>
                 <CheckList items={SETUP_ITEMS} />
 
@@ -327,7 +366,7 @@ export default function ServicePage(): JSX.Element {
                 </p>
 
                 <div className="mt-auto border-white/[0.08] border-t pt-6">
-                  <Button href={MAILTO} variant="accent" icon>
+                  <Button href={MAILTO} variant="outline" icon>
                     Email doug@withseismic.com
                   </Button>
                   <p className="eyebrow mt-6 text-white/50">
@@ -337,49 +376,21 @@ export default function ServicePage(): JSX.Element {
               </div>
             </Card>
           </Reveal>
-
-          {/* The retainer — keeping it working. */}
-          <Reveal delay={0.16}>
-            <Card className="relative flex h-full flex-col overflow-hidden p-8">
-              <div className="relative flex flex-1 flex-col">
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-base text-white">The retainer</span>
-                  <TagPill>Keep it running</TagPill>
-                </div>
-
-                <div className="mt-5 flex items-baseline gap-1.5">
-                  <span className="font-display text-[40px] text-white leading-[48px]">
-                    $1,000
-                  </span>
-                  <span className="text-base text-white/60">/per month</span>
-                </div>
-
-                <p className="mt-4 text-base text-white/70 leading-6">
-                  Lifecycle programs drift — your product changes, a moment
-                  shifts, a send quietly stalls. The retainer keeps it working,
-                  and keeps recovering more over time instead of going stale.
-                </p>
-
-                <p className="eyebrow mt-8 text-white/50">What it covers</p>
-                <CheckList items={RETAINER_ITEMS} />
-
-                <p className="mt-6 text-base text-white/60 leading-6">
-                  Typically $1,000–3,000/month, depending on how much is
-                  changing.
-                </p>
-
-                <div className="mt-auto border-white/[0.08] border-t pt-6">
-                  <Button href={MAILTO} variant="outline" icon>
-                    Email doug@withseismic.com
-                  </Button>
-                  <p className="eyebrow mt-6 text-white/50">
-                    Monthly · scales with what&apos;s changing
-                  </p>
-                </div>
-              </div>
-            </Card>
-          </Reveal>
         </div>
+
+        <Reveal delay={0.2}>
+          <p className="mt-8 text-sm text-white/60">
+            If you only want the software run — a managed single-tenant
+            instance, no lifecycle work — that&apos;s $149/month on the{" "}
+            <Link
+              href="/pricing"
+              className="text-white/80 underline decoration-white/30 underline-offset-4 transition-colors hover:text-white"
+            >
+              pricing page
+            </Link>
+            .
+          </p>
+        </Reveal>
       </Section>
 
       {/* ---- Ownership: the no-lock-in band --------------------------- */}
