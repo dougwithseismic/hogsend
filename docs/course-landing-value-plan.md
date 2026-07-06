@@ -48,7 +48,7 @@ Status legend: `[ ]` todo · `[~]` built-to-seam · `[x]` done
 - [x] **F3. Reader quotes section** — `ReaderQuotes` ds component (data-driven)
   rendering Will's real pull-quotes with honest attribution; placed after the
   benchmarks. No invented people.
-- [ ] **F4. "Expense it" section** — pre-written manager-approval email in a
+- [x] **F4. "Expense it" section** — pre-written manager-approval email in a
   copyable block (CopyButton), section copy about unused L&D budgets, FAQ item
   updated to mention it; team copies line pointing at the existing gift flow;
   group licensing beyond that = mailto seam.

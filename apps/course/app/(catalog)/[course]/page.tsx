@@ -27,6 +27,7 @@ import { Reveal } from "@/components/ds/reveal";
 import { Section, SectionHeading } from "@/components/ds/section";
 import { StatBand } from "@/components/ds/stat-band";
 import { WordReveal } from "@/components/ds/word-reveal";
+import { ExpenseCourse } from "@/components/expense-course";
 import { GiftBanner, GiftCourse } from "@/components/gift-course";
 import {
   type CourseModuleLesson,
@@ -238,7 +239,7 @@ function buildFaqItems(priceLabel: string): { q: string; a: string }[] {
     },
     {
       q: "Can I gift it or expense it?",
-      a: "Both. Gifting mints a single-use unlock code — emailed to your recipient, or to you to forward — and it never expires. For expensing, checkout issues a proper invoice.",
+      a: "Both. Gifting mints a single-use unlock code — emailed to your recipient, or to you to forward — and it never expires. For expensing, checkout issues a proper invoice, and there's a pre-written approval email on this page you can copy and send to your manager.",
     },
     {
       q: "What's the refund policy?",
@@ -1013,6 +1014,26 @@ export default async function CourseOverview(props: {
             title="Give it to someone on your team"
           />
           <GiftCourse course={course} />
+        </Section>
+      ) : null}
+
+      {/* Expense it — only worth showing while the course isn't unlocked. */}
+      {flagship && locked ? (
+        <Section id="expense-it">
+          <SectionHeading
+            eyebrow="Expense it"
+            title="Get this course for free"
+            subtitle="Most teams have a learning budget that goes unused. We've written the email — edit the brackets and send it."
+            align="center"
+            className="items-center"
+          />
+          <Reveal className="mx-auto mt-12 max-w-2xl">
+            <ExpenseCourse
+              courseTitle={course.title}
+              courseSlug={slug}
+              priceLabel={priceLabel}
+            />
+          </Reveal>
         </Section>
       ) : null}
 
