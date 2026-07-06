@@ -1321,6 +1321,43 @@ export const winback = defineJourney({
     await sendEmail({ to: user.email, template: "reactivation-final-nudge" });
   },
 });`,
+  community: `import { days } from "@hogsend/core";
+import {
+  defineJourney,
+  sendConnectorAction,
+  sendEmail,
+  sendFeedItem,
+} from "@hogsend/engine";
+
+export const milestone = defineJourney({
+  meta: {
+    id: "milestone-celebration",
+    trigger: { event: "usage.milestone_reached" },
+    entryLimit: "once_per_period",
+    entryPeriod: days(30),
+  },
+  run: async (user, ctx) => {
+    // One moment, three channels — the same contact everywhere.
+    await sendFeedItem({
+      recipient: { userId: user.id },
+      type: "milestone",
+      title: "You just hit 1,000 events 🎉",
+      body: "Your first-month milestone — see what changed.",
+    });
+
+    // Linked their Discord with /link? Congratulate them where they hang out.
+    const dm = (await sendConnectorAction({
+      connectorId: "discord",
+      action: "dmMember",
+      args: { member: user.email, content: "1,000 events — nice. 🎉" },
+    })) as { delivered: boolean };
+
+    // No linked Discord, or DMs closed? The email carries it instead.
+    if (!dm.delivered) {
+      await sendEmail({ to: user.email, template: "milestone-celebration" });
+    }
+  },
+});`,
 };
 
 /* Provider choice is config, not journey code — the toggle swaps only this. */
@@ -1336,14 +1373,21 @@ POSTMARK_SERVER_TOKEN=…`,
 /** Async RSC wrapper: Shiki-highlights the samples server-side and hands the
  * rendered nodes to the client picker (the homepage composition pattern). */
 async function PsCode() {
-  const [onboarding, trialConversion, winback, resendEnv, postmarkEnv] =
-    await Promise.all([
-      CodeHighlight({ code: JOURNEY_SAMPLES.onboarding, lang: "ts" }),
-      CodeHighlight({ code: JOURNEY_SAMPLES.trial_conversion, lang: "ts" }),
-      CodeHighlight({ code: JOURNEY_SAMPLES.winback, lang: "ts" }),
-      CodeHighlight({ code: ENV_SAMPLES.resend, lang: "bash" }),
-      CodeHighlight({ code: ENV_SAMPLES.postmark, lang: "bash" }),
-    ]);
+  const [
+    onboarding,
+    trialConversion,
+    winback,
+    community,
+    resendEnv,
+    postmarkEnv,
+  ] = await Promise.all([
+    CodeHighlight({ code: JOURNEY_SAMPLES.onboarding, lang: "ts" }),
+    CodeHighlight({ code: JOURNEY_SAMPLES.trial_conversion, lang: "ts" }),
+    CodeHighlight({ code: JOURNEY_SAMPLES.winback, lang: "ts" }),
+    CodeHighlight({ code: JOURNEY_SAMPLES.community, lang: "ts" }),
+    CodeHighlight({ code: ENV_SAMPLES.resend, lang: "bash" }),
+    CodeHighlight({ code: ENV_SAMPLES.postmark, lang: "bash" }),
+  ]);
 
   return (
     <section className="relative border-[#f6483826] border-t overflow-hidden">
@@ -1372,6 +1416,7 @@ async function PsCode() {
               onboarding,
               trial_conversion: trialConversion,
               winback,
+              community,
             }}
             envs={{ resend: resendEnv, postmark: postmarkEnv }}
             raw={JOURNEY_SAMPLES}

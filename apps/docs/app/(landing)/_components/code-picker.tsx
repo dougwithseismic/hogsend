@@ -14,13 +14,18 @@ import { cn } from "@/lib/cn";
  * highlighted nodes are rendered in the page and passed in as props.
  */
 
-export type UseCaseValue = "onboarding" | "trial_conversion" | "winback";
+export type UseCaseValue =
+  | "onboarding"
+  | "trial_conversion"
+  | "winback"
+  | "community";
 export type ProviderValue = "resend" | "postmark";
 
 const USE_CASE_ORDER: readonly UseCaseValue[] = [
   "onboarding",
   "trial_conversion",
   "winback",
+  "community",
 ];
 
 const USE_CASES: Record<
@@ -41,6 +46,11 @@ const USE_CASES: Record<
     label: "Win-back",
     filename: "src/journeys/winback.ts",
     href: "/use-cases/winback",
+  },
+  community: {
+    label: "Discord + in-app",
+    filename: "src/journeys/milestone.ts",
+    href: "/use-cases/community",
   },
 };
 
