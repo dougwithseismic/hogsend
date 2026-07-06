@@ -83,7 +83,7 @@ emitted to the ingest spine for lifecycle/analytics.
   (clamped 2–25): quantity-N line item, `team`/`seats` metadata,
   `allow_promotion_codes: false` for team sessions (a single-use 100%-off
   code must not zero an N-seat purchase), success URL `?team=success`.
-- [ ] **F8. Webhook fulfillment + email + events** — `handleTeamSession`:
+- [x] **F8. Webhook fulfillment + email + events** — `handleTeamSession`:
   record pack, mint codes, send the buyer the codes email (Resend-direct,
   `emailedAt` gate so a resumed retry still delivers exactly one email), emit
   `course.team_purchased`; extend `handlePossibleRedemption` to mark license

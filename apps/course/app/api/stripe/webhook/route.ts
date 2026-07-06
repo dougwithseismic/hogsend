@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import { skuTitle } from "@/lib/courses";
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
+import { sendTeamCodesEmail } from "@/lib/email";
 import { recordPurchase, revokePurchase } from "@/lib/entitlements";
 import {
   emitGifted,
@@ -11,12 +12,21 @@ import {
   emitGiftRedeemed,
   emitPurchased,
   emitShareRedeemed,
+  emitTeamPurchased,
+  emitTeamSeatRedeemed,
 } from "@/lib/events";
 import {
   couponAttributionFromSession,
   markGiftRedeemed,
   recordGiftAndMintCode,
 } from "@/lib/gifts";
+import {
+  clampSeats,
+  markLicenseCodeRedeemed,
+  markPackEmailed,
+  recordPackAndMintCodes,
+} from "@/lib/licenses";
+import { SITE_URL } from "@/lib/site";
 import { getStripe, paywallConfigured, webhookConfigured } from "@/lib/stripe";
 
 export const runtime = "nodejs";
@@ -91,6 +101,56 @@ async function handleGiftSession(s: Stripe.Checkout.Session): Promise<void> {
 }
 
 /**
+ * A completed TEAM session: record the pack, mint the seat codes, email them
+ * to the buyer, emit the purchase event. Every step is retry-safe: the pack
+ * claims the session id, the mint resumes the missing remainder, the email is
+ * gated on emailedAt, and the event is keyed on the session id.
+ */
+async function handleTeamSession(s: Stripe.Checkout.Session): Promise<void> {
+  const courseSlug = s.metadata?.courseSlug;
+  const buyerUserId = s.metadata?.userId ?? s.client_reference_id ?? undefined;
+  if (!courseSlug || !buyerUserId) return;
+  const seats = clampSeats(s.metadata?.seats);
+
+  const result = await recordPackAndMintCodes({
+    buyerUserId,
+    courseSlug,
+    seats,
+    stripeCheckoutSessionId: s.id,
+    amount: s.amount_total ?? null,
+    currency: s.currency ?? null,
+  });
+  if (!result) return;
+
+  const buyer = await userById(buyerUserId);
+  const buyerEmail =
+    buyer?.email ?? s.customer_details?.email ?? s.customer_email ?? undefined;
+  if (!buyerEmail) return;
+  const title = skuTitle(courseSlug);
+
+  if (result.needsEmail) {
+    const sent = await sendTeamCodesEmail(buyerEmail, {
+      courseTitle: title,
+      courseUrl: `${SITE_URL}/${courseSlug}`,
+      codes: result.codes,
+    });
+    if (sent) await markPackEmailed(result.packId);
+  }
+
+  await emitTeamPurchased(
+    { id: buyerUserId, email: buyerEmail, name: buyer?.name },
+    {
+      courseSlug,
+      courseTitle: title,
+      seats,
+      sessionId: s.id,
+      amount: s.amount_total ?? null,
+      currency: s.currency ?? null,
+    },
+  );
+}
+
+/**
  * A discounted purchase MAY be a redemption of a coupon we minted — one walk
  * over the applied discounts (couponAttributionFromSession) tells us which
  * kind. Gift → mark the gift row redeemed and notify the buyer once.
@@ -123,6 +183,30 @@ async function handlePossibleRedemption(
         redeemerName: redeemer?.name ?? null,
         redeemerEmail: redeemer?.email ?? null,
         recipientEmail: redeemed.recipientEmail,
+      });
+    }
+    return;
+  }
+
+  if (attribution.licenseCodeId) {
+    const redeemed = await markLicenseCodeRedeemed(
+      attribution.licenseCodeId,
+      redeemedByUserId,
+    );
+    if (!redeemed) return; // already marked (retry) or unknown code
+    const [buyer, redeemer] = await Promise.all([
+      userById(redeemed.buyerUserId),
+      userById(redeemedByUserId),
+    ]);
+    if (buyer) {
+      await emitTeamSeatRedeemed(buyer, {
+        courseSlug: redeemed.courseSlug,
+        courseTitle: skuTitle(redeemed.courseSlug),
+        sessionId: s.id,
+        seats: redeemed.seats,
+        seatsRedeemed: redeemed.redeemedCount,
+        redeemerName: redeemer?.name ?? null,
+        redeemerEmail: redeemer?.email ?? null,
       });
     }
     return;
@@ -170,7 +254,9 @@ export async function POST(req: NextRequest): Promise<Response> {
       const userId = s.metadata?.userId ?? s.client_reference_id ?? undefined;
       const email = s.customer_details?.email ?? s.customer_email ?? undefined;
 
-      if (s.metadata?.gift === "true") {
+      if (s.metadata?.team === "true") {
+        await handleTeamSession(s);
+      } else if (s.metadata?.gift === "true") {
         await handleGiftSession(s);
       } else if (courseSlug && userId) {
         const isNew = await recordPurchase({
