@@ -135,8 +135,8 @@ const REFERRAL_CONVERT_CODE = `run: async (user, ctx) => {
   });
 },`;
 
-const DISCORD_WELCOME_CODE = `// 1) The DM — a PERSONAL tracked link (stitches this member's click
-//    to their contact key). \`dmMember\` soft-fails if DMs are closed.
+const DISCORD_WELCOME_CODE = `// 1) The DM — a PERSONAL tracked link (stitches this member's click to
+//    their contact key). \`dmMember\` soft-fails if their DMs are closed.
 const dmLink = await mintLink({
   db,
   url: GETTING_STARTED_URL,
@@ -149,19 +149,21 @@ const dmLink = await mintLink({
 });
 await dmMember(
   discordId,
-  "Hey — welcome to the Hogsend community, and thanks for " +
-    \`verifying! Here's the quickest path in: \${dmLink.url}\`,
+  "Hey — welcome to the Hogsend community, and thanks for verifying! 🎉\\n\\n" +
+    \`If you're getting started, here's the quickest path in: \${dmLink.url}\\n\\n\` +
+    "Ask anything in the server — we read everything.",
 );
 
-// 1b) Drop an in-app notification into their feed — the SAME bell the
-//     docs site polls. Linking folded their discord_id + email onto
-//     ONE contact, so this lands on the web session they signed up
-//     with.
+// 1b) Drop an in-app notification into their feed — the SAME bell the docs
+//     site polls. Linking folded their discord_id + email onto ONE contact,
+//     so this lands on the web session they signed up with: a real,
+//     cross-channel "your Discord is linked" moment driven by the actual
+//     \`/link\` slash command, not a demo button.
 await sendFeedItem({
   recipient: { anonymousId: user.id },
   type: "success",
   title: "You linked your Discord 🎉",
-  body: "Your Discord is now connected to your Hogsend identity.",
+  body: "Your Discord is now connected to your Hogsend identity. This reached your bell because linking stitched your web session to your contact — one identity across web and Discord.",
   actionUrl: GETTING_STARTED_URL,
   journeyStateId: user.stateId,
 });`;
@@ -304,11 +306,12 @@ export default function DogfoodPage(): JSX.Element {
           <p className="text-[15px] text-white/60 leading-6">
             Plus one custom outbound destination (Discord) and two custom
             Hatchet workflows — a lead-alert task and a backfill job. Twenty of
-            the forty-five journeys run the course lifecycle, seven run the
-            Discord community roles, and the rest cover the docs funnel, the
-            in-app demo, and referrals. The instance publishes its own health —
-            database, Redis, worker heartbeat, and last-24-hour send and journey
-            counters — publicly at{" "}
+            the forty-five journeys run the course lifecycle and seven run the
+            Discord community — a welcome plus six role journeys. The rest cover
+            the docs funnel, the in-app demo, referrals, and the
+            scaffold&rsquo;s example journeys. The instance publishes its own
+            health — database, Redis, worker heartbeat, and last-24-hour send
+            and journey counters — publicly at{" "}
             <a
               href="https://t.hogsend.com/v1/health"
               target="_blank"
@@ -395,7 +398,7 @@ export default function DogfoodPage(): JSX.Element {
           <SectionHeading
             eyebrow="Loop 2 — the course"
             title="One purchase event, five journeys"
-            subtitle="A course purchase fires course.purchased, and five journeys enroll on it at once: the receipt welcome, the onboarding walkthrough, the day-two community invite, the Discord access grant, and the share-code issuer. Each owns one job."
+            subtitle="A course purchase fires course.purchased, and five journeys enroll on it at once: the receipt welcome, the onboarding walkthrough, the next-day community invite, the Discord access grant, and the share-code issuer. Each owns one job."
           />
         </Reveal>
         <div className="mt-12 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-start">
