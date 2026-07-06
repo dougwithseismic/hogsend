@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth";
 import { ALL_ACCESS_SLUG, priceIdForCourse } from "@/lib/courses";
 import { env } from "@/lib/env";
 import { EMAIL_PATTERN } from "@/lib/ingest";
-import { clampSeats } from "@/lib/licenses";
+import { clampSeats } from "@/lib/license-seats";
 import { getStripe, paywallConfigured } from "@/lib/stripe";
 
 export const runtime = "nodejs";

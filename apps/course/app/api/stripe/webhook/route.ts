@@ -20,8 +20,8 @@ import {
   markGiftRedeemed,
   recordGiftAndMintCode,
 } from "@/lib/gifts";
+import { clampSeats } from "@/lib/license-seats";
 import {
-  clampSeats,
   markLicenseCodeRedeemed,
   markPackEmailed,
   recordPackAndMintCodes,

@@ -1,7 +1,7 @@
 import { Users } from "lucide-react";
 import type { JSX } from "react";
 import type { CourseMeta } from "@/lib/courses";
-import { MAX_TEAM_SEATS, MIN_TEAM_SEATS } from "@/lib/licenses";
+import { MAX_TEAM_SEATS, MIN_TEAM_SEATS } from "@/lib/license-seats";
 
 /**
  * Team-licence affordance for a purchasable course: a zero-JS disclosure with

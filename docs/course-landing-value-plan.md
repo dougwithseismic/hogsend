@@ -93,9 +93,12 @@ emitted to the ingest spine for lifecycle/analytics.
   banner; account-page "Team licences" section listing packs with per-code
   redeemed status; expense-it footer line points at the team block instead of
   bare mailto.
-- [ ] **F10. Tests** — vitest for the resumable mint (inject fake mint like
-  gifts' injectable), idempotent redemption marking, and checkout seat
-  clamping.
+- [x] **F10. Tests** — seat parsing/clamping extracted to pure
+  `lib/license-seats.ts` (also keeps the DB import out of the purchase UI)
+  with full vitest coverage. DB-backed tests for the resumable mint +
+  redemption marking are NOT included: the app has no test-DB harness (the
+  gift machinery has none either) — the mint stays injectable
+  (`recordPackAndMintCodes(input, mint)`) so a harness can test it later.
 
 ## Quality gates (run per feature)
 
