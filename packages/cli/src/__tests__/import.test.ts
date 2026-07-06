@@ -1,4 +1,6 @@
+import { gzipSync } from "node:zlib";
 import { describe, expect, it, vi } from "vitest";
+import type { AdminClient } from "../lib/http.js";
 import {
   CIO_EVERYONE_FILTER,
   cioBaseUrl,
@@ -6,13 +8,19 @@ import {
   mapCioCsv,
   runCioExport,
 } from "../lib/import-customerio.js";
-import { coerceLoopsValue, mapLoopsCsv } from "../lib/import-loops.js";
+import {
+  checkLoopsSuppression,
+  coerceLoopsValue,
+  mapLoopsCsv,
+} from "../lib/import-loops.js";
 import {
   chunk,
   createRateLimitedFetch,
   mapGenericContactsCsv,
   mapGenericSuppressionsCsv,
+  pollImportJobs,
 } from "../lib/import-shared.js";
+import type { Output } from "../lib/output.js";
 
 /** Build a JSON Response the way the real APIs answer. */
 function jsonResponse(body: unknown, status = 200): Response {
@@ -433,5 +441,154 @@ describe("createRateLimitedFetch", () => {
       expect(ms).toBeGreaterThan(0);
       expect(ms).toBeLessThanOrEqual(200);
     }
+  });
+});
+
+describe("checkLoopsSuppression", () => {
+  const check = (res: Response) =>
+    checkLoopsSuppression({
+      apiKey: "k",
+      email: "a@example.com",
+      fetch: vi.fn().mockResolvedValueOnce(res),
+    });
+
+  it("reads isSuppressed from a 200 response", async () => {
+    await expect(check(jsonResponse({ isSuppressed: true }))).resolves.toBe(
+      true,
+    );
+    await expect(check(jsonResponse({ isSuppressed: false }))).resolves.toBe(
+      false,
+    );
+  });
+
+  it("treats 404 (contact unknown to Loops) as not suppressed", async () => {
+    await expect(check(new Response("nope", { status: 404 }))).resolves.toBe(
+      false,
+    );
+  });
+
+  it("throws on 401/403 with an API-key hint — never silently 'not suppressed'", async () => {
+    await expect(check(new Response("", { status: 401 }))).rejects.toThrow(
+      /401.*API key/,
+    );
+    await expect(check(new Response("", { status: 403 }))).rejects.toThrow(
+      /403.*API key/,
+    );
+  });
+
+  it("throws on a terminal 429 or 5xx", async () => {
+    await expect(check(new Response("", { status: 429 }))).rejects.toThrow(
+      /429/,
+    );
+    await expect(check(new Response("", { status: 500 }))).rejects.toThrow(
+      /500/,
+    );
+  });
+});
+
+describe("runCioExport gzip handling", () => {
+  it("inflates a gzipped export file (signed URLs often serve gzip without Content-Encoding)", async () => {
+    const csvBody = "id,email\nuser_1,a@example.com";
+    const gz = gzipSync(Buffer.from(csvBody, "utf8"));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ export: { id: 5, status: "done" } }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://files.example.com/5.csv.gz" }),
+      )
+      .mockResolvedValueOnce(new Response(new Uint8Array(gz), { status: 200 }));
+
+    const csv = await runCioExport({
+      appKey: "k",
+      baseUrl: "https://api.customer.io",
+      fetch: fetchMock,
+      sleep: noSleep,
+    });
+    expect(csv).toBe(csvBody);
+  });
+});
+
+describe("pollImportJobs", () => {
+  const out = { log: vi.fn() } as unknown as Output;
+
+  const jobStatus = (over: Record<string, unknown>) => ({
+    id: "job-1",
+    status: "pending",
+    totalRows: 2,
+    processedRows: 0,
+    failedRows: 0,
+    errors: null,
+    ...over,
+  });
+
+  it("polls to completion and aggregates the summary", async () => {
+    const get = vi
+      .fn()
+      .mockResolvedValueOnce(jobStatus({ status: "pending" }))
+      .mockResolvedValueOnce(
+        jobStatus({ status: "processing", processedRows: 1 }),
+      )
+      .mockResolvedValueOnce(
+        jobStatus({ status: "completed", processedRows: 2 }),
+      );
+
+    const summary = await pollImportJobs({
+      http: { get } as unknown as AdminClient,
+      out,
+      endpoint: "/v1/admin/suppressions/import",
+      jobIds: ["job-1"],
+      pollIntervalMs: 1,
+      sleep: noSleep,
+    });
+
+    expect(summary).toEqual({
+      jobs: 1,
+      totalRows: 2,
+      processedRows: 2,
+      failedRows: 0,
+      errors: [],
+    });
+    expect(get).toHaveBeenCalledWith("/v1/admin/suppressions/import/job-1");
+  });
+
+  it("aborts a job stuck in pending with no progress instead of polling forever", async () => {
+    const get = vi.fn().mockResolvedValue(jobStatus({ status: "pending" }));
+
+    await expect(
+      pollImportJobs({
+        http: { get } as unknown as AdminClient,
+        out,
+        endpoint: "/v1/admin/suppressions/import",
+        jobIds: ["job-1"],
+        pollIntervalMs: 10,
+        stallTimeoutMs: 30, // 3 unchanged polls
+        sleep: noSleep,
+      }),
+    ).rejects.toThrow(/job-1 stalled.*pending/);
+    // Bounded: 1 initial + 3 unchanged polls, not an infinite loop.
+    expect(get.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
+  it("does not trip the stall guard while a job makes progress", async () => {
+    let processed = 0;
+    const get = vi.fn().mockImplementation(async () => {
+      processed += 1;
+      return processed >= 5
+        ? jobStatus({ status: "completed", processedRows: processed })
+        : jobStatus({ status: "processing", processedRows: processed });
+    });
+
+    const summary = await pollImportJobs({
+      http: { get } as unknown as AdminClient,
+      out,
+      endpoint: "/v1/admin/contacts/import",
+      jobIds: ["job-1"],
+      pollIntervalMs: 10,
+      stallTimeoutMs: 20, // would trip after 2 unchanged polls — none occur
+      sleep: noSleep,
+    });
+    expect(summary.processedRows).toBe(5);
   });
 });

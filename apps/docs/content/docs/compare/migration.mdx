@@ -40,7 +40,7 @@ Hogsend has a dedicated bulk endpoint for this: `POST /v1/admin/suppressions/imp
 - `bounced` → suppressed, with the bounce recorded
 - `complained` → suppressed as a spam complaint
 
-Two properties of the import worth knowing: it's **idempotent** (re-running it never inflates bounce counts or duplicates rows), and it's **quiet** — a historical import does not emit per-row `contact.unsubscribed` outbound events, so it won't trigger journeys or fan out webhooks for opt-outs that happened months ago on another platform. A suppression row is written even when no matching contact exists yet, because the send gate checks by email address.
+Two properties of the import worth knowing: it's **idempotent** (re-running it never inflates bounce counts), and it's **quiet** — a historical import does not emit per-row `contact.unsubscribed` outbound events, so it won't trigger journeys or fan out webhooks for opt-outs that happened months ago on another platform. A suppression row is written even when no matching contact exists yet — the send-time gate aggregates every preference row for an address, so an imported suppression still blocks after the contact is created later.
 
 The platform sections below cover where each platform keeps this data and what its API will and won't give you.
 

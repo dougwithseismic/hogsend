@@ -157,10 +157,20 @@ export async function checkLoopsSuppression(opts: {
     `${LOOPS_API_BASE}/v1/contacts/suppression?email=${encodeURIComponent(opts.email)}`,
     { headers: { Authorization: `Bearer ${opts.apiKey}` } },
   );
-  if (!res.ok) {
-    // 404 = contact unknown to Loops; treat any non-2xx as "not suppressed"
-    // rather than aborting a long run.
+  if (res.status === 404) {
+    // Contact unknown to Loops — genuinely not suppressed.
     return false;
+  }
+  if (!res.ok) {
+    // Anything else (401/403 bad key, a 429 that survived the retries, 5xx)
+    // must ABORT, not read as "not suppressed": silently returning false here
+    // would let a whole --check-suppressions run complete with zero
+    // suppressions imported while reporting success.
+    const hint =
+      res.status === 401 || res.status === 403
+        ? " — check your Loops API key"
+        : "";
+    throw new Error(`Loops suppression check failed (${res.status})${hint}`);
   }
   const body = (await res.json()) as { isSuppressed?: boolean };
   return body.isSuppressed === true;

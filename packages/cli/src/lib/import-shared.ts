@@ -205,6 +205,12 @@ export async function submitImportJobs(opts: {
  * Poll each job's status route until it reaches `completed` or `failed`,
  * logging a progress line per poll. Returns the aggregated summary (totals,
  * failed-row count, first errors).
+ *
+ * Stall guard: a job whose (status, processedRows, failedRows) tuple does not
+ * change for `stallTimeoutMs` (default 10 minutes — the server task's own
+ * executionTimeout) aborts the poll with an error naming the job, instead of
+ * looping forever. This covers a job that was never enqueued (worker/broker
+ * down) or a worker that died mid-run.
  */
 export async function pollImportJobs(opts: {
   http: AdminClient;
@@ -212,10 +218,13 @@ export async function pollImportJobs(opts: {
   endpoint: string;
   jobIds: string[];
   pollIntervalMs?: number;
+  stallTimeoutMs?: number;
   sleep?: (ms: number) => Promise<void>;
 }): Promise<ImportSummary> {
   const { http, out, endpoint, jobIds } = opts;
   const interval = opts.pollIntervalMs ?? 1500;
+  const stallTimeout = opts.stallTimeoutMs ?? 600_000;
+  const maxStallPolls = Math.max(1, Math.ceil(stallTimeout / interval));
   const sleep = opts.sleep ?? defaultSleep;
 
   const summary: ImportSummary = {
@@ -228,9 +237,23 @@ export async function pollImportJobs(opts: {
 
   for (const [i, jobId] of jobIds.entries()) {
     let job: ImportJobStatus;
+    let lastSnapshot = "";
+    let stallPolls = 0;
     for (;;) {
       job = await http.get<ImportJobStatus>(`${endpoint}/${jobId}`);
       if (job.status === "completed" || job.status === "failed") break;
+
+      const snapshot = `${job.status}:${job.processedRows}:${job.failedRows}`;
+      stallPolls = snapshot === lastSnapshot ? stallPolls + 1 : 0;
+      lastSnapshot = snapshot;
+      if (stallPolls >= maxStallPolls) {
+        throw new Error(
+          `Import job ${jobId} stalled: status "${job.status}" with no progress for ${Math.round(stallTimeout / 60_000)} minute(s). ` +
+            `The job may have failed to enqueue or the worker may be down — check the server logs, ` +
+            `or poll it manually: GET ${endpoint}/${jobId}`,
+        );
+      }
+
       out.log(
         `Job ${i + 1}/${jobIds.length} ${job.status}: ${job.processedRows}/${job.totalRows ?? "?"} rows (${job.failedRows} failed)`,
       );

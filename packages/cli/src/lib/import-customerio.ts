@@ -1,3 +1,4 @@
+import { gunzipSync } from "node:zlib";
 import type {
   ContactImportRow,
   SuppressionImportRow,
@@ -171,7 +172,13 @@ export async function runCioExport(opts: {
   if (!file.ok) {
     throw new Error(`Customer.io export file download failed (${file.status})`);
   }
-  return await file.text();
+  // The spec does not state the file format; S3-hosted exports are commonly
+  // gzipped WITHOUT a Content-Encoding header (so fetch does not auto-inflate).
+  // Sniff the gzip magic bytes and inflate ourselves rather than handing
+  // binary garbage to the CSV parser.
+  const buf = Buffer.from(await file.arrayBuffer());
+  const isGzip = buf.length > 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+  return (isGzip ? gunzipSync(buf) : buf).toString("utf8");
 }
 
 /**

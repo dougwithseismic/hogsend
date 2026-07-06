@@ -311,11 +311,20 @@ async function runLoops(ctx: CommandContext, argv: string[]): Promise<void> {
     );
     let found = 0;
     for (const [i, email] of emails.entries()) {
-      const suppressed = await checkLoopsSuppression({
-        apiKey,
-        email,
-        fetch: loopsFetch,
-      });
+      let suppressed: boolean;
+      try {
+        suppressed = await checkLoopsSuppression({
+          apiKey,
+          email,
+          fetch: loopsFetch,
+        });
+      } catch (err) {
+        // A bad key / terminal 429 / 5xx aborts the run: completing it would
+        // import ZERO suppressions while looking like a success.
+        ctx.out.fail(
+          `Suppression check aborted at contact ${i + 1}/${emails.length}: ${err instanceof Error ? err.message : String(err)}. Nothing was imported — fix the key and re-run.`,
+        );
+      }
       if (suppressed) {
         found++;
         // Loops merges hard bounces + spam complaints into ONE suppression

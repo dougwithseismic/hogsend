@@ -94,7 +94,13 @@ const importSuppressionsRoute = createRoute({
         "application/json": {
           schema: z.object({
             format: z.enum(["csv", "json"]),
-            data: z.string().min(1),
+            // Cap matches Hatchet's ~4MB gRPC message ceiling — a bigger
+            // payload could never be enqueued anyway. Split large lists into
+            // multiple jobs (the CLI chunks at 5,000 rows per job).
+            data: z
+              .string()
+              .min(1)
+              .max(4_000_000, "data exceeds 4MB — split into smaller jobs"),
             fileName: z.string().optional(),
           }),
         },
@@ -193,17 +199,33 @@ export const suppressionsRouter = new OpenAPIHono<AppEnv>()
 
     if (!job) throw new Error("Failed to create import job");
 
-    // Enqueue fire-and-forget (mirrors the outbound emit spine): the 202 means
-    // "queued", so a slow/unreachable broker never blocks the response. A
-    // failed enqueue is logged; the job row stays `pending` and is visible via
-    // the status route.
+    // Enqueue fire-and-forget: the 202 means "queued", so a slow/unreachable
+    // broker never blocks the response. Unlike the outbound emit spine, a
+    // failed enqueue here has a durable job row to carry the failure — mark it
+    // `failed` so pollers get a terminal state instead of `pending` forever.
     void importSuppressionsTask
       .runNoWait({ jobId: job.id, data: body.data, format: body.format })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
         logger.warn("suppressions/import: task enqueue failed", {
           jobId: job.id,
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
         });
+        try {
+          await db
+            .update(importJobs)
+            .set({
+              status: "failed",
+              errors: [{ row: 0, error: `Task enqueue failed: ${message}` }],
+              updatedAt: new Date(),
+            })
+            .where(eq(importJobs.id, job.id));
+        } catch (dbError: unknown) {
+          logger.warn("suppressions/import: could not mark job failed", {
+            jobId: job.id,
+            error: dbError instanceof Error ? dbError.message : String(dbError),
+          });
+        }
       });
 
     return c.json({ jobId: job.id, status: "pending" }, 202);
