@@ -104,35 +104,36 @@ const INSIDE_CARDS: {
   media?: ReactNode;
 }[] = [
   {
-    title: `${FACTS.quizzes} quizzes, ${FACTS.quizQuestions} questions`,
+    title: "Quizzes you can't memorise",
     description:
-      "Each run samples five questions from the chapter's pool, so a retake is a fresh test rather than a memory test.",
+      "Every chapter ends with one, and each run samples five questions from a bigger pool — so a retake is a fresh test of the ideas, not of your memory.",
     media: <QuizVignette />,
   },
   {
-    title: `${FACTS.flashcards} flashcards in ${FACTS.flashcardDecks} decks`,
+    title: "Flashcards for the ideas worth keeping",
     description:
-      "Written as full answers in the course voice, not keyword prompts — for the ideas worth keeping.",
+      "One deck per chapter, written as full answers in the course voice rather than keyword prompts — for spaced review long after you finish reading.",
     media: <FlashcardVignette />,
   },
   {
-    title: `${FACTS.calculatorPresets} calculators, your numbers`,
+    title: "Calculators that run on your numbers",
     description:
-      "Retention compounding, CAC/LTV payback, paid readiness, dunning recovery, viral K-factor, ICE scoring, PMF-40, and activation value — each runs on your inputs and saves its read-out.",
+      "Retention compounding, CAC/LTV payback, paid readiness, dunning recovery, viral K-factor, ICE scoring, PMF-40, activation value — each takes your inputs and saves its read-out to your workbook.",
   },
   {
-    title: `${FACTS.videos} videos, each distilled`,
-    description: `Every embedded talk (plus ${FACTS.podcasts} podcasts) carries a transcript and a what-to-take-from-it digest — watch it, or read the digest and keep moving.`,
+    title: "Watch the video, or read its digest",
+    description:
+      "Every embedded talk and podcast carries a transcript and a what-to-take-from-it summary — press play when it's worth the minutes, keep moving when it isn't.",
   },
   {
-    title: `${FACTS.checkIns} check-ins, ${FACTS.writingPrompts} writing prompts`,
+    title: "Answers you commit to in writing",
     description:
-      "Check-ins profile your stage and stack as you read; prompts make you commit answers in writing. Both persist to your workbook.",
+      "Check-ins profile your stage and stack as you read; writing prompts make you put decisions into words. Both persist to your workbook.",
   },
   {
-    title: `${FACTS.readingLists} reading lists`,
+    title: "The deeper end, verified",
     description:
-      "The books and essays behind the arguments, quoted and verified — the deeper end for any chapter you want more of.",
+      "Reading lists with the books and essays behind the arguments — quoted and checked against the source — for any chapter you want more of.",
   },
 ];
 
@@ -562,16 +563,9 @@ export default async function CourseOverview(props: {
             <StatBand
               label="Built to be worked, not watched — everything you type saves to a workbook you keep."
               stats={[
-                { value: String(chapterCount), caption: "Chapters" },
-                { value: String(FACTS.videos), caption: "Videos" },
-                {
-                  value: String(FACTS.quizQuestions),
-                  caption: "Quiz questions",
-                },
-                {
-                  value: String(FACTS.workbookItems),
-                  caption: "Workbook items",
-                },
+                { value: "2", caption: "Chapters free, in full" },
+                { value: priceLabel, caption: "Once — lifetime access" },
+                { value: "~6 hrs", caption: "Of focused reading" },
               ]}
             />
           </Reveal>
@@ -779,7 +773,7 @@ export default async function CourseOverview(props: {
                 ))}
               </dl>
               <p className="mt-6 text-sm text-white/45">
-                {FACTS.workbookItems} items in total, on one page.
+                All of it on one page, for as long as you want it.
               </p>
             </Reveal>
             <Reveal delay={0.08}>
@@ -807,11 +801,11 @@ export default async function CourseOverview(props: {
             <Reveal className="max-lg:order-1">
               <SectionHeading
                 eyebrow="After the course"
-                title={`A ${FACTS.planItems}-item plan for days 0–180`}
+                title="Leave with a plan for days 0–180"
               />
               <p className="mt-6 max-w-xl text-base text-white/60 leading-7">
                 The plan chapter assembles your workbook answers into a staged
-                checklist: five day-0 commitments, then eight items each for
+                checklist: five day-0 commitments, then a short list each for
                 days 1–30, 31–60, 61–90, and 91–180. A weekly-review ritual and
                 an experiment doc keep it running past the last page.
               </p>
@@ -841,7 +835,7 @@ export default async function CourseOverview(props: {
                   `All ${chapterCount} chapters, every quiz, calculator, and deck`,
                   ...(flagship
                     ? [
-                        `The ${FACTS.workbookItems}-item workbook, saved to your account`,
+                        "The full workbook, saved to your account",
                         "Two full chapters free before you pay",
                       ]
                     : ["First lesson free before you buy"]),
