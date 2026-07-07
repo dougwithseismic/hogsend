@@ -41,7 +41,7 @@ Status legend: `[ ]` todo · `[~]` built-to-seam (demoable in-repo, needs a huma
   → `.hogsend.com`) + `trustedOrigins` [docs, course] + `lib/email.ts` (Resend senders) +
   `lib/events.ts` (`emitSignedUp`/`emitAccountDeleted` → dogfood ingest, EMAIL-keyed) +
   `app/api/auth/[...all]/route.ts`. Verify: docs typecheck/build; the auth handler mounts.
-- [ ] **1.4 Docs ingest bridge.** `apps/docs/lib/ingest.ts` (`forwardToIngest` + `foldContactIdentity`
+- [~] **1.4 Docs ingest bridge.** `apps/docs/lib/ingest.ts` (`forwardToIngest` + `foldContactIdentity`
   carrying `contactProperties.firstName` + `mintFeedToken`) + `app/api/hogsend-token/route.ts`
   (session → fold + mint userToken). Seam: live mint hits the dogfood engine `/v1/course/feed-token`.
 - [ ] **1.5 Docs sign-in UI.** `apps/docs/lib/auth-client.ts` + a `/sign-in` page reusing the course
