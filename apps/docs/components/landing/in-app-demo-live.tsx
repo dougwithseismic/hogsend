@@ -170,7 +170,7 @@ export function InAppDemoLive({
   /** Notify the parent which event was just fired so the trace band replays. */
   onFire?: (event: string) => void;
 }) {
-  const { client, capture } = useHogsend();
+  const { client, capture, isIdentified } = useHogsend();
   const { refetch, metadata } = useHogsendFeed();
   const [step, setStep] = useState(-1);
   const [firing, setFiring] = useState<string | null>(null);
@@ -182,7 +182,12 @@ export function InAppDemoLive({
   const [sampleSentTo, setSampleSentTo] = useState<string | null>(null);
 
   async function fire(event: string) {
-    if (!signedUp || firing !== null) return;
+    // Gate on isIdentified, not just signedUp: firing before the userToken has
+    // landed captures on the anonymous id, so the item lands under a recipient
+    // key the (soon-to-be-identified) bell never polls — the event fires but the
+    // feed stays empty. Waiting for the identified client keeps write + read on
+    // the same contact.
+    if (!signedUp || !isIdentified || firing !== null) return;
     // Kick the trace band off the instant they click — it animates the journey
     // shape while the real capture/flush/refetch below lands the live item.
     onFire?.(event);
@@ -291,13 +296,20 @@ export function InAppDemoLive({
           Sign up on the left to fire real lifecycle messages.
         </p>
       )}
+      {signedUp && !isIdentified ? (
+        <p className="mb-1 text-[12px] text-white/40 leading-5">
+          Connecting you to the live feed…
+        </p>
+      ) : null}
       {ACTIONS.map((action) => {
         const isEmail = action.kind === "email";
         return (
           <button
             key={action.event}
             type="button"
-            disabled={firing !== null || !signedUp}
+            disabled={
+              firing !== null || !signedUp || (!isEmail && !isIdentified)
+            }
             onClick={() => (isEmail ? fireEmail() : fire(action.event))}
             className={cn(
               "group inline-flex items-center justify-between gap-2 rounded-[10px] border px-4 py-3 text-left text-sm transition-colors",
