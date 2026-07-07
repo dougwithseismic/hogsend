@@ -21,6 +21,16 @@ export function InAppDemoBody() {
   const name = (session?.user.name ?? "").trim().split(/\s+/)[0] || undefined;
   const email = session?.user.email;
 
+  // Latch: once the session has resolved even once, never show the loading
+  // placeholder again. better-auth refetches the session on window refocus,
+  // which flips `isPending` — without this, tabbing to your inbox for the OTP
+  // code and back would unmount the sign-in form and wipe the code you typed.
+  const [resolvedOnce, setResolvedOnce] = useState(false);
+  useEffect(() => {
+    if (!isPending) setResolvedOnce(true);
+  }, [isPending]);
+  const showLoading = isPending && !resolvedOnce;
+
   // The last event fired + a monotonic nonce — bumping it replays the trace
   // band below for that event (see DemoTrace).
   const [fired, setFired] = useState<{ event: string; nonce: number }>({
@@ -39,9 +49,10 @@ export function InAppDemoBody() {
 
   return (
     <>
-      {isPending ? (
-        // Session still resolving — show a neutral placeholder so a returning
-        // signed-in visitor never flashes the sign-in form before "You're in".
+      {showLoading ? (
+        // Session still resolving (first load only) — a neutral placeholder so a
+        // returning signed-in visitor never flashes the sign-in form. Latched so
+        // a focus refetch can't re-trigger it and unmount an in-progress sign-in.
         <Card className="flex min-h-[220px] items-center justify-center p-6">
           <span className="text-sm text-white/40">Loading your session…</span>
         </Card>
