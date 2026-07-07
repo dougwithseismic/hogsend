@@ -34,9 +34,6 @@ import { DISCORD_INVITE_URL } from "@/lib/site";
  * Only rendered when `isHogsendConfigured`, so `useHogsend` always has context.
  */
 
-/** localStorage key the sign-up writes the verified email to (email-capture). */
-const EMAIL_KEY = "hs-demo-email";
-
 /** The channels a journey can fan out to — drives the per-action chips. */
 type Channel = "in_app" | "email" | "discord";
 
@@ -160,11 +157,14 @@ function ChannelChips({
 export function InAppDemoLive({
   signedUp,
   name,
+  email,
   wide = false,
   onFire,
 }: {
   signedUp: boolean;
   name?: string;
+  /** The signed-in visitor's email — where "Email me a sample" sends. */
+  email?: string;
   /** Full-width two-up layout for the identified state (no sign-up sibling). */
   wide?: boolean;
   /** Notify the parent which event was just fired so the trace band replays. */
@@ -223,13 +223,8 @@ export function InAppDemoLive({
    */
   async function fireEmail() {
     if (!signedUp || firing !== null) return;
-    let email = "";
-    try {
-      email = window.localStorage.getItem(EMAIL_KEY) ?? "";
-    } catch {
-      // storage blocked — can't send without the verified address
-    }
-    if (!email) return;
+    const to = email ?? "";
+    if (!to) return;
     onFire?.("demo.email");
     setFiring("demo.email");
     try {
@@ -237,14 +232,14 @@ export function InAppDemoLive({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          email,
+          email: to,
           template: "activation/welcome",
           ...(name ? { name } : {}),
         }),
       });
       if (res.ok) {
         setLanded("demo.email");
-        setSampleSentTo(email);
+        setSampleSentTo(to);
         window.setTimeout(
           () =>
             setLanded((current) => (current === "demo.email" ? null : current)),

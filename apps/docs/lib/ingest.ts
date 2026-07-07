@@ -140,3 +140,97 @@ export async function forwardReferralVisited(
     return false;
   }
 }
+
+/** The identified-bell chain needs the ingest pair plus the mint secret. */
+export function feedTokenConfigured(): boolean {
+  return Boolean(
+    process.env.HOGSEND_INGEST_URL &&
+      process.env.HOGSEND_INGEST_KEY &&
+      process.env.HOGSEND_FEED_TOKEN_SECRET,
+  );
+}
+
+/**
+ * Secret-path contact fold: assert { email, userId } onto ONE contact via
+ * PUT /v1/contacts. A signed-in visitor proved their email (OTP / magic-link),
+ * so their Better Auth id becomes the contact's external_id — the canonical feed
+ * recipient key AND the key subsequent identified captures resolve, so a demo
+ * event + its minted link + the resulting link.clicked all land on the same
+ * contact (no phantom external_id twin). Optionally writes the first name as a
+ * contact property so lifecycle journeys (and the Studio) can greet by name.
+ * Idempotent upsert; false on any failure.
+ */
+export async function foldContactIdentity(input: {
+  email: string;
+  userId: string;
+  firstName?: string;
+}): Promise<boolean> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const ingestKey = process.env.HOGSEND_INGEST_KEY;
+  if (!ingestUrl || !ingestKey) return false;
+  try {
+    const upstream = await fetch(
+      `${ingestUrl.replace(/\/+$/, "")}/v1/contacts`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ingestKey}`,
+        },
+        body: JSON.stringify({
+          email: input.email,
+          userId: input.userId,
+          ...(input.firstName
+            ? { properties: { firstName: input.firstName } }
+            : {}),
+        }),
+      },
+    );
+    return upstream.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Mint the browser feed userToken via the dogfood-hosted signer
+ * (POST /v1/course/feed-token, shared `x-course-token-secret` — the engine's own
+ * signing secret lives only on the dogfood deploy; this app holds just the mint
+ * secret). Reused verbatim from the course's bridge (same endpoint). Null on any
+ * failure.
+ */
+export async function mintFeedToken(
+  userId: string,
+): Promise<{ token: string; expiresInSeconds: number } | null> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const secret = process.env.HOGSEND_FEED_TOKEN_SECRET;
+  if (!ingestUrl || !secret) return null;
+  try {
+    const upstream = await fetch(
+      `${ingestUrl.replace(/\/+$/, "")}/v1/course/feed-token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-course-token-secret": secret,
+        },
+        body: JSON.stringify({ userId }),
+      },
+    );
+    if (!upstream.ok) return null;
+    const body = (await upstream.json().catch(() => null)) as {
+      token?: unknown;
+      expiresInSeconds?: unknown;
+    } | null;
+    if (!body || typeof body.token !== "string") return null;
+    return {
+      token: body.token,
+      expiresInSeconds:
+        typeof body.expiresInSeconds === "number"
+          ? body.expiresInSeconds
+          : 3600,
+    };
+  } catch {
+    return null;
+  }
+}
