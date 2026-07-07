@@ -1,6 +1,6 @@
 {
   "name": "@hogsend/react",
-  "version": "0.38.1",
+  "version": "0.38.2",
   "type": "module",
   "license": "MIT",
   "description": "React hooks and components for Hogsend: provider, preferences, color mode, the notification feed, banners, and toasts.",
