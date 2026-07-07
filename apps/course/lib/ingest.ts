@@ -177,6 +177,42 @@ export async function mintFeedToken(
 }
 
 /**
+ * The contact's CANONICAL feed key (its `external_id`) for this email — the
+ * recipient key journeys write to and the bell must poll. It is NOT always the
+ * Better Auth user id: a contact identified earlier (PostHog sync, the docs
+ * site) can carry a different `external_id`, with the Better Auth id linked only
+ * as an alias. The feed's recipient resolver matches `external_id` directly (not
+ * aliases), so minting the bell's userToken for the Better Auth id would poll a
+ * key that never matches where events land — an empty bell. Minting for the
+ * canonical key keeps the read aligned with the write. Null when unconfigured,
+ * unknown, or on failure (caller falls back to the Better Auth id, correct for a
+ * fresh contact whose `external_id` IS the Better Auth id).
+ */
+export async function resolveContactKey(input: {
+  email: string;
+}): Promise<string | null> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const ingestKey = process.env.HOGSEND_INGEST_KEY;
+  if (!ingestUrl || !ingestKey) return null;
+  try {
+    const url = new URL(`${ingestUrl.replace(/\/+$/, "")}/v1/contacts/find`);
+    url.searchParams.set("email", input.email);
+    const upstream = await fetch(url, {
+      headers: { Authorization: `Bearer ${ingestKey}` },
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!upstream.ok) return null;
+    const body = (await upstream.json().catch(() => null)) as {
+      contacts?: Array<{ externalId?: string | null }>;
+    } | null;
+    const externalId = body?.contacts?.[0]?.externalId;
+    return typeof externalId === "string" && externalId ? externalId : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The referral-visit webhook needs the same ingest base URL plus its OWN shared
  * secret (the dogfood `referral-visited` webhook source verifies the header).
  * Separate from `HOGSEND_INGEST_KEY` because it hits a different endpoint with a
