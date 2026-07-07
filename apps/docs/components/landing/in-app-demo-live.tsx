@@ -560,7 +560,7 @@ export function InAppDemoLive({
   // arbitrary last-child variant strips each card's trailing zone border.
   if (wide) {
     return (
-      <div className="grid items-start gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
         <Card className="flex flex-col p-0 [&>div:last-child]:border-b-0">
           {header}
           {actions}
