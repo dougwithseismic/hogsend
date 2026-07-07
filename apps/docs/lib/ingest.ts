@@ -234,3 +234,35 @@ export async function mintFeedToken(
     return null;
   }
 }
+
+/**
+ * A first name we may ALREADY know for this email from a prior Hogsend
+ * engagement (an earlier subscribe, the course, …) via GET /v1/contacts/find.
+ * Used so the docs sign-up never asks for a name we already have. Null when
+ * unconfigured, not found, or on any failure (caller then asks for it).
+ */
+export async function getContactFirstName(input: {
+  email: string;
+}): Promise<string | null> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const ingestKey = process.env.HOGSEND_INGEST_KEY;
+  if (!ingestUrl || !ingestKey) return null;
+  try {
+    const url = new URL(`${ingestUrl.replace(/\/+$/, "")}/v1/contacts/find`);
+    url.searchParams.set("email", input.email);
+    const upstream = await fetch(url, {
+      headers: { Authorization: `Bearer ${ingestKey}` },
+      // Bounded: this runs inside Better Auth's user-create hook, so a slow or
+      // down engine must NOT hang sign-up — time out and let the client ask.
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!upstream.ok) return null;
+    const body = (await upstream.json().catch(() => null)) as {
+      contacts?: Array<{ properties?: Record<string, unknown> }>;
+    } | null;
+    const firstName = body?.contacts?.[0]?.properties?.firstName;
+    return typeof firstName === "string" && firstName ? firstName : null;
+  } catch {
+    return null;
+  }
+}

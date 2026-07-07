@@ -15,6 +15,10 @@ import {
  * id the contact's external_id, so demo captures are fork-safe) and the
  * dogfood-hosted token mint. 401 when signed out, 503 when the env isn't
  * configured, so the client provider fails quietly to the anonymous state.
+ *
+ * Sign-up consent is NOT recorded here — the form records it at request time via
+ * /api/subscribe (email-keyed, device-independent) so it never depends on this
+ * mint succeeding, and survives a cross-device magic-link completion.
  */
 export async function POST() {
   const session = await auth.api.getSession({ headers: await headers() });
