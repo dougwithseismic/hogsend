@@ -1,11 +1,15 @@
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import {
   feedTokenConfigured,
   foldContactIdentity,
   mintFeedToken,
+  subscribeContact,
 } from "@/lib/ingest";
+
+/** Sign-up consent breadcrumb the form drops before sign-in; consumed once here. */
+const CONSENT_COOKIE = "hs_su";
 
 /**
  * Mints the browser's Hogsend feed userToken for the signed-in visitor — the
@@ -39,5 +43,17 @@ export async function POST() {
   if (!minted) {
     return NextResponse.json({ error: "mint_failed" }, { status: 502 });
   }
-  return NextResponse.json({ ...minted, userId });
+
+  // Record sign-up consent ONCE. The form drops the `hs_su` cookie (value "1"
+  // when they opted into product updates) right before sign-in; this first
+  // authenticated token fetch records it and clears the cookie. Covers every
+  // path (OTP, magic-link, GitHub) since the provider always fetches this after
+  // sign-in. Best-effort — never blocks the token.
+  const consent = (await cookies()).get(CONSENT_COOKIE)?.value;
+  const res = NextResponse.json({ ...minted, userId });
+  if (consent !== undefined) {
+    await subscribeContact({ email, productUpdates: consent === "1" });
+    res.cookies.set(CONSENT_COOKIE, "", { maxAge: 0, path: "/" });
+  }
+  return res;
 }

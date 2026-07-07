@@ -6,6 +6,7 @@ import { sendMagicLinkEmail, sendOtpEmail } from "@/lib/auth-email";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { env } from "@/lib/env";
+import { getContactFirstName } from "@/lib/ingest";
 
 /**
  * The docs site's Better Auth instance. It is a SIBLING of the course's
@@ -64,6 +65,22 @@ export const auth = betterAuth({
     expiresIn: 60 * 60 * 24 * 30,
     updateAge: 60 * 60 * 24,
     cookieCache: { enabled: true, maxAge: 5 * 60 },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        // A brand-new passwordless account has no name. Reuse a first name we
+        // already know for this email from a prior Hogsend engagement (an
+        // earlier subscribe, the course) so the sign-up doesn't ask for
+        // something we already have. Best-effort — a failed/empty lookup just
+        // leaves the name blank and the client asks for it after sign-in.
+        before: async (user) => {
+          if (user.name?.trim()) return;
+          const known = await getContactFirstName({ email: user.email });
+          if (known) return { data: { ...user, name: known } };
+        },
+      },
+    },
   },
   plugins: [
     // Primary passwordless method: a 6-digit code the visitor types on the same
