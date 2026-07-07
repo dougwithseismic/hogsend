@@ -19,7 +19,10 @@ import { createLogger } from "../lib/logger.js";
 import { emitOutbound } from "../lib/outbound.js";
 import { resolveTimezoneWithSource } from "../lib/timezone.js";
 import { getClientScheduleDefaults } from "./client-defaults-singleton.js";
-import { JOURNEY_EXECUTION_TIMEOUT } from "./constants.js";
+import {
+  JOURNEY_EXECUTION_TIMEOUT,
+  JOURNEY_SCHEDULE_TIMEOUT,
+} from "./constants.js";
 import { JourneyExitedError } from "./errors.js";
 import {
   createMemoize,
@@ -93,7 +96,20 @@ export function defineJourney(options: {
     name: `journey-${meta.id}`,
     onEvents: [meta.trigger.event],
     executionTimeout: JOURNEY_EXECUTION_TIMEOUT,
+    // retries STAYS 0 — deliberately. A retry replays `run()` from the top, and
+    // the tracked mailer / connector machinery is "missed > doubled": a `queued`
+    // row is RE-DRIVEN and a failed send NULLs its idempotency key (tracked.ts
+    // ~150-176, 496-514). That is safe only while nothing re-invokes a run whose
+    // `provider.send()` already delivered but whose durable status flip didn't
+    // commit — turning retries on would re-deliver that email/connector message
+    // (a DUPLICATE). Enabling retries requires making sends provider-idempotent
+    // first (Resend/Postmark `Idempotency-Key`); tracked as a follow-up.
     retries: 0,
+    // `scheduleTimeout` widens the queue-wait ceiling (SDK default ~5m) so a
+    // durable-wait RESUME re-queued during a redeploy's slot saturation reclaims
+    // a slot instead of being cancelled (which strands the enrollment). Unlike
+    // retries this adds NO replay — it is pure head-room, so it is safe on its own.
+    scheduleTimeout: JOURNEY_SCHEDULE_TIMEOUT,
     fn: async (input: EventPayloadInput, hatchetCtx) => {
       const db = getDb();
       const userId = input.userId as string;
@@ -230,9 +246,14 @@ export function defineJourney(options: {
       // Independent I/O — fetch the contact row and PostHog person props
       // concurrently. PostHog failures fall through to undefined.
       const [contact, posthogProperties] = await Promise.all([
-        db.query.contacts.findFirst({
-          where: eq(contacts.externalId, userId),
-        }),
+        // Both legs are best-effort tz inputs: a failure here must fall through
+        // to the client-default tz, never reject the `Promise.all` and throw out
+        // of `fn` BEFORE the try/catch below (which would strand the row —
+        // already inserted "active" — outside the failure handling). The PostHog
+        // leg already `.catch`es; mirror it on the contact read.
+        db.query.contacts
+          .findFirst({ where: eq(contacts.externalId, userId) })
+          .catch(() => undefined),
         posthog?.getPersonProperties(userId).catch(() => undefined),
       ]);
 
