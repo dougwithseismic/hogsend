@@ -225,6 +225,7 @@ function CodePanel({
   steps,
   times,
   size = 14,
+  natural = false,
 }: {
   frame: number;
   file: string;
@@ -232,6 +233,10 @@ function CodePanel({
   steps: ClipStep[];
   times: number[];
   size?: number;
+  /** Size the window to its longest line (max-content) instead of filling its
+   * parent — used when stacked on mobile so the enclosing `overflow-x-auto`
+   * wrapper can scroll the code instead of the window clipping it. */
+  natural?: boolean;
 }) {
   const codeLineH = 1.6;
   const lineH = size * codeLineH;
@@ -272,6 +277,7 @@ function CodePanel({
     <div
       style={{
         overflow: "hidden",
+        width: natural ? "max-content" : undefined,
         borderRadius: 16,
         backgroundColor: theme.paperPure,
         border: `1px solid ${theme.cardBorder}`,
@@ -1400,7 +1406,14 @@ function JourneyTraceView({
         }}
       >
         <div
-          className={cn("shrink-0", !sideBySide && "w-full overflow-x-auto")}
+          className={cn(
+            "shrink-0",
+            // Stacked (mobile): scroll the code horizontally under a hidden
+            // scrollbar with a right-edge fade cueing "swipe for more", rather
+            // than hard-clipping the long lines (the window is max-content wide).
+            !sideBySide &&
+              "w-full overflow-x-auto [scrollbar-width:none] [mask-image:linear-gradient(to_right,#000_88%,transparent)] [&::-webkit-scrollbar]:hidden",
+          )}
           style={{ width: sideBySide ? CODE_WIDTH * k : undefined }}
         >
           <CodePanel
@@ -1410,6 +1423,7 @@ function JourneyTraceView({
             steps={spec.steps}
             times={times}
             size={codeSize}
+            natural={!sideBySide}
           />
         </div>
         <div
