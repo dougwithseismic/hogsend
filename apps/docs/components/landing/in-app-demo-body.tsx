@@ -117,7 +117,7 @@ export function InAppDemoBody() {
         // New visitor: the real sign-up (left) + the in-app loop preview (right).
         // `lg:items-start` keeps the short sign-up card from stretching to the
         // tall in-app column.
-        <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
           <Card className="flex flex-col p-6">
             <span className="kicker mb-3 block">Get the demo</span>
             <h3 className="font-display text-2xl text-white tracking-[-0.02em]">

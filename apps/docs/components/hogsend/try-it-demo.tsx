@@ -254,7 +254,7 @@ function TryItDemoLive({ codePanel }: { codePanel?: ReactNode }) {
         }}
       />
 
-      <div className="relative grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+      <div className="relative grid grid-cols-1 gap-6 lg:grid-cols-[1.1fr_1fr]">
         {/* ── LEFT: the interactive panel ── */}
         <Card className="flex flex-col p-0">
           {/* zone 1 — header */}
