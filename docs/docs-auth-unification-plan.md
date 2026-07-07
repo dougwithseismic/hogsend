@@ -44,7 +44,7 @@ Status legend: `[ ]` todo · `[~]` built-to-seam (demoable in-repo, needs a huma
 - [~] **1.4 Docs ingest bridge.** `apps/docs/lib/ingest.ts` (`forwardToIngest` + `foldContactIdentity`
   carrying `contactProperties.firstName` + `mintFeedToken`) + `app/api/hogsend-token/route.ts`
   (session → fold + mint userToken). Seam: live mint hits the dogfood engine `/v1/course/feed-token`.
-- [ ] **1.5 Docs sign-in UI.** `apps/docs/lib/auth-client.ts` + a `/sign-in` page reusing the course
+- [~] **1.5 Docs sign-in UI.** `apps/docs/lib/auth-client.ts` + a `/sign-in` page reusing the course
   `SignInForm` shape (OTP + magic-link + optional GitHub) **plus a first-name field** (OTP/magic users
   have no name), persisted via `authClient.updateUser({ name })` post-sign-in. Verify the page renders.
 
