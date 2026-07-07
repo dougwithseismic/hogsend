@@ -31,12 +31,25 @@ export function HogsendDocsProvider({ children }: { children: ReactNode }) {
   return <LiveProvider>{children}</LiveProvider>;
 }
 
-async function fetchFeedToken(): Promise<string | null> {
+/**
+ * Mint the feed token AND resolve the recipient identity. The returned `userId`
+ * is the contact's CANONICAL feed key (from /api/hogsend-token), NOT necessarily
+ * the Better Auth id — a contact identified earlier keeps its own external_id.
+ * The client must identify + capture on this same key so writes and the bell's
+ * reads land on one contact.
+ */
+async function fetchFeedIdentity(): Promise<{
+  token: string;
+  userId: string;
+} | null> {
   try {
     const res = await fetch("/api/hogsend-token", { method: "POST" });
     if (!res.ok) return null;
-    const body = (await res.json()) as { token?: unknown };
-    return typeof body.token === "string" ? body.token : null;
+    const body = (await res.json()) as { token?: unknown; userId?: unknown };
+    if (typeof body.token !== "string" || typeof body.userId !== "string") {
+      return null;
+    }
+    return { token: body.token, userId: body.userId };
   } catch {
     return null;
   }
@@ -44,39 +57,44 @@ async function fetchFeedToken(): Promise<string | null> {
 
 function LiveProvider({ children }: { children: ReactNode }) {
   const { data: session } = useSession();
-  const userId = session?.user.id ?? null;
-  const [token, setToken] = useState<string | null>(null);
+  const sessionUserId = session?.user.id ?? null;
+  const [identity, setIdentity] = useState<{
+    token: string;
+    userId: string;
+  } | null>(null);
   const [storage] = useState(createConsentGatedStorage);
 
   useEffect(() => {
-    if (!userId) {
-      setToken(null);
+    if (!sessionUserId) {
+      setIdentity(null);
       return;
     }
     let alive = true;
-    void fetchFeedToken().then((t) => {
-      if (alive) setToken(t);
+    void fetchFeedIdentity().then((r) => {
+      if (alive) setIdentity(r);
     });
     return () => {
       alive = false;
     };
-  }, [userId]);
+  }, [sessionUserId]);
 
-  const identified = userId && token ? { userId, userToken: token } : {};
+  const identified = identity
+    ? { userId: identity.userId, userToken: identity.token }
+    : {};
 
   return (
     <HogsendProvider
-      // HogsendProvider constructs its client ONCE (useState initializer), so a
-      // userToken that arrives later never reaches it. Keying on the identity
-      // pair remounts the provider once the token lands (and flips back to a
+      // HogsendProvider constructs its client ONCE (useState initializer), so the
+      // identity that arrives later never reaches it. Keying on the resolved
+      // recipient key remounts the provider once it lands (and flips back to a
       // fresh anon client on sign-out).
-      key={userId && token ? `user:${userId}` : "anon"}
+      key={identity ? `user:${identity.userId}` : "anon"}
       apiUrl={HOGSEND_API_URL}
       publishableKey={HOGSEND_PUBLISHABLE_KEY}
       colorMode="dark"
       // Falsy return = refresh failed; the SDK keeps the old token and the next
       // 403 retries. Never throws.
-      onUserTokenExpiring={async () => (await fetchFeedToken()) ?? ""}
+      onUserTokenExpiring={async () => (await fetchFeedIdentity())?.token ?? ""}
       storage={storage}
       {...identified}
     >
