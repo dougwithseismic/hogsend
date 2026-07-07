@@ -13,15 +13,15 @@ type Pending = null | "code" | "verify" | "magic" | "github" | "resend";
  * visitor types on this same tab; magic link + GitHub are fallbacks.
  *
  * It doubles as the newsletter opt-in: a REQUIRED terms/privacy checkbox gates
- * submission, and an optional "product notes" checkbox subscribes them. The
- * consent choice is dropped in the `hs_su` cookie right before sign-in and
- * recorded once by `/api/hogsend-token` after auth (so every path records it).
+ * submission, and an optional "product notes" checkbox subscribes them. Consent
+ * is recorded at REQUEST time via /api/subscribe (email-keyed, server-side) so
+ * it is device-independent (a cross-device magic-link completion never loses it)
+ * and never depends on the later demo-bell token mint.
  *
- * The first name is asked PROGRESSIVELY — only AFTER sign-in and only when we
- * don't already have one. Better Auth's user-create hook reuses a name we know
- * from Hogsend, and a returning account keeps its name, so most visitors are
- * never asked. `next` is a pre-validated same-site path we navigate to on
- * success (the whole document, so the destination re-renders identified).
+ * The first name is NOT asked here — it's captured progressively after sign-in
+ * by the global NamePrompt, and only when we don't already have one (Better
+ * Auth's create-hook reuses a name we know from Hogsend; returning accounts keep
+ * theirs). `next` is a pre-validated same-site path we navigate to on success.
  */
 export function SignInForm({
   next,
@@ -30,10 +30,9 @@ export function SignInForm({
   next: string;
   githubEnabled: boolean;
 }) {
-  const [step, setStep] = useState<"email" | "code" | "name">("email");
+  const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [firstName, setFirstName] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [productNotes, setProductNotes] = useState(false);
   const [pending, setPending] = useState<Pending>(null);
@@ -57,13 +56,19 @@ export function SignInForm({
   const target = () => safeInternalPath(next);
 
   /**
-   * Drop the sign-up consent breadcrumb right before initiating auth. Value "1"
-   * when they opted into product updates; presence means terms accepted (the UI
-   * gates on it). `/api/hogsend-token` reads + clears it after sign-in.
+   * Record the sign-up consent server-side, keyed to the EMAIL. Device-
+   * independent (survives a cross-device magic-link completion) and not gated
+   * behind the demo-bell token mint. Reuses /api/subscribe → docs.subscribed
+   * with the terms flag + the product-updates list. Fire-and-forget so it never
+   * delays the code/link.
    */
-  function dropConsentCookie() {
-    // biome-ignore lint/suspicious/noDocumentCookie: a short-lived breadcrumb consumed server-side; the async Cookie Store API is unnecessary here
-    document.cookie = `hs_su=${productNotes ? "1" : "0"}; path=/; max-age=1800; samesite=lax`;
+  function recordConsent() {
+    void fetch("/api/subscribe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, termsAccepted: true, productNotes }),
+      keepalive: true,
+    }).catch(() => {});
   }
 
   async function sendCode(mode: "code" | "resend") {
@@ -86,7 +91,7 @@ export function SignInForm({
   async function onEmailSubmit(e: FormEvent) {
     e.preventDefault();
     if (!termsAccepted) return;
-    dropConsentCookie();
+    recordConsent();
     await sendCode("code");
   }
 
@@ -100,14 +105,9 @@ export function SignInForm({
       setError("That code didn't match. Check it, or send a new one.");
       return;
     }
-    // Ask for a first name ONLY if we don't already have one (the create hook
-    // reuses a name known from Hogsend; a returning account keeps its name).
-    if (res.data?.user?.name?.trim()) {
-      window.location.assign(target());
-      return;
-    }
-    setPending(null);
-    setStep("name");
+    // Full navigation so the destination re-renders identified. If we don't yet
+    // have a name for this account, the global NamePrompt asks there.
+    window.location.assign(target());
   }
 
   function onCodeChange(raw: string) {
@@ -116,16 +116,6 @@ export function SignInForm({
     if (digits.length === 6 && pending === null) {
       void verify(digits);
     }
-  }
-
-  async function completeName(e: FormEvent) {
-    e.preventDefault();
-    setPending("verify");
-    const name = firstName.trim();
-    if (name) {
-      await authClient.updateUser({ name }).catch(() => {});
-    }
-    window.location.assign(target());
   }
 
   async function onMagic() {
@@ -139,7 +129,7 @@ export function SignInForm({
     }
     setPending("magic");
     setError(null);
-    dropConsentCookie();
+    recordConsent();
     const res = await signIn.magicLink({ email, callbackURL: target() });
     setPending(null);
     if (res.error) {
@@ -156,7 +146,6 @@ export function SignInForm({
     }
     setPending("github");
     setError(null);
-    dropConsentCookie();
     await signIn.social({ provider: "github", callbackURL: target() });
   }
 
@@ -179,36 +168,6 @@ export function SignInForm({
           Use a different way to sign in
         </button>
       </div>
-    );
-  }
-
-  // Post-sign-in: ask for a first name we don't yet have.
-  if (step === "name") {
-    return (
-      <form onSubmit={completeName} className="flex flex-col gap-3">
-        <p className="text-sm text-white/60 leading-6">
-          You're in. What should we call you?
-        </p>
-        <input
-          // biome-ignore lint/a11y/noAutofocus: single field on a dedicated step
-          autoFocus
-          type="text"
-          required
-          autoComplete="given-name"
-          value={firstName}
-          onChange={(e) => setFirstName(e.target.value)}
-          placeholder="First name"
-          aria-label="First name"
-          className="h-12 rounded-[10px] border border-white/[0.12] bg-white/[0.03] px-4 text-white outline-none transition-colors placeholder:text-white/30 focus:border-white/30"
-        />
-        <button
-          type="submit"
-          disabled={pending !== null || firstName.trim().length === 0}
-          className="h-12 rounded-[10px] bg-white px-5 font-medium text-[#0a0a0a] transition-colors hover:bg-white/90 disabled:opacity-60"
-        >
-          {pending === "verify" ? "Finishing…" : "Continue"}
-        </button>
-      </form>
     );
   }
 

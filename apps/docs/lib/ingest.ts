@@ -236,30 +236,6 @@ export async function mintFeedToken(
 }
 
 /**
- * Record sign-up consent + subscribe the signed-in visitor. Fires the
- * `docs.subscribed` lifecycle event — EMAIL-keyed per the identity law (NEVER
- * the Better Auth id as the ingest top-level userId, which forks a phantom
- * twin) — carrying the terms-accepted audit flag, plus product-updates list
- * membership when they opted in. Idempotent upstream (keyed on the email).
- * No-ops when ingest isn't configured.
- */
-export async function subscribeContact(input: {
-  email: string;
-  productUpdates: boolean;
-}): Promise<void> {
-  if (!ingestConfigured()) return;
-  await forwardToIngest(
-    {
-      name: "docs.subscribed",
-      email: input.email,
-      eventProperties: { source: "docs-signin", termsAccepted: true },
-      ...(input.productUpdates ? { lists: { "product-updates": true } } : {}),
-    },
-    `docs-signin-subscribed-${input.email}`,
-  );
-}
-
-/**
  * A first name we may ALREADY know for this email from a prior Hogsend
  * engagement (an earlier subscribe, the course, …) via GET /v1/contacts/find.
  * Used so the docs sign-up never asks for a name we already have. Null when

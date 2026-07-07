@@ -1,15 +1,11 @@
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import {
   feedTokenConfigured,
   foldContactIdentity,
   mintFeedToken,
-  subscribeContact,
 } from "@/lib/ingest";
-
-/** Sign-up consent breadcrumb the form drops before sign-in; consumed once here. */
-const CONSENT_COOKIE = "hs_su";
 
 /**
  * Mints the browser's Hogsend feed userToken for the signed-in visitor — the
@@ -19,6 +15,10 @@ const CONSENT_COOKIE = "hs_su";
  * id the contact's external_id, so demo captures are fork-safe) and the
  * dogfood-hosted token mint. 401 when signed out, 503 when the env isn't
  * configured, so the client provider fails quietly to the anonymous state.
+ *
+ * Sign-up consent is NOT recorded here — the form records it at request time via
+ * /api/subscribe (email-keyed, device-independent) so it never depends on this
+ * mint succeeding, and survives a cross-device magic-link completion.
  */
 export async function POST() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -43,17 +43,5 @@ export async function POST() {
   if (!minted) {
     return NextResponse.json({ error: "mint_failed" }, { status: 502 });
   }
-
-  // Record sign-up consent ONCE. The form drops the `hs_su` cookie (value "1"
-  // when they opted into product updates) right before sign-in; this first
-  // authenticated token fetch records it and clears the cookie. Covers every
-  // path (OTP, magic-link, GitHub) since the provider always fetches this after
-  // sign-in. Best-effort — never blocks the token.
-  const consent = (await cookies()).get(CONSENT_COOKIE)?.value;
-  const res = NextResponse.json({ ...minted, userId });
-  if (consent !== undefined) {
-    await subscribeContact({ email, productUpdates: consent === "1" });
-    res.cookies.set(CONSENT_COOKIE, "", { maxAge: 0, path: "/" });
-  }
-  return res;
+  return NextResponse.json({ ...minted, userId });
 }
