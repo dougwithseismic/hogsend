@@ -5,6 +5,7 @@ import {
   feedTokenConfigured,
   foldContactIdentity,
   mintFeedToken,
+  resolveContactKey,
 } from "@/lib/ingest";
 
 /**
@@ -33,15 +34,25 @@ export async function POST() {
   // First token of the display name (set at sign-in). Empty ⇒ omit, so the fold
   // never writes a blank firstName over a good one.
   const firstName = (name ?? "").trim().split(/\s+/)[0] || undefined;
-  const [folded, minted] = await Promise.all([
-    foldContactIdentity({ email, userId, firstName }),
-    mintFeedToken(userId),
-  ]);
+
+  // Fold first (links the Better Auth id ↔ email onto the contact), THEN resolve
+  // the contact's CANONICAL feed key. It is not always the Better Auth id: a
+  // contact identified earlier (PostHog sync / the course) keeps its own
+  // external_id, with the Better Auth id linked as an alias. Journeys write to —
+  // and the bell must poll — that canonical key. Minting for the raw Better Auth
+  // id would poll a key that never matches where events land (an empty bell).
+  const folded = await foldContactIdentity({ email, userId, firstName });
   if (!folded) {
     return NextResponse.json({ error: "fold_failed" }, { status: 502 });
   }
+  // The recipient identity: the resolved canonical key, else the Better Auth id
+  // (correct for a fresh contact whose external_id IS the Better Auth id).
+  const feedUserId = (await resolveContactKey({ email })) ?? userId;
+  const minted = await mintFeedToken(feedUserId);
   if (!minted) {
     return NextResponse.json({ error: "mint_failed" }, { status: 502 });
   }
-  return NextResponse.json({ ...minted, userId });
+  // Return the canonical key as `userId` so the client identifies (and captures)
+  // on the SAME key the bell polls — read and write stay on one contact.
+  return NextResponse.json({ ...minted, userId: feedUserId });
 }
