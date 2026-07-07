@@ -382,7 +382,9 @@ function BranchPanel({ frame }: { frame: number }) {
 
   return (
     <div
-      className="w-full"
+      // Stacked on mobile the fixed-size code overflows this column; scroll it
+      // under a hidden scrollbar with a right-edge fade instead of clipping.
+      className="w-full overflow-x-auto [scrollbar-width:none] [mask-image:linear-gradient(to_right,#000_88%,transparent)] [&::-webkit-scrollbar]:hidden"
       style={{
         maxWidth: 480 * s,
         opacity: enter,
@@ -395,6 +397,8 @@ function BranchPanel({ frame }: { frame: number }) {
       <div
         style={{
           overflow: "hidden",
+          // Natural width so the scroll wrapper above scrolls the code panel.
+          width: "max-content",
           borderRadius: 16,
           backgroundColor: theme.paperPure,
           border: `1px solid ${theme.cardBorder}`,
