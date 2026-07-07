@@ -12,3 +12,12 @@
  */
 export const JOURNEY_EXECUTION_TIMEOUT_HOURS = 720;
 export const JOURNEY_EXECUTION_TIMEOUT = `${JOURNEY_EXECUTION_TIMEOUT_HOURS}h`;
+
+/**
+ * Max time a journey task may wait in the queue for a worker slot before Hatchet
+ * cancels it (`scheduleTimeout`). The SDK default (~5m) is too tight for a
+ * durable-wait RESUME that re-queues during a redeploy when every worker slot is
+ * momentarily saturated — the resume would be cancelled and the enrollment
+ * stranded. 15m gives resumes head-room to land on a freed slot.
+ */
+export const JOURNEY_SCHEDULE_TIMEOUT = "15m";
