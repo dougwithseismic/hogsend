@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { authClient, signIn } from "@/lib/auth-client";
+import { safeInternalPath } from "@/lib/safe-next";
 
 type Pending = null | "code" | "verify" | "magic" | "github" | "resend";
 
@@ -9,8 +10,9 @@ type Pending = null | "code" | "verify" | "magic" | "github" | "resend";
  * Passwordless sign-in for the docs site. Primary path is a 6-digit email code
  * the visitor types on this same tab (no inbox round-trip); the magic link and
  * GitHub OAuth are fallbacks. Collects a FIRST NAME (Doug's call — keeps the
- * demo's personalised greeting): it is set on the account after sign-in via
- * `updateUser` (OTP path) and passed to `signIn.magicLink` (link path), so the
+ * demo's personalised greeting): it is passed to the OTP / magic-link sign-in,
+ * which Better Auth applies on user CREATION only — so an existing account's
+ * display name is never overwritten (docs + course share the user row). The
  * `/api/hogsend-token` fold later persists it onto the contact.
  *
  * `next` is a pre-validated relative path used as the callback/return target;
@@ -73,21 +75,18 @@ export function SignInForm({
   async function verify(value: string) {
     setPending("verify");
     setError(null);
-    const res = await signIn.emailOtp({ email, otp: value });
+    // `name` is applied by Better Auth on user CREATION only (like the
+    // magic-link path), so a returning login never overwrites an existing
+    // account's shared display name.
+    const res = await signIn.emailOtp({ email, otp: value, name: cleanName() });
     if (res.error) {
       setPending(null);
       setCode("");
       setError("That code didn't match. Check it, or send a new one.");
       return;
     }
-    // Persist the first name on the fresh session (best-effort — a name-set
-    // failure must not block the sign-in itself).
-    const name = cleanName();
-    if (name) {
-      await authClient.updateUser({ name }).catch(() => {});
-    }
     // Full navigation so the destination re-renders with the new session.
-    window.location.assign(next);
+    window.location.assign(safeInternalPath(next));
   }
 
   function onCodeChange(raw: string) {
@@ -108,7 +107,7 @@ export function SignInForm({
     const res = await signIn.magicLink({
       email,
       name: cleanName(),
-      callbackURL: next,
+      callbackURL: safeInternalPath(next),
     });
     setPending(null);
     if (res.error) {
@@ -121,7 +120,10 @@ export function SignInForm({
   async function onGithub() {
     setPending("github");
     setError(null);
-    await signIn.social({ provider: "github", callbackURL: next });
+    await signIn.social({
+      provider: "github",
+      callbackURL: safeInternalPath(next),
+    });
   }
 
   // Magic-link fallback confirmation.

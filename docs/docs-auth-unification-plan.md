@@ -86,3 +86,16 @@ Status legend: `[ ]` todo · `[~]` built-to-seam (demoable in-repo, needs a huma
   Deploy course + docs together; existing course sessions may need one re-login when the cookie
   goes domain-scoped. Then confirm SSO both directions (log in on one, be identified on the other)
   and that a real OTP/magic-link email arrives.
+
+## Pre-merge review (4-lens adversarial workflow) — fixed in-branch
+
+- Verdict MERGE-AFTER-FIX; confirmed the SSO plumbing is safe (no phantom-fork; enabling the
+  `.hogsend.com` cookie does NOT log out existing course users — the cookie name is domain-independent).
+- FIXED: (1) `user.name` clobber — OTP now passes `name` to `signIn.emailOtp` (create-only, like
+  magic-link) instead of `updateUser`, so a returning login never overwrites a shared display name;
+  (2) open-redirect — `next` now validated by `lib/safe-next.ts` (URL-parse, same-origin only);
+  (3) signed-in visitors no longer flash the sign-in form (isPending placeholder); (5) removed the
+  dead `EMAIL_KEY` localStorage fallback.
+- DEFERRED (low, non-blocking, self-heals): a fast click during the ~few-hundred-ms `/api/hogsend-token`
+  fetch window can capture the FIRST event on the anonymous client (no phantom twin, corrects itself
+  after). Follow-up: thread a `ready = userId && token` flag from the provider down to the fire buttons.

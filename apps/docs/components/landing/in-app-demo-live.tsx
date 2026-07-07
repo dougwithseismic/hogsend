@@ -34,9 +34,6 @@ import { DISCORD_INVITE_URL } from "@/lib/site";
  * Only rendered when `isHogsendConfigured`, so `useHogsend` always has context.
  */
 
-/** localStorage key the sign-up writes the verified email to (email-capture). */
-const EMAIL_KEY = "hs-demo-email";
-
 /** The channels a journey can fan out to — drives the per-action chips. */
 type Channel = "in_app" | "email" | "discord";
 
@@ -226,14 +223,7 @@ export function InAppDemoLive({
    */
   async function fireEmail() {
     if (!signedUp || firing !== null) return;
-    let to = email ?? "";
-    if (!to) {
-      try {
-        to = window.localStorage.getItem(EMAIL_KEY) ?? "";
-      } catch {
-        // storage blocked — fall through to the guard below
-      }
-    }
+    const to = email ?? "";
     if (!to) return;
     onFire?.("demo.email");
     setFiring("demo.email");

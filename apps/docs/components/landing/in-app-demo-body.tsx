@@ -39,7 +39,13 @@ export function InAppDemoBody() {
 
   return (
     <>
-      {signedIn ? (
+      {isPending ? (
+        // Session still resolving — show a neutral placeholder so a returning
+        // signed-in visitor never flashes the sign-in form before "You're in".
+        <Card className="flex min-h-[220px] items-center justify-center p-6">
+          <span className="text-sm text-white/40">Loading your session…</span>
+        </Card>
+      ) : signedIn ? (
         <>
           <Card className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
             <div>

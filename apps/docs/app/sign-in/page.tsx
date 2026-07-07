@@ -1,16 +1,11 @@
 import type { Metadata } from "next";
 import { SignInForm } from "@/components/auth/sign-in-form";
+import { safeInternalPath } from "@/lib/safe-next";
 
 export const metadata: Metadata = {
   title: "Sign in — Hogsend",
   robots: { index: false },
 };
-
-/** Only relative in-site paths are honoured as the post-sign-in return target. */
-function safeNext(value: string | string[] | undefined): string {
-  if (typeof value !== "string") return "/";
-  return value.startsWith("/") && !value.startsWith("//") ? value : "/";
-}
 
 export default async function SignInPage({
   searchParams,
@@ -30,7 +25,10 @@ export default async function SignInPage({
         One account across hogsend.com and the courses. We'll email you a
         6-digit code — no password.
       </p>
-      <SignInForm next={safeNext(next)} githubEnabled={githubEnabled} />
+      <SignInForm
+        next={safeInternalPath(typeof next === "string" ? next : "/")}
+        githubEnabled={githubEnabled}
+      />
     </main>
   );
 }
