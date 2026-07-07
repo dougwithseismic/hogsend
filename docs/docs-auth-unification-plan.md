@@ -50,13 +50,13 @@ Status legend: `[ ]` todo · `[~]` built-to-seam (demoable in-repo, needs a huma
 
 ## Phase 2 — Gate + identify the live demo
 
-- [ ] **2.1 DocsHogsendProvider (identified).** Mirror `CourseHogsendProvider`: fetch `/api/hogsend-token`,
+- [~] **2.1 DocsHogsendProvider (identified).** Mirror `CourseHogsendProvider`: fetch `/api/hogsend-token`,
   construct `HogsendProvider` with `{ userId, userToken }` (or anon when signed out). Seam: identified
   round-trip needs the dogfood engine + secrets.
-- [ ] **2.2 Session-gated demo.** `in-app-demo-live` (+ `in-app-demo-body`) require a real session;
+- [~] **2.2 Session-gated demo.** `in-app-demo-live` (+ `in-app-demo-body`) require a real session;
   signed-out → "Log in to try it live" → `SignInForm`; signed-in → the fire buttons. Replace the old
   `signedUp`/`hs-demo-email` localStorage bool. Verify the gate renders both states.
-- [ ] **2.3 Identified captures + durable name.** Demo captures carry `userId` (identified, fork-safe
+- [~] **2.3 Identified captures + durable name.** Demo captures carry `userId` (identified, fork-safe
   after the fold); the fold persists the first name onto the contact; the greeting reads the session name.
 
 ## Phase 3 — Fix the attribution label (dogfood repo, separate commit)
