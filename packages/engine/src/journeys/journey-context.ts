@@ -53,6 +53,7 @@ import {
   getJourneyBoundary,
   registerKey,
 } from "./journey-boundary.js";
+import { logTransition } from "./journey-log.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be
  * resurrected back to "active" by a wait resuming. Exported so the durable task
@@ -211,7 +212,10 @@ export function createJourneyContext(
   // Enter a durable wait: flip "active" → "waiting", but ONLY if the journey
   // hasn't already reached a terminal state (e.g. exitOn fired before we got
   // here). A no-op update means the journey is already done — abort the run.
-  const enterWait = async (nodeId: string): Promise<void> => {
+  const enterWait = async (
+    nodeId: string,
+    action: "sleep" | "wait",
+  ): Promise<void> => {
     const entered = await db
       .update(journeyStates)
       .set({ status: "waiting", currentNodeId: nodeId, updatedAt: new Date() })
@@ -226,13 +230,27 @@ export function createJourneyContext(
     if (entered.length === 0) {
       throw new JourneyExitedError(stateId);
     }
+
+    // Fire-and-forget transition log (best-effort; never affects the wait). The
+    // boundary's current label (if any) is the node we're leaving.
+    const prior = getJourneyBoundary()?.currentLabel;
+    logTransition({
+      db,
+      journeyStateId: stateId,
+      from: prior && prior !== nodeId ? prior : null,
+      to: nodeId,
+      action,
+    });
   };
 
   // Resume from a durable wait: flip "waiting" → "active", but ONLY if the row
   // is still "waiting". If an exit/cancel landed during the wait the row is no
   // longer "waiting" — abort instead of reviving a terminated journey to active
   // (which would let a post-wait side effect fire after the journey exited).
-  const resumeFromWait = async (): Promise<void> => {
+  const resumeFromWait = async (
+    nodeId: string,
+    detail?: Record<string, unknown>,
+  ): Promise<void> => {
     const resumed = await db
       .update(journeyStates)
       .set({ status: "active", updatedAt: new Date() })
@@ -244,6 +262,16 @@ export function createJourneyContext(
     if (resumed.length === 0) {
       throw new JourneyExitedError(stateId);
     }
+
+    // Fire-and-forget resume transition (best-effort; never affects the run).
+    logTransition({
+      db,
+      journeyStateId: stateId,
+      from: null,
+      to: nodeId,
+      action: "resume",
+      ...(detail ? { detail } : {}),
+    });
   };
 
   // Durable sleep with the guarded waiting → active lifecycle. `sleep` passes a
@@ -254,10 +282,10 @@ export function createJourneyContext(
     nodeId: string,
   ): Promise<{ sleptAt: string; resumedAt: string }> => {
     const sleptAt = new Date().toISOString();
-    await enterWait(nodeId);
+    await enterWait(nodeId, "sleep");
     await hatchetCtx.sleepFor(durationOrMs);
     const resumedAt = new Date().toISOString();
-    await resumeFromWait();
+    await resumeFromWait(nodeId);
     // Refresh the memoized clock snapshot so a `ctx.when` chain used right after
     // this wait reads a replay-stable instant (on an eviction engine) instead of
     // the construction-time seed — see `latestNow`.
@@ -380,7 +408,7 @@ export function createJourneyContext(
       return { timedOut: false, properties: preHit };
     }
 
-    await enterWait(nodeId);
+    await enterWait(nodeId, "wait");
 
     let outcome: WaitForEventResult;
     while (true) {
@@ -433,7 +461,7 @@ export function createJourneyContext(
       // if it matches, else re-arms toward the durable deadline.
     }
 
-    await resumeFromWait();
+    await resumeFromWait(nodeId, { timedOut: outcome.timedOut });
     await clearDeadline();
     return outcome;
   };
@@ -524,7 +552,7 @@ export function createJourneyContext(
       }
     }
 
-    await enterWait(nodeId);
+    await enterWait(nodeId, "wait");
 
     // Wait for the user-scoped event or the timeout. The event branch filters on
     // the pushed payload's top-level `userId` (see `ingestEvent`); the SDK turns
@@ -573,7 +601,7 @@ export function createJourneyContext(
       }
     }
 
-    await resumeFromWait();
+    await resumeFromWait(nodeId, { timedOut });
     // Refresh the memoized clock snapshot so a `ctx.when` chain after this wait
     // reads a replay-stable instant (eviction engine) rather than the seed.
     await refreshNow();
@@ -629,12 +657,22 @@ export function createJourneyContext(
     },
 
     async checkpoint(label) {
+      const prior = getJourneyBoundary()?.currentLabel;
       // A checkpoint also advances the "site" the next side effect inherits.
       setBoundaryLabel(label);
       await db
         .update(journeyStates)
         .set({ currentNodeId: label, updatedAt: new Date() })
         .where(eq(journeyStates.id, stateId));
+
+      // Fire-and-forget checkpoint transition (best-effort; never throws).
+      logTransition({
+        db,
+        journeyStateId: stateId,
+        from: prior && prior !== label ? prior : null,
+        to: label,
+        action: "checkpoint",
+      });
     },
 
     async trigger({
@@ -692,6 +730,18 @@ export function createJourneyContext(
       } else {
         await runIngest();
       }
+
+      // Fire-and-forget trigger transition (best-effort; never throws). Inside
+      // the exactly-once path, so a replay re-logs — acceptable for a timeline.
+      // `to` mirrors the graph's trigger node id (`trigger:<event>`).
+      logTransition({
+        db,
+        journeyStateId: stateId,
+        from: boundary?.currentLabel ?? null,
+        to: `trigger:${event}`,
+        action: "trigger",
+        detail: { event },
+      });
     },
 
     async now() {

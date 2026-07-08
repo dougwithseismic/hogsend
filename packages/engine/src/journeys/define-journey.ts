@@ -31,6 +31,7 @@ import {
   supportsEviction,
 } from "./journey-boundary.js";
 import { createJourneyContext, TERMINAL_STATUSES } from "./journey-context.js";
+import { logTransition } from "./journey-log.js";
 import { getJourneyRegistrySingleton } from "./registry-singleton.js";
 
 const logger = createLogger(process.env.LOG_LEVEL);
@@ -247,6 +248,20 @@ export function defineJourney(options: {
       }
 
       const stateId = state.id;
+
+      // Fire-and-forget enrollment transition (FRESH entry only — a replay
+      // recovers `state` by run id above and must NOT re-log an entry). Writes
+      // `journey_logs` best-effort; never throws into / alters execution.
+      if (!recovered) {
+        logTransition({
+          db,
+          journeyStateId: stateId,
+          from: null,
+          to: "start",
+          action: "entered",
+        });
+      }
+
       // The replay-stable key anchor: prefer the run id (constant across replays
       // of this run), fall back to stateId when the engine has no run id.
       const runAnchor = workflowRunId || stateId;
@@ -364,6 +379,15 @@ export function defineJourney(options: {
           })
           .where(eq(journeyStates.id, stateId));
 
+        // Fire-and-forget completion transition (best-effort; never throws).
+        logTransition({
+          db,
+          journeyStateId: stateId,
+          from: boundary.currentLabel ?? null,
+          to: "end-completed",
+          action: "completed",
+        });
+
         await hatchet.events.push("journey:completed", {
           journeyId: meta.id,
           stateId,
@@ -437,6 +461,18 @@ export function defineJourney(options: {
           stateId,
           userId,
           error: message,
+        });
+
+        // Fire-and-forget failure transition — only reached when a row was
+        // actually flipped to "failed" (the guard above). `to` is the best-effort
+        // last durable node (approximate — see plan Guardrails). Never throws.
+        logTransition({
+          db,
+          journeyStateId: stateId,
+          from: null,
+          to: boundary.currentLabel ?? state.currentNodeId ?? null,
+          action: "failed",
+          detail: { error: message },
         });
 
         await hatchet.events.push("journey:failed", {

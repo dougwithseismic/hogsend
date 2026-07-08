@@ -16,8 +16,10 @@ import { eq } from "drizzle-orm";
 import {
   deriveJourneyKey,
   getJourneyBoundary,
+  parseJourneySendSite,
   registerKey,
 } from "../journeys/journey-boundary.js";
+import { logTransition } from "../journeys/journey-log.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import type { TestModeState } from "./domain-status.js";
 import {
@@ -454,6 +456,36 @@ async function sendTrackedEmailInner<K extends TemplateName>(
         updatedAt: sentAt,
       })
       .where(eq(emailSends.id, emailSendId));
+
+    // Fire-and-forget SEND transition log — journey sends only (journeyStateId
+    // present). `to` MUST be `send:<site>` where <site> is the EXACT discriminant
+    // the mailer embedded in the idempotency key
+    // (`journeySend:<anchor>:<site>:<templateKey>`), parsed back out so it equals
+    // the id `buildJourneyGraph` emits for this send node (A2) — this joins the
+    // log row to the graph node in Phase 3. Recomputing `currentLabel ?? template`
+    // would MISS an explicit `idempotencyLabel`, so we reuse the embedded value;
+    // fall back to that only when there is no journey `journeySend:` key. Mirrors
+    // the fire-and-forget `emitOutbound` call below; never throws into the send.
+    if (options.journeyStateId) {
+      const boundary = getJourneyBoundary();
+      const site =
+        (boundary
+          ? parseJourneySendSite({
+              key: options.idempotencyKey,
+              anchor: boundary.runAnchor,
+              discriminant: String(options.templateKey),
+            })
+          : undefined) ??
+        boundary?.currentLabel ??
+        String(options.templateKey);
+      logTransition({
+        db,
+        journeyStateId: options.journeyStateId,
+        to: `send:${site}`,
+        action: "send",
+        detail: { template: options.templateKey, emailSendId },
+      });
+    }
 
     // OUTBOUND `email.sent` — fired ONLY on a real provider-accepted send (this
     // success branch). Suppressed/frequency-capped/failed branches and the

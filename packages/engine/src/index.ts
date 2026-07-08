@@ -196,10 +196,17 @@ export {
   deriveJourneyKey,
   getJourneyBoundary,
   type JourneyBoundary,
+  parseJourneySendSite,
   registerKey,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
 export { createJourneyContext } from "./journeys/journey-context.js";
+// --- Journey transition log (journey_logs writer — Phase 2 per-stage metrics) ---
+export {
+  type JourneyLogAction,
+  type LogTransitionArgs,
+  logTransition,
+} from "./journeys/journey-log.js";
 export {
   getJourneySources,
   resetJourneySources,
