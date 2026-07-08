@@ -148,7 +148,7 @@ Zod schema alongside (`journeyGraphSchema`) so the admin route response validate
 
 Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` unchecked.
 
-### Phase 0 — Graph IR types + schema (`@hogsend/core`)  `[ ]`
+### Phase 0 — Graph IR types + schema (`@hogsend/core`)  `[x]`
 - **Goal:** the shared `JourneyGraph`/`JourneyNode`/`JourneyEdge` types + zod schema,
   exported from `@hogsend/core` and re-exported from `@hogsend/engine`.
 - **Files:** `packages/core/src/journey-graph/types.ts` (new), `.../schema.ts` (new),
