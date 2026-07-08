@@ -98,7 +98,9 @@ describe("buildJourneyGraph — feedback-nps shape", () => {
   });
 
   it("emits nodes in source order with the expected types", () => {
-    expect(types(graph)).toEqual([
+    // Filter decision nodes (control-flow synthetic) — this asserts the
+    // call-derived node backbone in source order.
+    expect(types(graph).filter((t) => t !== "decision")).toEqual([
       "start",
       "sleep",
       "send",
@@ -113,7 +115,7 @@ describe("buildJourneyGraph — feedback-nps shape", () => {
   });
 
   it("keys nodes on authored labels / idempotency sites (A2 join key)", () => {
-    expect(ids(graph)).toEqual([
+    expect(ids(graph).filter((id) => !id.startsWith("decision:"))).toEqual([
       "start",
       "day-14",
       "send:nps-survey",
@@ -161,23 +163,63 @@ describe("buildJourneyGraph — feedback-nps shape", () => {
     expect(nodeById(graph, "start")?.subtitle).toBe("user.created");
   });
 
-  it("labels the if-guarded reminder + trigger edges conditional-true (Tier 2)", () => {
-    const reminderEdge = graph.edges.find(
-      (e) => e.target === "send:nps-reminder",
-    );
-    expect(reminderEdge?.kind).toBe("conditional-true");
-    expect(reminderEdge?.label).toContain("timedOut");
+  it("FORKS the first waitForEvent into timedOut + answered, converging", () => {
+    // The first wait (`await-score`) is a real fork: the timed-out branch runs
+    // the reminder send, the answered branch skips straight to the continuation;
+    // both converge at the checkpoint (`scored-${…}`).
+    const outOfWait = graph.edges.filter((e) => e.source === "await-score");
+    const timedOut = outOfWait.find((e) => e.kind === "timedOut");
+    const answered = outOfWait.find((e) => e.kind === "answered");
 
-    const triggerEdge = graph.edges.find(
-      (e) => e.target === "trigger:NPS_DETRACTOR",
-    );
-    expect(triggerEdge?.kind).toBe("conditional-true");
+    // timedOut → the reminder-send path (reminder is on the timedOut branch).
+    expect(timedOut?.target).toBe("send:nps-reminder");
+    // answered → the continuation (the checkpoint), NOT a step after the reminder.
+    expect(answered?.target).toBe("scored-${…}");
+
+    // Convergence: the timedOut path (…→ await-score-reminder) and the answered
+    // path both reach the checkpoint.
+    const intoCheckpoint = graph.edges
+      .filter((e) => e.target === "scored-${…}")
+      .map((e) => e.source);
+    expect(intoCheckpoint).toContain("await-score-reminder"); // timedOut path
+    expect(intoCheckpoint).toContain("await-score"); // answered path
   });
 
-  it("connects a single end-completed terminal from the last node", () => {
-    const last = graph.edges.at(-1);
-    expect(last?.source).toBe("trigger:NPS_DETRACTOR");
-    expect(last?.target).toBe("end-completed");
+  it("routes score<=6 through a humanized DECISION node (`Score ≤ 6?`)", () => {
+    // `capture` flows into a decision node; yes → trigger, no → end.
+    const trigger = graph.edges.find(
+      (e) => e.target === "trigger:NPS_DETRACTOR",
+    );
+    const decisionId = trigger?.source;
+    expect(decisionId).toMatch(/^decision:/);
+    expect(trigger?.kind).toBe("conditional-true");
+    expect(trigger?.label).toBe("yes");
+
+    const decision = nodeById(graph, decisionId ?? "");
+    expect(decision?.type).toBe("decision");
+    expect(decision?.title).toBe("Score ≤ 6?");
+
+    // capture → decision, and the decision's `no` edge terminates.
+    expect(
+      graph.edges.some(
+        (e) => e.source === "capture:6" && e.target === decisionId,
+      ),
+    ).toBe(true);
+    expect(
+      graph.edges.some(
+        (e) =>
+          e.source === decisionId &&
+          e.target === "end-completed" &&
+          e.kind === "conditional-false",
+      ),
+    ).toBe(true);
+    // The trigger path also terminates.
+    expect(
+      graph.edges.some(
+        (e) =>
+          e.source === "trigger:NPS_DETRACTOR" && e.target === "end-completed",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -197,6 +239,11 @@ describe("buildJourneyGraph — activation-nudge shape", () => {
       await sendEmail({ to: user.email, template: Templates.ACTIVATION_NUDGE_SERIES });
     }
     await ctx.sleep({ duration: days(1), label: "setup-check" });
+    const { found: hasCompletedSetup } = await ctx.history.hasEvent({
+      userId: user.id,
+      event: Events.SETUP_COMPLETED,
+      within: days(3),
+    });
     if (!hasCompletedSetup) {
       await sendEmail({ to: user.email, template: Templates.ACTIVATION_QUICKSTART });
     }
@@ -212,7 +259,7 @@ describe("buildJourneyGraph — activation-nudge shape", () => {
   });
 
   it("emits 3 sleeps + 3 sends in order, no ctx.history nodes", () => {
-    expect(types(graph)).toEqual([
+    expect(types(graph).filter((t) => t !== "decision")).toEqual([
       "start",
       "sleep",
       "send",
@@ -225,7 +272,7 @@ describe("buildJourneyGraph — activation-nudge shape", () => {
   });
 
   it("derives each send id from its nearest preceding sleep label", () => {
-    expect(ids(graph)).toEqual([
+    expect(ids(graph).filter((id) => !id.startsWith("decision:"))).toEqual([
       "start",
       "initial-nudge",
       "send:initial-nudge",
@@ -243,28 +290,136 @@ describe("buildJourneyGraph — activation-nudge shape", () => {
     expect(firstSend?.subtitle).toBe("ACTIVATION_NUDGE_SERIES");
   });
 
-  it("marks the two if-guarded sends conditional-true, final send default", () => {
-    const guarded = graph.edges.find((e) => e.target === "send:initial-nudge");
-    expect(guarded?.kind).toBe("conditional-true");
-    const guarded2 = graph.edges.find((e) => e.target === "send:setup-check");
-    expect(guarded2?.kind).toBe("conditional-true");
-    const finalSend = graph.edges.find((e) => e.target === "send:community");
-    expect(finalSend?.kind).toBe("default");
+  it("routes each guarded send through a humanized DECISION node (no→send, yes→bypass)", () => {
+    // The test is negated (`if (!hasUsedFeature)`), so the POSITIVE-question title
+    // "Feature used?" routes the send onto the `no` edge (feature NOT used → send
+    // the nudge) and the bypass onto `yes`. Both converge at the next sleep.
+    const toNudge = graph.edges.find((e) => e.target === "send:initial-nudge");
+    const d0 = toNudge?.source;
+    expect(d0).toMatch(/^decision:/);
+    expect(toNudge?.kind).toBe("conditional-false"); // no → send
+    expect(toNudge?.label).toBe("no");
+    expect(nodeById(graph, d0 ?? "")?.title).toMatch(/feature/i);
+
+    // sleep flows into the decision; the `yes` edge bypasses to the next sleep.
+    expect(
+      graph.edges.some((e) => e.source === "initial-nudge" && e.target === d0),
+    ).toBe(true);
+    const intoSetup = graph.edges
+      .filter((e) => e.target === "setup-check")
+      .map((e) => `${e.source}:${e.kind}`);
+    expect(intoSetup).toContain("send:initial-nudge:default"); // sent → continue
+    expect(intoSetup).toContain(`${d0}:conditional-true`); // yes → bypass
+
+    // Second guarded send, same shape (humanized "Setup completed?").
+    const toQuickstart = graph.edges.find(
+      (e) => e.target === "send:setup-check",
+    );
+    const d1 = toQuickstart?.source;
+    expect(toQuickstart?.kind).toBe("conditional-false"); // no → send
+    expect(nodeById(graph, d1 ?? "")?.title).toBe("Setup completed?");
+    const intoCommunity = graph.edges
+      .filter((e) => e.target === "community")
+      .map((e) => `${e.source}:${e.kind}`);
+    expect(intoCommunity).toContain("send:setup-check:default");
+    expect(intoCommunity).toContain(`${d1}:conditional-true`); // yes → bypass
+
+    // The final send is unconditional (on the main line, no decision).
+    expect(graph.edges.find((e) => e.target === "send:community")?.kind).toBe(
+      "default",
+    );
+  });
+});
+
+describe("buildJourneyGraph — test-onboarding decision node + convergence", () => {
+  const meta = metaFor({ id: "test-onboarding" });
+  // The canonical case the linear backbone got WRONG. Now the if/else becomes an
+  // explicit DECISION node with a HUMANIZED question (traced from the `isPro`
+  // binding → `user.properties.plan === "pro"`), whose yes/no edges enter the two
+  // branches, both converging into `completed`. Mirrors the real journey.
+  const runSource = `async (user, ctx) => {
+    await ctx.trigger({ event: Events.WELCOME, userId: user.id });
+    const isPro = user.properties.plan === "pro";
+    if (isPro) {
+      await ctx.trigger({ event: Events.PRO_PATH, userId: user.id });
+    } else {
+      await ctx.trigger({ event: Events.FREE_PATH, userId: user.id });
+    }
+    await ctx.trigger({ event: Events.COMPLETED, userId: user.id });
+  }`;
+
+  const graph = buildJourneyGraph({ runSource, meta });
+
+  it("is valid and non-degraded", () => {
+    expectValidGraph(graph);
+    expect(graph.degraded).toBeUndefined();
+  });
+
+  it("emits a humanized DECISION node titled `Plan is pro?`", () => {
+    const decision = graph.nodes.find((n) => n.type === "decision");
+    expect(decision?.title).toBe("Plan is pro?");
+    expect(decision?.meta?.unstable).toBe(true);
+    expect(decision?.id).toMatch(/^decision:/);
+  });
+
+  it("routes welcome → decision → {yes: PRO_PATH, no: FREE_PATH}", () => {
+    const decisionId = graph.nodes.find((n) => n.type === "decision")?.id;
+
+    // welcome flows into the decision (not directly to a branch).
+    expect(
+      graph.edges.some(
+        (e) => e.source === "trigger:WELCOME" && e.target === decisionId,
+      ),
+    ).toBe(true);
+
+    const outOfDecision = graph.edges.filter((e) => e.source === decisionId);
+    expect(outOfDecision).toHaveLength(2);
+    const toPro = outOfDecision.find((e) => e.target === "trigger:PRO_PATH");
+    const toFree = outOfDecision.find((e) => e.target === "trigger:FREE_PATH");
+    expect(toPro?.kind).toBe("conditional-true");
+    expect(toPro?.label).toBe("yes");
+    expect(toFree?.kind).toBe("conditional-false");
+    expect(toFree?.label).toBe("no");
+  });
+
+  it("converges BOTH branches into `completed` with default edges", () => {
+    const intoCompleted = graph.edges.filter(
+      (e) => e.target === "trigger:COMPLETED",
+    );
+    expect(intoCompleted.map((e) => e.source).sort()).toEqual([
+      "trigger:FREE_PATH",
+      "trigger:PRO_PATH",
+    ]);
+    for (const e of intoCompleted) expect(e.kind).toBe("default");
+
+    // FREE_PATH must NOT be a step after PRO_PATH (the old linear bug).
+    expect(
+      graph.edges.some(
+        (e) =>
+          e.source === "trigger:PRO_PATH" && e.target === "trigger:FREE_PATH",
+      ),
+    ).toBe(false);
+
+    // …and completion flows from the convergence point.
+    expect(
+      graph.edges.some(
+        (e) => e.source === "trigger:COMPLETED" && e.target === "end-completed",
+      ),
+    ).toBe(true);
   });
 });
 
 describe("buildJourneyGraph — connector-only + helper (unused _ctx)", () => {
   const meta = metaFor({ id: "discord-lifecycle" });
   // `_ctx` is present but unused; a direct sendConnectorAction (→ connector) plus
-  // an awaited bare helper (→ unknown + warning).
+  // an awaited bare helper (→ unknown + warning). No `if`, so no decision node —
+  // this test isolates connector + unknown detection.
   const runSource = `async (user, _ctx) => {
-    if (source === "discord") {
-      await sendConnectorAction({
-        connectorId: "discord",
-        action: "dmMember",
-        args: { member: user.id, content: "hi" },
-      });
-    }
+    await sendConnectorAction({
+      connectorId: "discord",
+      action: "dmMember",
+      args: { member: user.id, content: "hi" },
+    });
     await grantAndAnnounce({ member: user.id, roleId: "x", dm: "welcome" });
   }`;
 

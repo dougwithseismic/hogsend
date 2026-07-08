@@ -361,6 +361,98 @@ export function getJourneyTemplates(id: string) {
   );
 }
 
+// --- Journey graph (visual workflow) -------------------------------------
+
+/**
+ * The journey graph IR — mirrors `@hogsend/core` `JourneyNode`/`JourneyEdge`/
+ * `JourneyGraph`. Kept as a local type (not a workspace import) because the
+ * Studio ships as a standalone SPA `dist` and does not bundle engine source.
+ */
+export type JourneyGraphNodeType =
+  | "start"
+  | "sleep"
+  | "sleepUntil"
+  | "wait"
+  | "send"
+  | "connector"
+  | "checkpoint"
+  | "trigger"
+  | "capture"
+  | "branch"
+  | "decision"
+  | "end-completed"
+  | "end-exited"
+  | "end-failed"
+  | "unknown";
+
+export type JourneyGraphNode = {
+  id: string;
+  type: JourneyGraphNodeType;
+  title: string;
+  subtitle?: string;
+  meta?: {
+    duration?: Record<string, number>;
+    timeout?: Record<string, number>;
+    event?: string;
+    template?: string;
+    idempotencyLabel?: string;
+    connectorId?: string;
+    action?: string;
+    conditions?: unknown[];
+    unstable?: boolean;
+  };
+  line?: number;
+};
+
+export type JourneyGraphEdgeKind =
+  | "default"
+  | "timedOut"
+  | "answered"
+  | "conditional-true"
+  | "conditional-false";
+
+export type JourneyGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  kind?: JourneyGraphEdgeKind;
+};
+
+export type JourneyGraph = {
+  journeyId: string;
+  nodes: JourneyGraphNode[];
+  edges: JourneyGraphEdge[];
+  degraded?: boolean;
+  warnings?: string[];
+};
+
+/**
+ * Retroactive per-node metric: people here now + failures at this node, plus
+ * the resolved email template key for `send` nodes (server-resolved from
+ * journey_logs / observed email_sends) so the side panel can preview it.
+ */
+export type JourneyNodeMetric = {
+  live: number;
+  failed: number;
+  templateKey?: string;
+};
+
+export type JourneyGraphResponse = {
+  graph: JourneyGraph;
+  metrics: {
+    enrolled: number;
+    terminals: { completed: number; failed: number; exited: number };
+    nodes: Record<string, JourneyNodeMetric>;
+  };
+};
+
+export function getJourneyGraph(id: string) {
+  return api.get<JourneyGraphResponse>(
+    `/v1/admin/journeys/${encodeURIComponent(id)}/graph`,
+  );
+}
+
 // --- Buckets -------------------------------------------------------------
 
 export type BucketListItem = {
@@ -1027,6 +1119,7 @@ export const qk = {
   journeyState: (id: string, stateId: string) =>
     ["journey-state", id, stateId] as const,
   journeyTemplates: (id: string) => ["journey-templates", id] as const,
+  journeyGraph: (id: string) => ["journey-graph", id] as const,
   buckets: ["buckets"] as const,
   bucketMetrics: ["bucket-metrics"] as const,
   bucket: (id: string) => ["bucket", id] as const,

@@ -12,6 +12,7 @@ export const journeyNodeTypeSchema = z.enum([
   "trigger",
   "capture",
   "branch",
+  "decision",
   "end-completed",
   "end-exited",
   "end-failed",

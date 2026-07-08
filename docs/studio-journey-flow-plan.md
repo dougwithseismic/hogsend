@@ -198,7 +198,7 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
   garbage source. `pnpm --filter @hogsend/engine check-types`.
 - **Commit:** `feat(engine): AST-based journey graph extractor`
 
-### Phase 2 — `journey_logs` transition writer (`@hogsend/engine`)  `[ ]`
+### Phase 2 — `journey_logs` transition writer (`@hogsend/engine`)  `[x]`
 - **Goal:** finally populate `journey_logs` so per-node *reached*/*failed* funnels and the
   instance-drawer timeline become real. Additive; readers already exist.
 - **Work:** `logTransition({db, journeyStateId, from, to, action, detail?})` helper
@@ -226,7 +226,7 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
   `GET /journeys/:id/states/:sid` returns a non-empty `logs[]`). `check-types`.
 - **Commit:** `feat(engine): write journey_logs transitions for per-stage metrics`
 
-### Phase 3 — Graph + metrics admin endpoint (`@hogsend/engine` + studio client)  `[ ]`
+### Phase 3 — Graph + metrics admin endpoint (`@hogsend/engine` + studio client)  `[x]`
 - **Goal:** `GET /v1/admin/journeys/:id/graph` → `{ graph, metrics }`.
 - **Work:**
   - New handler on `journeysRouter`. Resolve `meta` via `registry.get(id)` (404 if absent);
@@ -266,7 +266,7 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
   header; 200 (mock `spawn`) on localhost+dev. `check-types`.
 - **Commit:** `feat(engine): dev-only open-template-preview-in-browser route`
 
-### Phase 5 — React Flow view + node detail + export (`@hogsend/studio`)  `[ ]`
+### Phase 5 — React Flow view + node detail + export (`@hogsend/studio`)  `[x]`
 - **Goal:** the visual workflow the user described.
 - **Work:**
   - `pnpm --filter @hogsend/studio add @xyflow/react html-to-image pako` + `add -D @types/pako`.
@@ -337,6 +337,12 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
 - `@hogsend/studio` rides the engine version line; confirm at release whether the new deps
   reach `create-hogsend` consumers (studio ships built `dist` only → expected: no mirror needed).
 - Follow the crimzon token conventions; show Doug the live preview **before** merge.
+
+## Build order (actual) + round-2 live-feedback enhancements
+Shipped order was reordered from Doug's live review: 0 → 1 → **5 + 3** (view + endpoint, to get React Flow on screen fast) → **2** (journey_logs, folded in for template resolution/reached metrics). **Phase 4** (dev open-in-browser) and **Phase 6** (docs + changeset) remain `[ ]`. Round-2 changes made while Doug watched it run:
+- Extractor emits a real **control-flow graph** — `if/else` and `waitForEvent` **fork and converge** (no more linear flattening), and each `if` becomes a **`decision` node** (new IR type) with an AST-**humanized** title (`Plan is pro?`, `Feature used?`, `Score ≤ 6?`) traced from property comparisons / `ctx.history.hasEvent` / `ctx.guard`. `yes`/`no` edges answer the positive question truthfully (negated `!X` → consequent on `no`).
+- Studio view: **dagre** auto-layout (`@dagrejs/dagre`); flow **inline on the main page** (no tab); node-click → **inline resizable side panel** (`react-resizable-panels@3`) with the rendered email preview (template resolved statically: literal → kebab(const-name) exact → longest registry-key prefix → journey_logs site → email_sends); **interaction-lock** so the wheel scrolls the page until you click in; reduced section height; crimzon-styled nodes + `yes`/`no` (green/muted) edges.
+- Template-key resolution needed because sends use `Templates.X` member-exprs (const name ≠ key, and not reliably convertible) — resolved server-side on `metrics.nodes[id].templateKey`.
 
 ## Open items for Doug (surface at the Phase 5 preview gate, not blocking earlier phases)
 - Confirm the visual direction (node styling, which metrics on the badge) against the live preview.

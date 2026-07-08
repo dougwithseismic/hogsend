@@ -9,6 +9,7 @@ export type JourneyNodeType =
   | "trigger"
   | "capture"
   | "branch"
+  | "decision"
   | "end-completed"
   | "end-exited"
   | "end-failed"

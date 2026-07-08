@@ -12,28 +12,45 @@ import * as walk from "acorn-walk";
  * Runtime AST extractor: turn a journey's captured `run` source into a
  * {@link JourneyGraph} for Studio's visual workflow.
  *
- * Design (two tiers, see docs/studio-journey-flow-plan.md Phase 1):
+ * Two independent passes (see docs/studio-journey-flow-plan.md Phase 1):
  *
- * TIER 1 — the linear backbone. Every recognized side-effect / durable
- * primitive call in the `run` body becomes a node, chained in SOURCE ORDER with
- * `default` edges: `start → n1 → … → end-completed`. Detection is STRUCTURAL,
- * not name-based, so bundler-renamed imports (`sendEmail2`) still resolve: a
- * `send` is any call whose first arg object carries `template`/`to`; a
- * `connector` any whose first arg object carries `connectorId`/`action`. `ctx.*`
- * primitives are detected by the property applied directly to the detected `ctx`
- * param binding (which may be `ctx`, `_ctx`, or absent).
+ * NODES — every recognized side-effect / durable primitive call in the `run`
+ * body becomes a node. Detection is STRUCTURAL, not name-based, so
+ * bundler-renamed imports (`sendEmail2`) still resolve: a `send` is any call
+ * whose first arg object carries `template`/`to`; a `connector` any whose first
+ * arg object carries `connectorId`/`action`. `ctx.*` primitives are detected by
+ * the property applied directly to the detected `ctx` binding (which may be
+ * `ctx`, `_ctx`, or absent). Node ids follow the A2 rule so they join to the
+ * runtime `journeyStates.currentNodeId`.
  *
- * TIER 2 — best-effort branch refinement layered on top of the linear chain and
- * wrapped so it can NEVER destabilize Tier 1: `if`-guarded sends get a
- * `conditional-true`/`conditional-false` inbound edge. `waitForEvent`
- * timed-out/answered branches are intentionally shown as a linear path in v1
- * (flagged via a warning) — linear correctness always wins.
+ * EDGES — a real CONTROL-FLOW graph with forks + convergence, walked from the
+ * AST statement tree (NOT a flat linear chain). A branching `if`/`if-else`
+ * becomes an explicit `decision` node with a HUMANIZED question title
+ * (`Plan is pro?`, `Feature used?`, `Score ≤ 6?` — traced from the test
+ * expression, resolving `const` bindings back to `ctx.history.hasEvent` /
+ * `ctx.guard.isSubscribed` / property comparisons); the preceding node flows
+ * into the decision, whose `yes` edge (conditional-true) enters the consequent
+ * and whose `no` edge (conditional-false) enters the alternate (or skips to the
+ * convergence point when there is no else); both branches converge onto the node
+ * after the `if`. A `waitForEvent` followed by `if (<result>.timedOut)` forks the
+ * WAIT node itself into `timedOut` / `answered` (no decision node). A guard
+ * `if (cond) return/throw` (no else) routes that path to `end-completed` and
+ * continues. Loops / try-catch fall back to a linear sub-region + a warning; if
+ * the whole control-flow walk throws it degrades to a linear chain + a warning.
  *
  * The WHOLE extraction is wrapped in try/catch: any parse/walk failure returns
  * {@link degradedGraphFromMeta}. It must NEVER throw.
  */
 
 type Node = acorn.AnyNode;
+type EdgeKind = NonNullable<JourneyEdge["kind"]>;
+
+/** A dangling graph edge waiting to connect to the next node it flows into. */
+interface OpenEnd {
+  id: string;
+  kind: EdgeKind;
+  label?: string;
+}
 
 /** ctx namespaces/methods that are decision inputs / utilities, not nodes. */
 const CTX_SKIP = new Set(["history", "guard", "when", "once", "now"]);
@@ -89,10 +106,6 @@ interface Raw {
   idempotencyLabel?: string;
   captureMethod?: string;
   calleeName?: string;
-  // Tier 2 — enclosing `if` branch (best-effort; undefined at top level).
-  ifKey?: string;
-  ifKind?: "consequent" | "alternate";
-  ifTest?: string;
 }
 
 export function buildJourneyGraph({
@@ -151,34 +164,39 @@ function extract(runSource: string, meta: JourneyMeta): JourneyGraph {
   const raws: Raw[] = [];
   walk.fullAncestor(ast, (node, _state, ancestors) => {
     if (node.type !== "CallExpression") return;
-    const raw = classifyCall(node, ctxName, ancestors, wrapped, warnings);
+    const raw = classifyCall(node, ctxName, ancestors, warnings);
     if (raw) raws.push(raw);
   });
   raws.sort((a, b) => a.start - b.start);
 
-  // --- Pass B: assign ids (A2 join-key rules) building the linear chain ---
+  // --- Pass B: assign ids (A2 join-key rules) ---
   const emitted = assignNodes(raws);
   dedupeIds(emitted);
 
-  // --- Assemble chain + edges ---
   const start = startNode(meta);
   const end = endNode();
-  const nodes = [start, ...emitted, end];
-  const edges = buildEdges(nodes);
 
-  // Tier 2 (best-effort, isolated): conditional inbound edges + a note when a
-  // waitForEvent timed-out branch is present but shown linearly.
+  // --- Edges: real control-flow graph (forks + convergence) from the AST,
+  // minting `decision` nodes for branching ifs. If the walk throws on some
+  // exotic shape, degrade to a linear chain (never fail).
+  let edges: JourneyEdge[];
+  let decisions: JourneyNode[] = [];
   try {
-    refineBranches(nodes, raws, edges, warnings);
+    const flow = buildFlowEdges(fn, wrapped, ctxName, emitted, raws, warnings);
+    edges = flow.edges;
+    decisions = flow.decisions;
   } catch {
-    warnings.push("branch refinement skipped — showing linear path");
+    warnings.push("control-flow analysis failed — showing linear path");
+    edges = buildLinearEdges([start, ...emitted, end]);
   }
+
+  const nodes = [start, ...emitted, ...decisions, end];
 
   if (meta.exitOn?.length) {
     warnings.push(`exits on: ${meta.exitOn.map((e) => e.event).join(", ")}`);
   }
 
-  // Same helper called at N sites emits N identical warnings — collapse them.
+  // Same helper / warning at N sites emits N identical strings — collapse them.
   const uniqueWarnings = [...new Set(warnings)];
 
   return {
@@ -389,7 +407,6 @@ function classifyCall(
   call: acorn.CallExpression,
   ctxName: string | undefined,
   ancestors: Node[],
-  source: string,
   warnings: string[],
 ): Raw | undefined {
   const callee = call.callee;
@@ -399,7 +416,6 @@ function classifyCall(
     start: call.start,
     line: lineOf(call),
   };
-  const branch = enclosingIf(call, ancestors, source);
 
   // 1. ctx.* primitives (detected by the property applied directly to ctx).
   if (ctxName) {
@@ -408,7 +424,7 @@ function classifyCall(
       if (CTX_SKIP.has(prop)) return undefined;
       const kind = CTX_NODE[prop];
       if (!kind) return undefined; // unrecognized ctx member → not a node
-      return { ...base, ...branch, ...ctxNodeFields(kind, call) };
+      return { ...base, ...ctxNodeFields(kind, call) };
     }
   }
 
@@ -420,7 +436,7 @@ function classifyCall(
       (method === "capture" || method === "identify") &&
       rootIdentName(callee.object as Node) === "getPostHog"
     ) {
-      return { ...base, ...branch, kind: "capture", captureMethod: method };
+      return { ...base, kind: "capture", captureMethod: method };
     }
   }
 
@@ -430,16 +446,10 @@ function classifyCall(
     if (objectProp(arg, "connectorId") || objectProp(arg, "action")) {
       const cid = stringLiteral(objectProp(arg, "connectorId"));
       const act = stringLiteral(objectProp(arg, "action"));
-      return {
-        ...base,
-        ...branch,
-        kind: "connector",
-        connectorId: cid,
-        action: act,
-      };
+      return { ...base, kind: "connector", connectorId: cid, action: act };
     }
     if (objectProp(arg, "template") || objectProp(arg, "to")) {
-      return { ...base, ...branch, ...sendFields(arg) };
+      return { ...base, ...sendFields(arg) };
     }
   }
 
@@ -456,7 +466,7 @@ function classifyCall(
     warnings.push(
       `'${callee.name}' is a helper call — its side effects are not expanded`,
     );
-    return { ...base, ...branch, kind: "unknown", calleeName: callee.name };
+    return { ...base, kind: "unknown", calleeName: callee.name };
   }
 
   return undefined;
@@ -535,8 +545,9 @@ function sendFields(arg: acorn.ObjectExpression): ClassifiedFields {
 
 function assignNodes(raws: Raw[]): JourneyNode[] {
   const nodes: JourneyNode[] = [];
-  // The nearest preceding AUTHORED (literal) boundary label — the "site" a send
-  // inherits when it has no idempotencyLabel (mirrors the engine's currentLabel).
+  // The nearest preceding boundary label — the "site" a send inherits when it
+  // has no idempotencyLabel (mirrors the engine's boundary.currentLabel, which
+  // advances even on the engine's DETERMINISTIC default labels).
   let currentLabel: string | undefined;
 
   raws.forEach((raw, idx) => {
@@ -697,7 +708,7 @@ function dedupeIds(nodes: JourneyNode[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Terminals + edges
+// Terminals
 // ---------------------------------------------------------------------------
 
 function startNode(meta: JourneyMeta): JourneyNode {
@@ -716,7 +727,8 @@ function endNode(): JourneyNode {
   return { id: "end-completed", type: "end-completed", title: "Completed" };
 }
 
-function buildEdges(nodes: JourneyNode[]): JourneyEdge[] {
+/** Ultimate fallback: a flat `start → … → end-completed` chain. */
+function buildLinearEdges(nodes: JourneyNode[]): JourneyEdge[] {
   const edges: JourneyEdge[] = [];
   for (let i = 0; i < nodes.length - 1; i++) {
     const from = nodes[i];
@@ -733,79 +745,389 @@ function buildEdges(nodes: JourneyNode[]): JourneyEdge[] {
 }
 
 // ---------------------------------------------------------------------------
-// Tier 2 — conditional edge refinement (best-effort, isolated)
+// Control-flow edges — walk the statement tree; branching ifs become decision
+// nodes, waitForEvent `.timedOut` ifs fork the wait node, guards early-exit.
 // ---------------------------------------------------------------------------
 
-/**
- * Find the innermost enclosing `IfStatement` for which `call` sits in the
- * consequent or alternate (not the test). Returns a stable key + branch + test
- * source so an inbound edge into a conditionally-reached node can be labeled.
- */
-function enclosingIf(
-  call: Node,
-  ancestors: Node[],
-  source: string,
-): Pick<Raw, "ifKey" | "ifKind" | "ifTest"> {
-  for (let i = ancestors.length - 2; i >= 0; i--) {
-    const anc = ancestors[i];
-    if (!anc || anc.type !== "IfStatement") continue;
-    const inConsequent = within(call, anc.consequent);
-    const inAlternate = anc.alternate ? within(call, anc.alternate) : false;
-    if (!inConsequent && !inAlternate) continue; // call is in the test
-    return {
-      ifKey: `if@${anc.start}:${inConsequent ? "c" : "a"}`,
-      ifKind: inConsequent ? "consequent" : "alternate",
-      ifTest: source.slice(anc.test.start, anc.test.end),
-    };
-  }
-  return {};
-}
-
-function within(inner: Node, outer: Node): boolean {
-  return inner.start >= outer.start && inner.end <= outer.end;
+/** Is a test the `<x>.timedOut` shape that turns a wait into a fork? */
+function testIsTimedOut(test: Node): boolean {
+  const t = test.type === "ChainExpression" ? test.expression : test;
+  return (
+    t.type === "MemberExpression" &&
+    t.property.type === "Identifier" &&
+    t.property.name === "timedOut"
+  );
 }
 
 /**
- * Label inbound edges into nodes that ENTER an `if` branch as
- * `conditional-true`/`conditional-false`, and warn when a `waitForEvent`
- * timed-out branch is present (shown linearly in v1).
+ * Is the test a `!X` negation? The decision title is the POSITIVE question, so a
+ * negated test routes the consequent (which runs when the positive condition is
+ * FALSE) onto the `no` edge and the alternate/bypass onto `yes`.
  */
-function refineBranches(
-  nodes: JourneyNode[],
-  raws: Raw[],
-  edges: JourneyEdge[],
-  warnings: string[],
-): void {
-  // nodes = [start, ...emitted(raws), end]; emitted[k] ↔ raws[k] ↔ nodes[k+1].
-  const rawAt = (chainIdx: number): Raw | undefined =>
-    chainIdx >= 1 && chainIdx <= raws.length ? raws[chainIdx - 1] : undefined;
+function testIsNegated(test: Node): boolean {
+  const t = test.type === "ChainExpression" ? test.expression : test;
+  return t.type === "UnaryExpression" && t.operator === "!";
+}
 
-  let sawTimedOut = false;
-  for (let i = 0; i < edges.length; i++) {
-    const edge = edges[i];
-    if (!edge) continue;
-    const sourceRaw = rawAt(i);
-    const targetRaw = rawAt(i + 1);
-    if (!targetRaw?.ifKey) continue;
-    // Only the edge that ENTERS the branch (source not already inside it).
-    if (sourceRaw?.ifKey === targetRaw.ifKey) continue;
+/** Comparison operator → readable phrasing for a decision question. */
+const COMPARISON_OPS: Record<string, string> = {
+  "===": "is",
+  "==": "is",
+  "!==": "is not",
+  "!=": "is not",
+  ">=": "≥",
+  "<=": "≤",
+  ">": ">",
+  "<": "<",
+};
 
-    if (targetRaw.ifKind === "alternate") {
-      edge.kind = "conditional-false";
-      edge.label = "else";
-    } else {
-      edge.kind = "conditional-true";
-      if (targetRaw.ifTest) edge.label = truncate(targetRaw.ifTest);
+function cap(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/** `FEATURE_USED` → "feature used"; `hasUsedFeature` → "has used feature". */
+function humanizeIdent(name: string): string {
+  if (/^[A-Z0-9_]+$/.test(name)) return name.toLowerCase().replace(/_/g, " ");
+  return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+}
+
+/** An event name → a short yes/no question, `FEATURE_USED` → "Feature used?". */
+function eventTitle(name: string): string {
+  return `${cap(humanizeIdent(name))}?`;
+}
+
+/** The identifiers a `const`/`let` pattern binds (`{ found: x }` → ["x"]). */
+function patternNames(pat: Node): string[] {
+  if (pat.type === "Identifier") return [pat.name];
+  if (pat.type === "ObjectPattern") {
+    const names: string[] = [];
+    for (const p of pat.properties) {
+      if (p.type !== "Property") continue;
+      const v = p.value;
+      if (v.type === "Identifier") names.push(v.name);
+      else if (v.type === "AssignmentPattern" && v.left.type === "Identifier") {
+        names.push(v.left.name);
+      }
     }
-    if (targetRaw.ifTest?.includes("timedOut")) sawTimedOut = true;
+    return names;
+  }
+  return [];
+}
+
+function buildFlowEdges(
+  fn: acorn.ArrowFunctionExpression | acorn.FunctionExpression,
+  source: string,
+  ctxName: string | undefined,
+  emitted: JourneyNode[],
+  raws: Raw[],
+  warnings: string[],
+): { edges: JourneyEdge[]; decisions: JourneyNode[] } {
+  const edges: JourneyEdge[] = [];
+  const seen = new Set<string>();
+  let counter = 0;
+
+  const nodeType = new Map<string, JourneyNodeType>();
+  for (const n of emitted) nodeType.set(n.id, n.type);
+
+  // Synthetic `decision` nodes minted for branching ifs (unique ids, appended
+  // to the graph's node list by the caller).
+  const used = new Set<string>(["start", "end-completed"]);
+  for (const n of emitted) used.add(n.id);
+  const decisions: JourneyNode[] = [];
+  let decisionCounter = 0;
+  const mintDecision = (title: string): JourneyNode => {
+    let id = `decision:${decisionCounter++}`;
+    while (used.has(id)) id = `decision:${decisionCounter++}`;
+    used.add(id);
+    // Decisions don't join to currentNodeId — the id is purely a React key, so
+    // it is always synthetic (unstable).
+    const node: JourneyNode = {
+      id,
+      type: "decision",
+      title,
+      meta: { unstable: true },
+    };
+    decisions.push(node);
+    return node;
+  };
+
+  const addEdge = (oe: OpenEnd, targetId: string): void => {
+    // Dedupe by (source, target, kind): guards can otherwise emit the same edge
+    // from several early-return sites.
+    const key = `${oe.id} ${targetId} ${oe.kind}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    edges.push({
+      id: `edge-${counter++}`,
+      source: oe.id,
+      target: targetId,
+      kind: oe.kind,
+      ...(oe.label ? { label: oe.label } : {}),
+    });
+  };
+
+  /** Emitted nodes whose call.start ∈ [lo, hi), in source order. */
+  const nodesInRange = (lo: number, hi: number): JourneyNode[] => {
+    const out: JourneyNode[] = [];
+    for (let i = 0; i < raws.length; i++) {
+      const r = raws[i];
+      const n = emitted[i];
+      if (r && n && r.start >= lo && r.start < hi) out.push(n);
+    }
+    return out;
+  };
+  const hasNodesInRange = (lo: number, hi: number): boolean =>
+    raws.some((r) => r.start >= lo && r.start < hi);
+
+  /** Chain preds through the node-worthy calls in [lo, hi) linearly. */
+  const chainRange = (lo: number, hi: number, preds: OpenEnd[]): OpenEnd[] => {
+    let cur = preds;
+    for (const n of nodesInRange(lo, hi)) {
+      for (const oe of cur) addEdge(oe, n.id);
+      cur = [{ id: n.id, kind: "default" }];
+    }
+    return cur;
+  };
+
+  /** A pass-through guard: `if (cond) return/throw` — no else, no nodes inside. */
+  const isPureExitGuard = (consequent: Node): boolean => {
+    if (hasNodesInRange(consequent.start, consequent.end)) return false;
+    if (
+      consequent.type === "ReturnStatement" ||
+      consequent.type === "ThrowStatement"
+    ) {
+      return true;
+    }
+    if (consequent.type === "BlockStatement") {
+      const last = consequent.body[consequent.body.length - 1];
+      return (
+        !!last &&
+        (last.type === "ReturnStatement" || last.type === "ThrowStatement")
+      );
+    }
+    return false;
+  };
+
+  // --- Humanizers: trace the test expression into a readable question. ---
+  const sourceSlice = (n: Node): string => source.slice(n.start, n.end);
+
+  const operandText = (n: Node): string => {
+    if (n.type === "MemberExpression") return lastIdentOf(n) ?? sourceSlice(n);
+    if (n.type === "Literal") {
+      return typeof n.value === "string"
+        ? n.value
+        : String(n.value ?? sourceSlice(n));
+    }
+    if (n.type === "Identifier") return humanizeIdent(n.name);
+    return sourceSlice(n);
+  };
+
+  const humanizeComparison = (
+    bin: acorn.BinaryExpression,
+  ): string | undefined => {
+    const op = COMPARISON_OPS[bin.operator];
+    if (!op) return undefined;
+    const left = cap(operandText(bin.left as Node));
+    return `${left} ${op} ${operandText(bin.right as Node)}?`;
+  };
+
+  /** Resolve a binding init (`ctx.history.hasEvent` / `isSubscribed` / compare). */
+  const traceHint = (init: Node): string | undefined => {
+    let n = init;
+    if (n.type === "AwaitExpression") n = n.argument as Node;
+    if (n.type === "ChainExpression") n = n.expression as Node;
+    if (n.type === "BinaryExpression") return humanizeComparison(n);
+    let call: Node = n;
+    if (call.type === "MemberExpression") call = call.object as Node;
+    if (call.type === "AwaitExpression") call = call.argument as Node;
+    if (call.type === "ChainExpression") call = call.expression as Node;
+    if (call.type === "CallExpression" && ctxName) {
+      const first = ctxFirstProp(call.callee as Node, ctxName);
+      const method = lastIdentOf(call.callee as Node);
+      if (first === "history" && method === "hasEvent") {
+        const arg = objectExprArg(call);
+        const ev = arg ? objectProp(arg, "event") : undefined;
+        const name = stringLiteral(ev) ?? lastIdentOf(ev);
+        return name ? eventTitle(name) : "Event occurred?";
+      }
+      if (first === "guard" && method === "isSubscribed") {
+        return "Still subscribed?";
+      }
+    }
+    return undefined;
+  };
+
+  // Track simple boolean bindings so `if (isPro)` resolves to its real criteria.
+  const bindingMap = new Map<string, string>();
+  walk.simple(fn, {
+    VariableDeclarator(d) {
+      if (!d.init) return;
+      const hint = traceHint(d.init as Node);
+      if (!hint) return;
+      for (const name of patternNames(d.id as Node)) bindingMap.set(name, hint);
+    },
+  });
+
+  /** The humanized question for an `if` test (best-effort; falls back to code). */
+  const humanizeCondition = (test: Node): string => {
+    let t = test;
+    if (t.type === "ChainExpression") t = t.expression as Node;
+    // Strip a single leading `!` — the yes/no edges carry the branch selection,
+    // so the title stays the positive question.
+    if (t.type === "UnaryExpression" && t.operator === "!") {
+      t = t.argument as Node;
+    }
+    if (t.type === "AwaitExpression") t = t.argument as Node;
+    if (t.type === "ChainExpression") t = t.expression as Node;
+    if (t.type === "Identifier") {
+      return bindingMap.get(t.name) ?? `${cap(humanizeIdent(t.name))}?`;
+    }
+    if (t.type === "BinaryExpression") {
+      const c = humanizeComparison(t);
+      if (c) return c;
+    }
+    if (t.type === "CallExpression") {
+      const h = traceHint(t);
+      if (h) return h;
+    }
+    return `${truncate(sourceSlice(t))}?`;
+  };
+
+  function flowSeq(stmts: Node[], preds: OpenEnd[]): OpenEnd[] {
+    let cur = preds;
+    for (const s of stmts) cur = flowStatement(s, cur);
+    return cur;
   }
 
-  const hasWait = nodes.some((n) => n.type === "wait");
-  if (hasWait && sawTimedOut) {
-    warnings.push(
-      "waitForEvent timed-out/answered branches are shown as a linear path (v1)",
-    );
+  function flowStatement(stmt: Node, preds: OpenEnd[]): OpenEnd[] {
+    switch (stmt.type) {
+      case "BlockStatement":
+        return flowSeq(stmt.body, preds);
+      case "IfStatement":
+        return flowIf(stmt, preds);
+      case "ReturnStatement":
+      case "ThrowStatement": {
+        // Any node in the return argument connects first, then → terminal.
+        const cur = chainRange(stmt.start, stmt.end, preds);
+        for (const oe of cur) addEdge(oe, "end-completed");
+        return [];
+      }
+      case "TryStatement": {
+        warnings.push("try/catch shown as a linear region");
+        let out = flowStatement(stmt.block, preds);
+        if (stmt.handler) {
+          out = [...out, ...flowStatement(stmt.handler.body, preds)];
+        }
+        if (stmt.finalizer) out = flowStatement(stmt.finalizer, out);
+        return out;
+      }
+      case "WhileStatement":
+      case "DoWhileStatement":
+      case "ForStatement":
+      case "ForInStatement":
+      case "ForOfStatement": {
+        warnings.push("loop body shown once (not expanded)");
+        return flowStatement(stmt.body, preds);
+      }
+      case "LabeledStatement":
+        return flowStatement(stmt.body, preds);
+      default:
+        // Expression / variable / etc: chain its direct node-worthy calls.
+        return chainRange(stmt.start, stmt.end, preds);
+    }
   }
+
+  function flowIf(stmt: acorn.IfStatement, predsIn: OpenEnd[]): OpenEnd[] {
+    // Node-worthy calls in the TEST run BEFORE the fork (rare, but honest).
+    const preds = chainRange(stmt.test.start, stmt.test.end, predsIn);
+
+    const firstPred = preds[0];
+    const waitFork =
+      preds.length === 1 &&
+      firstPred !== undefined &&
+      nodeType.get(firstPred.id) === "wait" &&
+      testIsTimedOut(stmt.test);
+
+    // Guard `if (cond) return;` — no else, consequent is a pure return/throw.
+    // The TRUE path exits to the terminal; the FALSE path continues with the
+    // predecessors' kinds PRESERVED (so an upstream branch label — e.g. a wait's
+    // "answered" — survives the guard instead of being re-labeled). No decision
+    // node: a guard is a one-way filter, not a two-way branch.
+    if (!stmt.alternate && isPureExitGuard(stmt.consequent)) {
+      if (waitFork && firstPred) {
+        addEdge(
+          { id: firstPred.id, kind: "timedOut", label: "timed out" },
+          "end-completed",
+        );
+        return [{ id: firstPred.id, kind: "answered", label: "answered" }];
+      }
+      const label = testIsTimedOut(stmt.test)
+        ? "timed out"
+        : humanizeCondition(stmt.test);
+      for (const oe of preds) {
+        if (oe.kind === "default") {
+          addEdge(
+            { id: oe.id, kind: "conditional-true", label },
+            "end-completed",
+          );
+        }
+      }
+      return preds;
+    }
+
+    // waitForEvent `.timedOut` branch → fork the WAIT node itself (no decision).
+    if (waitFork && firstPred) {
+      const trueExits = flowStatement(stmt.consequent, [
+        { id: firstPred.id, kind: "timedOut", label: "timed out" },
+      ]);
+      const answered: OpenEnd = {
+        id: firstPred.id,
+        kind: "answered",
+        label: "answered",
+      };
+      const falseExits = stmt.alternate
+        ? flowStatement(stmt.alternate, [answered])
+        : [answered];
+      return [...trueExits, ...falseExits];
+    }
+
+    // Plain branching if → an explicit DECISION node with a humanized question.
+    // The `yes` edge = the positive condition is TRUE, `no` = FALSE. The title is
+    // the POSITIVE form, so a negated test (`!X`) attaches the consequent — which
+    // runs when the positive condition is FALSE — to the `no` edge, and the
+    // alternate/bypass to `yes`. (Non-negated: consequent on `yes` as usual.)
+    const decision = mintDecision(humanizeCondition(stmt.test));
+    for (const oe of preds) addEdge(oe, decision.id);
+    const yes: OpenEnd = {
+      id: decision.id,
+      kind: "conditional-true",
+      label: "yes",
+    };
+    const no: OpenEnd = {
+      id: decision.id,
+      kind: "conditional-false",
+      label: "no",
+    };
+    const negated = testIsNegated(stmt.test);
+    const consequentEntry = negated ? no : yes;
+    const bypassEntry = negated ? yes : no;
+    const trueExits = flowStatement(stmt.consequent, [consequentEntry]);
+    const falseExits = stmt.alternate
+      ? flowStatement(stmt.alternate, [bypassEntry])
+      : [bypassEntry];
+    return [...trueExits, ...falseExits];
+  }
+
+  // Drive from the start node through the function body; converge the tail.
+  let preds: OpenEnd[] = [{ id: "start", kind: "default" }];
+  const body = fn.body;
+  preds =
+    body.type === "BlockStatement"
+      ? flowSeq(body.body, preds)
+      : chainRange(body.start, body.end, preds);
+  for (const oe of preds) addEdge(oe, "end-completed");
+
+  return { edges, decisions };
 }
 
 // ---------------------------------------------------------------------------

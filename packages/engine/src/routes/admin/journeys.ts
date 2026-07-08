@@ -1,3 +1,4 @@
+import { type JourneyGraph, journeyGraphSchema } from "@hogsend/core";
 import {
   type Database,
   emailSends,
@@ -5,6 +6,7 @@ import {
   journeyLogs,
   journeyStates,
 } from "@hogsend/db";
+import { getTemplateNames } from "@hogsend/email";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import {
   and,
@@ -17,7 +19,15 @@ import {
   sql,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { buildJourneyGraph } from "../../journeys/graph/build-graph.js";
 import { ingestEvent } from "../../lib/ingestion.js";
+
+/**
+ * Per-process cache of the built {@link JourneyGraph}. A journey's `runSource`
+ * (and its `meta`) is static for the life of the process, so the AST extraction
+ * only needs to run once per journey id. Keyed by journey id.
+ */
+const journeyGraphCache = new Map<string, JourneyGraph>();
 
 const journeySchema = z.object({
   id: z.string(),
@@ -403,6 +413,53 @@ const templatesRoute = createRoute({
   },
 });
 
+const graphRoute = createRoute({
+  method: "get",
+  path: "/{id}/graph",
+  tags: ["Admin — Journeys"],
+  summary: "Journey visual workflow graph with per-node live/failed metrics",
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            graph: journeyGraphSchema,
+            metrics: z.object({
+              enrolled: z.number(),
+              terminals: z.object({
+                completed: z.number(),
+                failed: z.number(),
+                exited: z.number(),
+              }),
+              // Keyed by graph node id. `live` = people currently sitting at
+              // that node (status active/waiting), `failed` = instances whose
+              // last durable node was this one when they failed. `templateKey`
+              // is the resolved email template key for `send` nodes (for the
+              // Studio side-panel preview) — present only when resolvable.
+              nodes: z.record(
+                z.string(),
+                z.object({
+                  live: z.number(),
+                  failed: z.number(),
+                  templateKey: z.string().optional(),
+                }),
+              ),
+            }),
+          }),
+        },
+      },
+      description: "Journey graph (IR) plus retroactive per-node metrics",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Journey not found",
+    },
+  },
+});
+
 export const journeysRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db, registry } = c.get("container");
@@ -767,6 +824,206 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
             ? new Date(r.lastSentAt).toISOString()
             : null,
         })),
+      },
+      200,
+    );
+  })
+  .openapi(graphRoute, async (c) => {
+    const { db, registry, journeySources, templates } = c.get("container");
+    const { id } = c.req.valid("param");
+
+    const meta = registry.get(id);
+    if (!meta) {
+      return c.json({ error: "Journey not found" }, 404);
+    }
+
+    // Build (and cache) the IR — runSource is static per process, so a repeat
+    // request re-uses the parse rather than re-walking the AST.
+    let graph = journeyGraphCache.get(id);
+    if (!graph) {
+      graph = buildJourneyGraph({ runSource: journeySources.get(id), meta });
+      journeyGraphCache.set(id, graph);
+    }
+
+    // One grouped query gives us BOTH per-node live/failed AND the status
+    // totals for enrolled + terminals (sum across all node ids per status).
+    const perNode = await db
+      .select({
+        nodeId: journeyStates.currentNodeId,
+        status: journeyStates.status,
+        count: count(),
+      })
+      .from(journeyStates)
+      .where(
+        and(eq(journeyStates.journeyId, id), isNull(journeyStates.deletedAt)),
+      )
+      .groupBy(journeyStates.currentNodeId, journeyStates.status);
+
+    // Default every graph node to zero, then overlay the observed counts. Only
+    // start/sleep/wait/checkpoint node ids ever appear as `current_node_id`;
+    // instantaneous nodes (send/trigger/capture/connector) correctly stay 0.
+    const nodeMetrics: Record<
+      string,
+      { live: number; failed: number; templateKey?: string }
+    > = {};
+    for (const node of graph.nodes) {
+      nodeMetrics[node.id] = { live: 0, failed: 0 };
+    }
+
+    const statusTotals: Record<string, number> = {};
+    for (const row of perNode) {
+      const n = Number(row.count);
+      statusTotals[row.status] = (statusTotals[row.status] ?? 0) + n;
+      const nodeId = row.nodeId;
+      if (!nodeId) continue;
+      const entry = nodeMetrics[nodeId] ?? { live: 0, failed: 0 };
+      if (row.status === "active" || row.status === "waiting") {
+        entry.live += n;
+      } else if (row.status === "failed") {
+        entry.failed += n;
+      }
+      nodeMetrics[nodeId] = entry;
+    }
+
+    const enrolled = Object.values(statusTotals).reduce((a, b) => a + b, 0);
+
+    // Resolve a real email template key per `send` node for the Studio
+    // side-panel preview. The preview only needs the registry key (it renders
+    // the React Email component — no send data), so STATIC resolution is the
+    // primary mechanism and a never-sent journey still previews. Priority:
+    //   (1) literal `meta.template` — already the registry key.
+    //   (2) STATIC exact: the node's `subtitle` is the Templates const name for
+    //       member-expr sends (`FEEDBACK_NPS_SURVEY`); lowercase + `_`→`-`
+    //       (`feedback-nps-survey`) and use it IFF that key is in the registry.
+    //   (2b) STATIC prefix: else the single LONGEST registry key that is a
+    //        segment-prefix of the kebab'd const name (`activation-nudge-series`
+    //        → `activation-nudge`). Only when that longest prefix is unique — a
+    //        wrong preview is worse than none, so an ambiguous tie stays unresolved.
+    //   (3) journey_logs rows (action='send') whose `to_node_id` is this send
+    //       node's site id (`send:<site>`), reading `detail.template` — site-
+    //       keyed, so two sends of one template on different branches stay
+    //       distinct.
+    //   (4) observed email_sends template keys (join via journeyStateId) mapped
+    //       onto still-unresolved send nodes in source order.
+    // The resolved key rides on `metrics.nodes[id].templateKey` (NOT the cached
+    // graph, which stays immutable + DB-independent).
+    const sendNodes = graph.nodes.filter((node) => node.type === "send");
+    if (sendNodes.length > 0) {
+      const sendIds = new Set(sendNodes.map((node) => node.id));
+      const setTemplate = (nodeId: string, key: string) => {
+        const entry = nodeMetrics[nodeId] ?? { live: 0, failed: 0 };
+        if (!entry.templateKey) entry.templateKey = key;
+        nodeMetrics[nodeId] = entry;
+      };
+
+      // (1) literal templates already carry the real key in the IR.
+      for (const node of sendNodes) {
+        if (node.meta?.template) setTemplate(node.id, node.meta.template);
+      }
+
+      // (2/2b) static const-name → registry key (no runtime data needed):
+      // exact kebab match, else the unique longest segment-prefix key.
+      const registryKeys = getTemplateNames(templates) as string[];
+      const registeredKeys = new Set<string>(registryKeys);
+      const resolveStatic = (constName: string): string | undefined => {
+        const kebab = constName.toLowerCase().replace(/_/g, "-");
+        if (registeredKeys.has(kebab)) return kebab;
+        // Longest registry key that is a segment-prefix of the kebab'd name.
+        let best: string | undefined;
+        let bestLen = -1;
+        let ambiguous = false;
+        for (const key of registryKeys) {
+          if (!kebab.startsWith(`${key}-`)) continue;
+          if (key.length > bestLen) {
+            best = key;
+            bestLen = key.length;
+            ambiguous = false;
+          } else if (key.length === bestLen) {
+            ambiguous = true;
+          }
+        }
+        return ambiguous ? undefined : best;
+      };
+      for (const node of sendNodes) {
+        if (nodeMetrics[node.id]?.templateKey || !node.subtitle) continue;
+        const key = resolveStatic(node.subtitle);
+        if (key) setTemplate(node.id, key);
+      }
+
+      // (3) journey_logs site-join (only if something is still unresolved).
+      if (sendNodes.some((node) => !nodeMetrics[node.id]?.templateKey)) {
+        const logRows = await db
+          .select({
+            toNodeId: journeyLogs.toNodeId,
+            template: sql<string | null>`${journeyLogs.detail} ->> 'template'`,
+          })
+          .from(journeyLogs)
+          .innerJoin(
+            journeyStates,
+            eq(journeyLogs.journeyStateId, journeyStates.id),
+          )
+          .where(
+            and(
+              eq(journeyStates.journeyId, id),
+              isNull(journeyStates.deletedAt),
+              eq(journeyLogs.action, "send"),
+            ),
+          );
+        for (const row of logRows) {
+          const nodeId = row.toNodeId;
+          if (!nodeId || !row.template || !sendIds.has(nodeId)) continue;
+          setTemplate(nodeId, row.template);
+        }
+      }
+
+      // (4) email_sends fallback, mapped in source order.
+      const unresolved = sendNodes.filter(
+        (node) => !nodeMetrics[node.id]?.templateKey,
+      );
+      if (unresolved.length > 0) {
+        const observedRows = await db
+          .select({
+            templateKey: emailSends.templateKey,
+            firstSeen: sql<string | null>`min(${emailSends.createdAt})`,
+          })
+          .from(emailSends)
+          .innerJoin(
+            journeyStates,
+            eq(emailSends.journeyStateId, journeyStates.id),
+          )
+          .where(
+            and(
+              eq(journeyStates.journeyId, id),
+              isNull(journeyStates.deletedAt),
+              isNotNull(emailSends.templateKey),
+            ),
+          )
+          .groupBy(emailSends.templateKey);
+        const observed = observedRows
+          .filter((r): r is { templateKey: string; firstSeen: string | null } =>
+            Boolean(r.templateKey),
+          )
+          .sort((a, b) => (a.firstSeen ?? "").localeCompare(b.firstSeen ?? ""))
+          .map((r) => r.templateKey);
+        unresolved.forEach((node, i) => {
+          const key = observed[i];
+          if (key) setTemplate(node.id, key);
+        });
+      }
+    }
+
+    return c.json(
+      {
+        graph,
+        metrics: {
+          enrolled,
+          terminals: {
+            completed: statusTotals.completed ?? 0,
+            failed: statusTotals.failed ?? 0,
+            exited: statusTotals.exited ?? 0,
+          },
+          nodes: nodeMetrics,
+        },
       },
       200,
     );
