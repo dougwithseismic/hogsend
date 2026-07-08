@@ -1,5 +1,6 @@
 import { JourneyRegistry } from "@hogsend/core/registry";
 import type { DefinedJourney } from "./define-journey.js";
+import { setJourneySources } from "./journey-sources-singleton.js";
 import { setJourneyRegistry } from "./registry-singleton.js";
 
 /**
@@ -28,13 +29,22 @@ export function buildJourneyRegistry(
   const registry = new JourneyRegistry();
   const enabled = parseEnabledFilter(enabledFilter);
 
+  // Captured `run` sources for the enabled journeys (skip ones whose source
+  // failed to serialize). Installed as a sibling singleton so the container can
+  // expose it and the Studio journey-graph route can parse lazily.
+  const sources = new Map<string, string>();
+
   for (const journey of journeys) {
     if (enabled === "*" || enabled.has(journey.meta.id)) {
       registry.register(journey.meta);
+      if (journey.runSource) {
+        sources.set(journey.meta.id, journey.runSource);
+      }
     }
   }
 
   setJourneyRegistry(registry);
+  setJourneySources(sources);
   return registry;
 }
 

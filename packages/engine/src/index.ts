@@ -186,6 +186,11 @@ export {
   defineJourney,
 } from "./journeys/define-journey.js";
 export { JourneyExitedError } from "./journeys/errors.js";
+// --- Journey graph extractor (Studio visual workflow) ---
+export {
+  buildJourneyGraph,
+  degradedGraphFromMeta,
+} from "./journeys/graph/build-graph.js";
 export {
   createMemoize,
   deriveJourneyKey,
@@ -195,6 +200,11 @@ export {
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
 export { createJourneyContext } from "./journeys/journey-context.js";
+export {
+  getJourneySources,
+  resetJourneySources,
+  setJourneySources,
+} from "./journeys/journey-sources-singleton.js";
 export {
   buildJourneyRegistry,
   parseEnabledFilter,

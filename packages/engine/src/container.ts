@@ -41,6 +41,7 @@ import {
 import { env } from "./env.js";
 import { setClientScheduleDefaults } from "./journeys/client-defaults-singleton.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
+import { getJourneySources } from "./journeys/journey-sources-singleton.js";
 import { buildJourneyRegistry } from "./journeys/registry.js";
 import {
   isAnalyticsProvider,
@@ -147,6 +148,13 @@ export interface HogsendClient {
    */
   identity: IdentityService;
   registry: JourneyRegistry;
+  /**
+   * Map of enabled journey id → its captured `run` source string. Populated by
+   * `buildJourneyRegistry` (skips journeys whose source failed to serialize).
+   * Consumed by the Studio journey-graph route, which parses the source lazily
+   * with acorn to derive a visual workflow. Empty when no journeys are wired.
+   */
+  journeySources: Map<string, string>;
   /**
    * The bucket registry (id map + event/property inverted indexes for candidate
    * narrowing). Built and installed as the process singleton at client build;
@@ -773,6 +781,7 @@ export function createHogsendClient(
     analytics,
     identity,
     registry,
+    journeySources: getJourneySources(),
     bucketRegistry,
     listRegistry,
     connectorRegistry,

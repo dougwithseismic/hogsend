@@ -157,7 +157,7 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
   parses a hand-written sample graph and rejects a malformed one.
 - **Commit:** `feat(core): journey graph IR types + schema`
 
-### Phase 1 — Runtime AST extractor (`@hogsend/engine`)  `[ ]`  ⟵ hardest, test-heavy
+### Phase 1 — Runtime AST extractor (`@hogsend/engine`)  `[x]`  ⟵ hardest, test-heavy
 - **Goal:** `buildJourneyGraph({ runSource, meta }) → JourneyGraph`, and the plumbing to
   make `runSource` reachable in the API process.
 - **Work:**
@@ -207,8 +207,14 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
   - `checkpoint` in `ctx.checkpoint`.
   - `sleep`/`wait` at `enterWait` (`from:<prev> → to:<label>`), `resume` at
     `resumeFromWait`, with `detail` = `{duration}`/`{timedOut}` where known.
-  - `send` from the tracked mailer when `journeyStateId` present (`to:"send:<template>"`,
-    detail `{template, emailSendId}`).
+  - `send` from the tracked mailer when `journeyStateId` present. **`to` MUST be
+    `send:<site>` (site = `idempotencyLabel ?? boundary.currentLabel ?? template`) —
+    the SAME site the mailer already computes for the exactly-once idempotency key —
+    NOT `send:<template>`.** This is the id `buildJourneyGraph` emits for the send node
+    (A2), so the log row joins the graph node directly. Put the resolved `template` (the
+    real key) + `emailSendId` in `detail`. (Keying by template would fail to disambiguate
+    a journey that sends the SAME template twice on different branches — e.g. feedback-nps'
+    `nps-survey` vs `nps-reminder` — whereas the site distinguishes them.)
   - `trigger` in `ctx.trigger`.
   - `completed`/`failed`/`exited` at the terminal writes (`define-journey.ts`, and the
     exit path in `ingestEvent`/`checkExits`).
@@ -231,8 +237,13 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
     - `live`/`failed` per node from `journey_states` grouped by `current_node_id`.
     - `reached` per node from `journey_logs` `count(distinct journey_state_id)` by
       `to_node_id` (0/absent if not flowing yet).
-    - send-node `sent/opened/clicked` from `email_sends` by `templateKey` (join via
-      `journeyStateId`), mapped onto the `send:<template>` node id.
+    - send-node `sent/opened/clicked` join onto the `send:<site>` node id **via the
+      Phase-2 `journey_logs` row** (`to_node_id = send:<site>`, `detail.emailSendId` → the
+      `email_sends` row for engagement, `detail.template` for display). Do NOT map
+      `email_sends.templateKey` onto a `send:<template>` id — the graph's send ids are
+      site-based (A2), and template-keying can't disambiguate two sends of one template.
+      Fallback for a journey with no `journey_logs` yet: parse `<site>` out of the existing
+      `email_sends.idempotencyKey` (`journeySend:<anchor>:<site>:<template>`).
     - All queries filter `isNull(deletedAt)`; wrap `sql<number>` in `Number()`.
   - Studio: `getJourneyGraph(id)` in `admin-api.ts` + `qk.journeyGraph(id)` + response TS type.
 - **Verify:** vitest route test (`app.request`) asserting shape for a seeded journey with a
@@ -304,6 +315,15 @@ Legend: each phase lists **Goal · Files · Work · Verify · Commit**. `[ ]` un
 
 - Graph extraction is **best-effort and non-fatal** — a parse failure degrades the graph,
   never breaks `defineJourney`, the route, or a journey run.
+- **Known v1 extractor limitations (honest degradation, not bugs):** side effects wrapped in
+  a helper fn (e.g. `grantAndAnnounce(...)`) render as an `unknown` node + warning (the
+  helper body isn't in `run.toString()`); a send whose options arrive via spread
+  (`sendEmail({ ...base })`) also falls to `unknown` (keys aren't statically provable).
+  Journeys authored with inline `sendEmail`/`ctx.*` (the recommended style) render fully.
+  The extractor's node ids mirror the engine's runtime label semantics EXACTLY for
+  deterministic cases (authored labels, `wait:{...}` from a reconstructed duration,
+  `wait-event:<event>`), so the Phase-3 metrics join is exact there; dynamic/unresolvable
+  ids are flagged `meta.unstable` and simply won't carry live metrics.
 - `journey_logs` writes are **fire-and-forget**; they must not reject into the replay-safe
   journey hot path, and reach-counts use `count(DISTINCT journey_state_id)` (replays re-log).
 - `currentNodeId` on failed/active rows = **last durable step**, not the exact failing line —

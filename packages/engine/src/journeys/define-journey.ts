@@ -65,12 +65,37 @@ interface EventPayloadInput {
 export interface DefinedJourney {
   meta: JourneyMeta;
   task: ReturnType<typeof hatchet.durableTask>;
+  /**
+   * The journey's `run` function serialized via `Function.prototype.toString()`,
+   * captured at definition time. This is the substrate the Studio journey-graph
+   * extractor parses (with acorn) to derive a visual workflow. The bundler never
+   * minifies (see `tsup` config), so the string is standard, non-minified JS.
+   *
+   * Best-effort: `undefined` if serialization throws (some exotic runtimes
+   * disallow `.toString()`); the extractor degrades to a meta-only graph. Capture
+   * is side-effect-free and must NEVER change execution semantics.
+   */
+  runSource?: string;
+}
+
+/**
+ * Serialize a function to source, never throwing. Some engines can refuse
+ * `Function.prototype.toString()` (e.g. bound/native shims); a failure here must
+ * degrade to `undefined`, not break `defineJourney`.
+ */
+function safeRunSource(fn: JourneyRunFn): string | undefined {
+  try {
+    return fn.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 export function defineJourney(options: {
   meta: JourneyMetaInput;
   run: JourneyRunFn;
 }): DefinedJourney {
+  const runSource = safeRunSource(options.run);
   const { trigger, exitOn, ...rest } = options.meta;
   const triggerWhere = normalizeWhere(trigger.where);
   const meta: JourneyMeta = {
@@ -426,5 +451,5 @@ export function defineJourney(options: {
     },
   });
 
-  return { meta, task };
+  return { meta, task, runSource };
 }
