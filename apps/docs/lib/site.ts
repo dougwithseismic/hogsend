@@ -20,3 +20,4 @@ export const RAILWAY_DEPLOY_URL =
 export const ENGINE_VERSION = "0.37.3"; // bump per release
 export const CONTACT_EMAIL = "doug@withseismic.com";
 export const LINKEDIN_URL = "https://www.linkedin.com/in/dougsilkstone/";
+export const WITHSEISMIC_URL = "https://withseismic.com";
