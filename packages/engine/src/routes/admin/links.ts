@@ -61,6 +61,8 @@ const linkSchema = z.object({
   slug: z.string().nullable(),
   vanityUrl: z.string().nullable(),
   label: z.string().nullable(),
+  // Longer operator note for bulk identification ("sticker on the door").
+  description: z.string().nullable(),
   campaign: z.string().nullable(),
   source: z.string(),
   distinctId: z.string().nullable(),
@@ -117,6 +119,7 @@ function serializeLink(
     slug: row.slug,
     vanityUrl: row.slug ? vanityUrlFor(baseUrl, row.slug) : null,
     label: row.label,
+    description: row.description,
     campaign: row.campaign,
     source: row.source,
     distinctId: row.distinctId,
@@ -150,6 +153,7 @@ const createLinkRoute = createRoute({
             // already taken.
             slug: z.string().optional(),
             label: z.string().optional(),
+            description: z.string().optional(),
             campaign: z.string().optional(),
             // Honoured ONLY for personal links (the share-safe invariant in
             // mintLink drops it for public). A canonical contact key the click
@@ -242,6 +246,7 @@ const updateLinkRoute = createRoute({
             // clear the slug (frees it for reuse).
             slug: z.string().nullable().optional(),
             label: z.string().nullable().optional(),
+            description: z.string().nullable().optional(),
             campaign: z.string().nullable().optional(),
           }),
         },
@@ -368,6 +373,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         type: body.type,
         slug: body.slug,
         label: body.label,
+        description: body.description,
         campaign: body.campaign,
         distinctId: body.distinctId,
         createdBy: resolveActor(c) ?? undefined,
@@ -502,11 +508,15 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     }
 
     const patch: Partial<
-      Pick<LinkRow, "label" | "campaign" | "originalUrl" | "slug">
+      Pick<
+        LinkRow,
+        "label" | "description" | "campaign" | "originalUrl" | "slug"
+      >
     > & {
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (body.label !== undefined) patch.label = body.label;
+    if (body.description !== undefined) patch.description = body.description;
     if (body.campaign !== undefined) patch.campaign = body.campaign;
     if (body.originalUrl !== undefined) patch.originalUrl = body.originalUrl;
     // Slug: string = set/replace (normalized, 409 on conflict below); null =

@@ -33,6 +33,9 @@ export const links = pgTable(
     slug: text("slug"),
     // Operator-facing name (Studio list).
     label: text("label"),
+    // Longer operator note — what/where this link or its printed QR actually
+    // is ("sticker on the workshop door"), for telling codes apart in bulk.
+    description: text("description"),
     // UTM-style campaign grouping for public links.
     campaign: text("campaign"),
     // Originating channel: "studio" | "discord" | "sms" | … (open string).

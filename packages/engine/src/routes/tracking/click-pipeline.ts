@@ -93,6 +93,10 @@ export async function handleTrackedClick(
       trackedLinkId: link.id,
       ipAddress: ip,
       userAgent,
+      // Per-hit destination provenance: after a re-target, stats stay
+      // attributable to whichever destination THIS hit actually went to.
+      // The raw target, never the hs_t-tokenized variant.
+      destinationUrl: link.originalUrl,
     }),
     db
       .update(trackedLinks)

@@ -54,7 +54,7 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 
 ## Phase 5 — Standalone QR codes (print marketing)
 
-- [ ] 5.1 Destination provenance + description: migration (`links.description`, `link_clicks.destination_url`), click pipeline stamps the redirect target per hit, `mintLink({ description })` + admin create/PATCH/responses carry `description` — with tests (stamp recorded on click + scan; retarget → new stamps carry the new URL; description round-trips)
+- [x] 5.1 Destination provenance + description: migration (`links.description`, `link_clicks.destination_url`), click pipeline stamps the redirect target per hit, `mintLink({ description })` + admin create/PATCH/responses carry `description` — with tests (stamp recorded on click + scan; retarget → new stamps carry the new URL; description round-trips)
 - [ ] 5.2 Per-destination stats: `GET /v1/admin/links/:id` gains `destinations` array (url, clicks, scans, firstAt, lastAt; NULL bucket for pre-feature rows) — with tests (retarget mid-life → two buckets with correct scan/click splits)
 - [ ] 5.3 Admin list `hasQr` filter (EXISTS on the QR scan row) — with tests
 - [ ] 5.4 Studio "QR codes" view: nav item + route; lists `hasQr` links (label, description, destination, scans, created); "New QR code" dialog (destination + label + description → mint + immediately open the QR dialog); QR dialog gains description + per-destination breakdown table + inline retarget; Links view create/edit dialogs gain the optional description field

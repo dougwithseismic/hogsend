@@ -322,6 +322,76 @@ describe("QR scan spine — counts + retarget", () => {
     expect(unauthed.status).toBe(401);
   });
 
+  it("description round-trips through mint, PATCH and responses", async () => {
+    const link = await mint({
+      label: `${RUN}-desc`,
+      description: "Sticker on the workshop door",
+    });
+    expect(link.description).toBe("Sticker on the workshop door");
+
+    const patched = await app.request(`/v1/admin/links/${link.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: "Moved to the front window" }),
+    });
+    expect((await patched.json()).description).toBe(
+      "Moved to the front window",
+    );
+
+    // null clears it.
+    const cleared = await app.request(`/v1/admin/links/${link.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: null }),
+    });
+    expect((await cleared.json()).description).toBeNull();
+  });
+
+  it("stamps the live destination on every click row (per-hit provenance)", async () => {
+    const link = await mint({
+      label: `${RUN}-provenance`,
+      url: "https://example.com/qr-first-target",
+    });
+    const qr = await ensureQrTrackedLink({ db, linkId: link.id });
+
+    // One click + one scan against the FIRST destination…
+    await app.request(`/v1/t/c/${link.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+
+    // …re-target…
+    await app.request(`/v1/admin/links/${link.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        originalUrl: "https://example.com/qr-second-target",
+      }),
+    });
+
+    // …then one more scan against the SECOND destination.
+    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+
+    const rows = await db
+      .select({
+        destinationUrl: linkClicks.destinationUrl,
+        trackedLinkId: linkClicks.trackedLinkId,
+      })
+      .from(linkClicks)
+      .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
+      .where(eq(trackedLinks.linkId, link.id));
+
+    const first = rows.filter(
+      (r) => r.destinationUrl === "https://example.com/qr-first-target",
+    );
+    const second = rows.filter(
+      (r) => r.destinationUrl === "https://example.com/qr-second-target",
+    );
+    expect(rows.length).toBe(3);
+    expect(first.length).toBe(2);
+    expect(second.length).toBe(1);
+    // The post-retarget scan rode the QR row.
+    expect(second[0]?.trackedLinkId).toBe(qr?.trackedLinkId);
+  });
+
   it("the vanity route never resolves through the QR row", async () => {
     const link = await mint({
       label: `${RUN}-vanity-canonical`,

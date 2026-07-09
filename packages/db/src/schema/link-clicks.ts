@@ -10,6 +10,11 @@ export const linkClicks = pgTable(
       .references(() => trackedLinks.id, { onDelete: "cascade" }),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
+    // The redirect target that was live WHEN this hit landed (pre-identity-
+    // token). Per-hit provenance: after a re-target, stats stay attributable
+    // to whichever destination each click/scan actually went to. NULL on rows
+    // recorded before this column existed.
+    destinationUrl: text("destination_url"),
     clickedAt: timestamp("clicked_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

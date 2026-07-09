@@ -32,6 +32,11 @@ export interface MintLinkOptions {
   type?: LinkType;
   /** Operator-facing name (Studio list). */
   label?: string;
+  /**
+   * Longer operator note — what/where this link or its printed QR actually is
+   * ("sticker on the workshop door"), for telling codes apart in bulk.
+   */
+  description?: string;
   /** UTM-style campaign grouping (public links). */
   campaign?: string;
   /**
@@ -245,6 +250,7 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
       type,
       slug,
       label: opts.label ?? null,
+      description: opts.description ?? null,
       campaign: opts.campaign ?? null,
       source: opts.source,
       distinctId,
