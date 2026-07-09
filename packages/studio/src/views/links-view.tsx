@@ -38,6 +38,7 @@ import {
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
+import { isHttpUrl } from "@/lib/url";
 import { QrLinkDialog } from "./links/qr-dialog";
 
 const TYPES = [
@@ -47,16 +48,6 @@ const TYPES = [
 ];
 
 type LinkType = "personal" | "public";
-
-/** http(s)-only guard, mirroring the engine's open-redirect check in mintLink. */
-function isHttpUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
 
 // Mirrors the engine's normalizeSlug: 1-64 lowercase [a-z0-9-], no
 // leading/trailing hyphen. Input is lowercased before the check, so typing

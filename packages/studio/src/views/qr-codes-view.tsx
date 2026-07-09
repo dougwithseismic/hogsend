@@ -29,17 +29,8 @@ import {
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
+import { isHttpUrl } from "@/lib/url";
 import { QrLinkDialog } from "./links/qr-dialog";
-
-/** http(s)-only guard, mirroring the engine's open-redirect check in mintLink. */
-function isHttpUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
 
 /**
  * QR-first lens over the managed-links spine: a "QR code" IS a managed link

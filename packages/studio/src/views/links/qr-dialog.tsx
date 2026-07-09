@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { getLink, type Link, linkQrUrl, qk, updateLink } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
+import { isHttpUrl } from "@/lib/url";
 
 // QR export formats — served straight off the admin endpoint (no client-side
 // rendering), downloaded via a synthesized <a download>.
@@ -44,16 +45,6 @@ function downloadQr(link: Link, id: QrExportFormat) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-}
-
-/** http(s)-only guard, mirroring the engine's open-redirect check in mintLink. */
-function isHttpUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 /**
