@@ -16,7 +16,7 @@
  * secret-resolution fix, and the scaffold ships the Tier-1 AI onboarding
  * journey (Vercel AI SDK). Published to npm.
  */
-export const ENGINE_VERSION = "0.39.0";
+export const ENGINE_VERSION = "0.40.0";
 
 /** Every `@hogsend/*` package the scaffolded app depends on. */
 export const HOGSEND_PACKAGES = [

@@ -1,6 +1,6 @@
 {
   "name": "create-hogsend",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "type": "module",
   "description": "Scaffold a Hogsend lifecycle orchestration app (consumes @hogsend/engine).",
   "license": "MIT",
