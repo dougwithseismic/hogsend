@@ -55,7 +55,7 @@ export const metadata: Metadata = {
     absolute: "Hogsend — Marketing automation for teams that code",
   },
   description:
-    "Lifecycle marketing as TypeScript in your repo — welcome series, trial nudges, win-backs, payment saves — triggered by PostHog and product events, sent across email, Discord, Slack, and in-app. Free to self-host.",
+    "The lifecycle layer for teams on PostHog — you already have the events, this is where you act on them. Lifecycle journeys as TypeScript in your repo: welcome series, trial nudges, win-backs, payment saves, across email, Discord, Slack, and in-app. Free to self-host.",
 };
 
 const DISPLAY = "[font-family:var(--ps-display)]";
@@ -416,10 +416,9 @@ function PsHero() {
           Build your growth engine in code.
         </h1>
         <p className="mt-6 max-w-[640px] text-white/75 text-lg leading-[27px] tracking-[-0.025em]">
-          Lifecycle marketing as TypeScript in your repo — the welcome series,
-          trial nudges, and win-backs that keep users. Email goes through your
-          own Resend or Postmark; the same journeys reach Discord, Slack, and
-          the in-app feed.
+          The lifecycle layer for teams on PostHog — you already have the
+          events, this is where you act on them. Welcome series, trial nudges,
+          win-backs, as TypeScript in your repo.
         </p>
 
         <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -570,6 +569,177 @@ function PsProofStrip() {
         </Link>
       </Container>
     </div>
+  );
+}
+
+/* --------------------------------------------------- the posthog pitch -- */
+
+/** The four things a PostHog team needs to hear, up front — the page's
+ * lifecycle-layer-for-PostHog story lives ~15 sections down, so this band
+ * says it at the top. Every line is a fact restated from further down the
+ * page: PostHog-native triggering, journeys-as-code, one-command setup, the
+ * @hogsend/react in-app channel. The channel strip surfaces the multi-channel
+ * (incl. Discord) reach without a mocked demo. */
+const POSTHOG_CARDS: { title: string; body: ReactNode }[] = [
+  {
+    title: "Triggered by your PostHog events",
+    body: "Journeys react to the events you already capture — no reverse-ETL, no sync lag, no second source of truth.",
+  },
+  {
+    title: "Lifecycle marketing as code",
+    body: "Every journey is a TypeScript function in your repo — reviewed, type-checked, and versioned like the rest of your product. Agents can write them.",
+  },
+  {
+    title: "One command to first send",
+    body: (
+      <>
+        <code className="font-mono text-[13px] text-white/75">
+          create-hogsend
+        </code>{" "}
+        scaffolds ten journeys and thirteen email templates — deploy to Railway
+        in one click, first send in minutes.
+      </>
+    ),
+  },
+  {
+    title: "React components included",
+    body: (
+      <>
+        <code className="font-mono text-[13px] text-white/75">
+          @hogsend/react
+        </code>{" "}
+        ships the in-app feed and notification bell — drop them in and the same
+        journeys reach users inside your product.
+      </>
+    ),
+  },
+];
+
+/* Channels a journey can reach — plus the honest roadmap. */
+const REACH_NOW = ["Email", "Discord", "Slack", "In-app"];
+const REACH_SOON = ["SMS", "Direct mail", "QR codes"];
+
+/* The batteries — every one is real, in the scaffold, and demoed on the site
+ * (React Email templates → /emails; the React kit + link tracking → /components). */
+const TOOLKIT = [
+  "13 React Email templates",
+  "First-party link tracking",
+  "Open & click tracking",
+  "Notification bell",
+  "In-app feed",
+  "Preference center",
+  "In-feed survey card",
+];
+
+/** One capability chip. `soon` renders the dashed, dimmed roadmap variant. */
+function PitchChip({
+  children,
+  soon,
+}: {
+  children: ReactNode;
+  soon?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 rounded-[6px] px-3.5 py-1.5 font-medium text-[13px] tracking-[-0.025em]",
+        soon
+          ? "border border-white/10 border-dashed text-white/40"
+          : "border border-white/10 bg-white/[0.06] text-white",
+      )}
+    >
+      {!soon && (
+        <span
+          aria-hidden="true"
+          className="size-1.5 rounded-full bg-[#f64838]"
+        />
+      )}
+      {children}
+    </span>
+  );
+}
+
+function PsPostHogPitch() {
+  return (
+    <section className="relative border-[#f6483826] border-b">
+      <Container className="pt-16 pb-20">
+        <Eyebrow>The lifecycle layer for PostHog</Eyebrow>
+        <h2
+          className={cn(
+            "mt-6 max-w-[760px] font-normal text-[30px] leading-[1.15] tracking-[-0.02em] md:text-[40px] md:leading-[46px]",
+            DISPLAY,
+          )}
+        >
+          <span className="text-white">
+            Everything a PostHog team needs to run lifecycle.
+          </span>{" "}
+          <span className="text-white/40">
+            No second platform to sync or babysit.
+          </span>
+        </h2>
+
+        <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {POSTHOG_CARDS.map((c, i) => (
+            <div
+              key={c.title}
+              className="rounded-lg border border-white/10 bg-white/[0.03] p-6"
+            >
+              <span className="font-mono text-[#f64838] text-[13px]">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <h3 className="mt-3 font-medium text-base text-white tracking-[-0.025em]">
+                {c.title}
+              </h3>
+              <p className="mt-2 text-sm text-white/55 leading-[21px] tracking-[-0.02em]">
+                {c.body}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Reach + toolkit — the fuller inventory: every channel a journey can
+            hit (incl. the roadmap) and the batteries that ship in the box. */}
+        <div className="mt-10 grid grid-cols-1 gap-10 border-white/10 border-t pt-8 lg:grid-cols-2 lg:gap-12">
+          <div>
+            <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
+              One journey, every channel
+            </span>
+            <div className="mt-4 flex flex-wrap items-center gap-2.5">
+              {REACH_NOW.map((channel) => (
+                <PitchChip key={channel}>{channel}</PitchChip>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2.5">
+              <span className="font-mono text-white/40 text-[11px] uppercase tracking-[0.08em]">
+                Coming soon
+              </span>
+              {REACH_SOON.map((channel) => (
+                <PitchChip key={channel} soon>
+                  {channel}
+                </PitchChip>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="font-mono text-white/40 text-[12px] uppercase tracking-[0.08em]">
+              Batteries included
+            </span>
+            <div className="mt-4 flex flex-wrap items-center gap-2.5">
+              {TOOLKIT.map((tool) => (
+                <PitchChip key={tool}>{tool}</PitchChip>
+              ))}
+            </div>
+            <Link
+              href="/components"
+              className="mt-4 inline-block text-[13px] text-white/75 tracking-[-0.02em] transition-colors hover:text-white"
+            >
+              See the React kit demoed →
+            </Link>
+          </div>
+        </div>
+      </Container>
+    </section>
   );
 }
 
@@ -3264,6 +3434,7 @@ export default function HomePage(): JSX.Element {
       <AnnouncementBanner />
       <PsNav />
       <PsHero />
+      <PsPostHogPitch />
       <PsProofStrip />
       <PsProblem />
       <PsHowItWorks />
