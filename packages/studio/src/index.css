@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/geist-mono";
 
@@ -180,4 +181,45 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+/* ========================================================================== */
+/*  React Flow (crimzon) — vendor stylesheet imported at the top; here we just */
+/*  remap its CSS custom properties onto the crimzon language. Components read  */
+/*  `var(--xy-x, var(--xy-x-default))`, so overriding the *-default is enough.  */
+/* ========================================================================== */
+.react-flow {
+  --xy-background-color-default: transparent;
+  --xy-background-pattern-dots-color-default: rgba(255, 255, 255, 0.09);
+  --xy-edge-stroke-default: rgba(255, 255, 255, 0.18);
+  --xy-edge-stroke-width-default: 1.5;
+  --xy-edge-label-color-default: rgba(255, 255, 255, 0.7);
+  --xy-edge-label-background-color-default: #0a0606;
+  --xy-handle-background-color-default: rgba(255, 255, 255, 0.28);
+  --xy-handle-border-color-default: rgba(255, 255, 255, 0.12);
+  --xy-controls-box-shadow-default: none;
+  --xy-controls-button-background-color-default: #0a0606;
+  --xy-controls-button-background-color-hover-default: rgba(
+    255,
+    255,
+    255,
+    0.08
+  );
+  --xy-controls-button-color-default: rgba(255, 255, 255, 0.7);
+  --xy-controls-button-color-hover-default: #ffffff;
+  --xy-controls-button-border-color-default: rgba(255, 255, 255, 0.08);
+  --xy-attribution-background-color-default: rgba(10, 6, 6, 0.55);
+}
+
+.react-flow__controls {
+  border: 1px solid var(--color-hairline-faint);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.react-flow__attribution {
+  border-radius: 4px 0 0 0;
+}
+.react-flow__attribution a {
+  color: rgba(255, 255, 255, 0.45);
 }

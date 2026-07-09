@@ -153,6 +153,39 @@ export function deriveJourneyKey(opts: {
 }
 
 /**
+ * Recover the `<site>` discriminant embedded in a journey SEND idempotency key
+ * (`journeySend:<anchor>:<site>:<discriminant>`), given the replay-stable
+ * `anchor` (`boundary.runAnchor`) and the `discriminant` (the send's
+ * templateKey). Returns undefined when `key` is absent or is not a `journeySend:`
+ * key with the expected anchor/discriminant framing.
+ *
+ * This is how the SEND transition log recovers the EXACT `site` the mailer used
+ * when it derived the key via {@link deriveJourneyKey} — the SAME value
+ * `buildJourneyGraph` uses for the send node id (`send:<site>`) — so the log row
+ * joins the graph node WITHOUT recomputing the site (a recompute of
+ * `currentLabel ?? templateKey` would miss an explicit `idempotencyLabel`). Site
+ * strings may themselves contain `:` (e.g. `wait-event:foo`), so we strip the
+ * exact prefix/suffix rather than split on `:`.
+ */
+export function parseJourneySendSite(opts: {
+  key: string | null | undefined;
+  anchor: string;
+  discriminant: string;
+}): string | undefined {
+  if (!opts.key) return undefined;
+  const prefix = `${KEY_PREFIX.send}:${opts.anchor}:`;
+  const suffix = `:${opts.discriminant}`;
+  if (
+    !opts.key.startsWith(prefix) ||
+    !opts.key.endsWith(suffix) ||
+    opts.key.length <= prefix.length + suffix.length
+  ) {
+    return undefined;
+  }
+  return opts.key.slice(prefix.length, opts.key.length - suffix.length);
+}
+
+/**
  * Record `key` as used in this run, throwing loudly if it collides with a key an
  * earlier side effect in the same run already derived. A collision means two
  * genuinely-different sends/triggers resolved to the same key (e.g. the SAME

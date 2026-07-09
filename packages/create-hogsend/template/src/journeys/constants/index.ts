@@ -4,6 +4,13 @@
  * Add your own events and template keys here as you build journeys.
  */
 
+// The union of template keys you've REGISTERED (src/emails/registry.ts + the
+// `templates.d.ts` augmentation). The `satisfies` on `Templates` below makes a
+// key that was never registered a COMPILE error, so a journey can't send an
+// email that doesn't exist. Aliased to avoid clashing with the local
+// `TemplateName` exported at the bottom of this file.
+import type { TemplateName as RegisteredTemplateKey } from "@hogsend/email";
+
 export const Events = {
   // Lifecycle events your product emits (sent via POST /v1/ingest).
   USER_CREATED: "user.created",
@@ -97,6 +104,6 @@ export const Templates = {
   // AI onboarding — personalised welcome + day-3 nudge.
   ONBOARDING_PERSONALIZED: "onboarding/personalized",
   ONBOARDING_NUDGE: "onboarding/nudge",
-} as const;
+} as const satisfies Record<string, RegisteredTemplateKey>;
 
 export type TemplateName = (typeof Templates)[keyof typeof Templates];
