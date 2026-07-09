@@ -43,6 +43,9 @@ const {
 type JourneyBoundary = import("@hogsend/engine").JourneyBoundary;
 const { templates } = await import("../emails/index.js");
 type EmailProvider = import("@hogsend/engine").EmailProvider;
+// The registered template keys — `sendEmail`'s `template` is typed against
+// these, so the fixtures below use real keys (not fictional ones).
+type RegisteredTemplate = keyof typeof templates;
 
 // Mock Hatchet — ctx.trigger's ingestEvent pushes through events.push, which we
 // stub. Each test resets the push spy so per-test call counts are clean.
@@ -187,7 +190,11 @@ async function seedState(userId: string, journeyId: string): Promise<string> {
   return row?.id ?? "";
 }
 
-const baseSend = (stateId: string, userId: string, template: string) => ({
+const baseSend = (
+  stateId: string,
+  userId: string,
+  template: RegisteredTemplate,
+) => ({
   to: `${userId}@example.com`,
   userId,
   journeyStateId: stateId,
@@ -248,16 +255,24 @@ describe("SCENARIO A — branch flip: no over/under-dedup", () => {
     // Original run took NUDGE; replay diverged to ADVANCED. DISTINCT templates =>
     // DISTINCT keys => each delivered once, neither a duplicate of the other.
     await runWithJourneyBoundary(makeBoundary({ stateId }), () =>
-      sendEmail({ ...base, journeyStateId: stateId, template: "nudge" }),
+      sendEmail({
+        ...base,
+        journeyStateId: stateId,
+        template: "onboarding-nudge",
+      }),
     );
     await runWithJourneyBoundary(makeBoundary({ stateId }), () =>
-      sendEmail({ ...base, journeyStateId: stateId, template: "advanced" }),
+      sendEmail({
+        ...base,
+        journeyStateId: stateId,
+        template: "activation-feature-highlight",
+      }),
     );
     expect(sendCalls[0]?.idempotencyKey).toBe(
-      `journeySend:${stateId}:nudge:nudge`,
+      `journeySend:${stateId}:onboarding-nudge:onboarding-nudge`,
     );
     expect(sendCalls[1]?.idempotencyKey).toBe(
-      `journeySend:${stateId}:advanced:advanced`,
+      `journeySend:${stateId}:activation-feature-highlight:activation-feature-highlight`,
     );
     expect(providerCalls).toBe(2);
   });
@@ -268,9 +283,9 @@ describe("SCENARIO B — same template twice, disambiguated by idempotencyLabel"
     const stateId = `${RUN}-s6`;
     await expect(
       runWithJourneyBoundary(makeBoundary({ stateId }), async () => {
-        await sendEmail(baseSend(stateId, `${RUN}-u6`, "nps-survey"));
+        await sendEmail(baseSend(stateId, `${RUN}-u6`, "feedback-nps-survey"));
         // Same template, same (absent) label => same derived key => collision.
-        await sendEmail(baseSend(stateId, `${RUN}-u6`, "nps-survey"));
+        await sendEmail(baseSend(stateId, `${RUN}-u6`, "feedback-nps-survey"));
       }),
     ).rejects.toThrow(/duplicate idempotency key/);
   });
@@ -279,20 +294,20 @@ describe("SCENARIO B — same template twice, disambiguated by idempotencyLabel"
     const stateId = `${RUN}-s7`;
     await runWithJourneyBoundary(makeBoundary({ stateId }), async () => {
       await sendEmail({
-        ...baseSend(stateId, `${RUN}-u7`, "nps-survey"),
+        ...baseSend(stateId, `${RUN}-u7`, "feedback-nps-survey"),
         idempotencyLabel: "nps-survey",
       });
       await sendEmail({
-        ...baseSend(stateId, `${RUN}-u7`, "nps-survey"),
+        ...baseSend(stateId, `${RUN}-u7`, "feedback-nps-survey"),
         idempotencyLabel: "nps-reminder",
       });
     });
     expect(providerCalls).toBe(2);
     expect(sendCalls[0]?.idempotencyKey).toBe(
-      `journeySend:${stateId}:nps-survey:nps-survey`,
+      `journeySend:${stateId}:nps-survey:feedback-nps-survey`,
     );
     expect(sendCalls[1]?.idempotencyKey).toBe(
-      `journeySend:${stateId}:nps-reminder:nps-survey`,
+      `journeySend:${stateId}:nps-reminder:feedback-nps-survey`,
     );
   });
 });

@@ -43,6 +43,7 @@ import {
   formatDurationObject,
   formatNumber,
 } from "@/lib/format";
+import { JourneyFlow } from "./journeys/journey-flow";
 import { JourneyFunnel } from "./journeys/journey-funnel";
 
 const PAGE_SIZE = 25;
@@ -574,7 +575,9 @@ export function JourneyDetailView({ journeyId }: { journeyId: string }) {
             </span>
           </div>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          {/* Compact Definition + Funnel strip — the flow below is the
+              centrepiece, so these stay small. */}
+          <div className="grid gap-4 lg:grid-cols-2">
             <JourneyMetaCard journey={journey} />
             <Card>
               <CardHeader>
@@ -585,6 +588,9 @@ export function JourneyDetailView({ journeyId }: { journeyId: string }) {
               </CardContent>
             </Card>
           </div>
+
+          {/* The visual workflow — inline, full-width, the page's focus. */}
+          <JourneyFlow journeyId={journeyId} />
 
           <JourneyEmailsCard journeyId={journeyId} />
           <JourneyStatesBrowser journeyId={journeyId} />

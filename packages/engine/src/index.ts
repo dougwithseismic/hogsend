@@ -186,15 +186,37 @@ export {
   defineJourney,
 } from "./journeys/define-journey.js";
 export { JourneyExitedError } from "./journeys/errors.js";
+// --- Journey graph extractor (Studio visual workflow) ---
+export {
+  buildJourneyGraph,
+  degradedGraphFromMeta,
+} from "./journeys/graph/build-graph.js";
 export {
   createMemoize,
   deriveJourneyKey,
   getJourneyBoundary,
   type JourneyBoundary,
+  parseJourneySendSite,
   registerKey,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
 export { createJourneyContext } from "./journeys/journey-context.js";
+// --- Journey transition log (journey_logs writer — Phase 2 per-stage metrics) ---
+export {
+  type JourneyLogAction,
+  type LogTransitionArgs,
+  logTransition,
+} from "./journeys/journey-log.js";
+export {
+  getJourneySourceLocations,
+  resetJourneySourceLocations,
+  setJourneySourceLocations,
+} from "./journeys/journey-source-locations-singleton.js";
+export {
+  getJourneySources,
+  resetJourneySources,
+  setJourneySources,
+} from "./journeys/journey-sources-singleton.js";
 export {
   buildJourneyRegistry,
   parseEnabledFilter,

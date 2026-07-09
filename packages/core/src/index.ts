@@ -16,6 +16,7 @@ export {
   hours,
   minutes,
 } from "./duration.js";
+export * from "./journey-graph/index.js";
 export * from "./providers/index.js";
 export {
   BucketRegistry,

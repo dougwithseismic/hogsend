@@ -16,3 +16,5 @@ pre-push:
   commands:
     check-types:
       run: pnpm check-types
+    test:
+      run: pnpm test
