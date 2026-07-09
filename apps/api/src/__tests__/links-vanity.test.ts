@@ -205,3 +205,126 @@ describe("vanity slugs — mint + admin CRUD", () => {
     expect(mine?.slug).toBe(`${RUN}-listed`);
   });
 });
+
+describe("vanity slugs — /l/:slug redirect", () => {
+  it("302s to the destination and records the click on the SAME tracked row as the UUID route", async () => {
+    const { json } = await mint({
+      url: "https://example.com/vanity-redirect",
+      slug: `${RUN}-redir`,
+    });
+
+    const res = await app.request(`/l/${RUN}-redir`, { redirect: "manual" });
+    expect(res.status).toBe(302);
+    // Public link, no identity token — Location is the verbatim destination.
+    expect(res.headers.get("location")).toBe(
+      "https://example.com/vanity-redirect",
+    );
+
+    // The click landed on the link's ONE canonical tracked row — the same row
+    // the UUID route attributes to, so counts never split by entry path.
+    const [tracked] = await db
+      .select({ id: trackedLinks.id, clickCount: trackedLinks.clickCount })
+      .from(trackedLinks)
+      .where(eq(trackedLinks.linkId, json.id));
+    expect(tracked?.id).toBe(json.trackedLinkId);
+    expect(tracked?.clickCount).toBe(1);
+
+    const clicks = await db
+      .select({ id: linkClicks.id })
+      .from(linkClicks)
+      .where(eq(linkClicks.trackedLinkId, json.trackedLinkId));
+    expect(clicks.length).toBe(1);
+
+    // A follow-up UUID-route click stacks onto the same counter.
+    const uuidClick = await app.request(`/v1/t/c/${json.trackedLinkId}`, {
+      redirect: "manual",
+    });
+    expect(uuidClick.status).toBe(302);
+    const [after] = await db
+      .select({ clickCount: trackedLinks.clickCount })
+      .from(trackedLinks)
+      .where(eq(trackedLinks.id, json.trackedLinkId));
+    expect(after?.clickCount).toBe(2);
+  });
+
+  it("resolves mixed-case input to the normalized slug", async () => {
+    await mint({
+      url: "https://example.com/vanity-case",
+      slug: `${RUN}-cased`,
+    });
+
+    const res = await app.request(`/l/${RUN.toUpperCase()}-CASED`, {
+      redirect: "manual",
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://example.com/vanity-case");
+  });
+
+  it("redirects home for an unknown or malformed slug", async () => {
+    const unknown = await app.request(`/l/${RUN}-nope`, {
+      redirect: "manual",
+    });
+    expect(unknown.status).toBe(302);
+    expect(unknown.headers.get("location")).toBe(env.API_PUBLIC_URL);
+
+    const malformed = await app.request("/l/-bad%20slug-", {
+      redirect: "manual",
+    });
+    expect(malformed.status).toBe(302);
+    expect(malformed.headers.get("location")).toBe(env.API_PUBLIC_URL);
+  });
+
+  it("follows a PATCH re-target (reads tracked_links.originalUrl fresh)", async () => {
+    const { json } = await mint({
+      url: "https://example.com/vanity-old",
+      slug: `${RUN}-retarget`,
+    });
+
+    const patch = await app.request(`/v1/admin/links/${json.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ originalUrl: "https://example.com/vanity-new" }),
+    });
+    expect(patch.status).toBe(200);
+
+    const res = await app.request(`/l/${RUN}-retarget`, {
+      redirect: "manual",
+    });
+    expect(res.headers.get("location")).toBe("https://example.com/vanity-new");
+  });
+
+  it("keeps resolving after archive, stops after the slug is cleared", async () => {
+    const { json } = await mint({
+      url: "https://example.com/vanity-archived",
+      slug: `${RUN}-archived`,
+    });
+
+    const del = await app.request(`/v1/admin/links/${json.id}`, {
+      method: "DELETE",
+      headers: AUTH_HEADER,
+    });
+    expect(del.status).toBe(200);
+
+    // Archived ≠ dead: the printed/shared slug still redirects (matching the
+    // UUID route, which never checks archived_at).
+    const archived = await app.request(`/l/${RUN}-archived`, {
+      redirect: "manual",
+    });
+    expect(archived.headers.get("location")).toBe(
+      "https://example.com/vanity-archived",
+    );
+
+    // Clearing the slug is the explicit kill switch.
+    const clear = await app.request(`/v1/admin/links/${json.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ slug: null }),
+    });
+    expect(clear.status).toBe(200);
+
+    const gone = await app.request(`/l/${RUN}-archived`, {
+      redirect: "manual",
+    });
+    expect(gone.headers.get("location")).toBe(env.API_PUBLIC_URL);
+  });
+});
