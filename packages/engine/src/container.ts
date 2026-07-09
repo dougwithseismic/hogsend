@@ -14,7 +14,7 @@ import {
   type DatabaseClient,
   type JournalShape,
 } from "@hogsend/db";
-import type { TemplateRegistry } from "@hogsend/email";
+import type { TemplateDefinition, TemplateRegistry } from "@hogsend/email";
 import { createBucketAccessor } from "./buckets/bucket-access.js";
 import type { DefinedBucket } from "./buckets/define-bucket.js";
 import {
@@ -75,7 +75,11 @@ import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
 import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
-import type { DefinedList } from "./lists/define-list.js";
+import {
+  type DefinedList,
+  isReservedListId,
+  RESERVED_LIST_IDS,
+} from "./lists/define-list.js";
 import { buildListRegistry, type ListRegistry } from "./lists/registry.js";
 import {
   type DefinedWebhookSource,
@@ -506,6 +510,81 @@ export function createHogsendClient(
   });
 
   const templates = opts.email?.templates ?? ({} as TemplateRegistry);
+
+  // Boot-validate every template's `category` against the resolvable list
+  // namespace BEFORE the mailer/emailService is constructed — fail CLOSED.
+  //
+  // A template's `category` (TemplateDefinition.category) IS the
+  // email-preferences list key: at send time `lib/tracked.ts` resolves the
+  // effective category and `checkSuppression` gates it through
+  // `ListRegistry.isSubscribed`, whose `isSubscribedByDefault` legacy fallback
+  // is `this.get(id)?.defaultOptIn ?? true`. So a TYPO'd category (e.g.
+  // "product-update" when the opt-in list id is "product-updates") resolves to
+  // an UNKNOWN id → `?? true` opt-in default → treated as subscribed → NOT
+  // suppressed. The consent/opt-in email would then be delivered to EVERY
+  // recipient (including never-subscribed) AND anyone who unsubscribed under the
+  // correct key would still receive it — CAN-SPAM/GDPR-grade. This guard makes a
+  // mismatched category a loud boot failure so it can never reach that fallback.
+  //
+  // Known-good set = reserved built-ins ∪ DEFINED lists (`opts.lists`), NOT just
+  // the ENABLED registry — mirroring the ENABLED_JOURNEYS lesson (validate
+  // against DEFINED, not just ENABLED). A DEFINED-but-registry-EXCLUDED list
+  // (removed from the registry by an ENABLED_LISTS allowlist that doesn't name
+  // it) does NOT auto-warn: excluding it flips the send-time gate by POLARITY,
+  // so we branch on `defaultOptIn` (below). We carry each list's `defaultOptIn`
+  // (not just its id) so that branch can decide THROW vs WARN. This does NOT
+  // change the send-time suppression logic; it only prevents a bad/consent-
+  // flipping category reaching it.
+  const definedLists = new Map(
+    (opts.lists ?? []).map((l) => [l.meta.id, l.meta.defaultOptIn] as const),
+  );
+  for (const [templateKey, def] of Object.entries(templates)) {
+    const category = (def as TemplateDefinition | undefined)?.category;
+    // No category ⇒ no per-list gating for this template; nothing to validate.
+    if (!category) continue;
+    // Reserved built-in category (transactional / journey) — never a list, but
+    // a legitimate `email_preferences.categories` key. OK.
+    if (isReservedListId(category)) continue;
+    // Category names a REGISTERED list ⇒ suppression/preferences gate correctly.
+    // (Note: a `defineList({ enabled:false })` is STILL registered — the
+    // registry filters on ENABLED_LISTS only, never `meta.enabled` — so it
+    // lands here, not in the excluded branch below.)
+    if (listRegistry.has(category)) continue;
+    // Category names a DEFINED list that is EXCLUDED from the registry by an
+    // ENABLED_LISTS allowlist that doesn't name it. Excluding it makes the
+    // send-time check fall back to the legacy `?? true` opt-in default, which
+    // FLIPS the gate by polarity:
+    //   • opt-IN list (`defaultOptIn:false`, consent required): enabled →
+    //     `categories[id] === true` (never-consented = NOT subscribed =
+    //     suppressed); excluded → `categories[id] !== false` (never-consented =
+    //     SUBSCRIBED = NOT suppressed) → the consent email SHIPS to someone who
+    //     never opted in. Disabling un-gates consent → THROW (fail closed).
+    //   • opt-OUT list (`defaultOptIn:true`): both enabled and excluded compute
+    //     `categories[id] !== false` — IDENTICAL, behavior-preserving → WARN.
+    const definedOptIn = definedLists.get(category);
+    if (definedOptIn !== undefined) {
+      if (definedOptIn === false) {
+        throw new Error(
+          `Email template "${templateKey}" has category "${category}", an OPT-IN email list (defaultOptIn:false) that is DEFINED but EXCLUDED from the active registry by ENABLED_LISTS. At send time an excluded list falls back to the legacy opt-in default, which UN-GATES consent — the opt-in email would ship to recipients who never subscribed. Re-enable the list in ENABLED_LISTS (or change the template's category) — disabling an opt-in list must not silently flip its consent gate open.`,
+        );
+      }
+      logger.warn(
+        `Email template "${templateKey}" has category "${category}", a DEFINED email list EXCLUDED from the active registry by ENABLED_LISTS. It is an opt-out list (defaultOptIn:true), so send-time gating is behavior-preserving — but its preference center entry is hidden while excluded. Re-enable the list in ENABLED_LISTS or change the template's category.`,
+      );
+      continue;
+    }
+    // Unknown category: neither a reserved built-in nor a defined list. At send
+    // time this resolves to the `?? true` opt-in default, bypassing
+    // suppression/consent. Fail CLOSED with an actionable message.
+    const knownLists = [...definedLists.keys()];
+    throw new Error(
+      `Email template "${templateKey}" has category "${category}", which is neither a reserved built-in category (${[
+        ...RESERVED_LIST_IDS,
+      ].join(", ")}) nor a defined email list (${
+        knownLists.length ? knownLists.join(", ") : "none"
+      }). A template's category is its email-preferences list key, so it MUST match a list id (defineList) or a reserved built-in — otherwise an unknown/typo'd category silently defaults to opt-in and un-gates suppression/consent. Fix the category or define the list.`,
+    );
+  }
 
   const emailService =
     opts.overrides?.mailer ??

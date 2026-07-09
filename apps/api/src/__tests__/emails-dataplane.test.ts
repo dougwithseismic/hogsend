@@ -25,6 +25,10 @@ const { apiKeys, contacts, emailSends, trackedLinks } = await import(
 const { eq } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 const { templates } = await import("../emails/index.js");
+// The real app lists (incl. `product-updates`) — wired so the marketing
+// template's `product-updates` category resolves to a defined list, matching
+// `src/index.ts` (the container boot-guard rejects an unknown category).
+const { lists } = await import("../lists/index.js");
 
 // A fake provider so the engine-owned tracked mailer runs its FULL pipeline
 // (preference check → email_sends insert → tracked-html link rewrite →
@@ -46,6 +50,7 @@ const fakeProvider: EmailProvider = {
 
 const container = createHogsendClient({
   email: { provider: fakeProvider, templates },
+  lists,
 });
 const app = createApp(container);
 const { db } = container;
