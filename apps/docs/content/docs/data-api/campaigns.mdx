@@ -7,6 +7,8 @@ A campaign is a one-time broadcast of a single template to a whole audience — 
 
 Requires a bearer key with the `ingest` scope.
 
+This reference covers the wire; the [Campaigns guide](/docs/guides/campaigns) covers authoring — when to commit a campaign versus create it at runtime, audience semantics, and the deploy lifecycle.
+
 ## `POST /v1/campaigns`
 
 Validates the template and audience, inserts the campaign row, and either enqueues the durable `send-campaign` task immediately or — when `sendAt` is supplied — schedules it for that instant.

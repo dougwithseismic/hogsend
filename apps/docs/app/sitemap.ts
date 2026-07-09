@@ -16,6 +16,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     "/growth-metrics",
     "/emails",
     "/about",
+    "/campaigns",
     "/use-cases/onboarding",
     "/use-cases/trial-conversion",
     "/use-cases/winback",

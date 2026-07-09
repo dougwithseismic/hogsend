@@ -1,0 +1,181 @@
+---
+title: Campaigns
+description: One-shot broadcasts to a list or a bucket — commit one with defineCampaign(), or queue one with a single API call. Scheduled with sendAt, cancelable until send, deduplicated per recipient.
+---
+
+## Overview
+
+A **campaign** is a one-time broadcast: a single email template sent to every subscribed member of a **list**, or every active member of a **bucket**, at an instant you pick. It has no trigger and no control flow — it fires once and is retired. That makes it the complement to a journey, not a variant of one:
+
+| | Journey | Campaign |
+|---|---|---|
+| Starts | Per user, on a trigger event | Once, at `sendAt` (or immediately) |
+| Control flow | Full TypeScript — waits, branches, event checks | None: one template, one audience, one instant |
+| Audience | Whoever fires the trigger | A list or bucket, resolved at send time |
+| Recurrence | Every eligible trigger (per `entryLimit`) | One-shot; retired after `sent` |
+
+There are two ways to create one, and they are the same thing underneath — the same `campaigns` row, the same durable `send-campaign` task, the same counts and Studio visibility:
+
+- **A committed file** — `defineCampaign()` in `src/campaigns/`, picked up by the worker's boot reconciler on deploy. Right when the send is planned: a launch scheduled for Tuesday 16:00 UTC, reviewed in a PR like any other change.
+- **A runtime call** — `POST /v1/campaigns`, `hs.campaigns.send(...)`, or `hogsend campaigns send`. Right when the send is decided at runtime: an operator one-off, an agent-driven blast, a button in your own admin.
+
+This guide covers authoring; the [Campaigns API reference](/docs/data-api/campaigns) covers the wire (request/response shapes, statuses, errors), and the [Marketing campaigns recipe](/docs/recipes/marketing-campaigns) walks the full define-list → subscribe → broadcast workflow.
+
+## Defining a campaign
+
+```ts title="src/campaigns/product-launch.ts"
+import { defineCampaign } from "@hogsend/engine";
+
+export const productLaunch = defineCampaign({
+  id: "product-launch",                    // stable slug; the retirement key
+  name: "Product launch announcement",     // optional, defaults to id
+  audience: { list: "product-updates" },   // or { bucket: "power-users" }
+  template: "marketing/product-update",    // type-checked against your registry
+  props: {
+    headline: "Saved views are here",
+    ctaUrl: "https://example.com/changelog",
+  },
+  sendAt: "2026-07-15T16:00:00Z",          // ISO string or Date
+});
+```
+
+`defineCampaign({ id, name?, audience, template, props?, subject?, from?, sendAt, enabled? })` validates at definition time — the id shape, exactly one of `list`/`bucket`, and that `sendAt` parses to a real instant — and throws on a violation, so a malformed campaign fails at boot, not at send time. Whether `sendAt` is still in the *future* is deliberately not checked here; that is a deploy-time question the [reconciler](#what-happens-on-deploy) answers. The full options table lives in the [reference](/docs/data-api/campaigns#definecampaign-options).
+
+### The id rules
+
+The id must match `/^[a-z0-9_-]+$/i`. It is the campaign's **retirement key**: the reconciler tracks the row as `campaign-def:<id>`, which is how a sent campaign stays sent across redeploys. Two consequences:
+
+- **Renaming the id mints a new campaign.** The old row keeps its history; the new id schedules a fresh send. Never rename an id to "edit" a sent campaign.
+- **A follow-up send is a new id.** A campaign is one-shot by design — for the September launch, write a new file (or copy the old one with a new id and `sendAt`).
+
+### The audience — a list or a bucket
+
+`audience` is **exactly one** of `{ list }` or `{ bucket }`, referencing a [defined list](/docs/guides/lists) or [defined bucket](/docs/guides/buckets) by id. Both are resolved **at send time** — members added after the send do not receive it, and members who left are not emailed.
+
+- **`{ list }`** follows the list's polarity: an opt-in list (`defaultOptIn: false`) reaches only explicit subscribers; an opt-out list reaches everyone who hasn't unsubscribed. The list id also acts as the send's `category`, so the unsubscribe link in the email unsubscribes from *that list*.
+- **`{ bucket }`** reaches every active member of the behavioral bucket at the moment the campaign runs. A bucket is not a subscription category, so the **template's own** declared category drives preference checks and the unsubscribe link.
+
+Globally-unsubscribed and suppressed contacts are excluded from both audience kinds, and every individual send re-checks preferences in the mailer as defense-in-depth. Skipped recipients are counted in `skippedCount`, not emailed.
+
+### `sendAt` — one absolute instant
+
+`sendAt` is a single absolute instant (ISO string with offset, or a `Date`) — there is no timezone or send-window logic. Per-user local-time delivery ("9am in each user's timezone") is a journey concern: use [`ctx.when`](/docs/guides/journeys) in a journey instead.
+
+## Registering a campaign
+
+A defined campaign does nothing until it is exported from the barrel and threaded into the client. Note the asymmetry versus lists: `campaigns` goes into `createHogsendClient`, and `createWorker` **defaults to the container's** — you do not pass it again.
+
+### 1. Export from `src/campaigns/index.ts`
+
+```ts title="src/campaigns/index.ts"
+export { productLaunch } from "./product-launch.js";
+
+import { productLaunch } from "./product-launch.js";
+
+// All defined campaigns for this app, passed to createHogsendClient({ campaigns }).
+export const campaigns = [productLaunch];
+```
+
+### 2. Thread into `createHogsendClient`
+
+```ts title="src/index.ts / src/worker.ts"
+const client = createHogsendClient({
+  journeys,
+  campaigns, // the reconciler (worker boot) upserts these
+  email: { templates },
+});
+
+// src/worker.ts — no campaigns option needed; it defaults to the container's
+const worker = createWorker({ container: client, journeys });
+```
+
+Only the **worker** reconciles — the API process carries the definitions on the container but takes no scheduling action, so a scheduled campaign fires exactly once no matter how many API replicas you run.
+
+## What happens on deploy
+
+At worker boot, a reconciler upserts each definition into its `campaigns` row. The behavior is deliberately conservative:
+
+| At reconcile | Outcome |
+|---|---|
+| New definition, `sendAt` in the future | Created `scheduled`; delivered at that instant |
+| New definition, `sendAt` recently due (within the grace window, default 1h) | Sent on boot — covers a deploy that landed minutes late |
+| New definition, `sendAt` staler than the grace window | Created **`expired`** with a warning — never a surprise blast |
+| Still `scheduled`, file edited | Fields synced; a moved `sendAt` re-schedules |
+| Already `sent`, `canceled`, or `expired` | No-op — the row is source of truth; redeploys never resurrect it |
+
+<Callout type="info">
+  A broken definition — duplicate id, unknown list/bucket, unknown template —
+  is skipped with an error log. Reconciliation never crashes the worker; a
+  typo in a campaign file cannot take down your journeys.
+</Callout>
+
+<Callout type="warn">
+  To recover an `expired` campaign, bump `sendAt` to a new future instant
+  (the reconciler only syncs edits while a row is still `scheduled`, so give
+  the recovered campaign a new id if the old row already expired). There is no
+  path by which a campaign committed with last week's date blasts on deploy —
+  tune the window with `CAMPAIGN_DEFINE_GRACE_MS` if your deploys are slow.
+</Callout>
+
+## Sending at runtime
+
+The same campaign, created over the wire instead of committed:
+
+```ts title="SDK"
+await hs.campaigns.send({
+  list: "product-updates",
+  template: "marketing/product-update",
+  props: { headline: "Saved views are here" },
+  sendAt: "2026-07-15T16:00:00Z", // omit to send now
+  idempotencyKey: "launch-2026-07",
+}); // → { campaignId, status, scheduledAt }
+```
+
+```bash title="CLI"
+hogsend campaigns send --list product-updates --template marketing/product-update \
+  --at 2026-07-15T16:00:00Z --idempotency-key launch-2026-07
+hogsend campaigns list --status scheduled
+hogsend campaigns cancel <id>
+```
+
+Always pass an `idempotencyKey` from anything that might retry — a retried create with the same key resolves to the existing campaign instead of a second broadcast. A `sendAt` more than 60 seconds in the past is rejected with a `400`; within the tolerance it degrades to an immediate send. Full request/response shapes are in the [reference](/docs/data-api/campaigns).
+
+## Delivery guarantees
+
+The broadcast runs as a durable Hatchet task in the worker:
+
+- **Chunked.** Recipients are resolved with keyset pagination and sent in chunks of 100; progress counts flush to the row after every chunk.
+- **Idempotent per recipient.** Each send carries the key `campaign:<campaignId>:<email>`, backed by a unique index on `email_sends`. A crash or retry re-runs the loop, but already-dispatched sends short-circuit — the retry completes the unsent tail without double-sending anyone.
+- **Self-healing.** A reaper cron (every 5 minutes) re-enqueues stalled sends, promotes due `scheduled` campaigns whose punctual run failed to fire, and declares long-stuck campaigns `failed` rather than retrying forever.
+- **Cancelable.** `POST /v1/campaigns/{id}/cancel` (or Studio) cancels a `scheduled`, `queued`, or `sending` campaign. Mid-send, delivery stops at the next chunk boundary; dispatched email is not recalled. Completion uses a compare-and-set, so a cancel racing the final chunk is never overwritten.
+- **Tracked.** Campaign sends go through the same tracked mailer as every other send — first-party link-click and open tracking, `email_sends` rows, PostHog events — whatever provider is on the wire.
+
+The reaper's timing is tunable per deploy:
+
+| Env var | Default | Controls |
+|---|---|---|
+| `CAMPAIGN_DEFINE_GRACE_MS` | `3600000` (1h) | How stale a defined `sendAt` can be at first deploy and still send |
+| `CAMPAIGN_STALE_AFTER_MS` | `900000` (15m) | In-flight campaign older than this is re-enqueued |
+| `CAMPAIGN_GIVE_UP_AFTER_MS` | `21600000` (6h) | In-flight campaign older than this is declared `failed` |
+| `CAMPAIGN_PROMOTE_GRACE_MS` | `120000` (2m) | Due `scheduled` row promoted by the reaper after this grace |
+| `CAMPAIGN_REAPER_CRON` | `*/5 * * * *` | Reaper cadence |
+
+## Studio
+
+The Studio **Campaigns** view shows every campaign's status, audience, scheduled time, and live progress counts — sent, skipped, failed — and can cancel anything still in flight. Studio cannot author campaigns; that stays in code or the API, where it can be reviewed.
+
+## What a campaign is not
+
+- **Not recurring.** One `sendAt`, one send, retired. A weekly digest is a journey (or a cron task that calls `hs.campaigns.send` with a fresh id).
+- **Not personalized per recipient.** One template, one `props` object for the whole audience. Behavior-dependent content is a journey.
+- **Not an ad-hoc recipient list.** The audience is a registered list or bucket — that's what keeps unsubscribe enforceable. Import contacts into a list first.
+- **Not local-time aware.** `sendAt` is one absolute instant; per-user timing is `ctx.when` in a journey.
+- **Not recallable.** Cancel spares undispatched recipients; email already handed to the provider is gone.
+
+## Golden rules
+
+1. The id is the retirement key. Renaming it mints a new campaign; a follow-up send is a new id.
+2. Exactly one of `{ list }` or `{ bucket }`. A list drives the unsubscribe category; a bucket defers to the template's own.
+3. Thread `campaigns` into `createHogsendClient`; `createWorker` picks it up from the container. Only the worker reconciles.
+4. A stale `sendAt` expires, never fires. Recover by committing a new future instant.
+5. Anything that might retry passes an `idempotencyKey`. The engine already deduplicates per recipient; the key deduplicates the campaign itself.
