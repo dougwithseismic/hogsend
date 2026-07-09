@@ -1,4 +1,4 @@
-import { generateUnsubscribeUrl } from "@hogsend/email";
+import { generateUnsubscribeUrl, type TemplateName } from "@hogsend/email";
 import {
   deriveJourneyKey,
   getJourneyBoundary,
@@ -29,7 +29,17 @@ export const getEmailService = _service.get;
 export interface SendEmailOptions {
   to: string;
   userId: string;
-  template: string;
+  /**
+   * The template to send. Typed as {@link TemplateName} — the union of keys the
+   * consumer has registered by augmenting `@hogsend/email`'s
+   * `TemplateRegistryMap` (see the consumer's `src/emails/templates.d.ts`). A
+   * key that was never registered (a typo, or a slash-key when the registry
+   * uses hyphen-keys) is a COMPILE error here, so a journey can no longer ship
+   * pointing at an email that doesn't exist. `getTemplate` also throws a loud,
+   * actionable error at send time as a runtime backstop for keys resolved
+   * dynamically (e.g. the public `POST /v1/emails`).
+   */
+  template: TemplateName;
   subject: string;
   journeyName?: string;
   journeyStateId?: string;
@@ -102,10 +112,11 @@ export async function sendEmail(
     headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
   }
 
-  // `sendEmail` is the loose, runtime-string entry point used by journeys: the
-  // template key and props are resolved at runtime, so we build the options
-  // untyped and hand them to the typed `service.send`. Type-safe call sites use
-  // `container.emailService.send({ template, props })` directly.
+  // `sendEmail` is the journey entry point: the template key is typed against
+  // the registry (see `SendEmailOptions.template`), but `props` stay loose here
+  // (the helper injects `name`/`journeyName`/`body`/… below), so we build the
+  // options untyped and hand them to the typed `service.send`. Fully type-safe
+  // call sites use `container.emailService.send({ template, props })` directly.
   const sendOptions = {
     template: opts.template,
     props: {

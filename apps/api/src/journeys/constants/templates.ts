@@ -1,8 +1,20 @@
+// The `@hogsend/email` `TemplateName` — the union of keys THIS app has actually
+// registered (registry.ts + the `templates.d.ts` augmentation). Aliased so it
+// doesn't clash with the local `TemplateName` exported below. The
+// `satisfies Record<string, RegisteredTemplateKey>` on `Templates` makes every
+// value here a COMPILE error unless it is a registered key — so a journey can
+// no longer reference an email that doesn't exist (e.g. a `activation/welcome`
+// slash-key when the registry only has the `activation-quickstart` hyphen-key).
+import type { TemplateName as RegisteredTemplateKey } from "@hogsend/email";
+
 export const Templates = {
-  ACTIVATION_WELCOME: "activation/welcome",
-  ACTIVATION_ADVANCED: "activation/advanced",
-  ACTIVATION_NUDGE: "activation/nudge",
-  ACTIVATION_COMMUNITY: "activation/community",
+  // NOTE: keys map to the hyphen-keys REGISTERED in src/emails/registry.ts.
+  // These were previously `activation/…` slash-keys that were never registered,
+  // so every send silently failed to load at runtime — now a compile error.
+  ACTIVATION_WELCOME: "activation-quickstart",
+  ACTIVATION_ADVANCED: "activation-feature-highlight",
+  ACTIVATION_NUDGE: "activation-nudge",
+  ACTIVATION_COMMUNITY: "activation-community",
   ACTIVATION_NUDGE_SERIES: "activation-nudge",
   ACTIVATION_QUICKSTART: "activation-quickstart",
   ACTIVATION_FEATURE_HIGHLIGHT: "activation-feature-highlight",
@@ -35,6 +47,6 @@ export const Templates = {
 
   // Marketing — broadcast to a list via hs.campaigns.send.
   MARKETING_PRODUCT_UPDATE: "marketing/product-update",
-} as const;
+} as const satisfies Record<string, RegisteredTemplateKey>;
 
 export type TemplateName = (typeof Templates)[keyof typeof Templates];
