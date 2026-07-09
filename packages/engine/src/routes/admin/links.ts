@@ -1,6 +1,16 @@
 import { linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, inArray, isNull, sql, sum } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  sql,
+  sum,
+} from "drizzle-orm";
 import QRCode from "qrcode";
 import type { AppEnv } from "../../app.js";
 import {
@@ -10,6 +20,7 @@ import {
   isSlugUniqueViolation,
   mintLink,
   normalizeSlug,
+  QR_TRACKED_SOURCE,
   SlugTakenError,
   vanityUrlFor,
 } from "../../lib/links.js";
@@ -204,6 +215,9 @@ const listLinksRoute = createRoute({
       offset: z.coerce.number().min(0).default(0),
       type: z.enum(["personal", "public"]).optional(),
       includeArchived: z.coerce.boolean().default(false),
+      // true = only links whose QR scan row exists — the "QR codes" lens
+      // (a QR code IS a managed link whose QR row has been minted).
+      hasQr: z.coerce.boolean().optional(),
     }),
   },
   responses: {
@@ -420,11 +434,27 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
   })
   .openapi(listLinksRoute, async (c) => {
     const { db, env } = c.get("container");
-    const { limit, offset, type, includeArchived } = c.req.valid("query");
+    const { limit, offset, type, includeArchived, hasQr } =
+      c.req.valid("query");
 
     const where = and(
       includeArchived ? undefined : isNull(links.archivedAt),
       type ? eq(links.type, type) : undefined,
+      // The QR lens: membership = the QR scan row exists (lazily minted on
+      // first QR render), not "has been scanned".
+      hasQr
+        ? exists(
+            db
+              .select({ one: sql`1` })
+              .from(trackedLinks)
+              .where(
+                and(
+                  eq(trackedLinks.linkId, links.id),
+                  eq(trackedLinks.source, QR_TRACKED_SOURCE),
+                ),
+              ),
+          )
+        : undefined,
     );
 
     const [rows, totalRows] = await Promise.all([

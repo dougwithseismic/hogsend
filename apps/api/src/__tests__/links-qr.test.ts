@@ -436,6 +436,27 @@ describe("QR scan spine — counts + retarget", () => {
     expect(body.scanCount).toBe(2);
   });
 
+  it("GET /?hasQr=true lists only links whose QR row exists", async () => {
+    const withQr = await mint({ label: `${RUN}-lens-with` });
+    const withoutQr = await mint({ label: `${RUN}-lens-without` });
+    await ensureQrTrackedLink({ db, linkId: withQr.id });
+
+    const res = await app.request("/v1/admin/links?hasQr=true&limit=200", {
+      headers: AUTH_HEADER,
+    });
+    const ids = (await res.json()).links.map((l: { id: string }) => l.id);
+    expect(ids).toContain(withQr.id);
+    expect(ids).not.toContain(withoutQr.id);
+
+    // Without the filter both appear.
+    const all = await app.request("/v1/admin/links?limit=200", {
+      headers: AUTH_HEADER,
+    });
+    const allIds = (await all.json()).links.map((l: { id: string }) => l.id);
+    expect(allIds).toContain(withQr.id);
+    expect(allIds).toContain(withoutQr.id);
+  });
+
   it("the vanity route never resolves through the QR row", async () => {
     const link = await mint({
       label: `${RUN}-vanity-canonical`,
