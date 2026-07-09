@@ -110,6 +110,64 @@ These URLs are never rewritten:
 - **Preference links** — URLs containing `/v1/email/preferences`
 - **Non-HTTP** — `mailto:`, `tel:`, etc. (regex only matches `https?://`)
 
+## Managed links (mintLink)
+
+Email's per-send rewritten links (above) are one consumer of the click spine.
+The other is **managed links** — operator-owned short links minted outside
+email via `mintLink()` (engine) or `POST /v1/admin/links` (the surface behind
+the Studio "Links" view). A managed link is a durable `links` row plus a
+`tracked_links` click-counter row back-referencing it via `link_id`; email
+links keep `link_id` NULL, so the two stay independent.
+
+- **`mintLink({ db, url, baseUrl, source, type?, slug?, label?, campaign?, distinctId?, createdBy? })`**
+  inserts both rows and returns `{ linkId, trackedLinkId, url, slug, vanityUrl }`
+- **Share-safe invariant**: `distinctId` (the contact a click should stitch) is
+  honored ONLY for `type: "personal"`; a `"public"` link never carries a person
+- **Admin CRUD**: `GET/POST /v1/admin/links`, `GET/PATCH/DELETE /v1/admin/links/:id`.
+  `PATCH originalUrl` re-targets the already-distributed short URL — it updates
+  `links.originalUrl` AND every `tracked_links` row scoped by `link_id` in one
+  transaction (the click route reads `tracked_links.originalUrl` fresh per hit)
+- **Archive is soft**: the short URL keeps redirecting; history survives
+- **Clicks emit `link.clicked`** on the outbound spine (never `email.clicked`),
+  and — for personal links, human clicks only — re-ingest a first-party
+  `link.clicked` bus event journeys can trigger on (filter by `linkId`/`campaign`)
+
+### Vanity slugs — `/l/:slug`
+
+A managed link can carry an operator-chosen slug layered over the UUID short
+URL: `https://<host>/l/black-friday`.
+
+- **Shape**: 1–64 chars of `[a-z0-9-]`, no leading/trailing hyphen. Input is
+  lowercased before validation, so `/l/Black-Friday` resolves `black-friday`
+- **Unique per instance** (`links.slug`, unique index). A taken slug is a `409`
+  from `POST`/`PATCH`; invalid shape is a `400`
+- **Lifecycle**: set at mint (`slug`), replace or clear via `PATCH`
+  (`slug: null` frees it for reuse). Archived links keep their slug reserved
+  and keep resolving — clearing the slug is the explicit kill switch
+- **`GET /l/:slug`** (root-mounted, unauthenticated) resolves the link's
+  canonical tracked row and runs the SAME click pipeline as `/v1/t/c/:id` —
+  same `link_clicks` row, same counter, same events — so counts never split by
+  entry path. Unknown/malformed slugs redirect to `API_PUBLIC_URL`
+- Responses carry `slug` + `vanityUrl` (`${API_PUBLIC_URL}/l/:slug`)
+
+### QR codes — `GET /v1/admin/links/:id/qr`
+
+Every managed link can render a QR code (admin-authed endpoint; the Studio QR
+dialog previews and downloads through it).
+
+- **Params**: `format=svg|png` (default `svg`), `size=64..2048` (default 512)
+- **Durable by construction**: the code encodes the link's scan URL —
+  `/v1/t/c/<qr row id>` — NEVER the vanity slug. The scan row is a second
+  `tracked_links` row (`source: "qr"`), lazily minted on first render and
+  race-safe via a partial unique index (`tracked_links(link_id) WHERE
+  source = 'qr'`). A printed code therefore survives slug changes AND
+  destination re-targets (`PATCH` updates the scan row too)
+- **Scans are counted separately**: link responses carry `scanCount` (QR-only
+  subtotal) alongside `clickCount` (all-paths total). A scan is a normal click
+  on the scan row — `source: "qr"` rides the `link.clicked` payload
+- **Personal links**: the scan row copies the link's `distinctId`, so scans
+  stitch the same subject as clicks (including `hs_t` when enabled)
+
 ## Semantic links — in-email answers
 
 A plain tracked link records THAT it was clicked; a **semantic link** records

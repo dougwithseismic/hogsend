@@ -36,7 +36,7 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 
 ## Phase 3 — Docs + release prep
 
-- [ ] 3.1 `docs/tracking.md`: managed links / vanity slugs / QR section (doc is currently email-only and stale w.r.t. 0.27); changeset for the engine line (minor: engine, db, studio, create-hogsend)
+- [x] 3.1 `docs/tracking.md`: managed links / vanity slugs / QR section (doc is currently email-only and stale w.r.t. 0.27); changeset for the engine line (minor: engine, db, studio, create-hogsend)
 
 ## Seam notes
 
