@@ -280,6 +280,9 @@ const qrLinkRoute = createRoute({
       // Rendered pixel width. QR content is size-independent (same encoded
       // URL), so this only affects raster/viewport dimensions.
       size: z.coerce.number().min(64).max(2048).default(512),
+      // Transparent background (both formats) — for print/overlay use where
+      // the artwork supplies its own background.
+      transparent: z.coerce.boolean().default(false),
     }),
   },
   responses: {
@@ -569,7 +572,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
   .openapi(qrLinkRoute, async (c) => {
     const { db, env } = c.get("container");
     const { id } = c.req.valid("param");
-    const { format, size } = c.req.valid("query");
+    const { format, size, transparent } = c.req.valid("query");
 
     // Lazy-mints the link's QR scan row on first render (race-safe via the
     // partial unique index). An archived link still renders — archive never
@@ -590,7 +593,12 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     // endpoint is admin-authed.
     c.header("Cache-Control", "private, max-age=3600");
 
-    const render = { width: size, errorCorrectionLevel: "M" as const };
+    const render = {
+      width: size,
+      errorCorrectionLevel: "M" as const,
+      // "#0000" = fully transparent light modules; default is opaque white.
+      ...(transparent ? { color: { light: "#0000" } } : {}),
+    };
 
     if (format === "png") {
       const png = await QRCode.toBuffer(scanUrl, render);

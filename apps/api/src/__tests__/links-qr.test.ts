@@ -265,6 +265,51 @@ describe("QR scan spine — counts + retarget", () => {
     expect(width).toBe(256);
   });
 
+  it("GET /:id/qr?transparent=true renders a transparent background in both formats", async () => {
+    const link = await mint({ label: `${RUN}-qr-transparent` });
+
+    // SVG: transparent output differs from opaque and drops the light fill.
+    const opaque = await app.request(`/v1/admin/links/${link.id}/qr`, {
+      headers: AUTH_HEADER,
+    });
+    const transparent = await app.request(
+      `/v1/admin/links/${link.id}/qr?transparent=true`,
+      { headers: AUTH_HEADER },
+    );
+    expect(transparent.status).toBe(200);
+    const opaqueSvg = await opaque.text();
+    const transparentSvg = await transparent.text();
+    expect(transparentSvg).toContain("<svg");
+    expect(transparentSvg).not.toBe(opaqueSvg);
+    // qrcode renders the light modules as a filled path; "#ffffff" disappears
+    // when the light color is fully transparent.
+    expect(opaqueSvg).toContain("#ffffff");
+    expect(transparentSvg).not.toContain("#ffffff");
+
+    // PNG: still a valid PNG signature, distinct bytes from the opaque render.
+    const opaquePng = new Uint8Array(
+      await (
+        await app.request(`/v1/admin/links/${link.id}/qr?format=png&size=256`, {
+          headers: AUTH_HEADER,
+        })
+      ).arrayBuffer(),
+    );
+    const transparentPng = new Uint8Array(
+      await (
+        await app.request(
+          `/v1/admin/links/${link.id}/qr?format=png&size=256&transparent=true`,
+          { headers: AUTH_HEADER },
+        )
+      ).arrayBuffer(),
+    );
+    expect(Array.from(transparentPng.slice(0, 4))).toEqual([
+      0x89, 0x50, 0x4e, 0x47,
+    ]);
+    expect(Buffer.from(transparentPng).equals(Buffer.from(opaquePng))).toBe(
+      false,
+    );
+  });
+
   it("GET /:id/qr returns 404 for an unknown link and 401 without auth", async () => {
     const missing = await app.request(
       "/v1/admin/links/00000000-0000-0000-0000-000000000000/qr",
