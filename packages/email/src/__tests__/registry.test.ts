@@ -79,3 +79,54 @@ describe("template registry", () => {
     expect(result.subject).toBe("Hey!");
   });
 });
+
+describe("unregistered template key guard", () => {
+  // The runtime backstop behind the compile-time `TemplateName` typing: a key
+  // resolved dynamically (public POST /v1/emails, an admin preview) that was
+  // never registered must fail LOUDLY here — naming the bad key and the
+  // registered ones — instead of the old cryptic `Cannot read properties of
+  // undefined (reading 'component')` deep in the render path.
+  it("getTemplate throws an actionable error naming the key and the registered ones", () => {
+    expect(() =>
+      getTemplate({
+        key: "does-not-exist" as never,
+        props: { name: "Doug" } as never,
+        registry: fixture,
+      }),
+    ).toThrowError(
+      /"does-not-exist" is not registered[\s\S]*Registered templates: hello/,
+    );
+  });
+
+  it("throws for an inherited Object.prototype key (own-property check, not truthiness)", () => {
+    // `registry["toString"]` is truthy (inherited from Object.prototype) but is
+    // NOT a registered template — a value-truthiness guard would wave it through
+    // and resurface the cryptic render crash. All three getters must reject it.
+    expect(() =>
+      getTemplateDefinition({ key: "toString" as never, registry: fixture }),
+    ).toThrowError(/"toString" is not registered/);
+    expect(() =>
+      getTemplate({
+        key: "constructor" as never,
+        props: { name: "Doug" } as never,
+        registry: fixture,
+      }),
+    ).toThrowError(/"constructor" is not registered/);
+    expect(() =>
+      getPreviewText({
+        key: "valueOf" as never,
+        props: { name: "Doug" } as never,
+        registry: fixture,
+      }),
+    ).toThrowError(/"valueOf" is not registered/);
+  });
+
+  it("reports (none) when the registry is empty", () => {
+    expect(() =>
+      getTemplateDefinition({
+        key: "anything" as never,
+        registry: {} as unknown as TemplateRegistry,
+      }),
+    ).toThrowError(/Registered templates: \(none\)/);
+  });
+});
