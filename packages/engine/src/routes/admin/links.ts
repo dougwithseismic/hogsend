@@ -2,7 +2,14 @@ import { linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, inArray, isNull, sql, sum } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { assertHttpUrl, mintLink } from "../../lib/links.js";
+import {
+  assertHttpUrl,
+  isSlugUniqueViolation,
+  mintLink,
+  normalizeSlug,
+  SlugTakenError,
+  vanityUrlFor,
+} from "../../lib/links.js";
 import { errorSchema } from "../../lib/schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +53,10 @@ const linkSchema = z.object({
   trackedLinkId: z.string().nullable(),
   originalUrl: z.string(),
   type: z.enum(["personal", "public"]),
+  // Vanity slug (normalized lowercase, unique per instance) + its short URL
+  // (`${API_PUBLIC_URL}/l/:slug`). Both null when no slug is set.
+  slug: z.string().nullable(),
+  vanityUrl: z.string().nullable(),
   label: z.string().nullable(),
   campaign: z.string().nullable(),
   source: z.string(),
@@ -93,6 +104,8 @@ function serializeLink(
     originalUrl: row.originalUrl,
     // The column is a free text; mintLink only ever writes these two values.
     type: row.type === "personal" ? "personal" : "public",
+    slug: row.slug,
+    vanityUrl: row.slug ? vanityUrlFor(baseUrl, row.slug) : null,
     label: row.label,
     campaign: row.campaign,
     source: row.source,
@@ -122,6 +135,9 @@ const createLinkRoute = createRoute({
           schema: z.object({
             url: z.string().url(),
             type: z.enum(["personal", "public"]).default("public"),
+            // Optional vanity slug (`/l/:slug`). Normalized lowercase; 409 if
+            // already taken.
+            slug: z.string().optional(),
             label: z.string().optional(),
             campaign: z.string().optional(),
             // Honoured ONLY for personal links (the share-safe invariant in
@@ -140,7 +156,11 @@ const createLinkRoute = createRoute({
     },
     400: {
       content: { "application/json": { schema: errorSchema } },
-      description: "Invalid destination URL",
+      description: "Invalid destination URL or slug",
+    },
+    409: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Slug already taken",
     },
   },
 });
@@ -207,6 +227,9 @@ const updateLinkRoute = createRoute({
             // NOT NULL on both tables — omit = no change, provide = re-target
             // both links.originalUrl and the linked tracked_links row.
             originalUrl: z.string().url().optional(),
+            // omit = no change; string = set/replace (409 if taken); null =
+            // clear the slug (frees it for reuse).
+            slug: z.string().nullable().optional(),
             label: z.string().nullable().optional(),
             campaign: z.string().nullable().optional(),
           }),
@@ -221,11 +244,15 @@ const updateLinkRoute = createRoute({
     },
     400: {
       content: { "application/json": { schema: errorSchema } },
-      description: "Invalid destination URL",
+      description: "Invalid destination URL or slug",
     },
     404: {
       content: { "application/json": { schema: errorSchema } },
       description: "Link not found",
+    },
+    409: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Slug already taken",
     },
   },
 });
@@ -295,6 +322,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         baseUrl: env.API_PUBLIC_URL,
         source: "studio",
         type: body.type,
+        slug: body.slug,
         label: body.label,
         campaign: body.campaign,
         distinctId: body.distinctId,
@@ -320,6 +348,9 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         200,
       );
     } catch (err) {
+      if (err instanceof SlugTakenError) {
+        return c.json({ error: err.message }, 409);
+      }
       const message = err instanceof Error ? err.message : "Mint failed";
       return c.json({ error: message }, 400);
     }
@@ -427,39 +458,62 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     }
 
     const patch: Partial<
-      Pick<LinkRow, "label" | "campaign" | "originalUrl">
+      Pick<LinkRow, "label" | "campaign" | "originalUrl" | "slug">
     > & {
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (body.label !== undefined) patch.label = body.label;
     if (body.campaign !== undefined) patch.campaign = body.campaign;
     if (body.originalUrl !== undefined) patch.originalUrl = body.originalUrl;
+    // Slug: string = set/replace (normalized, 409 on conflict below); null =
+    // clear, freeing it for reuse.
+    if (body.slug !== undefined) {
+      if (body.slug === null) {
+        patch.slug = null;
+      } else {
+        try {
+          patch.slug = normalizeSlug(body.slug);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Invalid slug";
+          return c.json({ error: message }, 400);
+        }
+      }
+    }
 
     // Both writes in ONE transaction so the two originalUrls can never diverge.
     // CRITICAL: the click redirect reads tracked_links.originalUrl fresh per
     // hit (no cache), NOT links.originalUrl — so re-targeting MUST also update
-    // the 1:1 tracked_links row (scoped by link_id, which can only ever be the
-    // managed tracked row). The links row is the display/source of truth.
-    const updated = await db.transaction(async (tx) => {
-      const [row] = await tx
-        .update(links)
-        .set(patch)
-        .where(eq(links.id, id))
-        .returning();
+    // the link's tracked_links rows (scoped by link_id — the managed redirect
+    // row, plus the QR scan row once one is minted). The links row is the
+    // display/source of truth.
+    let updated: LinkRow | null;
+    try {
+      updated = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(links)
+          .set(patch)
+          .where(eq(links.id, id))
+          .returning();
 
-      // Signal 404 to the caller; returning null (vs throwing) commits an empty
-      // tx and avoids bubbling as a 500.
-      if (!row) return null;
+        // Signal 404 to the caller; returning null (vs throwing) commits an
+        // empty tx and avoids bubbling as a 500.
+        if (!row) return null;
 
-      if (body.originalUrl !== undefined) {
-        await tx
-          .update(trackedLinks)
-          .set({ originalUrl: body.originalUrl, updatedAt: new Date() })
-          .where(eq(trackedLinks.linkId, id));
+        if (body.originalUrl !== undefined) {
+          await tx
+            .update(trackedLinks)
+            .set({ originalUrl: body.originalUrl, updatedAt: new Date() })
+            .where(eq(trackedLinks.linkId, id));
+        }
+
+        return row;
+      });
+    } catch (err) {
+      if (patch.slug && isSlugUniqueViolation(err)) {
+        return c.json({ error: `Slug "${patch.slug}" is already taken` }, 409);
       }
-
-      return row;
-    });
+      throw err;
+    }
 
     if (!updated) {
       return c.json({ error: "Link not found" }, 404);

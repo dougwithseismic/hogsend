@@ -1,4 +1,11 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
 
 /**
@@ -19,6 +26,11 @@ export const links = pgTable(
     // mint a SINGLE-USE `hs_t`); "public" = shareable, NEVER carries a person
     // token (campaign/UTM attribution only). Default "public" — the safe default.
     type: text("type").notNull().default("public"),
+    // Operator-chosen vanity slug — the `/l/:slug` short path layered over the
+    // UUID redirect. Normalized lowercase at write time; unique per instance.
+    // NULL = no vanity path. Archived links keep their slug reserved (clear it
+    // via PATCH to free it for reuse).
+    slug: text("slug"),
     // Operator-facing name (Studio list).
     label: text("label"),
     // UTM-style campaign grouping for public links.
@@ -37,6 +49,7 @@ export const links = pgTable(
     ...timestamps,
   },
   (table) => [
+    uniqueIndex("links_slug_unique").on(table.slug),
     index("links_source_idx").on(table.source),
     index("links_campaign_idx").on(table.campaign),
     index("links_created_at_idx").on(table.createdAt),

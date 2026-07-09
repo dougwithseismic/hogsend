@@ -410,6 +410,9 @@ export {
   type MintedLink,
   type MintLinkOptions,
   mintLink,
+  normalizeSlug,
+  SlugTakenError,
+  vanityUrlFor,
 } from "./lib/links.js";
 // --- Logging ---
 export { createLogger, type Logger } from "./lib/logger.js";

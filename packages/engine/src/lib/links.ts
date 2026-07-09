@@ -40,6 +40,12 @@ export interface MintLinkOptions {
   distinctId?: string;
   /** The admin actor who minted it (Studio). */
   createdBy?: string;
+  /**
+   * Optional vanity slug — the `/l/:slug` short path layered over the UUID
+   * redirect. Normalized lowercase; unique per instance (SlugTakenError on
+   * conflict). Managed links only — email's per-send links stay UUID.
+   */
+  slug?: string;
 }
 
 export interface MintedLink {
@@ -49,6 +55,69 @@ export interface MintedLink {
   trackedLinkId: string;
   /** The short redirect URL: `${baseUrl}/v1/t/c/:id`. */
   url: string;
+  /** The normalized vanity slug, if one was minted. */
+  slug: string | null;
+  /** The vanity short URL (`${baseUrl}/l/:slug`), if a slug was minted. */
+  vanityUrl: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Vanity slugs
+// ---------------------------------------------------------------------------
+
+/** 1–64 chars of lowercase [a-z0-9-], no leading/trailing hyphen. */
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+
+/** Thrown when a requested slug is already held by another link → HTTP 409. */
+export class SlugTakenError extends Error {
+  constructor(slug: string) {
+    super(`Slug "${slug}" is already taken`);
+    this.name = "SlugTakenError";
+  }
+}
+
+/**
+ * Lowercase-normalize + validate a requested vanity slug. Throws on an
+ * invalid shape (→ HTTP 400). Case-insensitivity comes from normalizing at
+ * every write — the DB unique index then only ever sees lowercase.
+ */
+export function normalizeSlug(raw: string): string {
+  const slug = raw.trim().toLowerCase();
+  if (!SLUG_RE.test(slug)) {
+    throw new Error(
+      `Invalid slug "${raw}": 1-64 lowercase letters/digits/hyphens, no leading/trailing hyphen`,
+    );
+  }
+  return slug;
+}
+
+/**
+ * True when a DB error is the Postgres unique_violation on the slug index.
+ * Walks the cause chain — drizzle wraps the driver's PostgresError in a
+ * DrizzleQueryError whose `cause` carries the actual code/constraint.
+ */
+export function isSlugUniqueViolation(err: unknown): boolean {
+  for (let e = err, depth = 0; e && depth < 5; depth++) {
+    const candidate = e as {
+      code?: string;
+      constraint_name?: string;
+      message?: string;
+      cause?: unknown;
+    };
+    if (
+      candidate.code === "23505" &&
+      (candidate.constraint_name === "links_slug_unique" ||
+        (candidate.message?.includes("links_slug_unique") ?? false))
+    ) {
+      return true;
+    }
+    e = candidate.cause;
+  }
+  return false;
+}
+
+export function vanityUrlFor(baseUrl: string, slug: string): string {
+  return `${baseUrl}/l/${slug}`;
 }
 
 /**
@@ -75,20 +144,27 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
   const type: LinkType = opts.type ?? "public";
   // A public link must NEVER carry a person token — drop any distinctId.
   const distinctId = type === "personal" ? (opts.distinctId ?? null) : null;
+  const slug = opts.slug !== undefined ? normalizeSlug(opts.slug) : null;
 
   const linkId = randomUUID();
   const trackedLinkId = randomUUID();
 
-  await opts.db.insert(links).values({
-    id: linkId,
-    originalUrl: opts.url,
-    type,
-    label: opts.label ?? null,
-    campaign: opts.campaign ?? null,
-    source: opts.source,
-    distinctId,
-    createdBy: opts.createdBy ?? null,
-  });
+  try {
+    await opts.db.insert(links).values({
+      id: linkId,
+      originalUrl: opts.url,
+      type,
+      slug,
+      label: opts.label ?? null,
+      campaign: opts.campaign ?? null,
+      source: opts.source,
+      distinctId,
+      createdBy: opts.createdBy ?? null,
+    });
+  } catch (err) {
+    if (slug && isSlugUniqueViolation(err)) throw new SlugTakenError(slug);
+    throw err;
+  }
   await opts.db.insert(trackedLinks).values({
     id: trackedLinkId,
     linkId,
@@ -102,5 +178,7 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
     linkId,
     trackedLinkId,
     url: `${opts.baseUrl}/v1/t/c/${trackedLinkId}`,
+    slug,
+    vanityUrl: slug ? vanityUrlFor(opts.baseUrl, slug) : null,
   };
 }
