@@ -26,6 +26,7 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { SplitButton, type SplitItem } from "@/components/ui/split-button";
 import {
   Table,
   TableBody,
@@ -90,10 +91,32 @@ const SLUG_INVALID_HINT =
   "1–64 letters, digits or hyphens — no leading/trailing hyphen.";
 const SLUG_DEFAULT_HINT = "A memorable /l/… path over the tracked short URL.";
 
-// Download anchors in the QR dialog — <a download> (not Button) because the
-// file comes straight off the admin endpoint.
-const QR_DOWNLOAD_CLASS =
-  "inline-flex h-9 items-center gap-2 rounded-md border border-hairline-faint bg-white/[0.04] px-3 font-medium text-sm text-white/90 hover:bg-white/[0.08]";
+// QR export formats — served straight off the admin endpoint (no client-side
+// rendering), downloaded via a synthesized <a download>.
+const QR_EXPORT_ITEMS = [
+  { id: "png", label: "PNG" },
+  { id: "png-transparent", label: "PNG (transparent)" },
+  { id: "svg", label: "SVG" },
+] as const satisfies readonly SplitItem<string>[];
+type QrExportFormat = (typeof QR_EXPORT_ITEMS)[number]["id"];
+const QR_EXPORT_STORAGE_KEY = "hs.studio.qr-export";
+
+function downloadQr(link: Link, id: QrExportFormat) {
+  const transparent = id === "png-transparent";
+  const format = id === "svg" ? ("svg" as const) : ("png" as const);
+  const a = document.createElement("a");
+  a.href = linkQrUrl(link.id, {
+    format,
+    size: format === "png" ? 1024 : 512,
+    transparent,
+  });
+  a.download = `${link.slug ?? link.id}-qr${
+    transparent ? "-transparent" : ""
+  }.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 /**
  * The vanity-slug field shared by the create + edit dialogs: Label + Input +
@@ -753,24 +776,15 @@ export function LinksView() {
               separately from link clicks; re-targeting the link updates where
               the code leads.
             </p>
-            <div className="flex gap-2">
-              <a
-                href={linkQrUrl(qrTarget.id, { format: "png", size: 1024 })}
-                download={`${qrTarget.slug ?? qrTarget.id}-qr.png`}
-                className={QR_DOWNLOAD_CLASS}
-              >
-                <Download className="h-4 w-4" />
-                PNG
-              </a>
-              <a
-                href={linkQrUrl(qrTarget.id, { format: "svg", size: 512 })}
-                download={`${qrTarget.slug ?? qrTarget.id}-qr.svg`}
-                className={QR_DOWNLOAD_CLASS}
-              >
-                <Download className="h-4 w-4" />
-                SVG
-              </a>
-            </div>
+            <SplitButton<QrExportFormat>
+              items={QR_EXPORT_ITEMS}
+              storageKey={QR_EXPORT_STORAGE_KEY}
+              defaultId="png"
+              onAct={(id) => qrTarget && downloadQr(qrTarget, id)}
+              renderLabel={(item) => `Download ${item.label}`}
+              caretLabel="Choose a QR export format"
+              primaryIcon={{ Icon: Download }}
+            />
           </div>
         ) : null}
       </Dialog>

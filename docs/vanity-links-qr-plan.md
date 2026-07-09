@@ -49,8 +49,8 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 
 ## Phase 4 — QR export polish
 
-- [ ] 4.1 Engine: `transparent` boolean query param on `GET /v1/admin/links/:id/qr` (PNG + SVG via `color.light "#0000"`) — with tests (both formats 200 + differ from opaque output; PNG stays valid signature)
-- [ ] 4.2 Studio: extract `SplitButton`/`SplitItem` to `components/ui/split-button.tsx` (journey-flow imports it, zero behavior change); QR dialog swaps the two anchors for a SplitButton — items PNG / PNG transparent / SVG — triggering the download via a synthesized `<a download>` on `linkQrUrl(...)`
+- [x] 4.1 Engine: `transparent` boolean query param on `GET /v1/admin/links/:id/qr` (PNG + SVG via `color.light "#0000"`) — with tests (both formats 200 + differ from opaque output; PNG stays valid signature)
+- [x] 4.2 Studio: extract `SplitButton`/`SplitItem` to `components/ui/split-button.tsx` (journey-flow imports it, zero behavior change); QR dialog swaps the two anchors for a SplitButton — items PNG / PNG transparent / SVG — triggering the download via a synthesized `<a download>` on `linkQrUrl(...)`
 
 ## Phase 5 — Standalone QR codes (print marketing)
 

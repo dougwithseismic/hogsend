@@ -1139,11 +1139,12 @@ export function archiveLink(id: string) {
  */
 export function linkQrUrl(
   id: string,
-  opts?: { format?: "svg" | "png"; size?: number },
+  opts?: { format?: "svg" | "png"; size?: number; transparent?: boolean },
 ): string {
   const params = new URLSearchParams();
   if (opts?.format) params.set("format", opts.format);
   if (opts?.size) params.set("size", String(opts.size));
+  if (opts?.transparent) params.set("transparent", "true");
   const qs = params.toString();
   return `${config.baseUrl}/v1/admin/links/${encodeURIComponent(id)}/qr${
     qs ? `?${qs}` : ""
