@@ -629,6 +629,7 @@ const TOOLKIT = [
   "In-app feed",
   "Preference center",
   "In-feed survey card",
+  "Discord DMs & presence",
 ];
 
 /** One capability chip. `soon` renders the dashed, dimmed roadmap variant. */
