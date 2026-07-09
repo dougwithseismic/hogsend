@@ -40,6 +40,7 @@
     "hono": "^4.12.22",
     "ioredis": "^5.10.1",
     "papaparse": "^5.5.3",
+    "qrcode": "^1.5.4",
     "react": "^19.2.6",
     "react-dom": "19.2.6",
     "react-email": "6.3.2",

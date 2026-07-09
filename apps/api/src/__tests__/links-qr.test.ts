@@ -198,6 +198,85 @@ describe("QR scan spine — counts + retarget", () => {
     expect(scan.headers.get("location")).toBe(next);
   });
 
+  it("GET /:id/qr renders SVG by default, lazy-mints the scan row, and is deterministic", async () => {
+    const link = await mint({ label: `${RUN}-qr-endpoint` });
+
+    // No QR row yet — the endpoint mints it.
+    const before = await db
+      .select({ id: trackedLinks.id })
+      .from(trackedLinks)
+      .where(
+        and(
+          eq(trackedLinks.linkId, link.id),
+          eq(trackedLinks.source, QR_TRACKED_SOURCE),
+        ),
+      );
+    expect(before.length).toBe(0);
+
+    const res = await app.request(`/v1/admin/links/${link.id}/qr`, {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("image/svg+xml");
+    const svg = await res.text();
+    expect(svg).toContain("<svg");
+
+    const [qrRow] = await db
+      .select({ id: trackedLinks.id })
+      .from(trackedLinks)
+      .where(
+        and(
+          eq(trackedLinks.linkId, link.id),
+          eq(trackedLinks.source, QR_TRACKED_SOURCE),
+        ),
+      );
+    expect(qrRow).toBeDefined();
+
+    // Deterministic: same link → byte-identical SVG (same encoded scan URL).
+    const again = await app.request(`/v1/admin/links/${link.id}/qr`, {
+      headers: AUTH_HEADER,
+    });
+    expect(await again.text()).toBe(svg);
+
+    // The encoded payload is the DURABLE UID URL — scanning it (driving the
+    // scan URL through the click route) increments scanCount.
+    await app.request(`/v1/t/c/${qrRow?.id}`, { redirect: "manual" });
+    const detail = await app.request(`/v1/admin/links/${link.id}`, {
+      headers: AUTH_HEADER,
+    });
+    expect((await detail.json()).scanCount).toBe(1);
+  });
+
+  it("GET /:id/qr?format=png&size=256 renders a PNG at the requested size", async () => {
+    const link = await mint({ label: `${RUN}-qr-png` });
+
+    const res = await app.request(
+      `/v1/admin/links/${link.id}/qr?format=png&size=256`,
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("image/png");
+
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // PNG signature…
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    // …and IHDR width (bytes 16-19, big-endian) honors `size`.
+    const width = new DataView(bytes.buffer).getUint32(16);
+    expect(width).toBe(256);
+  });
+
+  it("GET /:id/qr returns 404 for an unknown link and 401 without auth", async () => {
+    const missing = await app.request(
+      "/v1/admin/links/00000000-0000-0000-0000-000000000000/qr",
+      { headers: AUTH_HEADER },
+    );
+    expect(missing.status).toBe(404);
+
+    const link = await mint({ label: `${RUN}-qr-auth` });
+    const unauthed = await app.request(`/v1/admin/links/${link.id}/qr`);
+    expect(unauthed.status).toBe(401);
+  });
+
   it("the vanity route never resolves through the QR row", async () => {
     const link = await mint({
       label: `${RUN}-vanity-canonical`,

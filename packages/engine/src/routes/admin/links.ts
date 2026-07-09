@@ -1,10 +1,12 @@
 import { linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, inArray, isNull, sql, sum } from "drizzle-orm";
+import QRCode from "qrcode";
 import type { AppEnv } from "../../app.js";
 import {
   assertHttpUrl,
   canonicalTrackedRowFilter,
+  ensureQrTrackedLink,
   isSlugUniqueViolation,
   mintLink,
   normalizeSlug,
@@ -262,6 +264,29 @@ const updateLinkRoute = createRoute({
     409: {
       content: { "application/json": { schema: errorSchema } },
       description: "Slug already taken",
+    },
+  },
+});
+
+const qrLinkRoute = createRoute({
+  method: "get",
+  path: "/{id}/qr",
+  tags: ["Admin — Links"],
+  summary: "Render a link's QR code (lazy-mints its scan row)",
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    query: z.object({
+      format: z.enum(["svg", "png"]).default("svg"),
+      // Rendered pixel width. QR content is size-independent (same encoded
+      // URL), so this only affects raster/viewport dimensions.
+      size: z.coerce.number().min(64).max(2048).default(512),
+    }),
+  },
+  responses: {
+    200: { description: "QR image (SVG or PNG) encoding the scan URL" },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Link not found",
     },
   },
 });
@@ -540,6 +565,48 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
       serializeLink(updated, agg.get(updated.id), env.API_PUBLIC_URL),
       200,
     );
+  })
+  .openapi(qrLinkRoute, async (c) => {
+    const { db, env } = c.get("container");
+    const { id } = c.req.valid("param");
+    const { format, size } = c.req.valid("query");
+
+    // Lazy-mints the link's QR scan row on first render (race-safe via the
+    // partial unique index). An archived link still renders — archive never
+    // kills distributed artifacts, and a printed code is the most distributed
+    // artifact there is.
+    const qr = await ensureQrTrackedLink({ db, linkId: id });
+    if (!qr) {
+      return c.json({ error: "Link not found" }, 404);
+    }
+
+    // The QR encodes the DURABLE UID redirect — never the vanity slug — so a
+    // printed code survives slug changes AND re-targeting (PATCH updates the
+    // scan row's destination alongside the canonical row).
+    const scanUrl = `${env.API_PUBLIC_URL}/v1/t/c/${qr.trackedLinkId}`;
+
+    // Same-content caching: the encoded URL is immutable for the link's
+    // lifetime, so clients (the Studio <img>) may cache; private because the
+    // endpoint is admin-authed.
+    c.header("Cache-Control", "private, max-age=3600");
+
+    if (format === "png") {
+      const png = await QRCode.toBuffer(scanUrl, {
+        width: size,
+        errorCorrectionLevel: "M",
+      });
+      c.header("Content-Type", "image/png");
+      // Re-wrap: hono's `c.body` Data type doesn't accept Node's Buffer.
+      return c.body(new Uint8Array(png));
+    }
+
+    const svg = await QRCode.toString(scanUrl, {
+      type: "svg",
+      width: size,
+      errorCorrectionLevel: "M",
+    });
+    c.header("Content-Type", "image/svg+xml");
+    return c.body(svg);
   })
   .openapi(archiveLinkRoute, async (c) => {
     const { db, env } = c.get("container");

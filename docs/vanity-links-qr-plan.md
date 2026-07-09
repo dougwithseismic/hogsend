@@ -31,7 +31,7 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 ## Phase 2 — QR codes
 
 - [x] 2.1 QR scan spine: partial unique index migration (`tracked_links(link_id) WHERE source='qr'`), `ensureQrTrackedLink()`, `aggregateFor` FILTER split (`scanCount`, canonical `trackedLinkId`, `qrTrackedLinkId`), `scanCount` in admin link responses — with tests (lazy mint idempotent under race, scan increments scanCount not conflated, retarget covers QR row)
-- [ ] 2.2 QR endpoint: add `qrcode` dep to engine (+ `@types/qrcode` dev, + mirror in create-hogsend template `_package.json`), `GET /v1/admin/links/{id}/qr` (svg default, png, `size` param, sensible cache headers), encodes durable `/v1/t/c/<qrTrackedLinkId>` — with tests (content-type, deterministic payload URL, 404, lazy-mints the row)
+- [x] 2.2 QR endpoint: add `qrcode` dep to engine (+ `@types/qrcode` dev, + mirror in create-hogsend template `_package.json`), `GET /v1/admin/links/{id}/qr` (svg default, png, `size` param, sensible cache headers), encodes durable `/v1/t/c/<qrTrackedLinkId>` — with tests (content-type, deterministic payload URL, 404, lazy-mints the row)
 - [ ] 2.3 Studio: QR action per link row → dialog with live preview, PNG/SVG download, scan count; scans surfaced in list view
 
 ## Phase 3 — Docs + release prep
