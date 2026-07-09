@@ -181,6 +181,7 @@ These mirror the `*`-or-CSV contract: `*` registers everything, or pass a comma-
 | `ENABLED_BUCKETS` | No | `*` | API, Worker | Which [buckets](/docs/guides/buckets) are registered. `*` enables all buckets in your `buckets` array; or a comma-separated list of bucket IDs. Buckets not listed are not registered. Evaluated at worker boot — a toggle requires a worker restart. |
 | `ENABLED_LISTS` | No | `*` | API, Worker | Which [lists](/docs/guides/lists) are registered. `*` enables all lists in your `lists` array; or a comma-separated list of list IDs. Lists not listed are not registered. |
 | `BUCKET_RECONCILE_CRON` | No | `*/5 * * * *` | Worker | Cron expression for the engine-owned bucket reconciliation task — membership re-evaluation, time-based leaves, and dwell detection over the existing population. |
+| `HOGSEND_GRAPH_MANIFEST` | No | `<cwd>/.hogsend/journeys.graph.json` | API | Path to the [journey graph manifest](/docs/concepts/journey-graphs) written by `hogsend journeys graph --all`. The admin graph route (`GET /v1/admin/journeys/{id}/graph`) serves the rich control-flow graph from it; without a manifest it falls back to a metadata-only skeleton. Set it when the API's working directory differs from where the manifest was generated (the Docker image pins it to `/app/.hogsend/journeys.graph.json`). |
 
 ### Infrastructure
 

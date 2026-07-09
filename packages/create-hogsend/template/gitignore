@@ -8,6 +8,10 @@ logs
 *.tsbuildinfo
 .DS_Store
 
+# Generated journey graph artifacts (`pnpm graph`, also runs on build)
+.hogsend/
+docs/journeys.md
+
 # Claude Code: skills + CLAUDE.md ARE committed (shared agent guidance); your
 # personal settings + local journal are not.
 .claude/settings.local.json

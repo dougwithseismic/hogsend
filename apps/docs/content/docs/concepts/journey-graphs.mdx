@@ -1,0 +1,66 @@
+---
+title: Journey graphs
+description: Every journey's control flow, visualized — extracted from your TypeScript source, rendered in the terminal, your docs, and Studio with live counts.
+---
+
+Code-first journeys have one standing objection: *"if it's code, I can't see my funnel."* Journey graphs answer it. Hogsend statically analyzes each `defineJourney({ run })` — the actual `if`s, `sleep`s, `waitForEvent`s, and sends inside `run()` — and produces a control-flow graph it renders in three places:
+
+- **Terminal** — `hogsend journeys graph <id> --format ascii` (or Mermaid text, or `--open` in mermaid.live)
+- **Docs** — `hogsend journeys graph --all` writes a Markdown file (GitHub renders the Mermaid natively) and can mirror into a Fumadocs site
+- **Studio** — the journey detail page's **Flow** tab renders an interactive canvas with live per-node user counts, per-email send/open/click metrics, and click-through to the users parked at any node
+
+The same graph data drives all three. Nothing executes: extraction is a pure syntax walk with the TypeScript compiler API.
+
+## How extraction works
+
+`hogsend journeys graph` parses the journey's `.ts` file and walks the `run()` body statement by statement:
+
+| Authored code | Graph node |
+|---|---|
+| `trigger: { event }` (meta) | Trigger (entry) |
+| `await sendEmail({ ... })` | Email send |
+| `await sendFeedItem/sendBanner/sendSurvey(...)` | In-app message |
+| `await sendConnectorAction(...)` | Connector action |
+| `await ctx.sleep(...)` / `ctx.sleepUntil(...)` | Sleep |
+| `await ctx.when...()` | Scheduled wait |
+| `await ctx.waitForEvent({ ... })` | Wait for event |
+| `if (...) { }` / `switch` | Branch (labeled with the source condition) |
+| `await ctx.trigger({ event })` | Emitted trigger |
+| `ctx.checkpoint("label")` | Checkpoint |
+| `return` | Flow into the shared end node |
+| `exitOn` events (meta) | Exit nodes |
+
+The extractor is **honest by design**: statements it can't classify (dynamic dispatch, unusual control flow) are skipped and counted in a disclaimer on the graph, and loop bodies are shown once with a note. A branch it can't evaluate still renders — labeled with the exact source expression, so the graph never pretends to know more than the code says.
+
+## Live counts in Studio
+
+The Flow tab overlays runtime state on the authored shape:
+
+- **Per-node counts** — how many users are parked at each checkpoint, wait, or the entry. The join key is the node's `countKey`, which mirrors what the engine writes to `journeyStates.currentNodeId` (`ctx.checkpoint` labels, `waitForEvent` labels or `wait-event:<event>`, and `start` at enrollment).
+- **Edges animate** where users are flowing right now; branch edges are colored by outcome (`yes`/`no`/`fired`/`timed out`).
+- **Click a node** for a side panel: the users currently there, send/open/click metrics for email nodes, and the authored `file:line` so you can jump straight to the code.
+- **Metrics toggle** — overlay sent / open-rate / click-rate on every email node face.
+
+## The manifest (how Studio gets the rich graph)
+
+At runtime the engine only has `JourneyMeta` — the `run()` body is bundled away. So the rich graph ships as a build artifact:
+
+```bash
+hogsend journeys graph --all
+# → .hogsend/journeys.graph.json  (the manifest)
+# → docs/journeys.md              (GitHub-native Markdown)
+```
+
+The admin route `GET /v1/admin/journeys/{id}/graph` reads the manifest (path configurable via [`HOGSEND_GRAPH_MANIFEST`](/docs/getting-started/configuration)) and falls back to a trigger→exits metadata skeleton when it's absent.
+
+**You rarely run this by hand.** Scaffolded apps run it as part of `pnpm build`, and the Hogsend Docker image generates it at image build time — production Studio always has the rich graph for the deployed commit.
+
+**Staleness is surfaced, not hidden.** The manifest records a content hash of each source file. In development, if you edit a journey without regenerating, the route detects the drift and Studio shows a "graph may be out of date" banner with the file that changed. In production the manifest is generated from the same commit as the running code, so it can't drift.
+
+## What graphs don't show
+
+- **Iterations** — a loop body renders once, with a note.
+- **Cross-file `run` functions** — a `run` imported from another module renders as a placeholder (keep `run` in the journey file, or accept the metadata skeleton).
+- **Dynamic template/event selection** — the graph shows the authored expression, not the runtime value.
+
+For the full CLI surface, see [`hogsend journeys`](/docs/cli/journeys).

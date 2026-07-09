@@ -49,7 +49,11 @@ backups/
 
 # Hogsend CLI
 .hogsend.yaml
+.hogsend/
 cli/hogsend
+
+# Generated journey graph artifacts (hogsend journeys graph --all)
+docs/journeys.md
 
 # Marketing videos (Remotion) — generated assets + renders
 marketing/renders/

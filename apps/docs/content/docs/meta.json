@@ -10,6 +10,7 @@
     "client-side",
     "integrations",
     "recipes",
+    "journeys",
     "conversions",
     "cli",
     "agents",

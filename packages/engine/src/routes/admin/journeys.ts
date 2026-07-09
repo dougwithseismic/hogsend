@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { resolve } from "node:path";
+import { type JourneyGraph, metaToGraph, renderMermaid } from "@hogsend/core";
 import {
   type Database,
   emailSends,
@@ -91,6 +95,83 @@ async function fetchState(db: Database, journeyId: string, stateId: string) {
     )
     .limit(1)
     .then((rows) => rows[0] ?? null);
+}
+
+/**
+ * Read the build-time journey-graph manifest emitted by
+ * `hogsend journeys graph --all`. Cached by file mtime so regenerating the
+ * manifest takes effect without a process restart. Returns the map of
+ * journeyId -> rich graph, or null if no manifest is present (the route then
+ * falls back to the metadata skeleton).
+ *
+ * Failures (missing file, transient read error, corrupt JSON) are NOT cached:
+ * a one-off I/O hiccup mustn't permanently suppress the graph. The next
+ * request re-reads. On a missing file we skip the stat entirely (the common
+ * "no manifest generated yet" case).
+ */
+interface GraphManifest {
+  map: Map<string, JourneyGraph>;
+  /** ISO timestamp the manifest was generated at (null for old manifests). */
+  generatedAt: string | null;
+}
+let manifestCache: ({ mtimeMs: number } & GraphManifest) | undefined;
+function loadGraphManifest(): GraphManifest | null {
+  const manifestPath =
+    process.env.HOGSEND_GRAPH_MANIFEST ??
+    resolve(process.cwd(), ".hogsend", "journeys.graph.json");
+  try {
+    if (!existsSync(manifestPath)) return null;
+    const stat = statSync(manifestPath);
+    // Fresh cache hit — same mtime, return the parsed manifest.
+    if (manifestCache && manifestCache.mtimeMs === stat.mtimeMs) {
+      return manifestCache;
+    }
+    const raw = readFileSync(manifestPath, "utf8");
+    const parsed = JSON.parse(raw) as {
+      generatedAt?: string;
+      journeys?: JourneyGraph[];
+    };
+    const map = new Map<string, JourneyGraph>();
+    for (const g of parsed.journeys ?? []) map.set(g.journeyId, g);
+    manifestCache = {
+      mtimeMs: stat.mtimeMs,
+      map,
+      generatedAt: parsed.generatedAt ?? null,
+    };
+    return manifestCache;
+  } catch (err) {
+    // Do NOT cache the failure — a transient error or a corrupt file being
+    // repaired should recover on the next request, not require a restart.
+    console.warn(
+      "[hogsend] journey graph manifest unreadable:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+/**
+ * Detect whether a rich graph's authored source has changed since the manifest
+ * was generated. Only possible when the source `.ts` is present on disk (dev;
+ * prod images ship without source — the check quietly reports fresh there,
+ * which is correct because the image's manifest was generated from the same
+ * commit at build time). Returns a human reason, or null when not stale.
+ */
+function detectStale(graph: JourneyGraph): string | null {
+  if (!graph.sourceFile || !graph.sourceHash) return null;
+  try {
+    const abs = resolve(process.cwd(), graph.sourceFile);
+    if (!existsSync(abs)) return null;
+    const hash = createHash("sha256")
+      .update(readFileSync(abs, "utf8"))
+      .digest("hex");
+    if (hash !== graph.sourceHash) {
+      return `${graph.sourceFile} changed since this graph was generated — rerun \`hogsend journeys graph --all\``;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 const emptyCounts = {
@@ -213,6 +294,83 @@ const patchRoute = createRoute({
   },
 });
 
+// Schemas mirroring @hogsend/core's JourneyGraph shape, so the OpenAPI spec
+// documents the real structure (not an opaque record). The route returns a
+// JourneyGraph; these make it introspectable for clients.
+const graphNodeSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  label: z.string(),
+  detail: z.string().optional(),
+  // Email nodes: authored ref (`Templates.X`) + resolved key (`churn-…`).
+  templateRef: z.string().optional(),
+  templateKey: z.string().optional(),
+  sourceLine: z.number().optional(),
+  countKey: z.string().optional(),
+});
+const graphEdgeSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  label: z.string().optional(),
+  kind: z.string().optional(),
+});
+const graphSchema = z.object({
+  journeyId: z.string(),
+  nodes: z.array(graphNodeSchema),
+  edges: z.array(graphEdgeSchema),
+  sourceLevel: z.enum(["rich", "metadata"]),
+  disclaimer: z.string().optional(),
+  sourceFile: z.string().optional(),
+  sourceHash: z.string().optional(),
+});
+
+const graphRoute = createRoute({
+  method: "get",
+  path: "/{id}/graph",
+  tags: ["Admin — Journeys"],
+  summary: "Get journey control-flow graph (Mermaid + structured)",
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            mermaid: z.string(),
+            graph: graphSchema,
+            sourceLevel: z.enum(["rich", "metadata"]),
+            // When the rich graph came from the build-time manifest: its
+            // generation timestamp, and whether the authored source has
+            // drifted since (checkable only where source is on disk).
+            generatedAt: z.string().nullable(),
+            stale: z.boolean(),
+            staleReason: z.string().nullable(),
+            counts: z.object({
+              perNode: z.record(z.string(), z.number()),
+              funnel: z.object({
+                enrolled: z.number(),
+                emailSent: z.number(),
+                emailOpened: z.number(),
+                emailClicked: z.number(),
+                completed: z.number(),
+                failed: z.number(),
+                exited: z.number(),
+              }),
+            }),
+          }),
+        },
+      },
+      description:
+        "Journey control-flow graph as Mermaid text + structured nodes/edges, with live counts overlaid where available.",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Journey not found",
+    },
+  },
+});
+
 const listStatesRoute = createRoute({
   method: "get",
   path: "/{id}/states",
@@ -227,6 +385,9 @@ const listStatesRoute = createRoute({
         .enum(["active", "waiting", "completed", "failed", "exited"])
         .optional(),
       userId: z.string().optional(),
+      // Filter by currentNodeId — powers the Studio flow canvas's "who is
+      // parked at this node" side panel. Matches the graph node's countKey.
+      node: z.string().optional(),
     }),
   },
   responses: {
@@ -574,7 +735,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
   .openapi(listStatesRoute, async (c) => {
     const { db, registry } = c.get("container");
     const { id } = c.req.valid("param");
-    const { limit, offset, status, userId } = c.req.valid("query");
+    const { limit, offset, status, userId, node } = c.req.valid("query");
 
     if (!registry.has(id)) {
       return c.json({ error: "Journey not found" }, 404);
@@ -589,6 +750,9 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     }
     if (userId) {
       conditions.push(eq(journeyStates.userId, userId));
+    }
+    if (node) {
+      conditions.push(eq(journeyStates.currentNodeId, node));
     }
 
     const where = and(...conditions);
@@ -767,6 +931,103 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
             ? new Date(r.lastSentAt).toISOString()
             : null,
         })),
+      },
+      200,
+    );
+  })
+  // NOTE: registered AFTER getRoute `/{id}`, but Hono matches `/{id}/graph`
+  // by static-suffix specificity regardless of registration order — do not
+  // reorder these without confirming the graph path still resolves.
+  .openapi(graphRoute, async (c) => {
+    const { db, registry } = c.get("container");
+    const { id } = c.req.valid("param");
+
+    const meta = registry.get(id);
+    if (!meta) {
+      return c.json({ error: "Journey not found" }, 404);
+    }
+
+    // Resolve the graph: prefer the build-time rich manifest; fall back to the
+    // metadata skeleton (trigger -> body placeholder -> exits -> end).
+    const manifest = loadGraphManifest();
+    const rich = manifest?.map.get(id);
+    const graph: JourneyGraph = rich ?? metaToGraph(meta);
+    const staleReason = rich ? detectStale(rich) : null;
+
+    // Live counts. The funnel endpoint returns flat aggregates; we also group
+    // Per-node live counts: group `journeyStates` by `currentNodeId` so nodes
+    // can carry counts. The join contract (mirrored by the CLI extractor's
+    // `countKey`) is:
+    //   - checkpoint label (e.g. "scored-9")  — from `ctx.checkpoint("…")`
+    //   - wait label OR `wait-event:<event>`  — from `ctx.waitForEvent`
+    //   - literal "start"                      — set at journey creation
+    // The CLI extractor sets each node's `countKey` to match these exactly;
+    // the Studio joins `perNode[countKey]`. Nodes without a countKey (sleeps,
+    // emails) show no badge by design.
+    const [statusCounts, nodeCounts, emailAgg] = await Promise.all([
+      db
+        .select({ status: journeyStates.status, count: count() })
+        .from(journeyStates)
+        .where(
+          and(eq(journeyStates.journeyId, id), isNull(journeyStates.deletedAt)),
+        )
+        .groupBy(journeyStates.status),
+      db
+        .select({ node: journeyStates.currentNodeId, count: count() })
+        .from(journeyStates)
+        .where(
+          and(
+            eq(journeyStates.journeyId, id),
+            isNull(journeyStates.deletedAt),
+            sql`${journeyStates.currentNodeId} <> ''`,
+          ),
+        )
+        .groupBy(journeyStates.currentNodeId),
+      db
+        .select({
+          sent: sql<number>`count(*) filter (where ${emailSends.sentAt} is not null)`,
+          opened: sql<number>`count(*) filter (where ${emailSends.openedAt} is not null)`,
+          clicked: sql<number>`count(*) filter (where ${emailSends.clickedAt} is not null)`,
+        })
+        .from(emailSends)
+        .innerJoin(
+          journeyStates,
+          eq(emailSends.journeyStateId, journeyStates.id),
+        )
+        .where(
+          and(eq(journeyStates.journeyId, id), isNull(journeyStates.deletedAt)),
+        ),
+    ]);
+
+    const statusMap: Record<string, number> = {};
+    let enrolled = 0;
+    for (const row of statusCounts) {
+      statusMap[row.status] = row.count;
+      enrolled += row.count;
+    }
+    const perNode: Record<string, number> = {};
+    for (const row of nodeCounts) {
+      perNode[row.node] = Number(row.count);
+    }
+    const funnel = {
+      enrolled,
+      emailSent: Number(emailAgg[0]?.sent ?? 0),
+      emailOpened: Number(emailAgg[0]?.opened ?? 0),
+      emailClicked: Number(emailAgg[0]?.clicked ?? 0),
+      completed: statusMap.completed ?? 0,
+      failed: statusMap.failed ?? 0,
+      exited: statusMap.exited ?? 0,
+    };
+
+    return c.json(
+      {
+        mermaid: renderMermaid(graph),
+        graph,
+        sourceLevel: graph.sourceLevel,
+        generatedAt: rich ? (manifest?.generatedAt ?? null) : null,
+        stale: staleReason !== null,
+        staleReason,
+        counts: { perNode, funnel },
       },
       200,
     );

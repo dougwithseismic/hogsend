@@ -3,6 +3,7 @@
   "pages": [
     "how-it-works",
     "buckets",
+    "journey-graphs",
     "why-posthog",
     "why-hatchet",
     "philosophy"

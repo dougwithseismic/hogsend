@@ -218,6 +218,73 @@ export function getJourneyFunnel(id: string) {
   );
 }
 
+/** Structured journey control-flow graph (mirrors @hogsend/core JourneyGraph). */
+export type JourneyGraphKind =
+  | "trigger"
+  | "email"
+  | "inapp"
+  | "connector"
+  | "sleep"
+  | "schedule"
+  | "wait"
+  | "branch"
+  | "trigger-event"
+  | "checkpoint"
+  | "exit"
+  | "end";
+
+export type JourneyGraphNode = {
+  id: string;
+  kind: JourneyGraphKind;
+  label: string;
+  detail?: string;
+  /** Email nodes: template reference as authored (e.g. `Templates.WELCOME`). */
+  templateRef?: string;
+  /** Email nodes: resolved template key (e.g. `welcome`), when static. */
+  templateKey?: string;
+  sourceLine?: number;
+  countKey?: string;
+};
+
+export type JourneyGraphEdge = {
+  from: string;
+  to: string;
+  label?: string;
+  kind?: "main" | "yes" | "no" | "fired" | "timeout";
+};
+
+export type JourneyGraphData = {
+  journeyId: string;
+  nodes: JourneyGraphNode[];
+  edges: JourneyGraphEdge[];
+  sourceLevel: "rich" | "metadata";
+  disclaimer?: string;
+  /** Authored `.ts` path (relative to the project root), rich graphs only. */
+  sourceFile?: string;
+  sourceHash?: string;
+};
+
+export type JourneyGraphResponse = {
+  mermaid: string;
+  graph: JourneyGraphData;
+  sourceLevel: "rich" | "metadata";
+  /** Manifest generation timestamp (null when metadata fallback / old manifest). */
+  generatedAt: string | null;
+  /** True when the authored source drifted since the manifest was generated. */
+  stale: boolean;
+  staleReason: string | null;
+  counts: {
+    perNode: Record<string, number>;
+    funnel: JourneyFunnel;
+  };
+};
+
+export function getJourneyGraph(id: string) {
+  return api.get<JourneyGraphResponse>(
+    `/v1/admin/journeys/${encodeURIComponent(id)}/graph`,
+  );
+}
+
 export type JourneyListItem = {
   id: string;
   name: string;
@@ -307,6 +374,8 @@ export type JourneyStatesFilter = {
   limit?: number;
   offset?: number;
   userId?: string;
+  /** Filter by currentNodeId (a graph node's countKey) — flow side panel. */
+  node?: string;
 };
 
 export function listJourneyStates(
@@ -324,6 +393,7 @@ export function listJourneyStates(
       limit: filter.limit,
       offset: filter.offset,
       userId: filter.userId,
+      node: filter.node,
     },
   });
 }
@@ -1021,6 +1091,7 @@ export const qk = {
   journeyMetrics: ["journey-metrics"] as const,
   journeys: ["journeys"] as const,
   journeyFunnel: (id: string) => ["journey-funnel", id] as const,
+  journeyGraph: (id: string) => ["journey-graph", id] as const,
   journey: (id: string) => ["journey", id] as const,
   journeyStates: (id: string, filter: JourneyStatesFilter) =>
     ["journey-states", id, filter] as const,

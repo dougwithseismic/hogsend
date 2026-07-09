@@ -17,6 +17,7 @@
     "./providers": "./src/providers/index.ts",
     "./registry": "./src/registry/index.ts",
     "./conditions": "./src/conditions/index.ts",
+    "./graph": "./src/graph/index.ts",
     "./schedule": "./src/schedule/index.ts",
     "./schemas": "./src/schemas/index.ts"
   },

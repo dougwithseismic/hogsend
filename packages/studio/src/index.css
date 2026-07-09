@@ -176,8 +176,47 @@
   *,
   *::before,
   *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion must beat every cascade */
     animation-duration: 0.001ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion must beat every cascade */
     animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: reduced-motion must beat every cascade */
     transition-duration: 0.001ms !important;
   }
+}
+
+/* React Flow (journey Flow canvas) — the vendor defaults render the zoom
+   Controls and MiniMap on a white background, which reads as a broken white
+   box on the dark canvas. Re-theme them to the crimzon surface. */
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: rgba(20, 12, 12, 0.92);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+  width: 26px;
+  height: 26px;
+}
+.react-flow__controls-button:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+.react-flow__controls-button svg {
+  fill: rgba(255, 255, 255, 0.7);
+  max-width: 12px;
+  max-height: 12px;
+}
+.react-flow__minimap {
+  background: #0a0606;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+.react-flow__minimap-mask {
+  fill: rgba(5, 1, 1, 0.72);
+}
+.react-flow__attribution {
+  display: none;
 }

@@ -8,16 +8,22 @@ import { TemplateDetail } from "./templates/template-detail";
 
 export function TemplatesView() {
   const query = useQuery({ queryKey: qk.templates, queryFn: listTemplates });
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Deep-linkable: `/studio/templates?key=<templateKey>` (e.g. the "View in
+  // Templates" link from a journey flow node) pre-selects that template.
+  const [selectedKey, setSelectedKey] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("key");
+  });
 
   const templates = query.data?.templates ?? [];
 
-  // Auto-select the first template once the catalog loads.
+  // Once the catalog loads, ensure a valid selection: keep the deep-linked key
+  // if it exists, otherwise fall back to the first template.
   useEffect(() => {
     const first = templates[0];
-    if (selectedKey === null && first) {
-      setSelectedKey(first.key);
-    }
+    if (!first) return;
+    const isValid = templates.some((t) => t.key === selectedKey);
+    if (!isValid) setSelectedKey(first.key);
   }, [selectedKey, templates]);
 
   const selected = templates.find((t) => t.key === selectedKey) ?? null;

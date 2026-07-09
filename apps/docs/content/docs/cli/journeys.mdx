@@ -1,15 +1,15 @@
 ---
 title: hogsend journeys
-description: List, inspect, enable, and disable journeys on a running Hogsend instance via the admin API.
+description: List, inspect, graph, enable, and disable journeys — via the admin API, or from source for control-flow graphs.
 ---
 
-Inspect and toggle journeys via the admin API (`/v1/admin/journeys`).
+Inspect and toggle journeys via the admin API (`/v1/admin/journeys`), and render a journey's authored control flow as a graph — straight from its `.ts` source.
 
 ```bash
 hogsend journeys <subcommand> [options]
 ```
 
-The global `--url`, `--admin-key`, and `--json` flags apply — see the [CLI Reference](/docs/cli) overview for connection details.
+The global `--url`, `--admin-key`, and `--json` flags apply — see the [CLI Reference](/docs/cli) overview for connection details. (`graph` reads local source files and needs no connection.)
 
 ## Subcommands
 
@@ -19,6 +19,8 @@ The global `--url`, `--admin-key`, and `--json` flags apply — see the [CLI Ref
 | `get <id>` | Show one journey: trigger, `exitOn`, counts, and recent states. |
 | `enable <id>` | Enable a journey (`PATCH { enabled: true }`). |
 | `disable <id>` | Disable a journey (`PATCH { enabled: false }`). |
+| `graph <id>` | Render one journey's control flow (Mermaid, summary, JSON, or ASCII). |
+| `graph --all` | Generate graphs for every journey: Markdown + the manifest Studio reads. |
 
 ## Options
 
@@ -30,7 +32,32 @@ The global `--url`, `--admin-key`, and `--json` flags apply — see the [CLI Ref
 | `--limit <n>` | Page size (1–100, default 50). |
 | `--offset <n>` | Page offset (default 0). |
 
+`graph` accepts:
+
+| Option | Description |
+|---|---|
+| `--source <dir>` | Journey source dir (default `src/journeys`). |
+| `--file <path>` | Read a single journey file (overrides the `<id>` scan). |
+| `--format <fmt>` | Output format — see the table below. Default `mermaid`. |
+| `--out <path>` | Write output to a file instead of stdout. |
+| `--open` | Open the diagram in [mermaid.live](https://mermaid.live). |
+| `--all` | Generate graphs for ALL journeys (see below). |
+| `--fumadocs <dir>` | With `--all`: also mirror into a Fumadocs content dir. |
+| `--manifest <path>` | With `--all`: manifest output path (default `.hogsend/journeys.graph.json`). |
+| `--cwd <dir>` | Project root (default `process.cwd()`). |
+
 `--json` emits machine-readable JSON only; `-h, --help` shows command help.
+
+### `graph` output formats
+
+The default is **Mermaid** — it round-trips into GitHub, docs, decks, and [mermaid.live](https://mermaid.live), and it's easy for an agent to parse. ASCII is a terminal nicety, not the primary output.
+
+| `--format` | Best for | Output |
+|---|---|---|
+| `mermaid` *(default)* | Docs, decks, GitHub, mermaid.live | The diagram source. |
+| `summary` | PR descriptions, agents | A terse Markdown digest: trigger, exits, and every send / wait / branch / sleep with its `file:line`. |
+| `json` | Programmatic consumers | `{ graph, mermaid }` — structured nodes/edges + the rendered diagram. |
+| `ascii` | A quick look in your terminal | Unicode boxes. |
 
 ## Examples
 
@@ -38,4 +65,32 @@ The global `--url`, `--admin-key`, and `--json` flags apply — see the [CLI Ref
 hogsend journeys list --enabled true
 hogsend journeys get activation-welcome --json
 hogsend journeys disable churn-prevention
+
+# Print a journey's control flow as Mermaid (the default)
+hogsend journeys graph churn-prevention
+
+# Structured graph for an agent or script
+hogsend journeys graph churn-prevention --json
+
+# A terse Markdown digest to drop into a PR
+hogsend journeys graph churn-prevention --format summary
+
+# A quick look right in the terminal
+hogsend journeys graph churn-prevention --format ascii
+
+# Open it in the Mermaid live editor
+hogsend journeys graph churn-prevention --open
+
+# Generate docs + the Studio manifest for every journey
+hogsend journeys graph --all
 ```
+
+## `graph --all` artifacts
+
+One command, three artifacts — all derived from the same source walk:
+
+1. **`docs/journeys.md`** — a GitHub-native Markdown file, one Mermaid diagram per journey (override with `--out`).
+2. **`.hogsend/journeys.graph.json`** — the structured manifest the admin route reads, so [Studio's Flow tab](/docs/concepts/journey-graphs) renders the rich graph with live counts. Scaffolded apps run this automatically on `pnpm build`.
+3. **Fumadocs mirror** (with `--fumadocs <dir>`) — a `journeys/` docs page for your docs site.
+
+See [Journey graphs](/docs/concepts/journey-graphs) for how extraction works and what the graphs can (and can't) show.
