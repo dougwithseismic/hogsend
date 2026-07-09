@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import type { JSX, ReactNode } from "react";
+import { TrackDemoClick } from "@/components/analytics/track";
 import { AnnouncementBanner } from "@/components/announcement-banner";
 import { CookieSettingsLink } from "@/components/consent/cookie-settings-link";
 import { type BrandKey, BrandLogo } from "@/components/ds/brand-logo";
@@ -14,6 +15,7 @@ import { isHogsendConfigured } from "@/components/hogsend/config";
 import { InAppDemoBody } from "@/components/landing/in-app-demo-body";
 import { cn } from "@/lib/cn";
 import {
+  DEMO_URL,
   ENGINE_VERSION,
   GITHUB_URL,
   NPM_URL,
@@ -21,6 +23,7 @@ import {
 } from "@/lib/site";
 import postphant from "@/public/images/postphant.png";
 import studioJourneys from "@/public/images/studio/studio-journeys.png";
+import studioOverview from "@/public/images/studio/studio-overview.png";
 import studioSends from "@/public/images/studio/studio-sends.png";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
 import { InkLogo } from "./_components/brand";
@@ -114,18 +117,22 @@ function Btn({
   href,
   variant = "solid",
   size = "sm",
+  newTab,
   children,
   className,
 }: {
   href: string;
   variant?: "solid" | "outline" | "ghost";
   size?: "sm" | "lg";
+  newTab?: boolean;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <Link
       href={href}
+      target={newTab ? "_blank" : undefined}
+      rel={newTab ? "noreferrer" : undefined}
       className={cn(
         "inline-flex items-center justify-center rounded-[6px] font-medium tracking-[-0.025em] transition-colors",
         size === "sm" ? "px-4 py-2 text-sm" : "px-5 py-3.5 text-base",
@@ -428,6 +435,11 @@ function PsHero() {
           <Btn href={RAILWAY_DEPLOY_URL} variant="outline" size="lg">
             Deploy on Railway
           </Btn>
+          <TrackDemoClick placement="hero">
+            <Btn href={DEMO_URL} variant="ghost" size="lg" newTab>
+              Open the Studio demo →
+            </Btn>
+          </TrackDemoClick>
         </div>
 
         {/* Scaffold command — the crimzon hero's command strip, light chrome. */}
@@ -868,6 +880,98 @@ function PsProblem() {
             </div>
           ))}
         </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------- live demo -- */
+
+/** The hosted Studio demo — demo.hogsend.com, a real seeded install anyone
+ * can sign in to. Every link to it goes through TrackDemoClick, so the click
+ * lands in PostHog and on the visitor's dogfood contact. */
+const DEMO_CREDENTIALS = "demo@hogsend.com · forgeline-demo-2026";
+
+function PsStudioDemo() {
+  return (
+    <section id="live-demo" className="relative border-[#f6483826] border-t">
+      <Container className="pt-16 pb-24">
+        <Eyebrow>Live demo</Eyebrow>
+
+        <div className="mt-8 flex flex-col justify-between gap-10 lg:flex-row">
+          <h2
+            className={cn(
+              "max-w-[620px] font-normal text-[34px] leading-[1.15] tracking-[-0.01em] md:text-[48px] md:leading-[56px]",
+              DISPLAY,
+            )}
+          >
+            <span className="text-white">A real Studio, running live.</span>{" "}
+            <span className="text-white/40">Sign in and click around.</span>
+          </h2>
+
+          <p className="max-w-[380px] text-white/75 text-base leading-[24px] tracking-[-0.025em] lg:pt-2">
+            demo.hogsend.com is a stock Hogsend install seeded as Forgeline — a
+            fictional AI code-review product with six months of contacts,
+            journeys, sends, opens, and clicks. The sign-in is shared, and no
+            email provider is configured, so nothing you do in it can send real
+            mail.{" "}
+            <Link
+              href="/docs/operating/studio"
+              className="font-medium text-white"
+            >
+              How the Studio works →
+            </Link>
+          </p>
+        </div>
+
+        <div className="mt-10 flex flex-wrap items-center gap-4">
+          <TrackDemoClick placement="home-demo-section">
+            <Btn href={DEMO_URL} size="lg" newTab>
+              Open the live demo
+            </Btn>
+          </TrackDemoClick>
+          <span className="flex items-center gap-3 rounded-[6px] border border-white/10 bg-white/[0.04] py-3 pr-3 pl-4">
+            <code className="font-mono text-[12.5px] text-white/90">
+              {DEMO_CREDENTIALS}
+            </code>
+            <CopyButton
+              value="forgeline-demo-2026"
+              className="text-white/40 hover:text-white"
+            />
+          </span>
+        </div>
+
+        {/* The Studio itself, framed as the window you're about to open. */}
+        <TrackDemoClick placement="home-demo-screenshot">
+          <a
+            href={DEMO_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-14 block overflow-hidden rounded-xl border border-white/15 bg-[#0a0606] shadow-2xl transition-colors hover:border-white/30"
+          >
+            <div className="flex items-center justify-between border-white/10 border-b px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                <div aria-hidden="true" className="flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                </div>
+                <span className="font-mono text-white/40 text-[11px] tracking-wide">
+                  demo.hogsend.com/studio — Forgeline
+                </span>
+              </div>
+              <span className="flex items-center gap-1.5 font-mono text-[#23c489] text-[11px]">
+                <span className="ps-pulse size-1.5 rounded-full bg-[#23c489]" />
+                live
+              </span>
+            </div>
+            <Image
+              src={studioOverview}
+              alt="Hogsend Studio on the demo instance — Forgeline's overview"
+              className="w-full"
+            />
+          </a>
+        </TrackDemoClick>
       </Container>
     </section>
   );
@@ -3438,6 +3542,7 @@ export default function HomePage(): JSX.Element {
       <PsPostHogPitch />
       <PsProofStrip />
       <PsProblem />
+      <PsStudioDemo />
       <PsHowItWorks />
       <PsCode />
       <PsUseCases />
