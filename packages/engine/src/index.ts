@@ -220,6 +220,7 @@ export {
 export {
   buildJourneyRegistry,
   parseEnabledFilter,
+  resolveEnabledFilter,
   selectJourneyTasks,
 } from "./journeys/registry.js";
 export {

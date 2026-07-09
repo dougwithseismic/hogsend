@@ -3,6 +3,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../../app.js";
 import { resolveRecipient } from "../../lib/contacts.js";
 import { errorSchema } from "../../lib/schemas.js";
+import { isReservedListId } from "../../lists/define-list.js";
 import { hasScope } from "../../middleware/api-key.js";
 import { requireIdentity } from "../_shared.js";
 
@@ -64,7 +65,7 @@ const sendRoute = createRoute({
 export const emailsRouter = new OpenAPIHono<AppEnv>().openapi(
   sendRoute,
   async (c) => {
-    const { db, emailService, templates } = c.get("container");
+    const { db, emailService, templates, listRegistry } = c.get("container");
     const apiKey = c.get("apiKey");
     const body = c.req.valid("json");
 
@@ -89,6 +90,29 @@ export const emailsRouter = new OpenAPIHono<AppEnv>().openapi(
     // Validate the template server-side against the wired registry (§2.5).
     if (!getTemplateNames(templates).includes(body.template as TemplateName)) {
       return c.json({ error: `Unknown template: ${body.template}` }, 400);
+    }
+
+    // Validate a caller-supplied `category` server-side (request-time twin of
+    // the boot-time template-category guard). A caller `category` OVERRIDES the
+    // template's category at send time; an unknown/registry-excluded category
+    // silently defaults to opt-in (ListRegistry.isSubscribedByDefault returns
+    // `true` for an id it doesn't hold) → the send would bypass
+    // suppression/consent. Valid iff it's a reserved built-in or an ENABLED
+    // registered list (fail-closed — the route can't see excluded lists, and
+    // honoring an excluded opt-in list would re-open the same consent flip).
+    // Only checked when present; an absent category uses the boot-validated
+    // template default.
+    if (
+      body.category !== undefined &&
+      !isReservedListId(body.category) &&
+      !listRegistry.has(body.category)
+    ) {
+      return c.json(
+        {
+          error: `Unknown category: ${body.category} — not a reserved built-in or a registered email list. An unknown category silently defaults to opt-in and bypasses suppression/consent.`,
+        },
+        400,
+      );
     }
 
     const recipient = await resolveRecipient({

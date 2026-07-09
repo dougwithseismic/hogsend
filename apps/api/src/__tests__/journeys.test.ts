@@ -69,17 +69,15 @@ describe("buildJourneyRegistry", () => {
     expect(registry.count()).toBe(2);
   });
 
-  it("ignores non-existent journey IDs in filter", () => {
-    const registry = buildJourneyRegistry(
-      journeys,
-      "activation-welcome,nonexistent",
-    );
-    expect(registry.count()).toBe(1);
-    expect(registry.has("activation-welcome")).toBe(true);
+  it("throws on an unknown journey ID mixed with valid ones", () => {
+    expect(() =>
+      buildJourneyRegistry(journeys, "activation-welcome,nonexistent"),
+    ).toThrow(/nonexistent/);
   });
 
-  it("returns empty registry when no IDs match", () => {
-    const registry = buildJourneyRegistry(journeys, "nonexistent");
-    expect(registry.count()).toBe(0);
+  it("throws when no IDs match", () => {
+    expect(() => buildJourneyRegistry(journeys, "nonexistent")).toThrow(
+      /ENABLED_JOURNEYS/,
+    );
   });
 });

@@ -10,8 +10,24 @@
  * categories (`transactional`, `journey`) and rejected here (open risk #11).
  */
 
-/** A list id can collide with these built-in non-list categories — reject. */
-const RESERVED_LIST_IDS = new Set(["transactional", "journey"]);
+/**
+ * List ids that collide with the engine's built-in, non-list
+ * `email_preferences.categories` keys — rejected by {@link defineList}, and
+ * ALSO the allowlist of categories a template may legitimately carry that are
+ * NOT a defined list (the boot-time template-category guard in `container.ts`
+ * reuses this set so the two can never drift). Exported for that reuse.
+ */
+export const RESERVED_LIST_IDS = new Set(["transactional", "journey"]);
+
+/**
+ * Is `id` one of the reserved built-in categories ({@link RESERVED_LIST_IDS})?
+ * Case-insensitive, matching the `defineList` reservation check — so callers
+ * (e.g. the container's template-category validation) never re-implement the
+ * comparison and can't drift from the reservation rule.
+ */
+export function isReservedListId(id: string): boolean {
+  return RESERVED_LIST_IDS.has(id.toLowerCase());
+}
 
 /** Allowed list-id shape: alphanumerics, dash, underscore (case-insensitive). */
 const LIST_ID_PATTERN = /^[a-z0-9_-]+$/i;
@@ -60,7 +76,7 @@ export function defineList<const Id extends string>(meta: {
     );
   }
 
-  if (RESERVED_LIST_IDS.has(id.toLowerCase())) {
+  if (isReservedListId(id)) {
     throw new Error(
       `Reserved list id "${id}": "transactional" and "journey" are built-in email-preference categories and cannot be used as list ids.`,
     );

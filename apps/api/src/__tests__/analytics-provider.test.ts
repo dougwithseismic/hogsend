@@ -414,11 +414,47 @@ describe("container analytics resolution", () => {
     await client.dbClient.end({ timeout: 5 }).catch(() => {});
   });
 
-  it("throws on an unregistered analytics.defaultProvider", async () => {
+  it("throws on an unregistered analytics.defaultProvider (code option)", async () => {
     const { createHogsendClient } = await import("@hogsend/engine");
+    // Symmetric with EMAIL_PROVIDER: an unresolved active id fails boot loud,
+    // with a neutral message naming the bad id + the registered ids.
     expect(() =>
       createHogsendClient({ analytics: { defaultProvider: "amplitude" } }),
-    ).toThrow(/not a registered analytics provider/);
+    ).toThrow(/analytics provider "amplitude" is not registered/i);
+  });
+
+  it("resolves a valid requested provider id without throwing", async () => {
+    const { createHogsendClient, defineAnalyticsProvider } = await import(
+      "@hogsend/engine"
+    );
+    const stub = defineAnalyticsProvider({
+      meta: { id: "stub", name: "Stub" },
+      capabilities: { personReads: false, personWrites: true },
+      async getPersonProperties() {
+        return {};
+      },
+      async setPersonProperties() {},
+      capture() {},
+    });
+    const client = createHogsendClient({
+      analytics: { providers: [stub], defaultProvider: "stub" },
+    });
+    expect(client.analytics?.meta.id).toBe("stub");
+    await client.dbClient.end({ timeout: 5 }).catch(() => {});
+  });
+
+  it("leaves analytics undefined (no throw) when nothing is requested", async () => {
+    // Default env: no code `analytics`, and the vitest env sets no
+    // ANALYTICS_PROVIDER. `env.ANALYTICS_PROVIDER` still resolves to its zod
+    // default "posthog", but no provider is registered (no POSTHOG_API_KEY) —
+    // and because the id was never EXPLICITLY requested this must NOT throw.
+    const { createHogsendClient } = await import("@hogsend/engine");
+    let client: ReturnType<typeof createHogsendClient> | undefined;
+    expect(() => {
+      client = createHogsendClient();
+    }).not.toThrow();
+    expect(client?.analytics).toBeUndefined();
+    await client?.dbClient.end({ timeout: 5 }).catch(() => {});
   });
 });
 
