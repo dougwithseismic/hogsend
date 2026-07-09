@@ -53,7 +53,13 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
       # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 22 ships npm 10.x.
-      - run: npm install --global npm@latest
+      # Pin the 11.x line, NOT @latest: npm 12.0.0 ships a global tarball missing
+      # its bundled `sigstore` dependency, so `changeset publish` crashes with
+      # "Cannot find module 'sigstore'" from libnpmpublish/provenance.js and every
+      # package fails to publish (npm/cli#9722, still open as of 0.39.0). 11.x has
+      # bundled sigstore correctly since 9.5 and is what 0.38.2 published on.
+      # Restore @latest once npm 12.x ships the fix (npm/cli#9740).
+      - run: npm install --global npm@11
       - run: pnpm install --frozen-lockfile
       # Gate: the engine line must type-check and build before we publish
       # anything. `pnpm release` also runs `pnpm build` again as a publish guard.
