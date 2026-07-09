@@ -14,9 +14,11 @@ PostHog + Resend is the lead wedge, not the cage: events come **in** from PostHo
 
 Built for small teams (1-10 eng) shipping product-led SaaS who picked PostHog and Resend and now need behavioral sequences without buying a third platform.
 
-**[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[Integrations](https://docs.hogsend.com/docs/integrations)** | **[Recipes](https://docs.hogsend.com/docs/recipes)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
+**[Live demo](https://demo.hogsend.com)** | **[Documentation](https://docs.hogsend.com)** | **[Getting Started](https://docs.hogsend.com/docs/getting-started)** | **[Integrations](https://docs.hogsend.com/docs/integrations)** | **[Recipes](https://docs.hogsend.com/docs/recipes)** | **[CLI Reference](https://docs.hogsend.com/docs/cli)** | **[Compare](https://docs.hogsend.com/docs/compare)**
 
 Everything ships on npm: scaffold an app with `pnpm create hogsend@latest --domain mysite.com`, self-host with Docker, or one-click on Railway.
+
+> **Live demo** — [demo.hogsend.com](https://demo.hogsend.com) is a fully-seeded Studio you can click around; it runs "Forgeline", a fictional credit-based dev-tool SaaS. Use the one-click **Enter the demo** button, or sign in with `demo@hogsend.com` / `forgeline-demo-2026`.
 
 ## Quickstart
 
