@@ -1116,6 +1116,82 @@ export function archiveLink(id: string) {
   return api.delete<Link>(`/v1/admin/links/${encodeURIComponent(id)}`);
 }
 
+// --- Campaigns (broadcasts) ----------------------------------------------
+
+/**
+ * A campaign lifecycle status. `scheduled` sends at `scheduledAt` (cancelable
+ * until then); a cancel also works mid-`sending` (stops at the next chunk of
+ * 100 — already-dispatched emails are not recalled). `sent`/`canceled`/
+ * `failed`/`expired` are terminal. `expired` = a code-defined campaign whose
+ * sendAt had already passed when it was first deployed (never sent).
+ */
+export type CampaignStatus =
+  | "scheduled"
+  | "queued"
+  | "sending"
+  | "sent"
+  | "failed"
+  | "canceled"
+  | "expired";
+
+/**
+ * One broadcast row from `GET /v1/admin/campaigns`. Mirrors the engine's
+ * campaign schema. Campaigns are authored in code / via the API — Studio only
+ * observes them and can cancel one that is still in flight.
+ */
+export type Campaign = {
+  id: string;
+  name: string;
+  status: CampaignStatus;
+  audienceKind: "list" | "bucket";
+  audienceId: string;
+  templateKey: string;
+  totalRecipients: number;
+  sentCount: number;
+  skippedCount: number;
+  failedCount: number;
+  scheduledAt: string | null;
+  canceledAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type CampaignListFilters = {
+  /** One or more statuses; joined to the CSV `status` query param. */
+  status?: CampaignStatus[];
+  limit?: number;
+  offset?: number;
+};
+
+export function listCampaigns(filters: CampaignListFilters = {}) {
+  return api.get<{ campaigns: Campaign[]; hasMore: boolean }>(
+    "/v1/admin/campaigns",
+    {
+      query: {
+        status: filters.status?.length ? filters.status.join(",") : undefined,
+        limit: filters.limit,
+        offset: filters.offset,
+      },
+    },
+  );
+}
+
+export function getCampaign(id: string) {
+  return api.get<Campaign>(`/v1/admin/campaigns/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Cancel a `scheduled`, `queued`, or `sending` campaign. Mid-send cancel stops
+ * at the next chunk boundary; already-dispatched sends are not recalled.
+ * Terminal campaigns reject with a 409.
+ */
+export function cancelCampaign(id: string) {
+  return api.post<Campaign>(
+    `/v1/admin/campaigns/${encodeURIComponent(id)}/cancel`,
+  );
+}
+
 // --- Query keys ----------------------------------------------------------
 
 export const qk = {
@@ -1153,4 +1229,6 @@ export const qk = {
   discordConnectInfo: ["discord-connect-info"] as const,
   links: (type: string) => ["links", type] as const,
   link: (id: string) => ["link", id] as const,
+  campaigns: (filters: CampaignListFilters) => ["campaigns", filters] as const,
+  campaign: (id: string) => ["campaign", id] as const,
 };

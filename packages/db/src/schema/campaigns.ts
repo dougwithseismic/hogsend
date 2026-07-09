@@ -19,7 +19,15 @@ import { timestamps } from "./_shared.js";
  * and tallies the final counts.
  *
  * `status` is a plain text column (not an enum) so adding a future state needs
- * no migration; the app constrains it to `queued|sending|sent|failed`.
+ * no migration; the app constrains it to
+ * `scheduled|queued|sending|sent|failed|canceled|expired`.
+ *
+ *  - `scheduled` — has a future `scheduledAt`; promoted to a live send by a
+ *    Hatchet scheduled run (primary) or the reaper sweep (backstop)
+ *  - `canceled` — operator cancel (terminal); allowed from
+ *    scheduled/queued/sending
+ *  - `expired` — a code-defined campaign whose `sendAt` was already stale
+ *    (past the grace window) when first reconciled — never sent (terminal)
  *
  * `audienceKind` + `audienceId` reference a code-defined list (ListRegistry) or
  * bucket (BucketRegistry) by string id — NOT a contacts FK, so there is no
@@ -31,7 +39,7 @@ export const campaigns = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     organizationId: text("organization_id"),
     name: text("name").notNull(),
-    // queued | sending | sent | failed
+    // scheduled | queued | sending | sent | failed | canceled | expired
     status: text("status").notNull().default("queued"),
     // "list" | "bucket"
     audienceKind: text("audience_kind").notNull(),
@@ -54,6 +62,13 @@ export const campaigns = pgTable(
     sentCount: integer("sent_count").notNull().default(0),
     skippedCount: integer("skipped_count").notNull().default(0),
     failedCount: integer("failed_count").notNull().default(0),
+    /**
+     * When a `scheduled` campaign becomes due. NULL for an immediate send.
+     * The Hatchet scheduled run created at POST time is the punctual primary
+     * trigger; the reaper cron promotes any due-but-unfired row as a backstop.
+     */
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    canceledAt: timestamp("canceled_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...timestamps,
@@ -61,6 +76,8 @@ export const campaigns = pgTable(
   (table) => [
     index("campaigns_status_idx").on(table.status),
     index("campaigns_created_at_idx").on(table.createdAt),
+    // The reaper's due-scheduled promotion sweep filters on both.
+    index("campaigns_scheduled_at_idx").on(table.status, table.scheduledAt),
     // Partial-unique on the client idempotency key (scoped to non-NULL keys so
     // the common keyless create is unconstrained). A retried create with the
     // same key collides here and resolves to the existing campaign.

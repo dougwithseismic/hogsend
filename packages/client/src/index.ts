@@ -15,6 +15,8 @@ export type {
   HogsendOptions,
   Identity,
   IngestResult,
+  ListCampaignsInput,
+  ListCampaignsResult,
   ListSummary,
   OutboundEventType,
   RotateWebhookSecretResult,

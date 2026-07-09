@@ -55,6 +55,25 @@ const STATUS_STYLES: Record<
     variant: "outline",
     className: "border-white/[0.08] bg-white/[0.03] text-white/45",
   },
+  // Campaign (broadcast) statuses — same single-accent vocabulary. `sending` is
+  // the live/bright state; `scheduled` is informational; `canceled`/`expired`
+  // are dim terminals (`sent`/`queued`/`failed` are shared with the rows above).
+  scheduled: {
+    variant: "outline",
+    className: "border-white/15 bg-white/[0.05] text-white/70",
+  },
+  sending: {
+    variant: "outline",
+    className: "border-white/30 bg-white/[0.12] text-white",
+  },
+  canceled: {
+    variant: "outline",
+    className: "border-white/[0.08] bg-white/[0.03] text-white/45",
+  },
+  expired: {
+    variant: "outline",
+    className: "border-white/[0.08] bg-white/[0.04] text-white/50",
+  },
   bounced: { variant: "destructive" },
   complained: { variant: "destructive" },
   failed: { variant: "destructive" },

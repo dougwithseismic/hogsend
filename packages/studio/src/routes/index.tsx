@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/app-shell";
 import { BucketsView } from "@/views/buckets-view";
+import { CampaignsView } from "@/views/campaigns-view";
 import { ContactsView } from "@/views/contacts-view";
 import { EventsView } from "@/views/events-view";
 import { IntegrationsView } from "@/views/integrations-view";
@@ -50,6 +51,12 @@ const linksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/links",
   component: LinksView,
+});
+
+const campaignsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/campaigns",
+  component: CampaignsView,
 });
 
 const journeysRoute = createRoute({
@@ -111,6 +118,7 @@ const routeTree = rootRoute.addChildren([
   sendsRoute,
   templatesRoute,
   linksRoute,
+  campaignsRoute,
   journeysRoute,
   journeyDetailRoute,
   bucketsRoute,

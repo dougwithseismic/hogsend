@@ -4,6 +4,8 @@ import {
   selectBucketReactionTasks,
   selectBucketTasks,
 } from "./buckets/registry.js";
+import type { DefinedCampaign } from "./campaigns/define-campaign.js";
+import { reconcileDefinedCampaigns } from "./campaigns/reconcile.js";
 import {
   type ConnectorRuntimeFactory,
   startConnectorRuntimes,
@@ -40,6 +42,11 @@ export interface CreateWorkerOptions {
   journeys: DefinedJourney[];
   /** Buckets whose fast-expiry timer tasks are registered. Defaults to none. */
   buckets?: DefinedBucket[];
+  /**
+   * Code-defined one-shot campaigns (broadcasts) reconciled at boot into
+   * scheduled `campaigns` rows. Defaults to `container.campaigns`.
+   */
+  campaigns?: DefinedCampaign[];
   /** Defaults to `container.env.ENABLED_JOURNEYS`. */
   enabledJourneys?: string;
   /** Defaults to `container.env.ENABLED_BUCKETS`. */
@@ -208,6 +215,21 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
+    // Reconcile code-defined campaigns into scheduled rows (create / sync /
+    // expire — see `reconcileDefinedCampaigns`). Same fire-and-forget stance
+    // as the bucket backfills above: best-effort, never blocks the listener.
+    const definedCampaigns = opts.campaigns ?? container.campaigns;
+    if (definedCampaigns.length > 0) {
+      reconcileDefinedCampaigns({
+        client: container,
+        campaigns: definedCampaigns,
+      }).catch((err) => {
+        container.logger.warn("Campaign reconcile (boot) failed", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
 
     await _worker.start();
   }

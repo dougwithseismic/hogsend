@@ -10,6 +10,7 @@ import {
 } from "@hogsend/engine";
 import { serve } from "@hono/node-server";
 import { buckets } from "./buckets/index.js";
+import { campaigns } from "./campaigns/index.js";
 import { destinations } from "./destinations/index.js";
 import { templates } from "./emails/index.js";
 import { journeys } from "./journeys/index.js";
@@ -21,6 +22,7 @@ const client = createHogsendClient({
   journeys,
   buckets,
   lists,
+  campaigns,
   destinations,
   email: { templates },
 });

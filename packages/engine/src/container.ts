@@ -22,6 +22,7 @@ import {
   buildBucketRegistry,
   collectBucketReactionJourneys,
 } from "./buckets/registry.js";
+import type { DefinedCampaign } from "./campaigns/define-campaign.js";
 import {
   ConnectorActionRegistry,
   setConnectorActionRegistry,
@@ -184,6 +185,12 @@ export interface HogsendClient {
    */
   listRegistry: ListRegistry;
   /**
+   * Code-defined one-shot campaigns (broadcasts), verbatim from
+   * `opts.campaigns`. The worker's boot reconciler turns them into scheduled
+   * `campaigns` rows; empty when none are wired.
+   */
+  campaigns: DefinedCampaign[];
+  /**
    * The unified inbound CONNECTOR registry, keyed by `meta.id`. Holds every
    * transport: webhook (the `:sourceId` dispatch + legacy webhookSources),
    * gateway, and poll. Installed as the process singleton in BOTH the API and
@@ -226,6 +233,13 @@ export interface HogsendClientOptions {
    * preference center. Defaults to none (empty registry ⇒ legacy opt-in).
    */
   lists?: DefinedList[];
+  /**
+   * Code-defined one-shot campaigns (broadcasts) — `defineCampaign()` files.
+   * Carried on the client so the worker's boot reconciler can schedule them
+   * (see `reconcileDefinedCampaigns`); the API process only stores them.
+   * Defaults to none.
+   */
+  campaigns?: DefinedCampaign[];
   /**
    * Email is a first-class channel. Its config is grouped here rather than
    * spread across top-level args — the engine owns the cohesive email pipeline
@@ -898,6 +912,7 @@ export function createHogsendClient(
     journeySourceLocations: getJourneySourceLocations(),
     bucketRegistry,
     listRegistry,
+    campaigns: opts.campaigns ?? [],
     connectorRegistry,
     connectorActionRegistry,
     hatchet: opts.overrides?.hatchet ?? hatchet,

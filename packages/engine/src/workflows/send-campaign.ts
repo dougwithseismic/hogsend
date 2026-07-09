@@ -6,7 +6,7 @@ import {
   emailPreferences,
 } from "@hogsend/db";
 import type { TemplateName } from "@hogsend/email";
-import { and, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { normalizeEmail } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 import { getEmailService } from "../lib/email.js";
@@ -23,8 +23,22 @@ interface CampaignRecipient {
   userId?: string;
 }
 
-/** Statuses that are TERMINAL — a duplicate/late enqueue must not re-send. */
-const TERMINAL_STATUSES = ["sent"] as const;
+/**
+ * Statuses that are TERMINAL — a duplicate/late enqueue must not re-send.
+ * `canceled`/`expired` matter doubly for SCHEDULED campaigns: the punctual
+ * Hatchet scheduled run cannot be deleted at cancel time (we don't persist its
+ * id), so it still fires and must find the row terminal here and no-op.
+ * `failed` is deliberately NOT terminal — a re-enqueue can revive it.
+ */
+const TERMINAL_STATUSES = ["sent", "canceled", "expired"] as const;
+
+/**
+ * How far ahead of `scheduledAt` a run may fire and still proceed (absorbs
+ * clock skew). An earlier fire — the punctual run created for a `sendAt` that
+ * was later moved BACK by a reconcile/edit — skips without sending; the run
+ * created for the new instant (or the reaper sweep) delivers it.
+ */
+const EARLY_FIRE_TOLERANCE_MS = 60 * 1000;
 
 /**
  * Built-in durable campaign / broadcast task (Loops "campaign" parity). Sends a
@@ -84,10 +98,39 @@ export const sendCampaignTask = hatchet.task({
       return { status: campaign.status, skipped: true };
     }
 
-    await db
+    // Early-fire guard: a `scheduled` campaign whose instant is still in the
+    // future must not send. This is a stale punctual run — the `sendAt` was
+    // moved later after this run was scheduled. The run for the new instant
+    // (or the reaper's due-scheduled sweep) delivers it.
+    if (
+      campaign.status === "scheduled" &&
+      campaign.scheduledAt &&
+      campaign.scheduledAt.getTime() > Date.now() + EARLY_FIRE_TOLERANCE_MS
+    ) {
+      return { status: "scheduled", skipped: true, reason: "not_due" as const };
+    }
+
+    // Claim via CAS: only a non-terminal row transitions to `sending`, so a
+    // cancel landing between the guard read above and this write is honored
+    // rather than silently resurrected.
+    const claimed = await db
       .update(campaigns)
       .set({ status: "sending", startedAt: new Date(), updatedAt: new Date() })
-      .where(eq(campaigns.id, input.campaignId));
+      .where(
+        and(
+          eq(campaigns.id, input.campaignId),
+          inArray(campaigns.status, ["queued", "scheduled", "sending"]),
+        ),
+      )
+      .returning({ id: campaigns.id });
+    if (claimed.length === 0) {
+      const current = await db
+        .select({ status: campaigns.status })
+        .from(campaigns)
+        .where(eq(campaigns.id, input.campaignId))
+        .limit(1);
+      return { status: current[0]?.status ?? "unknown", skipped: true };
+    }
 
     let sentCount = 0;
     let skippedCount = 0;
@@ -113,16 +156,33 @@ export const sendCampaignTask = hatchet.task({
           ? resolveBucketRecipients(db, campaign.audienceId)
           : resolveListRecipients(db, campaign.audienceId);
 
+      // Mid-flight cancel: re-checked once per chunk (one cheap SELECT per
+      // CHUNK_SIZE sends) so `POST /v1/campaigns/:id/cancel` can stop a blast
+      // that is already `sending` — recipients not yet dispatched are spared.
+      let cancelDetected = false;
+
       let chunk: CampaignRecipient[] = [];
       for await (const recipient of recipients) {
         chunk.push(recipient);
         if (chunk.length < CHUNK_SIZE) continue;
         await sendChunk();
+        if (cancelDetected) break;
       }
       // Final partial chunk.
-      if (chunk.length > 0) await sendChunk();
+      if (chunk.length > 0 && !cancelDetected) await sendChunk();
 
       async function sendChunk(): Promise<void> {
+        const statusRows = await db
+          .select({ status: campaigns.status })
+          .from(campaigns)
+          .where(eq(campaigns.id, input.campaignId))
+          .limit(1);
+        if (statusRows[0]?.status === "canceled") {
+          cancelDetected = true;
+          chunk = [];
+          return;
+        }
+
         const batch = chunk;
         chunk = [];
         totalRecipients += batch.length;
@@ -174,7 +234,30 @@ export const sendCampaignTask = hatchet.task({
         await flushCounts();
       }
 
-      await db
+      if (cancelDetected) {
+        // The operator's cancel already stamped status/canceledAt; persist the
+        // progress counts so the row shows how far the blast got.
+        await flushCounts();
+        logger.info("send-campaign: canceled mid-send", {
+          campaignId: input.campaignId,
+          totalRecipients,
+          sentCount,
+          skippedCount,
+          failedCount,
+        });
+        return {
+          status: "canceled" as const,
+          totalRecipients,
+          sentCount,
+          skippedCount,
+          failedCount,
+        };
+      }
+
+      // Completion CAS: only a still-`sending` row is stamped `sent`, so a
+      // cancel racing the final chunk (after its last per-chunk check) keeps
+      // its `canceled` status instead of being overwritten.
+      const completed = await db
         .update(campaigns)
         .set({
           status: "sent",
@@ -185,7 +268,33 @@ export const sendCampaignTask = hatchet.task({
           failedCount,
           updatedAt: new Date(),
         })
-        .where(eq(campaigns.id, input.campaignId));
+        .where(
+          and(
+            eq(campaigns.id, input.campaignId),
+            eq(campaigns.status, "sending"),
+          ),
+        )
+        .returning({ id: campaigns.id });
+      if (completed.length === 0) {
+        await flushCounts();
+        const current = await db
+          .select({ status: campaigns.status })
+          .from(campaigns)
+          .where(eq(campaigns.id, input.campaignId))
+          .limit(1);
+        const status = current[0]?.status ?? "unknown";
+        logger.info("send-campaign: finished but row left `sending` first", {
+          campaignId: input.campaignId,
+          status,
+        });
+        return {
+          status,
+          totalRecipients,
+          sentCount,
+          skippedCount,
+          failedCount,
+        };
+      }
 
       logger.info("send-campaign: complete", {
         campaignId: input.campaignId,
@@ -253,6 +362,17 @@ const GIVE_UP_AFTER_MS = Number(
 );
 
 /**
+ * How far past `scheduledAt` a `scheduled` campaign may sit before the reaper
+ * promotes it (enqueues the send task). The punctual Hatchet scheduled run
+ * created at schedule time is the primary trigger; this grace keeps the sweep
+ * from routinely double-firing right at the boundary. A double fire is
+ * harmless anyway (terminal guard + per-send idempotency).
+ */
+const SCHEDULE_PROMOTE_GRACE_MS = Number(
+  process.env.CAMPAIGN_PROMOTE_GRACE_MS ?? 2 * 60 * 1000,
+);
+
+/**
  * Engine-owned reaper cron for campaigns left in a non-terminal in-flight state
  * with no live run to finish them (closes the "stuck forever" gap):
  *
@@ -261,6 +381,12 @@ const GIVE_UP_AFTER_MS = Number(
  *    catch never ran, so the row is stuck `sending` with no live run.
  *  - A `queued` campaign whose enqueue threw at create time (broker down /
  *    network) — the row was committed but no run was ever created (orphan).
+ *  - A `scheduled` campaign whose punctual Hatchet scheduled run never fired
+ *    (schedule-create failed at POST/reconcile time, or the run was lost) —
+ *    promoted once `scheduledAt` is {@link SCHEDULE_PROMOTE_GRACE_MS} past
+ *    due. A scheduled row stuck past the give-up window (measured from
+ *    `scheduledAt`, NOT `updatedAt` — a row is legitimately idle between
+ *    create and send time) is declared `failed`.
  *
  * Recovery is a simple RE-ENQUEUE of `sendCampaignTask` (safe: the per-send
  * idempotency key no-ops already-sent recipients and the re-run completes the
@@ -286,14 +412,22 @@ export const reapStuckCampaignsTask = hatchet.task({
     const giveUpBefore = new Date(now - GIVE_UP_AFTER_MS);
 
     // (1) Declare poison campaigns `failed` first (stuck past the give-up
-    // window), so they are not re-enqueued below.
+    // window), so they are not re-enqueued below. In-flight rows are measured
+    // from `updatedAt` (bumped on every progress flush); `scheduled` rows from
+    // `scheduledAt` (their `updatedAt` is legitimately old while they wait).
     const failedRows = await db
       .update(campaigns)
       .set({ status: "failed", completedAt: new Date(), updatedAt: new Date() })
       .where(
-        and(
-          inArray(campaigns.status, ["queued", "sending"]),
-          lt(campaigns.updatedAt, giveUpBefore),
+        or(
+          and(
+            inArray(campaigns.status, ["queued", "sending"]),
+            lt(campaigns.updatedAt, giveUpBefore),
+          ),
+          and(
+            eq(campaigns.status, "scheduled"),
+            lt(campaigns.scheduledAt, giveUpBefore),
+          ),
         ),
       )
       .returning({ id: campaigns.id });
@@ -313,9 +447,25 @@ export const reapStuckCampaignsTask = hatchet.task({
       )
       .returning({ id: campaigns.id });
 
-    for (const row of staleRows) {
+    // (3) Promote due `scheduled` campaigns whose punctual scheduled run never
+    // fired. Enqueue-only — the send task owns the scheduled→sending
+    // transition, so a failed enqueue simply retries next sweep.
+    const dueRows = await db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(
+        and(
+          eq(campaigns.status, "scheduled"),
+          lte(campaigns.scheduledAt, new Date(now - SCHEDULE_PROMOTE_GRACE_MS)),
+        ),
+      );
+
+    // Enqueue WITHOUT waiting for results — `.run()` blocks until the whole
+    // blast completes, which would serialize entire sends inside this cron's
+    // 120s executionTimeout.
+    for (const row of [...staleRows, ...dueRows]) {
       try {
-        await sendCampaignTask.run({ campaignId: row.id });
+        await sendCampaignTask.runNoWait({ campaignId: row.id });
       } catch (err) {
         logger.warn("reap-stuck-campaigns: re-enqueue failed", {
           campaignId: row.id,
@@ -324,16 +474,18 @@ export const reapStuckCampaignsTask = hatchet.task({
       }
     }
 
-    if (failedRows.length > 0 || staleRows.length > 0) {
+    if (failedRows.length > 0 || staleRows.length > 0 || dueRows.length > 0) {
       logger.info("reap-stuck-campaigns: swept", {
         failed: failedRows.length,
         reEnqueued: staleRows.length,
+        promoted: dueRows.length,
       });
     }
 
     return {
       failed: failedRows.length,
       reEnqueued: staleRows.length,
+      promoted: dueRows.length,
     };
   },
 });
