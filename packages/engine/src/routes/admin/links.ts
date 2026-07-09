@@ -4,6 +4,7 @@ import { and, count, desc, eq, inArray, isNull, sql, sum } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import {
   assertHttpUrl,
+  canonicalTrackedRowFilter,
   isSlugUniqueViolation,
   mintLink,
   normalizeSlug,
@@ -279,9 +280,10 @@ type Db = AppEnv["Variables"]["container"]["db"];
 
 // Aggregates each link's tracked_links rows in ONE grouped query: the summed
 // click_count (computed on read — no denormalized counter on `links`) and the
-// link's redirect id (a managed link has exactly one tracked row, minted
-// alongside it). Returns a map keyed by link id; links with no tracked rows are
-// simply absent (callers default to 0 / a bare prefix).
+// link's redirect id — the CANONICAL tracked row (minted alongside the link),
+// never the per-link QR scan row, via the shared canonical-row predicate.
+// Returns a map keyed by link id; links with no tracked rows are simply absent
+// (callers default to 0 / a bare prefix).
 async function aggregateFor(
   db: Db,
   linkIds: string[],
@@ -294,7 +296,7 @@ async function aggregateFor(
       clicks: sql<number>`coalesce(${sum(trackedLinks.clickCount)}, 0)`.mapWith(
         Number,
       ),
-      trackedLinkId: sql<string>`min(${trackedLinks.id}::text)`,
+      trackedLinkId: sql<string>`min(${trackedLinks.id}::text) filter (where ${canonicalTrackedRowFilter()})`,
     })
     .from(trackedLinks)
     .where(inArray(trackedLinks.linkId, linkIds))
@@ -510,7 +512,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
       });
     } catch (err) {
       if (patch.slug && isSlugUniqueViolation(err)) {
-        return c.json({ error: `Slug "${patch.slug}" is already taken` }, 409);
+        return c.json({ error: new SlugTakenError(patch.slug).message }, 409);
       }
       throw err;
     }

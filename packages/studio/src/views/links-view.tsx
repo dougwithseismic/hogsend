@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { AlertTriangle, Copy, Link2, Pencil, Plus } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import {
   EmptyState,
   ErrorState,
@@ -75,6 +75,47 @@ function isSlugValid(value: string): boolean {
 /** True when the failed mutation was a slug-uniqueness conflict (HTTP 409). */
 function isSlugConflict(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409;
+}
+
+const SLUG_INVALID_HINT =
+  "1–64 letters, digits or hyphens — no leading/trailing hyphen.";
+const SLUG_DEFAULT_HINT = "A memorable /l/… path over the tracked short URL.";
+
+/**
+ * The vanity-slug field shared by the create + edit dialogs: Label + Input +
+ * the invalid-shape message. `hint` is the dialog-specific message shown while
+ * the input is empty or valid (create shows a /l/… preview; edit warns when
+ * clearing).
+ */
+function SlugField({
+  id,
+  value,
+  valid,
+  onChange,
+  hint,
+}: {
+  id: string;
+  value: string;
+  valid: boolean;
+  onChange: (value: string) => void;
+  hint: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>Vanity slug (optional)</Label>
+      <Input
+        id={id}
+        placeholder="black-friday"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value.trim() && !valid ? (
+        <p className="text-accent text-xs">{SLUG_INVALID_HINT}</p>
+      ) : (
+        hint
+      )}
+    </div>
+  );
 }
 
 function TypeBadge({ type }: { type: LinkType }) {
@@ -164,16 +205,7 @@ export function LinksView() {
       setCreated(res);
       void queryClient.invalidateQueries({ queryKey: ["links"] });
     },
-    onError: (error) => {
-      toast({
-        variant: "error",
-        title: isSlugConflict(error)
-          ? "Slug already taken"
-          : "Could not create link",
-        description:
-          error instanceof ApiError ? error.message : "Unexpected error.",
-      });
-    },
+    onError: (error) => mutationErrorToast(error, "Could not create link"),
   });
 
   const update = useMutation({
@@ -205,16 +237,7 @@ export function LinksView() {
         void queryClient.invalidateQueries({ queryKey: qk.link(id) });
       }
     },
-    onError: (error) => {
-      toast({
-        variant: "error",
-        title: isSlugConflict(error)
-          ? "Slug already taken"
-          : "Could not update link",
-        description:
-          error instanceof ApiError ? error.message : "Unexpected error.",
-      });
-    },
+    onError: (error) => mutationErrorToast(error, "Could not update link"),
   });
 
   const archive = useMutation({
@@ -234,6 +257,17 @@ export function LinksView() {
       setArchiveTarget(null);
     },
   });
+
+  // Shared error toast for the create/update mutations: a 409 is always the
+  // slug-uniqueness conflict on this surface.
+  function mutationErrorToast(error: unknown, fallbackTitle: string) {
+    toast({
+      variant: "error",
+      title: isSlugConflict(error) ? "Slug already taken" : fallbackTitle,
+      description:
+        error instanceof ApiError ? error.message : "Unexpected error.",
+    });
+  }
 
   async function copy(value: string) {
     try {
@@ -459,28 +493,21 @@ export function LinksView() {
           />
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="link-slug">Vanity slug (optional)</Label>
-          <Input
-            id="link-slug"
-            placeholder="black-friday"
-            value={slug}
-            onChange={(e) => setSlug(e.target.value)}
-          />
-          {slug.trim() && !slugValid ? (
-            <p className="text-accent text-xs">
-              1–64 letters, digits or hyphens — no leading/trailing hyphen.
-            </p>
-          ) : slug.trim() ? (
-            <p className="text-white/40 text-xs">
-              Short path: /l/{normalizeSlugInput(slug)} — must be unique.
-            </p>
-          ) : (
-            <p className="text-white/40 text-xs">
-              A memorable /l/… path over the tracked short URL.
-            </p>
-          )}
-        </div>
+        <SlugField
+          id="link-slug"
+          value={slug}
+          valid={slugValid}
+          onChange={setSlug}
+          hint={
+            slug.trim() ? (
+              <p className="text-white/40 text-xs">
+                Short path: /l/{normalizeSlugInput(slug)} — must be unique.
+              </p>
+            ) : (
+              <p className="text-white/40 text-xs">{SLUG_DEFAULT_HINT}</p>
+            )
+          }
+        />
 
         <div className="space-y-1.5">
           <Label htmlFor="link-campaign">Campaign (optional)</Label>
@@ -587,29 +614,22 @@ export function LinksView() {
           />
         </div>
 
-        <div className="space-y-1.5">
-          <Label htmlFor="edit-link-slug">Vanity slug (optional)</Label>
-          <Input
-            id="edit-link-slug"
-            placeholder="black-friday"
-            value={editSlug}
-            onChange={(e) => setEditSlug(e.target.value)}
-          />
-          {editSlug.trim() && !editSlugValid ? (
-            <p className="text-accent text-xs">
-              1–64 letters, digits or hyphens — no leading/trailing hyphen.
-            </p>
-          ) : editTarget?.slug && !editSlug.trim() ? (
-            <p className="text-accent text-xs">
-              Clearing frees /l/{editTarget.slug} — the vanity URL stops
-              resolving (the UUID short link keeps working).
-            </p>
-          ) : (
-            <p className="text-white/40 text-xs">
-              A memorable /l/… path over the tracked short URL.
-            </p>
-          )}
-        </div>
+        <SlugField
+          id="edit-link-slug"
+          value={editSlug}
+          valid={editSlugValid}
+          onChange={setEditSlug}
+          hint={
+            editTarget?.slug && !editSlug.trim() ? (
+              <p className="text-accent text-xs">
+                Clearing frees /l/{editTarget.slug} — the vanity URL stops
+                resolving (the UUID short link keeps working).
+              </p>
+            ) : (
+              <p className="text-white/40 text-xs">{SLUG_DEFAULT_HINT}</p>
+            )
+          }
+        />
 
         <div className="space-y-1.5">
           <Label htmlFor="edit-link-campaign">Campaign (optional)</Label>

@@ -1,8 +1,8 @@
 import { links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, asc, eq, isNull, ne, or } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { normalizeSlug } from "../../lib/links.js";
+import { canonicalTrackedRowFilter, normalizeSlug } from "../../lib/links.js";
 import { clickSelection, handleTrackedClick } from "./click-pipeline.js";
 
 // The vanity short path — `/l/:slug` layered over `/v1/t/c/:id`. Mounted at
@@ -50,12 +50,7 @@ export const vanityRouter = new OpenAPIHono<AppEnv>().openapi(
       .select(clickSelection)
       .from(links)
       .innerJoin(trackedLinks, eq(trackedLinks.linkId, links.id))
-      .where(
-        and(
-          eq(links.slug, normalized),
-          or(isNull(trackedLinks.source), ne(trackedLinks.source, "qr")),
-        ),
-      )
+      .where(and(eq(links.slug, normalized), canonicalTrackedRowFilter()))
       .orderBy(asc(trackedLinks.createdAt))
       .limit(1);
 

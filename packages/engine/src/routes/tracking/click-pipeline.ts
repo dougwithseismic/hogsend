@@ -22,8 +22,9 @@ export const clickSelection = {
   emailSendId: trackedLinks.emailSendId,
   distinctId: trackedLinks.distinctId,
   source: trackedLinks.source,
+  // `event` gates the semantic-confirm dispatch; the confirm task re-reads the
+  // row by id, so `eventProperties` is deliberately NOT selected here.
   event: trackedLinks.event,
-  eventProperties: trackedLinks.eventProperties,
   // Managed-link provenance (NULL for email-rewritten links, whose
   // `tracked_links.link_id` is NULL). `linkId` is the durable `links.id`
   // a journey filters on; it rides ONLY the bus re-ingest (A5), never the
@@ -40,7 +41,6 @@ export type ResolvedClickLink = {
   distinctId: string | null;
   source: string | null;
   event: string | null;
-  eventProperties: unknown;
   linkId: string | null;
   campaign: string | null;
   linkType: string | null;

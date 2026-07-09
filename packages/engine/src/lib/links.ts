@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Database, links, trackedLinks } from "@hogsend/db";
+import { isNull, ne, or } from "drizzle-orm";
 
 /**
  * The channel-agnostic MANAGED tracked-link mint — the counterpart to the email
@@ -118,6 +119,23 @@ export function isSlugUniqueViolation(err: unknown): boolean {
 
 export function vanityUrlFor(baseUrl: string, slug: string): string {
   return `${baseUrl}/l/${slug}`;
+}
+
+/** The `tracked_links.source` marker of a link's per-link QR scan row. */
+export const QR_TRACKED_SOURCE = "qr";
+
+/**
+ * SQL predicate selecting a link's CANONICAL tracked row — the redirect row
+ * minted alongside the link, as opposed to the lazily-minted per-link QR scan
+ * row (`source = 'qr'`). The ONE definition of "which tracked row is the
+ * link's redirect row"; every consumer (vanity resolver, admin aggregates)
+ * must use it rather than re-deriving QR-awareness.
+ */
+export function canonicalTrackedRowFilter() {
+  return or(
+    isNull(trackedLinks.source),
+    ne(trackedLinks.source, QR_TRACKED_SOURCE),
+  );
 }
 
 /**
