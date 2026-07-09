@@ -1,5 +1,34 @@
 # @hogsend/plugin-posthog
 
+## 0.39.0
+
+### Minor Changes
+
+- aa3eedc: Boot-validate config ids — fail loud on unresolved references instead of silently mis-behaving.
+  - `ANALYTICS_PROVIDER`: throw at boot when the env-selected id resolves to no registered provider (symmetric with `EMAIL_PROVIDER`); the raw `process.env` read distinguishes an explicit request from the zod default, so a no-analytics deploy still boots.
+  - `ENABLED_JOURNEYS`: throw at boot on an id that matches no journey, with a did-you-mean. Bucket-reaction journey ids are accepted; validation is skipped when no top-level journeys are injected.
+  - `JourneyRegistry.register()`: throw on a duplicate journey id instead of silently overwriting (which also double-routed the trigger).
+  - Template `category`: boot-validate every template's category against the email-list namespace. Unknown → throw; an opt-IN list (`defaultOptIn:false`) excluded via `ENABLED_LISTS` → throw (excluding it un-gates consent at send time — CAN-SPAM/GDPR); an opt-OUT list excluded → warn; reserved built-ins and registered lists → ok.
+  - `POST /v1/emails`: reject an unknown `category` (the request-time twin of the template-category guard — a caller-supplied category overrides the template's).
+
+- b3bb1f6: Fail the build on unregistered journey email template keys.
+
+  `sendEmail`'s `template` is now typed against the registered-key union
+  (`TemplateName`) instead of `string`, so a journey referencing an email template
+  that was never registered is a compile error at every send site. As a runtime
+  backstop, `@hogsend/email`'s `getTemplate` / `getTemplateDefinition` /
+  `getPreviewText` throw a loud, actionable error naming the bad key and the
+  registered ones (an own-property check, so inherited `Object.prototype` keys
+  can't slip through). Fixes the class of bug where a journey could point at a
+  template that doesn't exist and only fail when a real send ran.
+
+### Patch Changes
+
+- Updated dependencies [aa3eedc]
+- Updated dependencies [df77fca]
+- Updated dependencies [b3bb1f6]
+  - @hogsend/core@0.39.0
+
 ## 0.38.2
 
 ### Patch Changes
