@@ -16,21 +16,7 @@ const TERMINAL = {
   exited: "#6e7681",
 } as const;
 
-/**
- * A drawn segment never necks below this fraction (unless the stage is
- * genuinely zero) so a tiny-but-nonzero stage stays a visible neck rather than a
- * knife-edge. The same value feeds the NEXT segment's top edge, so the taper
- * stays continuous across the gap between segments.
- */
-const MIN_WIDTH = 0.04;
-
 type Stage = { key: string; label: string; value: number };
-
-/** Clamp a value/enrolled ratio into a drawable [MIN_WIDTH, 1] band; 0 stays 0. */
-function geoWidth(value: number, enrolled: number): number {
-  if (enrolled <= 0 || value <= 0) return 0;
-  return Math.max(MIN_WIDTH, Math.min(1, value / enrolled));
-}
 
 type Step =
   | { kind: "none" }
@@ -60,67 +46,25 @@ type Row = {
   label: string;
   value: number;
   ratio: number;
-  topFrac: number;
-  bottomFrac: number;
   step: Step | null;
   isFirst: boolean;
-  isLast: boolean;
 };
 
-/**
- * One centered, tapering trapezoid. `topFrac`/`bottomFrac` are the 0–1 widths of
- * the top and bottom edges; a clip-path insets each edge symmetrically so the
- * band necks down from the previous stage's width to this one's. Purely
- * decorative — every number lives in the label row + the list-item aria-label.
- */
-function FunnelSegment({
-  topFrac,
-  bottomFrac,
-  emphasis,
-}: {
-  topFrac: number;
-  bottomFrac: number;
-  emphasis?: boolean;
-}) {
-  const top = (1 - topFrac) * 50;
-  const bottom = (1 - bottomFrac) * 50;
-  return (
-    <div
-      aria-hidden
-      className="h-11 w-full"
-      style={{
-        clipPath: `polygon(${top}% 0, ${100 - top}% 0, ${100 - bottom}% 100%, ${bottom}% 100%)`,
-        background: emphasis
-          ? "linear-gradient(180deg, rgba(246,72,56,0.42), rgba(246,72,56,0.24))"
-          : "linear-gradient(180deg, rgba(246,72,56,0.30), rgba(246,72,56,0.13))",
-      }}
-    />
-  );
-}
-
-/** The between-segments drop-off pill (a faint dot when it's undefined). */
-function StepConnector({ step }: { step: Step }) {
-  if (step.kind === "none") {
-    return (
-      <div className="flex justify-center py-1" aria-hidden>
-        <span className="h-1 w-1 rounded-full bg-white/15" />
-      </div>
-    );
-  }
+/** Compact drop-off (or gain) badge shown alongside each stage's percentage. */
+function StepBadge({ step }: { step: Step }) {
+  if (step.kind === "none") return null;
   const isUp = step.kind === "up";
   return (
-    <div className="flex justify-center py-1.5" aria-hidden>
-      <span className="inline-flex items-center gap-1 rounded-full border border-hairline-faint bg-white/[0.015] px-2 py-0.5 text-[11px] tabular-nums text-white/45">
-        {isUp ? (
-          <ChevronUp className="h-3 w-3 text-white/40" />
-        ) : (
-          <ChevronDown className="h-3 w-3 text-white/40" />
-        )}
-        {isUp
-          ? `+${formatPercent(step.fraction)}`
-          : `${formatPercent(step.fraction)} drop`}
-      </span>
-    </div>
+    <span className="inline-flex items-center gap-0.5 rounded-full border border-hairline-faint bg-white/[0.015] px-1.5 py-0.5 text-[10px] tabular-nums text-white/45">
+      {isUp ? (
+        <ChevronUp className="h-2.5 w-2.5 text-white/40" />
+      ) : (
+        <ChevronDown className="h-2.5 w-2.5 text-white/40" />
+      )}
+      {isUp
+        ? `+${formatPercent(step.fraction)}`
+        : `${formatPercent(step.fraction)} drop`}
+    </span>
   );
 }
 
@@ -152,7 +96,7 @@ export function JourneyFunnel({
     enabled: hasEmail === undefined,
   });
 
-  if (funnel.isPending) return <Skeleton className="h-56 w-full" />;
+  if (funnel.isPending) return <Skeleton className="h-28 w-full" />;
   if (funnel.isError) {
     return <ErrorState error={funnel.error} onRetry={() => funnel.refetch()} />;
   }
@@ -190,32 +134,25 @@ export function JourneyFunnel({
     { key: "completed", label: "Completed", value: d.completed },
   ];
 
-  // One pass builds every derived value (taper edges, ratio, step) so the JSX
-  // never reaches across array indices — `noUncheckedIndexedAccess` is on.
+  // One pass carries the previous stage's value so each row can show its
+  // step conversion (drop/gain) without the JSX reaching across array indices.
   const rows: Row[] = [];
   let prevValue: number | null = null;
-  let prevWidth = 1; // the enrolled edge starts full-width
   stages.forEach((stage, i) => {
-    const width = geoWidth(stage.value, d.enrolled);
-    const isFirst = i === 0;
     rows.push({
       key: stage.key,
       label: stage.label,
       value: stage.value,
       ratio: stage.value / d.enrolled,
-      topFrac: isFirst ? width : prevWidth,
-      bottomFrac: width,
       step: prevValue === null ? null : stepFrom(stage.value, prevValue),
-      isFirst,
-      isLast: i === stages.length - 1,
+      isFirst: i === 0,
     });
     prevValue = stage.value;
-    prevWidth = width;
   });
 
   return (
-    <div className="space-y-4">
-      <ol className="w-full" aria-label="Conversion funnel">
+    <div className="space-y-3">
+      <ol className="flex items-stretch gap-2" aria-label="Conversion funnel">
         {rows.map((row) => {
           const dropLabel =
             row.step && row.step.kind !== "none"
@@ -226,32 +163,26 @@ export function JourneyFunnel({
           return (
             <li
               key={row.key}
+              className="min-w-0 flex-1 rounded-md border border-hairline-faint bg-white/[0.015] p-3"
               aria-label={`${row.label}: ${formatNumber(row.value)}, ${formatPercent(
                 row.ratio,
               )} of enrolled${dropLabel}`}
             >
-              {row.step ? <StepConnector step={row.step} /> : null}
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="eyebrow text-white/40">{row.label}</span>
-                <span className="flex items-baseline gap-1.5 text-sm font-medium tabular-nums text-white/85">
-                  {formatNumber(row.value)}
-                  {row.isFirst ? (
-                    <span className="eyebrow text-[10px] text-white/30">
-                      base
-                    </span>
-                  ) : (
-                    <span className="text-xs font-normal text-white/40">
-                      {formatPercent(row.ratio)}
-                    </span>
-                  )}
-                </span>
+              <div className="eyebrow truncate text-white/40">{row.label}</div>
+              <div className="mt-1 text-lg font-medium tabular-nums text-white/90">
+                {formatNumber(row.value)}
               </div>
-              <div className="mt-1">
-                <FunnelSegment
-                  topFrac={row.topFrac}
-                  bottomFrac={row.bottomFrac}
-                  emphasis={row.isLast}
-                />
+              <div className="mt-1.5 flex items-center justify-between gap-2">
+                {row.isFirst ? (
+                  <span className="eyebrow text-[10px] text-white/30">
+                    base
+                  </span>
+                ) : (
+                  <span className="text-xs tabular-nums text-white/45">
+                    {formatPercent(row.ratio)}
+                  </span>
+                )}
+                {row.step ? <StepBadge step={row.step} /> : null}
               </div>
             </li>
           );
