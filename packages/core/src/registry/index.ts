@@ -15,16 +15,9 @@ export class JourneyRegistry {
     const parsed = journeyMetaSchema.parse(journey);
     const validated = parsed as unknown as JourneyMeta;
 
-    // Fail fast on duplicate ids — copying a journey file and forgetting to
-    // rename `meta.id` would otherwise silently shadow the first journey with
-    // no signal. This mirrors the engine's loud idempotency-key collision
-    // errors. Check BEFORE mutating triggerIndex so a throw leaves no partial
-    // state.
-    const prior = this.journeys.get(validated.id);
-    if (prior) {
+    if (this.journeys.has(validated.id)) {
       throw new Error(
-        `Duplicate journey id "${validated.id}". Journey ids must be unique. ` +
-          `(Already registered: "${prior.name}".)`,
+        `Journey id collision: "${validated.id}" is registered by more than one journey (check your journeys[] array for two journeys sharing this id, or a journey id that duplicates a bucket-reaction id).`,
       );
     }
 

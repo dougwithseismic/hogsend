@@ -1,4 +1,4 @@
-import type { GraphNode, JourneyGraph } from "@hogsend/core";
+import type { GraphNode, JourneyGraph } from "@hogsend/core/graph";
 
 /**
  * Terse, agent-oriented Markdown digest of a {@link JourneyGraph}.

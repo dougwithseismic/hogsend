@@ -37,6 +37,12 @@ export interface TemplateDefinition<P = Record<string, unknown>> {
    * (and its own component prop defaults) when previewed.
    */
   examples?: Partial<P>;
+  /**
+   * Absolute source path of this template's component file, for the Studio
+   * "open in editor" affordance. Best-effort + dev-only (points into `dist` in
+   * a bundled deploy). Populate via `withSources(import.meta.dirname, …)`.
+   */
+  sourcePath?: string;
 }
 
 export type TemplateRegistry = {

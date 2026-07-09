@@ -8,6 +8,11 @@ const { createApp, createHogsendClient } = await import("@hogsend/engine");
 const { contacts, journeyStates, userEvents } = await import("@hogsend/db");
 const { eq } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
+const { templates } = await import("../emails/index.js");
+// The real app lists (incl. `product-updates`) — wired so the marketing
+// template's `product-updates` category resolves to a defined list (matching
+// src/index.ts; the container boot-guard rejects a category with no list).
+const { lists } = await import("../lists/index.js");
 
 // Hatchet now lives inside @hogsend/engine, so it is injected via the container
 // override seam rather than module-mocked. This keeps the enroll endpoint from
@@ -32,6 +37,8 @@ const mockHatchet = {
 
 const container = createHogsendClient({
   journeys,
+  lists,
+  email: { templates },
   overrides: { hatchet: mockHatchet },
 });
 const app = createApp(container);
@@ -221,6 +228,100 @@ describe("GET /v1/admin/journeys/:id/templates", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.templates).toBeInstanceOf(Array);
+  });
+});
+
+describe("GET /v1/admin/journeys/:id/graph", () => {
+  it("returns 401 without auth", async () => {
+    const res = await app.request("/v1/admin/journeys/feedback-nps/graph");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 for unknown journey", async () => {
+    const res = await app.request("/v1/admin/journeys/nonexistent/graph", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns the graph IR + per-node metrics for a real journey", async () => {
+    const res = await app.request("/v1/admin/journeys/feedback-nps/graph", {
+      headers: AUTH_HEADER,
+    });
+    expect(res.status).toBe(200);
+
+    const body = await res.json();
+
+    // Graph shape — a real journey source parses to a non-degraded chain with
+    // start + terminal nodes.
+    expect(body.graph.journeyId).toBe("feedback-nps");
+    expect(body.graph.nodes).toBeInstanceOf(Array);
+    expect(body.graph.edges).toBeInstanceOf(Array);
+    const nodeIds = body.graph.nodes.map((n: { id: string }) => n.id);
+    expect(nodeIds).toContain("start");
+    expect(nodeIds).toContain("end-completed");
+    // feedback-nps sends + waits, so it must extract more than just start→end.
+    expect(body.graph.nodes.length).toBeGreaterThan(2);
+
+    // Metrics shape.
+    expect(typeof body.metrics.enrolled).toBe("number");
+    expect(typeof body.metrics.terminals.completed).toBe("number");
+    expect(typeof body.metrics.terminals.failed).toBe("number");
+    expect(typeof body.metrics.terminals.exited).toBe("number");
+
+    // Every graph node id has a metric entry (defaulted to zeros).
+    for (const id of nodeIds) {
+      const metric = body.metrics.nodes[id];
+      expect(metric).toBeDefined();
+      expect(typeof metric.live).toBe("number");
+      expect(typeof metric.failed).toBe("number");
+    }
+
+    // Static const-name → registry key resolution: feedback-nps sends
+    // `Templates.FEEDBACK_NPS_SURVEY` (member-expr, no literal key), which must
+    // resolve to the registered `feedback-nps-survey` key with NO runtime data
+    // — so both send nodes preview immediately.
+    const sendNodes = body.graph.nodes.filter(
+      (n: { type: string }) => n.type === "send",
+    );
+    expect(sendNodes.length).toBeGreaterThanOrEqual(2);
+    for (const node of sendNodes) {
+      expect(body.metrics.nodes[node.id].templateKey).toBe(
+        "feedback-nps-survey",
+      );
+    }
+  });
+
+  it("resolves member-expr send templates statically, incl. prefix fallback", async () => {
+    const res = await app.request(
+      "/v1/admin/journeys/activation-nudge-series/graph",
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    type GNode = {
+      id: string;
+      type: string;
+      subtitle?: string;
+    };
+    const keyFor = (subtitle: string): string | undefined => {
+      const node = (body.graph.nodes as GNode[]).find(
+        (n) => n.type === "send" && n.subtitle === subtitle,
+      );
+      return node ? body.metrics.nodes[node.id].templateKey : undefined;
+    };
+
+    // Exact kebab matches.
+    expect(keyFor("ACTIVATION_QUICKSTART")).toBe("activation-quickstart");
+    expect(keyFor("ACTIVATION_FEATURE_HIGHLIGHT")).toBe(
+      "activation-feature-highlight",
+    );
+    // Prefix fallback: kebab'd const isn't a key, longest segment-prefix is.
+    // ACTIVATION_NUDGE_SERIES → activation-nudge-series → `activation-nudge`.
+    expect(keyFor("ACTIVATION_NUDGE_SERIES")).toBe("activation-nudge");
+    // ACTIVATION_COMMUNITY_ALT → activation-community-alt → `activation-community`.
+    expect(keyFor("ACTIVATION_COMMUNITY_ALT")).toBe("activation-community");
   });
 });
 

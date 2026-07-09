@@ -44,7 +44,7 @@ import {
   formatNumber,
 } from "@/lib/format";
 import { JourneyFlow } from "./journeys/journey-flow";
-import { JourneyFunnelStrip } from "./journeys/journey-funnel";
+import { JourneyFunnel } from "./journeys/journey-funnel";
 
 const PAGE_SIZE = 25;
 
@@ -575,17 +575,22 @@ export function JourneyDetailView({ journeyId }: { journeyId: string }) {
             </span>
           </div>
 
-          {/* Journey KPI strip — full width, works with or without a flow
-              manifest (reads the dedicated funnel endpoint). */}
-          <JourneyFunnelStrip journeyId={journeyId} />
-
-          {/* Definition + Flow together. On xl the Definition is a left rail
-              beside the hero flow canvas; narrower widths stack them. Nothing
-              is hidden behind tabs — everything on the page is always present. */}
-          <div className="grid items-start gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
+          {/* Compact Definition + Funnel strip — the flow below is the
+              centrepiece, so these stay small. */}
+          <div className="grid gap-4 lg:grid-cols-2">
             <JourneyMetaCard journey={journey} />
-            <JourneyFlow journeyId={journeyId} />
+            <Card>
+              <CardHeader>
+                <CardTitle>Funnel</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <JourneyFunnel journeyId={journeyId} />
+              </CardContent>
+            </Card>
           </div>
+
+          {/* The visual workflow — inline, full-width, the page's focus. */}
+          <JourneyFlow journeyId={journeyId} />
 
           <JourneyEmailsCard journeyId={journeyId} />
           <JourneyStatesBrowser journeyId={journeyId} />

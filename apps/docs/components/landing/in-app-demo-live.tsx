@@ -34,9 +34,6 @@ import { DISCORD_INVITE_URL } from "@/lib/site";
  * Only rendered when `isHogsendConfigured`, so `useHogsend` always has context.
  */
 
-/** localStorage key the sign-up writes the verified email to (email-capture). */
-const EMAIL_KEY = "hs-demo-email";
-
 /** The channels a journey can fan out to — drives the per-action chips. */
 type Channel = "in_app" | "email" | "discord";
 
@@ -160,17 +157,20 @@ function ChannelChips({
 export function InAppDemoLive({
   signedUp,
   name,
+  email,
   wide = false,
   onFire,
 }: {
   signedUp: boolean;
   name?: string;
+  /** The signed-in visitor's email — where "Email me a sample" sends. */
+  email?: string;
   /** Full-width two-up layout for the identified state (no sign-up sibling). */
   wide?: boolean;
   /** Notify the parent which event was just fired so the trace band replays. */
   onFire?: (event: string) => void;
 }) {
-  const { client, capture } = useHogsend();
+  const { client, capture, isIdentified } = useHogsend();
   const { refetch, metadata } = useHogsendFeed();
   const [step, setStep] = useState(-1);
   const [firing, setFiring] = useState<string | null>(null);
@@ -182,7 +182,12 @@ export function InAppDemoLive({
   const [sampleSentTo, setSampleSentTo] = useState<string | null>(null);
 
   async function fire(event: string) {
-    if (!signedUp || firing !== null) return;
+    // Gate on isIdentified, not just signedUp: firing before the userToken has
+    // landed captures on the anonymous id, so the item lands under a recipient
+    // key the (soon-to-be-identified) bell never polls — the event fires but the
+    // feed stays empty. Waiting for the identified client keeps write + read on
+    // the same contact.
+    if (!signedUp || !isIdentified || firing !== null) return;
     // Kick the trace band off the instant they click — it animates the journey
     // shape while the real capture/flush/refetch below lands the live item.
     onFire?.(event);
@@ -223,13 +228,8 @@ export function InAppDemoLive({
    */
   async function fireEmail() {
     if (!signedUp || firing !== null) return;
-    let email = "";
-    try {
-      email = window.localStorage.getItem(EMAIL_KEY) ?? "";
-    } catch {
-      // storage blocked — can't send without the verified address
-    }
-    if (!email) return;
+    const to = email ?? "";
+    if (!to) return;
     onFire?.("demo.email");
     setFiring("demo.email");
     try {
@@ -237,14 +237,14 @@ export function InAppDemoLive({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          email,
+          email: to,
           template: "activation/welcome",
           ...(name ? { name } : {}),
         }),
       });
       if (res.ok) {
         setLanded("demo.email");
-        setSampleSentTo(email);
+        setSampleSentTo(to);
         window.setTimeout(
           () =>
             setLanded((current) => (current === "demo.email" ? null : current)),
@@ -296,13 +296,20 @@ export function InAppDemoLive({
           Sign up on the left to fire real lifecycle messages.
         </p>
       )}
+      {signedUp && !isIdentified ? (
+        <p className="mb-1 text-[12px] text-white/40 leading-5">
+          Connecting you to the live feed…
+        </p>
+      ) : null}
       {ACTIONS.map((action) => {
         const isEmail = action.kind === "email";
         return (
           <button
             key={action.event}
             type="button"
-            disabled={firing !== null || !signedUp}
+            disabled={
+              firing !== null || !signedUp || (!isEmail && !isIdentified)
+            }
             onClick={() => (isEmail ? fireEmail() : fire(action.event))}
             className={cn(
               "group inline-flex items-center justify-between gap-2 rounded-[10px] border px-4 py-3 text-left text-sm transition-colors",

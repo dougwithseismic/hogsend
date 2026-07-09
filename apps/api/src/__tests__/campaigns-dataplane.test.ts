@@ -62,6 +62,10 @@ const {
   sendCampaignTask,
 } = await import("@hogsend/engine");
 const { templates } = await import("../emails/index.js");
+// The real app's `product-updates` list — wired so the marketing template's
+// `product-updates` category resolves to a defined list (matching `src/index.ts`;
+// the container boot-guard rejects an unknown template category).
+const { productUpdates } = await import("../lists/index.js");
 
 // `sendCampaignTask.fn` is the real campaign body (the config-preserving mock
 // kept it). It self-bootstraps db from process.env.DATABASE_URL and reads the
@@ -130,7 +134,7 @@ const vipBucket = defineBucket({
 // validates against. The fake provider keeps the send pipeline offline.
 const container = createHogsendClient({
   email: { provider: fakeProvider, templates },
-  lists: [broadcastList],
+  lists: [broadcastList, productUpdates],
   buckets: [vipBucket],
 });
 const app = createApp(container);

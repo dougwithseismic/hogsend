@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { renderMermaid } from "@hogsend/core";
+import { renderMermaid } from "@hogsend/core/graph";
 import { renderMermaidASCII } from "beautiful-mermaid";
 import { describe, expect, it } from "vitest";
 import { extractJourneyGraph, extractJourneyId } from "../lib/journey-graph.js";

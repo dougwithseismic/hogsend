@@ -8,6 +8,7 @@ import type { JourneyRegistry } from "@hogsend/core/registry";
 import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { checkBucketMembership } from "../buckets/check-membership.js";
+import { logTransition } from "../journeys/journey-log.js";
 import {
   logResidualTwins,
   mergeAnalyticsIdentities,
@@ -496,6 +497,18 @@ async function checkExits(
         updatedAt: new Date(),
       })
       .where(inArray(journeyStates.id, statesToExit));
+
+    // Fire-and-forget EXIT transition logs (best-effort; the exit path is
+    // already best-effort around the hatchet cancel below). Never throws.
+    for (const id of statesToExit) {
+      logTransition({
+        db,
+        journeyStateId: id,
+        from: null,
+        to: "end-exited",
+        action: "exited",
+      });
+    }
 
     // Cancel the live durable runs so a journey suspended in a sleep or
     // `waitForEvent` can't resume and fire after it has exited. Best-effort: a

@@ -1,299 +1,1240 @@
-import dagre from "@dagrejs/dagre";
+import { useQuery } from "@tanstack/react-query";
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   Controls,
   type Edge,
+  EdgeLabelRenderer,
+  type EdgeProps,
+  type EdgeTypes,
   getNodesBounds,
   getViewportForBounds,
-  MiniMap,
+  Handle,
+  MarkerType,
   type Node,
+  type NodeProps,
+  type NodeTypes,
   Position,
   ReactFlow,
+  ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
 } from "@xyflow/react";
-import { useMemo, useRef, useState } from "react";
-import "@xyflow/react/dist/style.css";
-import { useQuery } from "@tanstack/react-query";
-import { toPng } from "html-to-image";
+import { toCanvas, toJpeg, toPng, toSvg } from "html-to-image";
 import {
-  BarChart3,
   Check,
+  ChevronDown,
   Copy,
   ExternalLink,
+  FileCode2,
   GitBranch,
   ImageDown,
-  Settings2,
-  SquareArrowOutUpRight,
-  TriangleAlert,
-  X,
+  Lock,
+  Maximize2,
+  MousePointerClick,
+  Share2,
 } from "lucide-react";
-import { EmptyState, ErrorState } from "@/components/states";
+import { deflate } from "pako";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import {
+  ChatGptIcon,
+  ClaudeIcon,
+  PerplexityIcon,
+} from "@/components/brand-icons";
+import { ErrorState, TableSkeleton } from "@/components/states";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import {
   getJourneyGraph,
-  getJourneyTemplates,
   getTemplatePreview,
-  type JourneyGraphData,
+  type JourneyGraph,
+  type JourneyGraphEdge,
   type JourneyGraphNode,
-  type JourneyTemplate,
-  listJourneyStates,
+  type JourneyGraphNodeType,
+  type JourneyGraphResponse,
+  type JourneyNodeMetric,
+  openFileInEditor,
   qk,
 } from "@/lib/admin-api";
-import { formatNumber, formatRelative } from "@/lib/format";
-import {
-  buildSourceLink,
-  getSourceLinkConfig,
-  IDE_PRESETS,
-  type OpenMode,
-  type SourceLinkConfig,
-  setSourceLinkConfig,
-} from "@/lib/ide-links";
-import { mermaidLiveUrl } from "@/lib/mermaid-live";
-import type { FlowEdgeData } from "./flow-edges";
-import { FLOW_EDGE_TYPES } from "./flow-edges";
-import type { FlowNodeMetrics } from "./flow-nodes";
-import { FLOW_NODE_TYPES, FLOW_NODE_WIDTH } from "./flow-nodes";
+import { config } from "@/lib/config";
+import { downloadDataUrl } from "@/lib/download";
+import { toMermaid } from "@/lib/mermaid";
+import { cn } from "@/lib/utils";
+import { buildEdgePath, layoutGraph, type XY } from "./flow-layout";
+
+// --- Node visual language -------------------------------------------------
 
 /**
- * The "Flow" tab on the journey detail page. Renders the journey's authored
- * control flow as a read-only, dagre-laid canvas of crimson nodes with live
- * counts overlaid. Clicking a node opens a side panel with kind-specific
- * detail — email nodes preview their template, every node deep-links to the
- * authored source. Falls back to a metadata skeleton when no rich graph
- * manifest has been generated.
+ * Muted per-type hues on the crimzon page. Crimson (`#f64838`) is reserved for
+ * decision nodes — waits, branches, decisions, triggers — so the eye lands on
+ * where the journey forks. Everything else is a calm, distinct tint.
  */
+const NODE_STYLE: Record<JourneyGraphNodeType, { rail: string; kind: string }> =
+  {
+    start: { rail: "#3fb950", kind: "Start" },
+    sleep: { rail: "#6e7681", kind: "Sleep" },
+    sleepUntil: { rail: "#6e7681", kind: "Sleep until" },
+    wait: { rail: "#f64838", kind: "Wait for event" },
+    branch: { rail: "#f64838", kind: "Branch" },
+    decision: { rail: "#f64838", kind: "Decision" },
+    send: { rail: "#d29922", kind: "Email" },
+    connector: { rail: "#8957e5", kind: "Connector" },
+    checkpoint: { rail: "#58a6ff", kind: "Checkpoint" },
+    trigger: { rail: "#f64838", kind: "Trigger" },
+    capture: { rail: "#bc8cff", kind: "Capture" },
+    "end-completed": { rail: "#3fb950", kind: "Completed" },
+    "end-exited": { rail: "#6e7681", kind: "Exited" },
+    "end-failed": { rail: "#da3633", kind: "Failed" },
+    unknown: { rail: "#6e7681", kind: "Helper" },
+  };
 
-// Node box width fed to dagre = the exact rendered width (fixed in flow-nodes).
-const NODE_WIDTH = FLOW_NODE_WIDTH;
-// Nominal height, used only for PNG-export framing bounds.
-const NODE_HEIGHT = 96;
+type FlowNodeData = {
+  node: JourneyGraphNode;
+  metric: JourneyNodeMetric;
+};
+
+type HogFlowNode = Node<FlowNodeData, "hog">;
 
 /**
- * Estimate a node's rendered height so dagre reserves the right vertical space
- * (the fix for overlapping ranks). Deliberately GENEROUS — over-reserving just
- * adds a little gap, whereas under-reserving overlaps. Mirrors the rendered
- * card: kind row + up to 2 wrapped label lines + optional detail + optional
- * metrics overlay (email nodes when the Metrics toggle is on).
+ * A journey node card — same crimzon language as `components/ui/card.tsx`
+ * (`bg-white/[0.015]`, `border-hairline-faint`, hover `border-white/15`,
+ * `text-white/90`) with a colored left rail per node type. `decision` nodes
+ * get a distinct accent-tinted pill + branch icon (the humanized question).
  */
-function estimateNodeHeight(
-  node: JourneyGraphNode,
-  showMetrics: boolean,
-): number {
-  let h = 46; // vertical padding + kind/icon row
-  const lines = Math.min(
-    2,
-    Math.max(1, Math.ceil((node.label.length || 1) / 22)),
+function HogNode({ data, selected }: NodeProps<HogFlowNode>) {
+  const { node, metric } = data;
+  const style = NODE_STYLE[node.type];
+  const isDecision = node.type === "decision";
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2 text-white/90 transition-colors",
+        isDecision ? "w-[210px]" : "w-[240px]",
+        isDecision ? "border-accent/40 bg-accent/[0.06]" : "bg-white/[0.015]",
+        selected
+          ? "border-accent"
+          : isDecision
+            ? "border-accent/40 hover:border-accent/60"
+            : "border-hairline-faint hover:border-white/15",
+      )}
+    >
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!h-1.5 !w-1.5 !border-0 !bg-white/25"
+      />
+      <div className="flex items-center gap-1.5">
+        {isDecision ? (
+          <GitBranch className="h-3 w-3 shrink-0 text-accent" />
+        ) : (
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: style.rail }}
+          />
+        )}
+        <span className="eyebrow text-[11px] text-white/40">{style.kind}</span>
+        {node.meta?.unstable ? (
+          <span className="ml-auto rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-white/50">
+            dynamic
+          </span>
+        ) : null}
+      </div>
+      <p
+        className="mt-0.5 truncate text-[13px] font-medium leading-snug text-white/90"
+        title={node.title}
+      >
+        {node.title}
+      </p>
+      {node.subtitle && !isDecision ? (
+        <p
+          className="truncate font-mono text-[11px] text-white/45"
+          title={node.subtitle}
+        >
+          {node.subtitle}
+        </p>
+      ) : null}
+      {metric.live > 0 || metric.failed > 0 ? (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {metric.live > 0 ? (
+            <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+              {metric.live} here
+            </span>
+          ) : null}
+          {metric.failed > 0 ? (
+            <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-medium text-white/60">
+              {metric.failed} failed
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!h-1.5 !w-1.5 !border-0 !bg-white/25"
+      />
+    </div>
   );
-  h += lines * 19;
-  if (node.detail) h += 17;
-  if (showMetrics && node.kind === "email") h += 34;
-  return h;
 }
 
-/** Canvas layout direction. Persisted per-user in localStorage. */
-type LayoutMode = "TB" | "LR" | "compact";
-const LAYOUT_KEY = "hogsend.studio.flow.layout";
-function getLayout(): LayoutMode {
-  if (typeof localStorage === "undefined") return "TB";
-  const v = localStorage.getItem(LAYOUT_KEY);
-  return v === "LR" || v === "compact" ? v : "TB";
-}
-function persistLayout(mode: LayoutMode): void {
-  if (typeof localStorage !== "undefined")
-    localStorage.setItem(LAYOUT_KEY, mode);
+// Stable module-scope reference — re-creating this each render makes React Flow
+// warn and re-instantiate node components.
+const nodeTypes: NodeTypes = { hog: HogNode };
+
+// --- IR → React Flow mapping ----------------------------------------------
+
+function buildRfNodes(
+  graph: JourneyGraph,
+  metrics: JourneyGraphResponse["metrics"],
+  positions: Record<string, XY>,
+): HogFlowNode[] {
+  return graph.nodes.map((node) => ({
+    id: node.id,
+    type: "hog",
+    position: positions[node.id] ?? { x: 0, y: 0 },
+    data: {
+      node,
+      metric: metrics.nodes[node.id] ?? { live: 0, failed: 0 },
+    },
+  }));
 }
 
-/**
- * Run dagre over the graph to assign x/y positions to each node, tuned per
- * layout mode. `compact` uses the tight-tree ranker with smaller separation
- * for dense journeys; `LR` flows left→right (handles move to the sides). Each
- * node is sized with its real width + an estimated height so ranks never
- * overlap and edges route in the gaps between them.
- */
-function layoutGraph(
-  graph: JourneyGraphData,
-  mode: LayoutMode,
-  showMetrics: boolean,
-): {
-  nodes: Node[];
-  edges: Edge[];
-  fallback: boolean;
+/** Per-edge-kind stroke: `yes`/answered read positive/accent, `no` muted. */
+function edgeAppearance(kind: JourneyGraphEdge["kind"]): {
+  stroke: string;
+  dashed: boolean;
 } {
-  const horizontal = mode === "LR";
-  const compact = mode === "compact";
-
-  // Build the dagre graph. Separations are tuned so branch arms and edge label
-  // chips get breathing room without ballooning large journeys.
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({
-    rankdir: horizontal ? "LR" : "TB",
-    nodesep: compact ? 28 : 58,
-    ranksep: compact ? 56 : 96,
-    edgesep: compact ? 12 : 26,
-    ranker: compact ? "tight-tree" : "network-simplex",
-    marginx: 28,
-    marginy: 28,
-  });
-  g.setDefaultEdgeLabel(() => ({}));
-  const heights = new Map<string, number>();
-  for (const node of graph.nodes) {
-    const h = estimateNodeHeight(node, showMetrics);
-    heights.set(node.id, h);
-    g.setNode(node.id, { width: NODE_WIDTH, height: h });
+  switch (kind) {
+    case "conditional-true":
+      return { stroke: "#3fb950", dashed: false };
+    case "conditional-false":
+      return { stroke: "rgba(255,255,255,0.35)", dashed: true };
+    case "timedOut":
+      return { stroke: "#f64838", dashed: true };
+    case "answered":
+      return { stroke: "#f64838", dashed: false };
+    default:
+      return { stroke: "rgba(255,255,255,0.18)", dashed: false };
   }
-  for (const edge of graph.edges) {
-    // Passing the label reserves space so branch-arm labels don't overlap.
-    g.setEdge(edge.from, edge.to, edge.label ? { label: edge.label } : {});
-  }
-
-  // dagre assumes a DAG; a cyclic graph (e.g. from a buggy extractor or a
-  // hand-edited manifest) can throw or produce broken positions. Fall back to
-  // a simple stack so the canvas always renders SOMETHING.
-  let fallback = false;
-  const positions = new Map<string, { x: number; y: number }>();
-  try {
-    dagre.layout(g);
-    for (const node of graph.nodes) {
-      const p = g.node(node.id);
-      if (p) positions.set(node.id, { x: p.x, y: p.y });
-    }
-  } catch {
-    fallback = true;
-    graph.nodes.forEach((node, i) => {
-      positions.set(
-        node.id,
-        horizontal
-          ? { x: i * (NODE_WIDTH + 70), y: 0 }
-          : { x: 0, y: i * (NODE_HEIGHT + 48) },
-      );
-    });
-  }
-
-  // Handle placement follows the flow direction so edges attach cleanly.
-  const targetPosition = horizontal ? Position.Left : Position.Top;
-  const sourcePosition = horizontal ? Position.Right : Position.Bottom;
-
-  const nodes: Node[] = graph.nodes.map((node) => {
-    const positioned = positions.get(node.id);
-    const h = heights.get(node.id) ?? NODE_HEIGHT;
-    // dagre gives centers; ReactFlow wants top-left — offset by half the node's
-    // OWN width/height so variable-height nodes still center on their rank.
-    return {
-      id: node.id,
-      type: "journeyNode",
-      position: {
-        x: (positioned?.x ?? 0) - NODE_WIDTH / 2,
-        y: (positioned?.y ?? 0) - h / 2,
-      },
-      sourcePosition,
-      targetPosition,
-      data: { node },
-      draggable: false,
-      connectable: false,
-    };
-  });
-
-  // Semantic edges: kind → color, label → chip, both rendered by the custom
-  // journeyEdge component. `live` is attached later (needs counts).
-  //
-  // Crucially, we thread dagre's OWN routed waypoints into each edge — dagre
-  // bends multi-rank edges AROUND the nodes between their endpoints. Without
-  // these, ReactFlow would draw a straight line from source to target that
-  // slices through any node in the column (e.g. a `branch → end` edge cutting
-  // through the email/connector nodes on the fall-through path). Points are in
-  // dagre's coordinate space, which equals ReactFlow flow-space here (we only
-  // offset each node center→top-left), so they drop in directly.
-  const edges: Edge[] = graph.edges.map((edge, i) => {
-    const routed = fallback ? undefined : g.edge(edge.from, edge.to);
-    const points = routed?.points?.map((p) => ({ x: p.x, y: p.y }));
-    return {
-      id: `e${i}-${edge.from}-${edge.to}`,
-      source: edge.from,
-      target: edge.to,
-      type: "journeyEdge",
-      data: {
-        kind: edge.kind,
-        label: edge.label,
-        live: false,
-        points,
-      } satisfies FlowEdgeData,
-    };
-  });
-
-  return { nodes, edges, fallback };
 }
+
+function buildRfEdges(
+  graph: JourneyGraph,
+  edgePoints: Record<string, XY[]>,
+): Edge[] {
+  return graph.edges.map((edge) => {
+    const { stroke, dashed } = edgeAppearance(edge.kind);
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      ...(edge.label ? { label: edge.label } : {}),
+      type: "dagre",
+      data: { points: edgePoints[edge.id] },
+      style: {
+        stroke,
+        strokeWidth: 1.5,
+        ...(dashed ? { strokeDasharray: "5 4" } : {}),
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: stroke,
+        width: 16,
+        height: 16,
+      },
+    };
+  });
+}
+
+type DagreEdgeData = { points?: XY[] };
 
 /**
- * Normalize a template reference for joining graph nodes to observed
- * `email_sends.templateKey` values. Used as a FALLBACK only — the extractor
- * now resolves an exact `templateKey` for most nodes (see metricsForNode).
+ * Custom edge that draws dagre's routed waypoints (with rounded corners)
+ * instead of a plain smoothstep between handles — so a skip-edge arcs cleanly
+ * around the cards it jumps over rather than being painted straight across
+ * them. `style`/`markerEnd` arrive from the edge object (per-kind stroke, dash,
+ * arrow); the label is rendered here at the polyline midpoint.
  */
-function normalizeTemplateKey(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/^templates\./, "")
-    .replace(/[^a-z0-9]/g, "");
+function DagreEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  markerEnd,
+  style,
+  label,
+  data,
+}: EdgeProps) {
+  const { path, labelX, labelY } = buildEdgePath({
+    points: (data as DagreEdgeData | undefined)?.points,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+  });
+  return (
+    <>
+      <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
+      {label ? (
+        <EdgeLabelRenderer>
+          <div
+            className="nodrag nopan pointer-events-none absolute rounded bg-[#0a0606]/90 px-1.5 py-0.5 text-[11px] text-white/75"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
+    </>
+  );
 }
 
-/** Find the observed send metrics for an email node, if any. */
-function metricsForNode(
-  node: JourneyGraphNode,
-  templates: JourneyTemplate[] | undefined,
-): FlowNodeMetrics | undefined {
-  if (node.kind !== "email" || !templates?.length) return undefined;
-  // Prefer the extractor's resolved `templateKey` — an exact join to
-  // `email_sends.templateKey`. Fall back to the fuzzy normalize-and-match on
-  // the authored ref only when the key couldn't be resolved statically.
-  const match = node.templateKey
-    ? (templates.find((t) => t.templateKey === node.templateKey) ??
-      templates.find(
-        (t) => normalizeTemplateKey(t.templateKey) === node.templateKey,
-      ))
-    : templates.find(
-        (t) =>
-          normalizeTemplateKey(t.templateKey) ===
-          normalizeTemplateKey(node.detail ?? node.label),
-      );
-  if (!match) return undefined;
-  return { sent: match.sent, opened: match.opened, clicked: match.clicked };
+// Stable module-scope reference — same rationale as `nodeTypes`.
+const edgeTypes: EdgeTypes = { dagre: DagreEdge };
+
+// --- mermaid.live deep link ------------------------------------------------
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
-/** Legend mapping node kinds to their labels. */
-const LEGEND: Array<{ kind: JourneyGraphNode["kind"]; label: string }> = [
-  { kind: "trigger", label: "Trigger" },
-  { kind: "email", label: "Email" },
-  { kind: "inapp", label: "In-app" },
-  { kind: "connector", label: "Connector" },
-  { kind: "sleep", label: "Sleep" },
-  { kind: "wait", label: "Wait for event" },
-  { kind: "branch", label: "Branch" },
-  { kind: "trigger-event", label: "Emitted trigger" },
-  { kind: "checkpoint", label: "Checkpoint" },
-  { kind: "exit", label: "Exit" },
-  { kind: "end", label: "End" },
+/** mermaid.live `pako:` deep link — deflate(JSON state) → url-safe base64. */
+function mermaidLiveUrl(code: string): string {
+  const state = {
+    code,
+    mermaid: JSON.stringify({ theme: "dark" }, null, 2),
+    autoSync: true,
+    updateDiagram: true,
+  };
+  const bytes = deflate(new TextEncoder().encode(JSON.stringify(state)), {
+    level: 9,
+  });
+  return `https://mermaid.live/edit#pako:${bytesToBase64Url(bytes)}`;
+}
+
+// --- AI chat deep links ----------------------------------------------------
+
+/**
+ * Brand preamble prepended to every AI prompt — mirrors the hogsend.com hero so
+ * a shared chat carries provenance.
+ */
+const AI_PROMPT_PREAMBLE =
+  "From hogsend.com — the code-first lifecycle marketing framework. " +
+  "Build your growth engine in code.";
+
+/** Cap for the URL-ENCODED query (mermaid inflates ~2–3× when encoded). */
+const AI_QUERY_MAX = 6000;
+
+const AI_TRUNCATION_NOTE =
+  "\n%% …diagram truncated to fit the chat URL — use the toolbar's Copy Mermaid for the full source.";
+
+function buildAiPrompt(graph: JourneyGraph): string {
+  const head =
+    `${AI_PROMPT_PREAMBLE}\n\n` +
+    "Here is a lifecycle journey defined in code (Mermaid). " +
+    "Explain what it does and suggest improvements:\n\n";
+  const meta =
+    `\n\nJourney: \`${graph.journeyId}\` — ` +
+    `${graph.nodes.length} nodes, ${graph.edges.length} edges.`;
+  const wrap = (body: string) => `${head}\`\`\`mermaid\n${body}\n\`\`\`${meta}`;
+  const fits = (body: string) =>
+    encodeURIComponent(wrap(body)).length <= AI_QUERY_MAX;
+
+  let body = toMermaid(graph);
+  if (!fits(body)) {
+    while (body.length > 0 && !fits(`${body}${AI_TRUNCATION_NOTE}`)) {
+      body = body.slice(0, Math.max(0, body.length - 250));
+    }
+    body = `${body}${AI_TRUNCATION_NOTE}`;
+  }
+  return wrap(body);
+}
+
+type AiTarget = "claude" | "chatgpt" | "perplexity";
+
+function aiChatUrl(target: AiTarget, prompt: string): string {
+  const q = encodeURIComponent(prompt);
+  switch (target) {
+    case "claude":
+      return `https://claude.ai/new?q=${q}`;
+    case "chatgpt":
+      return `https://chatgpt.com/?q=${q}`;
+    case "perplexity":
+      return `https://www.perplexity.ai/search?q=${q}`;
+  }
+}
+
+type AiTargetDef = {
+  id: AiTarget;
+  label: string;
+  Icon: (props: { className?: string }) => ReactNode;
+  /** Brand tint for the mark. */
+  color: string;
+};
+
+const AI_TARGETS: readonly AiTargetDef[] = [
+  { id: "claude", label: "Claude", Icon: ClaudeIcon, color: "#d97757" },
+  { id: "chatgpt", label: "ChatGPT", Icon: ChatGptIcon, color: "#ededed" },
+  {
+    id: "perplexity",
+    label: "Perplexity",
+    Icon: PerplexityIcon,
+    color: "#20b8cd",
+  },
 ];
 
-/** Approximate node fill per kind, for the framed PNG legend. */
-const KIND_HEX: Record<JourneyGraphNode["kind"], string> = {
-  trigger: "#f64838",
-  email: "#f64838",
-  inapp: "#d1d5db",
-  connector: "#9ca3af",
-  sleep: "#6b7280",
-  schedule: "#6b7280",
-  wait: "#f64838",
-  branch: "#f64838",
-  "trigger-event": "#f64838",
-  checkpoint: "#9ca3af",
-  exit: "#9ca3af",
-  end: "#6b7280",
+const AI_STORAGE_KEY = "hs.studio.ai-share";
+
+type SplitItem<T extends string> = {
+  id: T;
+  label: string;
+  Icon?: (props: { className?: string }) => ReactNode;
+  /** Brand tint for the mark, if any. */
+  color?: string;
 };
+
+/**
+ * The crimzon split button: a primary that fires the last-picked option
+ * (persisted per browser under `storageKey`) and a caret that reveals the rest.
+ * Outside-click / Escape close the menu. Shared by the "Ask AI" and "Export"
+ * toolbar actions so they stay pixel-identical.
+ */
+function SplitButton<T extends string>({
+  items,
+  storageKey,
+  defaultId,
+  onAct,
+  renderLabel,
+  caretLabel,
+  primaryIcon,
+}: {
+  items: readonly SplitItem<T>[];
+  storageKey: string;
+  defaultId: T;
+  onAct: (id: T) => void;
+  renderLabel: (item: SplitItem<T>) => string;
+  caretLabel: string;
+  primaryIcon?: {
+    Icon: (props: { className?: string }) => ReactNode;
+    color?: string;
+  };
+}) {
+  const isKnown = useCallback(
+    (v: string | null): v is T => !!v && items.some((i) => i.id === v),
+    [items],
+  );
+  const [selected, setSelected] = useState<T>(() => {
+    try {
+      const v = localStorage.getItem(storageKey);
+      if (isKnown(v)) return v;
+    } catch {
+      // localStorage can throw (privacy mode) — fall back to the default.
+    }
+    return defaultId;
+  });
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      // `Node` is shadowed by React Flow's node type — reach for the DOM one.
+      const target = e.target;
+      if (
+        rootRef.current &&
+        target instanceof globalThis.Node &&
+        !rootRef.current.contains(target)
+      ) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const current = items.find((i) => i.id === selected) ?? items[0];
+  if (!current) return null;
+
+  const choose = (id: T) => {
+    setSelected(id);
+    try {
+      localStorage.setItem(storageKey, id);
+    } catch {
+      // best-effort persistence
+    }
+    setOpen(false);
+    onAct(id);
+  };
+
+  const primary =
+    primaryIcon ??
+    (current.Icon ? { Icon: current.Icon, color: current.color } : undefined);
+  const PrimaryIcon = primary?.Icon;
+
+  return (
+    <div ref={rootRef} className="relative inline-flex">
+      <Button
+        variant="outline"
+        size="sm"
+        className="rounded-r-none pr-2.5"
+        onClick={() => onAct(current.id)}
+      >
+        {PrimaryIcon ? (
+          <span
+            className="inline-flex"
+            style={primary?.color ? { color: primary.color } : undefined}
+          >
+            <PrimaryIcon className="h-3.5 w-3.5" />
+          </span>
+        ) : null}
+        {renderLabel(current)}
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        aria-label={caretLabel}
+        aria-expanded={open}
+        className="rounded-l-none border-l-0 px-1.5"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <ChevronDown className="h-3.5 w-3.5" />
+      </Button>
+      {open ? (
+        <div className="absolute right-0 top-full z-20 mt-1 min-w-[10rem] overflow-hidden rounded-md border border-hairline-faint bg-raised shadow-lg">
+          {items.map((item) => {
+            const Icon = item.Icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => choose(item.id)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-white/80 transition-colors hover:bg-white/5"
+              >
+                {Icon ? (
+                  <span
+                    className="inline-flex"
+                    style={item.color ? { color: item.color } : undefined}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                ) : null}
+                {renderLabel(item)}
+                {item.id === selected ? (
+                  <Check className="ml-auto h-3 w-3 text-accent" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** Ask-an-AI split button — real brand marks, sticky choice. */
+function AiShareButton({ graph }: { graph: JourneyGraph }) {
+  const { toast } = useToast();
+  const openTarget = useCallback(
+    (target: AiTarget) => {
+      try {
+        window.open(
+          aiChatUrl(target, buildAiPrompt(graph)),
+          "_blank",
+          "noopener,noreferrer",
+        );
+      } catch {
+        toast({ variant: "error", title: "Could not open the AI chat" });
+      }
+    },
+    [graph, toast],
+  );
+
+  return (
+    <SplitButton<AiTarget>
+      items={AI_TARGETS}
+      storageKey={AI_STORAGE_KEY}
+      defaultId="claude"
+      onAct={openTarget}
+      renderLabel={(item) => `Ask ${item.label}`}
+      caretLabel="Choose an AI"
+    />
+  );
+}
+
+// --- Side-panel building blocks -------------------------------------------
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return <h4 className="eyebrow text-white/40">{children}</h4>;
+}
+
+function DetailRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex gap-3">
+      <span className="w-24 shrink-0 text-sm text-white/50">{label}</span>
+      <div className="min-w-0 flex-1 text-sm text-white/90">{children}</div>
+    </div>
+  );
+}
+
+function formatDurationObject(d: Record<string, number>): string {
+  const parts = Object.entries(d).map(([unit, n]) => {
+    if (unit === "hours" && n >= 24 && n % 24 === 0) {
+      const days = n / 24;
+      return `${days} ${days === 1 ? "day" : "days"}`;
+    }
+    const base = unit.replace(/s$/, "");
+    return `${n} ${n === 1 ? base : `${base}s`}`;
+  });
+  return parts.join(", ") || "—";
+}
+
+function SendNodePreview({
+  template,
+  templatePath,
+}: {
+  template: string;
+  templatePath?: string;
+}) {
+  const { toast } = useToast();
+  const query = useQuery({
+    queryKey: qk.templatePreview(template),
+    queryFn: () => getTemplatePreview(template),
+  });
+  const openHref = `${config.baseUrl}/v1/admin/templates/${encodeURIComponent(
+    template,
+  )}/preview?format=html`;
+  const canOpenIde = config.isLocalhost && !!templatePath;
+  return (
+    <section className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <SectionHeading>Email preview</SectionHeading>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              window.open(openHref, "_blank", "noopener,noreferrer")
+            }
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            Preview
+          </Button>
+          {canOpenIde ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!templatePath) return;
+                openFileInEditor(templatePath).catch(() => {
+                  toast({
+                    variant: "error",
+                    title: "Couldn't open your editor",
+                  });
+                });
+              }}
+            >
+              <FileCode2 className="h-3.5 w-3.5" />
+              Open in IDE
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      <p
+        className="truncate font-mono text-[11px] text-white/45"
+        title={template}
+      >
+        {template}
+      </p>
+      {query.isPending ? (
+        <Skeleton className="h-[420px] w-full" />
+      ) : query.isError ? (
+        <ErrorState error={query.error} onRetry={() => query.refetch()} />
+      ) : (
+        <div className="overflow-hidden rounded-lg border bg-white">
+          <iframe
+            title={`${template} preview`}
+            srcDoc={query.data.html}
+            sandbox=""
+            className="h-[520px] w-full"
+          />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NodeDetailBody({
+  node,
+  metric,
+}: {
+  node: JourneyGraphNode;
+  metric: JourneyNodeMetric;
+}) {
+  const style = NODE_STYLE[node.type];
+  const meta = node.meta;
+  const templateKey = metric.templateKey ?? meta?.template;
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <span
+            className="h-2.5 w-2.5 rounded-full"
+            style={{ backgroundColor: style.rail }}
+          />
+          <span className="eyebrow text-white/50">{style.kind}</span>
+        </div>
+        <p className="font-display text-base leading-tight text-white tracking-[-0.02em]">
+          {node.title}
+        </p>
+      </div>
+
+      {node.type === "send" ? (
+        templateKey ? (
+          <SendNodePreview
+            template={templateKey}
+            templatePath={metric.templatePath}
+          />
+        ) : (
+          <p className="rounded-md border border-dashed border-white/15 p-3 text-sm text-white/60">
+            No sends recorded yet — preview appears once this journey sends.
+          </p>
+        )
+      ) : null}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-md border border-hairline-faint bg-white/[0.015] p-3">
+          <p className="eyebrow text-white/50">Live here</p>
+          <p className="mt-1 font-display text-lg text-white">{metric.live}</p>
+        </div>
+        <div className="rounded-md border border-hairline-faint bg-white/[0.015] p-3">
+          <p className="eyebrow text-white/50">Failed here</p>
+          <p className="mt-1 font-display text-lg text-white">
+            {metric.failed}
+          </p>
+        </div>
+      </div>
+
+      <section className="space-y-2.5">
+        <SectionHeading>Details</SectionHeading>
+        <DetailRow label="Node id">
+          <code className="break-all font-mono text-xs text-white/70">
+            {node.id}
+          </code>
+        </DetailRow>
+        {node.subtitle ? (
+          <DetailRow label="Summary">{node.subtitle}</DetailRow>
+        ) : null}
+        {meta?.event ? (
+          <DetailRow label="Event">
+            <code className="font-mono text-xs text-accent">{meta.event}</code>
+          </DetailRow>
+        ) : null}
+        {meta?.duration ? (
+          <DetailRow label="Duration">
+            {formatDurationObject(meta.duration)}
+          </DetailRow>
+        ) : null}
+        {meta?.timeout ? (
+          <DetailRow label="Timeout">
+            {formatDurationObject(meta.timeout)}
+          </DetailRow>
+        ) : null}
+        {templateKey ? (
+          <DetailRow label="Template">
+            <code className="font-mono text-xs text-white/80">
+              {templateKey}
+            </code>
+          </DetailRow>
+        ) : null}
+        {meta?.idempotencyLabel ? (
+          <DetailRow label="Idempotency">{meta.idempotencyLabel}</DetailRow>
+        ) : null}
+        {meta?.connectorId ? (
+          <DetailRow label="Connector">{meta.connectorId}</DetailRow>
+        ) : null}
+        {meta?.action ? (
+          <DetailRow label="Action">{meta.action}</DetailRow>
+        ) : null}
+        {typeof node.line === "number" ? (
+          <DetailRow label="Source line">{node.line}</DetailRow>
+        ) : null}
+        {meta?.unstable ? (
+          <DetailRow label="Note">
+            <span className="text-white/60">
+              Dynamic node id — live metrics may not attach.
+            </span>
+          </DetailRow>
+        ) : null}
+      </section>
+
+      {meta?.conditions && meta.conditions.length > 0 ? (
+        <section className="space-y-2">
+          <SectionHeading>Conditions</SectionHeading>
+          <pre className="max-h-48 overflow-auto rounded-md border bg-black/30 p-3 font-mono text-xs text-white/70">
+            {JSON.stringify(meta.conditions, null, 2)}
+          </pre>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+/** Shown in the side panel before a node is picked: hint + a type legend. */
+function NodePanelPlaceholder({ graph }: { graph: JourneyGraph }) {
+  const types = useMemo(() => {
+    const seen = new Set<JourneyGraphNodeType>();
+    const ordered: JourneyGraphNodeType[] = [];
+    for (const node of graph.nodes) {
+      if (seen.has(node.type)) continue;
+      seen.add(node.type);
+      ordered.push(node.type);
+    }
+    return ordered;
+  }, [graph]);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-white/60">
+        Select a node to inspect it — its metrics, config, and (for email nodes)
+        the rendered template preview appear here.
+      </p>
+      <section className="space-y-2">
+        <SectionHeading>Legend</SectionHeading>
+        <ul className="space-y-1.5">
+          {types.map((type) => (
+            <li key={type} className="flex items-center gap-2 text-sm">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: NODE_STYLE[type].rail }}
+              />
+              <span className="text-white/70">{NODE_STYLE[type].kind}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
+
+// --- Export ----------------------------------------------------------------
+
+/**
+ * Shared html-to-image options — structurally a subset of the package's
+ * (non-re-exported) `Options`, so it stays assignable to toPng/toJpeg/toSvg/
+ * toCanvas.
+ */
+type CaptureOptions = {
+  backgroundColor: string;
+  width: number;
+  height: number;
+  style: { width: string; height: string; transform: string };
+};
+
+/** Frame every node into the same fixed 1400x900 box the PNG export used. */
+function captureFlowImage(
+  getNodes: () => Node[],
+): { node: HTMLElement; options: CaptureOptions } | null {
+  const node = document.querySelector<HTMLElement>(".react-flow__viewport");
+  if (!node) return null;
+  const width = 1400;
+  const height = 900;
+  const bounds = getNodesBounds(getNodes());
+  const transform = getViewportForBounds(bounds, width, height, 0.3, 2, 0.15);
+  return {
+    node,
+    options: {
+      backgroundColor: "#050101",
+      width,
+      height,
+      style: {
+        width: `${width}px`,
+        height: `${height}px`,
+        transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.zoom})`,
+      },
+    },
+  };
+}
+
+/** html-to-image has no `toWebp` — render to a canvas, then encode WebP. */
+async function toWebp(
+  node: HTMLElement,
+  options: CaptureOptions,
+): Promise<string> {
+  const canvas = await toCanvas(node, options);
+  return canvas.toDataURL("image/webp", 0.92);
+}
+
+type ExportFormat = "png" | "jpeg" | "webp" | "svg";
+
+type ExportFormatDef = SplitItem<ExportFormat> & {
+  ext: string;
+  encode: (node: HTMLElement, options: CaptureOptions) => Promise<string>;
+};
+
+// JPEG relies on the solid `backgroundColor` in CaptureOptions ("#050101").
+const EXPORT_FORMATS: readonly ExportFormatDef[] = [
+  { id: "png", label: "PNG", ext: "png", encode: toPng },
+  { id: "jpeg", label: "JPEG", ext: "jpg", encode: toJpeg },
+  { id: "webp", label: "WebP", ext: "webp", encode: toWebp },
+  { id: "svg", label: "SVG", ext: "svg", encode: toSvg },
+];
+
+const EXPORT_STORAGE_KEY = "hs.studio.export-format";
+
+/** Export the flow as an image — split button, format persisted per browser. */
+function ExportButton({ graph }: { graph: JourneyGraph }) {
+  const { getNodes } = useReactFlow();
+  const { toast } = useToast();
+
+  const runExport = useCallback(
+    async (id: ExportFormat) => {
+      const format =
+        EXPORT_FORMATS.find((f) => f.id === id) ?? EXPORT_FORMATS[0];
+      if (!format) return;
+      const capture = captureFlowImage(getNodes);
+      if (!capture) return;
+      try {
+        const dataUrl = await format.encode(capture.node, capture.options);
+        downloadDataUrl(
+          `journey-${graph.journeyId}-flow.${format.ext}`,
+          dataUrl,
+        );
+      } catch {
+        toast({ variant: "error", title: `${format.label} export failed` });
+      }
+    },
+    [getNodes, graph.journeyId, toast],
+  );
+
+  return (
+    <SplitButton<ExportFormat>
+      items={EXPORT_FORMATS}
+      storageKey={EXPORT_STORAGE_KEY}
+      defaultId="png"
+      onAct={(id) => void runExport(id)}
+      renderLabel={(item) => `Export ${item.label}`}
+      caretLabel="Choose an image format"
+      primaryIcon={{ Icon: ImageDown }}
+    />
+  );
+}
+
+// --- Toolbar ---------------------------------------------------------------
+
+function FlowToolbar({ graph }: { graph: JourneyGraph }) {
+  const { fitView } = useReactFlow();
+  const { toast } = useToast();
+
+  const onCopyMermaid = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(toMermaid(graph));
+      toast({
+        title: "Mermaid copied",
+        description: "Flowchart source is on your clipboard.",
+      });
+    } catch {
+      toast({
+        variant: "error",
+        title: "Copy failed",
+        description: "Clipboard permission was denied.",
+      });
+    }
+  }, [graph, toast]);
+
+  const onOpenMermaidLive = useCallback(() => {
+    try {
+      window.open(
+        mermaidLiveUrl(toMermaid(graph)),
+        "_blank",
+        "noopener,noreferrer",
+      );
+    } catch {
+      toast({ variant: "error", title: "Could not open mermaid.live" });
+    }
+  }, [graph, toast]);
+
+  // Feature B — open the journey source file in the developer's editor. Dev-only:
+  // the engine (same machine) auto-detects the running editor and spawns it.
+  const source = graph.source;
+  const canOpenInEditor = config.isLocalhost && !!source?.path;
+  const onOpenInEditor = useCallback(() => {
+    if (!source?.path) return;
+    openFileInEditor(source.path, source.line).catch(() => {
+      toast({
+        variant: "error",
+        title: "Couldn't open your editor",
+        description: "The dev server must be running on this machine.",
+      });
+    });
+  }, [source, toast]);
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Button variant="outline" size="sm" onClick={() => fitView()}>
+        <Maximize2 className="h-3.5 w-3.5" />
+        Fit
+      </Button>
+      <Button variant="outline" size="sm" onClick={onCopyMermaid}>
+        <Copy className="h-3.5 w-3.5" />
+        Copy Mermaid
+      </Button>
+      <Button variant="outline" size="sm" onClick={onOpenMermaidLive}>
+        <Share2 className="h-3.5 w-3.5" />
+        mermaid.live
+      </Button>
+
+      {/* Feature A — ask an AI about this journey (split button, real logos) */}
+      <AiShareButton graph={graph} />
+
+      {/* Export the flow — split button with PNG/JPEG/WebP/SVG */}
+      <ExportButton graph={graph} />
+
+      {/* Feature B — open the journey file in your editor (local dev only) */}
+      {canOpenInEditor ? (
+        <Button variant="outline" size="sm" onClick={onOpenInEditor}>
+          <FileCode2 className="h-3.5 w-3.5" />
+          Open in IDE
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+// --- Canvas + inline resizable side panel ---------------------------------
+
+function JourneyFlowCanvas({ data }: { data: JourneyGraphResponse }) {
+  const { graph, metrics } = data;
+  const { fitView } = useReactFlow();
+
+  const graphLayout = useMemo(
+    () =>
+      layoutGraph({
+        nodes: graph.nodes.map((n) => ({ id: n.id, type: n.type })),
+        edges: graph.edges.map((e) => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+        })),
+      }),
+    [graph],
+  );
+  const rfNodes = useMemo(
+    () => buildRfNodes(graph, metrics, graphLayout.positions),
+    [graph, metrics, graphLayout],
+  );
+  const rfEdges = useMemo(
+    () => buildRfEdges(graph, graphLayout.edgePoints),
+    [graph, graphLayout],
+  );
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(rfNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(rfEdges);
+
+  const flowWrapRef = useRef<HTMLDivElement>(null);
+
+  // Re-sync when a refetch produces a new graph/metrics (idempotent under
+  // StrictMode — setState with the same value is a no-op).
+  useEffect(() => setNodes(rfNodes), [rfNodes, setNodes]);
+  useEffect(() => setEdges(rfEdges), [rfEdges, setEdges]);
+
+  // Fit the graph once the pane actually has real dimensions. The canvas lives
+  // in a react-resizable-panels Panel whose size is set async (ResizeObserver),
+  // so a mount-time fitView measures a near-zero box and shrinks the whole
+  // journey to a speck that never grows back. Refitting on every real resize
+  // (mount, panel settle, divider drag) keeps the diagram filling the card.
+  useEffect(() => {
+    const el = flowWrapRef.current;
+    if (!el) return;
+    let raf = 0;
+    const refit = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (el.clientWidth > 0 && el.clientHeight > 0) {
+          fitView({ padding: 0.15 });
+        }
+      });
+    };
+    const observer = new ResizeObserver(refit);
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [fitView]);
+
+  // Refit when a refetch swaps in a new graph (pane size unchanged, so the
+  // observer above won't fire).
+  useEffect(() => {
+    if (rfNodes.length === 0) return;
+    const raf = requestAnimationFrame(() => fitView({ padding: 0.15 }));
+    return () => cancelAnimationFrame(raf);
+  }, [rfNodes, fitView]);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [interactive, setInteractive] = useState(false);
+
+  const selectedNode = selectedId
+    ? (graph.nodes.find((n) => n.id === selectedId) ?? null)
+    : null;
+  const selectedMetric: JourneyNodeMetric =
+    selectedId && metrics.nodes[selectedId]
+      ? metrics.nodes[selectedId]
+      : { live: 0, failed: 0 };
+
+  const degraded = graph.degraded === true;
+  const warnings = graph.warnings ?? [];
+
+  return (
+    <div className="space-y-3">
+      <FlowToolbar graph={graph} />
+
+      {degraded || warnings.length > 0 ? (
+        <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2 text-xs text-white/70">
+          {degraded ? (
+            <p className="font-medium text-white/80">
+              Showing a reduced graph — the journey source was unavailable.
+            </p>
+          ) : null}
+          {warnings.length > 0 ? (
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-white/55">
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* The fixed height MUST live on this wrapper, not on PanelGroup —
+          react-resizable-panels forces an inline `height: 100%` on the group,
+          which overrides any height class on it, so a bare `h-[…]` there is
+          silently ignored and the card collapses to content height. */}
+      <div className="h-[820px] overflow-hidden rounded-md border border-hairline-faint bg-black/20">
+        <PanelGroup direction="horizontal" className="h-full">
+          <Panel defaultSize={62} minSize={40}>
+            {/* Re-lock when the pointer leaves so wheel-scroll returns to the
+              page (a "pane-blur" lock), plus the explicit Lock button. The
+              wrapper isn't a control — the overlay button + Lock button are. */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: pointer-leave re-locks pan/zoom; the interactive affordances are the overlay + Lock buttons */}
+            <div
+              ref={flowWrapRef}
+              className="relative h-full"
+              onMouseLeave={() => setInteractive(false)}
+            >
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={(_, node) => setSelectedId(node.id)}
+                onPaneClick={() => setSelectedId(null)}
+                fitView
+                fitViewOptions={{ padding: 0.2 }}
+                minZoom={0.2}
+                nodesConnectable={false}
+                edgesFocusable={false}
+                // Interaction lock: while locked the wheel scrolls the PAGE
+                // (`preventScrolling={false}`), not the canvas.
+                zoomOnScroll={interactive}
+                zoomOnPinch={interactive}
+                zoomOnDoubleClick={interactive}
+                panOnDrag={interactive}
+                panOnScroll={false}
+                nodesDraggable={interactive}
+                preventScrolling={interactive}
+                proOptions={{ hideAttribution: false }}
+              >
+                <Background
+                  variant={BackgroundVariant.Dots}
+                  gap={20}
+                  size={1}
+                  color="rgba(255,255,255,0.09)"
+                />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+
+              {interactive ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="absolute right-2 top-2 z-10 bg-raised/80 backdrop-blur-sm"
+                  onClick={() => setInteractive(false)}
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  Lock
+                </Button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label="Click to interact with the diagram"
+                  className="absolute inset-0 z-10 flex cursor-pointer items-center justify-center bg-ink/20"
+                  onClick={() => setInteractive(true)}
+                >
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline-faint bg-raised/80 px-3 py-1.5 text-xs text-white/70 backdrop-blur-sm">
+                    <MousePointerClick className="h-3.5 w-3.5" />
+                    Click to interact
+                  </span>
+                </button>
+              )}
+            </div>
+          </Panel>
+
+          <PanelResizeHandle className="group relative flex w-2 items-center justify-center outline-none">
+            <div className="h-full w-px bg-hairline-faint transition-colors group-hover:bg-accent/40 group-data-[resize-handle-state=drag]:bg-accent" />
+          </PanelResizeHandle>
+
+          <Panel defaultSize={38} minSize={24}>
+            <aside className="h-full overflow-y-auto bg-white/[0.015] p-4">
+              {selectedNode ? (
+                <NodeDetailBody node={selectedNode} metric={selectedMetric} />
+              ) : (
+                <NodePanelPlaceholder graph={graph} />
+              )}
+            </aside>
+          </Panel>
+        </PanelGroup>
+      </div>
+    </div>
+  );
+}
+
+// --- Public view -----------------------------------------------------------
 
 export function JourneyFlow({ journeyId }: { journeyId: string }) {
   const query = useQuery({
@@ -301,946 +1242,14 @@ export function JourneyFlow({ journeyId }: { journeyId: string }) {
     queryFn: () => getJourneyGraph(journeyId),
   });
 
-  if (query.isPending) {
-    return <Skeleton className="h-[420px] w-full" />;
-  }
+  if (query.isPending) return <TableSkeleton rows={4} />;
   if (query.isError) {
     return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
   }
 
-  const {
-    mermaid,
-    graph,
-    counts,
-    sourceLevel,
-    generatedAt,
-    stale,
-    staleReason,
-  } = query.data;
-
-  // Metadata-only skeleton: no authored control flow to show.
-  if (sourceLevel === "metadata") {
-    return (
-      <EmptyState
-        icon={GitBranch}
-        title="No flow graph yet"
-        description="Run `hogsend journeys graph --all` to generate the authored control flow, then reload."
-      />
-    );
-  }
-
   return (
-    <FlowCanvas
-      journeyId={journeyId}
-      mermaid={mermaid}
-      graph={graph}
-      counts={counts.perNode}
-      generatedAt={generatedAt}
-      stale={stale}
-      staleReason={staleReason}
-    />
-  );
-}
-
-/** Copy-to-clipboard button with a transient "copied" check. */
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-6 px-1.5"
-      onClick={() => {
-        navigator.clipboard?.writeText(text).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
-      }}
-    >
-      {copied ? (
-        <Check className="h-3 w-3 text-emerald-400" strokeWidth={1.5} />
-      ) : (
-        <Copy className="h-3 w-3" strokeWidth={1.5} />
-      )}
-    </Button>
-  );
-}
-
-/**
- * Settings for "open source" links. Two modes:
- *   - Repo link (default, easiest): paste your GitHub/GitLab blob base once and
- *     every node links there — works on any machine, shareable, no editor
- *     install needed.
- *   - Local IDE (power users): a `vscode://`-style scheme + your absolute
- *     checkout root (kept on-device, never sent to the server).
- */
-function SourceLinkDialog({
-  open,
-  onClose,
-  onSave,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSave: (config: SourceLinkConfig) => void;
-}) {
-  const initial = getSourceLinkConfig();
-  const [mode, setMode] = useState<OpenMode>(initial.mode);
-  const [repoBaseUrl, setRepoBaseUrl] = useState(initial.repoBaseUrl);
-  const matchedPreset =
-    IDE_PRESETS.find((p) => p.template === initial.template)?.id ?? "custom";
-  const [presetId, setPresetId] = useState(matchedPreset);
-  const [template, setTemplate] = useState(initial.template);
-  const [projectRoot, setProjectRoot] = useState(initial.projectRoot);
-
-  const modes: Array<{ id: OpenMode; label: string }> = [
-    { id: "repo", label: "Repo link" },
-    { id: "ide", label: "Local IDE" },
-  ];
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Open source"
-      description="Jump from a node to its authored source at the exact line."
-      footer={
-        <>
-          <Button variant="outline" size="sm" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              const config = { mode, repoBaseUrl, template, projectRoot };
-              setSourceLinkConfig(config);
-              onSave(config);
-              onClose();
-            }}
-          >
-            Save
-          </Button>
-        </>
-      }
-    >
-      {/* Mode toggle */}
-      <div className="flex overflow-hidden rounded-md border border-hairline-faint">
-        {modes.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => setMode(m.id)}
-            className={`flex-1 px-3 py-1.5 text-sm transition-colors ${
-              mode === m.id
-                ? "bg-accent-tint text-white"
-                : "text-white/50 hover:bg-white/[0.04] hover:text-white/80"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
-
-      {mode === "repo" ? (
-        <div className="space-y-1.5">
-          <Label htmlFor="repo-base">Repository blob URL</Label>
-          <Input
-            id="repo-base"
-            value={repoBaseUrl}
-            onChange={(e) => setRepoBaseUrl(e.target.value)}
-            placeholder="https://github.com/org/repo/blob/main"
-          />
-          <p className="text-xs text-white/40">
-            The base for a source file at a branch. A node's path + line is
-            appended, e.g.{" "}
-            <code className="font-mono">…/blob/main/src/journeys/x.ts#L42</code>
-            . Works anywhere and is shareable — no editor install needed.
-          </p>
-        </div>
-      ) : (
-        <>
-          <div className="space-y-1.5">
-            <Label htmlFor="ide-preset">Editor</Label>
-            <Select
-              id="ide-preset"
-              value={presetId}
-              onChange={(e) => {
-                const id = e.target.value;
-                setPresetId(id);
-                const preset = IDE_PRESETS.find((p) => p.id === id);
-                if (preset) setTemplate(preset.template);
-              }}
-            >
-              {IDE_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-              <option value="custom">Custom…</option>
-            </Select>
-          </div>
-
-          {presetId === "custom" ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="ide-template">URL template</Label>
-              <Input
-                id="ide-template"
-                value={template}
-                onChange={(e) => setTemplate(e.target.value)}
-                placeholder="vscode://file{path}:{line}"
-              />
-              <p className="text-xs text-white/40">
-                Placeholders: {"{path}"} (absolute), {"{line}"}, {"{relPath}"},{" "}
-                {"{root}"}.
-              </p>
-            </div>
-          ) : null}
-
-          <div className="space-y-1.5">
-            <Label htmlFor="ide-root">Local project root</Label>
-            <Input
-              id="ide-root"
-              value={projectRoot}
-              onChange={(e) => setProjectRoot(e.target.value)}
-              placeholder="/Users/you/code/my-app"
-            />
-            <p className="text-xs text-white/40">
-              Absolute path to your checkout on this machine — kept on this
-              device, never sent to the server. A `vscode://` link silently does
-              nothing if the editor isn't installed.
-            </p>
-          </div>
-        </>
-      )}
-    </Dialog>
-  );
-}
-
-/** Compact rendered preview of an email template for the node panel. */
-function TemplatePreviewPanel({ node }: { node: JourneyGraphNode }) {
-  const key = node.templateKey;
-  const query = useQuery({
-    queryKey: qk.templatePreview(key ?? ""),
-    queryFn: () => getTemplatePreview(key as string),
-    enabled: Boolean(key),
-  });
-
-  if (!key) {
-    return (
-      <div className="border-t border-hairline-faint pt-2 text-xs text-white/45">
-        Template not resolved from source
-        {node.templateRef ? (
-          <>
-            {" "}
-            (<code className="font-mono text-white/55">{node.templateRef}</code>
-            ) — it may be computed at runtime.
-          </>
-        ) : (
-          "."
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1.5 border-t border-hairline-faint pt-2">
-      <div className="text-[10px] uppercase tracking-wide text-white/40">
-        Template preview
-      </div>
-      {query.isPending ? (
-        <Skeleton className="h-40 w-full" />
-      ) : query.isError || !query.data ? (
-        <p className="text-xs text-white/45">
-          Preview unavailable for <code className="font-mono">{key}</code> — it
-          isn't in the email registry.
-        </p>
-      ) : (
-        <>
-          <div className="text-xs text-white/70">
-            <span className="text-white/40">Subject: </span>
-            {query.data.subject}
-          </div>
-          {/* Sandboxed, script-free preview: consumer-authored HTML must never
-              execute inside Studio (same lesson as the docs Mermaid XSS pass). */}
-          <div className="h-44 overflow-hidden rounded border border-hairline-faint bg-white">
-            <iframe
-              title={`Preview of ${key}`}
-              srcDoc={query.data.html}
-              sandbox=""
-              className="h-[420px] w-[600px] origin-top-left"
-              style={{ transform: "scale(0.44)", border: "0" }}
-            />
-          </div>
-        </>
-      )}
-      {/* Jump to the full Templates page for this template (stats, send-test,
-          full-size preview) — deep-linked by key. */}
-      <a
-        href={`/studio/templates?key=${encodeURIComponent(key)}`}
-        className="inline-flex items-center gap-1 text-[11px] text-accent/90 hover:text-accent"
-      >
-        View in Templates
-        <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
-      </a>
-    </div>
-  );
-}
-
-/**
- * Side panel for a clicked node. Kind-specific detail:
- *   - email: template preview + per-template send metrics
- *   - branch: condition + yes/no destinations
- *   - wait: event, timeout, users parked here
- *   - sleep/schedule: duration / when expression
- *   - trigger / trigger-event / exit: the event contract
- * Every node offers an "Open in IDE" deep link (or a copy fallback) to its
- * authored `file:line`.
- */
-function NodePanel({
-  journeyId,
-  graph,
-  node,
-  count,
-  metrics,
-  onClose,
-}: {
-  journeyId: string;
-  graph: JourneyGraphData;
-  node: JourneyGraphNode;
-  count: number | undefined;
-  metrics: FlowNodeMetrics | undefined;
-  onClose: () => void;
-}) {
-  const [linkConfig, setLinkConfig] = useState<SourceLinkConfig>(
-    getSourceLinkConfig(),
-  );
-  const [ideOpen, setIdeOpen] = useState(false);
-
-  const statesQuery = useQuery({
-    queryKey: qk.journeyStates(journeyId, { node: node.countKey, limit: 8 }),
-    queryFn: () =>
-      listJourneyStates(journeyId, { node: node.countKey, limit: 8 }),
-    enabled: Boolean(node.countKey),
-  });
-
-  const sourceFile = graph.sourceFile;
-  const codePointer =
-    sourceFile && node.sourceLine
-      ? `${sourceFile}:${node.sourceLine}`
-      : sourceFile;
-  const sourceLink =
-    sourceFile != null
-      ? buildSourceLink({
-          sourceFile,
-          line: node.sourceLine,
-          config: linkConfig,
-        })
-      : null;
-
-  // Branch arms: outgoing edges labelled yes/no → their target node labels.
-  const branchArms =
-    node.kind === "branch"
-      ? graph.edges
-          .filter((e) => e.from === node.id)
-          .map((e) => ({
-            label: e.label ?? "→",
-            target: graph.nodes.find((n) => n.id === e.to)?.label ?? e.to,
-          }))
-      : [];
-
-  return (
-    <div className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto rounded-md border border-hairline-faint bg-white/[0.015] p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <div className="text-[10px] uppercase tracking-wide text-white/40">
-            {node.kind}
-          </div>
-          <div className="mt-0.5 text-sm text-white/90">{node.label}</div>
-          {node.detail ? (
-            <div className="mt-0.5 font-mono text-[11px] text-white/45">
-              {node.detail}
-            </div>
-          ) : null}
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 px-1.5"
-          onClick={onClose}
-        >
-          <X className="h-3 w-3" strokeWidth={1.5} />
-        </Button>
-      </div>
-
-      {count !== undefined && count > 0 ? (
-        <div className="text-xs text-white/60">
-          <span className="font-medium text-white/90">
-            {formatNumber(count)}
-          </span>{" "}
-          user(s) currently here
-        </div>
-      ) : null}
-
-      {/* Kind-specific detail. */}
-      {node.kind === "email" ? <TemplatePreviewPanel node={node} /> : null}
-
-      {node.kind === "branch" && branchArms.length > 0 ? (
-        <div className="space-y-1 border-t border-hairline-faint pt-2 text-xs text-white/60">
-          <div className="text-[10px] uppercase tracking-wide text-white/40">
-            Branches to
-          </div>
-          {branchArms.map((arm) => (
-            <div
-              key={`${arm.label}-${arm.target}`}
-              className="flex items-center justify-between gap-2"
-            >
-              <span className="shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-white/70">
-                {arm.label}
-              </span>
-              <span className="min-w-0 truncate text-right text-white/80">
-                {arm.target}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
-      {node.kind === "wait" ? (
-        <div className="space-y-1 border-t border-hairline-faint pt-2 text-xs text-white/60">
-          <div className="flex justify-between gap-2">
-            <span>Waits for</span>
-            <span className="min-w-0 truncate font-mono text-white/85">
-              {node.label}
-            </span>
-          </div>
-          {node.detail ? (
-            <div className="flex justify-between gap-2">
-              <span>Timeout</span>
-              <span className="text-white/85">
-                {node.detail.replace(/^timeout /, "")}
-              </span>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {(node.kind === "sleep" || node.kind === "schedule") && node.detail ? (
-        <div className="flex justify-between gap-2 border-t border-hairline-faint pt-2 text-xs text-white/60">
-          <span>{node.kind === "sleep" ? "Duration" : "When"}</span>
-          <span className="min-w-0 truncate font-mono text-white/85">
-            {node.detail}
-          </span>
-        </div>
-      ) : null}
-
-      {node.kind === "trigger" ||
-      node.kind === "trigger-event" ||
-      node.kind === "exit" ? (
-        <div className="flex justify-between gap-2 border-t border-hairline-faint pt-2 text-xs text-white/60">
-          <span>
-            {node.kind === "trigger"
-              ? "Entry event"
-              : node.kind === "exit"
-                ? "Exit event"
-                : "Emits"}
-          </span>
-          <span className="min-w-0 truncate font-mono text-white/85">
-            {node.label}
-          </span>
-        </div>
-      ) : null}
-
-      {metrics ? (
-        <div className="space-y-1 border-t border-hairline-faint pt-2 text-xs text-white/60">
-          <div className="flex justify-between">
-            <span>Sent</span>
-            <span className="text-white/90">{formatNumber(metrics.sent)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Opened</span>
-            <span className="text-white/90">
-              {formatNumber(metrics.opened)}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Clicked</span>
-            <span className="text-white/90">
-              {formatNumber(metrics.clicked)}
-            </span>
-          </div>
-        </div>
-      ) : null}
-
-      {codePointer ? (
-        <div className="space-y-1.5 border-t border-hairline-faint pt-2">
-          <div className="flex items-center gap-1.5">
-            <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-white/55">
-              {codePointer}
-            </code>
-            <CopyButton text={codePointer} />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-1.5"
-              aria-label="Open-source link settings"
-              onClick={() => setIdeOpen(true)}
-            >
-              <Settings2 className="h-3 w-3" strokeWidth={1.5} />
-            </Button>
-          </div>
-          {sourceLink ? (
-            <a
-              href={sourceLink.url}
-              target={sourceLink.web ? "_blank" : undefined}
-              rel={sourceLink.web ? "noopener" : undefined}
-              className="inline-block"
-            >
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 gap-1 px-2 text-[11px]"
-              >
-                <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
-                {sourceLink.label}
-              </Button>
-            </a>
-          ) : (
-            <button
-              type="button"
-              className="text-[11px] text-white/40 underline-offset-2 hover:text-white/60 hover:underline"
-              onClick={() => setIdeOpen(true)}
-            >
-              Set a repo URL to open the source
-            </button>
-          )}
-        </div>
-      ) : null}
-
-      {node.countKey ? (
-        <div className="border-t border-hairline-faint pt-2">
-          <div className="mb-1.5 text-[10px] uppercase tracking-wide text-white/40">
-            Parked here
-          </div>
-          {statesQuery.isPending ? (
-            <Skeleton className="h-16 w-full" />
-          ) : statesQuery.isError || !statesQuery.data ? (
-            <p className="text-xs text-white/45">Could not load states.</p>
-          ) : statesQuery.data.states.length === 0 ? (
-            <p className="text-xs text-white/45">No users at this node.</p>
-          ) : (
-            <ul className="space-y-1.5">
-              {statesQuery.data.states.map((s) => (
-                <li
-                  key={s.id}
-                  className="flex items-center justify-between gap-2 text-xs"
-                >
-                  <span className="min-w-0 truncate text-white/80">
-                    {s.userEmail || s.userId}
-                  </span>
-                  <span className="shrink-0 text-white/40">
-                    {formatRelative(s.updatedAt)}
-                  </span>
-                </li>
-              ))}
-              {statesQuery.data.total > statesQuery.data.states.length ? (
-                <li className="text-[11px] text-white/40">
-                  +{statesQuery.data.total - statesQuery.data.states.length}{" "}
-                  more
-                </li>
-              ) : null}
-            </ul>
-          )}
-        </div>
-      ) : null}
-
-      <SourceLinkDialog
-        open={ideOpen}
-        onClose={() => setIdeOpen(false)}
-        onSave={setLinkConfig}
-      />
-    </div>
-  );
-}
-
-/**
- * Export the current canvas as a deck-grade PNG: the graph bounds framed with a
- * title band (journey id + generated-at) on top and a kind legend on the
- * bottom, at 2× density. Best-effort — logs + toasts on failure via caller.
- */
-async function exportPng(
-  container: HTMLElement,
-  nodes: Node[],
-  journeyId: string,
-  generatedAt: string | null,
-): Promise<void> {
-  const bounds = getNodesBounds(
-    nodes.map((n) => ({ ...n, width: NODE_WIDTH, height: NODE_HEIGHT })),
-  );
-  const width = Math.min(Math.max(bounds.width + 120, 640), 4096);
-  const height = Math.min(Math.max(bounds.height + 120, 480), 4096);
-  const viewport = getViewportForBounds(bounds, width, height, 0.4, 2, 0.08);
-  const el = container.querySelector<HTMLElement>(".react-flow__viewport");
-  if (!el) return;
-
-  const scale = 2;
-  const graphUrl = await toPng(el, {
-    backgroundColor: "#050101",
-    width,
-    height,
-    pixelRatio: scale,
-    style: {
-      width: `${width}px`,
-      height: `${height}px`,
-      transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
-    },
-  });
-
-  // Compose the frame: title band + graph + legend band, all at 2× density.
-  const img = new Image();
-  await new Promise<void>((res, rej) => {
-    img.onload = () => res();
-    img.onerror = () => rej(new Error("graph image failed to load"));
-    img.src = graphUrl;
-  });
-
-  const pad = 24 * scale;
-  const titleH = 64 * scale;
-  const legendH = 44 * scale;
-  const canvas = document.createElement("canvas");
-  canvas.width = img.width;
-  canvas.height = img.height + titleH + legendH;
-  const cx = canvas.getContext("2d");
-  if (!cx) return;
-
-  cx.fillStyle = "#050101";
-  cx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Title + timestamp.
-  cx.textBaseline = "middle";
-  cx.fillStyle = "#ffffff";
-  cx.font = `600 ${20 * scale}px ui-sans-serif, system-ui, sans-serif`;
-  cx.fillText(journeyId, pad, titleH * 0.42);
-  cx.fillStyle = "rgba(255,255,255,0.5)";
-  cx.font = `${12 * scale}px ui-sans-serif, system-ui, sans-serif`;
-  const stamp = generatedAt
-    ? `Generated ${formatRelative(generatedAt)}`
-    : "Journey flow";
-  cx.fillText(stamp, pad, titleH * 0.78);
-
-  // Graph.
-  cx.drawImage(img, 0, titleH);
-
-  // Legend band.
-  const legendY = titleH + img.height + legendH / 2;
-  let lx = pad;
-  cx.font = `${11 * scale}px ui-sans-serif, system-ui, sans-serif`;
-  for (const item of LEGEND) {
-    const dotR = 4 * scale;
-    cx.fillStyle = KIND_HEX[item.kind];
-    cx.beginPath();
-    cx.arc(lx + dotR, legendY, dotR, 0, Math.PI * 2);
-    cx.fill();
-    cx.fillStyle = "rgba(255,255,255,0.65)";
-    const text = item.label;
-    cx.fillText(text, lx + dotR * 2 + 4 * scale, legendY);
-    lx += dotR * 2 + 8 * scale + cx.measureText(text).width + 14 * scale;
-    if (lx > canvas.width - pad) break; // don't overflow the frame
-  }
-
-  const a = document.createElement("a");
-  a.setAttribute("download", `${journeyId}-flow.png`);
-  a.setAttribute("href", canvas.toDataURL("image/png"));
-  a.click();
-}
-
-function FlowCanvas({
-  journeyId,
-  mermaid,
-  graph,
-  counts,
-  generatedAt,
-  stale,
-  staleReason,
-}: {
-  journeyId: string;
-  mermaid: string;
-  graph: JourneyGraphData;
-  counts: Record<string, number>;
-  generatedAt: string | null;
-  stale: boolean;
-  staleReason: string | null;
-}) {
-  const { toast } = useToast();
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const [showMetrics, setShowMetrics] = useState(false);
-  const [mermaidCopied, setMermaidCopied] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [layout, setLayoutMode] = useState<LayoutMode>(getLayout);
-
-  const templatesQuery = useQuery({
-    queryKey: qk.journeyTemplates(journeyId),
-    queryFn: () => getJourneyTemplates(journeyId),
-    enabled: showMetrics || selectedId !== null,
-  });
-  const templates = templatesQuery.data?.templates;
-
-  const {
-    nodes: rawNodes,
-    edges: rawEdges,
-    fallback,
-  } = useMemo(
-    () => layoutGraph(graph, layout, showMetrics),
-    [graph, layout, showMetrics],
-  );
-
-  // Attach live counts to nodes. countKey is the single join contract with the
-  // route's `perNode` (which groups by `journeyStates.currentNodeId`): the
-  // extractor sets it to mirror the engine's write key for checkpoints,
-  // waits, and the trigger ("start"). Nodes without a countKey (sleeps,
-  // emails) correctly show no badge. Metrics attach to email nodes when the
-  // overlay toggle is on.
-  const nodes: Node[] = useMemo(() => {
-    return rawNodes.map((n) => {
-      const data = n.data as { node: JourneyGraphNode };
-      const key = data.node.countKey;
-      const count = key ? counts[key] : undefined;
-      const metrics = showMetrics
-        ? metricsForNode(data.node, templates)
-        : undefined;
-      return { ...n, data: { ...n.data, count, metrics } };
-    });
-  }, [rawNodes, counts, showMetrics, templates]);
-
-  // Edges with live users at their source node get an animated flow dot.
-  const edges: Edge[] = useMemo(() => {
-    const liveNodeIds = new Set(
-      rawNodes
-        .filter((n) => {
-          const key = (n.data as { node: JourneyGraphNode }).node.countKey;
-          return key ? (counts[key] ?? 0) > 0 : false;
-        })
-        .map((n) => n.id),
-    );
-    return rawEdges.map((e) => ({
-      ...e,
-      data: { ...e.data, live: liveNodeIds.has(e.source) },
-    }));
-  }, [rawEdges, rawNodes, counts]);
-
-  const selectedNode = selectedId
-    ? (nodes.find((n) => n.id === selectedId)?.data as
-        | { node: JourneyGraphNode; count?: number }
-        | undefined)
-    : undefined;
-
-  async function copyMermaid() {
-    if (!mermaid) return;
-    try {
-      await navigator.clipboard.writeText(mermaid);
-      setMermaidCopied(true);
-      window.setTimeout(() => setMermaidCopied(false), 1500);
-      toast({
-        title: "Copied Mermaid",
-        description: "Journey diagram source copied to clipboard.",
-      });
-    } catch {
-      toast({ variant: "error", title: "Copy failed" });
-    }
-  }
-
-  function changeLayout(mode: LayoutMode) {
-    setLayoutMode(mode);
-    persistLayout(mode);
-  }
-
-  const LAYOUTS: Array<{ id: LayoutMode; label: string }> = [
-    { id: "TB", label: "Top-down" },
-    { id: "LR", label: "Left-right" },
-    { id: "compact", label: "Compact" },
-  ];
-
-  return (
-    <div className="space-y-4">
-      {stale ? (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/[0.06] px-3 py-2 text-xs text-amber-200/90">
-          <TriangleAlert
-            className="mt-0.5 h-3.5 w-3.5 shrink-0"
-            strokeWidth={1.5}
-          />
-          <span>
-            This graph may be out of date
-            {staleReason ? ` — ${staleReason}` : ""}.
-          </span>
-        </div>
-      ) : null}
-
-      {/* Toolbar: generation info + layout selector left, canvas actions right. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-white/40">
-            {generatedAt
-              ? `Graph generated ${formatRelative(generatedAt)}`
-              : "Graph from build manifest"}
-          </span>
-          <div className="flex overflow-hidden rounded-md border border-hairline-faint">
-            {LAYOUTS.map((l) => (
-              <button
-                key={l.id}
-                type="button"
-                onClick={() => changeLayout(l.id)}
-                className={`px-2 py-1 text-[11px] transition-colors ${
-                  layout === l.id
-                    ? "bg-accent/20 text-white"
-                    : "text-white/50 hover:bg-white/[0.04] hover:text-white/80"
-                }`}
-              >
-                {l.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!mermaid}
-            aria-label="Copy Mermaid diagram"
-            onClick={() => void copyMermaid()}
-          >
-            {mermaidCopied ? (
-              <Check className="h-4 w-4 text-emerald-400" strokeWidth={1.5} />
-            ) : (
-              <Copy className="h-4 w-4" strokeWidth={1.5} />
-            )}
-            {mermaidCopied ? "Copied" : "Mermaid"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!mermaid}
-            aria-label="Open in mermaid.live"
-            onClick={() => {
-              window.open(mermaidLiveUrl(mermaid), "_blank", "noopener");
-            }}
-          >
-            <SquareArrowOutUpRight className="h-4 w-4" strokeWidth={1.5} />
-            mermaid.live
-          </Button>
-          <Button
-            variant={showMetrics ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowMetrics((v) => !v)}
-          >
-            <BarChart3 className="h-4 w-4" strokeWidth={1.5} />
-            Metrics
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (canvasRef.current) {
-                exportPng(
-                  canvasRef.current,
-                  nodes,
-                  journeyId,
-                  generatedAt,
-                ).catch(() =>
-                  toast({ variant: "error", title: "PNG export failed" }),
-                );
-              }
-            }}
-          >
-            <ImageDown className="h-4 w-4" strokeWidth={1.5} />
-            PNG
-          </Button>
-        </div>
-      </div>
-
-      {/* The canvas — responsive height (floor 400px, cap 70vh so tall graphs
-          scroll inside rather than dominating the page). A clicked node opens
-          the side panel to the right. Keyed by layout so a mode switch
-          remounts and re-runs fitView. */}
-      <div className="flex gap-4">
-        <div
-          ref={canvasRef}
-          className="h-[520px] min-h-[400px] max-h-[70vh] min-w-0 flex-1 overflow-hidden rounded-md border border-hairline-faint bg-white/[0.015]"
-        >
-          <ReactFlow
-            key={layout}
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={FLOW_NODE_TYPES}
-            edgeTypes={FLOW_EDGE_TYPES}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable
-            onNodeClick={(_, node) => setSelectedId(node.id)}
-            onPaneClick={() => setSelectedId(null)}
-            zoomOnScroll
-            panOnDrag
-            fitView
-            // Fill the canvas: let small graphs zoom up to ~1.5 so they don't
-            // float tiny in the middle, but cap it so large (50+ node) journeys
-            // don't shrink to illegibility — the user pans instead of squinting.
-            fitViewOptions={{ padding: 0.16, minZoom: 0.3, maxZoom: 1.5 }}
-            minZoom={0.2}
-            maxZoom={2}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={20}
-              size={1}
-              color="rgba(255,255,255,0.06)"
-            />
-            <Controls
-              className="!border-hairline-faint !bg-white/[0.04] !text-white/70"
-              showInteractive={false}
-            />
-            {graph.nodes.length > 10 ? (
-              <MiniMap
-                pannable
-                zoomable
-                className="!border-hairline-faint !bg-[#0a0606]"
-                nodeColor="rgba(255,255,255,0.12)"
-                maskColor="rgba(5,1,1,0.75)"
-              />
-            ) : null}
-          </ReactFlow>
-        </div>
-        {selectedNode ? (
-          <NodePanel
-            journeyId={journeyId}
-            graph={graph}
-            node={selectedNode.node}
-            count={selectedNode.count}
-            metrics={metricsForNode(selectedNode.node, templates)}
-            onClose={() => setSelectedId(null)}
-          />
-        ) : null}
-      </div>
-
-      {/* Compact inline legend — dot + label per kind. */}
-      <div className="flex flex-wrap gap-x-3.5 gap-y-1.5 text-xs text-white/50">
-        {LEGEND.map((l) => (
-          <span key={l.kind} className="inline-flex items-center gap-1.5">
-            <span
-              className="h-2 w-2 rounded-[3px]"
-              style={{ background: KIND_HEX[l.kind] }}
-            />
-            {l.label}
-          </span>
-        ))}
-      </div>
-
-      {graph.disclaimer ? (
-        <p className="text-xs text-white/45">{graph.disclaimer}</p>
-      ) : null}
-      {fallback ? (
-        <p className="text-xs text-white/45">
-          Layout engine could not arrange this graph (it may contain a cycle);
-          showing a linear fallback.
-        </p>
-      ) : null}
-    </div>
+    <ReactFlowProvider>
+      <JourneyFlowCanvas data={query.data} />
+    </ReactFlowProvider>
   );
 }

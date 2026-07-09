@@ -16,7 +16,10 @@ export {
   hours,
   minutes,
 } from "./duration.js";
-export * from "./graph/index.js";
+// The RUNTIME journey graph IR (engine extractor + Studio flow) lives at the
+// root. The CLI's SOURCE-derived graph renderers (mermaid/docs) share names
+// with it, so they are exposed only via the `@hogsend/core/graph` subpath.
+export * from "./journey-graph/index.js";
 export * from "./providers/index.js";
 export {
   BucketRegistry,

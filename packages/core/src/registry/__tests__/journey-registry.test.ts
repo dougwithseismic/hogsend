@@ -22,16 +22,11 @@ describe("JourneyRegistry.register", () => {
     expect(reg.count()).toBe(1);
   });
 
-  it("throws on a duplicate journey id, naming both journeys", () => {
+  it("throws on a duplicate journey id", () => {
     const reg = new JourneyRegistry();
     reg.register(makeMeta("welcome", "Welcome"));
     expect(() => reg.register(makeMeta("welcome", "Welcome v2"))).toThrow(
-      /Duplicate journey id "welcome"/,
-    );
-    // The error message surfaces the prior journey's name so the author knows
-    // which two journeys collided.
-    expect(() => reg.register(makeMeta("welcome", "Welcome v2"))).toThrow(
-      /Already registered: "Welcome"/,
+      /Journey id collision: "welcome"/,
     );
   });
 

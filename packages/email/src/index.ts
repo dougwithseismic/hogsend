@@ -20,6 +20,7 @@ export {
   getTemplate,
   getTemplateDefinition,
   getTemplateNames,
+  withSources,
 } from "./registry.js";
 // Rendering
 export { renderToHtml, renderToPlainText } from "./render.js";

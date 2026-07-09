@@ -9,7 +9,6 @@
     "format": "biome format --write .",
     "test": "turbo run test",
     "check-types": "turbo run check-types",
-    "graph:journeys": "pnpm --filter @hogsend/api graph",
     "bootstrap": "bash scripts/bootstrap.sh",
     "gen:secret": "openssl rand -base64 32",
     "preflight": "bash scripts/preflight-deploy.sh",

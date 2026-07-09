@@ -22,6 +22,19 @@ export function getOverview() {
   return api.get<OverviewMetrics>("/v1/admin/metrics/overview");
 }
 
+// --- Dev: open a source file in the local editor -------------------------
+
+/**
+ * Ask the engine (dev-only, same machine) to open a source file in whatever
+ * editor the developer uses — auto-detected server-side via `launch-editor`.
+ * 404s in production; callers gate the UI on `config.isLocalhost`.
+ */
+export function openFileInEditor(path: string, line?: number) {
+  return api.post<{ ok: boolean; target: string }>("/v1/admin/open-in-editor", {
+    json: { path, ...(line ? { line } : {}) },
+  });
+}
+
 // --- Emails (sends) ------------------------------------------------------
 
 export type EmailSend = {
@@ -218,73 +231,6 @@ export function getJourneyFunnel(id: string) {
   );
 }
 
-/** Structured journey control-flow graph (mirrors @hogsend/core JourneyGraph). */
-export type JourneyGraphKind =
-  | "trigger"
-  | "email"
-  | "inapp"
-  | "connector"
-  | "sleep"
-  | "schedule"
-  | "wait"
-  | "branch"
-  | "trigger-event"
-  | "checkpoint"
-  | "exit"
-  | "end";
-
-export type JourneyGraphNode = {
-  id: string;
-  kind: JourneyGraphKind;
-  label: string;
-  detail?: string;
-  /** Email nodes: template reference as authored (e.g. `Templates.WELCOME`). */
-  templateRef?: string;
-  /** Email nodes: resolved template key (e.g. `welcome`), when static. */
-  templateKey?: string;
-  sourceLine?: number;
-  countKey?: string;
-};
-
-export type JourneyGraphEdge = {
-  from: string;
-  to: string;
-  label?: string;
-  kind?: "main" | "yes" | "no" | "fired" | "timeout";
-};
-
-export type JourneyGraphData = {
-  journeyId: string;
-  nodes: JourneyGraphNode[];
-  edges: JourneyGraphEdge[];
-  sourceLevel: "rich" | "metadata";
-  disclaimer?: string;
-  /** Authored `.ts` path (relative to the project root), rich graphs only. */
-  sourceFile?: string;
-  sourceHash?: string;
-};
-
-export type JourneyGraphResponse = {
-  mermaid: string;
-  graph: JourneyGraphData;
-  sourceLevel: "rich" | "metadata";
-  /** Manifest generation timestamp (null when metadata fallback / old manifest). */
-  generatedAt: string | null;
-  /** True when the authored source drifted since the manifest was generated. */
-  stale: boolean;
-  staleReason: string | null;
-  counts: {
-    perNode: Record<string, number>;
-    funnel: JourneyFunnel;
-  };
-};
-
-export function getJourneyGraph(id: string) {
-  return api.get<JourneyGraphResponse>(
-    `/v1/admin/journeys/${encodeURIComponent(id)}/graph`,
-  );
-}
-
 export type JourneyListItem = {
   id: string;
   name: string;
@@ -374,8 +320,6 @@ export type JourneyStatesFilter = {
   limit?: number;
   offset?: number;
   userId?: string;
-  /** Filter by currentNodeId (a graph node's countKey) — flow side panel. */
-  node?: string;
 };
 
 export function listJourneyStates(
@@ -393,7 +337,6 @@ export function listJourneyStates(
       limit: filter.limit,
       offset: filter.offset,
       userId: filter.userId,
-      node: filter.node,
     },
   });
 }
@@ -428,6 +371,102 @@ export type JourneyTemplate = {
 export function getJourneyTemplates(id: string) {
   return api.get<{ templates: JourneyTemplate[] }>(
     `/v1/admin/journeys/${encodeURIComponent(id)}/templates`,
+  );
+}
+
+// --- Journey graph (visual workflow) -------------------------------------
+
+/**
+ * The journey graph IR — mirrors `@hogsend/core` `JourneyNode`/`JourneyEdge`/
+ * `JourneyGraph`. Kept as a local type (not a workspace import) because the
+ * Studio ships as a standalone SPA `dist` and does not bundle engine source.
+ */
+export type JourneyGraphNodeType =
+  | "start"
+  | "sleep"
+  | "sleepUntil"
+  | "wait"
+  | "send"
+  | "connector"
+  | "checkpoint"
+  | "trigger"
+  | "capture"
+  | "branch"
+  | "decision"
+  | "end-completed"
+  | "end-exited"
+  | "end-failed"
+  | "unknown";
+
+export type JourneyGraphNode = {
+  id: string;
+  type: JourneyGraphNodeType;
+  title: string;
+  subtitle?: string;
+  meta?: {
+    duration?: Record<string, number>;
+    timeout?: Record<string, number>;
+    event?: string;
+    template?: string;
+    idempotencyLabel?: string;
+    connectorId?: string;
+    action?: string;
+    conditions?: unknown[];
+    unstable?: boolean;
+  };
+  line?: number;
+};
+
+export type JourneyGraphEdgeKind =
+  | "default"
+  | "timedOut"
+  | "answered"
+  | "conditional-true"
+  | "conditional-false";
+
+export type JourneyGraphEdge = {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  kind?: JourneyGraphEdgeKind;
+};
+
+export type JourneyGraph = {
+  journeyId: string;
+  /** Where `defineJourney` was called — for the "open in editor" link. */
+  source?: { path: string; line: number };
+  nodes: JourneyGraphNode[];
+  edges: JourneyGraphEdge[];
+  degraded?: boolean;
+  warnings?: string[];
+};
+
+/**
+ * Retroactive per-node metric: people here now + failures at this node, plus
+ * the resolved email template key for `send` nodes (server-resolved from
+ * journey_logs / observed email_sends) so the side panel can preview it.
+ */
+export type JourneyNodeMetric = {
+  live: number;
+  failed: number;
+  templateKey?: string;
+  /** Source path of the send node's template component — for "open in editor". */
+  templatePath?: string;
+};
+
+export type JourneyGraphResponse = {
+  graph: JourneyGraph;
+  metrics: {
+    enrolled: number;
+    terminals: { completed: number; failed: number; exited: number };
+    nodes: Record<string, JourneyNodeMetric>;
+  };
+};
+
+export function getJourneyGraph(id: string) {
+  return api.get<JourneyGraphResponse>(
+    `/v1/admin/journeys/${encodeURIComponent(id)}/graph`,
   );
 }
 

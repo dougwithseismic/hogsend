@@ -1,4 +1,4 @@
-import type { TemplateRegistry } from "@hogsend/email";
+import { type TemplateRegistry, withSources } from "@hogsend/email";
 import ActivationCommunityEmail from "./activation-community.js";
 import ActivationFeatureHighlightEmail from "./activation-feature-highlight.js";
 import ActivationNudgeEmail from "./activation-nudge.js";
@@ -34,7 +34,11 @@ import WelcomeEmail from "./welcome.js";
 // the engine. The keys here MUST match the keys augmented into `@hogsend/email`'s
 // `TemplateRegistryMap` (see `./templates.d.ts`) for `send({ template, props })`
 // to type-check.
-export const templates: TemplateRegistry = {
+//
+// `withSources` stamps each definition with its component's source path
+// (derived from the key via the flat-file convention) so the Studio can offer
+// an "open in editor" link for email nodes. Dev-only + best-effort.
+export const templates: TemplateRegistry = withSources(import.meta.dirname, {
   "onboarding-personalized": {
     component: OnboardingPersonalizedEmail,
     defaultSubject: "Welcome — here's where to start",
@@ -245,4 +249,4 @@ export const templates: TemplateRegistry = {
       headline: "What shipped in Hogsend this month",
     },
   },
-};
+});

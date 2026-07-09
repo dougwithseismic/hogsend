@@ -22,9 +22,14 @@ vi.mock("../workflows/send-email.js", () => ({
 }));
 
 const { templates } = await import("../emails/index.js");
+// The real app lists (incl. `product-updates`) — wired so the marketing
+// template's `product-updates` category resolves to a defined list, matching
+// `src/index.ts`. The container boot-guard rejects a template category that is
+// neither a reserved built-in nor a defined list.
+const { lists } = await import("../lists/index.js");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 
-const container = createHogsendClient({ email: { templates } });
+const container = createHogsendClient({ email: { templates }, lists });
 const app = createApp(container);
 
 const AUTH_HEADER = { Authorization: `Bearer ${process.env.ADMIN_API_KEY}` };

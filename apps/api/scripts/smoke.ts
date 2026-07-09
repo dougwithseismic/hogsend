@@ -35,6 +35,7 @@ import {
 import { and, desc, eq } from "drizzle-orm";
 import { templates } from "../src/emails/index.js";
 import { journeys } from "../src/journeys/index.js";
+import { lists } from "../src/lists/index.js";
 import { webhookSources } from "../src/webhook-sources/index.js";
 
 process.env.SKIP_SCHEMA_CHECK = "true";
@@ -58,7 +59,7 @@ async function main() {
   console.log("\n── Hogsend engine smoke test ──\n");
 
   // 1. Engine factories boot from injected content.
-  const client = createHogsendClient({ journeys, email: { templates } });
+  const client = createHogsendClient({ journeys, lists, email: { templates } });
   const app = createApp(client, { webhookSources });
   const worker = createWorker({ container: client, journeys });
   check("createHogsendClient / createApp / createWorker wired", true);

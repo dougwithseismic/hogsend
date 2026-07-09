@@ -14,6 +14,16 @@ import { emitAccountDeleted, emitSignedUp } from "@/lib/events";
 
 const baseURL = env.BETTER_AUTH_URL;
 
+// Cross-subdomain SSO: set AUTH_COOKIE_DOMAIN to `.hogsend.com` in production so
+// the course session cookie is shared across subdomains (host-only otherwise,
+// which the docs site could not read). Left UNSET in local dev. The docs site
+// sets the SAME env var, so both emit the shared-domain cookie and ONE login
+// works across `*.hogsend.com`. `AUTH_SIBLING_ORIGIN` (the docs origin) is
+// trusted for auth requests. Both are optional — unset ⇒ course behaves exactly
+// as before (host-only cookie, self-origin only).
+const cookieDomain = process.env.AUTH_COOKIE_DOMAIN;
+const siblingOrigin = process.env.AUTH_SIBLING_ORIGIN;
+
 // GitHub OAuth lights up only when both creds are present. Magic-link ships
 // first; set GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET (runtime) to enable it.
 // Registering the provider with empty creds would make the button 400 at GitHub.
@@ -28,7 +38,7 @@ export const auth = betterAuth({
   // `next build`, but a THROW at real runtime if unset — so a misconfigured boot
   // can never sign sessions with a committed constant or collapse trustedOrigins.
   secret: env.BETTER_AUTH_SECRET,
-  trustedOrigins: [baseURL],
+  trustedOrigins: siblingOrigin ? [baseURL, siblingOrigin] : [baseURL],
   database: drizzleAdapter(db, { provider: "pg", schema }),
   // Passwordless only — magic-link + GitHub.
   emailAndPassword: { enabled: false },
@@ -45,6 +55,13 @@ export const auth = betterAuth({
   // verified-email match (magic-link only creates verified users; GitHub returns
   // a verified primary email) — safe convergence, no takeover.
   account: { accountLinking: { enabled: true } },
+  ...(cookieDomain
+    ? {
+        advanced: {
+          crossSubDomainCookies: { enabled: true, domain: cookieDomain },
+        },
+      }
+    : {}),
   user: {
     // GDPR right-to-erasure. Passwordless, so deletion is confirmed by an
     // emailed single-use link (not a password). Deleting the user row cascades

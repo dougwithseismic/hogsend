@@ -140,3 +140,165 @@ export async function forwardReferralVisited(
     return false;
   }
 }
+
+/** The identified-bell chain needs the ingest pair plus the mint secret. */
+export function feedTokenConfigured(): boolean {
+  return Boolean(
+    process.env.HOGSEND_INGEST_URL &&
+      process.env.HOGSEND_INGEST_KEY &&
+      process.env.HOGSEND_FEED_TOKEN_SECRET,
+  );
+}
+
+/**
+ * Secret-path contact fold: assert { email, userId } onto ONE contact via
+ * PUT /v1/contacts. A signed-in visitor proved their email (OTP / magic-link),
+ * so their Better Auth id becomes the contact's external_id — the canonical feed
+ * recipient key AND the key subsequent identified captures resolve, so a demo
+ * event + its minted link + the resulting link.clicked all land on the same
+ * contact (no phantom external_id twin). Optionally writes the first name as a
+ * contact property so lifecycle journeys (and the Studio) can greet by name.
+ * Idempotent upsert; false on any failure.
+ */
+export async function foldContactIdentity(input: {
+  email: string;
+  userId: string;
+  firstName?: string;
+}): Promise<boolean> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const ingestKey = process.env.HOGSEND_INGEST_KEY;
+  if (!ingestUrl || !ingestKey) return false;
+  try {
+    const upstream = await fetch(
+      `${ingestUrl.replace(/\/+$/, "")}/v1/contacts`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${ingestKey}`,
+        },
+        body: JSON.stringify({
+          email: input.email,
+          userId: input.userId,
+          ...(input.firstName
+            ? { properties: { firstName: input.firstName } }
+            : {}),
+        }),
+      },
+    );
+    return upstream.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Mint the browser feed userToken via the dogfood-hosted signer
+ * (POST /v1/course/feed-token, shared `x-course-token-secret` — the engine's own
+ * signing secret lives only on the dogfood deploy; this app holds just the mint
+ * secret). Reused verbatim from the course's bridge (same endpoint). Null on any
+ * failure.
+ */
+export async function mintFeedToken(
+  userId: string,
+): Promise<{ token: string; expiresInSeconds: number } | null> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const secret = process.env.HOGSEND_FEED_TOKEN_SECRET;
+  if (!ingestUrl || !secret) return null;
+  try {
+    const upstream = await fetch(
+      `${ingestUrl.replace(/\/+$/, "")}/v1/course/feed-token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-course-token-secret": secret,
+        },
+        body: JSON.stringify({ userId }),
+      },
+    );
+    if (!upstream.ok) return null;
+    const body = (await upstream.json().catch(() => null)) as {
+      token?: unknown;
+      expiresInSeconds?: unknown;
+    } | null;
+    if (!body || typeof body.token !== "string") return null;
+    return {
+      token: body.token,
+      expiresInSeconds:
+        typeof body.expiresInSeconds === "number"
+          ? body.expiresInSeconds
+          : 3600,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A first name we may ALREADY know for this email from a prior Hogsend
+ * engagement (an earlier subscribe, the course, …) via GET /v1/contacts/find.
+ * Used so the docs sign-up never asks for a name we already have. Null when
+ * unconfigured, not found, or on any failure (caller then asks for it).
+ */
+export async function getContactFirstName(input: {
+  email: string;
+}): Promise<string | null> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const ingestKey = process.env.HOGSEND_INGEST_KEY;
+  if (!ingestUrl || !ingestKey) return null;
+  try {
+    const url = new URL(`${ingestUrl.replace(/\/+$/, "")}/v1/contacts/find`);
+    url.searchParams.set("email", input.email);
+    const upstream = await fetch(url, {
+      headers: { Authorization: `Bearer ${ingestKey}` },
+      // Bounded: this runs inside Better Auth's user-create hook, so a slow or
+      // down engine must NOT hang sign-up — time out and let the client ask.
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!upstream.ok) return null;
+    const body = (await upstream.json().catch(() => null)) as {
+      contacts?: Array<{ properties?: Record<string, unknown> }>;
+    } | null;
+    const firstName = body?.contacts?.[0]?.properties?.firstName;
+    return typeof firstName === "string" && firstName ? firstName : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The contact's CANONICAL feed key (its `external_id`) for this email. This is
+ * the recipient key journeys write to and the bell must poll — and it is NOT
+ * always the Better Auth user id: a contact identified earlier (PostHog sync,
+ * the course) can carry a different `external_id`, with the Better Auth id linked
+ * only as an alias. The feed's recipient resolver matches `external_id` directly
+ * (not aliases), so minting the bell's userToken for the Better Auth id would
+ * poll a key that never matches where events land. Minting for the canonical key
+ * keeps the bell's read aligned with the journey's write. Null when unconfigured,
+ * unknown, or on failure (caller falls back to the Better Auth id, correct for a
+ * fresh contact whose `external_id` IS the Better Auth id).
+ */
+export async function resolveContactKey(input: {
+  email: string;
+}): Promise<string | null> {
+  const ingestUrl = process.env.HOGSEND_INGEST_URL;
+  const ingestKey = process.env.HOGSEND_INGEST_KEY;
+  if (!ingestUrl || !ingestKey) return null;
+  try {
+    const url = new URL(`${ingestUrl.replace(/\/+$/, "")}/v1/contacts/find`);
+    url.searchParams.set("email", input.email);
+    const upstream = await fetch(url, {
+      headers: { Authorization: `Bearer ${ingestKey}` },
+      signal: AbortSignal.timeout(2500),
+    });
+    if (!upstream.ok) return null;
+    const body = (await upstream.json().catch(() => null)) as {
+      contacts?: Array<{ externalId?: string | null }>;
+    } | null;
+    const externalId = body?.contacts?.[0]?.externalId;
+    return typeof externalId === "string" && externalId ? externalId : null;
+  } catch {
+    return null;
+  }
+}

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { renderMermaid } from "@hogsend/core";
+import { renderMermaid } from "@hogsend/core/graph";
 import { isHttpError } from "../lib/http.js";
 import { mermaidLiveUrl, openInBrowser } from "../lib/mermaid-live.js";
 import { color } from "../lib/output.js";

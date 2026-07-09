@@ -25,6 +25,10 @@ const { apiKeys, contacts, emailSends, trackedLinks } = await import(
 const { eq } = await import("drizzle-orm");
 const { createApp, createHogsendClient } = await import("@hogsend/engine");
 const { templates } = await import("../emails/index.js");
+// The real app lists (incl. `product-updates`) — wired so the marketing
+// template's `product-updates` category resolves to a defined list, matching
+// `src/index.ts` (the container boot-guard rejects an unknown category).
+const { lists } = await import("../lists/index.js");
 
 // A fake provider so the engine-owned tracked mailer runs its FULL pipeline
 // (preference check → email_sends insert → tracked-html link rewrite →
@@ -46,6 +50,7 @@ const fakeProvider: EmailProvider = {
 
 const container = createHogsendClient({
   email: { provider: fakeProvider, templates },
+  lists,
 });
 const app = createApp(container);
 const { db } = container;
@@ -189,5 +194,62 @@ describe("POST /v1/emails", () => {
       }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("returns 400 for an unknown category (silent opt-in / suppression bypass)", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+        category: "not-a-real-list",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("not-a-real-list");
+  });
+
+  it("accepts a registered list as the category", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+        category: "product-updates",
+      }),
+    });
+    expect(res.status).toBe(202);
+  });
+
+  it("accepts a reserved built-in category (transactional)", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+        category: "transactional",
+      }),
+    });
+    expect(res.status).toBe(202);
+  });
+
+  it("accepts a request with no category (template default applies)", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+      }),
+    });
+    expect(res.status).toBe(202);
   });
 });

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/geist-mono";
 
@@ -185,38 +186,43 @@
   }
 }
 
-/* React Flow (journey Flow canvas) — the vendor defaults render the zoom
-   Controls and MiniMap on a white background, which reads as a broken white
-   box on the dark canvas. Re-theme them to the crimzon surface. */
+/* ========================================================================== */
+/*  React Flow (crimzon) — vendor stylesheet imported at the top; here we just */
+/*  remap its CSS custom properties onto the crimzon language. Components read  */
+/*  `var(--xy-x, var(--xy-x-default))`, so overriding the *-default is enough.  */
+/* ========================================================================== */
+.react-flow {
+  --xy-background-color-default: transparent;
+  --xy-background-pattern-dots-color-default: rgba(255, 255, 255, 0.09);
+  --xy-edge-stroke-default: rgba(255, 255, 255, 0.18);
+  --xy-edge-stroke-width-default: 1.5;
+  --xy-edge-label-color-default: rgba(255, 255, 255, 0.7);
+  --xy-edge-label-background-color-default: #0a0606;
+  --xy-handle-background-color-default: rgba(255, 255, 255, 0.28);
+  --xy-handle-border-color-default: rgba(255, 255, 255, 0.12);
+  --xy-controls-box-shadow-default: none;
+  --xy-controls-button-background-color-default: #0a0606;
+  --xy-controls-button-background-color-hover-default: rgba(
+    255,
+    255,
+    255,
+    0.08
+  );
+  --xy-controls-button-color-default: rgba(255, 255, 255, 0.7);
+  --xy-controls-button-color-hover-default: #ffffff;
+  --xy-controls-button-border-color-default: rgba(255, 255, 255, 0.08);
+  --xy-attribution-background-color-default: rgba(10, 6, 6, 0.55);
+}
+
 .react-flow__controls {
-  box-shadow: none;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
+  border: 1px solid var(--color-hairline-faint);
+  border-radius: 6px;
   overflow: hidden;
 }
-.react-flow__controls-button {
-  background: rgba(20, 12, 12, 0.92);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.7);
-  width: 26px;
-  height: 26px;
-}
-.react-flow__controls-button:hover {
-  background: rgba(255, 255, 255, 0.09);
-}
-.react-flow__controls-button svg {
-  fill: rgba(255, 255, 255, 0.7);
-  max-width: 12px;
-  max-height: 12px;
-}
-.react-flow__minimap {
-  background: #0a0606;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-}
-.react-flow__minimap-mask {
-  fill: rgba(5, 1, 1, 0.72);
-}
+
 .react-flow__attribution {
-  display: none;
+  border-radius: 4px 0 0 0;
+}
+.react-flow__attribution a {
+  color: rgba(255, 255, 255, 0.45);
 }

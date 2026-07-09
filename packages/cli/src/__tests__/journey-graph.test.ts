@@ -3,7 +3,7 @@ import { extractJourneyGraph, extractJourneyId } from "../lib/journey-graph.js";
 
 /** A sequential journey with sleeps, a branch, and an early return. */
 const CHURN_SOURCE = `
-import { days, hours } from "@hogsend/core";
+import { days, hours } from "@hogsend/core/graph";
 import { defineJourney, sendEmail } from "@hogsend/engine";
 
 export const churnPrevention = defineJourney({
@@ -55,7 +55,7 @@ export const churnPrevention = defineJourney({
 
 /** A journey with waitForEvent, checkpoint, and a trigger. */
 const NPS_SOURCE = `
-import { days } from "@hogsend/core";
+import { days } from "@hogsend/core/graph";
 import { defineJourney, sendEmail } from "@hogsend/engine";
 
 export const feedbackNps = defineJourney({
@@ -232,7 +232,7 @@ describe("extractJourneyGraph", () => {
   it("sets wait countKey to wait-event:<event> when no label is given (mirrors engine)", () => {
     const g = extractFromSource(`
       import { defineJourney } from "@hogsend/engine";
-      import { days } from "@hogsend/core";
+      import { days } from "@hogsend/core/graph";
       export const j = defineJourney({
         meta: { id: "w", name: "w", enabled: true, trigger: { event: "e" }, entryLimit: "once", suppress: days(1) },
         run: async (user, ctx) => {
@@ -283,7 +283,7 @@ describe("extractJourneyGraph", () => {
   it("recognizes ctx.when.* as a schedule node", () => {
     const g = extractFromSource(`
       import { defineJourney } from "@hogsend/engine";
-      import { days } from "@hogsend/core";
+      import { days } from "@hogsend/core/graph";
       export const j = defineJourney({
         meta: { id: "sched", trigger: { event: "e" }, entryLimit: "once", suppress: days(1), enabled: true, name: "s" },
         run: async (user, ctx) => {

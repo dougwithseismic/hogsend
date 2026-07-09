@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import type { JourneyGraph } from "@hogsend/core";
+import type { JourneyGraph } from "@hogsend/core/graph";
 import ts from "typescript";
 import { resolveMemberLiteral } from "./const-resolver.js";
 

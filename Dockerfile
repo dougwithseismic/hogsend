@@ -60,13 +60,6 @@ RUN pnpm --filter @hogsend/api build
 # a runtime dependency of the engine; it ships as a built artifact the runner
 # serves at /studio. Built here while the full workspace (incl. vite) is present.
 RUN pnpm --filter @hogsend/studio build
-# Journey graph manifest: extract every journey's authored control flow from
-# source at build time (the runner ships no .ts source), writing
-# /app/.hogsend/journeys.graph.json. The admin graph route reads it via
-# HOGSEND_GRAPH_MANIFEST so Studio's Flow tab renders the RICH graph in
-# production instead of the metadata skeleton.
-RUN pnpm --filter @hogsend/cli exec tsx src/bin.ts journeys graph --all \
-  --cwd /app --source apps/api/src/journeys
 RUN pnpm --filter @hogsend/api deploy --prod /deploy/api \
   && pnpm --filter @hogsend/db deploy --prod /deploy/db
 # tsx is a devDep dropped by `deploy --prod`, but db:migrate runs `tsx
@@ -102,12 +95,6 @@ COPY --from=build /app/packages/db/drizzle.config.ts ./packages/db/drizzle.confi
 # not depend on cwd or module resolution.
 COPY --from=build /app/packages/studio/dist ./packages/studio/dist
 ENV STUDIO_DIST_PATH=/app/packages/studio/dist
-
-# Journey graph manifest (generated in the build stage): the admin graph route
-# serves the rich control-flow graph from it. Pinned via env so it does not
-# depend on the process cwd.
-COPY --from=build /app/.hogsend ./.hogsend
-ENV HOGSEND_GRAPH_MANIFEST=/app/.hogsend/journeys.graph.json
 
 # Global tsx (dropped by `deploy --prod`) for the migrate run mode. /pnpm is on
 # PATH (set in base), so the `tsx` shim resolves for `tsx packages/db/src/migrate.ts`.

@@ -7,8 +7,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, extname, join, relative, resolve } from "node:path";
-import type { JourneyGraph } from "@hogsend/core";
-import { renderMermaid } from "@hogsend/core";
+import type { JourneyGraph } from "@hogsend/core/graph";
+import { renderMermaid } from "@hogsend/core/graph";
 import { extractJourneyGraph, extractJourneyId } from "./journey-graph.js";
 
 /**
