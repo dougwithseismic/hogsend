@@ -26,7 +26,7 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 
 - [x] 1.1 Slug foundation: `links.slug` column + unique index (migration via `pnpm db:generate`), slug normalize/validate helper, `mintLink({ slug })` + `MintedLink.slug`/`vanityUrl`, admin `POST /v1/admin/links` accepts `slug` (400 invalid, 409 taken), `PATCH` sets/changes/clears slug, `slug` + `vanityUrl` in all link responses — with integration tests (mint, case-normalize, dup 409, clear-and-reuse)
 - [x] 1.2 Vanity redirect: extract the shared click pipeline from `routes/tracking/click.ts`, add root-mounted `GET /l/:slug` running it (404→redirect-home behavior matching UUID route), tests (302 + `link_clicks`/`click_count` side effects, retarget reflected, archived slug still resolves, unknown slug)
-- [ ] 1.3 Studio: slug field in create + edit dialogs (client-side validation mirroring engine), vanity short link shown/copyable in table + reveal dialog, 409 surfaced inline
+- [x] 1.3 Studio: slug field in create + edit dialogs (client-side validation mirroring engine), vanity short link shown/copyable in table + reveal dialog, 409 surfaced inline
 
 ## Phase 2 — QR codes
 

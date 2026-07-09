@@ -57,6 +57,26 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
+// Mirrors the engine's normalizeSlug: 1-64 lowercase [a-z0-9-], no
+// leading/trailing hyphen. Input is lowercased before the check, so typing
+// "Black-Friday" is fine — it mints as "black-friday".
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+
+function normalizeSlugInput(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Empty = "no slug", always valid; anything else must match the engine rule. */
+function isSlugValid(value: string): boolean {
+  const slug = normalizeSlugInput(value);
+  return slug === "" || SLUG_RE.test(slug);
+}
+
+/** True when the failed mutation was a slug-uniqueness conflict (HTTP 409). */
+function isSlugConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409;
+}
+
 function TypeBadge({ type }: { type: LinkType }) {
   return type === "personal" ? (
     <Badge variant="destructive">Personal</Badge>
@@ -79,6 +99,7 @@ export function LinksView() {
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
   const [campaign, setCampaign] = useState("");
+  const [slug, setSlug] = useState("");
   const [linkType, setLinkType] = useState<LinkType>("public");
   const [distinctId, setDistinctId] = useState("");
 
@@ -87,6 +108,7 @@ export function LinksView() {
   const [editUrl, setEditUrl] = useState("");
   const [editLabel, setEditLabel] = useState("");
   const [editCampaign, setEditCampaign] = useState("");
+  const [editSlug, setEditSlug] = useState("");
 
   const query = useQuery({
     queryKey: qk.links(type),
@@ -98,6 +120,7 @@ export function LinksView() {
     setUrl("");
     setLabel("");
     setCampaign("");
+    setSlug("");
     setLinkType("public");
     setDistinctId("");
   }
@@ -107,13 +130,17 @@ export function LinksView() {
     setEditUrl(row.originalUrl);
     setEditLabel(row.label ?? "");
     setEditCampaign(row.campaign ?? "");
+    setEditSlug(row.slug ?? "");
   }
 
   const urlValid = isHttpUrl(url.trim());
-  const canSubmit = urlValid && label.trim().length > 0;
+  const slugValid = isSlugValid(slug);
+  const canSubmit = urlValid && slugValid && label.trim().length > 0;
 
   const editUrlValid = isHttpUrl(editUrl.trim());
-  const canSaveEdit = editUrlValid && editLabel.trim().length > 0;
+  const editSlugValid = isSlugValid(editSlug);
+  const canSaveEdit =
+    editUrlValid && editSlugValid && editLabel.trim().length > 0;
 
   const create = useMutation({
     mutationFn: () =>
@@ -122,6 +149,7 @@ export function LinksView() {
         label: label.trim(),
         type: linkType,
         campaign: campaign.trim() || undefined,
+        slug: normalizeSlugInput(slug) || undefined,
         // Share-safe invariant: identity only travels on personal links. The
         // engine drops distinctId for public links too, but we don't even send
         // it — keeps the wire honest.
@@ -139,7 +167,9 @@ export function LinksView() {
     onError: (error) => {
       toast({
         variant: "error",
-        title: "Could not create link",
+        title: isSlugConflict(error)
+          ? "Slug already taken"
+          : "Could not create link",
         description:
           error instanceof ApiError ? error.message : "Unexpected error.",
       });
@@ -152,10 +182,16 @@ export function LinksView() {
       // narrows editTarget to a non-null Link so updateLink gets a real string
       // id (its first arg is `string`, not `string | undefined`).
       if (!editTarget) throw new Error("No link selected to edit.");
+      // Only send `slug` when it actually changed: emptied = clear (null),
+      // otherwise set/replace. Sending an unchanged slug would be a no-op
+      // anyway, but omitting keeps the wire minimal.
+      const nextSlug = normalizeSlugInput(editSlug);
+      const prevSlug = editTarget.slug ?? "";
       return updateLink(editTarget.id, {
         originalUrl: editUrl.trim(),
         label: editLabel.trim(),
         campaign: editCampaign.trim() || undefined,
+        ...(nextSlug !== prevSlug ? { slug: nextSlug || null } : {}),
       });
     },
     onSuccess: () => {
@@ -172,7 +208,9 @@ export function LinksView() {
     onError: (error) => {
       toast({
         variant: "error",
-        title: "Could not update link",
+        title: isSlugConflict(error)
+          ? "Slug already taken"
+          : "Could not update link",
         description:
           error instanceof ApiError ? error.message : "Unexpected error.",
       });
@@ -313,19 +351,39 @@ export function LinksView() {
                       {formatNumber(row.clickCount)}
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white/70 text-xs">
-                          {shortPath}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => copy(shortUrl)}
-                          aria-label="Copy short link"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </Button>
+                      <div className="flex flex-col gap-1">
+                        {row.vanityUrl ? (
+                          <div className="flex items-center gap-1.5">
+                            <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white text-xs">
+                              /l/{row.slug}
+                            </code>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() =>
+                                row.vanityUrl && copy(row.vanityUrl)
+                              }
+                              aria-label="Copy vanity link"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ) : null}
+                        <div className="flex items-center gap-1.5">
+                          <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white/70 text-xs">
+                            {truncate(shortPath, 28)}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => copy(shortUrl)}
+                            aria-label="Copy short link"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="text-white/60">
@@ -399,6 +457,29 @@ export function LinksView() {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="link-slug">Vanity slug (optional)</Label>
+          <Input
+            id="link-slug"
+            placeholder="black-friday"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+          />
+          {slug.trim() && !slugValid ? (
+            <p className="text-accent text-xs">
+              1–64 letters, digits or hyphens — no leading/trailing hyphen.
+            </p>
+          ) : slug.trim() ? (
+            <p className="text-white/40 text-xs">
+              Short path: /l/{normalizeSlugInput(slug)} — must be unique.
+            </p>
+          ) : (
+            <p className="text-white/40 text-xs">
+              A memorable /l/… path over the tracked short URL.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -507,6 +588,30 @@ export function LinksView() {
         </div>
 
         <div className="space-y-1.5">
+          <Label htmlFor="edit-link-slug">Vanity slug (optional)</Label>
+          <Input
+            id="edit-link-slug"
+            placeholder="black-friday"
+            value={editSlug}
+            onChange={(e) => setEditSlug(e.target.value)}
+          />
+          {editSlug.trim() && !editSlugValid ? (
+            <p className="text-accent text-xs">
+              1–64 letters, digits or hyphens — no leading/trailing hyphen.
+            </p>
+          ) : editTarget?.slug && !editSlug.trim() ? (
+            <p className="text-accent text-xs">
+              Clearing frees /l/{editTarget.slug} — the vanity URL stops
+              resolving (the UUID short link keeps working).
+            </p>
+          ) : (
+            <p className="text-white/40 text-xs">
+              A memorable /l/… path over the tracked short URL.
+            </p>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
           <Label htmlFor="edit-link-campaign">Campaign (optional)</Label>
           <Input
             id="edit-link-campaign"
@@ -527,6 +632,24 @@ export function LinksView() {
       >
         {created ? (
           <div className="space-y-3">
+            {created.vanityUrl ? (
+              <div className="space-y-1.5">
+                <Label>Vanity URL</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 break-all rounded-md border border-hairline-faint bg-white/[0.04] px-3 py-2 font-mono text-white text-xs">
+                    {created.vanityUrl}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => created.vanityUrl && copy(created.vanityUrl)}
+                    aria-label="Copy vanity URL"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <Label>Short URL</Label>
               <div className="flex items-center gap-2">

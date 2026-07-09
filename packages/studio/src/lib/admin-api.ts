@@ -1036,6 +1036,10 @@ export type Link = {
   trackedLinkId: string | null;
   originalUrl: string;
   type: "personal" | "public";
+  /** Vanity slug (normalized lowercase, unique per instance) — null if unset. */
+  slug: string | null;
+  /** The vanity short URL (`${API_PUBLIC_URL}/l/:slug`) — null if no slug. */
+  vanityUrl: string | null;
   label: string | null;
   campaign: string | null;
   source: string | null;
@@ -1096,6 +1100,8 @@ export function createLink(body: {
   label: string;
   type: "personal" | "public";
   campaign?: string;
+  /** Optional vanity slug (`/l/:slug`). 409 if already taken. */
+  slug?: string;
   /** Honored only when `type === "personal"` (share-safe invariant). */
   distinctId?: string;
 }) {
@@ -1104,7 +1110,13 @@ export function createLink(body: {
 
 export function updateLink(
   id: string,
-  body: { label?: string; campaign?: string; originalUrl?: string },
+  body: {
+    label?: string;
+    campaign?: string;
+    originalUrl?: string;
+    /** string = set/replace (409 if taken); null = clear the slug. */
+    slug?: string | null;
+  },
 ) {
   return api.patch<Link>(`/v1/admin/links/${encodeURIComponent(id)}`, {
     json: body,
