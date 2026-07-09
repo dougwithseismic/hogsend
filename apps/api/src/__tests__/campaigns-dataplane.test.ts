@@ -12,14 +12,18 @@ process.env.DATABASE_URL =
 
 // Config-preserving Hatchet mock (mirrors buckets.test.ts). The campaign task is
 // a module-level `hatchet.task({ name, fn })` built off the ENGINE's own
-// `lib/hatchet.ts` at import, AND the POST route enqueues it via
-// `sendCampaignTask.run(...)`. We mock BOTH the engine's hatchet (so importing
-// `@hogsend/engine` never dials a live gRPC engine and the task's `.fn` is
-// preserved for direct invocation) AND the API's `../lib/hatchet.js`. The
-// `...config` spread keeps `sendCampaignTask.fn` (the REAL campaign body) callable
-// while `.run` is a no-op spy the route's fire-and-forget enqueue lands on.
-const { runSpy, hatchetMock } = vi.hoisted(() => {
-  const run = vi.fn(async (_input: { campaignId: string }) => ({}));
+// `lib/hatchet.ts` at import, AND the POST route dispatches it via
+// `sendCampaignTask.runNoWait(...)` (immediate) or `.schedule(...)` (sendAt).
+// We mock BOTH the engine's hatchet (so importing `@hogsend/engine` never dials
+// a live gRPC engine and the task's `.fn` is preserved for direct invocation)
+// AND the API's `../lib/hatchet.js`. The `...config` spread keeps
+// `sendCampaignTask.fn` (the REAL campaign body) callable while
+// `.runNoWait`/`.schedule` are no-op spies the route's dispatch lands on.
+const { runNoWaitSpy, scheduleSpy, hatchetMock } = vi.hoisted(() => {
+  const runNoWait = vi.fn(async (_input: { campaignId: string }) => ({}));
+  const schedule = vi.fn(
+    async (_at: Date, _input: { campaignId: string }) => ({}),
+  );
   const factory = () => ({
     hatchet: {
       durableTask: vi.fn((config: Record<string, unknown>) => ({
@@ -30,15 +34,20 @@ const { runSpy, hatchetMock } = vi.hoisted(() => {
       })),
       task: vi.fn((config: Record<string, unknown>) => ({
         ...config,
-        run,
-        runNoWait: vi.fn(),
+        run: vi.fn(),
+        runNoWait,
+        schedule,
       })),
       events: { push: vi.fn() },
       runs: { cancel: vi.fn(), get: vi.fn() },
       worker: vi.fn(),
     },
   });
-  return { runSpy: run, hatchetMock: factory };
+  return {
+    runNoWaitSpy: runNoWait,
+    scheduleSpy: schedule,
+    hatchetMock: factory,
+  };
 });
 
 vi.mock("../../../../packages/engine/src/lib/hatchet.ts", () => hatchetMock());
@@ -59,6 +68,7 @@ const {
   createHogsendClient,
   defineBucket,
   defineList,
+  reapStuckCampaignsTask,
   sendCampaignTask,
 } = await import("@hogsend/engine");
 const { templates } = await import("../emails/index.js");
@@ -328,9 +338,10 @@ describe("POST /v1/campaigns (list audience)", () => {
     expect(row?.audienceId).toBe("broadcast");
     expect(row?.templateKey).toBe("welcome");
 
-    // The durable task was enqueued (fire-and-forget) — the route's `.run` spy.
-    expect(runSpy).toHaveBeenCalled();
-    const enqueued = runSpy.mock.calls.at(-1)?.[0];
+    // The durable task was enqueued (fire-and-forget) — the route's
+    // `.runNoWait` spy.
+    expect(runNoWaitSpy).toHaveBeenCalled();
+    const enqueued = runNoWaitSpy.mock.calls.at(-1)?.[0];
     expect(enqueued?.campaignId).toBe(body.campaignId);
   });
 });
@@ -660,5 +671,316 @@ describe("POST /v1/campaigns validation", () => {
       }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// (8) Scheduling: POST with a future sendAt creates a `scheduled` row and a
+//     punctual Hatchet scheduled run — NOT an immediate enqueue
+// ===========================================================================
+
+describe("POST /v1/campaigns with sendAt (scheduling)", () => {
+  it("creates a scheduled campaign and schedules the punctual run", async () => {
+    runNoWaitSpy.mockClear();
+    scheduleSpy.mockClear();
+
+    const sendAt = new Date(Date.now() + 60 * 60 * 1000); // +1h
+    const res = await app.request("/v1/campaigns", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        name: "Scheduled blast",
+        list: "broadcast",
+        template: "welcome",
+        sendAt: sendAt.toISOString(),
+      }),
+    });
+    expect(res.status).toBe(202);
+
+    const body = await res.json();
+    expect(body.status).toBe("scheduled");
+    expect(body.scheduledAt).toBe(sendAt.toISOString());
+
+    const [row] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, body.campaignId));
+    expect(row?.status).toBe("scheduled");
+    expect(row?.scheduledAt?.toISOString()).toBe(sendAt.toISOString());
+
+    // Punctual scheduled run created at the send instant; no immediate enqueue.
+    expect(scheduleSpy).toHaveBeenCalledTimes(1);
+    const [at, input] = scheduleSpy.mock.calls[0] ?? [];
+    expect((at as Date).toISOString()).toBe(sendAt.toISOString());
+    expect((input as { campaignId: string }).campaignId).toBe(body.campaignId);
+    expect(runNoWaitSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a sendAt more than 60s in the past", async () => {
+    const res = await app.request("/v1/campaigns", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        list: "broadcast",
+        template: "welcome",
+        sendAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("past");
+  });
+
+  it("an idempotent retry of a scheduled create resolves to the SAME campaign", async () => {
+    const key = `${RUN}-sched-idem`;
+    const sendAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const make = () =>
+      app.request("/v1/campaigns", {
+        method: "POST",
+        headers: { ...ADMIN_HEADER, "Idempotency-Key": key },
+        body: JSON.stringify({
+          list: "broadcast",
+          template: "welcome",
+          sendAt,
+        }),
+      });
+
+    const first = await (await make()).json();
+    const second = await (await make()).json();
+    expect(second.campaignId).toBe(first.campaignId);
+    expect(second.status).toBe("scheduled");
+    expect(second.scheduledAt).toBe(sendAt);
+  });
+});
+
+// ===========================================================================
+// (9) GET /v1/campaigns — list with status filter
+// ===========================================================================
+
+describe("GET /v1/campaigns (list)", () => {
+  it("lists campaigns newest-first and honors the status filter", async () => {
+    const res = await app.request("/v1/campaigns?status=scheduled&limit=100", {
+      headers: ADMIN_HEADER,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.campaigns)).toBe(true);
+    expect(body.campaigns.length).toBeGreaterThan(0);
+    for (const campaign of body.campaigns) {
+      expect(campaign.status).toBe("scheduled");
+    }
+    // Newest first.
+    const times = body.campaigns.map((c: { createdAt: string }) =>
+      new Date(c.createdAt).getTime(),
+    );
+    expect([...times].sort((a, b) => b - a)).toEqual(times);
+  });
+});
+
+// ===========================================================================
+// (10) Cancel: scheduled → canceled; terminal → 409; unknown → 404; and the
+//      send task's terminal guard refuses to send a canceled campaign
+// ===========================================================================
+
+describe("POST /v1/campaigns/{id}/cancel", () => {
+  it("cancels a scheduled campaign; a second cancel is a 409", async () => {
+    const createRes = await app.request("/v1/campaigns", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        name: "To cancel",
+        list: "broadcast",
+        template: "welcome",
+        sendAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      }),
+    });
+    const { campaignId } = await createRes.json();
+
+    const cancelRes = await app.request(`/v1/campaigns/${campaignId}/cancel`, {
+      method: "POST",
+      headers: ADMIN_HEADER,
+    });
+    expect(cancelRes.status).toBe(200);
+    const canceled = await cancelRes.json();
+    expect(canceled.status).toBe("canceled");
+    expect(canceled.canceledAt).toBeTruthy();
+
+    // The punctual run still fires later — the terminal guard must no-op it.
+    providerSend.mockClear();
+    const result = await campaignTask.fn({ campaignId });
+    expect(result.status).toBe("canceled");
+    expect(providerSend).not.toHaveBeenCalled();
+
+    // A second cancel is a conflict, not a double-cancel.
+    const again = await app.request(`/v1/campaigns/${campaignId}/cancel`, {
+      method: "POST",
+      headers: ADMIN_HEADER,
+    });
+    expect(again.status).toBe(409);
+  });
+
+  it("returns 404 for an unknown campaign id", async () => {
+    const res = await app.request(
+      "/v1/campaigns/00000000-0000-0000-0000-000000000000/cancel",
+      { method: "POST", headers: ADMIN_HEADER },
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+// ===========================================================================
+// (11) Early-fire guard: a scheduled run firing while `scheduledAt` is still
+//      in the future (sendAt was moved later) skips without sending
+// ===========================================================================
+
+describe("sendCampaignTask early-fire guard", () => {
+  it("skips a scheduled campaign whose scheduledAt is still in the future", async () => {
+    const createRes = await app.request("/v1/campaigns", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        name: "Not due yet",
+        list: "broadcast",
+        template: "welcome",
+        sendAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      }),
+    });
+    const { campaignId } = await createRes.json();
+
+    providerSend.mockClear();
+    const result = await campaignTask.fn({ campaignId });
+    expect(result.status).toBe("scheduled");
+    expect(providerSend).not.toHaveBeenCalled();
+
+    // Row untouched — still scheduled for later.
+    const [row] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, campaignId));
+    expect(row?.status).toBe("scheduled");
+  });
+
+  it("sends a scheduled campaign once its instant has arrived", async () => {
+    // Insert a due scheduled row directly (1s past due — inside the early-fire
+    // tolerance on the "proceed" side).
+    const [row] = await db
+      .insert(campaigns)
+      .values({
+        name: "Due now",
+        status: "scheduled",
+        audienceKind: "list",
+        audienceId: "broadcast",
+        templateKey: "welcome",
+        props: { name: "Ada" },
+        scheduledAt: new Date(Date.now() - 1000),
+      })
+      .returning({ id: campaigns.id });
+    expect(row).toBeDefined();
+    const campaignId = (row as { id: string }).id;
+
+    providerSend.mockClear();
+    const result = await campaignTask.fn({ campaignId });
+    expect(result.status).toBe("sent");
+    expect(result.sentCount).toBe(1); // the one subscribed member
+
+    const [after] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, campaignId));
+    expect(after?.status).toBe("sent");
+    expect(after?.completedAt).toBeTruthy();
+  });
+});
+
+// ===========================================================================
+// (12) Reaper: due `scheduled` rows are promoted (enqueue-only); rows stuck
+//      past the give-up window (measured from scheduledAt) are failed
+// ===========================================================================
+
+describe("reapStuckCampaignsTask (scheduled sweeps)", () => {
+  const reaperTask = reapStuckCampaignsTask as unknown as {
+    fn: () => Promise<{
+      failed: number;
+      reEnqueued: number;
+      promoted: number;
+    }>;
+  };
+
+  it("promotes a due scheduled campaign and fails one past the give-up window", async () => {
+    const inserted = await db
+      .insert(campaigns)
+      .values([
+        {
+          name: "Due, punctual run never fired",
+          status: "scheduled",
+          audienceKind: "list",
+          audienceId: "broadcast",
+          templateKey: "welcome",
+          scheduledAt: new Date(Date.now() - 10 * 60 * 1000), // 10 min past
+        },
+        {
+          name: "Stuck past give-up",
+          status: "scheduled",
+          audienceKind: "list",
+          audienceId: "broadcast",
+          templateKey: "welcome",
+          scheduledAt: new Date(Date.now() - 7 * 60 * 60 * 1000), // 7h past
+        },
+      ])
+      .returning({ id: campaigns.id });
+    const dueId = inserted[0]?.id as string;
+    const stuckId = inserted[1]?.id as string;
+
+    runNoWaitSpy.mockClear();
+    await reaperTask.fn();
+
+    // The due row was promoted — enqueue-only, so it stays `scheduled` until
+    // the send task claims it.
+    const promotedIds = runNoWaitSpy.mock.calls.map(
+      (call) => (call[0] as { campaignId: string }).campaignId,
+    );
+    expect(promotedIds).toContain(dueId);
+    const [dueRow] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, dueId));
+    expect(dueRow?.status).toBe("scheduled");
+
+    // The 7h-stale row was declared failed (from scheduledAt, NOT updatedAt —
+    // its updatedAt is fresh from the insert just now).
+    const [stuckRow] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, stuckId));
+    expect(stuckRow?.status).toBe("failed");
+    expect(promotedIds).not.toContain(stuckId);
+  });
+
+  it("leaves a future scheduled campaign alone", async () => {
+    const inserted = await db
+      .insert(campaigns)
+      .values({
+        name: "Future — not the reaper's business",
+        status: "scheduled",
+        audienceKind: "list",
+        audienceId: "broadcast",
+        templateKey: "welcome",
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+      .returning({ id: campaigns.id });
+    const futureId = inserted[0]?.id as string;
+
+    runNoWaitSpy.mockClear();
+    await reaperTask.fn();
+
+    const promotedIds = runNoWaitSpy.mock.calls.map(
+      (call) => (call[0] as { campaignId: string }).campaignId,
+    );
+    expect(promotedIds).not.toContain(futureId);
+    const [row] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, futureId));
+    expect(row?.status).toBe("scheduled");
   });
 });

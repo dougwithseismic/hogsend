@@ -1,6 +1,6 @@
 ---
 title: Marketing campaigns
-description: Broadcast a template to an audience with hs.campaigns.send({ list, template, props }). Define a list, subscribe contacts, and broadcast marketing/product-update — list vs bucket audiences, polarity, and the durable/idempotent/preference-checked send.
+description: Broadcast a template to an audience with hs.campaigns.send({ list, template, props }). Define a list, subscribe contacts, broadcast, schedule with sendAt, cancel, and commit a broadcast to your repo with defineCampaign() — list vs bucket audiences, polarity, and the durable/idempotent/preference-checked send.
 ---
 
 A marketing campaign is a one-time broadcast of a single template to a whole audience. You send one with:
@@ -20,7 +20,7 @@ await hs.campaigns.send({
 // → { campaignId, status: "queued" }
 ```
 
-`hs.campaigns.send` maps to [`POST /v1/campaigns`](/docs/data-api). The 202 you get back is an *enqueue ack* — the actual sends run in the worker. Poll `hs.campaigns.get(campaignId)` for live counts (`totalRecipients`, `sentCount`, `skippedCount`, `failedCount`).
+`hs.campaigns.send` maps to [`POST /v1/campaigns`](/docs/data-api/campaigns). The 202 you get back is an *enqueue ack* — the actual sends run in the worker. Poll `hs.campaigns.get(campaignId)` for live counts (`totalRecipients`, `sentCount`, `skippedCount`, `failedCount`).
 
 ## 1. Define the list
 
@@ -87,6 +87,76 @@ const campaign = await hs.campaigns.get(campaignId);
 ```
 
 `template`/`props` are type-checked against your registry exactly like [transactional sends](/docs/recipes/transactional-emails). `marketing/product-update` is the canonical marketing template key in the docs taxonomy.
+
+## Schedule for later
+
+Pass `sendAt` (an ISO 8601 future instant) to deliver the broadcast at that time instead of now. The campaign is created `scheduled` and delivered by a Hatchet scheduled run, with the reaper as a backstop if the punctual run fails to fire.
+
+```ts
+const { campaignId, status, scheduledAt } = await hs.campaigns.send({
+  list: "product-updates",
+  template: "marketing/product-update",
+  props: { version: "2.4", headline: "Saved views are here" },
+  sendAt: "2026-07-15T16:00:00Z",
+});
+// → { campaignId, status: "scheduled", scheduledAt: "2026-07-15T16:00:00Z" }
+```
+
+A `sendAt` more than 60s in the past is a `400`; one within 60s past degrades to an immediate send. Omit `sendAt` to enqueue immediately (`status: "queued"`, `scheduledAt: null`).
+
+## Cancel
+
+Cancel a `scheduled`, `queued`, or `sending` campaign:
+
+```ts
+await hs.campaigns.cancel(campaignId); // → the campaign, now "canceled"
+```
+
+A mid-send cancel stops the blast at the next chunk boundary (chunks of 100): recipients not yet dispatched are spared; already-dispatched emails are not recalled. A campaign already in a terminal status (`sent`, `canceled`, `expired`) rejects with a `409`.
+
+## List
+
+```ts
+const { campaigns, hasMore } = await hs.campaigns.list({ status: ["scheduled"] });
+```
+
+Newest first; filter by `status` and page with `limit` (1–200, default 50) / `offset`.
+
+## Commit a campaign to your repo with `defineCampaign()`
+
+Instead of calling `send()` over HTTP, you can commit a broadcast to your repo. `defineCampaign()` mirrors `defineList()` / `defineJourney()`: write a file, deploy, and the worker schedules it at boot. Once sent it is retired — redeploys no-op.
+
+```ts
+// src/campaigns/index.ts
+import { defineCampaign } from "@hogsend/engine";
+import { Templates } from "../journeys/constants/index.js";
+
+export const julyLaunch = defineCampaign({
+  id: "july-2026-launch",             // stable slug; the retirement key
+  name: "July launch announcement",
+  audience: { list: "product-updates" }, // or { bucket: "power-users" }
+  template: Templates.ProductUpdate,  // type-checked against your registry
+  props: { headline: "Saved views are here" },
+  sendAt: "2026-07-15T16:00:00Z",
+});
+
+export const campaigns = [julyLaunch];
+```
+
+Thread the array into `createHogsendClient` — `createWorker` reads the container's, so it takes no `campaigns` of its own:
+
+```ts
+const container = createHogsendClient({ journeys, lists, campaigns });
+const worker = createWorker({ container, journeys });
+```
+
+The reconciler upserts each definition into the same `campaigns` row and durable send task the data plane uses, so scheduling, cancel, counts, and Studio visibility are identical to an API-created campaign. The workflow is git-ops:
+
+- A future `sendAt` schedules the send; editing the file (audience, template, props, `sendAt`, …) and redeploying updates the still-`scheduled` row, and moving `sendAt` re-schedules.
+- A `sendAt` staler than the grace window (default 1h, env `CAMPAIGN_DEFINE_GRACE_MS`) at the **first** deploy is stamped `expired` with a warning — a late deploy never fires a surprise blast.
+- Once `sent`, the campaign is retired: redeploys no-op and deleting the file keeps the history row. A `canceled` campaign is never resurrected by a redeploy.
+
+See the [Campaigns reference](/docs/data-api/campaigns#code-defined-campaigns-with-definecampaign) for the full `defineCampaign()` option table and the reconciler's decision table.
 
 ## List vs bucket audience — and polarity
 

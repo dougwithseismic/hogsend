@@ -1,0 +1,271 @@
+---
+title: Campaigns
+description: POST/GET /v1/campaigns — broadcast one template to a list or bucket, schedule it for a future instant, cancel it, and list campaigns. Plus defineCampaign() for committing a broadcast to your repo.
+---
+
+A campaign is a one-time broadcast of a single template to a whole audience — every subscribed member of a list, or every active member of a bucket. The send runs as a durable Hatchet task in the worker, so `POST /v1/campaigns` returns an enqueue (or schedule) ack, not the finished send. Each recipient flows through the same tracked mailer as every other send, so unsubscribed/suppressed contacts are skipped and link-click + open tracking apply automatically.
+
+Requires a bearer key with the `ingest` scope.
+
+## `POST /v1/campaigns`
+
+Validates the template and audience, inserts the campaign row, and either enqueues the durable `send-campaign` task immediately or — when `sendAt` is supplied — schedules it for that instant.
+
+### Request
+
+Exactly one of `list` or `bucket` is required.
+
+```jsonc
+{
+  "name": "July launch",
+  "list": "newsletter",
+  "bucket": "power-users",
+  "template": "marketing/product-update",
+  "props": { "headline": "Saved views are here" },
+  "from": "team@example.com",
+  "subject": "What's new",
+  "sendAt": "2026-07-15T16:00:00Z",
+  "idempotencyKey": "july-launch"
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `list` | `string` | one of list/bucket | Broadcast to every **subscribed** member of this list |
+| `bucket` | `string` | one of list/bucket | Broadcast to every **active** member of this bucket |
+| `template` | `string` | Yes | Registry key. Validated server-side against the wired registry |
+| `props` | `Record<string, unknown>` | No | Template props (the template's variables) |
+| `name` | `string` | No | Human label for the campaign |
+| `from` | `string` | No | Sender override (defaults to the template, then the mailer's `defaultFrom`) |
+| `subject` | `string` | No | Subject override (defaults to the template) |
+| `sendAt` | `string` | No | ISO 8601 future instant. Present → the campaign is `scheduled` and delivered then; absent → enqueued immediately |
+| `idempotencyKey` | `string` | No | Dedup key (or the `Idempotency-Key` header, which wins) |
+
+The audience is **exactly one** of `list` or `bucket` — passing both, or neither, is a `400`. A `list` audience follows the list's opt-in/opt-out polarity (`defaultOptIn`); see [Lists](/docs/data-api/lists#defaultoptin-polarity). A `bucket` audience is every contact matching the bucket's criteria at send time.
+
+### `sendAt` scheduling
+
+- **Absent** — the row is created `queued` and the durable send task is enqueued immediately.
+- **A future instant** — the row is created `scheduled` and delivered at that instant (a Hatchet scheduled run; the reaper's due-scheduled sweep is the backstop if the scheduled run fails to fire).
+- **More than 60s in the past** — `400`. A stale timestamp almost certainly did not mean "blast now".
+- **Within 60s in the past** — degrades to an immediate send.
+
+### Response `202`
+
+```json
+{ "campaignId": "…", "status": "queued", "scheduledAt": null }
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `campaignId` | `string` | The `campaigns` row id — poll `GET /v1/campaigns/{id}` for counts |
+| `status` | `string` | `queued` for an immediate send, `scheduled` when `sendAt` was supplied |
+| `scheduledAt` | `string \| null` | The send instant for a scheduled campaign; `null` for an immediate send |
+
+The `202` is an *enqueue ack* — the actual sends run in the worker. `status` starts `queued`/`scheduled` and the worker advances it as it broadcasts.
+
+### Idempotency
+
+Pass an `idempotencyKey` (or the `Idempotency-Key` header, which wins over the body field). A retried create with the same key resolves to the **existing** campaign instead of spawning a second broadcast — so a network retry never double-sends to your whole audience.
+
+## `GET /v1/campaigns`
+
+Lists campaigns, newest first.
+
+```bash
+curl "http://localhost:3002/v1/campaigns?status=scheduled,sending&limit=50&offset=0" \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY"
+```
+
+| Query param | Type | Default | Description |
+|---|---|---|---|
+| `status` | `string` | — | Comma-separated status filter, e.g. `scheduled,sending` |
+| `limit` | `number` | `50` | Page size, 1–200 |
+| `offset` | `number` | `0` | Page offset |
+
+**Response `200`**
+
+```json
+{ "campaigns": [ /* … newest first */ ], "hasMore": true }
+```
+
+## `GET /v1/campaigns/{id}`
+
+Returns a single campaign with its live send counts.
+
+```bash
+curl http://localhost:3002/v1/campaigns/$CAMPAIGN_ID \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY"
+```
+
+Unknown id → `404`. See [The campaign object](#the-campaign-object) for the shape.
+
+## `POST /v1/campaigns/{id}/cancel`
+
+Cancels a `scheduled`, `queued`, or `sending` campaign and returns it.
+
+```bash
+curl -X POST http://localhost:3002/v1/campaigns/$CAMPAIGN_ID/cancel \
+  -H "Authorization: Bearer $HOGSEND_DATA_KEY"
+```
+
+A mid-send cancel stops the blast at the next chunk boundary (chunks of 100): recipients not yet dispatched are spared; already-dispatched emails are not recalled. A campaign already in a terminal status (`sent`, `canceled`, `expired`) returns `409`.
+
+## Statuses
+
+```
+queued    ─┐  (immediate send)
+scheduled ─┴→ sending → sent
+```
+
+| Status | Meaning |
+|---|---|
+| `scheduled` | Created with a future `sendAt`; waiting to be delivered |
+| `queued` | Enqueued for immediate send |
+| `sending` | The worker is broadcasting |
+| `sent` | Terminal — the broadcast completed |
+| `failed` | The reaper gave up re-driving a stuck send; re-runnable |
+| `canceled` | Terminal — canceled via the cancel endpoint |
+| `expired` | Terminal — a code-defined campaign whose `sendAt` was already stale at first deploy (see [`defineCampaign()`](#code-defined-campaigns-with-definecampaign)) |
+
+## The campaign object
+
+Returned by `GET /v1/campaigns/{id}` and in the `campaigns` array of the list endpoint.
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Campaign id |
+| `name` | `string` | Human label |
+| `status` | `string` | One of the statuses above |
+| `audienceKind` | `"list" \| "bucket"` | Which audience model |
+| `audienceId` | `string` | The list or bucket id |
+| `templateKey` | `string` | The template being broadcast |
+| `totalRecipients` | `number` | Audience size resolved at send time |
+| `sentCount` | `number` | Recipients dispatched |
+| `skippedCount` | `number` | Recipients skipped (unsubscribed/suppressed) |
+| `failedCount` | `number` | Recipients whose send failed |
+| `scheduledAt` | `string \| null` | The send instant for a scheduled campaign |
+| `canceledAt` | `string \| null` | When it was canceled |
+| `startedAt` | `string \| null` | When the broadcast began |
+| `completedAt` | `string \| null` | When the broadcast finished |
+| `createdAt` | `string` | When the row was created |
+
+## Delivery guarantees
+
+The broadcast runs as a durable Hatchet task, so these hold without extra wiring:
+
+- **Idempotent per recipient.** Each recipient send carries the idempotency key `campaign:<campaignId>:<email>`, so a retry never double-sends to that address.
+- **Self-healing.** A reaper cron re-drives stuck sends and promotes due `scheduled` campaigns if the punctual scheduled run failed to fire.
+- **Preference-checked.** Suppressed and globally-unsubscribed contacts are excluded at audience resolution **and** re-checked per send. They are counted in `skippedCount`, not emailed.
+- **Tracked.** Links and opens are rewritten and re-ingested as `email.link_clicked` / `email.opened` events, exactly as for [transactional](/docs/data-api/emails) and journey sends.
+
+## Errors
+
+| Status | Meaning |
+|---|---|
+| `400` | Both or neither of `list`/`bucket`, unknown template, or `sendAt` more than 60s in the past |
+| `401` | Missing/invalid key |
+| `403` | Key lacks the `ingest` scope |
+| `404` | Unknown list, bucket, or campaign id |
+| `409` | Cancel requested on a campaign already in a terminal status |
+
+## Code-defined campaigns with `defineCampaign()`
+
+A campaign can be committed to your repo instead of created over HTTP. `defineCampaign()` mirrors `defineJourney()` / `defineList()`: write a file, deploy, and the worker's boot reconciler schedules it. Once sent it is retired — redeploys no-op.
+
+```ts title="src/campaigns/index.ts"
+import { defineCampaign } from "@hogsend/engine";
+import { Templates } from "../journeys/constants/index.js";
+
+export const julyLaunch = defineCampaign({
+  id: "july-2026-launch",            // stable slug; the retirement key
+  name: "July launch announcement",
+  audience: { list: "newsletter" },  // or { bucket: "power-users" }
+  template: Templates.ProductUpdate, // type-checked against your registry
+  props: { headline: "Saved views are here" },
+  sendAt: "2026-07-15T16:00:00Z",
+});
+
+export const campaigns = [julyLaunch];
+```
+
+Thread the array into `createHogsendClient` (so the catalog is known); `createWorker` defaults to the container's, so it takes no `campaigns` of its own:
+
+```ts
+const container = createHogsendClient({ journeys, campaigns });
+const worker = createWorker({ container, journeys });
+```
+
+A defined campaign is **not** a new runtime. The reconciler upserts it into the same `campaigns` row and durable `send-campaign` task the data plane uses, so scheduling, cancel, counts, and Studio visibility are identical regardless of how the campaign was created.
+
+### `defineCampaign()` options
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | Yes | Stable slug. Must match `/^[a-z0-9_-]+$/i`. The retirement key |
+| `name` | `string` | No | Human label. Defaults to `id` |
+| `audience` | `{ list } \| { bucket }` | Yes | Exactly one of `list` or `bucket` |
+| `template` | `TemplateName` | Yes | Type-checked against your registry |
+| `props` | `Record<string, unknown>` | No | Template props |
+| `subject` | `string` | No | Subject override |
+| `from` | `string` | No | Sender override |
+| `sendAt` | `Date \| string` | Yes | The send instant (ISO string or `Date`) |
+| `enabled` | `boolean` | No | Defaults to `true` |
+
+`defineCampaign()` validates at definition time: the id shape, exactly one of `list`/`bucket`, and that `sendAt` parses to a real instant. Whether `sendAt` is still in the future is deliberately **not** checked here — that is a deploy-time question the reconciler answers. The audience and template are validated against the registries at boot; a broken definition is skipped with an error log rather than crashing the worker.
+
+### What the boot reconciler does
+
+At worker boot a reconciler upserts each definition into a `campaigns` row keyed `campaign-def:<id>`:
+
+| At reconcile | Outcome |
+|---|---|
+| No row yet, `sendAt` in the future | Created `scheduled` and delivered at that instant |
+| No row yet, `sendAt` due within the grace window (default 1h, env `CAMPAIGN_DEFINE_GRACE_MS`) | Sent on boot — covers a deploy that landed minutes late |
+| No row yet, `sendAt` staler than the grace window at first deploy | Created `expired` with a warning logged — a late deploy never fires a surprise blast |
+| Row still `scheduled`, file edited | Mutable fields (name, audience, template, props, subject, from, sendAt) synced; moving `sendAt` re-schedules |
+| Row already `sent` | No-op — the campaign is retired. Deleting the file keeps the history row |
+| Row `canceled` | No-op — a canceled campaign is never resurrected by a redeploy |
+
+<Callout type="info">
+  A defined campaign expires rather than fires when its `sendAt` is already stale at the first deploy. To recover, bump `sendAt` (or delete the file) and redeploy — there is no way for a campaign committed with last week's date to blast on deploy.
+</Callout>
+
+One campaign is one send to the audience **as resolved at send time** — members added to the list or bucket after the send do not receive it.
+
+## SDK
+
+[`@hogsend/client`](/docs/data-api/client-sdk) wraps every endpoint. `template`/`props` are type-checked against your registry.
+
+```ts
+const hs = new Hogsend({ baseUrl, apiKey });
+
+await hs.campaigns.send({
+  list: "newsletter",
+  template: "marketing/product-update",
+  props: { headline: "Saved views are here" },
+  sendAt: "2026-07-15T16:00:00Z",   // omit to send now
+  idempotencyKey: "july-launch",
+});                                  // → { campaignId, status, scheduledAt }
+
+await hs.campaigns.list({ status: ["scheduled"] }); // → { campaigns, hasMore }
+await hs.campaigns.get(campaignId);                 // → Campaign
+await hs.campaigns.cancel(campaignId);              // → Campaign
+```
+
+The [Marketing campaigns recipe](/docs/recipes/marketing-campaigns) walks the full define-list → subscribe → broadcast workflow.
+
+## CLI
+
+`@hogsend/cli` wraps the same routes for one-off operator use:
+
+```bash
+hogsend campaigns send --list newsletter --template launch --at 2026-07-15T16:00:00Z
+hogsend campaigns list --status scheduled
+hogsend campaigns status cmp_123
+hogsend campaigns cancel cmp_123
+```
+
+## Studio
+
+The Studio **Campaigns** view lists campaigns with their status and send counts, and can cancel a `scheduled`, `queued`, or `sending` one.

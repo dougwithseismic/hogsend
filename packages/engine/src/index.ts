@@ -96,6 +96,18 @@ export {
   resetBucketRegistry,
   setBucketRegistry,
 } from "./buckets/registry-singleton.js";
+// --- Campaigns (one-shot broadcasts) ---
+export {
+  type CampaignAudience,
+  type CampaignMeta,
+  DEFINED_CAMPAIGN_KEY_PREFIX,
+  type DefinedCampaign,
+  defineCampaign,
+} from "./campaigns/define-campaign.js";
+export {
+  type ReconcileResult,
+  reconcileDefinedCampaigns,
+} from "./campaigns/reconcile.js";
 // --- Cold-connect (email-confirmed chat-platform contact linking) ---
 export {
   type ColdConnect,
@@ -595,7 +607,10 @@ export {
   type SuppressionImportRow,
   type SuppressionReason,
 } from "./workflows/import-suppressions.js";
-export { sendCampaignTask } from "./workflows/send-campaign.js";
+export {
+  reapStuckCampaignsTask,
+  sendCampaignTask,
+} from "./workflows/send-campaign.js";
 // --- Built-in Hatchet workflow tasks ---
 export { sendEmailTask } from "./workflows/send-email.js";
 export { sendFeedTask } from "./workflows/send-feed.js";

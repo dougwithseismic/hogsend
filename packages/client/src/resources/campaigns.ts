@@ -1,6 +1,8 @@
 import type { HttpClient } from "../internal/http.js";
 import type {
   Campaign,
+  ListCampaignsInput,
+  ListCampaignsResult,
   SendCampaignInput,
   SendCampaignResult,
 } from "../types.js";
@@ -14,10 +16,12 @@ export class CampaignsResource {
    * a `list` (or every active member of a `bucket`). Exactly one of `list` /
    * `bucket` must be set; `template`/`props` are type-checked against the
    * augmented `TemplateRegistryMap` when `@hogsend/email` is installed, else
-   * degrade to `{ template: string; props? }`.
+   * degrade to `{ template: string; props? }`. Pass `sendAt` to schedule the
+   * blast for a future instant instead of sending immediately.
    *
-   * Returns the 202 enqueue ack (`{ campaignId, status }`); the actual sends run
-   * asynchronously in the worker. Poll {@link CampaignsResource.get} for counts.
+   * Returns the 202 ack (`{ campaignId, status, scheduledAt }`); the actual
+   * sends run asynchronously in the worker. Poll {@link CampaignsResource.get}
+   * for counts.
    */
   send(input: SendCampaignInput): Promise<SendCampaignResult> {
     // The discriminated union narrows `template`/`props` and the audience; index
@@ -36,11 +40,36 @@ export class CampaignsResource {
       props: body.props,
       from: body.from,
       subject: body.subject,
+      sendAt:
+        body.sendAt instanceof Date ? body.sendAt.toISOString() : body.sendAt,
+      idempotencyKey: body.idempotencyKey,
     });
   }
 
   /** Fetch a campaign's current status + send counts. */
   get(id: string): Promise<Campaign> {
     return this.http.get<Campaign>(`/v1/campaigns/${encodeURIComponent(id)}`);
+  }
+
+  /** List campaigns, newest first. Filter with `status`; page with `limit`/`offset`. */
+  list(input: ListCampaignsInput = {}): Promise<ListCampaignsResult> {
+    return this.http.get<ListCampaignsResult>("/v1/campaigns", {
+      status: input.status?.join(","),
+      limit: input.limit !== undefined ? String(input.limit) : undefined,
+      offset: input.offset !== undefined ? String(input.offset) : undefined,
+    });
+  }
+
+  /**
+   * Cancel a `scheduled`, `queued`, or `sending` campaign. A mid-send cancel
+   * stops the blast at the next chunk boundary — recipients not yet dispatched
+   * are spared; already-dispatched sends are not recalled. Terminal campaigns
+   * reject with a 409 `HogsendApiError`.
+   */
+  cancel(id: string): Promise<Campaign> {
+    return this.http.post<Campaign>(
+      `/v1/campaigns/${encodeURIComponent(id)}/cancel`,
+      {},
+    );
   }
 }

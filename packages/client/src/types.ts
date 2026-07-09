@@ -115,15 +115,24 @@ export interface SendEmailResult {
 }
 
 /** Lifecycle status of a campaign (broadcast). */
-export type CampaignStatus = "queued" | "sending" | "sent" | "failed";
+export type CampaignStatus =
+  | "scheduled"
+  | "queued"
+  | "sending"
+  | "sent"
+  | "failed"
+  | "canceled"
+  | "expired";
 
 /** Whether a campaign targets a list or a bucket. */
 export type CampaignAudienceKind = "list" | "bucket";
 
-/** Result of `campaigns.send` (the 202 enqueue ack from `POST /v1/campaigns`). */
+/** Result of `campaigns.send` (the 202 ack from `POST /v1/campaigns`). */
 export interface SendCampaignResult {
   campaignId: string;
   status: CampaignStatus;
+  /** The send instant for a scheduled campaign; null for an immediate send. */
+  scheduledAt?: string | null;
 }
 
 /** A campaign as returned by `GET /v1/campaigns/{id}`. */
@@ -139,9 +148,26 @@ export interface Campaign {
   skippedCount: number;
   failedCount: number;
   // ISO strings while pending; null until the worker sets them.
+  scheduledAt: string | null;
+  canceledAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
+}
+
+/** Input to `campaigns.list`. All fields optional; newest first. */
+export interface ListCampaignsInput {
+  /** Filter to these statuses. */
+  status?: CampaignStatus[];
+  /** Page size, 1–200 (server default 50). */
+  limit?: number;
+  offset?: number;
+}
+
+/** Result of `campaigns.list`. */
+export interface ListCampaignsResult {
+  campaigns: Campaign[];
+  hasMore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -386,6 +412,17 @@ type CampaignEnvelope = {
   from?: string;
   /** Override the rendered subject for this broadcast. */
   subject?: string;
+  /**
+   * Schedule the broadcast for a future instant (Date or ISO 8601 string)
+   * instead of sending immediately. Cancel any time before the send with
+   * `campaigns.cancel`.
+   */
+  sendAt?: Date | string;
+  /**
+   * Client idempotency key: a retried send with the same key resolves to the
+   * EXISTING campaign instead of double-blasting the audience.
+   */
+  idempotencyKey?: string;
 };
 
 /** One `{ template, props }` variant for a single known template key. */
