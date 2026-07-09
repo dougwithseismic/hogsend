@@ -13,6 +13,7 @@ import { JourneyDetailView } from "@/views/journey-detail-view";
 import { JourneysView } from "@/views/journeys-view";
 import { LinksView } from "@/views/links-view";
 import { OverviewView } from "@/views/overview-view";
+import { QrCodesView } from "@/views/qr-codes-view";
 import { SendsView } from "@/views/sends-view";
 import { SettingsView } from "@/views/settings-view";
 import { SetupView } from "@/views/setup-view";
@@ -51,6 +52,12 @@ const linksRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/links",
   component: LinksView,
+});
+
+const qrCodesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/qr-codes",
+  component: QrCodesView,
 });
 
 const campaignsRoute = createRoute({
@@ -118,6 +125,7 @@ const routeTree = rootRoute.addChildren([
   sendsRoute,
   templatesRoute,
   linksRoute,
+  qrCodesRoute,
   campaignsRoute,
   journeysRoute,
   journeyDetailRoute,

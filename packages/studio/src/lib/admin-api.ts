@@ -1042,6 +1042,8 @@ export type Link = {
   /** The vanity short URL (`${API_PUBLIC_URL}/l/:slug`) — null if no slug. */
   vanityUrl: string | null;
   label: string | null;
+  /** Longer operator note for bulk identification ("sticker on the door"). */
+  description: string | null;
   campaign: string | null;
   source: string | null;
   distinctId: string | null;
@@ -1066,9 +1068,23 @@ export type LinkClick = {
   userAgent: string | null;
 };
 
-/** `GET /:id` — the flat link plus its recent clicks. */
+/**
+ * Per-destination stats bucket: hits grouped by the destination that was live
+ * when they landed. `url: null` = hits from before provenance stamping.
+ * Ordered newest-activity-first (the current destination leads).
+ */
+export type DestinationStat = {
+  url: string | null;
+  clicks: number;
+  scans: number;
+  firstAt: string;
+  lastAt: string;
+};
+
+/** `GET /:id` — the flat link plus its recent clicks + destination buckets. */
 export type LinkDetail = Link & {
   clicks: LinkClick[];
+  destinations: DestinationStat[];
 };
 
 /**
@@ -1080,6 +1096,8 @@ export type CreatedLink = Link;
 export function listLinks(filters?: {
   type?: "personal" | "public";
   includeArchived?: boolean;
+  /** true = only links whose QR scan row exists (the "QR codes" lens). */
+  hasQr?: boolean;
 }) {
   return api.get<{
     links: Link[];
@@ -1090,6 +1108,7 @@ export function listLinks(filters?: {
     query: {
       type: filters?.type,
       includeArchived: filters?.includeArchived ? "true" : undefined,
+      hasQr: filters?.hasQr ? "true" : undefined,
       limit: 200,
     },
   });
@@ -1104,6 +1123,7 @@ export function createLink(body: {
   label: string;
   type: "personal" | "public";
   campaign?: string;
+  description?: string;
   /** Optional vanity slug (`/l/:slug`). 409 if already taken. */
   slug?: string;
   /** Honored only when `type === "personal"` (share-safe invariant). */
@@ -1116,6 +1136,7 @@ export function updateLink(
   id: string,
   body: {
     label?: string;
+    description?: string | null;
     campaign?: string;
     originalUrl?: string;
     /** string = set/replace (409 if taken); null = clear the slug. */
@@ -1264,6 +1285,7 @@ export const qk = {
   discordConnectInfo: ["discord-connect-info"] as const,
   links: (type: string) => ["links", type] as const,
   link: (id: string) => ["link", id] as const,
+  qrCodes: () => ["links", "qr-lens"] as const,
   campaigns: (filters: CampaignListFilters) => ["campaigns", filters] as const,
   campaign: (id: string) => ["campaign", id] as const,
 };

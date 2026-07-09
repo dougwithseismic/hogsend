@@ -4,15 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import {
-  AlertTriangle,
-  Copy,
-  Download,
-  Link2,
-  Pencil,
-  Plus,
-  QrCode,
-} from "lucide-react";
+import { AlertTriangle, Copy, Link2, Pencil, Plus, QrCode } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import {
   EmptyState,
@@ -26,7 +18,6 @@ import { ConfirmDialog, Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { SplitButton, type SplitItem } from "@/components/ui/split-button";
 import {
   Table,
   TableBody,
@@ -41,13 +32,13 @@ import {
   type CreatedLink,
   createLink,
   type Link,
-  linkQrUrl,
   listLinks,
   qk,
   updateLink,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
+import { QrLinkDialog } from "./links/qr-dialog";
 
 const TYPES = [
   { value: "", label: "All" },
@@ -90,33 +81,6 @@ function isSlugConflict(error: unknown): boolean {
 const SLUG_INVALID_HINT =
   "1–64 letters, digits or hyphens — no leading/trailing hyphen.";
 const SLUG_DEFAULT_HINT = "A memorable /l/… path over the tracked short URL.";
-
-// QR export formats — served straight off the admin endpoint (no client-side
-// rendering), downloaded via a synthesized <a download>.
-const QR_EXPORT_ITEMS = [
-  { id: "png", label: "PNG" },
-  { id: "png-transparent", label: "PNG (transparent)" },
-  { id: "svg", label: "SVG" },
-] as const satisfies readonly SplitItem<string>[];
-type QrExportFormat = (typeof QR_EXPORT_ITEMS)[number]["id"];
-const QR_EXPORT_STORAGE_KEY = "hs.studio.qr-export";
-
-function downloadQr(link: Link, id: QrExportFormat) {
-  const transparent = id === "png-transparent";
-  const format = id === "svg" ? ("svg" as const) : ("png" as const);
-  const a = document.createElement("a");
-  a.href = linkQrUrl(link.id, {
-    format,
-    size: format === "png" ? 1024 : 512,
-    transparent,
-  });
-  a.download = `${link.slug ?? link.id}-qr${
-    transparent ? "-transparent" : ""
-  }.${format}`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
 
 /**
  * The vanity-slug field shared by the create + edit dialogs: Label + Input +
@@ -177,6 +141,7 @@ export function LinksView() {
   // Create-form fields.
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
+  const [description, setDescription] = useState("");
   const [campaign, setCampaign] = useState("");
   const [slug, setSlug] = useState("");
   const [linkType, setLinkType] = useState<LinkType>("public");
@@ -186,6 +151,7 @@ export function LinksView() {
   // share state). Pre-filled from the target row on open.
   const [editUrl, setEditUrl] = useState("");
   const [editLabel, setEditLabel] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editCampaign, setEditCampaign] = useState("");
   const [editSlug, setEditSlug] = useState("");
 
@@ -198,6 +164,7 @@ export function LinksView() {
   function resetForm() {
     setUrl("");
     setLabel("");
+    setDescription("");
     setCampaign("");
     setSlug("");
     setLinkType("public");
@@ -208,6 +175,7 @@ export function LinksView() {
     setEditTarget(row);
     setEditUrl(row.originalUrl);
     setEditLabel(row.label ?? "");
+    setEditDescription(row.description ?? "");
     setEditCampaign(row.campaign ?? "");
     setEditSlug(row.slug ?? "");
   }
@@ -227,6 +195,7 @@ export function LinksView() {
         url: url.trim(),
         label: label.trim(),
         type: linkType,
+        description: description.trim() || undefined,
         campaign: campaign.trim() || undefined,
         slug: normalizeSlugInput(slug) || undefined,
         // Share-safe invariant: identity only travels on personal links. The
@@ -260,6 +229,7 @@ export function LinksView() {
       return updateLink(editTarget.id, {
         originalUrl: editUrl.trim(),
         label: editLabel.trim(),
+        description: editDescription.trim() || null,
         campaign: editCampaign.trim() || undefined,
         ...(nextSlug !== prevSlug ? { slug: nextSlug || null } : {}),
       });
@@ -544,6 +514,16 @@ export function LinksView() {
           />
         </div>
 
+        <div className="space-y-1.5">
+          <Label htmlFor="link-description">Description (optional)</Label>
+          <Input
+            id="link-description"
+            placeholder="Sticker on the workshop door"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
         <SlugField
           id="link-slug"
           value={slug}
@@ -665,6 +645,16 @@ export function LinksView() {
           />
         </div>
 
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-link-description">Description (optional)</Label>
+          <Input
+            id="edit-link-description"
+            placeholder="Sticker on the workshop door"
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+          />
+        </div>
+
         <SlugField
           id="edit-link-slug"
           value={editSlug}
@@ -750,44 +740,9 @@ export function LinksView() {
         ) : null}
       </Dialog>
 
-      {/* QR dialog — live preview + downloads. The image URL is the admin QR
-          endpoint itself (session cookie rides along); first render lazy-mints
-          the link's scan row. */}
-      <Dialog
-        open={qrTarget !== null}
-        onClose={() => setQrTarget(null)}
-        title="QR code"
-        description="Encodes the durable short URL — never the vanity slug — so printed codes survive edits and re-targeting."
-        footer={<Button onClick={() => setQrTarget(null)}>Done</Button>}
-      >
-        {qrTarget ? (
-          <div className="space-y-3">
-            <div className="flex justify-center rounded-md border border-hairline-faint bg-white p-4">
-              <img
-                src={linkQrUrl(qrTarget.id, { format: "svg", size: 512 })}
-                alt={`QR code for ${qrTarget.label ?? qrTarget.originalUrl}`}
-                className="h-56 w-56"
-                crossOrigin="use-credentials"
-              />
-            </div>
-            <p className="text-white/60 text-xs">
-              {formatNumber(qrTarget.scanCount)} scan
-              {qrTarget.scanCount === 1 ? "" : "s"} recorded. Scans are counted
-              separately from link clicks; re-targeting the link updates where
-              the code leads.
-            </p>
-            <SplitButton<QrExportFormat>
-              items={QR_EXPORT_ITEMS}
-              storageKey={QR_EXPORT_STORAGE_KEY}
-              defaultId="png"
-              onAct={(id) => qrTarget && downloadQr(qrTarget, id)}
-              renderLabel={(item) => `Download ${item.label}`}
-              caretLabel="Choose a QR export format"
-              primaryIcon={{ Icon: Download }}
-            />
-          </div>
-        ) : null}
-      </Dialog>
+      {/* QR dialog — shared with the QR codes view (preview, exports, inline
+          re-target, per-destination stats). */}
+      <QrLinkDialog link={qrTarget} onClose={() => setQrTarget(null)} />
 
       <ConfirmDialog
         open={archiveTarget !== null}
