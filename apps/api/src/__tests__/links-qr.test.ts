@@ -392,6 +392,50 @@ describe("QR scan spine — counts + retarget", () => {
     expect(second[0]?.trackedLinkId).toBe(qr?.trackedLinkId);
   });
 
+  it("GET /:id groups stats per destination across a re-target", async () => {
+    const link = await mint({
+      label: `${RUN}-destinations`,
+      url: "https://example.com/dest-a",
+    });
+    const qr = await ensureQrTrackedLink({ db, linkId: link.id });
+
+    // Destination A: two clicks + one scan.
+    await app.request(`/v1/t/c/${link.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${link.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+
+    await app.request(`/v1/admin/links/${link.id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ originalUrl: "https://example.com/dest-b" }),
+    });
+
+    // Destination B: one scan only.
+    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+
+    const res = await app.request(`/v1/admin/links/${link.id}`, {
+      headers: AUTH_HEADER,
+    });
+    const body = await res.json();
+
+    expect(body.destinations.length).toBe(2);
+    // Newest activity first — the current destination leads.
+    const [current, previous] = body.destinations;
+    expect(current.url).toBe("https://example.com/dest-b");
+    expect(current.clicks).toBe(1);
+    expect(current.scans).toBe(1);
+    expect(previous.url).toBe("https://example.com/dest-a");
+    expect(previous.clicks).toBe(3);
+    expect(previous.scans).toBe(1);
+    expect(new Date(previous.firstAt).getTime()).toBeLessThanOrEqual(
+      new Date(previous.lastAt).getTime(),
+    );
+
+    // Top-level counters stay the all-time totals.
+    expect(body.clickCount).toBe(4);
+    expect(body.scanCount).toBe(2);
+  });
+
   it("the vanity route never resolves through the QR row", async () => {
     const link = await mint({
       label: `${RUN}-vanity-canonical`,
