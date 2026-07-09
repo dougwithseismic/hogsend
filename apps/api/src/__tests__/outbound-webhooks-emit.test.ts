@@ -399,7 +399,9 @@ describe("emit choke-point source invariants (Open Risk 1 & 4)", () => {
 
   it("first-party open/click emits are PER-HIT (no first-touch gate, no dedupeKey)", () => {
     const open = engineSource("routes/tracking/open.ts");
-    const click = engineSource("routes/tracking/click.ts");
+    // The click pipeline (shared by the UUID + vanity routes) owns the click
+    // side effects — click.ts is a thin resolver now.
+    const click = engineSource("routes/tracking/click-pipeline.ts");
     // Owner decision 1: EVERY open/click must reach EVERY destination. The
     // first-touch gate (`opened.length > 0`) and the per-send dedupeKey
     // (`email.opened:<id>`) must be GONE so a NULL dedupe key makes each hit a
