@@ -55,6 +55,20 @@ export const env = createEnv({
     // comma-separated. Needed when the Studio is served from a different origin
     // than the API — e.g. the `hogsend studio` CLI pointing at a remote instance.
     BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
+    // Cookie NAMESPACE for the engine's own Better Auth (the Studio/dogfood at
+    // e.g. t.hogsend.com). Better Auth derives the session cookie name as
+    // `<__Secure->?<prefix>.session_token`; with Better Auth's default
+    // "better-auth" prefix the engine cookie shares a NAME with any sibling web
+    // app that sets a cross-subdomain cookie on the shared parent (e.g.
+    // course/docs on `.hogsend.com`), which the browser also delivers to the
+    // Studio host — same name, DIFFERENT database → null session → Studio login
+    // loop. Defaulting to "hogsend" gives the engine its own namespace
+    // (__Secure-hogsend.session_token) so that sibling cookie is simply ignored
+    // here. MUST stay optional-with-default — a required value would fail env
+    // validation on every deploy that doesn't set it. Prefix affects the cookie
+    // NAME only; it is orthogonal to crossSubDomainCookies (the Domain attr),
+    // which the engine never sets (host-only).
+    AUTH_COOKIE_PREFIX: z.string().min(1).default("hogsend"),
     // Optional: a deploy may run a non-Resend provider (Postmark, SES…) and set
     // no Resend key at all. Read directly ONLY in the lazy-resend default branch
     // (container.ts) and the future `emailProvidersFromEnv` preset. With this

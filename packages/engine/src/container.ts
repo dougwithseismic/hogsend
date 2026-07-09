@@ -674,6 +674,11 @@ export function createHogsendClient(
       db,
       secret: env.BETTER_AUTH_SECRET,
       baseURL: env.BETTER_AUTH_URL,
+      // Give the engine (Studio/dogfood, e.g. t.hogsend.com) its OWN cookie
+      // namespace so its session cookie stops colliding with a sibling web
+      // app's `.hogsend.com` cross-subdomain SSO cookie. Env default is
+      // "hogsend"; no deploy needs to set AUTH_COOKIE_PREFIX explicitly.
+      cookiePrefix: env.AUTH_COOKIE_PREFIX,
       secondaryStorage: authSecondaryStorage,
       // Always trust the public API origin; add any explicitly configured ones
       // (e.g. a remote Studio origin) on top. baseURL is trusted automatically.

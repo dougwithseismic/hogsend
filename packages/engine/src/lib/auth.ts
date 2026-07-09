@@ -53,12 +53,44 @@ export function createAuth(opts: {
    * better-auth's in-memory store on a bare instance with no Redis.
    */
   secondaryStorage?: AuthSecondaryStorage;
+  /**
+   * Cookie-name namespace for THIS engine instance's Better Auth (passed to
+   * better-auth `advanced.cookiePrefix`). Better Auth names the session cookie
+   * `<__Secure->?<prefix>.session_token`; the default "better-auth" prefix
+   * collides with a sibling web app's cross-subdomain SSO cookie of the SAME
+   * name (e.g. course/docs on `.hogsend.com`) that the browser also delivers to
+   * the Studio host — but which resolves against a DIFFERENT database → null
+   * session → Studio login loop. Defaulting to "hogsend" gives the engine its
+   * own namespace (`__Secure-hogsend.session_token`) so that sibling cookie is
+   * simply ignored here. `cookiePrefix` only affects the cookie NAME — it is
+   * orthogonal to `crossSubDomainCookies` (the Domain attribute), which the
+   * engine never sets (host-only). `createHogsendClient` wires this from
+   * `env.AUTH_COOKIE_PREFIX`; the default is baked in below so every call site
+   * (including the headless CLI, which issues no cookie) stays aligned.
+   */
+  cookiePrefix?: string;
 }) {
-  const { db, secret, baseURL, trustedOrigins, sendResetPassword } = opts;
+  const {
+    db,
+    secret,
+    baseURL,
+    trustedOrigins,
+    sendResetPassword,
+    cookiePrefix,
+  } = opts;
   return betterAuth({
     basePath: "/api/auth",
     secret,
     baseURL,
+    // Namespace the engine's Better Auth cookies so its session cookie no longer
+    // shares a NAME with a sibling web app's `.hogsend.com` cross-subdomain SSO
+    // cookie that is also delivered to the Studio host (same name, different DB
+    // → null session → Studio login loop). Prefix-only; the Domain attribute
+    // (crossSubDomainCookies) is left UNSET → host-only cookie. Default
+    // "hogsend" → prod cookie `__Secure-hogsend.session_token`.
+    advanced: {
+      cookiePrefix: cookiePrefix ?? "hogsend",
+    },
     ...(trustedOrigins && trustedOrigins.length > 0 ? { trustedOrigins } : {}),
     // Passing `secondaryStorage` flips better-auth's rate-limit storage from the
     // per-instance in-memory default to this shared store (see option doc).
