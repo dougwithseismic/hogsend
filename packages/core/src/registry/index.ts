@@ -15,6 +15,12 @@ export class JourneyRegistry {
     const parsed = journeyMetaSchema.parse(journey);
     const validated = parsed as unknown as JourneyMeta;
 
+    if (this.journeys.has(validated.id)) {
+      throw new Error(
+        `Journey id collision: "${validated.id}" is registered by more than one journey (check your journeys[] array for two journeys sharing this id, or a journey id that duplicates a bucket-reaction id).`,
+      );
+    }
+
     this.journeys.set(validated.id, validated);
 
     const event = validated.trigger.event;
