@@ -591,9 +591,7 @@ describe("buildJourneyGraph — real journey import smoke", () => {
   it("extracts a graph from the live feedbackNps.runSource", async () => {
     const { feedbackNps } = await import("../journeys/feedback-nps.js");
     expect(typeof feedbackNps.runSource).toBe("string");
-    expect(
-      feedbackNps.runSource && feedbackNps.runSource.length,
-    ).toBeGreaterThan(0);
+    expect(feedbackNps.runSource?.length).toBeGreaterThan(0);
 
     const graph = buildJourneyGraph({
       runSource: feedbackNps.runSource,
