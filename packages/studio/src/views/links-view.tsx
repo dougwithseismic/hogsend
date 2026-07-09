@@ -4,7 +4,15 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { AlertTriangle, Copy, Link2, Pencil, Plus } from "lucide-react";
+import {
+  AlertTriangle,
+  Copy,
+  Download,
+  Link2,
+  Pencil,
+  Plus,
+  QrCode,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import {
   EmptyState,
@@ -32,6 +40,7 @@ import {
   type CreatedLink,
   createLink,
   type Link,
+  linkQrUrl,
   listLinks,
   qk,
   updateLink,
@@ -135,6 +144,7 @@ export function LinksView() {
   const [created, setCreated] = useState<CreatedLink | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Link | null>(null);
   const [editTarget, setEditTarget] = useState<Link | null>(null);
+  const [qrTarget, setQrTarget] = useState<Link | null>(null);
 
   // Create-form fields.
   const [url, setUrl] = useState("");
@@ -346,6 +356,7 @@ export function LinksView() {
                 <TableHead>Campaign</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead className="text-right">Clicks</TableHead>
+                <TableHead className="text-right">Scans</TableHead>
                 <TableHead>Short link</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="text-right">Action</TableHead>
@@ -383,6 +394,9 @@ export function LinksView() {
                     </TableCell>
                     <TableCell className="text-right text-white/80">
                       {formatNumber(row.clickCount)}
+                    </TableCell>
+                    <TableCell className="text-right text-white/80">
+                      {formatNumber(row.scanCount)}
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
@@ -425,6 +439,15 @@ export function LinksView() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setQrTarget(row)}
+                          aria-label="Show QR code"
+                        >
+                          <QrCode className="h-4 w-4" />
+                          QR
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
@@ -695,6 +718,54 @@ export function LinksView() {
                 </span>
               </div>
             ) : null}
+          </div>
+        ) : null}
+      </Dialog>
+
+      {/* QR dialog — live preview + downloads. The image URL is the admin QR
+          endpoint itself (session cookie rides along); first render lazy-mints
+          the link's scan row. */}
+      <Dialog
+        open={qrTarget !== null}
+        onClose={() => setQrTarget(null)}
+        title="QR code"
+        description="Encodes the durable short URL — never the vanity slug — so printed codes survive edits and re-targeting."
+        footer={<Button onClick={() => setQrTarget(null)}>Done</Button>}
+      >
+        {qrTarget ? (
+          <div className="space-y-3">
+            <div className="flex justify-center rounded-md border border-hairline-faint bg-white p-4">
+              <img
+                src={linkQrUrl(qrTarget.id, { format: "svg", size: 512 })}
+                alt={`QR code for ${qrTarget.label ?? qrTarget.originalUrl}`}
+                className="h-56 w-56"
+                crossOrigin="use-credentials"
+              />
+            </div>
+            <p className="text-white/60 text-xs">
+              {formatNumber(qrTarget.scanCount)} scan
+              {qrTarget.scanCount === 1 ? "" : "s"} recorded. Scans are counted
+              separately from link clicks; re-targeting the link updates where
+              the code leads.
+            </p>
+            <div className="flex gap-2">
+              <a
+                href={linkQrUrl(qrTarget.id, { format: "png", size: 1024 })}
+                download={`${qrTarget.slug ?? qrTarget.id}-qr.png`}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-hairline-faint bg-white/[0.04] px-3 font-medium text-sm text-white/90 hover:bg-white/[0.08]"
+              >
+                <Download className="h-4 w-4" />
+                PNG
+              </a>
+              <a
+                href={linkQrUrl(qrTarget.id, { format: "svg", size: 512 })}
+                download={`${qrTarget.slug ?? qrTarget.id}-qr.svg`}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-hairline-faint bg-white/[0.04] px-3 font-medium text-sm text-white/90 hover:bg-white/[0.08]"
+              >
+                <Download className="h-4 w-4" />
+                SVG
+              </a>
+            </div>
           </div>
         ) : null}
       </Dialog>

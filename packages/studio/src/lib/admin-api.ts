@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { config } from "./config";
 
 /**
  * Typed wrappers around the engine's /v1/admin/* surface. Types mirror the Zod
@@ -1045,7 +1046,10 @@ export type Link = {
   source: string | null;
   distinctId: string | null;
   createdBy: string | null;
+  /** Total across ALL entry paths — vanity, UUID, and QR scans. */
   clickCount: number;
+  /** QR-only subtotal (clicks recorded on the link's scan row). */
+  scanCount: number;
   /** The short redirect URL: `${API_PUBLIC_URL}/v1/t/c/:trackedLinkId`. */
   url: string;
   createdAt: string;
@@ -1126,6 +1130,24 @@ export function updateLink(
 /** Archive (soft-delete) a link — sets `archivedAt`; the short URL keeps working. */
 export function archiveLink(id: string) {
   return api.delete<Link>(`/v1/admin/links/${encodeURIComponent(id)}`);
+}
+
+/**
+ * URL of a link's QR image (`GET /v1/admin/links/:id/qr`) — for `<img>`
+ * previews and download anchors rather than a JSON fetcher. Admin-authed via
+ * the session cookie; first render lazy-mints the link's scan row.
+ */
+export function linkQrUrl(
+  id: string,
+  opts?: { format?: "svg" | "png"; size?: number },
+): string {
+  const params = new URLSearchParams();
+  if (opts?.format) params.set("format", opts.format);
+  if (opts?.size) params.set("size", String(opts.size));
+  const qs = params.toString();
+  return `${config.baseUrl}/v1/admin/links/${encodeURIComponent(id)}/qr${
+    qs ? `?${qs}` : ""
+  }`;
 }
 
 // --- Campaigns (broadcasts) ----------------------------------------------
