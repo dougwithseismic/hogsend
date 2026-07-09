@@ -611,11 +611,29 @@ export function createHogsendClient(
       : wrapLegacyAnalyticsService(analyticsOpt as PostHogService);
     analyticsProviders.register(analytics);
   } else {
+    // Resolve the ONE active analytics provider by id — the analytics sibling of
+    // the email-provider resolution above, and fail loud on an unresolved
+    // active id exactly like `EMAIL_PROVIDER` does. `env.ANALYTICS_PROVIDER`
+    // carries a zod `.default("posthog")`, so the resolved id is never empty —
+    // that default is what AUTO-ACTIVATES the PostHog env preset when
+    // `POSTHOG_API_KEY` is set. Because of that default we must NOT fail boot
+    // merely because the resolved id is unregistered: an operator who wired NO
+    // analytics still resolves "posthog" and legitimately has no provider (leave
+    // `analytics` undefined — reads/mirror stay no-ops). So the throw is gated on
+    // the id being EXPLICITLY requested — a code `defaultProvider` OR a SET
+    // `ANALYTICS_PROVIDER` env. The RAW `process.env` read (mirroring the
+    // `REDIS_URL` read above) is what distinguishes an explicit request from the
+    // zod default; without this gate a bogus `ANALYTICS_PROVIDER` typo would
+    // SILENTLY disable analytics (killing tz person-reads + the event mirror)
+    // instead of failing loud.
     const activeId = analyticsGroup?.defaultProvider ?? env.ANALYTICS_PROVIDER;
+    const explicitlyRequested = Boolean(
+      analyticsGroup?.defaultProvider ?? process.env.ANALYTICS_PROVIDER,
+    );
     analytics = analyticsProviders.get(activeId);
-    if (analyticsGroup?.defaultProvider && !analytics) {
+    if (explicitlyRequested && !analytics) {
       throw new Error(
-        `analytics.defaultProvider "${analyticsGroup.defaultProvider}" is not a registered analytics provider (registered: ${analyticsProviders
+        `analytics provider "${activeId}" is not registered (registered: ${analyticsProviders
           .getAll()
           .map((p) => p.meta.id)
           .join(", ")})`,
