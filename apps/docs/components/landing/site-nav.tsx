@@ -51,6 +51,11 @@ export const USE_CASE_LINKS: MenuItem[] = [
     href: "/recipes/category/conversion#failed-payment-dunning",
   },
   {
+    label: "Campaigns",
+    description: "One-off broadcasts to a list — scheduled, cancelable.",
+    href: "/campaigns",
+  },
+  {
     label: "Fire and forget",
     description: "Built for agents — domain to first send in half an hour.",
     href: "/fire-and-forget",
