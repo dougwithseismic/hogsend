@@ -17,6 +17,10 @@ export const DESKTOP_DOWNLOAD_URL = DESKTOP_DOWNLOAD_URL_MAC;
 export const DESKTOP_BUILDS = { mac: true, windows: true } as const;
 export const RAILWAY_DEPLOY_URL =
   "https://railway.com/deploy/hogsend-posthog-audience-stack";
+/** The hosted Studio demo — a real seeded install (Forgeline) with shared
+ *  credentials on its landing page. Link it through TrackStudioDemoClick so
+ *  every click is captured (PostHog + the dogfood ingest). */
+export const DEMO_URL = "https://demo.hogsend.com";
 export const ENGINE_VERSION = "0.39.0"; // bump per release
 export const CONTACT_EMAIL = "doug@withseismic.com";
 export const LINKEDIN_URL = "https://www.linkedin.com/in/dougsilkstone/";

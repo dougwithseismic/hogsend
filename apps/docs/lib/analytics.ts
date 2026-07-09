@@ -75,6 +75,12 @@ export const AnalyticsEvent = {
    * with `{ placement }`. Anonymous; the actual link match happens server-side
    * in the dogfood when the visitor runs /link with their signed-up email. */
   DISCORD_LINK_CLICKED: "docs.discord_link_clicked",
+  /** Any link to the hosted Studio demo (demo.hogsend.com), with
+   * `{ placement }`. Besides the anonymous PostHog capture, the click is
+   * captured through the docs' own Hogsend client, so it lands in the dogfood
+   * ingest on the visitor's contact (`hs_anon_id`, or the signed-in contact) —
+   * see TrackDemoClick in components/analytics/track.tsx. */
+  DEMO_LINK_CLICKED: "docs.demo_link_clicked",
   /** Setup-week hand-raise (non-PostHog offer answered "yes") — fired
    * server-side to the Hogsend ingest API carrying the email, so the dogfood
    * lead alert can route on it. NOT a client `capture()`; the constant lives
