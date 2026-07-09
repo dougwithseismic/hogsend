@@ -590,21 +590,16 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     // endpoint is admin-authed.
     c.header("Cache-Control", "private, max-age=3600");
 
+    const render = { width: size, errorCorrectionLevel: "M" as const };
+
     if (format === "png") {
-      const png = await QRCode.toBuffer(scanUrl, {
-        width: size,
-        errorCorrectionLevel: "M",
-      });
+      const png = await QRCode.toBuffer(scanUrl, render);
       c.header("Content-Type", "image/png");
       // Re-wrap: hono's `c.body` Data type doesn't accept Node's Buffer.
       return c.body(new Uint8Array(png));
     }
 
-    const svg = await QRCode.toString(scanUrl, {
-      type: "svg",
-      width: size,
-      errorCorrectionLevel: "M",
-    });
+    const svg = await QRCode.toString(scanUrl, { ...render, type: "svg" });
     c.header("Content-Type", "image/svg+xml");
     return c.body(svg);
   })

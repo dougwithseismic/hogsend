@@ -90,6 +90,11 @@ const SLUG_INVALID_HINT =
   "1–64 letters, digits or hyphens — no leading/trailing hyphen.";
 const SLUG_DEFAULT_HINT = "A memorable /l/… path over the tracked short URL.";
 
+// Download anchors in the QR dialog — <a download> (not Button) because the
+// file comes straight off the admin endpoint.
+const QR_DOWNLOAD_CLASS =
+  "inline-flex h-9 items-center gap-2 rounded-md border border-hairline-faint bg-white/[0.04] px-3 font-medium text-sm text-white/90 hover:bg-white/[0.08]";
+
 /**
  * The vanity-slug field shared by the create + edit dialogs: Label + Input +
  * the invalid-shape message. `hint` is the dialog-specific message shown while
@@ -752,7 +757,7 @@ export function LinksView() {
               <a
                 href={linkQrUrl(qrTarget.id, { format: "png", size: 1024 })}
                 download={`${qrTarget.slug ?? qrTarget.id}-qr.png`}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-hairline-faint bg-white/[0.04] px-3 font-medium text-sm text-white/90 hover:bg-white/[0.08]"
+                className={QR_DOWNLOAD_CLASS}
               >
                 <Download className="h-4 w-4" />
                 PNG
@@ -760,7 +765,7 @@ export function LinksView() {
               <a
                 href={linkQrUrl(qrTarget.id, { format: "svg", size: 512 })}
                 download={`${qrTarget.slug ?? qrTarget.id}-qr.svg`}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-hairline-faint bg-white/[0.04] px-3 font-medium text-sm text-white/90 hover:bg-white/[0.08]"
+                className={QR_DOWNLOAD_CLASS}
               >
                 <Download className="h-4 w-4" />
                 SVG
