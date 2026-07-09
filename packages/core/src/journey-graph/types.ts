@@ -59,8 +59,21 @@ export interface JourneyEdge {
     | "conditional-false";
 }
 
+/**
+ * Source location of a journey definition, for the Studio "open in editor"
+ * affordance. Best-effort: absent when the engine could not capture a call site.
+ */
+export interface JourneySourceLocation {
+  /** Absolute path of the file that called `defineJourney`. */
+  path: string;
+  /** 1-based line of the `defineJourney(...)` call. */
+  line: number;
+}
+
 export interface JourneyGraph {
   journeyId: string;
+  /** Where `defineJourney` was called (best-effort, for "open in editor"). */
+  source?: JourneySourceLocation;
   nodes: JourneyNode[];
   edges: JourneyEdge[];
   /** true when built without source (meta+labels fallback) */

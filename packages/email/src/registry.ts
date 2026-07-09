@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { ReactElement } from "react";
 import type {
   TemplateDefinition,
@@ -90,4 +91,35 @@ export function createRegistry(
 
 export function getTemplateNames(registry: TemplateRegistry): TemplateName[] {
   return Object.keys(registry) as TemplateName[];
+}
+
+/**
+ * Stamp a best-effort absolute `sourcePath` on every template definition so the
+ * Studio can deep-link the component file in an editor. Pass the consumer's
+ * email dir as `dir` (use `import.meta.dirname` from the registry module —
+ * captured, not guessed). The leaf filename is derived from the key via the
+ * flat-file convention `key.replace("/", "-") + ".tsx"`. An entry that already
+ * carries `sourcePath` is left untouched. Never throws.
+ */
+export function withSources(
+  dir: string,
+  registry: TemplateRegistry,
+): TemplateRegistry {
+  // Keep `out` typed as `TemplateRegistry` (a spread preserves the mapped type)
+  // so the return needs no unsafe cast; index/assign through a Record view.
+  // The view goes through `unknown` because per-key `TemplateDefinition<Props>`
+  // don't overlap the generic `TemplateDefinition` under a consumer's augmented
+  // registry — the runtime shape is identical, so this is safe.
+  const out = { ...registry };
+  const view = out as unknown as Record<string, TemplateDefinition>;
+  for (const key of Object.keys(view)) {
+    const def = view[key];
+    if (def && !def.sourcePath) {
+      view[key] = {
+        ...def,
+        sourcePath: join(dir, `${key.replace(/\//g, "-")}.tsx`),
+      };
+    }
+  }
+  return out;
 }

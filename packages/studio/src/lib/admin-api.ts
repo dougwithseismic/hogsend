@@ -22,6 +22,19 @@ export function getOverview() {
   return api.get<OverviewMetrics>("/v1/admin/metrics/overview");
 }
 
+// --- Dev: open a source file in the local editor -------------------------
+
+/**
+ * Ask the engine (dev-only, same machine) to open a source file in whatever
+ * editor the developer uses — auto-detected server-side via `launch-editor`.
+ * 404s in production; callers gate the UI on `config.isLocalhost`.
+ */
+export function openFileInEditor(path: string, line?: number) {
+  return api.post<{ ok: boolean; target: string }>("/v1/admin/open-in-editor", {
+    json: { path, ...(line ? { line } : {}) },
+  });
+}
+
 // --- Emails (sends) ------------------------------------------------------
 
 export type EmailSend = {
@@ -421,6 +434,8 @@ export type JourneyGraphEdge = {
 
 export type JourneyGraph = {
   journeyId: string;
+  /** Where `defineJourney` was called — for the "open in editor" link. */
+  source?: { path: string; line: number };
   nodes: JourneyGraphNode[];
   edges: JourneyGraphEdge[];
   degraded?: boolean;
@@ -436,6 +451,8 @@ export type JourneyNodeMetric = {
   live: number;
   failed: number;
   templateKey?: string;
+  /** Source path of the send node's template component — for "open in editor". */
+  templatePath?: string;
 };
 
 export type JourneyGraphResponse = {

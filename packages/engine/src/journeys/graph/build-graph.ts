@@ -192,9 +192,9 @@ function extract(runSource: string, meta: JourneyMeta): JourneyGraph {
 
   const nodes = [start, ...emitted, ...decisions, end];
 
-  if (meta.exitOn?.length) {
-    warnings.push(`exits on: ${meta.exitOn.map((e) => e.event).join(", ")}`);
-  }
+  // NB: exit conditions are intentionally NOT surfaced as a warning — they are
+  // already shown in the Studio's journey Definition card (and as end-exited
+  // terminal nodes in the graph), so a banner line here just duplicates them.
 
   // Same helper / warning at N sites emits N identical strings — collapse them.
   const uniqueWarnings = [...new Set(warnings)];

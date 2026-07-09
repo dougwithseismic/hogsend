@@ -208,6 +208,11 @@ export {
   logTransition,
 } from "./journeys/journey-log.js";
 export {
+  getJourneySourceLocations,
+  resetJourneySourceLocations,
+  setJourneySourceLocations,
+} from "./journeys/journey-source-locations-singleton.js";
+export {
   getJourneySources,
   resetJourneySources,
   setJourneySources,

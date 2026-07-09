@@ -439,12 +439,16 @@ const graphRoute = createRoute({
               // last durable node was this one when they failed. `templateKey`
               // is the resolved email template key for `send` nodes (for the
               // Studio side-panel preview) — present only when resolvable.
+              // `templatePath` is that template component's source file (for the
+              // Studio "open in editor" affordance) — present only in dev where
+              // the registry carries source paths.
               nodes: z.record(
                 z.string(),
                 z.object({
                   live: z.number(),
                   failed: z.number(),
                   templateKey: z.string().optional(),
+                  templatePath: z.string().optional(),
                 }),
               ),
             }),
@@ -829,7 +833,8 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     );
   })
   .openapi(graphRoute, async (c) => {
-    const { db, registry, journeySources, templates } = c.get("container");
+    const { db, registry, journeySources, journeySourceLocations, templates } =
+      c.get("container");
     const { id } = c.req.valid("param");
 
     const meta = registry.get(id);
@@ -838,10 +843,13 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     }
 
     // Build (and cache) the IR — runSource is static per process, so a repeat
-    // request re-uses the parse rather than re-walking the AST.
+    // request re-uses the parse rather than re-walking the AST. The captured
+    // call-site (also static per process) is baked into the cached graph.
     let graph = journeyGraphCache.get(id);
     if (!graph) {
       graph = buildJourneyGraph({ runSource: journeySources.get(id), meta });
+      const source = journeySourceLocations.get(id);
+      if (source) graph.source = source;
       journeyGraphCache.set(id, graph);
     }
 
@@ -864,7 +872,12 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     // instantaneous nodes (send/trigger/capture/connector) correctly stay 0.
     const nodeMetrics: Record<
       string,
-      { live: number; failed: number; templateKey?: string }
+      {
+        live: number;
+        failed: number;
+        templateKey?: string;
+        templatePath?: string;
+      }
     > = {};
     for (const node of graph.nodes) {
       nodeMetrics[node.id] = { live: 0, failed: 0 };
@@ -912,7 +925,15 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
       const sendIds = new Set(sendNodes.map((node) => node.id));
       const setTemplate = (nodeId: string, key: string) => {
         const entry = nodeMetrics[nodeId] ?? { live: 0, failed: 0 };
-        if (!entry.templateKey) entry.templateKey = key;
+        if (!entry.templateKey) {
+          entry.templateKey = key;
+          // Best-effort source path (dev-only; see `withSources`) for the
+          // Studio "open template in editor" affordance.
+          const def = (templates as Record<string, { sourcePath?: string }>)[
+            key
+          ];
+          if (def?.sourcePath) entry.templatePath = def.sourcePath;
+        }
         nodeMetrics[nodeId] = entry;
       };
 

@@ -56,8 +56,14 @@ export const journeyEdgeSchema = z.object({
   kind: journeyEdgeKindSchema.optional(),
 });
 
+export const journeySourceLocationSchema = z.object({
+  path: z.string(),
+  line: z.number(),
+});
+
 export const journeyGraphSchema = z.object({
   journeyId: z.string(),
+  source: journeySourceLocationSchema.optional(),
   nodes: z.array(journeyNodeSchema),
   edges: z.array(journeyEdgeSchema),
   degraded: z.boolean().optional(),

@@ -36,7 +36,28 @@ function resolveBaseUrl(): string {
   return "";
 }
 
+/**
+ * True when the Studio is loaded from a local dev host. Gates dev-only
+ * affordances like "open in editor", which deep-links a file on the BROWSER's
+ * machine — only meaningful when the browser and the engine share a filesystem
+ * (the local `hogsend`-serves-`/studio` mount).
+ */
+function resolveIsLocalhost(): boolean {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  return (
+    h === "localhost" ||
+    h === "127.0.0.1" ||
+    h === "[::1]" ||
+    h === "::1" ||
+    h === "0.0.0.0" ||
+    h.endsWith(".localhost")
+  );
+}
+
 export const config = {
   /** Origin (or origin prefix) of the Hogsend API. "" means same-origin. */
   baseUrl: resolveBaseUrl(),
+  /** True on a local dev host — gates dev-only affordances (open in editor). */
+  isLocalhost: resolveIsLocalhost(),
 } as const;

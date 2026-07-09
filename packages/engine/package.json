@@ -48,6 +48,7 @@
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.22",
     "ioredis": "^5.10.1",
+    "launch-editor": "^2.14.1",
     "papaparse": "^5.5.3",
     "picocolors": "^1.1.1",
     "resend": "^6.12.3",
