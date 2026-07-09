@@ -157,9 +157,11 @@ describe("buildJourneyGraph — feedback-nps shape", () => {
     expect(nodeById(graph, "scored-${…}")?.meta?.unstable).toBe(true);
   });
 
-  it("puts trigger.where on start and exitOn in warnings", () => {
-    // no where here, but exitOn should surface as a warning
-    expect(graph.warnings).toContain("exits on: user.deleted");
+  it("shows the trigger event on start and does NOT warn about exitOn", () => {
+    // exitOn is already surfaced in the Studio Definition card (and as
+    // end-exited terminals in the graph), so it is intentionally no longer
+    // duplicated as a graph warning.
+    expect(graph.warnings ?? []).not.toContain("exits on: user.deleted");
     expect(nodeById(graph, "start")?.subtitle).toBe("user.created");
   });
 
