@@ -384,6 +384,41 @@ describe("email template ref resolution", () => {
     }
   });
 
+  it("resolves through `as const satisfies Record<...>` (the dogfood shape)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-tmpl-sat-"));
+    try {
+      const constants = join(dir, "constants");
+      mkdirSync(constants, { recursive: true });
+      writeFileSync(
+        join(constants, "index.ts"),
+        `export const Templates = {
+          WELCOME: "welcome",
+        } as const satisfies Record<string, string>;\n`,
+        "utf8",
+      );
+      const journey = join(dir, "j.ts");
+      writeFileSync(
+        journey,
+        `
+        import { defineJourney, sendEmail } from "@hogsend/engine";
+        import { Templates } from "./constants/index.js";
+        export const j = defineJourney({
+          meta: { id: "sat", name: "S", enabled: true, trigger: { event: "x" }, entryLimit: "once" },
+          run: async (user, ctx) => {
+            await sendEmail({ subject: "Hi", template: Templates.WELCOME });
+          },
+        });
+        `,
+        "utf8",
+      );
+      const g = extractJourneyGraph(journey);
+      const email = g.nodes.find((n) => n.kind === "email");
+      expect(email?.templateKey).toBe("welcome");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("leaves a dynamic template ref unresolved (honest undefined)", () => {
     const src = `
       import { defineJourney, sendEmail } from "@hogsend/engine";

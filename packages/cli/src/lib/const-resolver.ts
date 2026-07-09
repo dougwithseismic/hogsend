@@ -74,10 +74,18 @@ function memberLiteral(
   return undefined;
 }
 
-/** Unwrap `<expr> as const` / `<expr> as T` to the underlying expression. */
+/**
+ * Unwrap `<expr> as const` / `<expr> as T` / `<expr> satisfies T` (and
+ * parentheses) to the underlying expression. The dogfood app's `Templates`
+ * constant is `{...} as const satisfies Record<string, TemplateName>`.
+ */
 function unwrapAs(expr: ts.Expression): ts.Expression {
   let e = expr;
-  while (ts.isAsExpression(e) || ts.isParenthesizedExpression(e)) {
+  while (
+    ts.isAsExpression(e) ||
+    ts.isSatisfiesExpression(e) ||
+    ts.isParenthesizedExpression(e)
+  ) {
     e = e.expression;
   }
   return e;
