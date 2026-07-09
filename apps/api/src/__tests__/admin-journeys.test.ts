@@ -9,6 +9,10 @@ const { contacts, journeyStates, userEvents } = await import("@hogsend/db");
 const { eq } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
 const { templates } = await import("../emails/index.js");
+// The real app lists (incl. `product-updates`) — wired so the marketing
+// template's `product-updates` category resolves to a defined list (matching
+// src/index.ts; the container boot-guard rejects a category with no list).
+const { lists } = await import("../lists/index.js");
 
 // Hatchet now lives inside @hogsend/engine, so it is injected via the container
 // override seam rather than module-mocked. This keeps the enroll endpoint from
@@ -33,6 +37,7 @@ const mockHatchet = {
 
 const container = createHogsendClient({
   journeys,
+  lists,
   email: { templates },
   overrides: { hatchet: mockHatchet },
 });
