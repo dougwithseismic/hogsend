@@ -17,7 +17,7 @@ export const DESKTOP_DOWNLOAD_URL = DESKTOP_DOWNLOAD_URL_MAC;
 export const DESKTOP_BUILDS = { mac: true, windows: true } as const;
 export const RAILWAY_DEPLOY_URL =
   "https://railway.com/deploy/hogsend-posthog-audience-stack";
-export const ENGINE_VERSION = "0.37.3"; // bump per release
+export const ENGINE_VERSION = "0.39.0"; // bump per release
 export const CONTACT_EMAIL = "doug@withseismic.com";
 export const LINKEDIN_URL = "https://www.linkedin.com/in/dougsilkstone/";
 export const WITHSEISMIC_URL = "https://withseismic.com";
