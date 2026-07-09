@@ -1,6 +1,6 @@
 ---
 title: Link tracking
-description: First-party tracked links for any channel — mint personal or public links, count clicks, and stitch identity outside the email pipeline.
+description: First-party tracked links for any channel — mint personal or public links, vanity slugs, and re-targetable QR codes; count clicks and stitch identity outside the email pipeline.
 ---
 
 Email already rewrites its links to redirect through your own domain and counts
@@ -69,7 +69,60 @@ history survives.
 
 The same surface is a REST API: `POST /v1/admin/links` to mint,
 `GET /v1/admin/links` to list, `GET /v1/admin/links/:id` for one link with its
-recent clicks, `PATCH` to rename/regroup, `DELETE` to archive.
+recent clicks, `PATCH` to rename/regroup/re-target, `DELETE` to archive.
+
+## Vanity slugs
+
+A managed link can carry a memorable slug layered over the UUID short URL:
+
+```
+https://api.yourapp.com/l/black-friday
+```
+
+- **Shape**: 1–64 characters of `a-z`, `0-9`, `-` — no leading or trailing
+  hyphen. Input is lowercased before validation, so `/l/Black-Friday` resolves
+  the same link.
+- **Unique per instance.** Minting or PATCHing a taken slug is a `409`.
+- **Same click, same stats.** `/l/:slug` resolves the link's canonical tracked
+  row and runs the exact click pipeline `/v1/t/c/:id` runs — one counter, one
+  `link_clicks` history, whichever URL was hit.
+- **Lifecycle.** Set a slug at mint (`slug` on `mintLink` or
+  `POST /v1/admin/links`), replace it via `PATCH`, or clear it with
+  `slug: null` — clearing frees the slug for reuse and stops the vanity path
+  resolving (the UUID short URL keeps working). Archived links keep their slug
+  reserved and keep redirecting.
+
+## QR codes
+
+Every managed link can render a QR code:
+
+```
+GET /v1/admin/links/:id/qr?format=svg|png&size=64..2048&transparent=true|false
+```
+
+The code encodes the link's **durable scan URL** — never the vanity slug — so a
+printed code keeps working through slug changes and destination re-targets.
+Scans are recorded on a dedicated per-link scan row, which means link responses
+carry both `clickCount` (all entry paths) and `scanCount` (QR scans only).
+
+The Studio **QR codes** view is the print-first lens over the same links:
+
+- **New QR code** mints a link from just a destination, a label, and a
+  description (what/where the printed code physically is — how you tell codes
+  apart in bulk).
+- The QR dialog previews the code and downloads it as **PNG**, **PNG with a
+  transparent background** (for placing on your own artwork), or **SVG**.
+- **Re-target in place.** Change the destination and every already-printed copy
+  redirects to the new target on its next scan.
+
+### Stats per destination
+
+Every click and scan records the destination that was live when it landed. When
+you re-target a link, `GET /v1/admin/links/:id` returns a `destinations` array
+— one bucket per destination, each with its own `clicks`, `scans`, and
+first/last hit times — and the Studio QR dialog shows the same breakdown. The
+QR code on your door can point at this month's offer while last month's numbers
+stay attributed to last month's page.
 
 ## Click counts
 
