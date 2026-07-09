@@ -35,7 +35,7 @@ sending domains (these carry over untouched when Resend stays the provider).
 | Contact (in an audience) | contact + list membership — `hs.contacts.upsert({ email, properties?, lists: { "<list-id>": true } })` | `firstName`/`lastName` → `properties`; `unsubscribed: true` contacts → suppression import (see `cutover-checklist.md`) |
 | Broadcast | campaign — `hs.campaigns.send({ list, template, props })` | Or `hogsend campaigns send --list <id> --template <key>`. Content becomes a four-file react-email template |
 | `resend.emails.send` (transactional) | EITHER keep as-is (it still works) OR move to `hs.emails.send` | Moving buys first-party open/click tracking, preference/suppression checks, send history, and journey attribution — recommended, not required |
-| Scheduled broadcast | campaign triggered when you want it | A campaign sends on enqueue; schedule via your own cron/workflow if needed |
+| Scheduled broadcast | scheduled campaign — `hs.campaigns.send({ ..., sendAt })` or a committed `defineCampaign({ ..., sendAt })` | Delivered at `sendAt` (cancelable until then via `hs.campaigns.cancel` / `hogsend campaigns cancel`); see the hogsend-authoring-campaigns skill |
 | (No workflow product) | journeys — `defineJourney()` | Net-new capability, not a port. Teams on Resend Broadcasts usually hand-rolled drip logic in app code — grep for `setTimeout`/cron-driven email sends worth replacing with journeys |
 
 ## Before / after
