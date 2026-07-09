@@ -61,8 +61,8 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 
 ## Phase 6 — Docs round 2
 
-- [ ] 6.1 `apps/docs` guide: extend `content/docs/guides/link-tracking.mdx` with vanity slugs, QR codes (durable-by-construction story), per-destination stats + print-marketing retarget walkthrough (docs register: every line a fact); gate with docs check-types
-- [ ] 6.2 Update `docs/tracking.md` + the pending changeset (`.changeset/vanity-links-qr-codes.md`) to cover transparent export, description, destination stats, hasQr lens
+- [x] 6.1 `apps/docs` guide: extend `content/docs/guides/link-tracking.mdx` with vanity slugs, QR codes (durable-by-construction story), per-destination stats + print-marketing retarget walkthrough (docs register: every line a fact); gate with docs check-types
+- [x] 6.2 Update `docs/tracking.md` + the pending changeset (`.changeset/vanity-links-qr-codes.md`) to cover transparent export, description, destination stats, hasQr lens
 
 ## Seam notes
 
