@@ -8,18 +8,15 @@ export default defineConfig({
   clean: true,
   splitting: false,
   sourcemap: true,
-  // The @hogsend packages ship raw `.ts` and use `.js`-extension relative
-  // imports, so they MUST be bundled (inlined) — Node's resolver cannot run
-  // them as-is. Their external npm deps (hono, drizzle-orm, resend, ...) stay
-  // external and resolve from node_modules at runtime. `@hogsend/engine` is
-  // included so `node dist/index.js` runs without the engine's raw `.ts` ever
-  // reaching Node's resolver.
-  noExternal: [
-    "@hogsend/core",
-    "@hogsend/db",
-    "@hogsend/email",
-    "@hogsend/engine",
-    "@hogsend/plugin-posthog",
-    "@hogsend/plugin-resend",
-  ],
+  // Every `@hogsend/*` package ships raw `.ts` with `.js`-extension relative
+  // imports, so any that reaches Node's resolver crashes at runtime with
+  // ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING. Bundle them ALL via one regex so
+  // adding a plugin later — `pnpm add @hogsend/plugin-discord`, `-telegram`,
+  // `-postmark`, … — just works with no edit here (an explicit list silently
+  // omits new plugins; it type-checks and builds, then only crashes at boot).
+  // Their external npm deps (hono, drizzle-orm, resend, …) stay external and
+  // resolve from node_modules at runtime. `@hogsend/studio` is never bundled:
+  // it's a prebuilt static SPA the engine locates via `require.resolve`, not a
+  // code import, so tsup leaves it in node_modules where the engine serves it.
+  noExternal: [/^@hogsend\//],
 });
