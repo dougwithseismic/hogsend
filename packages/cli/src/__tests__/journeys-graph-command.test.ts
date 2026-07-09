@@ -284,7 +284,10 @@ describe("journeys graph subcommand", () => {
       true,
     );
 
-    const note = captured.logs.join("\n");
+    // Strip ANSI codes: picocolors enables color whenever the CI env var is
+    // set (no TTY required), so the note is colorized on CI but not locally.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ANSI escape byte is the point
+    const note = captured.logs.join("\n").replace(/\u001b\[[0-9;]*m/g, "");
     expect(note).toContain("1 journey(s) graphed");
     expect(note).toContain("markdown:");
     expect(note).toContain("manifest:");
