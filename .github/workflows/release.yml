@@ -29,6 +29,14 @@ permissions:
 
 env:
   NODE_VERSION: "22"
+  # Never run local git hooks in CI. The changesets action commits + force-pushes
+  # the "Version Packages" branch (and, on publish, pushes tags); those git
+  # operations fire lefthook's pre-push hook, which runs `pnpm test` — a DB-backed
+  # vitest suite with no database in this job — so the push hangs until the runner
+  # cancels it and no Version PR is ever created. This job already runs
+  # check-types + build + release-doctor as explicit gates, so the hooks are pure
+  # dead weight here.
+  LEFTHOOK: "0"
 
 jobs:
   release:

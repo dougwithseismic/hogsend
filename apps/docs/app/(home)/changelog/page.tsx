@@ -55,6 +55,388 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.39.0",
+    anchor: "0-39-0",
+    date: "July 9, 2026",
+    title:
+      "Studio journey flow, typed template keys, and boot-time config guards",
+    bullets: (
+      <>
+        <Bullet>
+          Studio can now render a journey&rsquo;s control flow as a graph. A
+          typed node/edge journey-graph IR lands in <Code>@hogsend/core</Code>.
+          The engine ships an AST-based extractor, per-stage{" "}
+          <Code>journey_logs</Code> transitions for funnel metrics, and an
+          &ldquo;open in editor&rdquo; source-location affordance. The Studio
+          view is a dagre-laid-out flow with decision nodes, forks, and inline
+          email preview, plus a drop-off funnel, an AI-share button,
+          open-in-IDE, and Mermaid / image export.
+        </Bullet>
+        <Bullet>
+          The build now fails on an unregistered journey email template key.{" "}
+          <Code>sendEmail</Code>&rsquo;s <Code>template</Code> is typed against
+          the registered-key union (<Code>TemplateName</Code>) instead of{" "}
+          <Code>string</Code>, so a journey pointing at a template that was
+          never registered is a compile error at every send site. As a runtime
+          backstop, <Code>@hogsend/email</Code>&rsquo;s <Code>getTemplate</Code>{" "}
+          throws a loud error naming the bad key and the registered ones.
+        </Bullet>
+        <Bullet>
+          Config ids are boot-validated — misconfiguration fails loud instead of
+          silently mis-behaving. <Code>ANALYTICS_PROVIDER</Code> throws at boot
+          when the selected id resolves to no registered provider (symmetric
+          with <Code>EMAIL_PROVIDER</Code>); <Code>ENABLED_JOURNEYS</Code>{" "}
+          throws on an id that matches no journey, with a did-you-mean;{" "}
+          <Code>JourneyRegistry.register()</Code> throws on a duplicate id
+          instead of silently double-routing; and every template&rsquo;s{" "}
+          <Code>category</Code> is checked against the email-list namespace —
+          unknown throws, and excluding an opt-in list via{" "}
+          <Code>ENABLED_LISTS</Code> throws (it would un-gate consent at send
+          time). <Code>POST /v1/emails</Code> rejects an unknown category too.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive at runtime, but
+        stricter on purpose: a misconfigured <Code>ANALYTICS_PROVIDER</Code>,{" "}
+        <Code>ENABLED_JOURNEYS</Code> id, or template <Code>category</Code> that
+        used to fail quietly now throws at boot, and a journey referencing an
+        unregistered template is now a compile error.
+      </>
+    ),
+  },
+  {
+    version: "0.38.0",
+    anchor: "0-38-0",
+    date: "July 6, 2026",
+    title: "Bulk suppression import + a migration importer CLI",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>POST /v1/admin/suppressions/import</Code> (with a status-poll
+          twin): async bulk import of unsubscribes, bounces, and spam complaints
+          via an <Code>import-suppressions</Code> Hatchet task (CSV or JSON,
+          batches of 500). Rows map onto the existing{" "}
+          <Code>email_preferences</Code> semantics — no schema change — through
+          the single <Code>upsertEmailPreference</Code> choke point, which gains
+          an <Code>emitOutbound</Code> opt-out so a historical import
+          doesn&rsquo;t fan out a <Code>contact.unsubscribed</Code> event per
+          row.
+        </Bullet>
+        <Bullet>
+          New <Code>hogsend import</Code> CLI migrates contacts <em>and</em>{" "}
+          suppression state into a running instance over the admin API:{" "}
+          <Code>hogsend import csv</Code> for generic header CSVs,{" "}
+          <Code>hogsend import loops</Code> for the Loops dashboard export
+          (typed properties + per-contact suppression lookups), and{" "}
+          <Code>hogsend import customerio</Code> for the Customer.io async
+          people export plus its ESP bounce/spam lists. Source requests are
+          rate-limited with retry-on-429 backoff and job polling aborts loudly
+          rather than hanging.
+        </Bullet>
+        <Bullet>
+          The send-time suppression gate now aggregates per address:{" "}
+          <Code>checkSuppression</Code> reads every{" "}
+          <Code>email_preferences</Code> row for the recipient (the PK is{" "}
+          <Code>(user_id, email)</Code>), so a suppression imported before the
+          contact existed still blocks the send.
+        </Bullet>
+        <Bullet>
+          Long-running journeys hardened against silent stalls. A multi-step{" "}
+          <Code>once</Code> journey used to strand in <Code>waiting</Code> after
+          its first durable wait — on an eviction-capable engine the entry-limit
+          guard re-ran on replay-from-top <em>before</em> the run-id recovery
+          lookup and short-circuited with <Code>already_entered_once</Code>. The
+          recovery lookup now runs first (0.38.1), and 0.38.2 adds a 15-minute{" "}
+          <Code>scheduleTimeout</Code> so a resume survives a redeploy
+          saturating worker slots, plus a timezone-lookup fallback so a
+          transient DB blip can&rsquo;t strand the row.
+        </Bullet>
+        <Bullet>
+          Consent-gated storage seam: <Code>@hogsend/js</Code> exports its
+          storage adapters (<Code>createMemoryStorage</Code> /{" "}
+          <Code>createLocalStorage</Code>) and <Code>HogsendProvider</Code>{" "}
+          accepts a <Code>storage</Code> prop, so a host app can keep the SDK
+          from persisting <Code>hs_anon_id</Code> until the visitor grants
+          storage consent.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive — no forced
+        migration.
+      </>
+    ),
+  },
+  {
+    version: "0.37.0",
+    anchor: "0-37-0",
+    date: "June 26, 2026",
+    title: "In-app component kit",
+    bullets: (
+      <>
+        <Bullet>
+          A survey / rating primitive: a surface-neutral{" "}
+          <Code>{"<Survey>"}</Code> email component and an in-app survey feed
+          block, plus <Code>sendSurvey()</Code>. Answers ride the existing event
+          spine (no new write path) and are readable from journeys via{" "}
+          <Code>ctx.waitForEvent</Code>. A read-only{" "}
+          <Code>GET /v1/admin/reporting/breakdown</Code> aggregates any event by
+          a property value — count, average, optional NPS.
+        </Bullet>
+        <Bullet>
+          <Code>{"<PreferenceCenter>"}</Code> — per-category × per-channel
+          notification preferences over <Code>usePreferences</Code>, bundleable
+          into <Code>{"<FeedPopover>"}</Code> as a tab, backed by a new
+          read-only <Code>GET /v1/lists</Code> catalog.
+        </Bullet>
+        <Bullet>
+          Swipe-to-archive is now a first-class affordance in{" "}
+          <Code>@hogsend/react</Code> (pointer / touch swipe plus an accessible
+          archive button), the toast gains a polished default skin and
+          first-class custom rendering (<Code>renderToast</Code>), and the
+          notification bell badge <Code>box-sizing</Code> is fixed so the unread
+          count renders as a solid pinned circle under any host reset.
+        </Bullet>
+        <Bullet>
+          The feed is responsive (0.37.1–0.37.3): it sets its own type baseline
+          so items don&rsquo;t balloon to the host font-size, the{" "}
+          <Code>scale</Code> / <Code>nps</Code> row shrinks to fit instead of
+          wrapping in a narrow (380px bell) popover, long titles and bodies
+          clamp to a token-driven N-line ellipsis, and new items fade + lift in
+          behind a <Code>prefers-reduced-motion</Code> gate.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. <Code>@hogsend/js</Code>{" "}
+        / <Code>@hogsend/react</Code> are opt-in — not{" "}
+        <Code>create-hogsend</Code> scaffold defaults.
+      </>
+    ),
+  },
+  {
+    version: "0.36.0",
+    anchor: "0-36-0",
+    date: "June 25, 2026",
+    title: "The client-side layer",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>@hogsend/js</Code> — a zero-dependency browser core: identity,
+          capture, preferences, an in-app feed, banners, toasts, and a reactive
+          store.
+        </Bullet>
+        <Bullet>
+          <Code>@hogsend/react</Code> — a provider, hooks, and the{" "}
+          <Code>NotificationBell</Code> / <Code>FeedPopover</Code> /{" "}
+          <Code>NotificationFeed</Code> / <Code>Banner</Code> /{" "}
+          <Code>Toast</Code> components with a <Code>{"--hs-*"}</Code> themed
+          override surface.
+        </Bullet>
+        <Bullet>
+          The engine pieces that power them: publishable-key (<Code>pk_</Code>)
+          browser-ingest auth (per-key origin allowlist, reflective CORS, an{" "}
+          <Code>allowed_origins</Code> migration); the feed backend (
+          <Code>feed_items</Code> table, <Code>sendFeedItem()</Code> +{" "}
+          <Code>send-feed</Code> workflow, recipient-scoped{" "}
+          <Code>/v1/feed/*</Code> routes with SSE fan-out);{" "}
+          <Code>sendBanner()</Code>, and the <Code>generateUserToken</Code> mint
+          helper for identified browser sessions. Every client interaction is a
+          first-party <Code>inapp.*</Code> / <Code>banner.*</Code> event through
+          the ingest spine, so it can trigger a journey and fan to PostHog.
+        </Bullet>
+        <Bullet>
+          0.36.1 fix: a server-side re-ingest keyed by a contact&rsquo;s own
+          canonical key (its <Code>anonymous_id</Code>) minted a phantom
+          &ldquo;identified&rdquo; twin that 403&rsquo;d the visitor out of
+          their own feed (<Code>anonymousId is not addressable</Code>).
+          Engine-internal re-emits now carry the unforgeable contact row id and
+          pin to that exact row — never value-resolving, never minting; the
+          public routes can&rsquo;t supply it, so the anti-impersonation
+          boundary is unchanged.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. <Code>@hogsend/js</Code>{" "}
+        / <Code>@hogsend/react</Code> ride the engine version line but are
+        opt-in.
+      </>
+    ),
+  },
+  {
+    version: "0.35.0",
+    anchor: "0-35-0",
+    date: "June 25, 2026",
+    title: "A co-working AI agent in Studio",
+    bullets: (
+      <>
+        <Bullet>
+          An in-Studio co-working agent: a bottom-right chat panel that reads
+          the live instance (contacts, events, journeys, buckets, sends) and can
+          act through the existing data plane — every write gated behind a
+          human-in-the-loop confirmation.
+        </Bullet>
+        <Bullet>
+          Engine: a streaming <Code>POST /v1/admin/agent/chat</Code> (Vercel AI
+          SDK + OpenRouter, default <Code>z-ai/glm-5.2</Code>) under the admin
+          auth / rate-limit / audit stack; the OpenRouter key never leaves the
+          server. Read tools auto-run; write tools mint a single-use, encrypted,
+          Redis-burned proposal token that only{" "}
+          <Code>POST /v1/admin/agent/confirm</Code> can execute (idempotent,
+          audited).
+        </Bullet>
+        <Bullet>
+          Studio: a launcher → slide-over drawer, multi-chat, markdown
+          rendering, tool-call cards, a tier-driven confirmation card, and
+          per-message edit / rollback / regenerate over a virtualized thread.
+          Opt-in and fail-closed: with no <Code>OPENROUTER_API_KEY</Code> the
+          panel shows a calm &ldquo;not configured&rdquo; state and the routes
+          503.
+        </Bullet>
+        <Bullet>
+          0.35.1 fix: scaffolded apps crashing at boot (&ldquo;Dynamic require
+          of X is not supported&rdquo;) — the engine added <Code>ai</Code> +{" "}
+          <Code>@openrouter/ai-sdk-provider</Code> but the{" "}
+          <Code>create-hogsend</Code> template never declared them, so a
+          consumer&rsquo;s tsup bundled the CJS <Code>ai</Code> tree into the
+          ESM <Code>dist</Code>. The template now declares them (plus{" "}
+          <Code>svix</Code>, <Code>picocolors</Code>) so tsup externalizes them,
+          and <Code>verify-scaffold</Code> now boots the built app to catch this
+          class of regression.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. The agent is opt-in —
+        set <Code>OPENROUTER_API_KEY</Code> to enable it.
+      </>
+    ),
+  },
+  {
+    version: "0.34.0",
+    anchor: "0-34-0",
+    date: "June 25, 2026",
+    title: "Events fan out to PostHog; Discord identity, corrected",
+    bullets: (
+      <>
+        <Bullet>
+          Every ingested event can now mirror into the active analytics provider
+          from the ingest spine, keyed to the resolved canonical contact key.
+          Opt-in via <Code>analytics.eventMirror</Code> (or the{" "}
+          <Code>ANALYTICS_EVENT_MIRROR</Code> env override), default off. It
+          excludes <Code>{'source: "posthog"'}</Code> events (echo-loop guard),
+          supports <Code>allow</Code> / <Code>deny</Code> event-name filters,
+          and fires once on the fresh-insert side of the ingest idempotency
+          guard, so retries never double-capture.
+        </Bullet>
+        <Bullet>
+          Discord inbound transforms no longer mint{" "}
+          <Code>{'userId: "discord:<id>"'}</Code> — a pre-link member is
+          anonymous (keyed by the <Code>discord_id</Code> column), so a later{" "}
+          <Code>/link</Code> merges it into the email / web contact in the
+          correct direction (the Discord person folds onto the canonical one,
+          not the reverse).
+        </Bullet>
+        <Bullet>
+          Each inbound event now carries the actor&rsquo;s own snowflake in its
+          properties (<Code>authorId</Code> / <Code>reactorId</Code> /{" "}
+          <Code>memberId</Code>), so role grants and DMs fire for members who
+          haven&rsquo;t linked yet, and the connector-action contact resolver
+          widens to match <Code>anonymous_id</Code> and the uuid <Code>id</Code>{" "}
+          column too.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. The PostHog event mirror
+        is off until you set <Code>analytics.eventMirror</Code>.
+      </>
+    ),
+  },
+  {
+    version: "0.33.0",
+    anchor: "0-33-0",
+    date: "June 24, 2026",
+    title: "removeRole — Discord tenure ladders",
+    bullets: (
+      <>
+        <Bullet>
+          A <Code>removeRole</Code> outbound action mirroring{" "}
+          <Code>grantRole</Code> (bot-REST <Code>DELETE</Code>, idempotent,
+          soft-fails on an unresolved member or a permission / hierarchy 403),
+          so a journey can demote as well as promote — a Stranger &rarr; Piglet
+          &rarr; Hog member lifecycle (drop Stranger on <Code>/link</Code>, drop
+          Piglet on graduating to Hog after a 7-day tenure).
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive.
+      </>
+    ),
+  },
+  {
+    version: "0.32.0",
+    anchor: "0-32-0",
+    date: "June 24, 2026",
+    title: "Managed-link campaigns + connector engagement events",
+    bullets: (
+      <>
+        <Bullet>
+          <Code>link.clicked</Code> is now a first-party bus event: a click on
+          any non-email managed link (Discord, SMS, referral, a standalone
+          Studio link) re-ingests through the journey pipeline, so a journey can{" "}
+          <Code>trigger</Code> on — or <Code>ctx.waitForEvent</Code> for — a
+          click of a specific managed link (filter by <Code>linkId</Code> /{" "}
+          <Code>campaign</Code>). Gated on <Code>!isBot</Code> so unfurl /
+          prefetch bots are suppressed, and on a personal link&rsquo;s{" "}
+          <Code>distinctId</Code> so public links carry no person.
+        </Bullet>
+        <Bullet>
+          <Code>ctx.waitForEvent</Code> gains an optional <Code>where</Code>{" "}
+          predicate (the same model as <Code>trigger.where</Code>) so a journey
+          can await a specific link&rsquo;s click mid-run — an engine-side
+          durable re-arm loop with a persisted <Code>wait_deadline</Code> that
+          survives Hatchet replay. <Code>ctx.history.events</Code> gains an
+          event-name filter.
+        </Bullet>
+        <Bullet>
+          Connector engagement events: Discord reactions fan out into a
+          reactor-keyed <Code>discord.reaction_added</Code> (carrying the target
+          author for distinct-people counting) plus, when the author is known,
+          an author-keyed <Code>discord.reaction_received</Code> powering
+          &ldquo;your post resonated with N people&rdquo;. Adds{" "}
+          <Code>discord.reaction_removed</Code> and a <Code>grantRole</Code>{" "}
+          outbound action for the community-gamification loop (count an
+          engagement event &rarr; grant a role + DM).
+        </Bullet>
+        <Bullet>
+          0.32.1 fix: preserve Hatchet&rsquo;s <Code>this</Code> binding in the
+          journey side-effect memoize — an unbound <Code>ctx.memo</Code> threw{" "}
+          <Code>Cannot read properties of undefined</Code>, crashing every
+          journey side effect (<Code>sendEmail</Code> /{" "}
+          <Code>sendConnectorAction</Code> / <Code>ctx.trigger</Code>) the
+          moment an eviction-capable engine made <Code>supportsEviction</Code>{" "}
+          true.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive.
+      </>
+    ),
+  },
+  {
     version: "0.31.0",
     anchor: "0-31-0",
     date: "June 24, 2026",
