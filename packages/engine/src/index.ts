@@ -198,6 +198,7 @@ export { createJourneyContext } from "./journeys/journey-context.js";
 export {
   buildJourneyRegistry,
   parseEnabledFilter,
+  resolveEnabledFilter,
   selectJourneyTasks,
 } from "./journeys/registry.js";
 export {

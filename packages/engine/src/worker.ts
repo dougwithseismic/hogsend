@@ -1,5 +1,6 @@
 import type { DefinedBucket } from "./buckets/define-bucket.js";
 import {
+  collectBucketReactionJourneys,
   selectBucketReactionTasks,
   selectBucketTasks,
 } from "./buckets/registry.js";
@@ -63,7 +64,20 @@ export interface Worker {
 export function createWorker(opts: CreateWorkerOptions): Worker {
   const { container, journeys } = opts;
   const enabled = opts.enabledJourneys ?? container.env.ENABLED_JOURNEYS;
-  const journeyTasks = selectJourneyTasks(journeys, enabled);
+  const enabledBuckets = opts.enabledBuckets ?? container.env.ENABLED_BUCKETS;
+  // Bucket-reaction journey ids (`bucket-<id>-on-<kind>`) are registered
+  // separately (via selectBucketReactionTasks) bypassing ENABLED_JOURNEYS, but
+  // they ARE registered journeys — include them in the known set so listing a
+  // real reaction id in ENABLED_JOURNEYS is not rejected as an unknown-id typo.
+  const reactionJourneyIds = collectBucketReactionJourneys(
+    opts.buckets ?? [],
+    enabledBuckets,
+  ).map((r) => r.meta.id);
+  const journeyTasks = selectJourneyTasks(
+    journeys,
+    enabled,
+    reactionJourneyIds,
+  );
   // The enabled journey IDs, logged at startup so a stale worker (one missing a
   // newly added journey because the dev watcher never restarted it) is visible
   // at a glance — counts alone can't show WHICH journeys are registered.
@@ -72,7 +86,6 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     .filter((j) => journeyFilter === "*" || journeyFilter.has(j.meta.id))
     .map((j) => j.meta.id);
 
-  const enabledBuckets = opts.enabledBuckets ?? container.env.ENABLED_BUCKETS;
   // The single place a bucket's per-user fast-expiry timer task is constructed
   // (Section 9.4): the shared `bucket:arm-expiry` durableTask, registered once iff
   // any enabled bucket opts into fastExpiry. The engine-wide time-based-leave
