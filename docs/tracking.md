@@ -155,7 +155,8 @@ URL: `https://<host>/l/black-friday`.
 Every managed link can render a QR code (admin-authed endpoint; the Studio QR
 dialog previews and downloads through it).
 
-- **Params**: `format=svg|png` (default `svg`), `size=64..2048` (default 512)
+- **Params**: `format=svg|png` (default `svg`), `size=64..2048` (default 512),
+  `transparent=true` (transparent background, both formats — for print/overlay)
 - **Durable by construction**: the code encodes the link's scan URL —
   `/v1/t/c/<qr row id>` — NEVER the vanity slug. The scan row is a second
   `tracked_links` row (`source: "qr"`), lazily minted on first render and
@@ -167,6 +168,26 @@ dialog previews and downloads through it).
   on the scan row — `source: "qr"` rides the `link.clicked` payload
 - **Personal links**: the scan row copies the link's `distinctId`, so scans
   stitch the same subject as clicks (including `hs_t` when enabled)
+
+### Per-destination stats + the QR-first lens
+
+Print marketing needs stats to survive re-targeting: the code on the door
+stays, where it leads changes, and each destination keeps its own numbers.
+
+- **Per-hit provenance**: every `link_clicks` row stamps `destination_url` —
+  the redirect target that was live when THAT hit landed (never the
+  `hs_t`-tokenized variant). No retarget-history table; the stamp answers
+  "stats per destination epoch" directly. Rows from before the column exist as
+  a `url: null` bucket
+- **`GET /v1/admin/links/:id`** returns `destinations: [{ url, clicks, scans,
+  firstAt, lastAt }]`, newest activity first (the current destination leads)
+- **`links.description`** (nullable) — what/where the link or its printed code
+  physically is, for telling codes apart in bulk. Settable at mint + PATCH
+- **`GET /v1/admin/links?hasQr=true`** — the "QR codes" lens: only links whose
+  QR scan row exists. There is deliberately NO separate QR table/kind — a "QR
+  code" IS a managed link whose scan row has been minted; the Studio "QR
+  codes" view lists this lens and its "New QR code" flow mints a link then
+  touches the QR endpoint so the row exists immediately
 
 ## Semantic links — in-email answers
 
