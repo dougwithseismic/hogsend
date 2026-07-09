@@ -119,10 +119,9 @@ export function resolveEnabledFilter(
       return suggestion ? `"${id}" (did you mean "${suggestion}"?)` : `"${id}"`;
     })
     .join(", ");
-  const known =
-    knownSet.size > 0
-      ? [...knownSet].map((id) => `"${id}"`).join(", ")
-      : "(none registered)";
+  // `knownSet` is non-empty here (journeys[] was non-empty per the early
+  // return above), so there is always at least one known id to list.
+  const known = [...knownSet].map((id) => `"${id}"`).join(", ");
 
   throw new Error(
     `ENABLED_JOURNEYS references ${
