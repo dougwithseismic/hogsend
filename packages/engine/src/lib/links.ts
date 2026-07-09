@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Database, links, trackedLinks } from "@hogsend/db";
-import { isNull, ne, or } from "drizzle-orm";
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 
 /**
  * The channel-agnostic MANAGED tracked-link mint — the counterpart to the email
@@ -123,6 +123,77 @@ export function vanityUrlFor(baseUrl: string, slug: string): string {
 
 /** The `tracked_links.source` marker of a link's per-link QR scan row. */
 export const QR_TRACKED_SOURCE = "qr";
+
+/**
+ * Lazily mint (or fetch) a managed link's QR scan row — the SECOND
+ * `tracked_links` row for the link, `source: "qr"`. The QR code encodes
+ * `/v1/t/c/<this row>` (the durable UID URL, never the slug), so scans are
+ * attributable separately from link clicks while a PATCH re-target (which
+ * updates every tracked row scoped by `link_id`) keeps a printed code
+ * pointing at the current destination.
+ *
+ * Race-safe via the partial unique index `tracked_links(link_id) WHERE
+ * source = 'qr'`: a concurrent double-mint loses the insert cleanly and
+ * re-reads the winner's row. Returns null when the link doesn't exist.
+ */
+export async function ensureQrTrackedLink(opts: {
+  db: Database;
+  linkId: string;
+}): Promise<{ trackedLinkId: string; created: boolean } | null> {
+  const { db, linkId } = opts;
+
+  const qrRowFilter = and(
+    eq(trackedLinks.linkId, linkId),
+    eq(trackedLinks.source, QR_TRACKED_SOURCE),
+  );
+
+  const [existing] = await db
+    .select({ id: trackedLinks.id })
+    .from(trackedLinks)
+    .where(qrRowFilter)
+    .limit(1);
+  if (existing) return { trackedLinkId: existing.id, created: false };
+
+  const [link] = await db
+    .select({
+      originalUrl: links.originalUrl,
+      distinctId: links.distinctId,
+    })
+    .from(links)
+    .where(eq(links.id, linkId))
+    .limit(1);
+  if (!link) return null;
+
+  // distinctId copied from the link so a PERSONAL link's scans stitch the same
+  // subject as its clicks; public links stay identity-free (NULL).
+  const [inserted] = await db
+    .insert(trackedLinks)
+    .values({
+      id: randomUUID(),
+      linkId,
+      emailSendId: null,
+      distinctId: link.distinctId,
+      source: QR_TRACKED_SOURCE,
+      originalUrl: link.originalUrl,
+    })
+    .onConflictDoNothing({
+      target: [trackedLinks.linkId],
+      // The arbiter predicate matching the partial unique index
+      // `tracked_links_qr_per_link_unique` (… WHERE source = 'qr').
+      where: sql`${trackedLinks.source} = ${QR_TRACKED_SOURCE}`,
+    })
+    .returning({ id: trackedLinks.id });
+
+  if (inserted) return { trackedLinkId: inserted.id, created: true };
+
+  // Lost the race — the concurrent mint's row is the QR row.
+  const [winner] = await db
+    .select({ id: trackedLinks.id })
+    .from(trackedLinks)
+    .where(qrRowFilter)
+    .limit(1);
+  return winner ? { trackedLinkId: winner.id, created: false } : null;
+}
 
 /**
  * SQL predicate selecting a link's CANONICAL tracked row — the redirect row

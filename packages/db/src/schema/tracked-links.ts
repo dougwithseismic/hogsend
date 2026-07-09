@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -5,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
@@ -57,5 +59,11 @@ export const trackedLinks = pgTable(
   (table) => [
     index("tracked_links_email_send_id_idx").on(table.emailSendId),
     index("tracked_links_link_id_idx").on(table.linkId),
+    // A managed link has AT MOST ONE QR scan row (`source = 'qr'`), minted
+    // lazily on first QR request. The partial unique index makes the lazy
+    // select-or-insert race-safe: a concurrent double-mint loses cleanly.
+    uniqueIndex("tracked_links_qr_per_link_unique")
+      .on(table.linkId)
+      .where(sql`${table.source} = 'qr'`),
   ],
 );

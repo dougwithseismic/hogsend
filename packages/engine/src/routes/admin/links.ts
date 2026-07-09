@@ -63,8 +63,11 @@ const linkSchema = z.object({
   source: z.string(),
   distinctId: z.string().nullable(),
   createdBy: z.string().nullable(),
-  // Computed on read (summed across the link's tracked_links rows).
+  // Computed on read (summed across the link's tracked_links rows). The total
+  // across ALL entry paths — vanity, UUID, and QR scans.
   clickCount: z.number(),
+  // The QR-only subtotal (clicks recorded on the link's `source: "qr"` row).
+  scanCount: z.number(),
   // The short redirect URL: `${API_PUBLIC_URL}/v1/t/c/:trackedLinkId`.
   url: z.string(),
   archivedAt: z.string().nullable(),
@@ -85,7 +88,11 @@ const linkDetailSchema = linkSchema.extend({
 });
 
 type LinkRow = typeof links.$inferSelect;
-type ClickAgg = { clicks: number; trackedLinkId: string | null };
+type ClickAgg = {
+  clicks: number;
+  scans: number;
+  trackedLinkId: string | null;
+};
 
 // The short redirect URL for a link's tracked row, or a bare prefix if the link
 // has no tracked row (should not happen for a minted link, but keep it total).
@@ -113,6 +120,7 @@ function serializeLink(
     distinctId: row.distinctId,
     createdBy: row.createdBy,
     clickCount: agg?.clicks ?? 0,
+    scanCount: agg?.scans ?? 0,
     url: shortUrlFor(baseUrl, trackedLinkId),
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
@@ -296,6 +304,11 @@ async function aggregateFor(
       clicks: sql<number>`coalesce(${sum(trackedLinks.clickCount)}, 0)`.mapWith(
         Number,
       ),
+      // QR-only subtotal — the complement of the canonical-row predicate.
+      scans:
+        sql<number>`coalesce(${sum(trackedLinks.clickCount)} filter (where not (${canonicalTrackedRowFilter()})), 0)`.mapWith(
+          Number,
+        ),
       trackedLinkId: sql<string>`min(${trackedLinks.id}::text) filter (where ${canonicalTrackedRowFilter()})`,
     })
     .from(trackedLinks)
@@ -305,6 +318,7 @@ async function aggregateFor(
     if (r.linkId) {
       map.set(r.linkId, {
         clicks: r.clicks,
+        scans: r.scans,
         trackedLinkId: r.trackedLinkId ?? null,
       });
     }
@@ -344,7 +358,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
       return c.json(
         serializeLink(
           row,
-          { clicks: 0, trackedLinkId: minted.trackedLinkId },
+          { clicks: 0, scans: 0, trackedLinkId: minted.trackedLinkId },
           env.API_PUBLIC_URL,
         ),
         200,

@@ -406,11 +406,14 @@ export {
 } from "./lib/leader-lease.js";
 // --- Managed tracked links (channel-agnostic mint — Studio/Discord/share) ---
 export {
+  canonicalTrackedRowFilter,
+  ensureQrTrackedLink,
   type LinkType,
   type MintedLink,
   type MintLinkOptions,
   mintLink,
   normalizeSlug,
+  QR_TRACKED_SOURCE,
   SlugTakenError,
   vanityUrlFor,
 } from "./lib/links.js";
