@@ -195,4 +195,61 @@ describe("POST /v1/emails", () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it("returns 400 for an unknown category (silent opt-in / suppression bypass)", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+        category: "not-a-real-list",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("not-a-real-list");
+  });
+
+  it("accepts a registered list as the category", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+        category: "product-updates",
+      }),
+    });
+    expect(res.status).toBe(202);
+  });
+
+  it("accepts a reserved built-in category (transactional)", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+        category: "transactional",
+      }),
+    });
+    expect(res.status).toBe(202);
+  });
+
+  it("accepts a request with no category (template default applies)", async () => {
+    const res = await app.request("/v1/emails", {
+      method: "POST",
+      headers: ADMIN_HEADER,
+      body: JSON.stringify({
+        to: TO_EMAIL,
+        template: "welcome",
+        props: { name: "Ada" },
+      }),
+    });
+    expect(res.status).toBe(202);
+  });
 });
