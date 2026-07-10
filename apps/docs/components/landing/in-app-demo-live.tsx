@@ -1,14 +1,7 @@
 "use client";
 
 import { NotificationFeed, useHogsend, useHogsendFeed } from "@hogsend/react";
-import {
-  ArrowRight,
-  Bell,
-  Check,
-  type LucideIcon,
-  Mail,
-  MessageCircle,
-} from "lucide-react";
+import { ArrowRight, Bell, Check, Mail } from "lucide-react";
 import { useState } from "react";
 import { PillBadge } from "@/components/ds/badge";
 import { Card } from "@/components/ds/card";
@@ -22,33 +15,28 @@ import { DISCORD_INVITE_URL } from "@/lib/site";
  * real lifecycle events only once you've signed up. The feed renders the
  * recipient-scoped `in_app` feed (the same one the nav bell polls).
  *
- * `wide` reflows the card into a two-up layout (controls | inbox) for the
- * full-width identified state (a return visitor doesn't need the sign-up column,
- * so `InAppDemoBody` drops it and hands this the whole row).
+ * Staged, not simultaneous: ONE glowing primary action ("Send me a welcome"),
+ * the other moments as a compact chip row, and the three landing surfaces
+ * (feed / inbox / Discord) as tabs instead of stacked sections. Firing an
+ * action auto-switches the tabs to where that action lands, so the payoff is
+ * always in view. The four-beat pipeline stepper is the single narration
+ * surface — the journey code itself lives in the sibling DemoTrace band.
  *
- * Channels are real, not mocked: the capture actions land in your bell live (and
- * fan to PostHog + Discord in the dogfood), and "Email me a sample" sends a REAL
- * email from hello@hogsend.com via /api/sample. The Discord step links one
- * identity across web and Discord.
+ * `wide` reflows the card into a two-up layout (controls | landing tabs) for
+ * the full-width identified state (a return visitor doesn't need the sign-up
+ * column, so `InAppDemoBody` drops it and hands this the whole row).
+ *
+ * Channels are real, not mocked: the capture actions land in your bell live
+ * (and fan to PostHog + Discord in the dogfood), and "Email me a sample" sends
+ * a REAL email from hello@hogsend.com via /api/sample. The Discord tab links
+ * one identity across web and Discord.
  *
  * Only rendered when `isHogsendConfigured`, so `useHogsend` always has context.
  */
 
-/** The channels a journey can fan out to — drives the per-action chips. */
-type Channel = "in_app" | "email" | "discord";
-
-const CHANNEL_META: Record<Channel, { label: string; Icon: LucideIcon }> = {
-  in_app: { label: "In-app", Icon: Bell },
-  email: { label: "Email", Icon: Mail },
-  discord: { label: "Discord", Icon: MessageCircle },
-};
-
 type DemoAction = {
   event: string;
   label: string;
-  channels: readonly Channel[];
-  /** The channel this click actually fires live (reads crimzon + pulses). */
-  live: Channel;
   /** `capture` → first-party event onto the spine; `email` → real send. */
   kind: "capture" | "email";
 };
@@ -57,48 +45,39 @@ type DemoAction = {
  * Each capture `event` MUST match a deployed demo journey trigger (t.hogsend.com);
  * the `email` action POSTs the signed-up address to /api/sample, which the
  * dogfood `sampleRequest` journey turns into a real "[Sample]" email.
+ * The first entry is the glowing primary; the rest render as the chip row.
  */
-const ACTIONS: readonly DemoAction[] = [
-  {
-    event: "demo.welcome",
-    label: "Send me a welcome",
-    channels: ["in_app", "email"],
-    live: "in_app",
-    kind: "capture",
-  },
+const PRIMARY_ACTION: DemoAction = {
+  event: "demo.welcome",
+  label: "Send me a welcome",
+  kind: "capture",
+};
+
+const MORE_ACTIONS: readonly DemoAction[] = [
   {
     event: "demo.launch_announcement",
     label: "Launch announcement",
-    channels: ["in_app", "email", "discord"],
-    live: "in_app",
     kind: "capture",
   },
   {
     event: "demo.trial_ending",
     label: "Trial-ending nudge",
-    channels: ["in_app", "email"],
-    live: "in_app",
     kind: "capture",
   },
   {
     event: "demo.survey",
     label: "In-app survey",
-    channels: ["in_app"],
-    live: "in_app",
     kind: "capture",
   },
   {
     event: "demo.email",
     label: "Email me a sample",
-    channels: ["email"],
-    live: "email",
     kind: "email",
   },
 ] as const;
 
 /** The four beats of a fire, as a compact pipeline: chip labels on one row,
- * one narration line below that swaps as the run advances. Replaces the old
- * four-item numbered list (same facts, a third of the height). */
+ * one narration line below that swaps as the run advances. */
 const PIPELINE = [
   {
     label: "event",
@@ -118,41 +97,14 @@ const PIPELINE = [
   },
 ] as const;
 
-/** Per-action channel chips. The action's `live` channel reads as crimzon and
- *  pulses when this row just landed; the rest are muted "also wired" hints. */
-function ChannelChips({
-  channels,
-  live,
-  landed,
-}: {
-  channels: readonly Channel[];
-  live: Channel;
-  landed: boolean;
-}) {
-  return (
-    <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      {channels.map((channel) => {
-        const { label, Icon } = CHANNEL_META[channel];
-        const isLive = channel === live;
-        return (
-          <span
-            key={channel}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-medium text-[10px] leading-none",
-              isLive
-                ? "border-accent/40 bg-accent/10 text-accent"
-                : "border-white/10 bg-white/[0.03] text-white/45",
-              isLive && landed && "animate-pulse",
-            )}
-          >
-            <Icon className="size-2.5" strokeWidth={2} aria-hidden="true" />
-            {label}
-          </span>
-        );
-      })}
-    </span>
-  );
-}
+/** The three surfaces a demo action lands on, as tabs. */
+type PanelId = "feed" | "inbox" | "discord";
+
+const PANELS: readonly { id: PanelId; label: string }[] = [
+  { id: "feed", label: "Your feed" },
+  { id: "inbox", label: "Your inbox" },
+  { id: "discord", label: "Discord" },
+] as const;
 
 export function InAppDemoLive({
   signedUp,
@@ -160,6 +112,7 @@ export function InAppDemoLive({
   email,
   wide = false,
   onFire,
+  onSignOut,
 }: {
   signedUp: boolean;
   name?: string;
@@ -169,17 +122,28 @@ export function InAppDemoLive({
   wide?: boolean;
   /** Notify the parent which event was just fired so the trace band replays. */
   onFire?: (event: string) => void;
+  /** Sign-out handler — rendered in the header when signed in. */
+  onSignOut?: () => void;
 }) {
   const { client, capture, isIdentified } = useHogsend();
-  const { refetch, metadata } = useHogsendFeed();
+  const { refetch } = useHogsendFeed();
   const [step, setStep] = useState(-1);
   const [firing, setFiring] = useState<string | null>(null);
-  // The event whose item most recently landed — drives the "bell rang ↗" / "sent
-  // ✓" cue and the live-chip pulse for ~2.6s, then clears.
+  // The event whose item most recently landed — drives the "Bell rang ↗" /
+  // "Sent ✓" cue for ~2.6s, then clears.
   const [landed, setLanded] = useState<string | null>(null);
-  // The address the sample email went to — persists the inbox card's "sent"
+  // The address the sample email went to — persists the inbox tab's "sent"
   // row for the session (unlike `landed`, which clears after the pulse).
   const [sampleSentTo, setSampleSentTo] = useState<string | null>(null);
+  // The active landing tab. Firing an action switches to where it lands.
+  const [panel, setPanel] = useState<PanelId>("feed");
+
+  function selectPanel(id: PanelId) {
+    if (id !== panel) {
+      trackEvent(AnalyticsEvent.TAB_SELECTED, { tab: `live-demo-${id}` });
+    }
+    setPanel(id);
+  }
 
   async function fire(event: string) {
     // Gate on isIdentified, not just signedUp: firing before the userToken has
@@ -206,8 +170,9 @@ export function InAppDemoLive({
       setStep(3);
       await refetch();
       // The unread count just climbed → the nav bell rings (nav-bell.tsx). Echo
-      // that here so the payoff reads even with the bell scrolled out of view.
+      // that here, and pull the feed tab into view so the landing is visible.
       setLanded(event);
+      setPanel("feed");
       window.setTimeout(
         () => setLanded((current) => (current === event ? null : current)),
         2600,
@@ -245,6 +210,7 @@ export function InAppDemoLive({
       if (res.ok) {
         setLanded("demo.email");
         setSampleSentTo(to);
+        setPanel("inbox");
         window.setTimeout(
           () =>
             setLanded((current) => (current === "demo.email" ? null : current)),
@@ -268,6 +234,15 @@ export function InAppDemoLive({
           <Bell className="size-3.5" strokeWidth={1.5} />
           {signedUp ? "Signed up — fire away" : "Sign up first"}
         </PillBadge>
+        {signedUp && onSignOut ? (
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="ml-auto text-[13px] text-white/40 underline decoration-white/20 underline-offset-2 transition-colors hover:text-white/70"
+          >
+            Sign out
+          </button>
+        ) : null}
       </div>
       <h3 className="font-display text-2xl text-white tracking-[-0.02em]">
         {wide
@@ -279,163 +254,94 @@ export function InAppDemoLive({
           ? `You're in${name ? `, ${name}` : ""} — fire a real lifecycle event and a journey turns it into a notification. Your bell ↗ in the top nav rings, and the item drops into the feed.`
           : "Sign up on the left, then fire a real lifecycle event — a journey turns it into a notification. The bell ↗ in the top nav rings, and the item lands here in the feed."}
       </p>
-      <p className="mt-3 text-[12px] text-white/40 leading-5">
-        It&rsquo;s not just notifications: the same trigger fans out across
-        channels. <span className="text-white/60">Email me a sample</span> sends
-        a real email from hello@hogsend.com, the bell rings here, and{" "}
-        <span className="text-white/60">linking Discord</span> lands a
-        cross-channel item in this exact bell — one journey, one identity.
-      </p>
     </div>
   );
 
+  const primaryLanded = landed === PRIMARY_ACTION.event;
   const actions = (
-    <div className="flex flex-col gap-2 border-white/[0.08] border-b p-6">
-      {signedUp ? null : (
-        <p className="mb-1 text-[12px] text-white/40 leading-5">
-          Sign up on the left to fire real lifecycle messages.
-        </p>
-      )}
+    <div className="flex flex-col gap-3 border-white/[0.08] border-b p-6">
       {signedUp && !isIdentified ? (
-        <p className="mb-1 text-[12px] text-white/40 leading-5">
+        <p className="text-[12px] text-white/40 leading-5">
           Connecting you to the live feed…
         </p>
       ) : null}
-      {ACTIONS.map((action) => {
-        const isEmail = action.kind === "email";
-        return (
-          <button
-            key={action.event}
-            type="button"
-            disabled={
-              firing !== null || !signedUp || (!isEmail && !isIdentified)
-            }
-            onClick={() => (isEmail ? fireEmail() : fire(action.event))}
-            className={cn(
-              "group inline-flex items-center justify-between gap-2 rounded-[10px] border px-4 py-3 text-left text-sm transition-colors",
-              "border-white/[0.08] bg-white/[0.04] text-white hover:border-white/15 hover:bg-white/[0.06]",
-              "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-white/[0.08] disabled:hover:bg-white/[0.04]",
-              // Glow the two payoff actions once unlocked: the in-app welcome and
-              // the real email send.
-              signedUp &&
-                (action.event === "demo.welcome" || isEmail) &&
-                "border-accent/70 bg-accent/[0.08] shadow-[0_0_22px_-2px_rgba(246,72,56,0.55)] hover:border-accent",
-            )}
-          >
-            <span className="flex min-w-0 flex-col">
-              <span className="font-medium">{action.label}</span>
-              <span className="truncate font-mono text-[11px] text-white/35">
-                {isEmail
-                  ? "POST /api/sample → sendEmail()"
-                  : `capture("${action.event}"${name ? `, { name: "${name}" }` : ""})`}
-              </span>
-              <ChannelChips
-                channels={action.channels}
-                live={action.live}
-                landed={landed === action.event}
-              />
-            </span>
-            {landed === action.event ? (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-1 font-medium text-[11px] text-accent">
-                {isEmail ? (
-                  <>
-                    <Mail className="size-3" strokeWidth={2} />
-                    Sent ✓
-                  </>
-                ) : (
-                  <>
-                    <Bell className="size-3" strokeWidth={2} />
-                    Bell rang ↗
-                  </>
-                )}
-              </span>
-            ) : (
-              <ArrowRight
-                aria-hidden="true"
-                className="size-4 shrink-0 text-white/40 transition-transform group-hover:translate-x-0.5"
-                strokeWidth={1.5}
-              />
-            )}
-          </button>
-        );
-      })}
-      <p className="mt-1 text-[11px] text-white/35 leading-5">
-        <span className="text-accent">●</span> the live channel fires now ·{" "}
-        <span className="text-white/45">○</span> the same trigger also fans out
-        to these in the dogfood.{" "}
-        <span className="text-white/55">Email me a sample</span> lands a real
-        email in your inbox.
-      </p>
+      <button
+        type="button"
+        disabled={firing !== null || !signedUp || !isIdentified}
+        onClick={() => fire(PRIMARY_ACTION.event)}
+        className={cn(
+          "group inline-flex items-center justify-between gap-2 rounded-[10px] border px-4 py-3.5 text-left text-sm transition-colors",
+          "border-white/[0.08] bg-white/[0.04] text-white hover:border-white/15 hover:bg-white/[0.06]",
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-white/[0.08] disabled:hover:bg-white/[0.04]",
+          signedUp &&
+            "border-accent/70 bg-accent/[0.08] shadow-[0_0_22px_-2px_rgba(246,72,56,0.55)] hover:border-accent",
+        )}
+      >
+        <span className="font-medium">{PRIMARY_ACTION.label}</span>
+        {primaryLanded ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent/40 bg-accent/10 px-2 py-1 font-medium text-[11px] text-accent">
+            <Bell className="size-3" strokeWidth={2} />
+            Bell rang ↗
+          </span>
+        ) : (
+          <ArrowRight
+            aria-hidden="true"
+            className="size-4 shrink-0 text-white/40 transition-transform group-hover:translate-x-0.5"
+            strokeWidth={1.5}
+          />
+        )}
+      </button>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[12px] text-white/40">Or another moment:</span>
+        {MORE_ACTIONS.map((action) => {
+          const isEmail = action.kind === "email";
+          const justLanded = landed === action.event;
+          return (
+            <button
+              key={action.event}
+              type="button"
+              disabled={
+                firing !== null || !signedUp || (!isEmail && !isIdentified)
+              }
+              onClick={() => (isEmail ? fireEmail() : fire(action.event))}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] transition-colors",
+                "border-white/[0.08] bg-white/[0.03] text-white/70 hover:border-white/20 hover:text-white",
+                "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-white/[0.08] disabled:hover:text-white/70",
+                justLanded && "border-accent/50 bg-accent/[0.08] text-white",
+              )}
+            >
+              {justLanded ? (
+                <Check
+                  className="size-3 text-accent"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+              ) : null}
+              {action.label}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 
-  const feed = (
-    <div className="border-white/[0.08] border-b p-6">
+  const feedPanel = (
+    <>
       <p className="mb-3 text-[12px] text-white/40 leading-5">
-        Your in-app feed — items land here in real time:
+        Items land here in real time — clicking one fires a real{" "}
+        <code className="font-mono text-white/55">link.clicked</code> a journey
+        can react to.
       </p>
       <NotificationFeed feedId="in_app" aria-label="In-app demo feed" />
-    </div>
-  );
-
-  const discord = (
-    <div className="border-white/[0.08] border-b p-6">
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <span className="kicker block">Go cross-channel</span>
-        <PillBadge>
-          <MessageCircle className="size-3.5" strokeWidth={1.5} />
-          Discord
-        </PillBadge>
-      </div>
-      <h4 className="font-display text-lg text-white tracking-[-0.01em]">
-        Link your account — get it in Discord and your bell
-      </h4>
-      <p className="mt-1.5 text-[13px] text-white/55 leading-6">
-        Join the Hogsend Discord and run{" "}
-        <code className="font-mono text-white/70">/link</code>. The dogfood
-        matches the email you signed up with, grants your role, and drops a “You
-        linked your Discord” item into{" "}
-        <span className="text-white/70">this exact bell</span> — one identity,
-        web and Discord, no extra code.
-      </p>
-      <a
-        href={DISCORD_INVITE_URL}
-        target="_blank"
-        rel="noreferrer"
-        onClick={() =>
-          trackEvent(AnalyticsEvent.DISCORD_LINK_CLICKED, {
-            placement: "live-demo",
-          })
-        }
-        className="group mt-4 inline-flex h-11 select-none items-center justify-center gap-2 rounded-[10px] border border-accent/60 bg-accent/[0.08] px-5 font-medium text-sm text-white transition-colors hover:border-accent hover:bg-accent/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-      >
-        Get your Discord invite
-        <ArrowRight
-          aria-hidden="true"
-          className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5"
-          strokeWidth={2}
-        />
-      </a>
-      <p className="mt-2 text-[12px] text-white/35 leading-5">
-        Then type <code className="font-mono text-white/55">/link</code> in any
-        channel.{" "}
-        {signedUp ? null : "Sign up first so /link can match your email."}
-      </p>
-    </div>
+    </>
   );
 
   // The email payoff, made visible: a small inbox mock that fills in as real
   // sends land. Row one is the welcome series the sign-up itself triggered;
   // row two lights up when "Email me a sample" actually sends.
-  const inbox = (
-    <div className="border-white/[0.08] border-b p-6">
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <span className="kicker block">Your inbox</span>
-        <PillBadge>
-          <Mail className="size-3.5" strokeWidth={1.5} />
-          Real email
-        </PillBadge>
-      </div>
+  const inboxPanel = (
+    <>
       <ul className="flex flex-col gap-2">
         <li
           className={cn(
@@ -491,17 +397,106 @@ export function InAppDemoLive({
         </li>
       </ul>
       <p className="mt-3 text-[12px] text-white/35 leading-5">
-        Both are React Email templates from the scaffold — 13 ship with
-        create-hogsend.{" "}
+        React Email templates from the scaffold —{" "}
         <a href="/emails" className="text-white/60 hover:text-white">
-          See them all →
+          see all 13 →
         </a>
       </p>
+    </>
+  );
+
+  const discordPanel = (
+    <>
+      <h4 className="font-display text-lg text-white tracking-[-0.01em]">
+        Link your account — get it in Discord and your bell
+      </h4>
+      <p className="mt-1.5 text-[13px] text-white/55 leading-6">
+        Join the Hogsend Discord and run{" "}
+        <code className="font-mono text-white/70">/link</code>. The dogfood
+        matches the email you signed up with, grants your role, and drops a “You
+        linked your Discord” item into{" "}
+        <span className="text-white/70">this exact bell</span> — one identity,
+        web and Discord, no extra code.
+      </p>
+      <a
+        href={DISCORD_INVITE_URL}
+        target="_blank"
+        rel="noreferrer"
+        onClick={() =>
+          trackEvent(AnalyticsEvent.DISCORD_LINK_CLICKED, {
+            placement: "live-demo",
+          })
+        }
+        className="group mt-4 inline-flex h-11 select-none items-center justify-center gap-2 rounded-[10px] border border-accent/60 bg-accent/[0.08] px-5 font-medium text-sm text-white transition-colors hover:border-accent hover:bg-accent/[0.14] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      >
+        Get your Discord invite
+        <ArrowRight
+          aria-hidden="true"
+          className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5"
+          strokeWidth={2}
+        />
+      </a>
+      <p className="mt-2 text-[12px] text-white/35 leading-5">
+        Then type <code className="font-mono text-white/55">/link</code> in any
+        channel.{" "}
+        {signedUp ? null : "Sign up first so /link can match your email."}
+      </p>
+    </>
+  );
+
+  // The landing surfaces as one tabbed zone — the ds hairline-underline tab
+  // idiom in miniature. Firing an action switches to the tab where it lands.
+  const landing = (
+    <div className="min-w-0 border-white/[0.08] border-b">
+      <div
+        role="tablist"
+        aria-label="Where it lands"
+        className="flex items-center gap-6 border-white/[0.08] border-b px-6"
+      >
+        {PANELS.map((p) => {
+          const isActive = panel === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              role="tab"
+              id={`live-demo-tab-${p.id}`}
+              aria-selected={isActive}
+              aria-controls={`live-demo-panel-${p.id}`}
+              onClick={() => selectPanel(p.id)}
+              className={cn(
+                "-mb-px border-b py-3 text-sm tracking-[-0.02em] transition-colors",
+                isActive
+                  ? "border-accent text-white"
+                  : "border-transparent text-white/50 hover:text-white",
+              )}
+            >
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        role="tabpanel"
+        id={`live-demo-panel-${panel}`}
+        aria-labelledby={`live-demo-tab-${panel}`}
+        className="p-6"
+      >
+        {panel === "feed"
+          ? feedPanel
+          : panel === "inbox"
+            ? inboxPanel
+            : discordPanel}
+      </div>
     </div>
   );
 
   const narration = (
-    <div className="p-6" role="status" aria-live="polite">
+    <div
+      className="border-white/[0.08] border-b p-6"
+      role="status"
+      aria-live="polite"
+    >
       <ol className="flex items-center">
         {PIPELINE.map((beat, i) => {
           const active = step === i;
@@ -550,20 +545,10 @@ export function InAppDemoLive({
             ? "Fire an event above and watch it move through the engine."
             : "Sign up, fire an event, and watch it move through the engine."}
       </p>
-      <p className="mt-2 text-[12px] text-white/35 leading-5">
-        Unread:{" "}
-        <span className="font-mono text-accent tabular-nums">
-          {metadata.unread_count ?? 0}
-        </span>
-        . Clicking a row emits{" "}
-        <code className="font-mono text-white/55">inapp.item_clicked</code> and
-        a <code className="font-mono text-white/55">link.clicked</code> — real
-        first-party events a journey can react to.
-      </p>
     </div>
   );
 
-  // Wide (identified, full-width): two-up — controls | inbox + feed. The
+  // Wide (identified, full-width): two-up — controls | landing tabs. The
   // arbitrary last-child variant strips each card's trailing zone border.
   if (wide) {
     return (
@@ -574,22 +559,18 @@ export function InAppDemoLive({
           {narration}
         </Card>
         <Card className="flex flex-col p-0 [&>div:last-child]:border-b-0">
-          {feed}
-          {inbox}
-          {discord}
+          {landing}
         </Card>
       </div>
     );
   }
 
-  // Narrow (paired with the sign-up column): the original single stacked card.
+  // Narrow (paired with the sign-up column): the single stacked card.
   return (
     <Card className="flex flex-col p-0 [&>div:last-child]:border-b-0">
       {header}
       {actions}
-      {feed}
-      {inbox}
-      {discord}
+      {landing}
       {narration}
     </Card>
   );
