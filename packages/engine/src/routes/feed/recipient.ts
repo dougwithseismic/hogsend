@@ -139,8 +139,12 @@ export async function resolveFeedRecipient(
  * A genuine browser anon id only ever matches a contact via `anonymous_id` whose
  * canonical key is that same anon id (the contact has no `external_id`) — that is
  * the caller's OWN anon contact and is allowed (returns false).
+ *
+ * Exported for the arrive endpoint (`POST /v1/t/arrive`), which must run the
+ * SAME check before stamping an anon value onto a click row — otherwise
+ * `{ ref, anonymousId: "<victim key>" }` would forge "victim arrived here".
  */
-async function collidesWithIdentified(
+export async function collidesWithIdentified(
   db: Database,
   value: string,
 ): Promise<boolean> {

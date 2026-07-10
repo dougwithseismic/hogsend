@@ -71,7 +71,7 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 ## Phase 7 — Arrival spine (engine)
 
 - [x] 7.1 Schema + redirect ref: migration 0040 (`links.append_ref`, `link_clicks.visitor_distinct_id`/`visitor_kind`/`arrived_at`), explicit click UUID + single URL-build pass appending `hs_ref` when opted in, `mintLink({ appendRef })` + admin wiring — tests (param on/off, hs_t coexistence, raw destinationUrl)
-- [ ] 7.2 `POST /v1/t/arrive` + `link.arrived` (bus + outbound catalog) — tests (token/anon/collision/replay/self-heal/no-oracle/invariant)
+- [x] 7.2 `POST /v1/t/arrive` + `link.arrived` (bus + outbound catalog) — tests (token/anon/collision/replay/self-heal/no-oracle/invariant)
 - [ ] 7.3 Admin surfacing: arrivals in link detail + stamp fields on clicks[] — tests
 
 ## Phase 8 — Client capture
