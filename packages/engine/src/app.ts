@@ -16,6 +16,7 @@ import { errorHandler } from "./middleware/error-handler.js";
 import { clientIpKey, createRateLimit } from "./middleware/rate-limit.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { registerRoutes } from "./routes/index.js";
+import { registerMcpRoute } from "./routes/mcp.js";
 import {
   type DefinedWebhookSource,
   webhookSourceToConnector,
@@ -179,6 +180,11 @@ export function createApp(
   }
 
   registerRoutes(app, { container });
+
+  // Remote MCP endpoint (POST /mcp, Streamable HTTP) — opt-in via
+  // MCP_HTTP_ENABLED. Registered AFTER the built-in routes so its in-process
+  // dispatch (`app.request("/v1/admin/...")`) sees the full admin surface.
+  registerMcpRoute(app);
 
   // Serve the Studio SPA at /studio/* (static layer, no auth — the SPA gates
   // itself via /v1/auth/status + login; data endpoints stay behind requireAdmin).
