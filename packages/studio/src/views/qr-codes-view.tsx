@@ -80,7 +80,15 @@ export function QrCodesView() {
       });
       // Touch the QR endpoint so the scan row exists NOW — this is what makes
       // the new link a member of the hasQr lens (and warms the preview).
-      await fetch(linkQrUrl(link.id), { credentials: "include" });
+      // BEST-EFFORT: the link is already committed, so a touch failure must
+      // NOT reject the mutation — a retry would mint a DUPLICATE link. If the
+      // touch fails, the QR dialog's own <img> (opened below) hits the same
+      // endpoint and lazy-mints the row on load.
+      try {
+        await fetch(linkQrUrl(link.id), { credentials: "include" });
+      } catch {
+        // Network-level failure — the dialog preview retries the mint.
+      }
       return link;
     },
     onSuccess: (link) => {
