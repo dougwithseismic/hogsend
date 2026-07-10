@@ -475,7 +475,20 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     const { db, registry } = c.get("container");
     const { limit, offset, enabled } = c.req.valid("query");
 
-    const allJourneys = registry.getAll();
+    // Boot-time journeys PLUS runtime-added DB specs (created via the admin
+    // API after boot — in the runtime store, not the registry). Store is
+    // refreshed lazily by ingest; refresh here too so a just-created journey
+    // lists immediately even on a quiet instance.
+    const { db: storeDb } = c.get("container");
+    await getRuntimeSpecStore()
+      .refreshIfStale(storeDb, Date.now(), 5000)
+      .catch(() => {});
+    const registered = registry.getAll();
+    const runtimeOnly = getRuntimeSpecStore()
+      .all()
+      .filter((s) => !registry.has(s.spec.id))
+      .map((s) => ({ id: s.spec.id, ...s.spec.meta }));
+    const allJourneys = [...registered, ...runtimeOnly];
 
     const journeyIds = allJourneys.map((j) => j.id);
 
