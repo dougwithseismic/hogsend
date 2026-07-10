@@ -1,214 +1,67 @@
 /**
- * Admin routes for Journey Blueprints (spec §9) — the CRUD + lifecycle surface
- * for journeys authored as DATA and executed by the generic interpreter task.
- * This is the save-time sandbox boundary of the whole feature (spec §8): a
- * graph is NEVER written to `journey_blueprints` without passing
- * {@link validateBlueprintGraphForSave} — `validateBlueprintGraph` (field
- * shapes + structural checks, @hogsend/core) layered with the engine-side
- * registry checks core cannot do (template keys, connector actions).
+ * Admin routes for Journey Blueprints (spec §9) — the HTTP surface of the
+ * blueprint service layer (`lib/blueprints.ts`), which owns the CRUD +
+ * lifecycle logic AND the save-time sandbox boundary (spec §8): a graph is
+ * NEVER written to `journey_blueprints` without passing
+ * `validateBlueprintGraphForSave`. The agent tools
+ * (`mcp/blueprint-tools.ts`, spec §9) wrap the SAME service functions — no
+ * parallel auth or storage path; this file only maps service results to
+ * HTTP statuses.
  *
  * Auth/rate-limit/audit come from the parent `adminRouter` middleware stack.
- * The MCP tools (spec §9, later phase) are thin wrappers over these routes —
- * no parallel auth or storage path.
  *
- * Conventions:
- *  - the blueprint id IS the graph's `journeyId` (one id, one namespace —
- *    `journeyStates.journeyId` points at it, same as a code journey's meta.id)
- *  - `version` bumps on any PATCH that includes `graph` (metadata-only edits
- *    don't bump; we deliberately don't deep-diff — jsonb normalizes key
- *    order, so equality checks would be unreliable, and a spurious bump is
- *    harmless)
- *  - a graph edit is REJECTED (409) while the blueprint has any active/
- *    waiting `journeyStates` rows — Hatchet's durable sleep/wait primitives
- *    are matched positionally on replay, so changing the node sequence out
- *    from under a suspended run can desync its replay journal. Code
- *    journeys don't have this hazard (their `run()` is immutable compiled
- *    code); a blueprint's graph is a mutable row, so this is an explicit
- *    gate rather than an implicit guarantee. Wait for enrollments to drain
- *    (or disable and let them finish) before editing a live graph
- *  - status transitions go through /enable + /disable (PATCH cannot set
- *    status) so enabling always re-runs validation against the CURRENT
- *    registries — a template unregistered since save is caught here, not at
- *    2am mid-run
- *  - invalid graphs are rejected 422 with the structured
- *    `BlueprintValidationIssue[]` verbatim (never a caught exception message)
+ * Result → status mapping (uniform across handlers):
+ *  - `invalid_graph` → 422 with the structured `BlueprintValidationIssue[]`
+ *    verbatim (never a caught exception message)
+ *  - `not_found` → 404, `conflict`/`promoted`/`in_flight` → 409
+ *
+ * A graph-changing update is REJECTED (`in_flight` → 409) while the
+ * blueprint has any active/waiting `journeyStates` rows — Hatchet's durable
+ * sleep/wait primitives are matched positionally on replay, so changing the
+ * node sequence out from under a suspended run can desync its replay
+ * journal. Code journeys don't have this hazard (their `run()` is immutable
+ * compiled code); a blueprint's graph is a mutable row, so this is an
+ * explicit gate, enforced in the service layer (`lib/blueprints.ts`), not
+ * an implicit guarantee. Wait for enrollments to drain (or disable and let
+ * them finish) before editing a live graph.
  */
-import {
-  type BlueprintGraph,
-  type BlueprintValidationIssue,
-  type BlueprintValidationResult,
-  blueprintGraphSchema,
-  type JourneyGraph,
-  journeyGraphSchema,
-  validateBlueprintGraph,
-} from "@hogsend/core";
-import { propertyConditionSchema } from "@hogsend/core/schemas";
+import { type JourneyGraph, journeyGraphSchema } from "@hogsend/core";
 import { journeyBlueprints, journeyStates } from "@hogsend/db";
-import { getTemplateNames } from "@hogsend/email";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import type { HogsendClient } from "../../container.js";
+import {
+  blueprintCreateBaseSchema,
+  blueprintGraphInputSchema,
+  blueprintPatchFieldsSchema,
+  blueprintSourceSchema,
+  blueprintStatusSchema,
+  createBlueprint,
+  disableBlueprint,
+  enableBlueprint,
+  findBlueprintRow,
+  serializeBlueprint,
+  serializedBlueprintSchema,
+  updateBlueprint,
+  validateBlueprintGraphForSave,
+} from "../../lib/blueprints.js";
 import { errorSchema, paginationQuerySchema } from "../../lib/schemas.js";
 import { serializeState, stateSchema } from "./journeys.js";
-
-type BlueprintRow = typeof journeyBlueprints.$inferSelect;
-/** The opaque jsonb type of the `graph` column (db cannot import core). */
-type BlueprintGraphColumn = BlueprintRow["graph"];
-
-// ---------------------------------------------------------------------------
-// Save-time validation — core checks + engine registry checks
-// ---------------------------------------------------------------------------
-
-type RegistryContainer = Pick<
-  HogsendClient,
-  "templates" | "connectorActionRegistry"
->;
-
-/**
- * The engine-side half of the save-time sandbox (spec §8): every node input
- * is checked against a KNOWN registry, so a `send` of a template that isn't
- * registered (or a connector action that doesn't exist) fails at save time
- * with a structured issue, not at run time. @hogsend/core cannot do these —
- * the registries live in the container.
- */
-function findRegistryIssues(
-  graph: BlueprintGraph,
-  container: RegistryContainer,
-): BlueprintValidationIssue[] {
-  const issues: BlueprintValidationIssue[] = [];
-  const templateKeys = new Set<string>(getTemplateNames(container.templates));
-  graph.nodes.forEach((node, index) => {
-    if (node.type === "send" && !templateKeys.has(node.meta.template)) {
-      issues.push({
-        nodeId: node.id,
-        path: ["nodes", index, "meta", "template"],
-        code: "unknown_template",
-        message: `node "${node.id}": "${node.meta.template}" is not a registered template key`,
-      });
-    }
-    if (node.type === "connector") {
-      const { connectorId, action } = node.meta;
-      if (!container.connectorActionRegistry.get(connectorId, action)) {
-        issues.push({
-          nodeId: node.id,
-          path: ["nodes", index, "meta", "connectorId"],
-          code: "unknown_connector_action",
-          message: `node "${node.id}": no connector action "${connectorId}:${action}" is registered`,
-        });
-      }
-    }
-  });
-  return issues;
-}
-
-/**
- * Full save-time validation: `validateBlueprintGraph` (field shapes +
- * structural checks) plus the registry checks above. Used by create, PATCH
- * (when `graph` is present), enable (re-check against CURRENT registries),
- * and both validate endpoints — one validation story for every write path.
- *
- * When the graph parses field-wise but fails STRUCTURALLY, the registry
- * issues are still appended to the report — an iterating agent gets the whole
- * "what's wrong" list in one round instead of discovering the unknown
- * template only after fixing the cycle.
- */
-export function validateBlueprintGraphForSave(
-  graph: unknown,
-  container: RegistryContainer,
-): BlueprintValidationResult {
-  const result = validateBlueprintGraph(graph);
-  if (result.valid) {
-    const issues = findRegistryIssues(result.graph, container);
-    if (issues.length > 0) return { valid: false, issues };
-    return result;
-  }
-  // Structural failure: the field shapes may still have parsed, in which case
-  // the send/connector nodes are inspectable — report registry problems too.
-  const parsed = blueprintGraphSchema.safeParse(graph);
-  if (!parsed.success) return result;
-  return {
-    valid: false,
-    issues: [
-      ...result.issues,
-      ...findRegistryIssues(
-        parsed.data as unknown as BlueprintGraph,
-        container,
-      ),
-    ],
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
 
-/**
- * Execution-tier duration INPUT: strict keys so `{ days: 3 }` is rejected
- * loudly instead of becoming a silent zero (`durationToMs` ignores unknown
- * keys). Empty `{}` is allowed — for `suppress` it means "disabled", same
- * contract as JourneyMeta.suppress.
- */
-const durationInputSchema = z.strictObject({
-  hours: z.number().nonnegative().optional(),
-  minutes: z.number().nonnegative().optional(),
-  seconds: z.number().nonnegative().optional(),
+const createBodySchema = blueprintCreateBaseSchema.extend({
+  source: blueprintSourceSchema,
 });
 
-const exitOnInputSchema = z.array(
-  z.object({
-    event: z.string().min(1),
-    where: z.array(propertyConditionSchema).optional(),
-  }),
+// Partial update (shared field shapes from the service layer). The routes add
+// the "at least one field" refinement on the whole body.
+const patchBodySchema = blueprintPatchFieldsSchema.refine(
+  (body) => Object.values(body).some((v) => v !== undefined),
+  { message: "PATCH body must set at least one field" },
 );
-
-const statusEnum = z.enum(["draft", "enabled", "disabled"]);
-const entryLimitEnum = z.enum(["once", "once_per_period", "unlimited"]);
-const sourceEnum = z.enum(["mcp", "studio", "api"]);
-
-// The graph is accepted as `unknown` and validated in the handler via
-// validateBlueprintGraphForSave — so a malformed graph ALWAYS yields the
-// structured 422 issue list, never zod-openapi's generic 400.
-const graphInputSchema = z.unknown();
-
-const createBodySchema = z.object({
-  name: z.string().min(1),
-  description: z.string().optional(),
-  /**
-   * Defaults to "draft"; a caller MAY create directly enabled (spec §10 —
-   * post-hoc oversight, no forced staging step). "disabled" makes no sense
-   * at creation and is rejected.
-   */
-  status: z.enum(["draft", "enabled"]).default("draft"),
-  triggerEvent: z.string().min(1),
-  triggerWhere: z.array(propertyConditionSchema).optional(),
-  entryLimit: entryLimitEnum,
-  entryPeriod: durationInputSchema.optional(),
-  exitOn: exitOnInputSchema.optional(),
-  suppress: durationInputSchema,
-  graph: graphInputSchema,
-  source: sourceEnum,
-  createdBy: z.string().min(1).optional(),
-});
-
-// Partial update. `status` is deliberately absent — transitions go through
-// /enable + /disable so enabling always re-validates. `source`/`createdBy`
-// are provenance and immutable. Nullable fields accept null to clear.
-const patchBodySchema = z
-  .object({
-    name: z.string().min(1).optional(),
-    description: z.string().nullable().optional(),
-    triggerEvent: z.string().min(1).optional(),
-    triggerWhere: z.array(propertyConditionSchema).nullable().optional(),
-    entryLimit: entryLimitEnum.optional(),
-    entryPeriod: durationInputSchema.nullable().optional(),
-    exitOn: exitOnInputSchema.nullable().optional(),
-    suppress: durationInputSchema.optional(),
-    graph: graphInputSchema.optional(),
-  })
-  .refine((body) => Object.values(body).some((v) => v !== undefined), {
-    message: "PATCH body must set at least one field",
-  });
 
 const validationIssueSchema = z.object({
   nodeId: z.string().optional(),
@@ -241,35 +94,9 @@ const countsSchema = z.object({
 
 // Row serialization is FLAT (column names verbatim: triggerEvent,
 // triggerWhere, …) so a GET → edit → PATCH loop round-trips 1:1 with the
-// write bodies above. Stored jsonb is echoed loosely (the strict shapes were
-// enforced at write time).
-const blueprintSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string().nullable(),
-  status: statusEnum,
-  version: z.number(),
-  triggerEvent: z.string(),
-  triggerWhere: z.array(z.record(z.string(), z.unknown())).nullable(),
-  entryLimit: entryLimitEnum,
-  entryPeriod: z.record(z.string(), z.number()).nullable(),
-  exitOn: z
-    .array(
-      z.object({
-        event: z.string(),
-        where: z.array(z.record(z.string(), z.unknown())).optional(),
-      }),
-    )
-    .nullable(),
-  suppress: z.record(z.string(), z.number()),
-  graph: journeyGraphSchema,
-  source: sourceEnum,
-  createdBy: z.string().nullable(),
-  promotedAt: z.string().nullable(),
-  promotedToJourneyId: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
+// write bodies above — shape + serializer live in the service layer,
+// shared with the agent tools.
+const blueprintSchema = serializedBlueprintSchema;
 
 // List rows omit the graph blob (fetch one / the graph route carry it).
 const blueprintListItemSchema = blueprintSchema
@@ -280,31 +107,6 @@ const blueprintDetailSchema = blueprintSchema.extend({
   counts: countsSchema,
   recentStates: z.array(stateSchema),
 });
-
-function serializeBlueprint(
-  row: BlueprintRow,
-): z.infer<typeof blueprintSchema> {
-  return {
-    id: row.id,
-    name: row.name,
-    description: row.description,
-    status: row.status,
-    version: row.version,
-    triggerEvent: row.triggerEvent,
-    triggerWhere: row.triggerWhere ?? null,
-    entryLimit: row.entryLimit,
-    entryPeriod: (row.entryPeriod ?? null) as Record<string, number> | null,
-    exitOn: row.exitOn ?? null,
-    suppress: row.suppress as Record<string, number>,
-    graph: row.graph as unknown as JourneyGraph,
-    source: row.source,
-    createdBy: row.createdBy,
-    promotedAt: row.promotedAt?.toISOString() ?? null,
-    promotedToJourneyId: row.promotedToJourneyId,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
-  };
-}
 
 const emptyCounts = {
   active: 0,
@@ -325,7 +127,7 @@ const listRouteDef = createRoute({
   summary: "List journey blueprints",
   request: {
     query: paginationQuerySchema.extend({
-      status: statusEnum.optional(),
+      status: blueprintStatusSchema.optional(),
     }),
   },
   responses: {
@@ -397,7 +199,7 @@ const validateRouteDef = createRoute({
     body: {
       content: {
         "application/json": {
-          schema: z.object({ graph: graphInputSchema }),
+          schema: z.object({ graph: blueprintGraphInputSchema }),
         },
       },
     },
@@ -618,18 +420,6 @@ const graphRouteDef = createRoute({
 // Handlers
 // ---------------------------------------------------------------------------
 
-async function fetchBlueprint(
-  db: HogsendClient["db"],
-  id: string,
-): Promise<BlueprintRow | null> {
-  const rows = await db
-    .select()
-    .from(journeyBlueprints)
-    .where(eq(journeyBlueprints.id, id))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
 // Registered statement-per-route rather than as one `.openapi()` chain: the
 // chain form accumulates every route's request/response schema into the
 // router's generic type, and this router is type-checked inside every
@@ -699,64 +489,16 @@ blueprintsRouter.openapi(listRouteDef, async (c) => {
 
 blueprintsRouter.openapi(createRouteDef, async (c) => {
   const container = c.get("container");
-  const { db, registry } = container;
   const body = c.req.valid("json");
 
-  const result = validateBlueprintGraphForSave(body.graph, container);
-  if (!result.valid) {
-    return c.json(
-      { error: "Blueprint graph failed validation", issues: result.issues },
-      422,
-    );
+  const result = await createBlueprint({ container, input: body });
+  if (!result.ok) {
+    if (result.code === "invalid_graph") {
+      return c.json({ error: result.error, issues: result.issues }, 422);
+    }
+    return c.json({ error: result.error }, 409);
   }
-
-  // The graph's journeyId IS the blueprint id — one id, one namespace.
-  //
-  // KNOWN GAP (documented, not fixed): this only guards the direction where
-  // a blueprint is created AFTER a colliding code journey is already
-  // registered. The reverse — deploying a NEW code journey whose id matches
-  // an EXISTING blueprint's id — isn't guarded anywhere; both would then
-  // share journeyStates.journeyId, and exit-condition resolution favors the
-  // registered code journey. Closing this needs a boot-time cross-check
-  // against journey_blueprints, deliberately left for when this actually
-  // bites someone rather than adding DB-dependent boot machinery now.
-  const id = result.graph.journeyId;
-  if (registry.has(id)) {
-    return c.json(
-      {
-        error: `"${id}" is a registered code journey — blueprint ids share the journey id namespace`,
-      },
-      409,
-    );
-  }
-
-  // onConflictDoNothing + returning: the empty result IS the duplicate
-  // check, atomically (no read-then-insert race).
-  const inserted = await db
-    .insert(journeyBlueprints)
-    .values({
-      id,
-      name: body.name,
-      description: body.description ?? null,
-      status: body.status,
-      triggerEvent: body.triggerEvent,
-      triggerWhere: body.triggerWhere ?? null,
-      entryLimit: body.entryLimit,
-      entryPeriod: body.entryPeriod ?? null,
-      exitOn: body.exitOn ?? null,
-      suppress: body.suppress,
-      graph: result.graph as unknown as BlueprintGraphColumn,
-      source: body.source,
-      createdBy: body.createdBy ?? null,
-    })
-    .onConflictDoNothing({ target: journeyBlueprints.id })
-    .returning();
-
-  const row = inserted[0];
-  if (!row) {
-    return c.json({ error: `Blueprint "${id}" already exists` }, 409);
-  }
-  return c.json({ blueprint: serializeBlueprint(row) }, 201);
+  return c.json({ blueprint: serializeBlueprint(result.blueprint) }, 201);
 });
 
 blueprintsRouter.openapi(validateRouteDef, async (c) => {
@@ -776,7 +518,7 @@ blueprintsRouter.openapi(getRouteDef, async (c) => {
   const { db } = c.get("container");
   const { id } = c.req.valid("param");
 
-  const row = await fetchBlueprint(db, id);
+  const row = await findBlueprintRow({ db, id });
   if (!row) {
     return c.json({ error: "Blueprint not found" }, 404);
   }
@@ -818,102 +560,27 @@ blueprintsRouter.openapi(getRouteDef, async (c) => {
 
 blueprintsRouter.openapi(patchRouteDef, async (c) => {
   const container = c.get("container");
-  const { db } = container;
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
 
-  const existing = await fetchBlueprint(db, id);
-  if (!existing) {
-    return c.json({ error: "Blueprint not found" }, 404);
-  }
-
-  let validatedGraph: BlueprintGraph | undefined;
-  if (body.graph !== undefined) {
-    const result = validateBlueprintGraphForSave(body.graph, container);
-    if (!result.valid) {
-      return c.json(
-        { error: "Blueprint graph failed validation", issues: result.issues },
-        422,
-      );
+  const result = await updateBlueprint({ container, id, patch: body });
+  if (!result.ok) {
+    if (result.code === "invalid_graph") {
+      return c.json({ error: result.error, issues: result.issues }, 422);
     }
-    if (result.graph.journeyId !== id) {
-      return c.json(
-        {
-          error: "Graph journeyId does not match the blueprint id",
-          issues: [
-            {
-              path: ["journeyId"],
-              code: "journey_id_mismatch",
-              message: `graph.journeyId "${result.graph.journeyId}" must match the blueprint id "${id}" — the id is immutable`,
-            },
-          ],
-        },
-        422,
-      );
+    if (result.code === "in_flight") {
+      return c.json({ error: result.error }, 409);
     }
-    validatedGraph = result.graph;
-
-    // Graph edits are unsafe while a run is suspended mid-graph (positional
-    // replay journal, see module header) — block it outright rather than
-    // relying on a version pin that can't actually protect a resume.
-    const [inFlight] = await db
-      .select({ count: count() })
-      .from(journeyStates)
-      .where(
-        and(
-          eq(journeyStates.journeyId, id),
-          isNull(journeyStates.deletedAt),
-          inArray(journeyStates.status, ["active", "waiting"]),
-        ),
-      );
-    if (inFlight && inFlight.count > 0) {
-      return c.json(
-        {
-          error: `Cannot edit this blueprint's graph while ${inFlight.count} enrollment(s) are active or waiting — editing a live graph can desync Hatchet's replay journal for an in-flight run. Wait for enrollments to drain, or disable the blueprint and let them finish, before editing the graph.`,
-        },
-        409,
-      );
-    }
+    return c.json({ error: result.error }, 404);
   }
-
-  const set: Partial<typeof journeyBlueprints.$inferInsert> = {
-    updatedAt: new Date(),
-  };
-  if (body.name !== undefined) set.name = body.name;
-  if (body.description !== undefined) set.description = body.description;
-  if (body.triggerEvent !== undefined) set.triggerEvent = body.triggerEvent;
-  if (body.triggerWhere !== undefined) set.triggerWhere = body.triggerWhere;
-  if (body.entryLimit !== undefined) set.entryLimit = body.entryLimit;
-  if (body.entryPeriod !== undefined) set.entryPeriod = body.entryPeriod;
-  if (body.exitOn !== undefined) set.exitOn = body.exitOn;
-  if (body.suppress !== undefined) set.suppress = body.suppress;
-  if (validatedGraph !== undefined) {
-    set.graph = validatedGraph as unknown as BlueprintGraphColumn;
-    // Version bump rule: any PATCH carrying `graph` bumps (documented in
-    // the module header). Safe to bump unconditionally here — the in-flight
-    // check above already rejected this request if any run could observe
-    // the change mid-flight.
-    set.version = existing.version + 1;
-  }
-
-  const updated = await db
-    .update(journeyBlueprints)
-    .set(set)
-    .where(eq(journeyBlueprints.id, id))
-    .returning();
-
-  const row = updated[0];
-  if (!row) {
-    return c.json({ error: "Blueprint not found" }, 404);
-  }
-  return c.json({ blueprint: serializeBlueprint(row) }, 200);
+  return c.json({ blueprint: serializeBlueprint(result.blueprint) }, 200);
 });
 
 blueprintsRouter.openapi(validateByIdRouteDef, async (c) => {
   const container = c.get("container");
   const { id } = c.req.valid("param");
 
-  const row = await fetchBlueprint(container.db, id);
+  const row = await findBlueprintRow({ db: container.db, id });
   if (!row) {
     return c.json({ error: "Blueprint not found" }, 404);
   }
@@ -929,72 +596,37 @@ blueprintsRouter.openapi(validateByIdRouteDef, async (c) => {
 
 blueprintsRouter.openapi(enableRouteDef, async (c) => {
   const container = c.get("container");
-  const { db } = container;
   const { id } = c.req.valid("param");
 
-  const existing = await fetchBlueprint(db, id);
-  if (!existing) {
-    return c.json({ error: "Blueprint not found" }, 404);
+  const result = await enableBlueprint({ container, id });
+  if (!result.ok) {
+    if (result.code === "invalid_graph") {
+      return c.json({ error: result.error, issues: result.issues }, 422);
+    }
+    if (result.code === "promoted") {
+      return c.json({ error: result.error }, 409);
+    }
+    return c.json({ error: result.error }, 404);
   }
-  if (existing.promotedAt) {
-    return c.json(
-      {
-        error: `Blueprint "${id}" was promoted to code (${existing.promotedToJourneyId ?? "unknown journey"}) — the code journey is the source of truth; it cannot be re-enabled`,
-      },
-      409,
-    );
-  }
-
-  // Enabling is the moment a graph goes live, so re-validate against the
-  // CURRENT registries — a template/connector unregistered since save is
-  // caught here instead of failing runs at dispatch time.
-  const result = validateBlueprintGraphForSave(existing.graph, container);
-  if (!result.valid) {
-    return c.json(
-      {
-        error:
-          "Stored graph no longer passes validation — fix it before enabling",
-        issues: result.issues,
-      },
-      422,
-    );
-  }
-
-  const updated = await db
-    .update(journeyBlueprints)
-    .set({ status: "enabled", updatedAt: new Date() })
-    .where(eq(journeyBlueprints.id, id))
-    .returning();
-
-  const row = updated[0];
-  if (!row) {
-    return c.json({ error: "Blueprint not found" }, 404);
-  }
-  return c.json({ blueprint: serializeBlueprint(row) }, 200);
+  return c.json({ blueprint: serializeBlueprint(result.blueprint) }, 200);
 });
 
 blueprintsRouter.openapi(disableRouteDef, async (c) => {
-  const { db } = c.get("container");
+  const container = c.get("container");
   const { id } = c.req.valid("param");
 
-  const updated = await db
-    .update(journeyBlueprints)
-    .set({ status: "disabled", updatedAt: new Date() })
-    .where(eq(journeyBlueprints.id, id))
-    .returning();
-
-  const row = updated[0];
-  if (!row) {
-    return c.json({ error: "Blueprint not found" }, 404);
+  const result = await disableBlueprint({ container, id });
+  if (!result.ok) {
+    return c.json({ error: result.error }, 404);
   }
-  return c.json({ blueprint: serializeBlueprint(row) }, 200);
+  return c.json({ blueprint: serializeBlueprint(result.blueprint) }, 200);
 });
 
 blueprintsRouter.openapi(graphRouteDef, async (c) => {
   const { db, templates } = c.get("container");
   const { id } = c.req.valid("param");
 
-  const row = await fetchBlueprint(db, id);
+  const row = await findBlueprintRow({ db, id });
   if (!row) {
     return c.json({ error: "Blueprint not found" }, 404);
   }

@@ -289,6 +289,28 @@ export {
   type SendBannerResult,
   sendBanner,
 } from "./lib/banner.js";
+// --- Journey blueprints: service layer shared by admin routes + tools (§9) ---
+export {
+  type BlueprintRegistryContainer,
+  type BlueprintRow,
+  type BlueprintServiceContainer,
+  blueprintCreateBaseSchema,
+  blueprintPatchFieldsSchema,
+  type CreateBlueprintInput,
+  type CreateBlueprintResult,
+  createBlueprint,
+  type DisableBlueprintResult,
+  disableBlueprint,
+  type EnableBlueprintResult,
+  enableBlueprint,
+  findBlueprintRow,
+  type SerializedBlueprint,
+  serializeBlueprint,
+  type UpdateBlueprintPatch,
+  type UpdateBlueprintResult,
+  updateBlueprint,
+  validateBlueprintGraphForSave,
+} from "./lib/blueprints.js";
 // --- Boot output (engine-owned startup banner / structured ready log) ---
 export {
   type ApiReadyInfo,
@@ -579,6 +601,15 @@ export {
   resetListRegistry,
   setListRegistry,
 } from "./lists/registry-singleton.js";
+// --- Journey blueprints: agent-facing authoring tools (spec §9, phase 4) ---
+export {
+  type BlueprintToolDefinition,
+  type BlueprintToolInvalidInput,
+  type BlueprintToolIssue,
+  createJourneyBlueprintTools,
+  type JourneyBlueprintTools,
+  type JourneyBlueprintToolsOptions,
+} from "./mcp/blueprint-tools.js";
 // --- Webhook sources ---
 export {
   type DefinedWebhookSource,
