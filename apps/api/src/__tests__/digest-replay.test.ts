@@ -334,7 +334,7 @@ describe("ctx.digest — real-DB replay + enrollment race", () => {
     expect(providerSends).toHaveLength(1);
 
     // Backfill a row whose occurred_at sits INSIDE the now-closed window. A
-    // rescan would pick it up; the verbatim fast path must NOT.
+    // rescan would pick it up; the verbatim recordOnce read-first must NOT.
     await seedEvent({
       userId,
       event,
@@ -342,7 +342,20 @@ describe("ctx.digest — real-DB replay + enrollment race", () => {
       properties: { n: 99 },
     });
 
-    // DRIVE 2 — same run id: recovery-first, peek fast path.
+    // Model an eviction-engine replay-from-top that lands AFTER the flush recorded
+    // the result but BEFORE the terminal "completed" write commits — the row's
+    // state at that replay is non-terminal. Reset it to "active": the journal-
+    // stable design (no peek fast path) re-issues the sleep + status flips, which
+    // requires a non-terminal row (a genuinely completed run is terminal and a
+    // replay correctly aborts via performSleep's 0-rows JourneyExitedError).
+    await db
+      .update(journeyStates)
+      .set({ status: "active", completedAt: null })
+      .where(eq(journeyStates.userId, userId));
+
+    // DRIVE 2 — same run id: recovery-first, then the flush recordOnce READ-FIRST
+    // returns the recorded result verbatim WITHOUT re-scanning (the backfill row
+    // never appears).
     await fn(input(userId), makeCtx(runId));
 
     // The digest RETURN VALUE is byte-identical across the replay.
@@ -485,9 +498,11 @@ describe("ctx.digest — real-DB replay + enrollment race", () => {
     const sleepGate = new Promise<void>((res) => {
       sleepReached = res;
     });
+    let drive1SleepArg: unknown;
     const evictCtx = {
       workflowRunId: () => runId,
-      sleepFor: () => {
+      sleepFor: (arg: unknown) => {
+        drive1SleepArg = arg;
         sleepReached();
         return new Promise<void>(() => {}); // never resolves == evicted
       },
@@ -507,8 +522,19 @@ describe("ctx.digest — real-DB replay + enrollment race", () => {
     expect(mid?.status).toBe("waiting");
     expect(providerSends).toHaveLength(0);
 
-    // DRIVE 2 — replay-from-top, same run id, sleep now elapses instantly.
-    const result = (await fn(input(userId), makeCtx(runId))) as {
+    // DRIVE 2 — replay-from-top, same run id, sleep now elapses instantly. The
+    // journal is POSITIONAL: the re-issued sleep must carry the IDENTICAL arg
+    // (the constant window, not a remainder) or the determinism checker kills it.
+    let drive2SleepArg: unknown;
+    const resumeCtx = {
+      workflowRunId: () => runId,
+      sleepFor: async (arg: unknown) => {
+        drive2SleepArg = arg;
+      },
+      waitFor: async () => ({}),
+      now: async () => new Date(),
+    };
+    const result = (await fn(input(userId), resumeCtx)) as {
       status: string;
     };
     expect(result.status).toBe("completed");
@@ -516,6 +542,9 @@ describe("ctx.digest — real-DB replay + enrollment race", () => {
     const resumed = await readDigest(userId, nodeId);
     // The deadline was reused verbatim (read-first / set-once), not re-armed.
     expect(resumed.deadline).toBe(parked.deadline);
+    // The sleep arg is byte-identical across both drives (constant window).
+    expect(drive1SleepArg).toMatch(/^\d+s$/);
+    expect(drive2SleepArg).toBe(drive1SleepArg);
     expect(resumed.result?.count).toBe(2);
     expect(providerSends).toHaveLength(1);
     const [final] = await db

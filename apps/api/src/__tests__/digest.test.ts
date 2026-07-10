@@ -217,9 +217,12 @@ describe("ctx.digest", () => {
     const contextWrites = dbh.setCalls.filter((c) => "context" in c);
     expect(contextWrites.length).toBe(2);
 
-    // Slept ~the full window (frozen clock → exact).
+    // Slept ~the full window. The durable sleep is normalized to a whole-seconds
+    // Go string (a raw ms number renders as a multi-unit string some hatchet-lite
+    // versions silently no-op). 1h → "3600s".
     expect(sleepFor).toHaveBeenCalledTimes(1);
-    expect(sleepFor.mock.calls[0]?.[0]).toBe(3_600_000);
+    expect(sleepFor.mock.calls[0]?.[0]).toMatch(/^\d+s$/);
+    expect(sleepFor.mock.calls[0]?.[0]).toBe("3600s");
 
     // waiting → active, tagged with the digest node id.
     expect(
@@ -240,7 +243,7 @@ describe("ctx.digest", () => {
     expect(res.flushedAt).toBe(FIXED.toISOString());
   });
 
-  it("replay mid-window: a pre-seeded deadline sleeps only the remainder, not the full window", async () => {
+  it("replay mid-window: a pre-seeded deadline still sleeps the CONSTANT window (journal-stable), never a remainder", async () => {
     const tenMinOut = new Date(FIXED.getTime() + 600_000).toISOString();
     const sleepFor = vi.fn().mockResolvedValue(undefined);
     const dbh = makeDigestDb({
@@ -251,13 +254,24 @@ describe("ctx.digest", () => {
     await ctx.digest({ window: hours(1), event: "signup" });
 
     expect(sleepFor).toHaveBeenCalledTimes(1);
-    // The 10-minute remainder, NOT the 1-hour window.
-    expect(sleepFor.mock.calls[0]?.[0]).toBe(600_000);
-    // No new deadline write (read-first found the seeded one).
-    expect(dbh.setCalls.filter((c) => "context" in c).length).toBe(1); // result only
+    // The full window ("3600s") on EVERY replay — a remainder arg ("600s") would
+    // drift and trip Hatchet's positional determinism checker.
+    expect(sleepFor.mock.calls[0]?.[0]).toBe("3600s");
+    // No new deadline write (read-first found the seeded one); only the result.
+    expect(dbh.setCalls.filter((c) => "context" in c).length).toBe(1);
   });
 
-  it("replay after flush: a pre-seeded result returns verbatim, never sleeps, never flips status, still advances the boundary label", async () => {
+  it('normalizes the durable sleep to a whole-seconds string (2m → "120s")', async () => {
+    const sleepFor = vi.fn().mockResolvedValue(undefined);
+    const dbh = makeDigestDb();
+    const ctx = makeDigestCtx({ db: dbh.db, sleepFor });
+
+    await ctx.digest({ window: { minutes: 2 }, event: "signup" });
+
+    expect(sleepFor.mock.calls[0]?.[0]).toBe("120s");
+  });
+
+  it("replay after flush: the sleep + status flips RE-RUN (journal-stable) and the result returns verbatim via recordOnce read-first (compute NOT invoked)", async () => {
     const recorded = {
       events: [
         { properties: { projectId: "z" }, occurredAt: FIXED.toISOString() },
@@ -267,8 +281,16 @@ describe("ctx.digest", () => {
       flushedAt: FIXED.toISOString(),
     };
     const sleepFor = vi.fn().mockResolvedValue(undefined);
+    // A real replay-after-flush has BOTH the deadline and the result recorded.
     const dbh = makeDigestDb({
-      context: seedResult("digest:signup", recorded),
+      context: {
+        __digest__: {
+          "digest:signup:deadline": new Date(
+            FIXED.getTime() + 3_600_000,
+          ).toISOString(),
+          "digest:signup:result": recorded,
+        },
+      },
     });
     const ctx = makeDigestCtx({ db: dbh.db, sleepFor });
     const boundary = makeBoundary();
@@ -277,9 +299,19 @@ describe("ctx.digest", () => {
       ctx.digest({ window: hours(1), event: "signup" }),
     );
 
+    // Verbatim: recordOnce read-first returns the recorded result; the scan
+    // (compute) never runs.
     expect(res).toEqual(recorded);
-    expect(sleepFor).not.toHaveBeenCalled();
-    expect(dbh.update).not.toHaveBeenCalled();
+    expect(dbh.scan.called).toBe(0);
+    // The durable SEQUENCE is replayed positionally: the sleep is re-issued with
+    // the SAME arg and the waiting→active flips re-run — this alignment is exactly
+    // what keeps the Hatchet journal deterministic across the replay.
+    expect(sleepFor).toHaveBeenCalledTimes(1);
+    expect(sleepFor.mock.calls[0]?.[0]).toBe("3600s");
+    expect(dbh.setCalls.some((c) => c.status === "waiting")).toBe(true);
+    expect(dbh.setCalls.some((c) => c.status === "active")).toBe(true);
+    // Neither deadline nor result is rewritten (both are read-first hits).
+    expect(dbh.setCalls.filter((c) => "context" in c).length).toBe(0);
     // The digest site is still inherited by a subsequent auto-keyed send.
     expect(boundary.currentLabel).toBe("digest:signup");
   });
@@ -559,32 +591,15 @@ describe("ctx.digest", () => {
     expect(dbh.scan.called).toBe(0);
   });
 
-  it("no-sleep wake on a terminal row: elapsed deadline + `exited` status throws before any scan/result write", async () => {
+  it("post-fire replay: an ELAPSED deadline still issues the constant-window sleep (no skip branch)", async () => {
+    // Deadline already in the past (the run was down past its window). There is NO
+    // skip-and-flush branch: journal stability requires the sleep to be re-issued
+    // at its journal position — a post-fire replay instant-resolves it — so a memo
+    // is never substituted where the journal expects a sleep.
     const elapsed = new Date(FIXED.getTime() - 600_000).toISOString();
+    const sleepFor = vi.fn().mockResolvedValue(undefined);
     const dbh = makeDigestDb({
       context: seedDeadline("digest:signup", elapsed),
-      status: "exited",
-    });
-    const ctx = makeDigestCtx({
-      db: dbh.db,
-      sleepFor: vi.fn().mockResolvedValue(undefined),
-    });
-
-    await expect(
-      ctx.digest({ window: hours(1), event: "signup" }),
-    ).rejects.toBeInstanceOf(JourneyExitedError);
-
-    // The status backstop fired: no scan, no status flip, no result write.
-    expect(dbh.scan.called).toBe(0);
-    expect(dbh.update).not.toHaveBeenCalled();
-    expect(dbh.setCalls.filter((c) => "context" in c).length).toBe(0);
-  });
-
-  it("no-sleep wake on a parked row: elapsed deadline + `waiting` status flips to active then flushes", async () => {
-    const elapsed = new Date(FIXED.getTime() - 600_000).toISOString();
-    const dbh = makeDigestDb({
-      context: seedDeadline("digest:signup", elapsed),
-      status: "waiting",
       scanRows: [
         {
           id: "e1",
@@ -593,18 +608,17 @@ describe("ctx.digest", () => {
         },
       ],
     });
-    const ctx = makeDigestCtx({
-      db: dbh.db,
-      sleepFor: vi.fn().mockResolvedValue(undefined),
-    });
+    const ctx = makeDigestCtx({ db: dbh.db, sleepFor });
 
     const res = await ctx.digest({ window: hours(1), event: "signup" });
 
-    // waiting → active flip fired, no sleep, then the flush scanned + recorded.
+    // The constant window is slept (not skipped), flips re-run, then the flush.
+    expect(sleepFor).toHaveBeenCalledTimes(1);
+    expect(sleepFor.mock.calls[0]?.[0]).toBe("3600s");
+    expect(dbh.setCalls.some((c) => c.status === "waiting")).toBe(true);
     expect(dbh.setCalls.some((c) => c.status === "active")).toBe(true);
     expect(dbh.scan.called).toBe(1);
     expect(res.count).toBe(1);
-    expect(dbh.setCalls.filter((c) => "context" in c).length).toBe(1); // result
   });
 
   it("throws on same-label reuse in one run; distinct labels are fine", async () => {
@@ -653,16 +667,24 @@ describe("ctx.digest", () => {
         truncated: false,
         flushedAt: FIXED.toISOString(),
       }),
+      // Two drives, each runs performSleep (enter + resume) → 4 status flips.
+      returningQueue: [
+        [{ id: "state-1" }],
+        [{ id: "state-1" }],
+        [{ id: "state-1" }],
+        [{ id: "state-1" }],
+      ],
     });
     const ctx = makeDigestCtx({
       db: dbh.db,
+      sleepFor: vi.fn().mockResolvedValue(undefined),
       logger: { info: vi.fn(), warn, error: vi.fn() },
       triggerEvent: "evt",
       entryLimit: "once",
       journeyId: "j-once-a",
     });
 
-    // Result pre-seeded → fast path; the warning still fires at step 3.
+    // The warning fires at step 3 (before any durable work); warn-once dedups it.
     await ctx.digest({ window: hours(1) });
     await ctx.digest({ window: hours(1) });
 

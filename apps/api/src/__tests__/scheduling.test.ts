@@ -145,27 +145,40 @@ describe("ctx.sleepUntil", () => {
     vi.useRealTimers();
   });
 
-  it("calls sleepFor with the positive ms delay (number)", async () => {
+  it('calls sleepFor with a whole-seconds Go string (60s ahead → "60s")', async () => {
     const sleepFor = vi.fn().mockResolvedValue(undefined);
     const ctx = makeCtx({ timezone: NY, sleepFor });
     const future = new Date(FIXED.getTime() + 60_000);
 
     await ctx.sleepUntil(future);
 
+    // A raw ms number would render as a multi-unit string some hatchet-lite
+    // versions silently no-op; we normalize to whole seconds.
     expect(sleepFor).toHaveBeenCalledTimes(1);
-    expect(sleepFor).toHaveBeenCalledWith(60_000);
+    expect(sleepFor.mock.calls[0]?.[0]).toMatch(/^\d+s$/);
+    expect(sleepFor).toHaveBeenCalledWith("60s");
   });
 
-  it("a past instant yields ms = 0", async () => {
+  it('sleepUntil 90 minutes ahead normalizes to "5400s"', async () => {
+    const sleepFor = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ timezone: NY, sleepFor });
+
+    await ctx.sleepUntil(new Date(FIXED.getTime() + 90 * 60_000));
+
+    expect(sleepFor).toHaveBeenCalledWith("5400s");
+  });
+
+  it('a past instant clamps to the minimum whole-second sleep ("1s")', async () => {
     const sleepFor = vi.fn().mockResolvedValue(undefined);
     const ctx = makeCtx({ timezone: NY, sleepFor });
 
     await ctx.sleepUntil(new Date(FIXED.getTime() - 10_000));
 
-    expect(sleepFor).toHaveBeenCalledWith(0);
+    // ms = 0 → Math.max(1, ceil(0/1000)) = 1 → "1s".
+    expect(sleepFor).toHaveBeenCalledWith("1s");
   });
 
-  it("Date and ISO string forms produce identical ms", async () => {
+  it("Date and ISO string forms produce an identical duration", async () => {
     const future = new Date(FIXED.getTime() + 120_000);
     const sleepForA = vi.fn().mockResolvedValue(undefined);
     const sleepForB = vi.fn().mockResolvedValue(undefined);
@@ -176,6 +189,16 @@ describe("ctx.sleepUntil", () => {
     );
 
     expect(sleepForA.mock.calls[0]?.[0]).toBe(sleepForB.mock.calls[0]?.[0]);
+    expect(sleepForA.mock.calls[0]?.[0]).toBe("120s");
+  });
+
+  it('ctx.sleep({ minutes: 2 }) normalizes to "120s"', async () => {
+    const sleepFor = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ timezone: NY, sleepFor });
+
+    await ctx.sleep({ duration: { minutes: 2 } });
+
+    expect(sleepFor).toHaveBeenCalledWith("120s");
   });
 
   it("throws TypeError on an invalid date string", async () => {

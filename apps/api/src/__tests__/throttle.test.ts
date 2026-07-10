@@ -137,6 +137,47 @@ describe("ctx.throttle (unit)", () => {
     expect(overVerdict).toEqual({ allowed: false, count: 5, remaining: 0 });
   });
 
+  it("issues ZERO durable calls — sleepFor/waitFor/now are untouched (positionally invisible on the journal)", async () => {
+    const sleepFor = vi.fn();
+    const waitFor = vi.fn();
+    const now = vi.fn(async () => new Date());
+    const dbh = makeThrottleDb({ count: 0 });
+    const ctx = createJourneyContext({
+      db: dbh.db,
+      // biome-ignore lint/suspicious/noExplicitAny: minimal test stub
+      hatchet: {} as any,
+      hatchetCtx: {
+        sleepFor: sleepFor as unknown as (d: unknown) => Promise<unknown>,
+        waitFor: waitFor as unknown as (
+          c: unknown,
+        ) => Promise<Record<string, unknown>>,
+        now: now as unknown as () => Promise<Date>,
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: minimal test stub
+      registry: {} as any,
+      logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        // biome-ignore lint/suspicious/noExplicitAny: minimal test stub
+      } as any,
+      stateId: "state-1",
+      userId: "user-1",
+      userEmail: "user@example.com",
+      journeyContext: {},
+      resolvedTimezone: "UTC",
+    });
+
+    await ctx.throttle({ limit: 3, window: days(7) });
+
+    // The verdict compute reads `latestNow` synchronously, so throttle issues no
+    // durable/journal node — a replay skips its recorded compute WITHOUT shifting
+    // any later durable call's journal position.
+    expect(sleepFor).not.toHaveBeenCalled();
+    expect(waitFor).not.toHaveBeenCalled();
+    expect(now).not.toHaveBeenCalled();
+  });
+
   it("counts by recipient email + non-failed status; a category narrows the COUNT, absent otherwise", async () => {
     // Without a category: recipient-email eq + ne(status,'failed'), NO category.
     const plain = makeThrottleDb({ count: 0 });

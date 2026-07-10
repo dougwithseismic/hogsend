@@ -67,7 +67,9 @@ function conditionsFrom(waitFor: ReturnType<typeof vi.fn>) {
     conditions: Array<{
       eventKey?: string;
       expression?: string;
-      sleepFor?: number;
+      // Normalized to a whole-seconds Go string (see `toSleepDuration`); the
+      // legacy number form is kept in the union for older captured shapes.
+      sleepFor?: number | string;
     }>;
   };
   return orArg.conditions;
@@ -302,18 +304,54 @@ describe("ctx.waitForEvent", () => {
     expect(userCond?.expression).toBe("input.userId == 'ab\\'c'");
   });
 
-  it("passes the timeout to the sleep branch as milliseconds", async () => {
+  it("passes the timeout to the sleep branch as a whole-seconds string", async () => {
     const waitFor = vi.fn().mockResolvedValue({ CREATE: { event: [{}] } });
     const { db } = makeWaitDbStub();
     const ctx = makeCtx({ db, waitFor });
 
     await ctx.waitForEvent({ event: "activated", timeout: days(7) });
 
+    // A raw ms number renders as a multi-unit Go string ("1m59s"…) some
+    // hatchet-lite versions silently no-op; the timeout branch is normalized.
     const sleepCond = conditionsFrom(waitFor).find(
       (c) => c.sleepFor !== undefined,
     );
-    expect(sleepCond?.sleepFor).toBe(durationToMs(days(7)));
-    expect(sleepCond?.sleepFor).toBe(604_800_000);
+    expect(sleepCond?.sleepFor).toMatch(/^\d+s$/);
+    expect(sleepCond?.sleepFor).toBe(`${durationToMs(days(7)) / 1000}s`);
+    expect(sleepCond?.sleepFor).toBe("604800s");
+  });
+
+  it("filtered (where) wait: the re-arm timeout is a whole-seconds string", async () => {
+    // `where` present → the durable re-arm path (a distinct SleepCondition site).
+    // First scan misses, the status stays active, and waitFor times out.
+    const waitFor = vi.fn().mockResolvedValue({ CREATE: { timeout: [{}] } });
+    const { db } = makeWaitDbStub();
+    // Cover the three read shapes the filtered path issues: the wait-deadline
+    // read + the status check (`.where().limit()`), and scanForMatch
+    // (`.where().orderBy().limit()`). No match, non-terminal status.
+    (db as unknown as Record<string, unknown>).select = vi.fn(() => ({
+      from: () => ({
+        where: () => ({
+          orderBy: () => ({ limit: () => Promise.resolve([]) }),
+          limit: () => Promise.resolve([{ status: "active" }]),
+        }),
+      }),
+    }));
+    const ctx = makeCtx({ db, waitFor });
+
+    const res = await ctx.waitForEvent({
+      event: "link.clicked",
+      timeout: days(7),
+      where: [
+        { type: "property", property: "linkId", operator: "eq", value: "x" },
+      ],
+    });
+
+    expect(res.timedOut).toBe(true);
+    const sleepCond = conditionsFrom(waitFor).find(
+      (c) => c.sleepFor !== undefined,
+    );
+    expect(sleepCond?.sleepFor).toMatch(/^\d+s$/);
   });
 
   it("aborts with JourneyExitedError if the journey exited during the wait", async () => {

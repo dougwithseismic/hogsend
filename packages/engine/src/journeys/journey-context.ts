@@ -72,7 +72,7 @@ import {
   registerRecordLabel,
 } from "./journey-boundary.js";
 import { logTransition } from "./journey-log.js";
-import { peekRecord, recordOnce } from "./record-once.js";
+import { recordOnce } from "./record-once.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be
  * resurrected back to "active" by a wait resuming. Exported so the durable task
@@ -105,13 +105,35 @@ function celStringLiteral(value: string): string {
   return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 }
 
+/** Normalize any duration to a SINGLE-UNIT whole-seconds Go string ("120s").
+ * The SDK renders ms numbers as multi-unit strings ("1m59s"), which some
+ * hatchet-lite versions silently fail to honor as sleep conditions (the wait
+ * resolves instantly with no match) — pinned empirically 2026-07-10. Whole
+ * seconds match the SDK's own `sleepUntil` normalization. Applies to every
+ * durable sleep AND every `SleepCondition` timeout branch. */
+const toSleepDuration = (
+  durationOrMs: DurationObject | number,
+): `${number}s` => {
+  const ms =
+    typeof durationOrMs === "number"
+      ? durationOrMs
+      : durationToMs(durationOrMs);
+  return `${Math.max(1, Math.ceil(ms / 1000))}s`;
+};
+
 interface JourneyContextConfig {
   db: Database;
   hatchet: HatchetClient;
   hatchetCtx: {
-    // Hatchet's real `sleepFor` accepts a number (milliseconds) in addition to
-    // duration strings/objects; we use the number-ms form for `sleepUntil`.
-    sleepFor: (duration: DurationObject | number) => Promise<unknown>;
+    // Hatchet's real `sleepFor` accepts a Go duration string, a DurationObject,
+    // or a number (ms). We always pass a normalized whole-seconds string (see
+    // `toSleepDuration`) — the multi-unit strings the SDK derives from a raw ms
+    // number are silently no-op'd by some hatchet-lite versions. The param is the
+    // exact `${number}s` literal (a subtype of the SDK's `Duration`) so the real
+    // `DurableContext` stays assignable to this structural stub.
+    sleepFor: (
+      duration: DurationObject | number | `${number}s`,
+    ) => Promise<unknown>;
     // The forwarded object is the real Hatchet `DurableContext`, which also has
     // `waitFor` (used by `waitForEvent`). Param mirrors the SDK signature so the
     // real context is assignable; we read back the envelope as a plain record.
@@ -320,15 +342,17 @@ export function createJourneyContext(
   };
 
   // Durable sleep with the guarded waiting → active lifecycle. `sleep` passes a
-  // DurationObject; `sleepUntil` passes a precomputed ms delay — Hatchet's
-  // `sleepFor` accepts both.
+  // DurationObject; `sleepUntil`/`digest` pass a precomputed ms delay. Both are
+  // normalized to a whole-seconds Go string (see `toSleepDuration`) — a raw ms
+  // number would be rendered by the SDK as a multi-unit string some hatchet-lite
+  // versions silently no-op, resolving the wait instantly.
   const performSleep = async (
     durationOrMs: DurationObject | number,
     nodeId: string,
   ): Promise<{ sleptAt: string; resumedAt: string }> => {
     const sleptAt = new Date().toISOString();
     await enterWait(nodeId, "sleep");
-    await hatchetCtx.sleepFor(durationOrMs);
+    await hatchetCtx.sleepFor(toSleepDuration(durationOrMs));
     const resumedAt = new Date().toISOString();
     await resumeFromWait(nodeId);
     // Refresh the memoized clock snapshot so a `ctx.when` chain used right after
@@ -488,7 +512,7 @@ export function createJourneyContext(
             `input.userId == ${celStringLiteral(userId)}`,
             "event",
           ),
-          new SleepCondition(remainingMs, "timeout"),
+          new SleepCondition(toSleepDuration(remainingMs), "timeout"),
         ),
       );
       const fired = (("CREATE" in armed ? armed.CREATE : armed) ??
@@ -609,7 +633,7 @@ export function createJourneyContext(
           `input.userId == ${celStringLiteral(userId)}`,
           "event",
         ),
-        new SleepCondition(durationToMs(timeout), "timeout"),
+        new SleepCondition(toSleepDuration(timeout), "timeout"),
       ),
     );
 
@@ -818,77 +842,53 @@ export function createJourneyContext(
       }
     }
 
-    // 4. REPLAY-AFTER-FLUSH FAST PATH — the recorded result IS the terminal
-    // marker: return it verbatim, no sleep, no status flips, no rescan.
-    const recorded = await peekRecord({
-      db,
-      stateId,
-      namespace: "__digest__",
-      key: `${nodeId}:result`,
-    });
-    if (recorded.found) {
-      // Advance the boundary label so a later auto-keyed send still inherits the
-      // digest site even on a replay that skips the sleep, then refresh the clock.
-      setBoundaryLabel(nodeId);
-      await refreshNow();
-      return recorded.value as DigestResult;
-    }
-
-    // 5. DURABLE DEADLINE — read-first / set-once off the memoized clock, so a
-    // replay-from-top reuses the SAME flush instant instead of re-extending the
-    // window on every replay. Never cleared; the result record is the terminal
-    // mark. Flat `<label>:deadline` / `<label>:result` subkeys keep set-once
-    // applying per subkey.
+    // 4. DURABLE DEADLINE — DB-only read-first / set-once (issues NO durable
+    // journal node: `compute` reads the seeded `latestNow` synchronously). The
+    // deadline drives `scanSince`, the stranded-waiting alert, and observability
+    // — it is NOT the sleep duration (see step 5). Never cleared; the result
+    // record is the terminal mark. Flat `<label>:deadline` / `<label>:result`
+    // subkeys keep set-once applying per subkey.
     const deadlineIso = await recordOnce({
       db,
       stateId,
       namespace: "__digest__",
+      // Read the seeded memoized snapshot SYNCHRONOUSLY rather than awaiting
+      // hatchetCtx.now(): recordOnce freezes this value (a replay reads the
+      // recorded deadline back), so the live-clock read never diverges — AND it
+      // adds no journal node inside a conditionally-executed compute (which a
+      // replay would skip, misaligning the positional journal).
       key: `${nodeId}:deadline`,
-      compute: async () =>
-        new Date((await refreshNow()).getTime() + windowMs).toISOString(),
+      compute: () => new Date(latestNow.getTime() + windowMs).toISOString(),
     });
     const deadline = new Date(deadlineIso);
 
-    // 6. SLEEP THE REMAINDER — performSleep's enterWait/resumeFromWait lifecycle
-    // is what makes an exitOn mid-window abort cleanly (JourneyExitedError), and
-    // it advances the boundary label + refreshes the memoized clock.
-    const remainingMs = deadline.getTime() - Date.now();
-    if (remainingMs > 0) {
-      await performSleep(remainingMs, nodeId);
-    } else {
-      // Replay woke at/after the deadline (the COMMON eviction path): performSleep
-      // is skipped, and with it its enterWait/resumeFromWait terminal-status
-      // backstop — so re-run that check here. An exitOn that fired while the
-      // worker was down (its best-effort runs.cancel possibly lost) leaves a
-      // terminal row; flushing past it would deliver the tail to a user who
-      // already exited (the FM-14 class performFilteredWaitForEvent guards
-      // per-iteration).
-      const st = await db
-        .select({ status: journeyStates.status })
-        .from(journeyStates)
-        .where(eq(journeyStates.id, stateId))
-        .limit(1);
-      const status = st[0]?.status;
-      if (status && (TERMINAL_STATUSES as readonly string[]).includes(status)) {
-        throw new JourneyExitedError(stateId);
-      }
-      // A row still parked "waiting" (a pre-eviction wait that never resumed) is
-      // flipped back to active — its own 0-rows JourneyExitedError on a
-      // concurrent flip is the correct abort. An already-"active" row needs no
-      // flip. Both then advance the boundary label + memoized clock exactly as
-      // performSleep's tail would, so downstream behavior is path-independent.
-      if (status === "waiting") {
-        await resumeFromWait(nodeId);
-      }
-      setBoundaryLabel(nodeId);
-      await refreshNow();
-    }
+    // 5. SLEEP THE CONSTANT WINDOW — Hatchet's durable journal is POSITIONAL: on
+    // a replay every durable call must be re-issued in the identical order with
+    // identical args, and an already-fired node instant-resolves. So we ALWAYS
+    // issue `performSleep(windowMs)` — never a remainder (`deadline − now`), whose
+    // arg would drift ("87s" vs the journaled "120s") and trip the determinism
+    // checker (the exact live-smoke kill). Since `deadline := latestNow + windowMs`
+    // and the memoized seed returns the same `latestNow`, the duration is byte-
+    // identical every replay. A mid-window re-dispatch re-issues the same sleep and
+    // BLOCKS on the original server-side deadline; a post-fire replay instant-
+    // resolves. performSleep's enterWait/resumeFromWait lifecycle IS the terminal
+    // backstop (exitOn flipped the row terminal → 0 rows → JourneyExitedError),
+    // and it advances the boundary label + refreshes the memoized clock.
+    //
+    // ACCEPTED SEMANTIC: if a crash lands between recording the deadline and this
+    // sleep being journaled, the re-dispatch arms a FRESH full window from then —
+    // the collection period extends by the crash gap. Rare and harmless (the scan
+    // window simply collects more), and the price of journal determinism.
+    await performSleep(windowMs, nodeId);
 
-    // 7. FLUSH ONCE, RECORD ONCE — scan up to the flush instant (NOT the
+    // 6. FLUSH ONCE, RECORD ONCE — `flushInstant` is issued here on EVERY replay
+    // (positionally stable, right after the sleep), scanning up to it (NOT the
     // deadline: a straggler landing during wake latency is still in-window;
-    // anything after the flush belongs to the documented straggler band).
-    // recordOnce's read-back means a zombie double-writer returns the
-    // FIRST-committed snapshot, so both racers hand author code the SAME set.
+    // anything after belongs to the documented straggler band). On a replay-after-
+    // flush recordOnce's READ-FIRST returns the recorded result verbatim WITHOUT
+    // re-running the scan — the verbatim-replay guarantee lives entirely in
+    // recordOnce now (peek fast path removed). The read-back also means a zombie
+    // double-writer returns the FIRST-committed snapshot.
     const flushInstant = await refreshNow();
     const scanSince = new Date(deadline.getTime() - windowMs - lookbackMs);
     return recordOnce({
@@ -950,7 +950,12 @@ export function createJourneyContext(
       namespace: "__throttle__",
       key,
       compute: async () => {
-        const since = new Date((await refreshNow()).getTime() - windowMs);
+        // Read `latestNow` SYNCHRONOUSLY — never `await refreshNow()` (a memo).
+        // This compute is conditionally executed (a replay with a recorded
+        // verdict skips it), so a memo inside it would misalign the POSITIONAL
+        // journal for every durable call after. With this, ctx.throttle issues
+        // ZERO durable calls — it is positionally invisible.
+        const since = new Date(latestNow.getTime() - windowMs);
         const count = await countRecentSends({
           db,
           to: userEmail,
