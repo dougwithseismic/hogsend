@@ -56,11 +56,12 @@ The contact's subscription state plus the list catalog.
 ```ts
 interface UsePreferences {
   preferences: PreferencesState;          // { categories: Record<string, boolean>; unsubscribedAll: boolean }
-  lists: ListSummary[];                   // empty in v1 (list-catalog read is a v2 addition)
+  lists: ListSummary[];                   // the GET /v1/lists catalog, each list's `subscribed` overlaid live; ListSummary.kind is "channel" | "topic" | undefined
   loading: boolean;
   setPreference: (categoryId: string, subscribed: boolean) => Promise<void>;
   subscribe: (listId: string) => Promise<void>;
   unsubscribe: (listId: string) => Promise<void>;
+  setUnsubscribedAll: (unsubscribed: boolean) => Promise<void>;  // global email opt-out → POST /v1/lists/preferences
   refetch: () => Promise<void>;
 }
 ```
@@ -83,7 +84,7 @@ function ProductUpdatesToggle() {
 }
 ```
 
-`get()` reads `GET /v1/lists/preferences`; `subscribe`/`unsubscribe` hit `POST /v1/lists/{id}/subscribe` / `unsubscribe`. Every `setPreference`/`subscribe`/`unsubscribe` emits `inapp.preference_changed` with `{ categoryId, subscribed }`. Writes require an identified user; an anonymous caller falls to `anonymousId`, which the engine rejects for list preferences.
+`get()` reads `GET /v1/lists/preferences`; `subscribe`/`unsubscribe` hit `POST /v1/lists/{id}/subscribe` / `unsubscribe`. Every `setPreference`/`subscribe`/`unsubscribe` emits `inapp.preference_changed` with `{ categoryId, subscribed }`. `setUnsubscribedAll(unsubscribed)` writes the account-wide email master toggle via `POST /v1/lists/preferences` and emits `inapp.preference_changed` with `categoryId: "$all"` (the exported `ALL_EMAILS_CATEGORY` sentinel) plus `scope: "all"`. Writes require an identified user; an anonymous caller falls to `anonymousId`, which the engine rejects for preferences.
 
 ## useHogsendFeed (alias useInbox)
 

@@ -525,6 +525,23 @@ await sendConnectorAction({
 
 `sendConnectorAction` resolves the action from the registry and runs it with a contact-resolution helper that matches by email / external id / discord snowflake. It throws when the action isn't registered — so pass `connectorActions: discordActions` to `createHogsendClient` first.
 
+### Preference gating
+
+`dmMember` is the only **member-directed** Discord action, and it is **preference-gated automatically**. When the engine can resolve the target member to a contact, the DM is skipped if that contact has globally unsubscribed (`unsubscribedAll`) or opted out of the auto-registered **`discord` channel** list — the action returns a typed `ConnectorActionSkipped` (`{ skipped: true, reason: "unsubscribed_all" | "channel_unsubscribed", connectorId, action }`) and no Discord API call is made. Narrow it with the `isConnectorActionSkipped` guard from `@hogsend/engine`:
+
+```ts
+import { isConnectorActionSkipped, sendConnectorAction } from "@hogsend/engine";
+
+const res = await sendConnectorAction({
+  connectorId: "discord",
+  action: "dmMember",
+  args: { member: user.properties.discordId, content: "…" },
+});
+if (isConnectorActionSkipped(res)) return; // member opted out — nothing sent
+```
+
+The **ops** actions — `sendChannelMessage`, `broadcastToChannel`, `mentionMembers`, `mentionRole`, and the `grantRole` / `removeRole` role actions — are channel/server-directed, carry no recipient preference surface, and are **never** gated. Likewise, if `dmMember` can't resolve a contact (a raw snowflake for a member the engine has never seen), the DM proceeds. Opt a contact out of Discord with `POST /v1/lists/discord/unsubscribe`. The skip verdict is recorded in the durable journal, so it replays verbatim. The `discord` channel list only exists when Discord is configured (its member-directed action is registered).
+
 ## Security
 
 ### Interaction verification

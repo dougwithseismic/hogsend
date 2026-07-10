@@ -219,6 +219,23 @@ await sendConnectorAction({
 
 `sendMessage` takes `{ chatId, text, parseMode?, replyMarkup? }`; the `chatId` rides on the trigger event's `user.properties.chatId` for a Telegram-triggered journey, so `sendMessage` is the most direct reply. `dm` takes `{ to, text, parseMode? }` where `to` is a contact email / external id / raw chat id — use it when a **non-Telegram** event (an app or email event) should reach the user on Telegram; it resolves the recipient through `properties.telegram.chat_id` / `.id` or a `telegram:<id>` `externalId`. Both return `{ messageId, delivered }` and **soft-fail** — a Telegram-level error (e.g. `403` "bot was blocked by the user") or a network blip returns `delivered: false` rather than throwing out of the journey.
 
+### Preference gating
+
+Telegram's member-directed actions (`sendMessage`, `dm`) are **preference-gated automatically**. When the engine can resolve the recipient to a contact, the send is skipped if that contact has globally unsubscribed (`unsubscribedAll`) or opted out of the auto-registered **`telegram` channel** list. Instead of a `SendResult`, the action returns a typed `ConnectorActionSkipped` (`{ skipped: true, reason: "unsubscribed_all" | "channel_unsubscribed", connectorId, action }`) — no Bot API call is made. Narrow the union with the `isConnectorActionSkipped` guard exported from `@hogsend/engine`:
+
+```ts
+import { isConnectorActionSkipped, sendConnectorAction } from "@hogsend/engine";
+
+const res = await sendConnectorAction({
+  connectorId: "telegram",
+  action: "dm",
+  args: { to: user.email, text: "New feature just shipped 🚀" },
+});
+if (isConnectorActionSkipped(res)) return; // recipient opted out — nothing sent
+```
+
+When **no** contact resolves (a raw `chatId`, a group chat, an unlinked id), there is no preference surface, so the send proceeds — gating never blocks an ops message. To opt a contact out of Telegram specifically, unsubscribe them from the channel: `POST /v1/lists/telegram/unsubscribe`. The skip verdict is recorded in the durable journal, so it is replay-stable — a preference flip between a run and its replay can't change what already happened.
+
 ## Security
 
 ### Webhook verification
