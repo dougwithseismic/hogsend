@@ -21,3 +21,13 @@ export const JOURNEY_EXECUTION_TIMEOUT = `${JOURNEY_EXECUTION_TIMEOUT_HOURS}h`;
  * stranded. 15m gives resumes head-room to land on a freed slot.
  */
 export const JOURNEY_SCHEDULE_TIMEOUT = "15m";
+
+/**
+ * The internal Hatchet event that dispatches ONE blueprint enrollment to the
+ * generic `journey-blueprint-interpreter` durable task (spec §5). Pushed by
+ * `checkBlueprintTriggers` (ingest) for each enabled `journey_blueprints` row
+ * matching the ingested event; the interpreter is the only task subscribed.
+ * Lives here (a dependency-free module) so the ingest pipeline and the
+ * interpreter share it without a workflows↔lib import cycle.
+ */
+export const BLUEPRINT_RUN_EVENT = "blueprint:run";

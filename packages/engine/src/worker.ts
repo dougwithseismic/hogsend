@@ -30,6 +30,7 @@ import {
 } from "./workflows/deliver-webhook.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
 import { importSuppressionsTask } from "./workflows/import-suppressions.js";
+import { journeyBlueprintInterpreter } from "./workflows/journey-blueprint-interpreter.js";
 import {
   reapStuckCampaignsTask,
   sendCampaignTask,
@@ -114,6 +115,10 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     sendFeedTask,
     importContactsTask,
     importSuppressionsTask,
+    // The generic blueprint interpreter — registered ONCE, always, like every
+    // other built-in. Blueprint content never changes worker registration:
+    // dispatch is a DB lookup at ingest (checkBlueprintTriggers, spec §5).
+    journeyBlueprintInterpreter,
     sendCampaignTask,
     reapStuckCampaignsTask,
     deliverWebhookTask,
