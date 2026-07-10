@@ -9,11 +9,13 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
 import { Drawer } from "@/components/ui/drawer";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
 import {
   getContact,
   getContactActivity,
   getContactTimeline,
+  listDefinedLists,
   qk,
   type TimelineEntry,
   updateContactPreferences,
@@ -56,6 +58,37 @@ function TimelineItem({ entry }: { entry: TimelineEntry }) {
   );
 }
 
+function PrefRow({
+  label,
+  description,
+  checked,
+  disabled,
+  onCheckedChange,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (next: boolean) => void;
+}) {
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-md border border-hairline-faint bg-white/[0.015] px-3 py-2.5">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-white">{label}</p>
+        {description ? (
+          <p className="truncate text-xs text-white/50">{description}</p>
+        ) : null}
+      </div>
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        aria-label={label}
+        onCheckedChange={onCheckedChange}
+      />
+    </li>
+  );
+}
+
 export function ContactDetailDrawer({
   contactId,
   onClose,
@@ -82,6 +115,35 @@ export function ContactDetailDrawer({
     queryKey: contactId ? qk.contactTimeline(contactId) : ["timeline", "none"],
     queryFn: () => getContactTimeline(contactId as string),
     enabled: open,
+  });
+  const listsQuery = useQuery({
+    queryKey: qk.lists,
+    queryFn: listDefinedLists,
+    enabled: open,
+  });
+
+  const updatePrefs = useMutation({
+    mutationFn: (body: {
+      unsubscribedAll?: boolean;
+      categories?: Record<string, boolean>;
+    }) => updateContactPreferences(contactId as string, body),
+    onSuccess: () => {
+      // Refetch the contact so the switches reflect server truth (the PUT
+      // replaces the whole categories map / upserts the pref row).
+      if (contactId) {
+        void queryClient.invalidateQueries({ queryKey: qk.contact(contactId) });
+      }
+      // A master-toggle can add/remove the contact from the suppression list.
+      void queryClient.invalidateQueries({ queryKey: ["suppressions"] });
+    },
+    onError: (error) => {
+      toast({
+        variant: "error",
+        title: "Update failed",
+        description:
+          error instanceof ApiError ? error.message : "Unexpected error.",
+      });
+    },
   });
 
   const unsuppress = useMutation({
@@ -186,6 +248,81 @@ export function ContactDetailDrawer({
                 </dd>
               </div>
             </dl>
+
+            <section>
+              <h3 className="eyebrow mb-3 text-white/50">Preferences</h3>
+              {listsQuery.isPending ? (
+                <Skeleton className="h-24 w-full" />
+              ) : listsQuery.isError ? (
+                <p className="text-sm text-white/60">
+                  Could not load subscription lists.
+                </p>
+              ) : (
+                (() => {
+                  const lists = listsQuery.data?.lists ?? [];
+                  const channels = lists.filter((l) => l.kind === "channel");
+                  const topics = lists.filter((l) => l.kind === "topic");
+                  const cats = prefs?.categories ?? {};
+                  return (
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-white/40">
+                          Channels
+                        </p>
+                        <ul className="space-y-2">
+                          <PrefRow
+                            label="Email"
+                            description="Master switch — turns off all email."
+                            checked={!prefs?.unsubscribedAll}
+                            disabled={updatePrefs.isPending}
+                            onCheckedChange={(next) =>
+                              updatePrefs.mutate({ unsubscribedAll: !next })
+                            }
+                          />
+                          {channels.map((l) => (
+                            <PrefRow
+                              key={l.id}
+                              label={l.name}
+                              description={l.description}
+                              checked={cats[l.id] ?? l.defaultOptIn}
+                              disabled={updatePrefs.isPending}
+                              onCheckedChange={(next) =>
+                                updatePrefs.mutate({
+                                  categories: { ...cats, [l.id]: next },
+                                })
+                              }
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                      {topics.length > 0 ? (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-white/40">
+                            Topics
+                          </p>
+                          <ul className="space-y-2">
+                            {topics.map((l) => (
+                              <PrefRow
+                                key={l.id}
+                                label={l.name}
+                                description={l.description}
+                                checked={cats[l.id] ?? l.defaultOptIn}
+                                disabled={updatePrefs.isPending}
+                                onCheckedChange={(next) =>
+                                  updatePrefs.mutate({
+                                    categories: { ...cats, [l.id]: next },
+                                  })
+                                }
+                              />
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()
+              )}
+            </section>
 
             <section>
               <h3 className="eyebrow mb-3 text-white/50">Properties</h3>
