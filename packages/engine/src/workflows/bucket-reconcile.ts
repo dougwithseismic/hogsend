@@ -41,7 +41,7 @@ import {
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
-import { contactKeySql } from "../lib/contacts.js";
+import { contactKeySql, normalizeEmail } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
@@ -1033,7 +1033,11 @@ async function reconcileJoinOne(opts: {
   userId: string;
   userEmail: string | null;
 }): Promise<boolean> {
-  const { db, logger, journeyRegistry, bucket, userId, userEmail } = opts;
+  const { db, logger, journeyRegistry, bucket, userId } = opts;
+  // Normalized at the write site (audience-model.md wart #1) — the contact row
+  // should already be normalized, but the membership keyspace must never
+  // depend on that.
+  const userEmail = opts.userEmail ? normalizeEmail(opts.userEmail) : null;
 
   // entryCount ordinal = 1 + ALL prior memberships (active + left). Shared with
   // the real-time join path so the ordinal never drifts between the two writers.

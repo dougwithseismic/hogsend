@@ -24,7 +24,7 @@ import {
 import { getBucketRegistrySingleton } from "../buckets/registry-singleton.js";
 import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
-import { contactKeySql } from "../lib/contacts.js";
+import { contactKeySql, normalizeEmail } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
@@ -301,7 +301,9 @@ async function backfillJoins(opts: {
 
     const rows = chunk.map((userId) => ({
       userId,
-      userEmail: emailByUser.get(userId) ?? null,
+      // Normalized at the write site (audience-model.md wart #1) — belt and
+      // braces on top of the contacts row already being normalized.
+      userEmail: normalizeOrNull(emailByUser.get(userId)),
       bucketId: bucket.id,
       status: "active" as const,
       source: "backfill" as const,
@@ -575,6 +577,11 @@ async function selectCompositeMatchers(
  * Other shapes (property/count composites, OR-of-absence, multi-event) have no
  * single cheap per-matcher timestamp, so they keep a NULL anchor.
  */
+/** `normalizeEmail` for a maybe-missing address (write-site normalization). */
+function normalizeOrNull(email: string | null | undefined): string | null {
+  return email ? normalizeEmail(email) : null;
+}
+
 function resolveDwellAnchorEvent(criteria: ConditionEval): string | null {
   if (criteria.type === "event") {
     return criteria.within != null ? criteria.eventName : null;
