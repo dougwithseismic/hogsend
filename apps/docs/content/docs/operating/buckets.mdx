@@ -264,6 +264,8 @@ The **Buckets** view in [Studio](/docs/operating/studio) is the operator's windo
 - **Enable / disable** — the one mutation, behind a confirm dialog, hitting the same `PATCH` endpoint above.
 - **A building / live badge** that surfaces backfill progress and cron-cadence lag honestly, so you know whether a size is settled or still catching up.
 
+![The Buckets view in Hogsend Studio, listing bucket sizes, enter/leave counts, and enable state](/images/studio/09-buckets-audiences.png)
+
 The bucket detail view also lists `feedsJourneys` and a sample of recent members, mirroring the API's `GET /v1/admin/buckets/{id}` response. In that response, owned reactions carry `sourceBucketId === <bucket id>` and `owned: true`; external bindings carry `owned: false` (and whatever `sourceBucketId` the journey itself declares, usually `null`). On a collision — a reaction that is also reachable via the alias cross-reference — the owned entry wins.
 
 ## The Optional PostHog Sync

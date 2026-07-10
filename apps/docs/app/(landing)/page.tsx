@@ -22,9 +22,9 @@ import {
   RAILWAY_DEPLOY_URL,
 } from "@/lib/site";
 import postphant from "@/public/images/postphant.png";
-import studioJourneys from "@/public/images/studio/studio-journeys.png";
-import studioOverview from "@/public/images/studio/studio-overview.png";
-import studioSends from "@/public/images/studio/studio-sends.png";
+import studioOverview from "@/public/images/studio/02-overview-dashboard.png";
+import studioSends from "@/public/images/studio/04-sends-history.png";
+import studioJourneys from "@/public/images/studio/08-journeys-overview.png";
 import { PsBlocksTabs } from "./_components/blocks-tabs";
 import { InkLogo } from "./_components/brand";
 import {
