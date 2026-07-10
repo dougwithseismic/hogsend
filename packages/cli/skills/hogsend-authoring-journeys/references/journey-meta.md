@@ -23,6 +23,7 @@ interface JourneyMeta {
     where?: PropertyCondition[];
   }>;
 
+  category?: string;          // email-preference category stamped on this journey's sends (default "journey")
   suppress: DurationObject;   // min-gap between sends, enforced at send time (0 disables)
 }
 ```
@@ -100,6 +101,28 @@ exitOn: [
   { event: "subscription.cancelled", where: [{ property: "reason", operator: "equals", value: "churn" }] },
 ],
 ```
+
+### `category` (optional)
+
+The email-preference category stamped on **every** `sendEmail` this journey
+fires — it OVERRIDES the template's own `category` at each send site, exactly as
+the built-in `journey` default already does. Set it to gate the whole journey's
+sends on a specific opt-in/opt-out list (e.g. `category: "product-updates"`), so a
+recipient who opted out of that list never receives the series.
+
+Boot-validated fail-closed against the email-list namespace (same check as
+template categories):
+
+- a defined **topic** list, or a reserved built-in (`transactional` / `journey`)
+  → OK;
+- an **unknown** category → **throws** (it would silently default to opt-in and
+  un-gate suppression);
+- a **channel** list (`in_app`, a connector channel) → **throws** (a channel
+  gates a transport, not an email topic);
+- a defined **opt-in** list excluded via `ENABLED_LISTS` → **throws**; an excluded
+  **opt-out** list → **warns**.
+
+Omit it and the journey keeps the `journey` default.
 
 ### `suppress`
 

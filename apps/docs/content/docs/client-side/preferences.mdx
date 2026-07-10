@@ -11,8 +11,21 @@ import { PreferenceCenterDemo } from "../../../components/hogsend/preference-cen
 
 ## What you're looking at
 
-This is a **live `GET /v1/lists` read** from the dogfood engine. That route is reachable with an anonymous `pk_` publishable key: identity is optional, and an anonymous read returns each list's `subscribed = defaultOptIn` (it never leaks another contact's state). The dogfood defines one list today — `product-updates` ("Product updates", `defaultOptIn: false`) — so that's the row you see.
+This is a **live `GET /v1/lists` read** from the dogfood engine. That route is reachable with an anonymous `pk_` publishable key: identity is optional, and an anonymous read returns each list's `subscribed = defaultOptIn` (it never leaks another contact's state).
 
-The toggles **don't persist here**. A write (`setPreference` → `POST /v1/lists/:id/(un)subscribe`) from an anonymous caller sends `{ anonymousId }`, which the engine rejects — anonymous contacts can't set list prefs. A flip renders optimistically, then reverts on the next refetch. Persisting requires an identified user with a server-minted `userToken` (see [identifying-users](./identifying-users)).
+Each catalog item now carries a `kind` — `"channel"` (a delivery transport the engine auto-registers) or `"topic"` (a list you defined with `defineList`) — and `<PreferenceCenter>` sections the panel automatically. So the demo shows a **Channels** group above a **Topics** group:
 
-Lists are defined in code — `defineList({ id, name, defaultOptIn })` — and surfaced at `GET /v1/lists` + `POST /v1/lists/:id/(un)subscribe`. Toggling emits `inapp.preference_changed` from the SDK store. See the [`<PreferenceCenter>`](./components) reference for the full prop and override surface.
+- **Channels** — a synthetic **Email** master row (wired to the global `unsubscribedAll` opt-out), the **In-app feed** channel (`in_app`), and one row per member-directed connector (**Telegram** here, plus **Discord** when the dogfood has Discord configured). Channels are opt-out (`defaultOptIn: true`), auto-registered by the engine — you never `defineList` them.
+- **Topics** — the code-defined lists. The dogfood defines one today: `product-updates` ("Product updates", `defaultOptIn: false`).
+
+An older self-hosted engine emits no `kind`, so no channel rows surface and the panel renders as a single flat list — see the [`<PreferenceCenter>`](./components) reference for the sectioning rules.
+
+The toggles **don't persist here**. Every write from an anonymous caller sends `{ anonymousId }`, which the engine rejects — anonymous contacts can't set preferences — so a flip renders optimistically, then reverts on the next refetch. This holds for all three write paths behind the same identity gate:
+
+- a channel/topic toggle → `POST /v1/lists/:id/(un)subscribe`,
+- the **Email** master row → `POST /v1/lists/preferences` (writes `unsubscribedAll`),
+- and any `subscribe`/`unsubscribe` call.
+
+Persisting requires an identified user with a server-minted `userToken` (see [identifying-users](./identifying-users)).
+
+Lists are defined in code — `defineList({ id, name, defaultOptIn })` — and surfaced at `GET /v1/lists` + `POST /v1/lists/:id/(un)subscribe`; channels are auto-registered into the same catalog. Toggling emits `inapp.preference_changed` from the SDK store (the Email master flip carries the `ALL_EMAILS_CATEGORY` `"$all"` sentinel). See the [`<PreferenceCenter>`](./components) reference for the full prop and override surface.

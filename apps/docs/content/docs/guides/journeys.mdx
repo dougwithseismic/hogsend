@@ -113,6 +113,7 @@ interface JourneyMeta {
     where?: PropertyCondition[] | ((b) => PropertyCondition | PropertyCondition[]);
   }>;
 
+  category?: string;
   suppress: DurationObject;
 }
 ```
@@ -130,6 +131,7 @@ interface JourneyMeta {
 | `entryLimit` | `"once" \| "once_per_period" \| "unlimited"` | Controls how many times a user can enter. |
 | `entryPeriod` | `DurationObject?` | Required when `entryLimit` is `"once_per_period"`. The cooldown window. |
 | `exitOn` | `Array<{ event, where? }>?` | Events that immediately terminate the journey for a user. Evaluated by the ingestion pipeline on every incoming event. |
+| `category` | `string?` | Email-preference category stamped on **this journey's** `sendEmail` sends, overriding the template's own category (exactly as the built-in `journey` default does). Boot-validated. Defaults to `journey`. See [Email category](#email-category). |
 | `suppress` | `DurationObject` | Minimum time between sends within this journey, **enforced at send time**. A send inside the gap is skipped (`journey_suppressed`) — no provider call, no `email_sends` row. Measured per recipient across **all** enrollments of the journey, so a re-enrollment inside the window is still gapped. `days(0)` disables it. |
 
 ### Entry limits
@@ -184,6 +186,27 @@ exitOn: [
 You can also add `where` conditions to exit rules, so the journey only exits when a matching event has specific properties.
 
 When a journey exits mid-flight — while it's paused inside a `ctx.sleep()` or `ctx.waitForEvent()` — Hogsend marks the run `"exited"` **and cancels the durable Hatchet run**, so no further steps (and no post-wait emails) fire. The journey stops the instant the exit event lands, even mid-wait.
+
+### Email category
+
+By default, every email a journey sends via `sendEmail()` is stamped with the built-in `journey` category. Set `meta.category` to gate the whole journey's sends on a specific [list](/docs/guides/lists) instead — it **overrides the template's own category** at every send site, exactly as the `journey` default already does. This lets you route, say, a re-engagement series through your `product-updates` opt-in so a recipient who opted out never receives it.
+
+```ts
+meta: {
+  id: "product-newsletter-drip",
+  // ...
+  category: "product-updates",   // gate every send on this opt-in list
+}
+```
+
+`category` is **boot-validated fail-closed** against the email-list namespace, alongside every template's category:
+
+- A defined **topic** list, or a reserved built-in (`transactional` / `journey`) → OK.
+- An **unknown** category (typo, stale id) → **throws at boot** — an unknown category would silently default to opt-in and un-gate suppression.
+- A **channel** preference list (`in_app`, a connector channel) → **throws** — a channel gates a delivery transport, not an email topic.
+- A defined **opt-in** list excluded via `ENABLED_LISTS` → **throws** (excluding it would ship the opt-in email to people who never subscribed); an excluded **opt-out** list → **warns**.
+
+Omit `category` and the journey keeps the `journey` default.
 
 ## The `run` function
 

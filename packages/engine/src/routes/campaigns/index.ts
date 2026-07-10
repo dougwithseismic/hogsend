@@ -284,6 +284,16 @@ export const campaignsRouter = new OpenAPIHono<AppEnv>()
     if (audienceKind === "list" && !listRegistry.has(audienceId)) {
       return c.json({ error: `Unknown list: ${audienceId}` }, 404);
     }
+    // A list-audience campaign resolves recipients by SUBSCRIPTION. A channel
+    // preference list (`kind:"channel"`) gates a delivery transport (the in-app
+    // feed, a connector), not an email topic — a channel audience would EMAIL
+    // everyone not opted out of e.g. the discord channel. Reject it.
+    if (audienceKind === "list" && listRegistry.isChannel(audienceId)) {
+      return c.json(
+        { error: `a channel preference list cannot be a campaign audience` },
+        400,
+      );
+    }
     if (audienceKind === "bucket" && !bucketRegistry.has(audienceId)) {
       return c.json({ error: `Unknown bucket: ${audienceId}` }, 404);
     }

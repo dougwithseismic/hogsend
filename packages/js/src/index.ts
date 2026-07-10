@@ -32,6 +32,10 @@ export {
   createLocalStorage,
   createMemoryStorage,
 } from "./identity/storage.js";
+export {
+  ALL_EMAILS_CATEGORY,
+  PREFERENCE_CHANGED_EVENT,
+} from "./preferences/index.js";
 export type {
   PollFetcher,
   PollTransportOptions,

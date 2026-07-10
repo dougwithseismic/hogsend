@@ -43,7 +43,7 @@ export const productUpdates = defineList({
 
 | field | required | notes |
 |-------|----------|-------|
-| `id` | yes | The `email_preferences.categories` key. Must match `/^[a-z0-9_-]+$/i` (letters, digits, `-`, `_`). `transactional` and `journey` are **RESERVED** and rejected (they are the engine's built-in non-list categories — colliding would corrupt suppression logic). |
+| `id` | yes | The `email_preferences.categories` key. Must match `/^[a-z0-9_-]+$/i` (letters, digits, `-`, `_`). `transactional` and `journey` are **RESERVED** and rejected (they are the engine's built-in non-list categories — colliding would corrupt suppression logic). `in_app` is **RESERVED** too (the engine's in-app feed channel — see [Channels](#channels-auto-registered)). |
 | `name` | yes | Human label surfaced on the list API + preference center. |
 | `description` | no | Optional one-liner; omitted from `meta` entirely when absent. |
 | `defaultOptIn` | yes | The default polarity. See below — this is the one decision that matters. |
@@ -51,6 +51,38 @@ export const productUpdates = defineList({
 
 A malformed or reserved `id` makes `defineList` **throw at definition time** — so
 a bad list id fails fast at boot, not silently at send time.
+
+## Channels (auto-registered)
+
+Every list has a `kind`. The lists you author are `kind: "topic"`. The engine
+**auto-registers** the other kind — `kind: "channel"` — for the delivery
+transports a contact can opt out of. You do NOT `defineList` a channel; the
+engine synthesizes them and mounts them at the SAME endpoints (`GET /v1/lists`,
+`POST /v1/lists/:id/(un)subscribe`). All channels are **opt-out**
+(`defaultOptIn: true`).
+
+- **`in_app`** — always registered. Gates the in-app notification feed.
+- **one per member-directed connector** — a connector whose action set declares a
+  member-directed action (Telegram `dm`/`sendMessage`, Discord `dmMember`) gets a
+  channel keyed by its connector id (`telegram`, `discord`). Those sends are then
+  preference-gated automatically (a contact opted out of the `telegram` channel
+  stops getting Telegram DMs). Registered only when that connector is wired in.
+
+Two consequences for your `defineList` ids:
+
+- **`in_app` is reserved** — `defineList({ id: "in_app" })` throws at definition
+  time.
+- **No collision with a channel id** — a `defineList` id that equals an
+  auto-registered channel id (e.g. `telegram` or `discord` while that connector is
+  configured) **throws at boot** (`List id "telegram" collides with the
+  auto-registered channel list…`). Rename your list. Channels are registered
+  unconditionally — `ENABLED_LISTS` filters your topic lists but never drops a
+  channel.
+
+`GET /v1/lists` items now carry `kind`, so `<PreferenceCenter>` sections Channels
+above Topics automatically. A channel list is NEVER a valid email `category` (on a
+journey/template) or a campaign audience — the engine rejects it fail-closed
+(a channel gates a transport, not an email topic).
 
 ## `defaultOptIn` — opt-in vs opt-out (the only real decision)
 
@@ -82,8 +114,9 @@ Membership is just a write to `categories[id]`. Three surfaces flip it:
 
 - **Data plane:** `POST /v1/lists/:id/subscribe` (sets `true`) /
   `POST /v1/lists/:id/unsubscribe` (sets `false`), by identity (`email` or
-  `userId`). `GET /v1/lists` returns every defined list's
-  `{ id, name, description?, defaultOptIn }`.
+  `userId`). `GET /v1/lists` returns every defined list AND every auto-registered
+  channel as `{ id, name, description?, defaultOptIn, kind, subscribed }`.
+  `POST /v1/lists/preferences` writes the account-wide `unsubscribedAll` master.
 - **`@hogsend/client`:** `hs.lists.list()` / `hs.lists.subscribe(...)` /
   `hs.lists.unsubscribe(...)` (see the hogsend-client-sdk skill).
 - **As a side effect of a write:** `contacts.upsert` and `events.send` accept a
@@ -169,8 +202,9 @@ Reference implementation: `apps/api/src/lists/index.ts` in the engine monorepo.
    `db:generate` — `defineList` + the wiring is the whole change.
 2. `defaultOptIn` is the one decision. `false` = opt-in (needs an exact `true` to
    send); `true` = opt-out (blocked only on an exact `false`). Pick consciously.
-3. `id` must match `/^[a-z0-9_-]+$/i`. `transactional` and `journey` are reserved
-   and throw — they are the engine's own non-list categories.
+3. `id` must match `/^[a-z0-9_-]+$/i`. `transactional`, `journey`, and `in_app`
+   are reserved and throw, and your id must not collide with an auto-registered
+   channel (`in_app`, `telegram`, `discord`) — a collision throws at boot.
 4. Wire `lists` into `createHogsendClient` in BOTH `src/index.ts` AND
    `src/worker.ts`. Do NOT pass `lists` to `createWorker` — it is not an accepted
    option; lists resolve via the client's `ListRegistry`.
