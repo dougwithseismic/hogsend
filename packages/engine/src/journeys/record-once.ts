@@ -16,46 +16,20 @@ const NAMESPACE_TOKEN: Record<RecordNamespace, string> = {
   __throttle__: "__throttle__",
 };
 
-/**
- * Read the `(stateId, namespace)` sub-bag from `journey_states.context`, empty
- * `{}` when absent. Shared by {@link recordOnce} (read-first fast path) and
- * {@link peekRecord} (no-compute probe).
- */
-async function readRecordBag(opts: {
-  db: Database;
-  stateId: string;
-  namespace: RecordNamespace;
-}): Promise<Record<string, unknown>> {
-  const row = await opts.db.query.journeyStates.findFirst({
-    where: eq(journeyStates.id, opts.stateId),
-    columns: { context: true },
-  });
-  const ctxBag = (row?.context ?? {}) as Record<string, unknown>;
-  return (ctxBag[opts.namespace] ?? {}) as Record<string, unknown>;
-}
-
-/**
- * Read-only probe for a `(stateId, namespace, key)` record — no `compute`, no
- * write. Used by the digest/throttle primitives to detect a
- * replay-after-completion (the recorded result is present) and short-circuit to
- * a verbatim replay WITHOUT re-arming the durable sleep or flipping status.
- */
-export async function peekRecord(opts: {
-  db: Database;
-  stateId: string;
-  namespace: RecordNamespace;
-  key: string;
-}): Promise<{ found: boolean; value?: unknown }> {
-  const bag = await readRecordBag(opts);
-  return Object.hasOwn(bag, opts.key)
-    ? { found: true, value: bag[opts.key] }
-    : { found: false };
+/** Extract the `(namespace)` sub-bag from an already-fetched context, `{}` when
+ * absent — {@link recordOnce}'s read-first fast path. */
+function namespaceBag(
+  context: unknown,
+  namespace: RecordNamespace,
+): Record<string, unknown> {
+  const ctxBag = (context ?? {}) as Record<string, unknown>;
+  return (ctxBag[namespace] ?? {}) as Record<string, unknown>;
 }
 
 /**
  * Durable set-once for a single `(stateId, namespace, key)` — the replay-safety
- * primitive shared by `ctx.once`, `ctx.digest`, and `ctx.throttle` (later
- * phases). Guarantees:
+ * primitive shared by `ctx.once`, `ctx.digest`, `ctx.throttle`, and the
+ * journey-suppress guard. Guarantees:
  *
  * - **Set-once**: the first committed write for a `(stateId, namespace, key)`
  *   wins; `compute` runs at most once per winning writer and never again once a
@@ -63,9 +37,9 @@ export async function peekRecord(opts: {
  * - **First-writer-wins under a concurrent race**: a zombie double-writer (a
  *   partitioned worker's original execution racing its replay) CANNOT clobber a
  *   value the winner already returned to author code. The persist uses a
- *   FIRST-writer-wins jsonb merge and the function returns the READ-BACK bag
- *   value, so both racers observe the SAME (first-committed) value even if the
- *   loser computed something different.
+ *   FIRST-writer-wins jsonb merge and returns the value from the UPDATE's
+ *   RETURNING (the post-merge committed row), so both racers observe the SAME
+ *   (first-committed) value even if the loser computed something different.
  *
  * Values MUST be JSON-serializable (stored in a jsonb column, round-tripped
  * through `JSON.stringify`/Postgres jsonb).
@@ -86,10 +60,11 @@ export async function recordOnce<T>(opts: {
   // Read the current state row's context and return `context[namespace][key]`
   // when already recorded (an earlier writer, or a replay-from-top) WITHOUT
   // re-running `compute`.
-  const read = (): Promise<Record<string, unknown>> =>
-    readRecordBag({ db, stateId, namespace });
-
-  const bag = await read();
+  const row = await db.query.journeyStates.findFirst({
+    where: eq(journeyStates.id, stateId),
+    columns: { context: true },
+  });
+  const bag = namespaceBag(row?.context, namespace);
   if (Object.hasOwn(bag, key)) {
     return bag[key] as T;
   }
@@ -104,7 +79,12 @@ export async function recordOnce<T>(opts: {
   // writer that committed `key` first is NOT clobbered by this write. `key` and
   // the value are bound parameters (jsonb_build_object), so the write is
   // injection-safe; the namespace token is a validated closed-union literal.
-  await db
+  //
+  // RETURNING hands back the POST-merge committed row in the same round-trip: a
+  // blocked concurrent loser re-evaluates the SET against the winner's committed
+  // tuple (existing bag wins the merge) and RETURNING yields the winner's value —
+  // byte-identical to a separate read-back, one query cheaper.
+  const [updated] = await db
     .update(journeyStates)
     .set({
       context: sql`jsonb_set(
@@ -116,13 +96,13 @@ export async function recordOnce<T>(opts: {
       )`,
       updatedAt: new Date(),
     })
-    .where(eq(journeyStates.id, stateId));
+    .where(eq(journeyStates.id, stateId))
+    .returning({ context: journeyStates.context });
 
-  // Read BACK the committed bag and return ITS value — never the locally computed
-  // one. Under a race the first writer's value is what persisted, so a loser that
-  // computed a different value still returns the winning value. Fall back to the
-  // computed value only if the row vanished mid-flight (deleted concurrently).
-  const after = await read();
+  // Return the committed value — never the locally computed one. Fall back to
+  // the computed value only if the row vanished mid-flight (deleted
+  // concurrently: 0 rows updated).
+  const after = namespaceBag(updated?.context, namespace);
   if (Object.hasOwn(after, key)) {
     return after[key] as T;
   }

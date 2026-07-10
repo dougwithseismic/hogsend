@@ -43,6 +43,7 @@ import { getJourneyRegistrySingleton } from "../journeys/registry-singleton.js";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
 import { contactKeySql } from "../lib/contacts.js";
 import { hatchet } from "../lib/hatchet.js";
+import { toSleepDuration } from "../lib/hatchet-duration.js";
 import type { Logger } from "../lib/logger.js";
 import { createLogger } from "../lib/logger.js";
 import { FIRST_TIME_FORMAT } from "./bucket-backfill.js";
@@ -220,8 +221,10 @@ export const bucketExpiryTask = hatchet.durableTask({
     const registry = getBucketRegistrySingleton();
     const journeyRegistry = getJourneyRegistrySingleton();
 
-    // Durable sleep to the deadline. Hatchet's sleepFor accepts a ms number.
-    await ctx.sleepFor(input.msUntilExpiry);
+    // Durable sleep to the deadline — normalized to whole seconds: a raw ms
+    // number renders as a multi-unit duration string some hatchet-lite versions
+    // silently no-op (instant wake → premature expiry evaluation).
+    await ctx.sleepFor(toSleepDuration(input.msUntilExpiry));
 
     const bucket = registry.get(input.bucketId);
     if (!bucket?.criteria) {

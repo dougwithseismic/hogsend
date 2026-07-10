@@ -39,7 +39,9 @@ function makeThrottleDb(opts?: {
   const update = vi.fn(() => ({
     set: (vals: Record<string, unknown>) => {
       setCalls.push(vals);
-      return { where: () => Promise.resolve([]) };
+      // recordOnce's UPDATE … RETURNING; empty result → recordOnce falls
+      // through to its computed value (the stub never applies the jsonb merge).
+      return { where: () => ({ returning: () => Promise.resolve([]) }) };
     },
   }));
 

@@ -233,7 +233,6 @@ export {
   setJourneySources,
 } from "./journeys/journey-sources-singleton.js";
 export {
-  peekRecord,
   type RecordNamespace,
   recordOnce,
 } from "./journeys/record-once.js";

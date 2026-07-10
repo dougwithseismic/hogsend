@@ -365,16 +365,10 @@ export function defineJourney(options: {
           return { status: "skipped", reason: "already_active" };
         }
 
-        // Insert the enrollment, tolerating the partial-unique-index race. The
-        // active-state read above is NOT atomic with this insert, so two
-        // near-simultaneous first events (a burst — the digest workload) can
-        // both clear the guard and race here. `insertEnrollment` absorbs the
-        // loser via onConflictDoNothing and returns undefined — the SAME outcome
-        // as the read guard, so map it to the identical `already_active` skip
-        // instead of letting a raw 23505 escape `fn` (retries: 0) as a failed
-        // run. A successful insert always returns exactly one row, so undefined
-        // here can ONLY mean a conflict (there is no distinct
-        // state_creation_failed case with onConflictDoNothing).
+        // A successful insert always returns exactly one row, so undefined here
+        // can ONLY mean a burst-race conflict (see insertEnrollment's doc for
+        // the race + arbiter mechanics) — the same outcome as the read guard,
+        // mapped to the identical skip.
         state = await insertEnrollment({
           db,
           userId,

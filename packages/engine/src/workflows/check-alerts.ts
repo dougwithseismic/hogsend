@@ -86,6 +86,11 @@ export async function surfaceStrandedWaiting(opts: {
         and(
           eq(journeyStates.status, "waiting"),
           isNull(journeyStates.deletedAt),
+          // Only two stranding sources exist: the wait_deadline column and a
+          // digest deadline in the context bag. Plain ctx.sleep waits have
+          // neither — exclude them in SQL so the sweep doesn't haul every
+          // parked row's full context jsonb over the wire for nothing.
+          sql`(${journeyStates.waitDeadline} IS NOT NULL OR ${journeyStates.context} ? '__digest__')`,
         ),
       );
 

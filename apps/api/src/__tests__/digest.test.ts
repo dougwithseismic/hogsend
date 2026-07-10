@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const NY = "America/New_York";
 // 2026-06-01 10:00 in America/New_York (EDT) === 14:00 UTC. Frozen so the
-// deadline/remainder math is exact (no wall-clock drift between `now()` reads).
+// deadline math is exact (no wall-clock drift between `now()` reads).
 const FIXED = new Date("2026-06-01T14:00:00.000Z");
 
 const dialect = new PgDialect();
@@ -31,14 +31,15 @@ interface ScanRow {
 
 /**
  * A db stub covering the three chains `ctx.digest` drives:
- *  • `query.journeyStates.findFirst` — recordOnce/peekRecord context reads
+ *  • `query.journeyStates.findFirst` — recordOnce context reads
  *    (returns the SAME mutable `context`, so a pre-seed simulates a prior
  *    recordOnce write / replay).
- *  • `update().set().where()` — awaited directly by recordOnce writes (no
- *    `.returning`) AND `.returning()`-guarded by the sleep status flips (the
- *    `returningQueue` scripts enter/resume row counts).
- *  • `select({status}).from().where().limit(1)` — the no-sleep wake-path status
- *    read (returns the seeded `status`).
+ *  • `update().set().where().returning()` — status flips consume the scripted
+ *    `returningQueue` row counts; recordOnce context writes return empty (the
+ *    stub never applies the jsonb merge, so recordOnce falls through to its
+ *    computed value).
+ *  • `select({status}).from().where().limit(1)` — a status-only read (returns
+ *    the seeded `status`).
  *  • `select({...}).from().where().orderBy().limit(n)` — the flush scan; the
  *    captured `where`/`orderBy`/`limit` are exposed for assertions and the
  *    seeded rows are SLICED to `n` (so cap+1 truncation detection is exercised).
@@ -75,9 +76,16 @@ function makeDigestDb(opts?: {
         where: () => {
           const p = Promise.resolve<Array<{ id: string }>>([]) as Promise<
             Array<{ id: string }>
-          > & { returning: () => Promise<Array<{ id: string }>> };
+          > & { returning: () => Promise<Array<Record<string, unknown>>> };
+          // Status flips consume the scripted row-count queue; a recordOnce
+          // context write (UPDATE … RETURNING context) returns an empty result
+          // so recordOnce falls through to its computed value — the same
+          // observable behavior the pre-RETURNING read-back had against this
+          // stub (which never applies the jsonb merge).
           p.returning = () =>
-            Promise.resolve(returningQueue[returningCall++] ?? []);
+            "status" in vals
+              ? Promise.resolve(returningQueue[returningCall++] ?? [])
+              : Promise.resolve([]);
           return p;
         },
       };

@@ -58,6 +58,7 @@ import {
 } from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { countRecentSends } from "../lib/frequency-cap.js";
+import { toSleepDuration } from "../lib/hatchet-duration.js";
 import { ingestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
 import {
@@ -105,21 +106,21 @@ function celStringLiteral(value: string): string {
   return `'${value.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}'`;
 }
 
-/** Normalize any duration to a SINGLE-UNIT whole-seconds Go string ("120s").
- * The SDK renders ms numbers as multi-unit strings ("1m59s"), which some
- * hatchet-lite versions silently fail to honor as sleep conditions (the wait
- * resolves instantly with no match) — pinned empirically 2026-07-10. Whole
- * seconds match the SDK's own `sleepUntil` normalization. Applies to every
- * durable sleep AND every `SleepCondition` timeout branch. */
-const toSleepDuration = (
-  durationOrMs: DurationObject | number,
-): `${number}s` => {
-  const ms =
-    typeof durationOrMs === "number"
-      ? durationOrMs
-      : durationToMs(durationOrMs);
-  return `${Math.max(1, Math.ceil(ms / 1000))}s`;
-};
+/** SQL eq-pushdown predicates for a `where` — a COARSE narrowing pre-filter,
+ * never the verdict: jsonb `->>` extracts TEXT (a stored string "50"
+ * text-matches `.eq(50)`), so every consumer MUST re-verify fetched rows with
+ * the strict condition engine in JS. A null-eq is NOT pushdownable — `->> p =
+ * 'null'` never matches a jsonb null (SQL NULL) — so it is excluded here and
+ * resolved entirely by that JS re-verify. */
+const eqPushdownPreds = (where: PropertyCondition[]) =>
+  where
+    .filter(
+      (c) => c.operator === "eq" && c.value !== undefined && c.value !== null,
+    )
+    .map(
+      (c) =>
+        sql`${userEvents.properties} ->> ${c.property} = ${String(c.value)}`,
+    );
 
 interface JourneyContextConfig {
   db: Database;
@@ -431,14 +432,8 @@ export function createJourneyContext(
     // into SQL so the LIMIT below bounds MATCHING rows, not all same-name rows —
     // otherwise a chatty user emitting >LIMIT other same-name events could bury
     // the matching row past the cutoff and the wait would falsely time out.
-    // jsonb `->>` extracts as text; scalar eq compares as text (matching how the
-    // value was stored). Non-eq operators are left to the JS re-verify below.
-    const eqPreds = where
-      .filter((c) => c.operator === "eq" && c.value !== undefined)
-      .map(
-        (c) =>
-          sql`${userEvents.properties} ->> ${c.property} = ${String(c.value)}`,
-      );
+    // Narrowing only — `scanForMatch` re-verifies every row in JS.
+    const eqPreds = eqPushdownPreds(where);
 
     const scanForMatch = async (): Promise<NonNullable<
       WaitForEventResult["properties"]
@@ -691,21 +686,9 @@ export function createJourneyContext(
   }): Promise<DigestResult> => {
     const { event, scanSince, flushInstant, where, cap } = opts;
 
-    // Push non-null `eq` conditions into SQL to NARROW the fetch so a chatty user
-    // emitting >LIMIT other same-name events can't bury a match past the cutoff.
-    // This is a COARSE pre-filter, never the verdict: jsonb `->>` extracts TEXT,
-    // so `->> p = '50'` also matches a stored string "50" while the canonical
-    // engine wants strict `50 === 50`. A null-eq is NOT pushdownable — `->> p =
-    // 'null'` never matches a jsonb null (SQL NULL) — so it is excluded here and
-    // resolved entirely by the JS re-verify below.
-    const eqPreds = where
-      .filter(
-        (c) => c.operator === "eq" && c.value !== undefined && c.value !== null,
-      )
-      .map(
-        (c) =>
-          sql`${userEvents.properties} ->> ${c.property} = ${String(c.value)}`,
-      );
+    // Narrow the fetch so a chatty user emitting >LIMIT other same-name events
+    // can't bury a match past the cutoff; the JS re-verify below is the verdict.
+    const eqPreds = eqPushdownPreds(where);
 
     // Only the where-less path can trust the fetch as final, so `cap + 1` detects
     // truncation exactly there. ANY `where` re-verifies in JS below (the SQL fetch

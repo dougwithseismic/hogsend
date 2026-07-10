@@ -164,7 +164,8 @@ function input(userId: string) {
 
 // Base durable ctx: sleepFor/waitFor resolve instantly, workflowRunId fixed so a
 // re-drive recovers the same enrollment. `onSleep` lets a test insert a
-// mid-window event (fires at most once — a replay-after-flush skips the sleep).
+// mid-window event; it fires only on the FIRST sleep so a re-drive (which
+// re-issues the identical constant-window sleep) doesn't double-insert.
 function makeCtx(
   runId: string,
   onSleep?: () => Promise<void>,
