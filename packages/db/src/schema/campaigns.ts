@@ -110,6 +110,16 @@ export const campaigns = pgTable(
      * promote/give-up sweeps for `waiting` rows key off this as the backstop.
      */
     nextStepAt: timestamp("next_step_at", { withTimezone: true }),
+    /**
+     * When the reaper's stale sweep FIRST found this in-flight
+     * (`queued`/`sending`) row abandoned — set once (coalesce) on the first
+     * re-enqueue, cleared back to NULL by every genuine progress flush of the
+     * send task. The queued/sending give-up clause reads THIS, not
+     * `updatedAt`: the sweep bumps `updatedAt` as its re-pick guard, so a
+     * permanently-crashing row would otherwise never age past the give-up
+     * window. NULL = not currently considered stale.
+     */
+    staleSince: timestamp("stale_since", { withTimezone: true }),
     canceledAt: timestamp("canceled_at", { withTimezone: true }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),

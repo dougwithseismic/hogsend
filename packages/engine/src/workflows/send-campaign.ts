@@ -168,6 +168,11 @@ export const sendCampaignTask = hatchet.task({
         // so serialized rows never show a countdown while `sending`. (Studio
         // keys its countdown on status === "waiting" regardless.)
         nextStepAt: null,
+        // `staleSince` deliberately NOT cleared here: claiming is not
+        // progress. A poison run claims, crashes, and is re-driven — if the
+        // claim reset the marker, its give-up clock would restart every cycle
+        // and the reaper could never declare it failed. The first real
+        // progress write (chunk flush / park / cursor advance) clears it.
         updatedAt: new Date(),
       })
       .where(
@@ -248,7 +253,14 @@ export const sendCampaignTask = hatchet.task({
       failed: failedCount,
     });
 
-    const flushCounts = async (): Promise<void> => {
+    // Every flush is genuine progress (a dispatched chunk, a cancel/completion
+    // race) and clears the reaper's staleness marker — EXCEPT the catch-path
+    // flush: a crashed run made no progress, so `staleSince` must survive it
+    // or a deterministically-crashing campaign resets its give-up clock on
+    // every re-drive and is re-enqueued forever.
+    const flushCounts = async (opts?: {
+      preserveStaleSince?: boolean;
+    }): Promise<void> => {
       await db
         .update(campaigns)
         .set({
@@ -256,6 +268,7 @@ export const sendCampaignTask = hatchet.task({
           sentCount,
           skippedCount,
           failedCount,
+          ...(opts?.preserveStaleSince ? {} : { staleSince: null }),
           updatedAt: new Date(),
         })
         .where(eq(campaigns.id, input.campaignId));
@@ -288,6 +301,7 @@ export const sendCampaignTask = hatchet.task({
               sentCount,
               skippedCount,
               failedCount,
+              staleSince: null,
               updatedAt: new Date(),
             })
             .where(
@@ -385,6 +399,7 @@ export const sendCampaignTask = hatchet.task({
             sentCount,
             skippedCount,
             failedCount,
+            staleSince: null,
             updatedAt: new Date(),
           })
           .where(eq(campaigns.id, input.campaignId));
@@ -406,6 +421,7 @@ export const sendCampaignTask = hatchet.task({
           sentCount,
           skippedCount,
           failedCount,
+          staleSince: null,
           updatedAt: new Date(),
         })
         .where(
@@ -461,8 +477,10 @@ export const sendCampaignTask = hatchet.task({
       // the genuine retry re-enters the wave and finishes the unsent tail
       // (already-sent recipients no-op via their idempotency key). A run that
       // EXHAUSTS its retries is transitioned to `failed` (or re-enqueued) by
-      // `reapStuckCampaignsTask`.
-      await flushCounts();
+      // `reapStuckCampaignsTask`. `staleSince` is preserved — a crashed run is
+      // not progress, and clearing it here would reset the give-up clock on
+      // every re-drive of a poison campaign.
+      await flushCounts({ preserveStaleSince: true });
 
       logger.error("send-campaign: errored mid-run (will retry)", {
         campaignId: input.campaignId,
@@ -627,18 +645,18 @@ const STALE_AFTER_MS = Number(
 );
 
 /**
- * After a campaign has sat in a non-terminal in-flight state this long (measured
- * from `updatedAt`, which the send task bumps on every progress flush) it is
- * declared `failed` rather than re-enqueued forever — a poison campaign (e.g. a
- * template that always throws) stops being re-driven and surfaces to operators.
+ * After a campaign has been CONTINUOUSLY stuck this long with zero progress it
+ * is declared `failed` rather than re-enqueued forever — a poison campaign
+ * (e.g. a run that always crashes) stops being re-driven and surfaces to
+ * operators.
  *
- * Known gap (pre-existing): the stale sweep's own re-enqueue CAS ALSO bumps
- * `updatedAt` (its re-pick guard), so a deterministically-crashing in-flight
- * row is re-bumped every cycle and its `updatedAt` never ages past this
- * window — the queued/sending give-up effectively cannot fire. `scheduled` /
- * `waiting` rows are unaffected (measured from `scheduledAt` / `nextStepAt`).
- * Fixing it needs a bump-free staleness marker (e.g. a `stale_since` column)
- * — a deliberate follow-up, not a waves change.
+ * For in-flight (`queued`/`sending`) rows the window is measured from
+ * `staleSince` — set once by the stale sweep's first re-enqueue, cleared by
+ * every genuine progress flush of the send task. NOT from `updatedAt`: the
+ * sweep bumps `updatedAt` as its re-pick guard, so a deterministically-
+ * crashing row would never age past the window (the give-up was dead code
+ * until `stale_since` landed). `scheduled` / `waiting` rows are measured from
+ * `scheduledAt` / `nextStepAt` as before.
  */
 const GIVE_UP_AFTER_MS = Number(
   process.env.CAMPAIGN_GIVE_UP_AFTER_MS ?? 6 * 60 * 60 * 1000,
@@ -702,17 +720,25 @@ export const reapStuckCampaignsTask = hatchet.task({
 
     // (1) Declare poison campaigns `failed` first (stuck past the give-up
     // window), so they are not re-enqueued below. In-flight rows are measured
-    // from `updatedAt` (bumped on every progress flush); `scheduled` rows from
-    // `scheduledAt` and `waiting` rows from `nextStepAt` (their `updatedAt` is
-    // legitimately old while they wait).
+    // from `staleSince` (set by the first stale re-enqueue, cleared by every
+    // genuine progress flush — a NULL never matches the `lt`, so a row the
+    // sweep hasn't touched yet gets its re-drive chance first); `scheduled`
+    // rows from `scheduledAt` and `waiting` rows from `nextStepAt` (their
+    // `updatedAt` is legitimately old while they wait). `staleSince` is nulled
+    // with the stamp so an operator revive starts a fresh give-up window.
     const failedRows = await db
       .update(campaigns)
-      .set({ status: "failed", completedAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        staleSince: null,
+        updatedAt: new Date(),
+      })
       .where(
         or(
           and(
             inArray(campaigns.status, ["queued", "sending"]),
-            lt(campaigns.updatedAt, giveUpBefore),
+            lt(campaigns.staleSince, giveUpBefore),
           ),
           and(
             eq(campaigns.status, "scheduled"),
@@ -730,12 +756,18 @@ export const reapStuckCampaignsTask = hatchet.task({
     // `updatedAt` so the same row is not re-picked on the very next tick before
     // the re-driven run makes progress; the per-send idempotency key keeps the
     // re-enqueue safe even if the original run is somehow still alive.
+    // `staleSince` is coalesce-set ONCE on the first re-enqueue (later sweeps
+    // keep the original instant) — this is the bump-free clock the give-up
+    // clause above reads; the send task clears it on genuine progress.
     // `queued`/`sending` ONLY — `waiting` is deliberately excluded: a 2-day
     // wait between waves is not a stuck campaign (its resume path is the
     // promotion sweep below, keyed on `nextStepAt`).
     const staleRows = await db
       .update(campaigns)
-      .set({ updatedAt: new Date() })
+      .set({
+        staleSince: sql`coalesce(${campaigns.staleSince}, now())`,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           inArray(campaigns.status, ["queued", "sending"]),

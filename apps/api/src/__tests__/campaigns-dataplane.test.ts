@@ -997,3 +997,165 @@ describe("reapStuckCampaignsTask (scheduled sweeps)", () => {
     expect(row?.status).toBe("scheduled");
   });
 });
+
+// ===========================================================================
+// (13) Reaper: the in-flight (`queued`/`sending`) give-up is measured from
+//      `staleSince` — set once by the first stale re-enqueue, cleared by every
+//      genuine progress flush, PRESERVED by the crash-path flush. Under the old
+//      `updatedAt` clause the sweep's own re-pick bump kept a poison row
+//      forever young, so the give-up could never fire.
+// ===========================================================================
+
+describe("reapStuckCampaignsTask (in-flight give-up via staleSince)", () => {
+  const reaperTask = reapStuckCampaignsTask as unknown as {
+    fn: () => Promise<{
+      failed: number;
+      reEnqueued: number;
+      promoted: number;
+    }>;
+  };
+
+  async function seedSendingRow(opts: {
+    name: string;
+    updatedAt: Date;
+    staleSince?: Date;
+    status?: string;
+    steps?: { v: 1; steps: Array<Record<string, unknown>> };
+    currentStep?: number;
+  }): Promise<string> {
+    const [row] = await db
+      .insert(campaigns)
+      .values({
+        name: opts.name,
+        status: opts.status ?? "sending",
+        audienceKind: "list",
+        audienceId: "broadcast",
+        templateKey: "welcome",
+        props: { name: "Ada" },
+        steps: opts.steps,
+        currentStep: opts.currentStep ?? 0,
+        staleSince: opts.staleSince ?? null,
+      })
+      .returning({ id: campaigns.id });
+    const id = row?.id;
+    if (!id) throw new Error("failed to seed sending row");
+    // Backdate AFTER the insert — the insert itself stamps a fresh updatedAt.
+    await db
+      .update(campaigns)
+      .set({ updatedAt: opts.updatedAt })
+      .where(eq(campaigns.id, id));
+    return id;
+  }
+
+  it("stamps staleSince ONCE on the first stale re-enqueue (later sweeps keep the original instant)", async () => {
+    const twentyMinAgo = new Date(Date.now() - 20 * 60 * 1000);
+    const id = await seedSendingRow({
+      name: "Stale, first sweep",
+      updatedAt: twentyMinAgo,
+    });
+
+    runNoWaitSpy.mockClear();
+    await reaperTask.fn();
+
+    const enqueued = runNoWaitSpy.mock.calls.map(
+      (call) => (call[0] as { campaignId: string }).campaignId,
+    );
+    expect(enqueued).toContain(id);
+    const [afterFirst] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, id));
+    expect(afterFirst?.status).toBe("sending");
+    const stampedAt = afterFirst?.staleSince;
+    expect(stampedAt).not.toBeNull();
+
+    // Second sweep (the re-driven run made no progress): the coalesce keeps
+    // the FIRST instant — this is the bump-free clock the give-up reads.
+    await db
+      .update(campaigns)
+      .set({ updatedAt: twentyMinAgo })
+      .where(eq(campaigns.id, id));
+    await reaperTask.fn();
+    const [afterSecond] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, id));
+    expect(afterSecond?.staleSince?.getTime()).toBe(stampedAt?.getTime());
+  });
+
+  it("fails a row continuously stale past the give-up window even though its updatedAt is fresh", async () => {
+    // The poison shape the old clause could never catch: updatedAt only 20 min
+    // old (the sweep keeps bumping it), but staleSince shows 7h of zero
+    // progress.
+    const id = await seedSendingRow({
+      name: "Poison — stuck 7h with fresh updatedAt",
+      updatedAt: new Date(Date.now() - 20 * 60 * 1000),
+      staleSince: new Date(Date.now() - 7 * 60 * 60 * 1000),
+    });
+
+    runNoWaitSpy.mockClear();
+    await reaperTask.fn();
+
+    const [row] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+    expect(row?.status).toBe("failed");
+    expect(row?.completedAt).not.toBeNull();
+    // The marker is cleared with the stamp so an operator revive starts a
+    // fresh give-up window.
+    expect(row?.staleSince).toBeNull();
+    const enqueued = runNoWaitSpy.mock.calls.map(
+      (call) => (call[0] as { campaignId: string }).campaignId,
+    );
+    expect(enqueued).not.toContain(id);
+  });
+
+  it("preserves staleSince across a crashing run (the give-up clock survives the re-drive)", async () => {
+    const staleSince = new Date(Date.now() - 60 * 60 * 1000);
+    const id = await seedSendingRow({
+      name: "Poison — run crashes every time",
+      status: "queued",
+      updatedAt: new Date(),
+      staleSince,
+      // An unsupported step kind crashes the run AFTER the claim — the same
+      // shape as any deterministic mid-run throw (catch-path flush + rethrow).
+      steps: { v: 1, steps: [{ kind: "explode" }] },
+    });
+
+    await expect(campaignTask.fn({ campaignId: id })).rejects.toThrow(
+      /unsupported step kind/,
+    );
+
+    const [row] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+    // Left re-runnable (the documented crash contract) — but the staleness
+    // marker survived the catch-path flush, so the clock keeps aging.
+    expect(row?.status).toBe("sending");
+    expect(row?.staleSince?.getTime()).toBe(staleSince.getTime());
+  });
+
+  it("clears staleSince on genuine progress — a completing campaign is never reaped", async () => {
+    // Ancient staleSince, but the re-driven run actually finishes: the
+    // completion flush clears the marker and the terminal row is out of the
+    // reaper's reach.
+    const id = await seedSendingRow({
+      name: "Recovered — completes on re-drive",
+      status: "queued",
+      updatedAt: new Date(),
+      staleSince: new Date(Date.now() - 7 * 60 * 60 * 1000),
+    });
+
+    providerSend.mockClear();
+    const result = await campaignTask.fn({ campaignId: id });
+    expect(result.status).toBe("sent");
+
+    const [row] = await db.select().from(campaigns).where(eq(campaigns.id, id));
+    expect(row?.status).toBe("sent");
+    expect(row?.staleSince).toBeNull();
+
+    runNoWaitSpy.mockClear();
+    await reaperTask.fn();
+    const [after] = await db
+      .select()
+      .from(campaigns)
+      .where(eq(campaigns.id, id));
+    expect(after?.status).toBe("sent");
+  });
+});

@@ -1,0 +1,1 @@
+ALTER TABLE "campaigns" ADD COLUMN "stale_since" timestamp with time zone;
