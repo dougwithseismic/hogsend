@@ -495,7 +495,7 @@ export function findOutgoingEdgeIssues(
 ): BlueprintValidationIssue[] {
   const issues: BlueprintValidationIssue[] = [];
   graph.nodes.forEach((node, index) => {
-    if (node.type in NON_EXECUTABLE_NODE_TYPES) return; // rejected elsewhere
+    if (Object.hasOwn(NON_EXECUTABLE_NODE_TYPES, node.type)) return; // rejected elsewhere
     const out = graph.edges.filter((edge) => edge.source === node.id);
     if (node.type === "branch" || node.type === "decision") {
       const trueEdges = out.filter((e) => e.kind === "conditional-true");

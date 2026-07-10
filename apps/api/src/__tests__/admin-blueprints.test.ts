@@ -490,6 +490,95 @@ describe("PATCH /v1/admin/blueprints/:id", () => {
     const body = await res.json();
     expect(body.issues[0].code).toBe("journey_id_mismatch");
   });
+
+  it("rejects a graph edit while an enrollment is active or waiting (409, version unchanged)", async () => {
+    const id = `${RUN}-patch-inflight`;
+    expect((await createBlueprint(id)).status).toBe(201);
+
+    // A run parked mid-graph — the exact scenario a graph edit would
+    // desync (Hatchet's positional replay journal for the suspended sleep).
+    await db.insert(journeyStates).values({
+      userId: STATE_USER,
+      userEmail: `${STATE_USER}@example.com`,
+      journeyId: id,
+      currentNodeId: "sleep-3d",
+      status: "waiting",
+    });
+
+    const graph = nudgeGraph(id);
+    // biome-ignore lint/suspicious/noExplicitAny: edit the sleep duration
+    (graph.nodes[1] as any).meta = { duration: { hours: 24 } };
+
+    const res = await app.request(`/v1/admin/blueprints/${id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ graph }),
+    });
+    expect(res.status).toBe(409);
+
+    const getRes = await app.request(`/v1/admin/blueprints/${id}`, {
+      headers: AUTH_HEADER,
+    });
+    const detail = await getRes.json();
+    expect(detail.blueprint.version).toBe(1);
+  });
+
+  it("still allows a metadata-only edit while an enrollment is active or waiting", async () => {
+    const id = `${RUN}-patch-inflight-meta`;
+    expect((await createBlueprint(id)).status).toBe(201);
+
+    await db.insert(journeyStates).values({
+      userId: STATE_USER,
+      userEmail: `${STATE_USER}@example.com`,
+      journeyId: id,
+      currentNodeId: "sleep-3d",
+      status: "active",
+    });
+
+    const res = await app.request(`/v1/admin/blueprints/${id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ description: "Still fine to edit metadata" }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.blueprint.description).toBe("Still fine to edit metadata");
+    expect(body.blueprint.version).toBe(1);
+  });
+
+  it("allows a graph edit again once the enrollment is no longer active/waiting", async () => {
+    const id = `${RUN}-patch-drained`;
+    expect((await createBlueprint(id)).status).toBe(201);
+
+    const [state] = await db
+      .insert(journeyStates)
+      .values({
+        userId: STATE_USER,
+        userEmail: `${STATE_USER}@example.com`,
+        journeyId: id,
+        currentNodeId: "sleep-3d",
+        status: "waiting",
+      })
+      .returning();
+    if (!state) throw new Error("insert returned no row");
+    await db
+      .update(journeyStates)
+      .set({ status: "completed" })
+      .where(eq(journeyStates.id, state.id));
+
+    const graph = nudgeGraph(id);
+    // biome-ignore lint/suspicious/noExplicitAny: edit the sleep duration
+    (graph.nodes[1] as any).meta = { duration: { hours: 24 } };
+
+    const res = await app.request(`/v1/admin/blueprints/${id}`, {
+      method: "PATCH",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ graph }),
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.blueprint.version).toBe(2);
+  });
 });
 
 describe("POST /v1/admin/blueprints/:id/enable + /disable", () => {

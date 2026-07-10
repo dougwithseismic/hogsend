@@ -15,9 +15,17 @@
  *  - the blueprint id IS the graph's `journeyId` (one id, one namespace —
  *    `journeyStates.journeyId` points at it, same as a code journey's meta.id)
  *  - `version` bumps on any PATCH that includes `graph` (metadata-only edits
- *    don't bump; we deliberately don't deep-diff — jsonb normalizes key order,
- *    so equality checks would be unreliable, and the version pin makes a
- *    spurious bump harmless)
+ *    don't bump; we deliberately don't deep-diff — jsonb normalizes key
+ *    order, so equality checks would be unreliable, and a spurious bump is
+ *    harmless)
+ *  - a graph edit is REJECTED (409) while the blueprint has any active/
+ *    waiting `journeyStates` rows — Hatchet's durable sleep/wait primitives
+ *    are matched positionally on replay, so changing the node sequence out
+ *    from under a suspended run can desync its replay journal. Code
+ *    journeys don't have this hazard (their `run()` is immutable compiled
+ *    code); a blueprint's graph is a mutable row, so this is an explicit
+ *    gate rather than an implicit guarantee. Wait for enrollments to drain
+ *    (or disable and let them finish) before editing a live graph
  *  - status transitions go through /enable + /disable (PATCH cannot set
  *    status) so enabling always re-runs validation against the CURRENT
  *    registries — a template unregistered since save is caught here, not at
@@ -433,8 +441,10 @@ const patchRouteDef = createRoute({
   summary: "Update a journey blueprint",
   description:
     "Partial update. A `graph` change is re-validated the same way create " +
-    "is and bumps `version` by 1 (in-flight runs stay pinned to the version " +
-    "they enrolled under). Metadata-only edits do not bump. Status " +
+    "is and bumps `version` by 1 — but is rejected (409) while the " +
+    "blueprint has any active/waiting enrollment, since a graph edit can " +
+    "desync Hatchet's replay journal for a run suspended mid-graph. " +
+    "Metadata-only edits do not bump and are never blocked. Status " +
     "transitions go through /enable and /disable, not PATCH.",
   request: {
     params: z.object({ id: z.string() }),
@@ -454,6 +464,11 @@ const patchRouteDef = createRoute({
     404: {
       content: { "application/json": { schema: errorSchema } },
       description: "Blueprint not found",
+    },
+    409: {
+      content: { "application/json": { schema: errorSchema } },
+      description:
+        "Graph change rejected — the blueprint has active/waiting enrollments",
     },
     422: {
       content: { "application/json": { schema: invalidGraphSchema } },
@@ -696,6 +711,15 @@ blueprintsRouter.openapi(createRouteDef, async (c) => {
   }
 
   // The graph's journeyId IS the blueprint id — one id, one namespace.
+  //
+  // KNOWN GAP (documented, not fixed): this only guards the direction where
+  // a blueprint is created AFTER a colliding code journey is already
+  // registered. The reverse — deploying a NEW code journey whose id matches
+  // an EXISTING blueprint's id — isn't guarded anywhere; both would then
+  // share journeyStates.journeyId, and exit-condition resolution favors the
+  // registered code journey. Closing this needs a boot-time cross-check
+  // against journey_blueprints, deliberately left for when this actually
+  // bites someone rather than adding DB-dependent boot machinery now.
   const id = result.graph.journeyId;
   if (registry.has(id)) {
     return c.json(
@@ -828,6 +852,28 @@ blueprintsRouter.openapi(patchRouteDef, async (c) => {
       );
     }
     validatedGraph = result.graph;
+
+    // Graph edits are unsafe while a run is suspended mid-graph (positional
+    // replay journal, see module header) — block it outright rather than
+    // relying on a version pin that can't actually protect a resume.
+    const [inFlight] = await db
+      .select({ count: count() })
+      .from(journeyStates)
+      .where(
+        and(
+          eq(journeyStates.journeyId, id),
+          isNull(journeyStates.deletedAt),
+          inArray(journeyStates.status, ["active", "waiting"]),
+        ),
+      );
+    if (inFlight && inFlight.count > 0) {
+      return c.json(
+        {
+          error: `Cannot edit this blueprint's graph while ${inFlight.count} enrollment(s) are active or waiting — editing a live graph can desync Hatchet's replay journal for an in-flight run. Wait for enrollments to drain, or disable the blueprint and let them finish, before editing the graph.`,
+        },
+        409,
+      );
+    }
   }
 
   const set: Partial<typeof journeyBlueprints.$inferInsert> = {
@@ -844,8 +890,9 @@ blueprintsRouter.openapi(patchRouteDef, async (c) => {
   if (validatedGraph !== undefined) {
     set.graph = validatedGraph as unknown as BlueprintGraphColumn;
     // Version bump rule: any PATCH carrying `graph` bumps (documented in
-    // the module header). In-flight runs are insulated by the
-    // context.__blueprintVersion pin (spec §12).
+    // the module header). Safe to bump unconditionally here — the in-flight
+    // check above already rejected this request if any run could observe
+    // the change mid-flight.
     set.version = existing.version + 1;
   }
 
