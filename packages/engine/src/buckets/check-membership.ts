@@ -9,6 +9,7 @@ import type { JourneyRegistry } from "@hogsend/core/registry";
 import { bucketMemberships, contacts, type Database } from "@hogsend/db";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { emitBucketTransition } from "../lib/bucket-emit.js";
+import { normalizeEmail } from "../lib/contacts.js";
 import type { Logger } from "../lib/logger.js";
 import {
   BUCKET_EVENT_PREFIX,
@@ -70,11 +71,17 @@ export async function checkBucketMembership(opts: {
     hatchet,
     logger,
     userId,
-    userEmail,
     event,
     eventProperties,
     contactProperties: contactPropertiesPatch,
   } = opts;
+  // The caller's email comes verbatim from the raw event payload — normalize
+  // ONCE here so the membership row, the emitted bucket:* transition events,
+  // and the arm-expiry payload all carry the same normalized address the
+  // `email_preferences` keyspace (and every other email write) uses. Writing
+  // it raw was audience-model.md's wart #1: every read site had to
+  // lower(trim(…))-join defensively or risk case-missing a suppression row.
+  const userEmail = opts.userEmail ? normalizeEmail(opts.userEmail) : null;
 
   // (1) Recursion guard — MUST be first. bucket:-prefixed events are transition
   // rows (still written to userEvents / pushed to Hatchet / run through

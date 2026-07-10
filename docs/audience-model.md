@@ -173,12 +173,11 @@ resolvers in `packages/engine/src/workflows/send-campaign.ts`.)
 
 ## Known warts
 
-1. **`bucket_memberships.userEmail` is stored un-normalized** (written
-   verbatim from raw event payloads), so every read site must
-   `lower(trim(…))`-join and `normalizeEmail()` to avoid case-mismatching the
-   normalized `email_preferences` keyspace — a CAN-SPAM-relevant dance the
-   campaign resolvers do defensively. The fix belongs at the write site plus
-   a one-off backfill; small standalone change, not yet scheduled.
+1. **`bucket_memberships.userEmail` normalization** — fixed at the root:
+   every write site (realtime join, reconcile cron, backfill task) now runs
+   `normalizeEmail()`, and migration 0043 backfilled existing rows. The read
+   sites' defensive `lower(trim(…))` joins are retained for one release as
+   belt-and-braces, then can be stripped.
 2. **The email/userId keyspace seam** — consent keys on email, behavior keys
    on userId. Correct, but every crossing (bucket audience → email send) is a
    join that must handle a missing/mixed-case email. Wart 1 is the sharp
