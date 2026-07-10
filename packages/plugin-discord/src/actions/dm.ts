@@ -29,6 +29,15 @@ export const dmMember: DefinedConnectorAction<DmMemberArgs, DmResult> =
     name: "dmMember",
     description:
       "Send a direct message to a member (resolved contact → discord_id).",
+    // Member-directed: gate on the recipient's `discord` channel preference. The
+    // ref IS the resolver key (email | external id | raw snowflake); the engine
+    // resolves it to a contact and checks its preferences before this runs.
+    audience: {
+      kind: "member",
+      ref(args) {
+        return args.member;
+      },
+    },
     async run(args, ctx) {
       const id = await resolveDiscordId(ctx, args.member);
       if (!id) {

@@ -80,3 +80,46 @@ export function defineConnectorAction<A, R>(
 ): DefinedConnectorAction<A, R> {
   return def;
 }
+
+/**
+ * The verdict returned when the engine SKIPS a member-directed connector action
+ * because the resolved recipient opted out — either the global master opt-out
+ * (`unsubscribed_all`) or the per-connector channel list (`channel_unsubscribed`).
+ *
+ * A plain JSON-safe POJO so it is memo-recordable and replays VERBATIM through
+ * both the Hatchet durable `memo` (Layer 1) AND the `connector_deliveries.result`
+ * jsonb round-trip (Layer 2) — although a skip in practice NEVER writes a
+ * delivery row (the gate runs BEFORE the ledger claim), so a skip is observable
+ * only via logs + this returned value.
+ *
+ * The shape DELIBERATELY does NOT mimic per-action result shapes (it carries no
+ * `messageId`/`delivered`): the `skipped: true` discriminant must be
+ * unambiguous. An existing consumer reading `result.delivered` gets `undefined`
+ * (falsy) on a skip — which degrades in the correct direction (treated as "not
+ * delivered").
+ */
+export interface ConnectorActionSkipped {
+  skipped: true;
+  reason: "unsubscribed_all" | "channel_unsubscribed";
+  connectorId: string;
+  action: string;
+}
+
+/**
+ * Narrow an outbound-action result to a {@link ConnectorActionSkipped} verdict.
+ * Checks a non-null object with `skipped === true` plus string
+ * `reason`/`connectorId`/`action` — enough to disambiguate from every per-action
+ * result shape.
+ */
+export function isConnectorActionSkipped(
+  r: unknown,
+): r is ConnectorActionSkipped {
+  if (typeof r !== "object" || r === null) return false;
+  const v = r as Record<string, unknown>;
+  return (
+    v.skipped === true &&
+    typeof v.reason === "string" &&
+    typeof v.connectorId === "string" &&
+    typeof v.action === "string"
+  );
+}

@@ -125,8 +125,10 @@ export {
 } from "./connectors/action-registry-singleton.js";
 export {
   type ConnectorActionCtx,
+  type ConnectorActionSkipped,
   type DefinedConnectorAction,
   defineConnectorAction,
+  isConnectorActionSkipped,
   type MemberAudience,
   type ResolvedActionContact,
 } from "./connectors/define-action.js";
