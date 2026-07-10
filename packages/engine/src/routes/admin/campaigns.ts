@@ -6,10 +6,11 @@
  * Studio. The list/get/cancel semantics mirror `routes/campaigns/index.ts`
  * exactly (same serializer, same cancel CAS).
  */
-import { campaigns } from "@hogsend/db";
+import { campaigns, emailSends } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, like, max, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { campaignSendKeyPattern } from "../../lib/campaign-send-key.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { campaignSchema, serializeCampaign } from "../campaigns/index.js";
 
@@ -52,6 +53,45 @@ const getRouteDef = createRoute({
     200: {
       content: { "application/json": { schema: campaignSchema } },
       description: "The campaign",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Unknown campaign id",
+    },
+  },
+});
+
+/**
+ * Post-dispatch engagement for one campaign, aggregated from the `email_sends`
+ * rows the blast wrote (attributed via the `campaign:<id>:<email>` idempotency
+ * key — there is no campaign FK on email_sends). Complements the counters on
+ * the campaign row itself: the row knows sent/skipped/failed at dispatch time,
+ * this knows what happened to the mail AFTERWARDS (delivered/opened/clicked/
+ * bounced/complained via first-party tracking + provider webhooks).
+ */
+const campaignStatsSchema = z.object({
+  sends: z.number(),
+  delivered: z.number(),
+  opened: z.number(),
+  clicked: z.number(),
+  bounced: z.number(),
+  complained: z.number(),
+  failed: z.number(),
+  lastSentAt: z.string().nullable(),
+});
+
+const statsRouteDef = createRoute({
+  method: "get",
+  path: "/{id}/stats",
+  tags: ["Admin"],
+  summary: "Get a campaign's delivery + engagement stats (Studio)",
+  request: {
+    params: z.object({ id: z.string() }),
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: campaignStatsSchema } },
+      description: "Engagement aggregated from the campaign's email sends",
     },
     404: {
       content: { "application/json": { schema: errorSchema } },
@@ -127,6 +167,56 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
       return c.json({ error: `Unknown campaign: ${id}` }, 404);
     }
     return c.json(serializeCampaign(rows[0]), 200);
+  })
+  .openapi(statsRouteDef, async (c) => {
+    const { db } = c.get("container");
+    const { id } = c.req.valid("param");
+
+    const exists = await db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(eq(campaigns.id, id))
+      .limit(1);
+    if (!exists[0]) {
+      return c.json({ error: `Unknown campaign: ${id}` }, 404);
+    }
+
+    // count(column) counts non-NULL values, so each engagement timestamp
+    // doubles as its own tally. No campaign FK on email_sends — the LIKE on the
+    // deterministic idempotency key is the attribution (admin-plane traffic, so
+    // the prefix scan is acceptable without a dedicated index).
+    const agg = (
+      await db
+        .select({
+          sends: count(),
+          delivered: count(emailSends.deliveredAt),
+          opened: count(emailSends.openedAt),
+          clicked: count(emailSends.clickedAt),
+          bounced: count(emailSends.bouncedAt),
+          complained: count(emailSends.complainedAt),
+          failed:
+            sql<number>`count(*) filter (where ${emailSends.status} = 'failed')`.mapWith(
+              Number,
+            ),
+          lastSentAt: max(emailSends.sentAt),
+        })
+        .from(emailSends)
+        .where(like(emailSends.idempotencyKey, campaignSendKeyPattern(id)))
+    )[0];
+
+    return c.json(
+      {
+        sends: agg?.sends ?? 0,
+        delivered: agg?.delivered ?? 0,
+        opened: agg?.opened ?? 0,
+        clicked: agg?.clicked ?? 0,
+        bounced: agg?.bounced ?? 0,
+        complained: agg?.complained ?? 0,
+        failed: agg?.failed ?? 0,
+        lastSentAt: agg?.lastSentAt ? agg.lastSentAt.toISOString() : null,
+      },
+      200,
+    );
   })
   .openapi(cancelRouteDef, async (c) => {
     const { db } = c.get("container");

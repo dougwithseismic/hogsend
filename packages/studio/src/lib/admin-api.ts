@@ -75,6 +75,8 @@ export type EmailListFilters = {
   templateKey?: string;
   status?: string;
   journeyId?: string;
+  /** Only the sends of one campaign (matched on its per-recipient send keys). */
+  campaignId?: string;
   userId?: string;
   category?: string;
   engagement?: string;
@@ -1146,6 +1148,10 @@ export type Campaign = {
   audienceKind: "list" | "bucket";
   audienceId: string;
   templateKey: string;
+  /** Per-campaign subject override; null = the template's own subject. */
+  subject: string | null;
+  /** Per-campaign from override; null = the configured default sender. */
+  fromEmail: string | null;
   totalRecipients: number;
   sentCount: number;
   skippedCount: number;
@@ -1179,6 +1185,29 @@ export function listCampaigns(filters: CampaignListFilters = {}) {
 
 export function getCampaign(id: string) {
   return api.get<Campaign>(`/v1/admin/campaigns/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Post-dispatch engagement for one campaign, aggregated from its email sends.
+ * The campaign row itself knows sent/skipped/failed at dispatch time; this
+ * knows what happened to the mail afterwards (first-party opens/clicks plus
+ * provider delivered/bounced/complained webhooks).
+ */
+export type CampaignStats = {
+  sends: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  bounced: number;
+  complained: number;
+  failed: number;
+  lastSentAt: string | null;
+};
+
+export function getCampaignStats(id: string) {
+  return api.get<CampaignStats>(
+    `/v1/admin/campaigns/${encodeURIComponent(id)}/stats`,
+  );
 }
 
 /**
@@ -1231,4 +1260,5 @@ export const qk = {
   link: (id: string) => ["link", id] as const,
   campaigns: (filters: CampaignListFilters) => ["campaigns", filters] as const,
   campaign: (id: string) => ["campaign", id] as const,
+  campaignStats: (id: string) => ["campaign-stats", id] as const,
 };
