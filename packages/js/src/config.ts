@@ -28,6 +28,7 @@ export interface ResolvedConfig {
   fetch?: typeof fetch;
   realtime: NonNullable<HogsendConfig["realtime"]>;
   flushOnUnload: boolean;
+  captureRef: boolean;
   onUserTokenExpiring?: () => Promise<string>;
   storage?: HogsendConfig["storage"];
 }
@@ -77,6 +78,7 @@ export function resolveConfig(config: HogsendConfig): ResolvedConfig {
     ...(config.fetch ? { fetch: config.fetch } : {}),
     realtime: config.realtime ?? "sse",
     flushOnUnload: config.flushOnUnload ?? true,
+    captureRef: config.captureRef ?? true,
     ...(config.onUserTokenExpiring
       ? { onUserTokenExpiring: config.onUserTokenExpiring }
       : {}),

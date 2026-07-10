@@ -260,6 +260,34 @@
       "when": 1783621314922,
       "tag": "0036_friendly_ares",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783632619864,
+      "tag": "0037_damp_shocker",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783634434582,
+      "tag": "0038_powerful_bucky",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1783637413481,
+      "tag": "0039_lame_madame_hydra",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783660387321,
+      "tag": "0040_true_namorita",
+      "breakpoints": true
     }
   ]
 }

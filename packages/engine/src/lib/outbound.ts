@@ -108,6 +108,26 @@ export interface OutboundPayloads {
     at: string;
   };
   /**
+   * A visitor CONFIRMED landing from a tracked hit (opt-in `hs_ref` +
+   * POST /v1/t/arrive). Subset of `link.clicked` — fires only when the link
+   * opts in AND the landing page reports back. Unlike `link.clicked`, `linkId`
+   * here is the MANAGED `links.id` (`trackedLinkId` rides separately — no
+   * legacy split), and the identity fields are the VISITOR's: `userId` only
+   * when token-verified, `anonymousId` for a clamped anon arrival.
+   */
+  "link.arrived": {
+    linkId: string;
+    trackedLinkId: string;
+    ref: string;
+    source: string | null;
+    campaign: string | null;
+    userId: string | null;
+    anonymousId: string | null;
+    visitorKind: "token" | "anon";
+    linkUrl: string | null;
+    at: string;
+  };
+  /**
    * A SEMANTIC link answered — the in-email action event (consumer-named, e.g.
    * "nps.submitted"). Emitted at most once per (send, event name): first
    * answer wins, scanner bursts are suppressed. `event`/`properties` carry the

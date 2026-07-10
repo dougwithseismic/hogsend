@@ -1,8 +1,29 @@
 import { linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { and, count, desc, eq, inArray, isNull, sql, sum } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  sql,
+  sum,
+} from "drizzle-orm";
+import QRCode from "qrcode";
 import type { AppEnv } from "../../app.js";
-import { assertHttpUrl, mintLink } from "../../lib/links.js";
+import {
+  assertHttpUrl,
+  canonicalTrackedRowFilter,
+  ensureQrTrackedLink,
+  isSlugUniqueViolation,
+  mintLink,
+  normalizeSlug,
+  QR_TRACKED_SOURCE,
+  SlugTakenError,
+  vanityUrlFor,
+} from "../../lib/links.js";
 import { errorSchema } from "../../lib/schemas.js";
 
 // ---------------------------------------------------------------------------
@@ -46,13 +67,24 @@ const linkSchema = z.object({
   trackedLinkId: z.string().nullable(),
   originalUrl: z.string(),
   type: z.enum(["personal", "public"]),
+  // Vanity slug (normalized lowercase, unique per instance) + its short URL
+  // (`${API_PUBLIC_URL}/l/:slug`). Both null when no slug is set.
+  slug: z.string().nullable(),
+  vanityUrl: z.string().nullable(),
   label: z.string().nullable(),
+  // Longer operator note for bulk identification ("sticker on the door").
+  description: z.string().nullable(),
+  // Arrival attribution opt-in: redirects append `hs_ref=<click id>`.
+  appendRef: z.boolean(),
   campaign: z.string().nullable(),
   source: z.string(),
   distinctId: z.string().nullable(),
   createdBy: z.string().nullable(),
-  // Computed on read (summed across the link's tracked_links rows).
+  // Computed on read (summed across the link's tracked_links rows). The total
+  // across ALL entry paths — vanity, UUID, and QR scans.
   clickCount: z.number(),
+  // The QR-only subtotal (clicks recorded on the link's `source: "qr"` row).
+  scanCount: z.number(),
   // The short redirect URL: `${API_PUBLIC_URL}/v1/t/c/:trackedLinkId`.
   url: z.string(),
   archivedAt: z.string().nullable(),
@@ -66,14 +98,41 @@ const clickSchema = z.object({
   ipAddress: z.string().nullable(),
   userAgent: z.string().nullable(),
   clickedAt: z.string(),
+  // Arrival stamp (POST /v1/t/arrive): who landed from THIS hit.
+  // `visitorKind` is the trust tier — 'token' = verified userId ("known
+  // contact"), 'anon' = the visitor's raw anon id (provenance only).
+  visitorDistinctId: z.string().nullable(),
+  visitorKind: z.string().nullable(),
+  arrivedAt: z.string().nullable(),
+});
+
+// Per-destination stats bucket: hits grouped by the destination that was live
+// when they landed (link_clicks.destination_url). `url: null` = hits recorded
+// before provenance stamping existed. `clicks` is the all-paths total for the
+// bucket; `scans` its QR subtotal — mirroring clickCount/scanCount semantics.
+const destinationStatSchema = z.object({
+  url: z.string().nullable(),
+  clicks: z.number(),
+  scans: z.number(),
+  firstAt: z.string(),
+  lastAt: z.string(),
 });
 
 const linkDetailSchema = linkSchema.extend({
   clicks: z.array(clickSchema),
+  destinations: z.array(destinationStatSchema),
+  // Landing-confirmed arrivals (stamped hits). `identifiedArrivalCount` is
+  // the token-verified subset — "how many KNOWN contacts arrived".
+  arrivalCount: z.number(),
+  identifiedArrivalCount: z.number(),
 });
 
 type LinkRow = typeof links.$inferSelect;
-type ClickAgg = { clicks: number; trackedLinkId: string | null };
+type ClickAgg = {
+  clicks: number;
+  scans: number;
+  trackedLinkId: string | null;
+};
 
 // The short redirect URL for a link's tracked row, or a bare prefix if the link
 // has no tracked row (should not happen for a minted link, but keep it total).
@@ -93,12 +152,17 @@ function serializeLink(
     originalUrl: row.originalUrl,
     // The column is a free text; mintLink only ever writes these two values.
     type: row.type === "personal" ? "personal" : "public",
+    slug: row.slug,
+    vanityUrl: row.slug ? vanityUrlFor(baseUrl, row.slug) : null,
     label: row.label,
+    description: row.description,
+    appendRef: row.appendRef,
     campaign: row.campaign,
     source: row.source,
     distinctId: row.distinctId,
     createdBy: row.createdBy,
     clickCount: agg?.clicks ?? 0,
+    scanCount: agg?.scans ?? 0,
     url: shortUrlFor(baseUrl, trackedLinkId),
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
@@ -122,7 +186,12 @@ const createLinkRoute = createRoute({
           schema: z.object({
             url: z.string().url(),
             type: z.enum(["personal", "public"]).default("public"),
+            // Optional vanity slug (`/l/:slug`). Normalized lowercase; 409 if
+            // already taken.
+            slug: z.string().optional(),
             label: z.string().optional(),
+            description: z.string().optional(),
+            appendRef: z.boolean().optional(),
             campaign: z.string().optional(),
             // Honoured ONLY for personal links (the share-safe invariant in
             // mintLink drops it for public). A canonical contact key the click
@@ -140,7 +209,11 @@ const createLinkRoute = createRoute({
     },
     400: {
       content: { "application/json": { schema: errorSchema } },
-      description: "Invalid destination URL",
+      description: "Invalid destination URL or slug",
+    },
+    409: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Slug already taken",
     },
   },
 });
@@ -156,6 +229,11 @@ const listLinksRoute = createRoute({
       offset: z.coerce.number().min(0).default(0),
       type: z.enum(["personal", "public"]).optional(),
       includeArchived: z.coerce.boolean().default(false),
+      // true = only links whose QR scan row exists — the "QR codes" lens
+      // (a QR code IS a managed link whose QR row has been minted).
+      // stringbool, NOT coerce.boolean: coerce turns the string "false" into
+      // true (any non-empty string is truthy), inverting ?hasQr=false.
+      hasQr: z.stringbool().optional(),
     }),
   },
   responses: {
@@ -207,7 +285,12 @@ const updateLinkRoute = createRoute({
             // NOT NULL on both tables — omit = no change, provide = re-target
             // both links.originalUrl and the linked tracked_links row.
             originalUrl: z.string().url().optional(),
+            // omit = no change; string = set/replace (409 if taken); null =
+            // clear the slug (frees it for reuse).
+            slug: z.string().nullable().optional(),
             label: z.string().nullable().optional(),
+            description: z.string().nullable().optional(),
+            appendRef: z.boolean().optional(),
             campaign: z.string().nullable().optional(),
           }),
         },
@@ -221,8 +304,40 @@ const updateLinkRoute = createRoute({
     },
     400: {
       content: { "application/json": { schema: errorSchema } },
-      description: "Invalid destination URL",
+      description: "Invalid destination URL or slug",
     },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Link not found",
+    },
+    409: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Slug already taken",
+    },
+  },
+});
+
+const qrLinkRoute = createRoute({
+  method: "get",
+  path: "/{id}/qr",
+  tags: ["Admin — Links"],
+  summary: "Render a link's QR code (lazy-mints its scan row)",
+  request: {
+    params: z.object({ id: z.string().uuid() }),
+    query: z.object({
+      format: z.enum(["svg", "png"]).default("svg"),
+      // Rendered pixel width. QR content is size-independent (same encoded
+      // URL), so this only affects raster/viewport dimensions.
+      size: z.coerce.number().min(64).max(2048).default(512),
+      // Transparent background (both formats) — for print/overlay use where
+      // the artwork supplies its own background. stringbool, NOT
+      // coerce.boolean: coerce would turn ?transparent=false into true and
+      // ship an invisible-on-white QR.
+      transparent: z.stringbool().default(false),
+    }),
+  },
+  responses: {
+    200: { description: "QR image (SVG or PNG) encoding the scan URL" },
     404: {
       content: { "application/json": { schema: errorSchema } },
       description: "Link not found",
@@ -252,9 +367,10 @@ type Db = AppEnv["Variables"]["container"]["db"];
 
 // Aggregates each link's tracked_links rows in ONE grouped query: the summed
 // click_count (computed on read — no denormalized counter on `links`) and the
-// link's redirect id (a managed link has exactly one tracked row, minted
-// alongside it). Returns a map keyed by link id; links with no tracked rows are
-// simply absent (callers default to 0 / a bare prefix).
+// link's redirect id — the CANONICAL tracked row (minted alongside the link),
+// never the per-link QR scan row, via the shared canonical-row predicate.
+// Returns a map keyed by link id; links with no tracked rows are simply absent
+// (callers default to 0 / a bare prefix).
 async function aggregateFor(
   db: Db,
   linkIds: string[],
@@ -267,7 +383,12 @@ async function aggregateFor(
       clicks: sql<number>`coalesce(${sum(trackedLinks.clickCount)}, 0)`.mapWith(
         Number,
       ),
-      trackedLinkId: sql<string>`min(${trackedLinks.id}::text)`,
+      // QR-only subtotal — the complement of the canonical-row predicate.
+      scans:
+        sql<number>`coalesce(${sum(trackedLinks.clickCount)} filter (where not (${canonicalTrackedRowFilter()})), 0)`.mapWith(
+          Number,
+        ),
+      trackedLinkId: sql<string>`min(${trackedLinks.id}::text) filter (where ${canonicalTrackedRowFilter()})`,
     })
     .from(trackedLinks)
     .where(inArray(trackedLinks.linkId, linkIds))
@@ -276,6 +397,7 @@ async function aggregateFor(
     if (r.linkId) {
       map.set(r.linkId, {
         clicks: r.clicks,
+        scans: r.scans,
         trackedLinkId: r.trackedLinkId ?? null,
       });
     }
@@ -295,7 +417,10 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         baseUrl: env.API_PUBLIC_URL,
         source: "studio",
         type: body.type,
+        slug: body.slug,
         label: body.label,
+        description: body.description,
+        appendRef: body.appendRef,
         campaign: body.campaign,
         distinctId: body.distinctId,
         createdBy: resolveActor(c) ?? undefined,
@@ -314,23 +439,42 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
       return c.json(
         serializeLink(
           row,
-          { clicks: 0, trackedLinkId: minted.trackedLinkId },
+          { clicks: 0, scans: 0, trackedLinkId: minted.trackedLinkId },
           env.API_PUBLIC_URL,
         ),
         200,
       );
     } catch (err) {
+      if (err instanceof SlugTakenError) {
+        return c.json({ error: err.message }, 409);
+      }
       const message = err instanceof Error ? err.message : "Mint failed";
       return c.json({ error: message }, 400);
     }
   })
   .openapi(listLinksRoute, async (c) => {
     const { db, env } = c.get("container");
-    const { limit, offset, type, includeArchived } = c.req.valid("query");
+    const { limit, offset, type, includeArchived, hasQr } =
+      c.req.valid("query");
 
     const where = and(
       includeArchived ? undefined : isNull(links.archivedAt),
       type ? eq(links.type, type) : undefined,
+      // The QR lens: membership = the QR scan row exists (lazily minted on
+      // first QR render), not "has been scanned".
+      hasQr
+        ? exists(
+            db
+              .select({ one: sql`1` })
+              .from(trackedLinks)
+              .where(
+                and(
+                  eq(trackedLinks.linkId, links.id),
+                  eq(trackedLinks.source, QR_TRACKED_SOURCE),
+                ),
+              ),
+          )
+        : undefined,
     );
 
     const [rows, totalRows] = await Promise.all([
@@ -376,8 +520,11 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     }
 
     // Recent clicks joined via the link's tracked_links rows, newest first,
-    // capped. The aggregate gives the summed count + the redirect id.
-    const [agg, clickRows] = await Promise.all([
+    // capped. The aggregate gives the summed count + the redirect id. The
+    // destination buckets group EVERY hit by the target that was live when it
+    // landed (per-hit provenance) — most-recent activity first, so the current
+    // destination leads.
+    const [agg, clickRows, destinationRows, arrivalAgg] = await Promise.all([
       aggregateFor(db, [id]),
       db
         .select({
@@ -386,12 +533,45 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
           ipAddress: linkClicks.ipAddress,
           userAgent: linkClicks.userAgent,
           clickedAt: linkClicks.clickedAt,
+          visitorDistinctId: linkClicks.visitorDistinctId,
+          visitorKind: linkClicks.visitorKind,
+          arrivedAt: linkClicks.arrivedAt,
         })
         .from(linkClicks)
         .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
         .where(eq(trackedLinks.linkId, id))
         .orderBy(desc(linkClicks.clickedAt))
         .limit(50),
+      db
+        .select({
+          url: linkClicks.destinationUrl,
+          clicks: count().mapWith(Number),
+          scans:
+            sql<number>`count(*) filter (where not (${canonicalTrackedRowFilter()}))`.mapWith(
+              Number,
+            ),
+          firstAt: sql<string>`min(${linkClicks.clickedAt})`,
+          lastAt: sql<string>`max(${linkClicks.clickedAt})`,
+        })
+        .from(linkClicks)
+        .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
+        .where(eq(trackedLinks.linkId, id))
+        .groupBy(linkClicks.destinationUrl)
+        .orderBy(desc(sql`max(${linkClicks.clickedAt})`)),
+      db
+        .select({
+          arrivals:
+            sql<number>`count(*) filter (where ${linkClicks.visitorDistinctId} is not null)`.mapWith(
+              Number,
+            ),
+          identified:
+            sql<number>`count(*) filter (where ${linkClicks.visitorKind} = 'token')`.mapWith(
+              Number,
+            ),
+        })
+        .from(linkClicks)
+        .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
+        .where(eq(trackedLinks.linkId, id)),
     ]);
 
     return c.json(
@@ -403,7 +583,19 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
           ipAddress: cl.ipAddress,
           userAgent: cl.userAgent,
           clickedAt: cl.clickedAt.toISOString(),
+          visitorDistinctId: cl.visitorDistinctId,
+          visitorKind: cl.visitorKind,
+          arrivedAt: cl.arrivedAt ? cl.arrivedAt.toISOString() : null,
         })),
+        destinations: destinationRows.map((d) => ({
+          url: d.url,
+          clicks: d.clicks,
+          scans: d.scans,
+          firstAt: new Date(d.firstAt).toISOString(),
+          lastAt: new Date(d.lastAt).toISOString(),
+        })),
+        arrivalCount: arrivalAgg[0]?.arrivals ?? 0,
+        identifiedArrivalCount: arrivalAgg[0]?.identified ?? 0,
       },
       200,
     );
@@ -427,39 +619,72 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     }
 
     const patch: Partial<
-      Pick<LinkRow, "label" | "campaign" | "originalUrl">
+      Pick<
+        LinkRow,
+        | "label"
+        | "description"
+        | "appendRef"
+        | "campaign"
+        | "originalUrl"
+        | "slug"
+      >
     > & {
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (body.label !== undefined) patch.label = body.label;
+    if (body.description !== undefined) patch.description = body.description;
+    if (body.appendRef !== undefined) patch.appendRef = body.appendRef;
     if (body.campaign !== undefined) patch.campaign = body.campaign;
     if (body.originalUrl !== undefined) patch.originalUrl = body.originalUrl;
+    // Slug: string = set/replace (normalized, 409 on conflict below); null =
+    // clear, freeing it for reuse.
+    if (body.slug !== undefined) {
+      if (body.slug === null) {
+        patch.slug = null;
+      } else {
+        try {
+          patch.slug = normalizeSlug(body.slug);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Invalid slug";
+          return c.json({ error: message }, 400);
+        }
+      }
+    }
 
     // Both writes in ONE transaction so the two originalUrls can never diverge.
     // CRITICAL: the click redirect reads tracked_links.originalUrl fresh per
     // hit (no cache), NOT links.originalUrl — so re-targeting MUST also update
-    // the 1:1 tracked_links row (scoped by link_id, which can only ever be the
-    // managed tracked row). The links row is the display/source of truth.
-    const updated = await db.transaction(async (tx) => {
-      const [row] = await tx
-        .update(links)
-        .set(patch)
-        .where(eq(links.id, id))
-        .returning();
+    // the link's tracked_links rows (scoped by link_id — the managed redirect
+    // row, plus the QR scan row once one is minted). The links row is the
+    // display/source of truth.
+    let updated: LinkRow | null;
+    try {
+      updated = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(links)
+          .set(patch)
+          .where(eq(links.id, id))
+          .returning();
 
-      // Signal 404 to the caller; returning null (vs throwing) commits an empty
-      // tx and avoids bubbling as a 500.
-      if (!row) return null;
+        // Signal 404 to the caller; returning null (vs throwing) commits an
+        // empty tx and avoids bubbling as a 500.
+        if (!row) return null;
 
-      if (body.originalUrl !== undefined) {
-        await tx
-          .update(trackedLinks)
-          .set({ originalUrl: body.originalUrl, updatedAt: new Date() })
-          .where(eq(trackedLinks.linkId, id));
+        if (body.originalUrl !== undefined) {
+          await tx
+            .update(trackedLinks)
+            .set({ originalUrl: body.originalUrl, updatedAt: new Date() })
+            .where(eq(trackedLinks.linkId, id));
+        }
+
+        return row;
+      });
+    } catch (err) {
+      if (patch.slug && isSlugUniqueViolation(err)) {
+        return c.json({ error: new SlugTakenError(patch.slug).message }, 409);
       }
-
-      return row;
-    });
+      throw err;
+    }
 
     if (!updated) {
       return c.json({ error: "Link not found" }, 404);
@@ -470,6 +695,48 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
       serializeLink(updated, agg.get(updated.id), env.API_PUBLIC_URL),
       200,
     );
+  })
+  .openapi(qrLinkRoute, async (c) => {
+    const { db, env } = c.get("container");
+    const { id } = c.req.valid("param");
+    const { format, size, transparent } = c.req.valid("query");
+
+    // Lazy-mints the link's QR scan row on first render (race-safe via the
+    // partial unique index). An archived link still renders — archive never
+    // kills distributed artifacts, and a printed code is the most distributed
+    // artifact there is.
+    const qr = await ensureQrTrackedLink({ db, linkId: id });
+    if (!qr) {
+      return c.json({ error: "Link not found" }, 404);
+    }
+
+    // The QR encodes the DURABLE UID redirect — never the vanity slug — so a
+    // printed code survives slug changes AND re-targeting (PATCH updates the
+    // scan row's destination alongside the canonical row).
+    const scanUrl = `${env.API_PUBLIC_URL}/v1/t/c/${qr.trackedLinkId}`;
+
+    // Same-content caching: the encoded URL is immutable for the link's
+    // lifetime, so clients (the Studio <img>) may cache; private because the
+    // endpoint is admin-authed.
+    c.header("Cache-Control", "private, max-age=3600");
+
+    const render = {
+      width: size,
+      errorCorrectionLevel: "M" as const,
+      // "#0000" = fully transparent light modules; default is opaque white.
+      ...(transparent ? { color: { light: "#0000" } } : {}),
+    };
+
+    if (format === "png") {
+      const png = await QRCode.toBuffer(scanUrl, render);
+      c.header("Content-Type", "image/png");
+      // Re-wrap: hono's `c.body` Data type doesn't accept Node's Buffer.
+      return c.body(new Uint8Array(png));
+    }
+
+    const svg = await QRCode.toString(scanUrl, { ...render, type: "svg" });
+    c.header("Content-Type", "image/svg+xml");
+    return c.body(svg);
   })
   .openapi(archiveLinkRoute, async (c) => {
     const { db, env } = c.get("container");

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "tracked_links_qr_per_link_unique" ON "tracked_links" USING btree ("link_id") WHERE "tracked_links"."source" = 'qr';

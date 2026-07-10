@@ -10,7 +10,8 @@
       "**",
       "!packages/create-hogsend/template",
       "!packages/db/drizzle",
-      "!apps/course/drizzle"
+      "!apps/course/drizzle",
+      "!.claude"
     ]
   },
   "formatter": {

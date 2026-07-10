@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type Database, links, trackedLinks } from "@hogsend/db";
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 
 /**
  * The channel-agnostic MANAGED tracked-link mint — the counterpart to the email
@@ -31,6 +32,11 @@ export interface MintLinkOptions {
   type?: LinkType;
   /** Operator-facing name (Studio list). */
   label?: string;
+  /**
+   * Longer operator note — what/where this link or its printed QR actually is
+   * ("sticker on the workshop door"), for telling codes apart in bulk.
+   */
+  description?: string;
   /** UTM-style campaign grouping (public links). */
   campaign?: string;
   /**
@@ -40,6 +46,19 @@ export interface MintLinkOptions {
   distinctId?: string;
   /** The admin actor who minted it (Studio). */
   createdBy?: string;
+  /**
+   * Optional vanity slug — the `/l/:slug` short path layered over the UUID
+   * redirect. Normalized lowercase; unique per instance (SlugTakenError on
+   * conflict). Managed links only — email's per-send links stay UUID.
+   */
+  slug?: string;
+  /**
+   * Arrival attribution opt-in: append `hs_ref=<click id>` to every redirect
+   * from this link so the landing page can report the visitor back to
+   * `POST /v1/t/arrive`. Off by default — an appended param breaks strict
+   * OAuth redirect_uri destinations.
+   */
+  appendRef?: boolean;
 }
 
 export interface MintedLink {
@@ -49,6 +68,157 @@ export interface MintedLink {
   trackedLinkId: string;
   /** The short redirect URL: `${baseUrl}/v1/t/c/:id`. */
   url: string;
+  /** The normalized vanity slug, if one was minted. */
+  slug: string | null;
+  /** The vanity short URL (`${baseUrl}/l/:slug`), if a slug was minted. */
+  vanityUrl: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Vanity slugs
+// ---------------------------------------------------------------------------
+
+/** 1–64 chars of lowercase [a-z0-9-], no leading/trailing hyphen. */
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+
+/** Thrown when a requested slug is already held by another link → HTTP 409. */
+export class SlugTakenError extends Error {
+  constructor(slug: string) {
+    super(`Slug "${slug}" is already taken`);
+    this.name = "SlugTakenError";
+  }
+}
+
+/**
+ * Lowercase-normalize + validate a requested vanity slug. Throws on an
+ * invalid shape (→ HTTP 400). Case-insensitivity comes from normalizing at
+ * every write — the DB unique index then only ever sees lowercase.
+ */
+export function normalizeSlug(raw: string): string {
+  const slug = raw.trim().toLowerCase();
+  if (!SLUG_RE.test(slug)) {
+    throw new Error(
+      `Invalid slug "${raw}": 1-64 lowercase letters/digits/hyphens, no leading/trailing hyphen`,
+    );
+  }
+  return slug;
+}
+
+/**
+ * True when a DB error is the Postgres unique_violation on the slug index.
+ * Walks the cause chain — drizzle wraps the driver's PostgresError in a
+ * DrizzleQueryError whose `cause` carries the actual code/constraint.
+ */
+export function isSlugUniqueViolation(err: unknown): boolean {
+  for (let e = err, depth = 0; e && depth < 5; depth++) {
+    const candidate = e as {
+      code?: string;
+      constraint_name?: string;
+      message?: string;
+      cause?: unknown;
+    };
+    if (
+      candidate.code === "23505" &&
+      (candidate.constraint_name === "links_slug_unique" ||
+        (candidate.message?.includes("links_slug_unique") ?? false))
+    ) {
+      return true;
+    }
+    e = candidate.cause;
+  }
+  return false;
+}
+
+export function vanityUrlFor(baseUrl: string, slug: string): string {
+  return `${baseUrl}/l/${slug}`;
+}
+
+/** The `tracked_links.source` marker of a link's per-link QR scan row. */
+export const QR_TRACKED_SOURCE = "qr";
+
+/**
+ * Lazily mint (or fetch) a managed link's QR scan row — the SECOND
+ * `tracked_links` row for the link, `source: "qr"`. The QR code encodes
+ * `/v1/t/c/<this row>` (the durable UID URL, never the slug), so scans are
+ * attributable separately from link clicks while a PATCH re-target (which
+ * updates every tracked row scoped by `link_id`) keeps a printed code
+ * pointing at the current destination.
+ *
+ * Race-safe via the partial unique index `tracked_links(link_id) WHERE
+ * source = 'qr'`: a concurrent double-mint loses the insert cleanly and
+ * re-reads the winner's row. Returns null when the link doesn't exist.
+ */
+export async function ensureQrTrackedLink(opts: {
+  db: Database;
+  linkId: string;
+}): Promise<{ trackedLinkId: string; created: boolean } | null> {
+  const { db, linkId } = opts;
+
+  const qrRowFilter = and(
+    eq(trackedLinks.linkId, linkId),
+    eq(trackedLinks.source, QR_TRACKED_SOURCE),
+  );
+
+  const [existing] = await db
+    .select({ id: trackedLinks.id })
+    .from(trackedLinks)
+    .where(qrRowFilter)
+    .limit(1);
+  if (existing) return { trackedLinkId: existing.id, created: false };
+
+  const [link] = await db
+    .select({
+      originalUrl: links.originalUrl,
+      distinctId: links.distinctId,
+    })
+    .from(links)
+    .where(eq(links.id, linkId))
+    .limit(1);
+  if (!link) return null;
+
+  // distinctId copied from the link so a PERSONAL link's scans stitch the same
+  // subject as its clicks; public links stay identity-free (NULL).
+  const [inserted] = await db
+    .insert(trackedLinks)
+    .values({
+      id: randomUUID(),
+      linkId,
+      emailSendId: null,
+      distinctId: link.distinctId,
+      source: QR_TRACKED_SOURCE,
+      originalUrl: link.originalUrl,
+    })
+    .onConflictDoNothing({
+      target: [trackedLinks.linkId],
+      // The arbiter predicate matching the partial unique index
+      // `tracked_links_qr_per_link_unique` (… WHERE source = 'qr').
+      where: sql`${trackedLinks.source} = ${QR_TRACKED_SOURCE}`,
+    })
+    .returning({ id: trackedLinks.id });
+
+  if (inserted) return { trackedLinkId: inserted.id, created: true };
+
+  // Lost the race — the concurrent mint's row is the QR row.
+  const [winner] = await db
+    .select({ id: trackedLinks.id })
+    .from(trackedLinks)
+    .where(qrRowFilter)
+    .limit(1);
+  return winner ? { trackedLinkId: winner.id, created: false } : null;
+}
+
+/**
+ * SQL predicate selecting a link's CANONICAL tracked row — the redirect row
+ * minted alongside the link, as opposed to the lazily-minted per-link QR scan
+ * row (`source = 'qr'`). The ONE definition of "which tracked row is the
+ * link's redirect row"; every consumer (vanity resolver, admin aggregates)
+ * must use it rather than re-deriving QR-awareness.
+ */
+export function canonicalTrackedRowFilter() {
+  return or(
+    isNull(trackedLinks.source),
+    ne(trackedLinks.source, QR_TRACKED_SOURCE),
+  );
 }
 
 /**
@@ -75,32 +245,48 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
   const type: LinkType = opts.type ?? "public";
   // A public link must NEVER carry a person token — drop any distinctId.
   const distinctId = type === "personal" ? (opts.distinctId ?? null) : null;
+  const slug = opts.slug !== undefined ? normalizeSlug(opts.slug) : null;
 
   const linkId = randomUUID();
   const trackedLinkId = randomUUID();
 
-  await opts.db.insert(links).values({
-    id: linkId,
-    originalUrl: opts.url,
-    type,
-    label: opts.label ?? null,
-    campaign: opts.campaign ?? null,
-    source: opts.source,
-    distinctId,
-    createdBy: opts.createdBy ?? null,
-  });
-  await opts.db.insert(trackedLinks).values({
-    id: trackedLinkId,
-    linkId,
-    emailSendId: null,
-    distinctId,
-    source: opts.source,
-    originalUrl: opts.url,
-  });
+  // ONE transaction: a half-failed mint would otherwise strand a `links` row
+  // that reserves a globally-unique slug with no tracked row — `/l/<slug>`
+  // dead (inner join misses) yet the slug 409s every re-mint.
+  try {
+    await opts.db.transaction(async (tx) => {
+      await tx.insert(links).values({
+        id: linkId,
+        originalUrl: opts.url,
+        type,
+        slug,
+        label: opts.label ?? null,
+        description: opts.description ?? null,
+        appendRef: opts.appendRef ?? false,
+        campaign: opts.campaign ?? null,
+        source: opts.source,
+        distinctId,
+        createdBy: opts.createdBy ?? null,
+      });
+      await tx.insert(trackedLinks).values({
+        id: trackedLinkId,
+        linkId,
+        emailSendId: null,
+        distinctId,
+        source: opts.source,
+        originalUrl: opts.url,
+      });
+    });
+  } catch (err) {
+    if (slug && isSlugUniqueViolation(err)) throw new SlugTakenError(slug);
+    throw err;
+  }
 
   return {
     linkId,
     trackedLinkId,
     url: `${opts.baseUrl}/v1/t/c/${trackedLinkId}`,
+    slug,
+    vanityUrl: slug ? vanityUrlFor(opts.baseUrl, slug) : null,
   };
 }

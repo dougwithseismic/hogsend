@@ -15,6 +15,7 @@ import { feedRouter } from "./feed/index.js";
 import { healthRouter } from "./health.js";
 import { listsRouter } from "./lists/index.js";
 import { trackingRouter } from "./tracking/index.js";
+import { vanityRouter } from "./tracking/vanity.js";
 import { registerWebhookRoutes } from "./webhooks/index.js";
 
 export interface RegisterRoutesOptions {
@@ -134,6 +135,11 @@ export function registerRoutes(
   v1.route("/campaigns", campaignsRouter);
 
   app.route("/v1", v1);
+
+  // Vanity link redirect — root-mounted so the operator-facing short URL is
+  // `${API_PUBLIC_URL}/l/:slug`. Unauthenticated like the rest of the tracking
+  // surface (vanity links land in chats/posts/print).
+  app.route("/", vanityRouter);
 
   // Generic connector dispatch (oauth/interactions/ingress) — the static
   // `connectors/` prefix is registered BEFORE the `:sourceId` webhook catch-all

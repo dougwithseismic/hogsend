@@ -162,8 +162,14 @@ export const posthogDestination = defineDestination({
       userId?: string | null;
       to?: string | null;
       userEmail?: string | null;
+      anonymousId?: string | null;
     };
-    const distinctId = data.userId ?? data.to ?? data.userEmail ?? undefined;
+    // `anonymousId` covers anon-tier arrivals (`link.arrived`): a raw browser
+    // anon id IS a legitimate PostHog distinct_id, and without it the capture
+    // would ship no distinct_id at all — PostHog 400s and the delivery
+    // dead-letters (<500 = non-retryable).
+    const distinctId =
+      data.userId ?? data.anonymousId ?? data.to ?? data.userEmail ?? undefined;
     // `email.action` is the semantic-link envelope: the CONSUMER's event name
     // (data.event, e.g. "nps.submitted") is what PostHog should capture, with
     // the author's properties flattened to the top level. Other catalog events

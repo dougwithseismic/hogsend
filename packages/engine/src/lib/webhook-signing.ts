@@ -25,7 +25,7 @@ import { Webhook } from "svix";
  */
 
 /**
- * The 15-event catalog — the SINGLE source of truth (schema, routes, client,
+ * The 16-event catalog — the SINGLE source of truth (schema, routes, client,
  * CLI all derive from this). The `webhook.test` sentinel is intentionally NOT a
  * member (it is delivered out-of-band regardless of an endpoint's `eventTypes`).
  *
@@ -33,6 +33,10 @@ import { Webhook } from "svix";
  * has no email send (Discord/referral/ad-hoc `createTrackedLink`). It is the
  * deliberate counterpart to `email.clicked` so a non-email click never fires a
  * malformed `email.clicked` (MF-missing #3).
+ *
+ * `link.arrived` is the landing-confirmed subset of `link.clicked`: the
+ * visitor reported back from the destination (opt-in `hs_ref` +
+ * POST /v1/t/arrive) with identity evidence.
  */
 export const WEBHOOK_EVENT_TYPES = [
   "contact.created",
@@ -50,6 +54,7 @@ export const WEBHOOK_EVENT_TYPES = [
   "bucket.entered",
   "bucket.left",
   "link.clicked",
+  "link.arrived",
 ] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];

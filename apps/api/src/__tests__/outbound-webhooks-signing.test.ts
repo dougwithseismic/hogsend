@@ -202,7 +202,7 @@ describe("verifyWebhookSignature round-trip", () => {
 });
 
 describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
-  it("is exactly the 15-event catalog, in order", () => {
+  it("is exactly the 16-event catalog, in order", () => {
     expect(WEBHOOK_EVENT_TYPES).toEqual([
       "contact.created",
       "contact.updated",
@@ -222,6 +222,9 @@ describe("WEBHOOK_EVENT_TYPES catalog (single source of truth)", () => {
       // to `email.clicked` so a Discord/referral/ad-hoc click never masquerades
       // as an email click.
       "link.clicked",
+      // Landing-confirmed arrival (opt-in hs_ref + POST /v1/t/arrive): the
+      // subset of link.clicked that carries the VISITOR's identity.
+      "link.arrived",
     ]);
   });
 

@@ -6,7 +6,6 @@ import {
   Mail,
   MessageSquare,
   Send,
-  Users,
 } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";

@@ -178,7 +178,13 @@ describe("Phase 2 — no-double-emit (opens/clicks no longer captureEvent)", () 
 
   it("the open + click routes no longer destructure analytics from the container", () => {
     const open = engineSource("routes/tracking/open.ts");
-    const click = engineSource("routes/tracking/click.ts");
+    // The click pipeline (shared by the UUID + vanity routes) owns the click
+    // side effects, but click.ts is still the live /v1/t/c/:id handler — scan
+    // BOTH so a later edit can't reintroduce a gate/dedupe in either file.
+    const click =
+      engineSource("routes/tracking/click-pipeline.ts") +
+      engineSource("routes/tracking/click.ts") +
+      engineSource("routes/tracking/vanity.ts");
     // The `analytics: posthog` destructure is removed — nothing passes posthog
     // into pushTrackingEvent anymore.
     expect(open).not.toMatch(/analytics: posthog/);

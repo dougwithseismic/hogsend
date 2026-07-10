@@ -110,6 +110,116 @@ These URLs are never rewritten:
 - **Preference links** — URLs containing `/v1/email/preferences`
 - **Non-HTTP** — `mailto:`, `tel:`, etc. (regex only matches `https?://`)
 
+## Managed links (mintLink)
+
+Email's per-send rewritten links (above) are one consumer of the click spine.
+The other is **managed links** — operator-owned short links minted outside
+email via `mintLink()` (engine) or `POST /v1/admin/links` (the surface behind
+the Studio "Links" view). A managed link is a durable `links` row plus a
+`tracked_links` click-counter row back-referencing it via `link_id`; email
+links keep `link_id` NULL, so the two stay independent.
+
+- **`mintLink({ db, url, baseUrl, source, type?, slug?, label?, campaign?, distinctId?, createdBy? })`**
+  inserts both rows and returns `{ linkId, trackedLinkId, url, slug, vanityUrl }`
+- **Share-safe invariant**: `distinctId` (the contact a click should stitch) is
+  honored ONLY for `type: "personal"`; a `"public"` link never carries a person
+- **Admin CRUD**: `GET/POST /v1/admin/links`, `GET/PATCH/DELETE /v1/admin/links/:id`.
+  `PATCH originalUrl` re-targets the already-distributed short URL — it updates
+  `links.originalUrl` AND every `tracked_links` row scoped by `link_id` in one
+  transaction (the click route reads `tracked_links.originalUrl` fresh per hit)
+- **Archive is soft**: the short URL keeps redirecting; history survives
+- **Clicks emit `link.clicked`** on the outbound spine (never `email.clicked`),
+  and — for personal links, human clicks only — re-ingest a first-party
+  `link.clicked` bus event journeys can trigger on (filter by `linkId`/`campaign`)
+
+### Vanity slugs — `/l/:slug`
+
+A managed link can carry an operator-chosen slug layered over the UUID short
+URL: `https://<host>/l/black-friday`.
+
+- **Shape**: 1–64 chars of `[a-z0-9-]`, no leading/trailing hyphen. Input is
+  lowercased before validation, so `/l/Black-Friday` resolves `black-friday`
+- **Unique per instance** (`links.slug`, unique index). A taken slug is a `409`
+  from `POST`/`PATCH`; invalid shape is a `400`
+- **Lifecycle**: set at mint (`slug`), replace or clear via `PATCH`
+  (`slug: null` frees it for reuse). Archived links keep their slug reserved
+  and keep resolving — clearing the slug is the explicit kill switch
+- **`GET /l/:slug`** (root-mounted, unauthenticated) resolves the link's
+  canonical tracked row and runs the SAME click pipeline as `/v1/t/c/:id` —
+  same `link_clicks` row, same counter, same events — so counts never split by
+  entry path. Unknown/malformed slugs redirect to `API_PUBLIC_URL`
+- Responses carry `slug` + `vanityUrl` (`${API_PUBLIC_URL}/l/:slug`)
+
+### QR codes — `GET /v1/admin/links/:id/qr`
+
+Every managed link can render a QR code (admin-authed endpoint; the Studio QR
+dialog previews and downloads through it).
+
+- **Params**: `format=svg|png` (default `svg`), `size=64..2048` (default 512),
+  `transparent=true` (transparent background, both formats — for print/overlay)
+- **Durable by construction**: the code encodes the link's scan URL —
+  `/v1/t/c/<qr row id>` — NEVER the vanity slug. The scan row is a second
+  `tracked_links` row (`source: "qr"`), lazily minted on first render and
+  race-safe via a partial unique index (`tracked_links(link_id) WHERE
+  source = 'qr'`). A printed code therefore survives slug changes AND
+  destination re-targets (`PATCH` updates the scan row too)
+- **Scans are counted separately**: link responses carry `scanCount` (QR-only
+  subtotal) alongside `clickCount` (all-paths total). A scan is a normal click
+  on the scan row — `source: "qr"` rides the `link.clicked` payload
+- **Personal links**: the scan row copies the link's `distinctId`, so scans
+  stitch the same subject as clicks (including `hs_t` when enabled)
+
+### Per-destination stats + the QR-first lens
+
+Print marketing needs stats to survive re-targeting: the code on the door
+stays, where it leads changes, and each destination keeps its own numbers.
+
+- **Per-hit provenance**: every `link_clicks` row stamps `destination_url` —
+  the redirect target that was live when THAT hit landed (never the
+  `hs_t`-tokenized variant). No retarget-history table; the stamp answers
+  "stats per destination epoch" directly. Rows from before the column exist as
+  a `url: null` bucket
+- **`GET /v1/admin/links/:id`** returns `destinations: [{ url, clicks, scans,
+  firstAt, lastAt }]`, newest activity first (the current destination leads)
+- **`links.description`** (nullable) — what/where the link or its printed code
+  physically is, for telling codes apart in bulk. Settable at mint + PATCH
+- **`GET /v1/admin/links?hasQr=true`** — the "QR codes" lens: only links whose
+  QR scan row exists. There is deliberately NO separate QR table/kind — a "QR
+  code" IS a managed link whose scan row has been minted; the Studio "QR
+  codes" view lists this lens and its "New QR code" flow mints a link then
+  touches the QR endpoint so the row exists immediately
+
+### Arrival attribution — `hs_ref` + `POST /v1/t/arrive`
+
+A redirect can't recognize the visitor (their cookies live on the landing
+site's domain). Opt-in per link (`links.append_ref`, default false — appended
+params break strict OAuth redirect_uris): the redirect appends
+`hs_ref=<link_clicks.id>` (raw per-hit UUID, provenance not identity; built in
+the SAME URL pass as `hs_t` so the two never clobber each other). The landing
+page reports back to `POST /v1/t/arrive` — automatic with `@hogsend/js`
+(`captureRef`, default on) or server-side with a `generateUserToken`-minted
+token.
+
+- **Trust tiers** (mirrors the events route + feed recipient): `userToken` →
+  verified userId, `visitor_kind='token'` (a KNOWN contact); raw anon id →
+  `visitor_kind='anon'`, provenance-only — collision-checked against
+  identified contacts BEFORE stamping and ingested under
+  `restrictToAnonymous`. Invariant (tested): nothing the ref resolves to
+  (esp. `links.distinct_id`) ever enters the contact resolver as a subject
+- **First-write-wins stamp** on `link_clicks`
+  (`visitor_distinct_id`/`visitor_kind`/`arrived_at`): replays re-run the
+  ingest from the STAMPED identity (`idempotencyKey link:arrived:<ref>`) —
+  self-healing retry, never re-attribution. Outbound fires only on the fresh
+  store
+- **`link.arrived`** (bus + outbound, 16th catalog event): the
+  landing-confirmed SUBSET of `link.clicked` — carries the VISITOR's identity
+  (`linkId` = managed `links.id`; `trackedLinkId` separate). Journeys trigger
+  on it (filter `linkId`/`campaign`/`source: "qr"`)
+- **Uniform response**: `200 {"ok":true}` for every outcome — no
+  contact-existence oracle from an unauthenticated endpoint
+- Admin detail carries `arrivalCount` + `identifiedArrivalCount`; `clicks[]`
+  rows expose the stamp fields
+
 ## Semantic links — in-email answers
 
 A plain tracked link records THAT it was clicked; a **semantic link** records

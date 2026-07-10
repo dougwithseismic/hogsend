@@ -4,8 +4,8 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { AlertTriangle, Copy, Link2, Pencil, Plus } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Copy, Link2, Pencil, Plus, QrCode } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import {
   EmptyState,
   ErrorState,
@@ -38,6 +38,9 @@ import {
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
+import { isHttpUrl } from "@/lib/url";
+import { AppendRefField } from "./links/append-ref-field";
+import { QrLinkDialog } from "./links/qr-dialog";
 
 const TYPES = [
   { value: "", label: "All" },
@@ -47,14 +50,65 @@ const TYPES = [
 
 type LinkType = "personal" | "public";
 
-/** http(s)-only guard, mirroring the engine's open-redirect check in mintLink. */
-function isHttpUrl(value: string): boolean {
-  try {
-    const u = new URL(value);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
+// Mirrors the engine's normalizeSlug: 1-64 lowercase [a-z0-9-], no
+// leading/trailing hyphen. Input is lowercased before the check, so typing
+// "Black-Friday" is fine — it mints as "black-friday".
+const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+
+function normalizeSlugInput(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+/** Empty = "no slug", always valid; anything else must match the engine rule. */
+function isSlugValid(value: string): boolean {
+  const slug = normalizeSlugInput(value);
+  return slug === "" || SLUG_RE.test(slug);
+}
+
+/** True when the failed mutation was a slug-uniqueness conflict (HTTP 409). */
+function isSlugConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409;
+}
+
+const SLUG_INVALID_HINT =
+  "1–64 letters, digits or hyphens — no leading/trailing hyphen.";
+const SLUG_DEFAULT_HINT = "A memorable /l/… path over the tracked short URL.";
+
+/**
+ * The vanity-slug field shared by the create + edit dialogs: Label + Input +
+ * the invalid-shape message. `hint` is the dialog-specific message shown while
+ * the input is empty or valid (create shows a /l/… preview; edit warns when
+ * clearing).
+ */
+function SlugField({
+  id,
+  value,
+  valid,
+  onChange,
+  hint,
+}: {
+  id: string;
+  value: string;
+  valid: boolean;
+  onChange: (value: string) => void;
+  hint: ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>Vanity slug (optional)</Label>
+      <Input
+        id={id}
+        placeholder="black-friday"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value.trim() && !valid ? (
+        <p className="text-accent text-xs">{SLUG_INVALID_HINT}</p>
+      ) : (
+        hint
+      )}
+    </div>
+  );
 }
 
 function TypeBadge({ type }: { type: LinkType }) {
@@ -74,19 +128,26 @@ export function LinksView() {
   const [created, setCreated] = useState<CreatedLink | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Link | null>(null);
   const [editTarget, setEditTarget] = useState<Link | null>(null);
+  const [qrTarget, setQrTarget] = useState<Link | null>(null);
 
   // Create-form fields.
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
+  const [description, setDescription] = useState("");
   const [campaign, setCampaign] = useState("");
+  const [slug, setSlug] = useState("");
   const [linkType, setLinkType] = useState<LinkType>("public");
   const [distinctId, setDistinctId] = useState("");
+  const [appendRef, setAppendRef] = useState(false);
 
   // Edit-form fields (separate from the create form so the two dialogs never
   // share state). Pre-filled from the target row on open.
   const [editUrl, setEditUrl] = useState("");
   const [editLabel, setEditLabel] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editCampaign, setEditCampaign] = useState("");
+  const [editSlug, setEditSlug] = useState("");
+  const [editAppendRef, setEditAppendRef] = useState(false);
 
   const query = useQuery({
     queryKey: qk.links(type),
@@ -97,23 +158,32 @@ export function LinksView() {
   function resetForm() {
     setUrl("");
     setLabel("");
+    setDescription("");
     setCampaign("");
+    setSlug("");
     setLinkType("public");
     setDistinctId("");
+    setAppendRef(false);
   }
 
   function openEdit(row: Link) {
     setEditTarget(row);
     setEditUrl(row.originalUrl);
     setEditLabel(row.label ?? "");
+    setEditDescription(row.description ?? "");
     setEditCampaign(row.campaign ?? "");
+    setEditSlug(row.slug ?? "");
+    setEditAppendRef(row.appendRef);
   }
 
   const urlValid = isHttpUrl(url.trim());
-  const canSubmit = urlValid && label.trim().length > 0;
+  const slugValid = isSlugValid(slug);
+  const canSubmit = urlValid && slugValid && label.trim().length > 0;
 
   const editUrlValid = isHttpUrl(editUrl.trim());
-  const canSaveEdit = editUrlValid && editLabel.trim().length > 0;
+  const editSlugValid = isSlugValid(editSlug);
+  const canSaveEdit =
+    editUrlValid && editSlugValid && editLabel.trim().length > 0;
 
   const create = useMutation({
     mutationFn: () =>
@@ -121,7 +191,10 @@ export function LinksView() {
         url: url.trim(),
         label: label.trim(),
         type: linkType,
+        description: description.trim() || undefined,
+        appendRef,
         campaign: campaign.trim() || undefined,
+        slug: normalizeSlugInput(slug) || undefined,
         // Share-safe invariant: identity only travels on personal links. The
         // engine drops distinctId for public links too, but we don't even send
         // it — keeps the wire honest.
@@ -136,14 +209,7 @@ export function LinksView() {
       setCreated(res);
       void queryClient.invalidateQueries({ queryKey: ["links"] });
     },
-    onError: (error) => {
-      toast({
-        variant: "error",
-        title: "Could not create link",
-        description:
-          error instanceof ApiError ? error.message : "Unexpected error.",
-      });
-    },
+    onError: (error) => mutationErrorToast(error, "Could not create link"),
   });
 
   const update = useMutation({
@@ -152,10 +218,18 @@ export function LinksView() {
       // narrows editTarget to a non-null Link so updateLink gets a real string
       // id (its first arg is `string`, not `string | undefined`).
       if (!editTarget) throw new Error("No link selected to edit.");
+      // Only send `slug` when it actually changed: emptied = clear (null),
+      // otherwise set/replace. Sending an unchanged slug would be a no-op
+      // anyway, but omitting keeps the wire minimal.
+      const nextSlug = normalizeSlugInput(editSlug);
+      const prevSlug = editTarget.slug ?? "";
       return updateLink(editTarget.id, {
         originalUrl: editUrl.trim(),
         label: editLabel.trim(),
+        description: editDescription.trim() || null,
+        appendRef: editAppendRef,
         campaign: editCampaign.trim() || undefined,
+        ...(nextSlug !== prevSlug ? { slug: nextSlug || null } : {}),
       });
     },
     onSuccess: () => {
@@ -169,14 +243,7 @@ export function LinksView() {
         void queryClient.invalidateQueries({ queryKey: qk.link(id) });
       }
     },
-    onError: (error) => {
-      toast({
-        variant: "error",
-        title: "Could not update link",
-        description:
-          error instanceof ApiError ? error.message : "Unexpected error.",
-      });
-    },
+    onError: (error) => mutationErrorToast(error, "Could not update link"),
   });
 
   const archive = useMutation({
@@ -196,6 +263,17 @@ export function LinksView() {
       setArchiveTarget(null);
     },
   });
+
+  // Shared error toast for the create/update mutations: a 409 is always the
+  // slug-uniqueness conflict on this surface.
+  function mutationErrorToast(error: unknown, fallbackTitle: string) {
+    toast({
+      variant: "error",
+      title: isSlugConflict(error) ? "Slug already taken" : fallbackTitle,
+      description:
+        error instanceof ApiError ? error.message : "Unexpected error.",
+    });
+  }
 
   async function copy(value: string) {
     try {
@@ -274,6 +352,7 @@ export function LinksView() {
                 <TableHead>Campaign</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead className="text-right">Clicks</TableHead>
+                <TableHead className="text-right">Scans</TableHead>
                 <TableHead>Short link</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="text-right">Action</TableHead>
@@ -312,20 +391,43 @@ export function LinksView() {
                     <TableCell className="text-right text-white/80">
                       {formatNumber(row.clickCount)}
                     </TableCell>
+                    <TableCell className="text-right text-white/80">
+                      {formatNumber(row.scanCount)}
+                    </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-1.5">
-                        <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white/70 text-xs">
-                          {shortPath}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => copy(shortUrl)}
-                          aria-label="Copy short link"
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                        </Button>
+                      <div className="flex flex-col gap-1">
+                        {row.vanityUrl ? (
+                          <div className="flex items-center gap-1.5">
+                            <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white text-xs">
+                              /l/{row.slug}
+                            </code>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() =>
+                                row.vanityUrl && copy(row.vanityUrl)
+                              }
+                              aria-label="Copy vanity link"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ) : null}
+                        <div className="flex items-center gap-1.5">
+                          <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white/70 text-xs">
+                            {truncate(shortPath, 28)}
+                          </code>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => copy(shortUrl)}
+                            aria-label="Copy short link"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell className="text-white/60">
@@ -333,6 +435,15 @@ export function LinksView() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setQrTarget(row)}
+                          aria-label="Show QR code"
+                        >
+                          <QrCode className="h-4 w-4" />
+                          QR
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
@@ -400,6 +511,38 @@ export function LinksView() {
             onChange={(e) => setLabel(e.target.value)}
           />
         </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="link-description">Description (optional)</Label>
+          <Input
+            id="link-description"
+            placeholder="Sticker on the workshop door"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
+        <AppendRefField
+          id="link-append-ref"
+          checked={appendRef}
+          onChange={setAppendRef}
+        />
+
+        <SlugField
+          id="link-slug"
+          value={slug}
+          valid={slugValid}
+          onChange={setSlug}
+          hint={
+            slug.trim() ? (
+              <p className="text-white/40 text-xs">
+                Short path: /l/{normalizeSlugInput(slug)} — must be unique.
+              </p>
+            ) : (
+              <p className="text-white/40 text-xs">{SLUG_DEFAULT_HINT}</p>
+            )
+          }
+        />
 
         <div className="space-y-1.5">
           <Label htmlFor="link-campaign">Campaign (optional)</Label>
@@ -507,6 +650,39 @@ export function LinksView() {
         </div>
 
         <div className="space-y-1.5">
+          <Label htmlFor="edit-link-description">Description (optional)</Label>
+          <Input
+            id="edit-link-description"
+            placeholder="Sticker on the workshop door"
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+          />
+        </div>
+
+        <AppendRefField
+          id="edit-link-append-ref"
+          checked={editAppendRef}
+          onChange={setEditAppendRef}
+        />
+
+        <SlugField
+          id="edit-link-slug"
+          value={editSlug}
+          valid={editSlugValid}
+          onChange={setEditSlug}
+          hint={
+            editTarget?.slug && !editSlug.trim() ? (
+              <p className="text-accent text-xs">
+                Clearing frees /l/{editTarget.slug} — the vanity URL stops
+                resolving (the UUID short link keeps working).
+              </p>
+            ) : (
+              <p className="text-white/40 text-xs">{SLUG_DEFAULT_HINT}</p>
+            )
+          }
+        />
+
+        <div className="space-y-1.5">
           <Label htmlFor="edit-link-campaign">Campaign (optional)</Label>
           <Input
             id="edit-link-campaign"
@@ -527,6 +703,24 @@ export function LinksView() {
       >
         {created ? (
           <div className="space-y-3">
+            {created.vanityUrl ? (
+              <div className="space-y-1.5">
+                <Label>Vanity URL</Label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 break-all rounded-md border border-hairline-faint bg-white/[0.04] px-3 py-2 font-mono text-white text-xs">
+                    {created.vanityUrl}
+                  </code>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => created.vanityUrl && copy(created.vanityUrl)}
+                    aria-label="Copy vanity URL"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <div className="space-y-1.5">
               <Label>Short URL</Label>
               <div className="flex items-center gap-2">
@@ -555,6 +749,10 @@ export function LinksView() {
           </div>
         ) : null}
       </Dialog>
+
+      {/* QR dialog — shared with the QR codes view (preview, exports, inline
+          re-target, per-destination stats). */}
+      <QrLinkDialog link={qrTarget} onClose={() => setQrTarget(null)} />
 
       <ConfirmDialog
         open={archiveTarget !== null}

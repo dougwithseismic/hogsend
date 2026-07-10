@@ -1,4 +1,12 @@
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
 
 /**
@@ -19,8 +27,16 @@ export const links = pgTable(
     // mint a SINGLE-USE `hs_t`); "public" = shareable, NEVER carries a person
     // token (campaign/UTM attribution only). Default "public" — the safe default.
     type: text("type").notNull().default("public"),
+    // Operator-chosen vanity slug — the `/l/:slug` short path layered over the
+    // UUID redirect. Normalized lowercase at write time; unique per instance.
+    // NULL = no vanity path. Archived links keep their slug reserved (clear it
+    // via PATCH to free it for reuse).
+    slug: text("slug"),
     // Operator-facing name (Studio list).
     label: text("label"),
+    // Longer operator note — what/where this link or its printed QR actually
+    // is ("sticker on the workshop door"), for telling codes apart in bulk.
+    description: text("description"),
     // UTM-style campaign grouping for public links.
     campaign: text("campaign"),
     // Originating channel: "studio" | "discord" | "sms" | … (open string).
@@ -29,6 +45,11 @@ export const links = pgTable(
     // into — set ONLY for personal links; NULL for public/broadcast (a shareable
     // link must never carry a person).
     distinctId: text("distinct_id"),
+    // Opt-in arrival attribution: when true, the redirect appends
+    // `hs_ref=<link_clicks.id>` to the destination so the landing page can
+    // report the visitor back to POST /v1/t/arrive. Per-link (not env) because
+    // an appended param breaks strict OAuth redirect_uri destinations.
+    appendRef: boolean("append_ref").notNull().default(false),
     // The admin actor who minted it (mirrors api_keys.createdBy).
     createdBy: text("created_by"),
     // Soft-delete: archive (not hard-delete) so historical `link_clicks` survive
@@ -37,6 +58,7 @@ export const links = pgTable(
     ...timestamps,
   },
   (table) => [
+    uniqueIndex("links_slug_unique").on(table.slug),
     index("links_source_idx").on(table.source),
     index("links_campaign_idx").on(table.campaign),
     index("links_created_at_idx").on(table.createdAt),

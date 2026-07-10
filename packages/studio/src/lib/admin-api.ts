@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { config } from "./config";
 
 /**
  * Typed wrappers around the engine's /v1/admin/* surface. Types mirror the Zod
@@ -1038,12 +1039,23 @@ export type Link = {
   trackedLinkId: string | null;
   originalUrl: string;
   type: "personal" | "public";
+  /** Vanity slug (normalized lowercase, unique per instance) — null if unset. */
+  slug: string | null;
+  /** The vanity short URL (`${API_PUBLIC_URL}/l/:slug`) — null if no slug. */
+  vanityUrl: string | null;
   label: string | null;
+  /** Longer operator note for bulk identification ("sticker on the door"). */
+  description: string | null;
+  /** Arrival attribution opt-in: redirects append `hs_ref=<click id>`. */
+  appendRef: boolean;
   campaign: string | null;
   source: string | null;
   distinctId: string | null;
   createdBy: string | null;
+  /** Total across ALL entry paths — vanity, UUID, and QR scans. */
   clickCount: number;
+  /** QR-only subtotal (clicks recorded on the link's scan row). */
+  scanCount: number;
   /** The short redirect URL: `${API_PUBLIC_URL}/v1/t/c/:trackedLinkId`. */
   url: string;
   createdAt: string;
@@ -1058,11 +1070,35 @@ export type LinkClick = {
   clickedAt: string;
   ipAddress: string | null;
   userAgent: string | null;
+  /**
+   * Arrival stamp: who landed from this hit. `visitorKind` is the trust
+   * tier — 'token' = verified userId (known contact), 'anon' = raw anon id.
+   */
+  visitorDistinctId: string | null;
+  visitorKind: string | null;
+  arrivedAt: string | null;
 };
 
-/** `GET /:id` — the flat link plus its recent clicks. */
+/**
+ * Per-destination stats bucket: hits grouped by the destination that was live
+ * when they landed. `url: null` = hits from before provenance stamping.
+ * Ordered newest-activity-first (the current destination leads).
+ */
+export type DestinationStat = {
+  url: string | null;
+  clicks: number;
+  scans: number;
+  firstAt: string;
+  lastAt: string;
+};
+
+/** `GET /:id` — the flat link plus its recent clicks + destination buckets. */
 export type LinkDetail = Link & {
   clicks: LinkClick[];
+  destinations: DestinationStat[];
+  /** Landing-confirmed arrivals; `identifiedArrivalCount` = known contacts. */
+  arrivalCount: number;
+  identifiedArrivalCount: number;
 };
 
 /**
@@ -1074,6 +1110,8 @@ export type CreatedLink = Link;
 export function listLinks(filters?: {
   type?: "personal" | "public";
   includeArchived?: boolean;
+  /** true = only links whose QR scan row exists (the "QR codes" lens). */
+  hasQr?: boolean;
 }) {
   return api.get<{
     links: Link[];
@@ -1084,6 +1122,7 @@ export function listLinks(filters?: {
     query: {
       type: filters?.type,
       includeArchived: filters?.includeArchived ? "true" : undefined,
+      hasQr: filters?.hasQr ? "true" : undefined,
       limit: 200,
     },
   });
@@ -1098,6 +1137,11 @@ export function createLink(body: {
   label: string;
   type: "personal" | "public";
   campaign?: string;
+  description?: string;
+  /** Arrival attribution opt-in (`hs_ref` on redirects). */
+  appendRef?: boolean;
+  /** Optional vanity slug (`/l/:slug`). 409 if already taken. */
+  slug?: string;
   /** Honored only when `type === "personal"` (share-safe invariant). */
   distinctId?: string;
 }) {
@@ -1106,7 +1150,15 @@ export function createLink(body: {
 
 export function updateLink(
   id: string,
-  body: { label?: string; campaign?: string; originalUrl?: string },
+  body: {
+    label?: string;
+    description?: string | null;
+    appendRef?: boolean;
+    campaign?: string;
+    originalUrl?: string;
+    /** string = set/replace (409 if taken); null = clear the slug. */
+    slug?: string | null;
+  },
 ) {
   return api.patch<Link>(`/v1/admin/links/${encodeURIComponent(id)}`, {
     json: body,
@@ -1116,6 +1168,25 @@ export function updateLink(
 /** Archive (soft-delete) a link — sets `archivedAt`; the short URL keeps working. */
 export function archiveLink(id: string) {
   return api.delete<Link>(`/v1/admin/links/${encodeURIComponent(id)}`);
+}
+
+/**
+ * URL of a link's QR image (`GET /v1/admin/links/:id/qr`) — for `<img>`
+ * previews and download anchors rather than a JSON fetcher. Admin-authed via
+ * the session cookie; first render lazy-mints the link's scan row.
+ */
+export function linkQrUrl(
+  id: string,
+  opts?: { format?: "svg" | "png"; size?: number; transparent?: boolean },
+): string {
+  const params = new URLSearchParams();
+  if (opts?.format) params.set("format", opts.format);
+  if (opts?.size) params.set("size", String(opts.size));
+  if (opts?.transparent) params.set("transparent", "true");
+  const qs = params.toString();
+  return `${config.baseUrl}/v1/admin/links/${encodeURIComponent(id)}/qr${
+    qs ? `?${qs}` : ""
+  }`;
 }
 
 // --- Campaigns (broadcasts) ----------------------------------------------
@@ -1258,6 +1329,7 @@ export const qk = {
   discordConnectInfo: ["discord-connect-info"] as const,
   links: (type: string) => ["links", type] as const,
   link: (id: string) => ["link", id] as const,
+  qrCodes: () => ["links", "qr-lens"] as const,
   campaigns: (filters: CampaignListFilters) => ["campaigns", filters] as const,
   campaign: (id: string) => ["campaign", id] as const,
   campaignStats: (id: string) => ["campaign-stats", id] as const,

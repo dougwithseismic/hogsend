@@ -70,6 +70,15 @@ export interface HogsendConfig {
    * request once.
    */
   onUserTokenExpiring?: () => Promise<string>;
+  /**
+   * Arrival attribution auto-capture. When the landing URL carries an
+   * `hs_ref` param (appended by an opted-in tracked link/QR redirect), the
+   * SDK reports it to `POST /v1/t/arrive` with the session's identity
+   * (userToken when held, else the anon id) and strips the param from the
+   * URL. Default true — inert when no `hs_ref` is present. Set false for
+   * SPAs that route before init and call {@link Hogsend.captureRef} manually.
+   */
+  captureRef?: boolean;
 }
 
 /** Result of a single {@link Hogsend.capture}. */
@@ -204,6 +213,15 @@ export interface Hogsend {
     opts?: CaptureOptions,
   ): Promise<CaptureResult>;
   flush(): Promise<void>;
+  /**
+   * Report an arrival from a tracked link/QR hit to `POST /v1/t/arrive`.
+   * Without an argument, reads the `hs_ref` URL param; the param is stripped
+   * only AFTER a successful send (a transport failure keeps it so a reload or
+   * retry can recapture). The manual escape hatch for SPAs that route before
+   * init (`captureRef: false`). Resolves true when the beacon was delivered.
+   * Never throws.
+   */
+  captureRef(ref?: string): Promise<boolean>;
 
   // ── consumers of the spine ──
   /** v2 — default feedId "in_app". Throws "not implemented in v1". */

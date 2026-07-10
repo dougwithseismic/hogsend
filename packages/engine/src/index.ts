@@ -405,11 +405,17 @@ export {
   renewLeaderLease,
 } from "./lib/leader-lease.js";
 // --- Managed tracked links (channel-agnostic mint — Studio/Discord/share) ---
+// NOTE: the QR scan-row plumbing (ensureQrTrackedLink, the canonical-row
+// filter, the 'qr' source marker) is deliberately NOT exported — it is
+// internal mechanics behind the /qr endpoint, not semver surface.
 export {
   type LinkType,
   type MintedLink,
   type MintLinkOptions,
   mintLink,
+  normalizeSlug,
+  SlugTakenError,
+  vanityUrlFor,
 } from "./lib/links.js";
 // --- Logging ---
 export { createLogger, type Logger } from "./lib/logger.js";
