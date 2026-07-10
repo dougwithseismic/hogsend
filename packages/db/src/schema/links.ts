@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   pgTable,
   text,
@@ -44,6 +45,11 @@ export const links = pgTable(
     // into — set ONLY for personal links; NULL for public/broadcast (a shareable
     // link must never carry a person).
     distinctId: text("distinct_id"),
+    // Opt-in arrival attribution: when true, the redirect appends
+    // `hs_ref=<link_clicks.id>` to the destination so the landing page can
+    // report the visitor back to POST /v1/t/arrive. Per-link (not env) because
+    // an appended param breaks strict OAuth redirect_uri destinations.
+    appendRef: boolean("append_ref").notNull().default(false),
     // The admin actor who minted it (mirrors api_keys.createdBy).
     createdBy: text("created_by"),
     // Soft-delete: archive (not hard-delete) so historical `link_clicks` survive

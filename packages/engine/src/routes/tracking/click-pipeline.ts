@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { emailSends, linkClicks, links, trackedLinks } from "@hogsend/db";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Context } from "hono";
@@ -32,6 +33,8 @@ export const clickSelection = {
   linkId: links.id,
   campaign: links.campaign,
   linkType: links.type,
+  // Arrival attribution opt-in: append `hs_ref=<click id>` to the redirect.
+  appendRef: links.appendRef,
 };
 
 export type ResolvedClickLink = {
@@ -44,6 +47,7 @@ export type ResolvedClickLink = {
   linkId: string | null;
   campaign: string | null;
   linkType: string | null;
+  appendRef: boolean | null;
 };
 
 /**
@@ -87,15 +91,20 @@ export async function handleTrackedClick(
   // emailSends update is GATED on `emailSendId != null` (MF-6): a non-email
   // link has no send row to mark. This was previously safe-by-accident
   // (`WHERE id = NULL` matches nothing) — the gate makes it explicit.
+  // Pre-generate the click id: it is BOTH the row PK and (when the link opts
+  // in) the `hs_ref` arrival reference appended to the redirect. The insert is
+  // awaited before the redirect, so the ref always resolves.
+  const clickId = randomUUID();
   const emailSendId = link.emailSendId;
   await Promise.all([
     db.insert(linkClicks).values({
+      id: clickId,
       trackedLinkId: link.id,
       ipAddress: ip,
       userAgent,
       // Per-hit destination provenance: after a re-target, stats stay
       // attributable to whichever destination THIS hit actually went to.
-      // The raw target, never the hs_t-tokenized variant.
+      // The raw target, never the hs_t/hs_ref-decorated variant.
       destinationUrl: link.originalUrl,
     }),
     db
@@ -158,6 +167,7 @@ export async function handleTrackedClick(
   let preResolved: Awaited<ReturnType<typeof resolveEmailSendContext>> | null =
     null;
   let preResolvedSet = false;
+  let identityToken: string | null = null;
   if (env.TRACKING_IDENTITY_TOKEN) {
     let tokenDistinctId: string | null = null;
     let tokenSrc: string | null = null;
@@ -178,22 +188,30 @@ export async function handleTrackedClick(
     // else: broadcast link (no distinctId, no send) — mint nothing.
 
     if (tokenDistinctId && tokenSrc) {
-      try {
-        const url = new URL(link.originalUrl);
-        url.searchParams.set(
-          "hs_t",
-          generateIdentityToken({
-            secret: env.BETTER_AUTH_SECRET,
-            distinctId: tokenDistinctId,
-            src: tokenSrc,
-            emailSendId: emailSendId ?? undefined,
-          }),
-        );
-        redirectUrl = url.toString();
-      } catch {
-        // Unparseable destination — redirect untouched rather than break it.
-        redirectUrl = link.originalUrl;
-      }
+      identityToken = generateIdentityToken({
+        secret: env.BETTER_AUTH_SECRET,
+        distinctId: tokenDistinctId,
+        src: tokenSrc,
+        emailSendId: emailSendId ?? undefined,
+      });
+    }
+  }
+
+  // ONE URL-build pass for every appended param — two separate
+  // `new URL(link.originalUrl)` passes would silently drop the other param.
+  // `hs_ref` is the ARRIVAL reference (opt-in per link): the raw click id the
+  // landing page reports back to POST /v1/t/arrive. Provenance, not identity —
+  // never confuse it with `hs_t`. Reserved query params on destinations:
+  // `hs_t`, `hs_ref` (both overwritten if already present).
+  if (identityToken || link.appendRef) {
+    try {
+      const url = new URL(link.originalUrl);
+      if (identityToken) url.searchParams.set("hs_t", identityToken);
+      if (link.appendRef) url.searchParams.set("hs_ref", clickId);
+      redirectUrl = url.toString();
+    } catch {
+      // Unparseable destination — redirect untouched rather than break it.
+      redirectUrl = link.originalUrl;
     }
   }
 

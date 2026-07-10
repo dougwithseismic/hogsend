@@ -281,6 +281,13 @@
       "when": 1783637413481,
       "tag": "0039_lame_madame_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783660387321,
+      "tag": "0040_true_namorita",
+      "breakpoints": true
     }
   ]
 }

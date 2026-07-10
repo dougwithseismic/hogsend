@@ -64,6 +64,25 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 - [x] 6.1 `apps/docs` guide: extend `content/docs/guides/link-tracking.mdx` with vanity slugs, QR codes (durable-by-construction story), per-destination stats + print-marketing retarget walkthrough (docs register: every line a fact); gate with docs check-types
 - [x] 6.2 Update `docs/tracking.md` + the pending changeset (`.changeset/vanity-links-qr-codes.md`) to cover transparent export, description, destination stats, hasQr lens
 
+## Round 3 — arrival attribution (Doug 2026-07-10; design adversarially reviewed)
+
+"Did an existing identified user scan this QR?" — opt-in per link (`links.append_ref`), the redirect appends `hs_ref=<link_clicks.id>` (raw per-hit UUID, provenance not identity), the landing page reports it back to `POST /v1/t/arrive` with identity evidence (userToken = trusted; raw anon id = provenance-only + `restrictToAnonymous` clamp + identified-collision guard BEFORE stamping), engine stamps first-write-wins (`visitor_distinct_id`, `visitor_kind`, `arrived_at`) and emits journey-triggerable `link.arrived` (ingest subject ALWAYS read from the stamped row; `idempotencyKey link:arrived:<ref>`; outbound only on fresh store; uniform `200 {ok:true}` — no oracle). `hs_t` stays orthogonal. Single URL-build pass so hs_ref never clobbers hs_t. Invariant with test: nothing the ref resolves to (esp. `links.distinct_id`) ever enters the contact resolver as a subject. Full contract: `.claude/plans/elegant-twirling-ripple.md`.
+
+## Phase 7 — Arrival spine (engine)
+
+- [x] 7.1 Schema + redirect ref: migration 0040 (`links.append_ref`, `link_clicks.visitor_distinct_id`/`visitor_kind`/`arrived_at`), explicit click UUID + single URL-build pass appending `hs_ref` when opted in, `mintLink({ appendRef })` + admin wiring — tests (param on/off, hs_t coexistence, raw destinationUrl)
+- [ ] 7.2 `POST /v1/t/arrive` + `link.arrived` (bus + outbound catalog) — tests (token/anon/collision/replay/self-heal/no-oracle/invariant)
+- [ ] 7.3 Admin surfacing: arrivals in link detail + stamp fields on clicks[] — tests
+
+## Phase 8 — Client capture
+
+- [ ] 8.1 `@hogsend/js` captureRef (auto on init when `hs_ref` present, default on, config off-switch, manual export, replaceState cleanup); verify via typecheck/build + live flow (no js test suite)
+
+## Phase 9 — Studio + docs
+
+- [ ] 9.1 Studio: "Append arrival ref" toggle (QR create default ON with OAuth-redirect caveat; Links create/edit default OFF), known-arrival display in QR dialog + detail
+- [ ] 9.2 Docs (guides/link-tracking.mdx arrival section + client-side captureRef page + docs/tracking.md) and changesets (extend 0.41.0 engine-line + new @hogsend/js)
+
 ## Seam notes
 
 No external seams expected — no vendor credentials, no paid infra. `qrcode` is a plain npm dep. Release/publish itself is out of scope for this loop (batched per calm-release discipline; needs Doug's nod). Dogfood app pickup happens via `hogsend upgrade` after release.

@@ -74,6 +74,8 @@ const linkSchema = z.object({
   label: z.string().nullable(),
   // Longer operator note for bulk identification ("sticker on the door").
   description: z.string().nullable(),
+  // Arrival attribution opt-in: redirects append `hs_ref=<click id>`.
+  appendRef: z.boolean(),
   campaign: z.string().nullable(),
   source: z.string(),
   distinctId: z.string().nullable(),
@@ -144,6 +146,7 @@ function serializeLink(
     vanityUrl: row.slug ? vanityUrlFor(baseUrl, row.slug) : null,
     label: row.label,
     description: row.description,
+    appendRef: row.appendRef,
     campaign: row.campaign,
     source: row.source,
     distinctId: row.distinctId,
@@ -178,6 +181,7 @@ const createLinkRoute = createRoute({
             slug: z.string().optional(),
             label: z.string().optional(),
             description: z.string().optional(),
+            appendRef: z.boolean().optional(),
             campaign: z.string().optional(),
             // Honoured ONLY for personal links (the share-safe invariant in
             // mintLink drops it for public). A canonical contact key the click
@@ -274,6 +278,7 @@ const updateLinkRoute = createRoute({
             slug: z.string().nullable().optional(),
             label: z.string().nullable().optional(),
             description: z.string().nullable().optional(),
+            appendRef: z.boolean().optional(),
             campaign: z.string().nullable().optional(),
           }),
         },
@@ -401,6 +406,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         slug: body.slug,
         label: body.label,
         description: body.description,
+        appendRef: body.appendRef,
         campaign: body.campaign,
         distinctId: body.distinctId,
         createdBy: resolveActor(c) ?? undefined,
@@ -579,13 +585,19 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     const patch: Partial<
       Pick<
         LinkRow,
-        "label" | "description" | "campaign" | "originalUrl" | "slug"
+        | "label"
+        | "description"
+        | "appendRef"
+        | "campaign"
+        | "originalUrl"
+        | "slug"
       >
     > & {
       updatedAt: Date;
     } = { updatedAt: new Date() };
     if (body.label !== undefined) patch.label = body.label;
     if (body.description !== undefined) patch.description = body.description;
+    if (body.appendRef !== undefined) patch.appendRef = body.appendRef;
     if (body.campaign !== undefined) patch.campaign = body.campaign;
     if (body.originalUrl !== undefined) patch.originalUrl = body.originalUrl;
     // Slug: string = set/replace (normalized, 409 on conflict below); null =

@@ -52,6 +52,13 @@ export interface MintLinkOptions {
    * conflict). Managed links only — email's per-send links stay UUID.
    */
   slug?: string;
+  /**
+   * Arrival attribution opt-in: append `hs_ref=<click id>` to every redirect
+   * from this link so the landing page can report the visitor back to
+   * `POST /v1/t/arrive`. Off by default — an appended param breaks strict
+   * OAuth redirect_uri destinations.
+   */
+  appendRef?: boolean;
 }
 
 export interface MintedLink {
@@ -251,6 +258,7 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
       slug,
       label: opts.label ?? null,
       description: opts.description ?? null,
+      appendRef: opts.appendRef ?? false,
       campaign: opts.campaign ?? null,
       source: opts.source,
       distinctId,
