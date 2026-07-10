@@ -4,6 +4,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/app-shell";
+import { BlueprintDetailView } from "@/views/blueprint-detail-view";
 import { BucketsView } from "@/views/buckets-view";
 import { CampaignDetailView } from "@/views/campaign-detail-view";
 import { CampaignsView } from "@/views/campaigns-view";
@@ -95,6 +96,16 @@ const journeyDetailRoute = createRoute({
   },
 });
 
+const blueprintDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/journeys/blueprints/$blueprintId",
+  // Same prop-threading pattern as journeyDetailRoute above.
+  component: function BlueprintDetailRoute() {
+    const { blueprintId } = blueprintDetailRoute.useParams();
+    return <BlueprintDetailView blueprintId={blueprintId} />;
+  },
+});
+
 const bucketsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/buckets",
@@ -142,6 +153,7 @@ const routeTree = rootRoute.addChildren([
   campaignDetailRoute,
   journeysRoute,
   journeyDetailRoute,
+  blueprintDetailRoute,
   bucketsRoute,
   contactsRoute,
   suppressionsRoute,

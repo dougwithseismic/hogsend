@@ -55,6 +55,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SplitButton, type SplitItem } from "@/components/ui/split-button";
 import { useToast } from "@/components/ui/toast";
 import {
+  type BlueprintDetail,
+  getBlueprintGraph,
   getJourneyGraph,
   getTemplatePreview,
   type JourneyDetail,
@@ -71,6 +73,7 @@ import { config } from "@/lib/config";
 import { downloadDataUrl } from "@/lib/download";
 import { toMermaid } from "@/lib/mermaid";
 import { cn } from "@/lib/utils";
+import { BlueprintDefinition } from "./blueprint-definition";
 import { buildEdgePath, layoutGraph, type XY } from "./flow-layout";
 import { JourneyDefinition } from "./journey-definition";
 import { JourneyFunnel } from "./journey-funnel";
@@ -355,7 +358,7 @@ const AI_TRUNCATION_NOTE =
 function buildAiPrompt(graph: JourneyGraph): string {
   const head =
     `${AI_PROMPT_PREAMBLE}\n\n` +
-    "Here is a lifecycle journey defined in code (Mermaid). " +
+    "Here is a lifecycle journey (Mermaid). " +
     "Explain what it does and suggest improvements:\n\n";
   const meta =
     `\n\nJourney: \`${graph.journeyId}\` — ` +
@@ -680,31 +683,19 @@ function NodeDetailBody({
 }
 
 /**
- * Shown in the side panel before a node is picked: the journey's definition
- * and conversion funnel (they used to be cards above the flow), plus the
- * select-a-node hint.
+ * Shown in the side panel before a node is picked: the select-a-node hint,
+ * plus whatever definition/funnel content the caller supplies — a code
+ * journey and a blueprint have different definition shapes (and a blueprint
+ * has no funnel endpoint yet), so this stays source-agnostic.
  */
-function NodePanelPlaceholder({
-  graph,
-  journey,
-}: {
-  graph: JourneyGraph;
-  journey: JourneyDetail;
-}) {
+function NodePanelPlaceholder({ children }: { children: ReactNode }) {
   return (
     <div className="space-y-5">
       <p className="text-sm text-white/60">
         Select a node to inspect it — its metrics, config, and (for email nodes)
         the rendered template preview appear here.
       </p>
-      <section className="space-y-2.5">
-        <SectionHeading>Definition</SectionHeading>
-        <JourneyDefinition journey={journey} />
-      </section>
-      <section className="space-y-2.5">
-        <SectionHeading>Funnel</SectionHeading>
-        <JourneyFunnel journeyId={graph.journeyId} />
-      </section>
+      {children}
     </div>
   );
 }
@@ -897,10 +888,10 @@ function FlowToolbar({ graph }: { graph: JourneyGraph }) {
 
 function JourneyFlowCanvas({
   data,
-  journey,
+  emptyPanel,
 }: {
   data: JourneyGraphResponse;
-  journey: JourneyDetail;
+  emptyPanel: ReactNode;
 }) {
   const { graph, metrics } = data;
   const { fitView } = useReactFlow();
@@ -1089,7 +1080,7 @@ function JourneyFlowCanvas({
               {selectedNode ? (
                 <NodeDetailBody node={selectedNode} metric={selectedMetric} />
               ) : (
-                <NodePanelPlaceholder graph={graph} journey={journey} />
+                <NodePanelPlaceholder>{emptyPanel}</NodePanelPlaceholder>
               )}
             </aside>
           </Panel>
@@ -1120,7 +1111,60 @@ export function JourneyFlow({
 
   return (
     <ReactFlowProvider>
-      <JourneyFlowCanvas data={query.data} journey={journey} />
+      <JourneyFlowCanvas
+        data={query.data}
+        emptyPanel={
+          <>
+            <section className="space-y-2.5">
+              <SectionHeading>Definition</SectionHeading>
+              <JourneyDefinition journey={journey} />
+            </section>
+            <section className="space-y-2.5">
+              <SectionHeading>Funnel</SectionHeading>
+              <JourneyFunnel journeyId={journeyId} />
+            </section>
+          </>
+        }
+      />
+    </ReactFlowProvider>
+  );
+}
+
+/**
+ * Same renderer, blueprint data source — a blueprint's `GET /:id/graph` is
+ * byte-identical in shape to a code journey's, so only the fetch + the
+ * side-panel definition content differ. No funnel here: `getJourneyFunnel`
+ * is registry-gated to code journeys (a blueprint id 404s), and a blueprint
+ * doesn't have one yet.
+ */
+export function BlueprintFlow({
+  blueprintId,
+  blueprint,
+}: {
+  blueprintId: string;
+  blueprint: BlueprintDetail;
+}) {
+  const query = useQuery({
+    queryKey: qk.blueprintGraph(blueprintId),
+    queryFn: () => getBlueprintGraph(blueprintId),
+  });
+
+  if (query.isPending) return <TableSkeleton rows={4} />;
+  if (query.isError) {
+    return <ErrorState error={query.error} onRetry={() => query.refetch()} />;
+  }
+
+  return (
+    <ReactFlowProvider>
+      <JourneyFlowCanvas
+        data={query.data}
+        emptyPanel={
+          <section className="space-y-2.5">
+            <SectionHeading>Definition</SectionHeading>
+            <BlueprintDefinition blueprint={blueprint} />
+          </section>
+        }
+      />
     </ReactFlowProvider>
   );
 }

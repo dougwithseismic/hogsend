@@ -538,6 +538,110 @@ export function getJourneyGraph(id: string) {
   );
 }
 
+// --- Journey Blueprints (JSON-authored journeys, no PR required) ---------
+
+/**
+ * MCP/API-authored journeys stored as data (`journey_blueprints`), executed
+ * by the same worker + `JourneyGraph` primitives as a code journey — view +
+ * enable/disable only here; authoring stays MCP-only for now.
+ */
+export type BlueprintStatus = "draft" | "enabled" | "disabled";
+export type BlueprintSource = "mcp" | "studio" | "api";
+
+/** One shared status→badge mapping, consumed by the list and detail views. */
+export const BLUEPRINT_STATUS_LABEL: Record<BlueprintStatus, string> = {
+  enabled: "Enabled",
+  disabled: "Disabled",
+  draft: "Draft",
+};
+export const BLUEPRINT_STATUS_VARIANT: Record<
+  BlueprintStatus,
+  "default" | "secondary" | "outline"
+> = {
+  enabled: "default",
+  disabled: "secondary",
+  draft: "outline",
+};
+
+export type BlueprintCounts = {
+  active: number;
+  waiting: number;
+  completed: number;
+  failed: number;
+  exited: number;
+};
+
+type BlueprintBase = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: BlueprintStatus;
+  version: number;
+  triggerEvent: string;
+  triggerWhere: JourneyCondition[] | null;
+  entryLimit: "once" | "once_per_period" | "unlimited";
+  entryPeriod: Record<string, number> | null;
+  exitOn: Array<{ event: string; where?: JourneyCondition[] }> | null;
+  suppress: Record<string, number>;
+  source: BlueprintSource;
+  createdBy: string | null;
+  promotedAt: string | null;
+  promotedToJourneyId: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BlueprintListItem = BlueprintBase & { counts: BlueprintCounts };
+
+// `graph` is intentionally NOT declared here even though the engine's
+// response includes it: no Studio view reads it off the detail payload — the
+// flow canvas always fetches it (+ metrics) via `getBlueprintGraph` instead.
+// Keeping it off the type avoids a second, unused copy of the full graph
+// tempting a future caller into reading stale/metric-less data.
+export type BlueprintDetail = BlueprintBase & {
+  counts: BlueprintCounts;
+  recentStates: JourneyState[];
+};
+
+export function listBlueprints() {
+  return api.get<{
+    blueprints: BlueprintListItem[];
+    total: number;
+    limit: number;
+    offset: number;
+  }>("/v1/admin/blueprints", { query: { limit: 100 } });
+}
+
+export function getBlueprint(id: string) {
+  return api.get<{ blueprint: BlueprintDetail }>(
+    `/v1/admin/blueprints/${encodeURIComponent(id)}`,
+  );
+}
+
+/** Byte-identical response shape to `getJourneyGraph` — same renderer. */
+export function getBlueprintGraph(id: string) {
+  return api.get<JourneyGraphResponse>(
+    `/v1/admin/blueprints/${encodeURIComponent(id)}/graph`,
+  );
+}
+
+// What /enable and /disable actually return (`serializeBlueprint(row)`,
+// engine's routes/admin/blueprints.ts) — no `counts`/`recentStates` (unlike
+// `BlueprintDetail`, only GET /:id adds those), but it DOES include `graph`.
+type SerializedBlueprint = BlueprintBase & { graph: JourneyGraph };
+
+export function enableBlueprint(id: string) {
+  return api.post<{ blueprint: SerializedBlueprint }>(
+    `/v1/admin/blueprints/${encodeURIComponent(id)}/enable`,
+  );
+}
+
+export function disableBlueprint(id: string) {
+  return api.post<{ blueprint: SerializedBlueprint }>(
+    `/v1/admin/blueprints/${encodeURIComponent(id)}/disable`,
+  );
+}
+
 // --- Buckets -------------------------------------------------------------
 
 export type BucketListItem = {
@@ -1471,6 +1575,9 @@ export const qk = {
     ["journey-state", id, stateId] as const,
   journeyTemplates: (id: string) => ["journey-templates", id] as const,
   journeyGraph: (id: string) => ["journey-graph", id] as const,
+  blueprints: ["blueprints"] as const,
+  blueprint: (id: string) => ["blueprint", id] as const,
+  blueprintGraph: (id: string) => ["blueprint-graph", id] as const,
   buckets: ["buckets"] as const,
   bucketMetrics: ["bucket-metrics"] as const,
   bucket: (id: string) => ["bucket", id] as const,
