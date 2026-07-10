@@ -17,6 +17,42 @@ const NAMESPACE_TOKEN: Record<RecordNamespace, string> = {
 };
 
 /**
+ * Read the `(stateId, namespace)` sub-bag from `journey_states.context`, empty
+ * `{}` when absent. Shared by {@link recordOnce} (read-first fast path) and
+ * {@link peekRecord} (no-compute probe).
+ */
+async function readRecordBag(opts: {
+  db: Database;
+  stateId: string;
+  namespace: RecordNamespace;
+}): Promise<Record<string, unknown>> {
+  const row = await opts.db.query.journeyStates.findFirst({
+    where: eq(journeyStates.id, opts.stateId),
+    columns: { context: true },
+  });
+  const ctxBag = (row?.context ?? {}) as Record<string, unknown>;
+  return (ctxBag[opts.namespace] ?? {}) as Record<string, unknown>;
+}
+
+/**
+ * Read-only probe for a `(stateId, namespace, key)` record — no `compute`, no
+ * write. Used by the digest/throttle primitives to detect a
+ * replay-after-completion (the recorded result is present) and short-circuit to
+ * a verbatim replay WITHOUT re-arming the durable sleep or flipping status.
+ */
+export async function peekRecord(opts: {
+  db: Database;
+  stateId: string;
+  namespace: RecordNamespace;
+  key: string;
+}): Promise<{ found: boolean; value?: unknown }> {
+  const bag = await readRecordBag(opts);
+  return Object.hasOwn(bag, opts.key)
+    ? { found: true, value: bag[opts.key] }
+    : { found: false };
+}
+
+/**
  * Durable set-once for a single `(stateId, namespace, key)` — the replay-safety
  * primitive shared by `ctx.once`, `ctx.digest`, and `ctx.throttle` (later
  * phases). Guarantees:
@@ -50,14 +86,8 @@ export async function recordOnce<T>(opts: {
   // Read the current state row's context and return `context[namespace][key]`
   // when already recorded (an earlier writer, or a replay-from-top) WITHOUT
   // re-running `compute`.
-  const read = async (): Promise<Record<string, unknown>> => {
-    const row = await db.query.journeyStates.findFirst({
-      where: eq(journeyStates.id, stateId),
-      columns: { context: true },
-    });
-    const ctxBag = (row?.context ?? {}) as Record<string, unknown>;
-    return (ctxBag[namespace] ?? {}) as Record<string, unknown>;
-  };
+  const read = (): Promise<Record<string, unknown>> =>
+    readRecordBag({ db, stateId, namespace });
 
   const bag = await read();
   if (Object.hasOwn(bag, key)) {

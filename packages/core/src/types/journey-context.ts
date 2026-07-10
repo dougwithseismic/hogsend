@@ -175,6 +175,47 @@ export interface WaitForEventResult {
   occurredAt?: string;
 }
 
+export interface DigestOptions {
+  /** Aggregation window measured from this call. Max 720h. Never tier-gated. */
+  window: DurationObject;
+  /** Event name to collect. Defaults to the journey's trigger event. */
+  event?: string;
+  /**
+   * Property predicate; same model as `waitForEvent`. When `event` is (or
+   * defaults to) the journey's trigger event and `where` is omitted, the
+   * journey's `trigger.where` is applied automatically so the digest honors the
+   * trigger contract.
+   */
+  where?: JourneyWhere;
+  /** Max events returned AND recorded. Default 100, hard ceiling 500. */
+  maxEvents?: number;
+  /**
+   * Widens the scan window backward so the ENROLLING event (persisted before
+   * this task even started) is included. Default `{ minutes: 15 }`.
+   */
+  lookback?: DurationObject;
+  /**
+   * Site label (node id) for this digest. Default `digest:<event>`. Must be
+   * unique per run — reusing one throws.
+   */
+  label?: string;
+}
+
+export interface DigestEvent {
+  properties: Record<string, string | number | boolean | null> | null;
+  /** ISO-8601 occurred_at — RECORDED data, replay-stable on any engine. */
+  occurredAt: string;
+}
+
+export interface DigestResult {
+  /** Chronological (oldest → newest), capped at `maxEvents`. */
+  events: DigestEvent[];
+  count: number;
+  truncated: boolean;
+  /** ISO-8601 instant the window was flushed — recorded, replay-stable. */
+  flushedAt: string;
+}
+
 export interface JourneyContext {
   sleep(opts: SleepOptions): Promise<SleepResult>;
 
@@ -229,6 +270,29 @@ export interface JourneyContext {
    * engine's Layer-1 Hatchet memo.
    */
   once<T>(key: string, compute: () => Promise<T> | T): Promise<T>;
+
+  /**
+   * Aggregate multiple trigger events over a fixed window into ONE execution —
+   * the "digest" primitive. The FIRST event enrolls the journey; every event of
+   * the same name that arrives while the window is open is durably absorbed by
+   * the existing active-enrollment guard (stored in `user_events` before the
+   * Hatchet push, spawning no new run) and collected at flush. The call durably
+   * sleeps the window out, scans the stored rows ONCE, and RECORDS the result —
+   * so a replay-from-top returns the verbatim-same {@link DigestResult} instead
+   * of rescanning (deterministic on any engine).
+   *
+   * "Batch" is plain TypeScript grouping over the returned events — e.g.
+   * `Object.groupBy(result.events, (e) => e.properties?.projectId)` — this
+   * primitive only collects and dedups the window.
+   *
+   * Use `entryLimit: "unlimited"` for a rolling digest (each window re-enrolls
+   * from the next event); an `"once"` journey digests exactly ONE window ever.
+   *
+   * Accepted caveat: an event landing between the flush scan and journey
+   * completion is absorbed by the enrollment guard but NOT digested (a documented
+   * straggler band, matching Novu's digest semantics).
+   */
+  digest(opts: DigestOptions): Promise<DigestResult>;
 
   guard: {
     isSubscribed(): Promise<boolean>;

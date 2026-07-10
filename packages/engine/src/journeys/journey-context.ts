@@ -24,6 +24,9 @@ import {
   type SendWindow,
 } from "@hogsend/core/schedule";
 import type {
+  DigestEvent,
+  DigestOptions,
+  DigestResult,
   IfPast,
   JourneyContext,
   PropertyCondition,
@@ -39,7 +42,18 @@ import {
   journeyStates,
   userEvents,
 } from "@hogsend/db";
-import { and, count, desc, eq, gte, max, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  lte,
+  max,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { checkEmailPreferences } from "../lib/enrollment-guards.js";
 import { ingestEvent } from "../lib/ingestion.js";
 import type { Logger } from "../lib/logger.js";
@@ -52,9 +66,10 @@ import {
   deriveJourneyKey,
   getJourneyBoundary,
   registerKey,
+  registerRecordLabel,
 } from "./journey-boundary.js";
 import { logTransition } from "./journey-log.js";
-import { recordOnce } from "./record-once.js";
+import { peekRecord, recordOnce } from "./record-once.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be
  * resurrected back to "active" by a wait resuming. Exported so the durable task
@@ -63,6 +78,20 @@ export const TERMINAL_STATUSES = ["completed", "failed", "exited"] as const;
 
 /** Upper bound for a `waitForEvent` timeout — the journey task's executionTimeout. */
 const MAX_WAIT_MS = durationToMs({ hours: JOURNEY_EXECUTION_TIMEOUT_HOURS });
+
+/** Default cap on events a single digest returns AND records. */
+const DIGEST_DEFAULT_MAX_EVENTS = 100;
+/** Hard ceiling on the digest event cap — bounds the recorded jsonb payload. */
+const DIGEST_MAX_EVENTS_CEILING = 500;
+/** Default backward widening so the enrolling event is caught by the scan. */
+const DIGEST_DEFAULT_LOOKBACK: DurationObject = { minutes: 15 };
+
+/**
+ * `journeyId:nodeId:reason` keys already warned about a digest/definition
+ * interplay this process. Warn-once so a replay-from-top (which re-runs the
+ * whole `run()`) doesn't spam the log with the same authoring advisory.
+ */
+const digestWarned = new Set<string>();
 
 /**
  * Quote a string as a CEL single-quoted string literal, escaping backslashes
@@ -103,6 +132,18 @@ interface JourneyContextConfig {
   resolvedTimezone: string;
   /** The client default send window, auto-applied by `ctx.when`. */
   defaultSendWindow?: SendWindow;
+  /** The journey's trigger event — `ctx.digest`'s default `event`. */
+  triggerEvent?: string;
+  /** The journey's already-normalized `trigger.where` — `ctx.digest` applies it
+   * when digesting the trigger event with no explicit `where` (honors the
+   * trigger contract). */
+  triggerWhere?: PropertyCondition[];
+  /** The journey id — keys the digest definition-interplay warn-once. */
+  journeyId?: string;
+  /** The journey's entry limit — drives `ctx.digest` interplay warnings. */
+  entryLimit?: "once" | "once_per_period" | "unlimited";
+  /** The journey's entry period (for `once_per_period`). */
+  entryPeriod?: DurationObject;
 }
 
 /**
@@ -610,6 +651,259 @@ export function createJourneyContext(
     return { timedOut, ...(properties ? { properties } : {}) };
   };
 
+  // Scan the digest window ONCE at flush: all `event` rows for THIS user in
+  // [scanSince, flushInstant], Studio debug events excluded, capped at `cap`.
+  // Pure read — no status flips, no writes — returning a self-consistent,
+  // JSON-round-trip-safe DigestResult ready to be recorded set-once.
+  const scanDigestWindow = async (opts: {
+    event: string;
+    scanSince: Date;
+    flushInstant: Date;
+    where: PropertyCondition[];
+    cap: number;
+  }): Promise<DigestResult> => {
+    const { event, scanSince, flushInstant, where, cap } = opts;
+
+    // Push non-null `eq` conditions into SQL to NARROW the fetch so a chatty user
+    // emitting >LIMIT other same-name events can't bury a match past the cutoff.
+    // This is a COARSE pre-filter, never the verdict: jsonb `->>` extracts TEXT,
+    // so `->> p = '50'` also matches a stored string "50" while the canonical
+    // engine wants strict `50 === 50`. A null-eq is NOT pushdownable — `->> p =
+    // 'null'` never matches a jsonb null (SQL NULL) — so it is excluded here and
+    // resolved entirely by the JS re-verify below.
+    const eqPreds = where
+      .filter(
+        (c) => c.operator === "eq" && c.value !== undefined && c.value !== null,
+      )
+      .map(
+        (c) =>
+          sql`${userEvents.properties} ->> ${c.property} = ${String(c.value)}`,
+      );
+
+    // Only the where-less path can trust the fetch as final, so `cap + 1` detects
+    // truncation exactly there. ANY `where` re-verifies in JS below (the SQL fetch
+    // is then a superset), so pull cap-relative headroom — sized to the cap, not a
+    // flat 100, since the chatty-user trap scales with the digest cap.
+    const fetchLimit = where.length === 0 ? cap + 1 : Math.min(cap * 10, 2000);
+
+    const rows = await db
+      .select({
+        id: userEvents.id,
+        properties: userEvents.properties,
+        occurredAt: userEvents.occurredAt,
+      })
+      .from(userEvents)
+      .where(
+        and(
+          eq(userEvents.userId, userId),
+          eq(userEvents.event, event),
+          gte(userEvents.occurredAt, scanSince),
+          lte(userEvents.occurredAt, flushInstant),
+          // Studio debug events must never pollute a customer digest; EVERY other
+          // source (api, webhook source ids, connector ids, journey) is
+          // deliberately included so the digest sees the full real event spine.
+          sql`${userEvents.source} IS DISTINCT FROM 'studio'`,
+          ...eqPreds,
+        ),
+      )
+      // Deterministic tie-break for bulk backfills sharing a timestamp, so a
+      // pre-record rescan on replay orders identically.
+      .orderBy(asc(userEvents.occurredAt), asc(userEvents.id))
+      .limit(fetchLimit);
+
+    // Re-verify EVERY fetched row against the FULL predicate with the canonical
+    // strict-equality engine whenever a `where` is present — the SQL eq pushdown
+    // is a TEXT narrowing filter only, so a stored string "50" that SQL-matched
+    // `.eq(50)` is rejected here, and an unpushdownable null-eq is matched here.
+    const matched =
+      where.length > 0
+        ? rows.filter((row) =>
+            evaluatePropertyConditions({
+              conditions: where,
+              properties: (row.properties ?? {}) as Record<string, unknown>,
+            }),
+          )
+        : rows;
+
+    const events: DigestEvent[] = matched.slice(0, cap).map((row) => ({
+      properties: row.properties ? narrowScalars(row.properties) : null,
+      occurredAt:
+        row.occurredAt instanceof Date
+          ? row.occurredAt.toISOString()
+          : String(row.occurredAt),
+    }));
+
+    // Truncated when more matched than the cap OR the raw fetch itself hit its
+    // ceiling (further matches may exist past the fetched slice).
+    const truncated = matched.length > cap || rows.length >= fetchLimit;
+
+    return {
+      events,
+      count: events.length,
+      truncated,
+      flushedAt: flushInstant.toISOString(),
+    };
+  };
+
+  // Aggregate multiple trigger events over a fixed window into ONE execution.
+  // Each numbered step is a replay-safety requirement — do NOT reorder them.
+  const performDigest = async (opts: DigestOptions): Promise<DigestResult> => {
+    // 1. VALIDATE — throw BEFORE any durable work (no db/hatchet touched yet).
+    const eventName = opts.event ?? config.triggerEvent;
+    if (!eventName) {
+      throw new TypeError(
+        "ctx.digest: no `event` given and the journey has no trigger event",
+      );
+    }
+    const windowMs = durationToMs(opts.window);
+    if (windowMs <= 0) {
+      throw new RangeError("ctx.digest window must be a positive duration");
+    }
+    if (windowMs > MAX_WAIT_MS) {
+      throw new RangeError(
+        `ctx.digest window exceeds the journey execution limit (${JOURNEY_EXECUTION_TIMEOUT})`,
+      );
+    }
+    const cap = Math.min(
+      Math.max(1, opts.maxEvents ?? DIGEST_DEFAULT_MAX_EVENTS),
+      DIGEST_MAX_EVENTS_CEILING,
+    );
+    const lookbackMs = durationToMs(opts.lookback ?? DIGEST_DEFAULT_LOOKBACK);
+    const nodeId = opts.label ?? `digest:${eventName}`;
+    // `where`: an explicit predicate wins; otherwise the trigger contract applies
+    // ONLY when digesting the trigger event itself (FM-16), so a digest of the
+    // journey's own trigger honors `trigger.where` without restating it.
+    const where =
+      opts.where !== undefined
+        ? (normalizeWhere(opts.where) ?? [])
+        : eventName === config.triggerEvent
+          ? (config.triggerWhere ?? [])
+          : [];
+
+    // 2. REGISTER the site label — reusing a label in one run throws loudly (two
+    // digests sharing a durable record would silently over-collapse). No-op
+    // outside a durable run (a unit-test context has no boundary).
+    registerRecordLabel(getJourneyBoundary(), nodeId);
+
+    // 3. DEFINITION-INTERPLAY WARNINGS — warn-once per process per journeyId:nodeId.
+    if (eventName === config.triggerEvent && config.entryLimit === "once") {
+      const key = `${config.journeyId ?? ""}:${nodeId}:once`;
+      if (!digestWarned.has(key)) {
+        digestWarned.add(key);
+        logger.warn(
+          `ctx.digest: journey "${config.journeyId ?? nodeId}" has entryLimit ` +
+            '"once" and digests its own trigger event — it digests exactly ONE ' +
+            "window ever; trigger events after the first enrollment are dropped, " +
+            'not digested. Use entryLimit "unlimited" for a rolling digest.',
+        );
+      }
+    }
+    if (
+      config.entryLimit === "once_per_period" &&
+      config.entryPeriod &&
+      durationToMs(config.entryPeriod) > windowMs
+    ) {
+      const key = `${config.journeyId ?? ""}:${nodeId}:period`;
+      if (!digestWarned.has(key)) {
+        digestWarned.add(key);
+        logger.warn(
+          `ctx.digest: journey "${config.journeyId ?? nodeId}" entryPeriod is ` +
+            "longer than the digest window — events arriving in the gap between " +
+            "the flush and the next enrollment are absorbed but never digested " +
+            "(an enrollment-gap loss band).",
+        );
+      }
+    }
+
+    // 4. REPLAY-AFTER-FLUSH FAST PATH — the recorded result IS the terminal
+    // marker: return it verbatim, no sleep, no status flips, no rescan.
+    const recorded = await peekRecord({
+      db,
+      stateId,
+      namespace: "__digest__",
+      key: `${nodeId}:result`,
+    });
+    if (recorded.found) {
+      // Advance the boundary label so a later auto-keyed send still inherits the
+      // digest site even on a replay that skips the sleep, then refresh the clock.
+      setBoundaryLabel(nodeId);
+      await refreshNow();
+      return recorded.value as DigestResult;
+    }
+
+    // 5. DURABLE DEADLINE — read-first / set-once off the memoized clock, so a
+    // replay-from-top reuses the SAME flush instant instead of re-extending the
+    // window on every replay. Never cleared; the result record is the terminal
+    // mark. Flat `<label>:deadline` / `<label>:result` subkeys keep set-once
+    // applying per subkey.
+    const deadlineIso = await recordOnce({
+      db,
+      stateId,
+      namespace: "__digest__",
+      key: `${nodeId}:deadline`,
+      compute: async () =>
+        new Date((await refreshNow()).getTime() + windowMs).toISOString(),
+    });
+    const deadline = new Date(deadlineIso);
+
+    // 6. SLEEP THE REMAINDER — performSleep's enterWait/resumeFromWait lifecycle
+    // is what makes an exitOn mid-window abort cleanly (JourneyExitedError), and
+    // it advances the boundary label + refreshes the memoized clock.
+    const remainingMs = deadline.getTime() - Date.now();
+    if (remainingMs > 0) {
+      await performSleep(remainingMs, nodeId);
+    } else {
+      // Replay woke at/after the deadline (the COMMON eviction path): performSleep
+      // is skipped, and with it its enterWait/resumeFromWait terminal-status
+      // backstop — so re-run that check here. An exitOn that fired while the
+      // worker was down (its best-effort runs.cancel possibly lost) leaves a
+      // terminal row; flushing past it would deliver the tail to a user who
+      // already exited (the FM-14 class performFilteredWaitForEvent guards
+      // per-iteration).
+      const st = await db
+        .select({ status: journeyStates.status })
+        .from(journeyStates)
+        .where(eq(journeyStates.id, stateId))
+        .limit(1);
+      const status = st[0]?.status;
+      if (status && (TERMINAL_STATUSES as readonly string[]).includes(status)) {
+        throw new JourneyExitedError(stateId);
+      }
+      // A row still parked "waiting" (a pre-eviction wait that never resumed) is
+      // flipped back to active — its own 0-rows JourneyExitedError on a
+      // concurrent flip is the correct abort. An already-"active" row needs no
+      // flip. Both then advance the boundary label + memoized clock exactly as
+      // performSleep's tail would, so downstream behavior is path-independent.
+      if (status === "waiting") {
+        await resumeFromWait(nodeId);
+      }
+      setBoundaryLabel(nodeId);
+      await refreshNow();
+    }
+
+    // 7. FLUSH ONCE, RECORD ONCE — scan up to the flush instant (NOT the
+    // deadline: a straggler landing during wake latency is still in-window;
+    // anything after the flush belongs to the documented straggler band).
+    // recordOnce's read-back means a zombie double-writer returns the
+    // FIRST-committed snapshot, so both racers hand author code the SAME set.
+    const flushInstant = await refreshNow();
+    const scanSince = new Date(deadline.getTime() - windowMs - lookbackMs);
+    return recordOnce({
+      db,
+      stateId,
+      namespace: "__digest__",
+      key: `${nodeId}:result`,
+      compute: () =>
+        scanDigestWindow({
+          event: eventName,
+          scanSince,
+          flushInstant,
+          where,
+          cap,
+        }),
+    });
+  };
+
   return {
     when: createWhenBuilder({
       timezone: resolvedTimezone,
@@ -756,6 +1050,10 @@ export function createJourneyContext(
       // `__once__` namespace, read-back return so a zombie double-writer cannot
       // clobber the value the winner already handed to author code.
       return recordOnce({ db, stateId, namespace: "__once__", key, compute });
+    },
+
+    digest(opts) {
+      return performDigest(opts);
     },
 
     guard: {

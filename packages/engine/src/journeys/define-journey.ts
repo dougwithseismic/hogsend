@@ -417,6 +417,15 @@ export function defineJourney(options: {
         journeyContext: { ...properties },
         resolvedTimezone: tz.timezone,
         defaultSendWindow: scheduleDefaults.sendWindow,
+        // Digest defaults: the trigger event + its already-normalized `where`
+        // (so a digest of the journey's own trigger honors the trigger contract
+        // without restating it), plus the enrollment shape for the digest's
+        // definition-interplay warnings.
+        triggerEvent: meta.trigger.event,
+        ...(meta.trigger.where ? { triggerWhere: meta.trigger.where } : {}),
+        journeyId: meta.id,
+        entryLimit: meta.entryLimit,
+        ...(meta.entryPeriod ? { entryPeriod: meta.entryPeriod } : {}),
       });
 
       // The journey boundary makes journey side effects (sendEmail, ctx.trigger)
