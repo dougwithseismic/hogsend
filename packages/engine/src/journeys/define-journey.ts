@@ -435,6 +435,7 @@ export function defineJourney(options: {
         runAnchor,
         currentLabel: undefined,
         seenKeys: new Set<string>(),
+        seenRecordLabels: new Set<string>(),
         memoize: createMemoize(hatchetCtx),
       };
 

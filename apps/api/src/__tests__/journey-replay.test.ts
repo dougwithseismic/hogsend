@@ -121,6 +121,7 @@ function makeBoundary(opts: {
     runAnchor: opts.stateId,
     currentLabel: undefined,
     seenKeys: new Set<string>(),
+    seenRecordLabels: new Set<string>(),
     memoize: createMemoize(opts.hatchetCtx ?? {}),
   };
 }

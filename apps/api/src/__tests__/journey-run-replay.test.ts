@@ -125,6 +125,7 @@ function makeBoundary(stateId: string, runAnchor?: string): JourneyBoundary {
     runAnchor: runAnchor ?? stateId,
     currentLabel: undefined,
     seenKeys: new Set<string>(),
+    seenRecordLabels: new Set<string>(),
     memoize: createMemoize({}),
   };
 }

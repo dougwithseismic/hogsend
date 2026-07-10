@@ -54,6 +54,7 @@ import {
   registerKey,
 } from "./journey-boundary.js";
 import { logTransition } from "./journey-log.js";
+import { recordOnce } from "./record-once.js";
 
 /** Journey statuses that are terminal — a journey in any of these must never be
  * resurrected back to "active" by a wait resuming. Exported so the durable task
@@ -749,50 +750,12 @@ export function createJourneyContext(
     },
 
     async once<T>(key: string, compute: () => Promise<T> | T): Promise<T> {
-      // DB-backed record-once, durable on ANY engine. Read the current state
-      // row's context; if this key was already recorded (an earlier run of this
-      // enrollment, or a replay-from-top), return the stored value WITHOUT
-      // re-running `compute`. Otherwise compute, persist under the reserved
-      // `__once__` namespace, and return. The persist uses a jsonb merge keyed on
-      // a PARAMETERIZED path so an attacker-controlled `key` cannot inject SQL,
-      // and so a concurrent `checkpoint`/`once` write to a different path is not
-      // clobbered.
-      const read = async (): Promise<Record<string, unknown>> => {
-        const row = await db.query.journeyStates.findFirst({
-          where: eq(journeyStates.id, stateId),
-          columns: { context: true },
-        });
-        const ctxBag = (row?.context ?? {}) as Record<string, unknown>;
-        return (ctxBag.__once__ ?? {}) as Record<string, unknown>;
-      };
-
-      const onceBag = await read();
-      if (Object.hasOwn(onceBag, key)) {
-        return onceBag[key] as T;
-      }
-
-      const value = await compute();
-      // Persist under context.__once__.<key>. NOTE jsonb_set with
-      // create_missing=true cannot create a NESTED key whose parent object is
-      // absent (a fresh '{}' has no '__once__'), so we set the TOP-LEVEL
-      // '__once__' to (its existing bag) MERGED with the single new key via `||`.
-      // This creates '__once__' when missing AND preserves sibling once-keys.
-      // `key` and the value are bound parameters (jsonb_build_object), so the
-      // write is injection-safe.
-      await db
-        .update(journeyStates)
-        .set({
-          context: sql`jsonb_set(
-            coalesce(${journeyStates.context}, '{}'::jsonb),
-            '{__once__}',
-            coalesce(${journeyStates.context} -> '__once__', '{}'::jsonb)
-              || jsonb_build_object(${key}::text, ${JSON.stringify(value ?? null)}::jsonb),
-            true
-          )`,
-          updatedAt: new Date(),
-        })
-        .where(eq(journeyStates.id, stateId));
-      return value;
+      // Durable, engine-agnostic record-once. Delegated to the standalone
+      // `recordOnce` (shared with the digest/throttle primitives + the mailer):
+      // read-first fast path, FIRST-writer-wins jsonb merge under the reserved
+      // `__once__` namespace, read-back return so a zombie double-writer cannot
+      // clobber the value the winner already handed to author code.
+      return recordOnce({ db, stateId, namespace: "__once__", key, compute });
     },
 
     guard: {

@@ -210,6 +210,7 @@ export {
   type JourneyBoundary,
   parseJourneySendSite,
   registerKey,
+  registerRecordLabel,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
 export { createJourneyContext } from "./journeys/journey-context.js";
@@ -229,6 +230,10 @@ export {
   resetJourneySources,
   setJourneySources,
 } from "./journeys/journey-sources-singleton.js";
+export {
+  type RecordNamespace,
+  recordOnce,
+} from "./journeys/record-once.js";
 export {
   buildJourneyRegistry,
   parseEnabledFilter,
