@@ -1,9 +1,32 @@
-import type { JourneySourceLocation } from "@hogsend/core";
+import type { JourneySourceLocation, JourneySpec } from "@hogsend/core";
 import { JourneyRegistry } from "@hogsend/core/registry";
 import type { DefinedJourney } from "./define-journey.js";
 import { setJourneySourceLocations } from "./journey-source-locations-singleton.js";
 import { setJourneySources } from "./journey-sources-singleton.js";
 import { setJourneyRegistry } from "./registry-singleton.js";
+import { isJourneySpec, journeyFromSpec } from "./spec/journey-from-spec.js";
+
+/**
+ * A journey the registry/worker builders accept: an authored `defineJourney`
+ * result OR a declarative {@link JourneySpec} (JSON/YAML-loaded). Specs are
+ * adapted to `DefinedJourney`s via `journeyFromSpec` before anything reads
+ * their `.meta` / `.task`.
+ */
+export type JourneyOrSpec = DefinedJourney | JourneySpec;
+
+/**
+ * Adapt any specs in a journey array to `DefinedJourney`s. Idempotent for
+ * already-defined journeys. `templateKeys` (when the caller has the email
+ * registry) makes a dead `send_email.template` a loud definition-time error.
+ */
+export function normalizeJourneys(
+  journeys: ReadonlyArray<JourneyOrSpec>,
+  templateKeys?: ReadonlySet<string>,
+): DefinedJourney[] {
+  return journeys.map((j) =>
+    isJourneySpec(j) ? journeyFromSpec(j, { templateKeys }) : j,
+  );
+}
 
 /**
  * Parse the `ENABLED_JOURNEYS` filter. Returns `"*"` to enable all journeys, or
@@ -143,12 +166,14 @@ export function resolveEnabledFilter(
  *   accepted in the filter without a throw — see {@link resolveEnabledFilter}.
  */
 export function buildJourneyRegistry(
-  journeys: DefinedJourney[],
+  journeys: ReadonlyArray<JourneyOrSpec>,
   enabledFilter?: string,
   extraKnownIds?: string[],
+  opts?: { templateKeys?: ReadonlySet<string> },
 ): JourneyRegistry {
+  const defined = normalizeJourneys(journeys, opts?.templateKeys);
   const registry = new JourneyRegistry();
-  const enabled = resolveEnabledFilter(journeys, enabledFilter, extraKnownIds);
+  const enabled = resolveEnabledFilter(defined, enabledFilter, extraKnownIds);
 
   // Captured `run` sources for the enabled journeys (skip ones whose source
   // failed to serialize). Installed as a sibling singleton so the container can
@@ -158,7 +183,7 @@ export function buildJourneyRegistry(
   // Sibling singleton so the Studio route can build an "open in editor" link.
   const locations = new Map<string, JourneySourceLocation>();
 
-  for (const journey of journeys) {
+  for (const journey of defined) {
     if (enabled === "*" || enabled.has(journey.meta.id)) {
       registry.register(journey.meta);
       if (journey.runSource) {

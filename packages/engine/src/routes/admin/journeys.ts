@@ -20,6 +20,8 @@ import {
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { buildJourneyGraph } from "../../journeys/graph/build-graph.js";
+import { getJourneySpec } from "../../journeys/spec/spec-registry.js";
+import { specToGraph } from "../../journeys/spec/spec-to-graph.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 
 /**
@@ -847,7 +849,13 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     // call-site (also static per process) is baked into the cached graph.
     let graph = journeyGraphCache.get(id);
     if (!graph) {
-      graph = buildJourneyGraph({ runSource: journeySources.get(id), meta });
+      // Spec journeys (JSON/YAML-defined) render straight from their spec —
+      // full fidelity, no parsing, never degraded. Their `runSource` is the
+      // interpreter's own source, which the AST walk must never see.
+      const spec = getJourneySpec(id);
+      graph = spec
+        ? specToGraph(spec)
+        : buildJourneyGraph({ runSource: journeySources.get(id), meta });
       const source = journeySourceLocations.get(id);
       if (source) graph.source = source;
       journeyGraphCache.set(id, graph);

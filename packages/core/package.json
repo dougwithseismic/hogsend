@@ -18,6 +18,7 @@
     "./registry": "./src/registry/index.ts",
     "./conditions": "./src/conditions/index.ts",
     "./journey-graph": "./src/journey-graph/index.ts",
+    "./journey-spec": "./src/journey-spec/index.ts",
     "./schedule": "./src/schedule/index.ts",
     "./schemas": "./src/schemas/index.ts"
   },

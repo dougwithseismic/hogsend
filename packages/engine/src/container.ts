@@ -4,6 +4,7 @@ import type {
   AnalyticsProvider,
   EmailProvider,
   JourneySourceLocation,
+  JourneySpec,
   PostHogService,
   TimeZone,
 } from "@hogsend/core";
@@ -222,8 +223,14 @@ export interface HogsendClient {
 }
 
 export interface HogsendClientOptions {
-  /** Journeys to register in the {@link JourneyRegistry}. Defaults to none. */
-  journeys?: DefinedJourney[];
+  /**
+   * Journeys to register in the {@link JourneyRegistry}. Defaults to none.
+   * Accepts authored `defineJourney` results AND declarative {@link JourneySpec}
+   * objects (JSON/YAML-loaded journeys) — specs are adapted via
+   * `journeyFromSpec` at construction, so downstream everything sees ordinary
+   * `DefinedJourney`s.
+   */
+  journeys?: Array<DefinedJourney | JourneySpec>;
   /** Buckets to register in the {@link BucketRegistry}. Defaults to none. */
   buckets?: DefinedBucket[];
   /**
@@ -425,10 +432,16 @@ export function createHogsendClient(
     enabledBuckets,
   );
 
+  // `buildJourneyRegistry` accepts declarative specs too and adapts them
+  // in-place; passing the email registry keys makes a dead `send_email.template`
+  // a loud boot error instead of a send-time failure.
   const registry = buildJourneyRegistry(
     opts.journeys ?? [],
     opts.enabledJourneys ?? env.ENABLED_JOURNEYS,
     reactionJourneys.map((r) => r.meta.id),
+    opts.email?.templates
+      ? { templateKeys: new Set(Object.keys(opts.email.templates)) }
+      : undefined,
   );
 
   // Installs the bucket registry singleton in BOTH the API and worker processes

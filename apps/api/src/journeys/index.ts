@@ -1,4 +1,4 @@
-import type { DefinedJourney } from "@hogsend/engine";
+import type { DefinedJourney, JourneySpec } from "@hogsend/engine";
 import { activationNudgeSeries } from "./activation-nudge-series.js";
 import { activationWelcome } from "./activation-welcome.js";
 import { aiOnboarding } from "./ai-onboarding.js";
@@ -21,6 +21,7 @@ import { reactivationDormancy } from "./reactivation-dormancy.js";
 import { referralInvite } from "./referral-invite.js";
 import { retentionMilestone } from "./retention-milestone.js";
 import { retentionWeeklyDigest } from "./retention-weekly-digest.js";
+import { specDemoJourney } from "./spec-demo.journey.js";
 import { telegramLinkRequest } from "./telegram-link-request.js";
 import { telegramLinked } from "./telegram-linked.js";
 import { telegramOnboarding } from "./telegram-onboarding.js";
@@ -30,8 +31,12 @@ import { testOnboarding } from "./test-onboarding.js";
 /**
  * All defined journeys for this app. Passed to `createHogsendClient({ journeys })`
  * and `createWorker({ journeys })`. Edit freely — this is your content.
+ *
+ * The array takes BOTH authored `defineJourney` results and declarative
+ * {@link JourneySpec} objects (data parsed from JSON/YAML, or typed inline like
+ * `spec-demo`) — the engine adapts specs at boot.
  */
-export const journeys: DefinedJourney[] = [
+export const journeys: Array<DefinedJourney | JourneySpec> = [
   activationWelcome,
   activationNudgeSeries,
   aiOnboarding,
@@ -60,6 +65,7 @@ export const journeys: DefinedJourney[] = [
   demoWelcome,
   demoLaunch,
   demoTrialNudge,
+  specDemoJourney,
 ];
 
 // Re-export individual journeys for direct reference (tests, custom wiring).
@@ -87,6 +93,7 @@ export {
   referralInvite,
   retentionMilestone,
   retentionWeeklyDigest,
+  specDemoJourney,
   telegramLinked,
   telegramLinkRequest,
   telegramOnboarding,

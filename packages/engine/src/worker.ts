@@ -1,3 +1,4 @@
+import type { JourneySpec } from "@hogsend/core";
 import type { DefinedBucket } from "./buckets/define-bucket.js";
 import {
   collectBucketReactionJourneys,
@@ -12,7 +13,11 @@ import {
 } from "./connectors/runtime.js";
 import type { HogsendClient } from "./container.js";
 import type { DefinedJourney } from "./journeys/define-journey.js";
-import { parseEnabledFilter, selectJourneyTasks } from "./journeys/registry.js";
+import {
+  normalizeJourneys,
+  parseEnabledFilter,
+  selectJourneyTasks,
+} from "./journeys/registry.js";
 import { reportWorkerReady } from "./lib/boot.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getRedisIfConnected } from "./lib/redis.js";
@@ -39,7 +44,12 @@ import { sendFeedTask } from "./workflows/send-feed.js";
 
 export interface CreateWorkerOptions {
   container: HogsendClient;
-  journeys: DefinedJourney[];
+  /**
+   * Journeys whose Hatchet tasks this worker executes. Accepts authored
+   * `defineJourney` results AND declarative {@link JourneySpec} objects
+   * (JSON/YAML-loaded journeys) — specs are adapted via `journeyFromSpec`.
+   */
+  journeys: Array<DefinedJourney | JourneySpec>;
   /** Buckets whose fast-expiry timer tasks are registered. Defaults to none. */
   buckets?: DefinedBucket[];
   /**
@@ -69,7 +79,15 @@ export interface Worker {
 }
 
 export function createWorker(opts: CreateWorkerOptions): Worker {
-  const { container, journeys } = opts;
+  const { container } = opts;
+  // Adapt declarative specs first — the worker registers `journey.task` and
+  // reads `journey.meta.id`, both of which only exist on a DefinedJourney.
+  // Template keys from the container's registry make a dead `send_email`
+  // template a loud worker-boot error.
+  const journeys = normalizeJourneys(
+    opts.journeys,
+    new Set(Object.keys(container.templates ?? {})),
+  );
   const enabled = opts.enabledJourneys ?? container.env.ENABLED_JOURNEYS;
   const enabledBuckets = opts.enabledBuckets ?? container.env.ENABLED_BUCKETS;
   // Bucket-reaction journey ids (`bucket-<id>-on-<kind>`) are registered

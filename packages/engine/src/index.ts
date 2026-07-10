@@ -20,6 +20,8 @@ export type {
   EmailProvider,
   EmailProviderCapabilities,
   EmailProviderMeta,
+  JourneySpec,
+  JourneyStep,
   /** @deprecated Use {@link EmailEvent}. Frozen `event.raw` cast target. */
   LegacyResendWebhookEvent,
   PostHogService,
@@ -247,6 +249,12 @@ export {
   getJourneyRegistrySingleton,
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
+export {
+  isJourneySpec,
+  journeyFromSpec,
+  makeSpecRun,
+} from "./journeys/spec/journey-from-spec.js";
+export { specToGraph } from "./journeys/spec/spec-to-graph.js";
 // --- Studio co-working agent (HITL proposal chokepoint) ---
 export {
   InvalidProposalError,
