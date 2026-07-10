@@ -86,7 +86,8 @@ export const bucketMetaSchema = z
   })
   .superRefine((meta, ctx) => {
     const kind = meta.kind ?? "dynamic";
-    const criteria = meta.criteria as ConditionEval | undefined;
+    // conditionEvalSchema is typed z.ZodType<ConditionEval>, so no cast needed.
+    const criteria = meta.criteria;
 
     // minDwell is a floor, maxDwell an unconditional ceiling. A ceiling below the
     // floor is contradictory — the TTL leave would be permanently blocked by the

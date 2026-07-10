@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ConditionEval } from "../types/conditions.js";
 
 export const propertyConditionSchema = z.object({
   type: z.literal("property"),
@@ -38,18 +39,31 @@ export const emailEngagementConditionSchema = z.object({
   check: z.enum(["opened", "clicked", "not_opened", "not_clicked"]),
 });
 
-export const conditionEvalSchema: z.ZodType<unknown> = z.lazy(() =>
-  z.discriminatedUnion("type", [
-    propertyConditionSchema,
-    eventConditionSchema,
-    emailEngagementConditionSchema,
-    z.object({
-      type: z.literal("composite"),
-      operator: z.enum(["and", "or"]),
-      conditions: z.array(conditionEvalSchema),
-    }),
-  ]),
-);
+// Typed to the real condition vocabulary (a strict subset of `ConditionEval`:
+// `channel_identity` has no schema member — parse fails loudly on it, see
+// bucket.schema.ts). The annotation is what lets downstream schemas
+// (journey-graph decision nodes, bucket criteria) infer `ConditionEval`
+// instead of `unknown`.
+//
+// `.meta({ id })` gives the RECURSIVE schema a stable ref id: OpenAPI/JSON
+// Schema generators emit `$ref: ConditionEval` on re-encounter instead of
+// unrolling the composite→conditions cycle forever (stack overflow). The
+// self-references inside the lazy getter resolve to this final (meta'd)
+// binding, so the ref actually breaks the cycle.
+export const conditionEvalSchema: z.ZodType<ConditionEval> = z
+  .lazy(() =>
+    z.discriminatedUnion("type", [
+      propertyConditionSchema,
+      eventConditionSchema,
+      emailEngagementConditionSchema,
+      z.object({
+        type: z.literal("composite"),
+        operator: z.enum(["and", "or"]),
+        conditions: z.array(conditionEvalSchema),
+      }),
+    ]),
+  )
+  .meta({ id: "ConditionEval" });
 
 export const journeyMetaSchema = z.object({
   id: z.string().min(1),
