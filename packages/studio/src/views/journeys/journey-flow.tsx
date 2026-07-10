@@ -818,8 +818,8 @@ function NodeDetailBody({
 
 /**
  * Shown in the side panel before a node is picked: the journey's definition
- * and conversion funnel (they used to be cards above the flow), plus a type
- * legend and the select-a-node hint.
+ * and conversion funnel (they used to be cards above the flow), plus the
+ * select-a-node hint.
  */
 function NodePanelPlaceholder({
   graph,
@@ -828,17 +828,6 @@ function NodePanelPlaceholder({
   graph: JourneyGraph;
   journey: JourneyDetail;
 }) {
-  const types = useMemo(() => {
-    const seen = new Set<JourneyGraphNodeType>();
-    const ordered: JourneyGraphNodeType[] = [];
-    for (const node of graph.nodes) {
-      if (seen.has(node.type)) continue;
-      seen.add(node.type);
-      ordered.push(node.type);
-    }
-    return ordered;
-  }, [graph]);
-
   return (
     <div className="space-y-5">
       <p className="text-sm text-white/60">
@@ -852,20 +841,6 @@ function NodePanelPlaceholder({
       <section className="space-y-2.5">
         <SectionHeading>Funnel</SectionHeading>
         <JourneyFunnel journeyId={graph.journeyId} />
-      </section>
-      <section className="space-y-2">
-        <SectionHeading>Legend</SectionHeading>
-        <ul className="space-y-1.5">
-          {types.map((type) => (
-            <li key={type} className="flex items-center gap-2 text-sm">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: NODE_STYLE[type].rail }}
-              />
-              <span className="text-white/70">{NODE_STYLE[type].kind}</span>
-            </li>
-          ))}
-        </ul>
       </section>
     </div>
   );

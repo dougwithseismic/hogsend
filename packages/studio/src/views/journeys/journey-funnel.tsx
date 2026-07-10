@@ -152,7 +152,7 @@ export function JourneyFunnel({
 
   return (
     <div className="space-y-3">
-      <ol className="flex items-stretch gap-2" aria-label="Conversion funnel">
+      <ol className="space-y-2.5" aria-label="Conversion funnel">
         {rows.map((row) => {
           const dropLabel =
             row.step && row.step.kind !== "none"
@@ -163,26 +163,36 @@ export function JourneyFunnel({
           return (
             <li
               key={row.key}
-              className="min-w-0 flex-1 rounded-md border border-hairline-faint bg-white/[0.015] p-3"
+              className="space-y-1"
               aria-label={`${row.label}: ${formatNumber(row.value)}, ${formatPercent(
                 row.ratio,
               )} of enrolled${dropLabel}`}
             >
-              <div className="eyebrow truncate text-white/40">{row.label}</div>
-              <div className="mt-1 text-lg font-medium tabular-nums text-white/90">
-                {formatNumber(row.value)}
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate text-sm text-white/70">
+                  {row.label}
+                </span>
+                <span className="flex shrink-0 items-baseline gap-2">
+                  {row.step ? <StepBadge step={row.step} /> : null}
+                  {row.isFirst ? (
+                    <span className="eyebrow text-[10px] text-white/30">
+                      base
+                    </span>
+                  ) : (
+                    <span className="text-xs tabular-nums text-white/45">
+                      {formatPercent(row.ratio)}
+                    </span>
+                  )}
+                  <span className="min-w-[3ch] text-right text-sm font-medium tabular-nums text-white/90">
+                    {formatNumber(row.value)}
+                  </span>
+                </span>
               </div>
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                {row.isFirst ? (
-                  <span className="eyebrow text-[10px] text-white/30">
-                    base
-                  </span>
-                ) : (
-                  <span className="text-xs tabular-nums text-white/45">
-                    {formatPercent(row.ratio)}
-                  </span>
-                )}
-                {row.step ? <StepBadge step={row.step} /> : null}
+              <div className="h-1 overflow-hidden rounded-full bg-white/[0.06]">
+                <div
+                  className="h-full rounded-full bg-white/25"
+                  style={{ width: `${Math.min(row.ratio, 1) * 100}%` }}
+                />
               </div>
             </li>
           );
