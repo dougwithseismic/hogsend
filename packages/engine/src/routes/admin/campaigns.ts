@@ -6,11 +6,15 @@
  * Studio. The list/get/cancel semantics mirror `routes/campaigns/index.ts`
  * exactly (same serializer, same cancel CAS).
  */
+import { type CampaignStep, durationToMs } from "@hogsend/core";
 import { campaigns, emailSends } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, count, desc, eq, inArray, like, max, sql } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { campaignSendKeyPattern } from "../../lib/campaign-send-key.js";
+import {
+  campaignSendKeyPattern,
+  campaignStepSendKeyPattern,
+} from "../../lib/campaign-send-key.js";
 import { errorSchema } from "../../lib/schemas.js";
 import { campaignSchema, serializeCampaign } from "../campaigns/index.js";
 
@@ -62,12 +66,36 @@ const getRouteDef = createRoute({
 });
 
 /**
+ * One row of the per-step breakdown for a multi-step campaign: the step's
+ * identity (`kind` + `templateKey` for send steps, `durationMs` for wait
+ * steps) plus the same engagement aggregate as the campaign level, scoped to
+ * the step's `campaign:<id>:<step>:%` idempotency-key pattern. Wait steps
+ * deliver nothing, so their counts are zeroed.
+ */
+const campaignStepStatsSchema = z.object({
+  index: z.number(),
+  kind: z.string(),
+  templateKey: z.string().nullable(),
+  durationMs: z.number().nullable(),
+  sends: z.number(),
+  delivered: z.number(),
+  opened: z.number(),
+  clicked: z.number(),
+  bounced: z.number(),
+  complained: z.number(),
+  failed: z.number(),
+  lastSentAt: z.string().nullable(),
+});
+
+/**
  * Post-dispatch engagement for one campaign, aggregated from the `email_sends`
- * rows the blast wrote (attributed via the `campaign:<id>:<email>` idempotency
+ * rows the blast wrote (attributed via the `campaign:<id>:…` idempotency
  * key — there is no campaign FK on email_sends). Complements the counters on
  * the campaign row itself: the row knows sent/skipped/failed at dispatch time,
  * this knows what happened to the mail AFTERWARDS (delivered/opened/clicked/
- * bounced/complained via first-party tracking + provider webhooks).
+ * bounced/complained via first-party tracking + provider webhooks). Multi-step
+ * campaigns additionally carry `steps` — one entry per step, in step order
+ * (the campaign-level numbers are a superset of every step's).
  */
 const campaignStatsSchema = z.object({
   sends: z.number(),
@@ -78,6 +106,7 @@ const campaignStatsSchema = z.object({
   complained: z.number(),
   failed: z.number(),
   lastSentAt: z.string().nullable(),
+  steps: z.array(campaignStepStatsSchema).optional(),
 });
 
 const statsRouteDef = createRoute({
@@ -91,7 +120,8 @@ const statsRouteDef = createRoute({
   responses: {
     200: {
       content: { "application/json": { schema: campaignStatsSchema } },
-      description: "Engagement aggregated from the campaign's email sends",
+      description:
+        "Engagement aggregated from the campaign's email sends, plus a per-step breakdown for multi-step campaigns",
     },
     404: {
       content: { "application/json": { schema: errorSchema } },
@@ -172,40 +202,41 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { id } = c.req.valid("param");
 
-    const exists = await db
-      .select({ id: campaigns.id })
+    const rows = await db
+      .select({ id: campaigns.id, steps: campaigns.steps })
       .from(campaigns)
       .where(eq(campaigns.id, id))
       .limit(1);
-    if (!exists[0]) {
+    const row = rows[0];
+    if (!row) {
       return c.json({ error: `Unknown campaign: ${id}` }, 404);
     }
 
     // count(column) counts non-NULL values, so each engagement timestamp
     // doubles as its own tally. No campaign FK on email_sends — the LIKE on the
     // deterministic idempotency key is the attribution (admin-plane traffic, so
-    // the prefix scan is acceptable without a dedicated index).
-    const agg = (
-      await db
-        .select({
-          sends: count(),
-          delivered: count(emailSends.deliveredAt),
-          opened: count(emailSends.openedAt),
-          clicked: count(emailSends.clickedAt),
-          bounced: count(emailSends.bouncedAt),
-          complained: count(emailSends.complainedAt),
-          failed:
-            sql<number>`count(*) filter (where ${emailSends.status} = 'failed')`.mapWith(
-              Number,
-            ),
-          lastSentAt: max(emailSends.sentAt),
-        })
-        .from(emailSends)
-        .where(like(emailSends.idempotencyKey, campaignSendKeyPattern(id)))
-    )[0];
-
-    return c.json(
-      {
+    // the prefix scan is acceptable without a dedicated index). Shared by the
+    // campaign-level aggregate and the per-step breakdown.
+    const aggregate = async (pattern: string) => {
+      const agg = (
+        await db
+          .select({
+            sends: count(),
+            delivered: count(emailSends.deliveredAt),
+            opened: count(emailSends.openedAt),
+            clicked: count(emailSends.clickedAt),
+            bounced: count(emailSends.bouncedAt),
+            complained: count(emailSends.complainedAt),
+            failed:
+              sql<number>`count(*) filter (where ${emailSends.status} = 'failed')`.mapWith(
+                Number,
+              ),
+            lastSentAt: max(emailSends.sentAt),
+          })
+          .from(emailSends)
+          .where(like(emailSends.idempotencyKey, pattern))
+      )[0];
+      return {
         sends: agg?.sends ?? 0,
         delivered: agg?.delivered ?? 0,
         opened: agg?.opened ?? 0,
@@ -214,14 +245,64 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
         complained: agg?.complained ?? 0,
         failed: agg?.failed ?? 0,
         lastSentAt: agg?.lastSentAt ? agg.lastSentAt.toISOString() : null,
-      },
-      200,
-    );
+      };
+    };
+
+    // The campaign-level pattern (`campaign:<id>:%`) is a superset of both
+    // key formats, so these numbers are format-agnostic and unchanged for
+    // legacy single-send rows.
+    const campaignLevel = await aggregate(campaignSendKeyPattern(id));
+
+    // Per-step breakdown, only when the row carries a steps blob (NULL =
+    // legacy single-send — no `steps` in the response). Send-step aggregates
+    // filter on the step-scoped pattern (`campaign:<id>:<k>:%` — multi-step
+    // campaigns key ALL steps including 0 that way); wait steps deliver
+    // nothing. One query per step is fine at the ≤10-step cap on the
+    // admin plane.
+    const blob = row.steps;
+    if (!blob) {
+      return c.json(campaignLevel, 200);
+    }
+
+    // db cannot import @hogsend/core, so the blob's elements are opaque
+    // Record<string, unknown> there; the engine owns the narrowing.
+    const defs = blob.steps as unknown as CampaignStep[];
+    const steps: z.infer<typeof campaignStepStatsSchema>[] = [];
+    for (const [index, step] of defs.entries()) {
+      if (step.kind === "send") {
+        steps.push({
+          index,
+          kind: step.kind,
+          templateKey: step.template,
+          durationMs: null,
+          ...(await aggregate(campaignStepSendKeyPattern(id, index))),
+        });
+      } else {
+        steps.push({
+          index,
+          kind: step.kind,
+          templateKey: null,
+          durationMs: durationToMs(step.duration),
+          sends: 0,
+          delivered: 0,
+          opened: 0,
+          clicked: 0,
+          bounced: 0,
+          complained: 0,
+          failed: 0,
+          lastSentAt: null,
+        });
+      }
+    }
+
+    return c.json({ ...campaignLevel, steps }, 200);
   })
   .openapi(cancelRouteDef, async (c) => {
     const { db } = c.get("container");
     const { id } = c.req.valid("param");
 
+    // CAS mirroring the data-plane cancel exactly — allowed from
+    // scheduled/queued/sending/waiting.
     const canceled = await db
       .update(campaigns)
       .set({
@@ -232,7 +313,12 @@ export const adminCampaignsRouter = new OpenAPIHono<AppEnv>()
       .where(
         and(
           eq(campaigns.id, id),
-          inArray(campaigns.status, ["scheduled", "queued", "sending"]),
+          inArray(campaigns.status, [
+            "scheduled",
+            "queued",
+            "sending",
+            "waiting",
+          ]),
         ),
       )
       .returning();

@@ -41,8 +41,10 @@ const PAGE_SIZE = 25;
 
 /**
  * Status filter presets. Each maps to the CSV `status` set sent to the API —
- * the pre-send states are grouped under "Scheduled" and the failure terminals
- * under "Failed" so the filter reads the way an operator thinks about a blast.
+ * the pre-send states are grouped under "Scheduled", the in-flight states
+ * (mid-wave `sending` + between-waves `waiting`) under "Sending", and the
+ * failure terminals under "Failed" so the filter reads the way an operator
+ * thinks about a blast.
  */
 const STATUS_FILTERS: {
   value: string;
@@ -51,7 +53,7 @@ const STATUS_FILTERS: {
 }[] = [
   { value: "", label: "All" },
   { value: "scheduled", label: "Scheduled", statuses: ["scheduled", "queued"] },
-  { value: "sending", label: "Sending", statuses: ["sending"] },
+  { value: "sending", label: "Sending", statuses: ["sending", "waiting"] },
   { value: "sent", label: "Sent", statuses: ["sent"] },
   { value: "canceled", label: "Canceled", statuses: ["canceled"] },
   { value: "failed", label: "Failed", statuses: ["failed", "expired"] },
@@ -203,9 +205,12 @@ export function CampaignsView() {
                     </code>
                   </TableCell>
                   <TableCell className="text-white/60">
+                    {/* A waiting campaign's next instant is its next wave. */}
                     {row.status === "scheduled"
                       ? formatDateTime(row.scheduledAt)
-                      : "—"}
+                      : row.status === "waiting"
+                        ? formatDateTime(row.nextStepAt)
+                        : "—"}
                   </TableCell>
                   <TableCell>
                     <CampaignProgress campaign={row} />

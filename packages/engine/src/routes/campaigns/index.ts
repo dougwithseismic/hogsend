@@ -60,6 +60,20 @@ export const campaignSchema = z.object({
   sentCount: z.number(),
   skippedCount: z.number(),
   failedCount: z.number(),
+  /**
+   * Multi-step wave definition — the stored blob's steps array verbatim
+   * (`docs/campaign-steps-spec.md`; elements are `CampaignStep` data). NULL =
+   * legacy single-send campaign (templateKey/subject/fromEmail are the whole
+   * send).
+   */
+  steps: z.array(z.record(z.string(), z.unknown())).nullable(),
+  /** The next step to execute — the wave runtime's sole resume cursor. */
+  currentStep: z.number(),
+  /**
+   * When a `waiting` campaign's pending wait elapses (ISO 8601). Mirror of
+   * `scheduledAt`; null unless a wait is pending.
+   */
+  nextStepAt: z.string().nullable(),
   scheduledAt: z.string().nullable(),
   canceledAt: z.string().nullable(),
   startedAt: z.string().nullable(),
@@ -85,6 +99,9 @@ export function serializeCampaign(
     sentCount: campaign.sentCount,
     skippedCount: campaign.skippedCount,
     failedCount: campaign.failedCount,
+    steps: campaign.steps?.steps ?? null,
+    currentStep: campaign.currentStep,
+    nextStepAt: campaign.nextStepAt?.toISOString() ?? null,
     scheduledAt: campaign.scheduledAt?.toISOString() ?? null,
     canceledAt: campaign.canceledAt?.toISOString() ?? null,
     startedAt: campaign.startedAt?.toISOString() ?? null,
@@ -182,7 +199,7 @@ const cancelRouteDef = createRoute({
   tags: ["Campaigns"],
   summary: "Cancel a campaign",
   description:
-    "Cancels a `scheduled`, `queued`, or `sending` campaign. A mid-send cancel stops the blast at the next chunk boundary — recipients not yet dispatched are spared; already-dispatched sends are not recalled.",
+    "Cancels a `scheduled`, `queued`, `sending`, or `waiting` campaign. A mid-send cancel stops the blast at the next chunk boundary — recipients not yet dispatched are spared; already-dispatched sends are not recalled. Canceling a `waiting` multi-step campaign spares every remaining wave (its pending next-step run no-ops on the terminal guard).",
   request: {
     params: z.object({ id: z.string() }),
   },
@@ -425,10 +442,12 @@ export const campaignsRouter = new OpenAPIHono<AppEnv>()
     const { db } = c.get("container");
     const { id } = c.req.valid("param");
 
-    // CAS: only a cancelable status transitions, so a concurrent completion
-    // (or a second cancel) is never overwritten. The punctual Hatchet
-    // scheduled run for a canceled campaign still fires but no-ops on the
-    // terminal guard; a `sending` blast stops at its next chunk boundary.
+    // CAS: only a cancelable status transitions (allowed from
+    // scheduled/queued/sending/waiting), so a concurrent completion (or a
+    // second cancel) is never overwritten. The punctual Hatchet scheduled run
+    // for a canceled campaign — a `scheduled` row's send or a `waiting` row's
+    // pending next-step — still fires but no-ops on the terminal guard; a
+    // `sending` blast stops at its next chunk boundary.
     const canceled = await db
       .update(campaigns)
       .set({
@@ -439,7 +458,12 @@ export const campaignsRouter = new OpenAPIHono<AppEnv>()
       .where(
         and(
           eq(campaigns.id, id),
-          inArray(campaigns.status, ["scheduled", "queued", "sending"]),
+          inArray(campaigns.status, [
+            "scheduled",
+            "queued",
+            "sending",
+            "waiting",
+          ]),
         ),
       )
       .returning();

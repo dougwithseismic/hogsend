@@ -1,11 +1,15 @@
 export {
+  type CampaignWhere,
+  type CohortBuilder,
   type ConditionContext,
   type CriteriaBuilder,
+  cohortBuilder,
   criteriaBuilder,
   type EventMatcher,
   evaluateCondition,
   evaluateEventCondition,
   evaluatePropertyConditions,
+  normalizeCampaignWhere,
   normalizeWhere,
   type PropertyMatcher,
 } from "./conditions/index.js";

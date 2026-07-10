@@ -1,13 +1,15 @@
 import { z } from "zod";
 import { durationToMs } from "../duration.js";
-import type {
-  CompositeCondition,
-  ConditionEval,
-  EmailEngagementCondition,
-  EventCondition,
-  PropertyCondition,
-} from "../types/conditions.js";
+import type { CompositeCondition, ConditionEval } from "../types/conditions.js";
 import { conditionEvalSchema } from "./journey.schema.js";
+
+/**
+ * Any non-composite condition. `channel_identity` can never appear in bucket
+ * criteria ({@link conditionEvalSchema} has no member for it — parse fails
+ * loudly), but the walk types over the full union so widening it is not a
+ * compile break here.
+ */
+type ConditionLeaf = Exclude<ConditionEval, CompositeCondition>;
 
 const durationObjectSchema = z.object({
   hours: z.number().optional(),
@@ -20,9 +22,7 @@ const durationObjectSchema = z.object({
  * email_engagement). Composites recurse into their `conditions` array. Mirrors
  * the pure discriminated-union walks in core/conditions.
  */
-function* walkConditions(
-  condition: ConditionEval,
-): Generator<PropertyCondition | EventCondition | EmailEngagementCondition> {
+function* walkConditions(condition: ConditionEval): Generator<ConditionLeaf> {
   if (condition.type === "composite") {
     for (const child of (condition as CompositeCondition).conditions) {
       yield* walkConditions(child);
@@ -46,9 +46,7 @@ function* walkConditions(
  * absence (`not_exists` with no `within`) matches nearly everyone and is
  * treated as a pure-negation leaf.
  */
-function isNegativeLeaf(
-  leaf: PropertyCondition | EventCondition | EmailEngagementCondition,
-): boolean {
+function isNegativeLeaf(leaf: ConditionLeaf): boolean {
   switch (leaf.type) {
     case "property":
       return leaf.operator === "neq" || leaf.operator === "not_exists";

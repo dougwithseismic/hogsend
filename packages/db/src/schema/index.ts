@@ -5,6 +5,7 @@ export * from "./audit-logs.js";
 export * from "./auth.js";
 export * from "./bucket-configs.js";
 export * from "./bucket-memberships.js";
+export * from "./campaign-recipients.js";
 export * from "./campaigns.js";
 export * from "./connector-deliveries.js";
 export * from "./connector-link-codes.js";

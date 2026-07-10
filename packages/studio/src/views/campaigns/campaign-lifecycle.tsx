@@ -1,15 +1,22 @@
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
-import type { Campaign } from "@/lib/admin-api";
-import { formatDateTime, formatNumber } from "@/lib/format";
+import type { Campaign, CampaignWaitStep } from "@/lib/admin-api";
+import {
+  formatDateTime,
+  formatDurationObject,
+  formatNumber,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { formatCountdown } from "./campaign-steps";
 
 /**
- * The campaign's linear pipeline — created → (scheduled) → sending → terminal —
- * rendered in the SAME node-card language as the journey flow view (colored
- * rail dot + eyebrow kind + title + mono detail), so a campaign page reads
- * like a journey page. A campaign has no branches, so this is a plain strip
- * rather than a React Flow canvas.
+ * The campaign's linear pipeline — created → (scheduled) → sending →
+ * (waiting) → terminal — rendered in the SAME node-card language as the
+ * journey flow view (colored rail dot + eyebrow kind + title + mono detail),
+ * so a campaign page reads like a journey page. A campaign has no branches,
+ * so this is a plain strip rather than a React Flow canvas. A multi-step
+ * campaign alternates sending ↔ waiting per wave; the strip stays
+ * stage-typed (ONE Wait card summarizes all gaps), not one card per wave.
  */
 
 /** Rail hues lifted from the flow view's NODE_STYLE. */
@@ -92,6 +99,47 @@ function terminalStage(c: Campaign): Stage {
   }
 }
 
+/**
+ * The between-waves Wait stage — present only when the campaign HAS waits
+ * (or is somehow `waiting` without a blob). Models `waiting` the way the
+ * strip models `scheduled`: presence keyed on data, `current` keyed on
+ * status. `done` once any wait has elapsed — the campaign reached a terminal
+ * after starting, or a wave past the first wait is dispatching.
+ */
+function waitingStage(c: Campaign): Stage | null {
+  const steps = c.steps ?? [];
+  const waits = steps.filter((s): s is CampaignWaitStep => s.kind === "wait");
+  if (waits.length === 0 && c.status !== "waiting") return null;
+
+  const current = c.status === "waiting";
+  const inFlight = c.status === "queued" || c.status === "sending";
+  const terminal = ["sent", "failed", "canceled", "expired"].includes(c.status);
+  const firstWaitIndex = steps.findIndex((s) => s.kind === "wait");
+  const elapsed =
+    (terminal && c.startedAt !== null) ||
+    (inFlight && firstWaitIndex !== -1 && c.currentStep > firstWaitIndex);
+
+  const firstWait = waits[0];
+  return {
+    key: "waiting",
+    kind: "Wait",
+    title: "Between waves",
+    detail: current
+      ? formatDateTime(c.nextStepAt)
+      : firstWait && waits.length === 1
+        ? (formatDurationObject(firstWait.duration) ?? null)
+        : `${waits.length} waits`,
+    rail: RAIL.wait,
+    state: current ? "current" : elapsed ? "done" : "pending",
+    badge:
+      current && c.nextStepAt ? (
+        <span className="mt-1.5 inline-block rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+          next wave in {formatCountdown(c.nextStepAt)}
+        </span>
+      ) : undefined,
+  };
+}
+
 function stagesFor(c: Campaign): Stage[] {
   const terminal = terminalStage(c);
   const inFlight = c.status === "queued" || c.status === "sending";
@@ -136,6 +184,9 @@ function stagesFor(c: Campaign): Stage[] {
         <SendProgress campaign={c} live={inFlight} />
       ) : undefined,
   });
+
+  const waiting = waitingStage(c);
+  if (waiting) stages.push(waiting);
 
   stages.push(terminal);
   return stages;

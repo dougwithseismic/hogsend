@@ -1194,18 +1194,58 @@ export function linkQrUrl(
 /**
  * A campaign lifecycle status. `scheduled` sends at `scheduledAt` (cancelable
  * until then); a cancel also works mid-`sending` (stops at the next chunk of
- * 100 — already-dispatched emails are not recalled). `sent`/`canceled`/
- * `failed`/`expired` are terminal. `expired` = a code-defined campaign whose
- * sendAt had already passed when it was first deployed (never sent).
+ * 100 — already-dispatched emails are not recalled) and mid-`waiting`.
+ * `waiting` = a multi-step campaign between waves — non-terminal, resumes at
+ * `nextStepAt`. `sent`/`canceled`/`failed`/`expired` are terminal. `expired` =
+ * a code-defined campaign whose sendAt had already passed when it was first
+ * deployed (never sent).
  */
 export type CampaignStatus =
   | "scheduled"
   | "queued"
   | "sending"
+  | "waiting"
   | "sent"
   | "failed"
   | "canceled"
   | "expired";
+
+/**
+ * One normalized `where` condition on a send step — core `ConditionEval`
+ * data, stored verbatim in the steps blob. Loosely mirrored (like
+ * `JourneyCondition`): Studio only reads the fields it renders as chips.
+ */
+export type CampaignStepCondition = {
+  type: string;
+  /** email_engagement / event / channel_identity check discriminant. */
+  check?: string;
+  /** email_engagement only; absent = "any prior send of THIS campaign". */
+  templateKey?: string;
+  eventName?: string;
+  connector?: string;
+  property?: string;
+  operator?: string;
+  value?: unknown;
+};
+
+/** A per-recipient email wave in a multi-step campaign. */
+export type CampaignSendStep = {
+  kind: "send";
+  template: string;
+  props?: Record<string, unknown>;
+  subject?: string;
+  from?: string;
+  /** Cohort filter for this wave; conditions AND together. Absent = everyone. */
+  where?: CampaignStepCondition[];
+};
+
+/** A durable gap between waves — the campaign sits `waiting` while it elapses. */
+export type CampaignWaitStep = {
+  kind: "wait";
+  duration: { hours?: number; minutes?: number; seconds?: number };
+};
+
+export type CampaignStep = CampaignSendStep | CampaignWaitStep;
 
 /**
  * One broadcast row from `GET /v1/admin/campaigns`. Mirrors the engine's
@@ -1223,10 +1263,20 @@ export type Campaign = {
   subject: string | null;
   /** Per-campaign from override; null = the configured default sender. */
   fromEmail: string | null;
+  /** Dispatch counters — CUMULATIVE across waves on a multi-step campaign. */
   totalRecipients: number;
   sentCount: number;
   skippedCount: number;
   failedCount: number;
+  /**
+   * Authored wave steps, verbatim from the campaign's steps blob. Null = a
+   * legacy single-send campaign (equivalent to one send step).
+   */
+  steps: CampaignStep[] | null;
+  /** The step executing now (or, while `waiting`, the next one to execute). */
+  currentStep: number;
+  /** When the pending wait elapses and the next wave fires; null unless waiting. */
+  nextStepAt: string | null;
   scheduledAt: string | null;
   canceledAt: string | null;
   startedAt: string | null;
@@ -1259,6 +1309,26 @@ export function getCampaign(id: string) {
 }
 
 /**
+ * Per-step slice of a multi-step campaign's stats, attributed via the
+ * step-scoped send keys. Send steps carry that wave's engagement funnel
+ * (`durationMs` null); wait steps carry only `durationMs` (counters zero).
+ */
+export type CampaignStepStats = {
+  index: number;
+  kind: "send" | "wait";
+  templateKey: string | null;
+  durationMs: number | null;
+  sends: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  bounced: number;
+  complained: number;
+  failed: number;
+  lastSentAt: string | null;
+};
+
+/**
  * Post-dispatch engagement for one campaign, aggregated from its email sends.
  * The campaign row itself knows sent/skipped/failed at dispatch time; this
  * knows what happened to the mail afterwards (first-party opens/clicks plus
@@ -1273,6 +1343,8 @@ export type CampaignStats = {
   complained: number;
   failed: number;
   lastSentAt: string | null;
+  /** Only on multi-step campaigns: one entry per authored step, in order. */
+  steps?: CampaignStepStats[];
 };
 
 export function getCampaignStats(id: string) {

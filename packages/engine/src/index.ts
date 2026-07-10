@@ -108,6 +108,7 @@ export {
   type ReconcileResult,
   reconcileDefinedCampaigns,
 } from "./campaigns/reconcile.js";
+export { step } from "./campaigns/steps.js";
 // --- Cold-connect (email-confirmed chat-platform contact linking) ---
 export {
   type ColdConnect,
