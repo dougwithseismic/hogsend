@@ -582,6 +582,55 @@ export function defineJourney(options: {
           return { stateId, status: "exited" };
         }
 
+        // Graceful worker shutdown (SIGTERM → worker.stop()) ABORTS in-flight
+        // durable runs so Hatchet can REASSIGN them: the suspended sleepFor/
+        // waitFor rejects with the SDK's AbortError. That is a RELEASE, not a
+        // failure — writing "failed" + pushing journey:failed here permanently
+        // POISONS the enrollment (recovery-first later finds a terminal row and
+        // never resumes), turning every graceful redeploy mid-wait into enrollment
+        // death. Detect the abort by the SDK's error CONTRACT (name/code — the
+        // message text varies, so never match on it), with the DurableContext's
+        // aborted signal as a belt-and-braces fallback.
+        const isAbort =
+          (err instanceof Error &&
+            (err.name === "AbortError" ||
+              (err as { code?: string }).code === "ABORT_ERR")) ||
+          (
+            hatchetCtx as {
+              abortController?: { signal?: { aborted?: boolean } };
+            }
+          ).abortController?.signal?.aborted === true;
+
+        if (isAbort) {
+          // Read the CURRENT status: an exitOn/admin cancel may have flipped the
+          // row terminal BEFORE the abort surfaced — keep today's "exited"
+          // outcome there. Otherwise the row is still waiting/active (the
+          // graceful-shutdown release) — leave it EXACTLY as-is so recovery-first
+          // (by hatchetRunId) resumes the recorded window on re-dispatch. The old
+          // "failed" write was converting a redeploy into permanent enrollment
+          // death; if Hatchet ever fails to re-dispatch, the stranded-waiting
+          // alert flags the row — strictly better than a false "failed".
+          const current = await db.query.journeyStates.findFirst({
+            where: eq(journeyStates.id, stateId),
+            columns: { status: true },
+          });
+          const status = current?.status;
+          if (
+            status &&
+            (TERMINAL_STATUSES as readonly string[]).includes(status)
+          ) {
+            return { stateId, status: "exited" };
+          }
+          logger.info(
+            "journey run released mid-wait (worker shutdown/reassignment); " +
+              "enrollment left intact for re-dispatch",
+            { journeyId: meta.id, stateId, status },
+          );
+          // Rethrow so the SDK completes its cancellation flow. NO row write, NO
+          // journey:failed push, NO "failed" transition.
+          throw err;
+        }
+
         const message =
           err instanceof Error ? err.message : "Unknown error during journey";
 
