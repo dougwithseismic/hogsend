@@ -7,6 +7,7 @@ import {
   getEngineSchemaVersion,
   getPostHog,
   getRedisIfConnected,
+  getRuntimeSpecStore,
   loadAndRegisterDbSpecs,
   reportApiReady,
 } from "@hogsend/engine";
@@ -122,10 +123,17 @@ await bootstrapAdminFromEnv({ client });
 await bootstrapApiKeyFromEnv({ client });
 
 // Slice 1: hydrate the journey registry with DB-stored specs so the admin
-// journey list and `ingestEvent`'s exitOn evaluation (checkExits) see them in
-// the API process too. The worker does the same in its own boot to register the
-// runnable Hatchet tasks; here we keep only the registry side effect.
+// journey list + graph show boot-time specs. Slice 2: warm the runtime spec
+// store so ingest dispatches the generic runner for them (and picks up
+// runtime-added specs on its lazy refresh, no restart needed).
 await loadAndRegisterDbSpecs(client);
+await getRuntimeSpecStore()
+  .refresh(client.db, Date.now(), client.logger)
+  .catch((err: unknown) => {
+    client.logger.warn("runtime spec store warm-up failed (non-fatal)", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  });
 
 const app = createApp(client, {
   webhookSources,

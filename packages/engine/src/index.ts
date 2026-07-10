@@ -259,6 +259,12 @@ export {
   loadAndRegisterDbSpecs,
   loadJourneySpecsFromDb,
 } from "./journeys/spec/load-from-db.js";
+export {
+  getRuntimeSpecStore,
+  RuntimeSpecStore,
+  resetRuntimeSpecStore,
+  runtimeSpecRefreshMs,
+} from "./journeys/spec/runtime-spec-store.js";
 export { specToGraph } from "./journeys/spec/spec-to-graph.js";
 // --- Studio co-working agent (HITL proposal chokepoint) ---
 export {
@@ -637,6 +643,10 @@ export {
   type SuppressionImportRow,
   type SuppressionReason,
 } from "./workflows/import-suppressions.js";
+export {
+  type JourneySpecRunnerInput,
+  journeySpecRunnerTask,
+} from "./workflows/journey-spec-runner.js";
 export {
   reapStuckCampaignsTask,
   sendCampaignTask,

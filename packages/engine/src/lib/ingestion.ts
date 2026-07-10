@@ -1,4 +1,5 @@
 import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
+import type { JsonObject } from "@hatchet-dev/typescript-sdk/v1/types.js";
 import type {
   AnalyticsEventMirrorConfig,
   AnalyticsProvider,
@@ -9,6 +10,11 @@ import { type Database, journeyStates, userEvents } from "@hogsend/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { checkBucketMembership } from "../buckets/check-membership.js";
 import { logTransition } from "../journeys/journey-log.js";
+import {
+  getRuntimeSpecStore,
+  runtimeSpecRefreshMs,
+} from "../journeys/spec/runtime-spec-store.js";
+import { journeySpecRunnerTask } from "../workflows/journey-spec-runner.js";
 import {
   logResidualTwins,
   mergeAnalyticsIdentities,
@@ -341,6 +347,28 @@ export async function ingestEvent(opts: {
     }
   }
 
+  // (2d) Slice 2 — refresh the runtime spec store just-in-time (a cheap
+  // timestamp compare; one SELECT at most once per TTL). This is what lets a
+  // DB-stored journey spec added/edited via the admin API go live WITHOUT a
+  // worker restart: both the exit check below and the runner dispatch further
+  // down read the freshly-loaded specs. Skipped entirely when the operator opts
+  // out. Best-effort — a load failure must never fail the ingest.
+  const runtimeSpecsEnabled = process.env.RUNTIME_JOURNEY_SPECS !== "false";
+  if (runtimeSpecsEnabled) {
+    try {
+      await getRuntimeSpecStore().refreshIfStale(
+        db,
+        Date.now(),
+        runtimeSpecRefreshMs(),
+        logger,
+      );
+    } catch (err) {
+      logger.warn("runtime spec store refresh failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // (3) Build the JSON-serializable subset of eventProperties for the Hatchet
   // push payload (scalars only — the SDK serializes the envelope).
   const serializableProperties = Object.fromEntries(
@@ -402,6 +430,35 @@ export async function ingestEvent(opts: {
   }
   const exits = exitsResult.value;
 
+  // (5b) Slice 2 — imperatively dispatch the generic runner for every DB-stored
+  // spec whose trigger matches this event. Code journeys already fired via the
+  // onEvents push above; DB specs have NO onEvents task, so they enroll here.
+  // The full spec SNAPSHOT rides the payload (so a Hatchet replay of the run is
+  // deterministic even if the stored spec is edited later). Reached only on a
+  // FRESH event (a duplicate idempotency-key event returned early above), so a
+  // spec never double-dispatches for one event; the runner's own guard chain
+  // (entry limit / active-state) absorbs any other redundancy. Best-effort per
+  // spec — a dispatch failure must never fail the ingest.
+  if (runtimeSpecsEnabled) {
+    const liveSpecs = getRuntimeSpecStore().getByTriggerEvent(event.event);
+    for (const spec of liveSpecs) {
+      try {
+        await journeySpecRunnerTask.runNoWait({
+          spec: spec as unknown as JsonObject,
+          userId: resolvedKey,
+          userEmail: event.userEmail ?? "",
+          properties: serializableProperties,
+        });
+      } catch (err) {
+        logger.warn("journey spec runner dispatch failed (non-fatal)", {
+          journeyId: spec.id,
+          event: event.event,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
   // (6) Real-time bucket membership re-evaluation (Section 6.1). NOT part of the
   // Promise.all above: its property eval reads contact state ⊕ this-ingest
   // contactProperties patch, and its bucket:entered/left emissions recurse back
@@ -462,7 +519,13 @@ async function checkExits(
   const runIdsToCancel: string[] = [];
 
   for (const state of activeStates) {
-    const journey = registry.get(state.journeyId);
+    // Code journeys + boot-time specs live in the registry; a live-added DB spec
+    // (not yet registered until the next restart) is resolved from the runtime
+    // store so its `exitOn` is still honored. `spec.meta` and a registry meta
+    // carry the same exitOn shape.
+    const journey =
+      registry.get(state.journeyId) ??
+      getRuntimeSpecStore().getById(state.journeyId)?.meta;
     if (!journey?.exitOn) continue;
 
     const shouldExit = journey.exitOn.some((exitCondition) => {

@@ -18,7 +18,7 @@ import {
   parseEnabledFilter,
   selectJourneyTasks,
 } from "./journeys/registry.js";
-import { loadAndRegisterDbSpecs } from "./journeys/spec/load-from-db.js";
+import { getRuntimeSpecStore } from "./journeys/spec/runtime-spec-store.js";
 import { reportWorkerReady } from "./lib/boot.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getRedisIfConnected } from "./lib/redis.js";
@@ -36,6 +36,7 @@ import {
 } from "./workflows/deliver-webhook.js";
 import { importContactsTask } from "./workflows/import-contacts.js";
 import { importSuppressionsTask } from "./workflows/import-suppressions.js";
+import { journeySpecRunnerTask } from "./workflows/journey-spec-runner.js";
 import {
   reapStuckCampaignsTask,
   sendCampaignTask,
@@ -141,6 +142,11 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     checkAlertsTask,
     bucketReconcileTask,
     bucketBackfillTask,
+    // The ONE generic runner for DB-stored specs (Slice 2). DB specs no longer
+    // get a per-journey onEvents task — they are dispatched imperatively by
+    // `ingestEvent` into this task, so a spec added/edited at runtime runs
+    // WITHOUT a worker restart.
+    journeySpecRunnerTask,
     ...journeyTasks,
     ...bucketTasks,
     ...bucketReactionTasks,
@@ -177,23 +183,31 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     // Emit BEFORE the Hatchet handshake: proves the process booted past init
     // even while the connection is still establishing (the worker banner /
     // "ready" line only fires once `hatchet.worker()` resolves).
-    // Slice 1: adopt DB-stored journey specs at boot. Registers each into
-    // container.registry (code-wins on id collision) and returns the adapted
-    // journeys so their Hatchet tasks join this worker's workflow set. A new DB
-    // spec needs a worker restart to be picked up here — the generic-dispatch
-    // pivot (Slice 2) is what makes it live without one.
-    const dbSpecJourneys = await loadAndRegisterDbSpecs(container);
-    const dbSpecTasks = dbSpecJourneys.map((j) => j.task);
+    // Slice 2: DB-stored specs run through the ONE generic runner (registered in
+    // baseWorkflows), dispatched by `ingestEvent` — NOT a per-spec onEvents task.
+    // Warm the runtime spec store so the runner + exit checks see current specs
+    // immediately; it also refreshes lazily on the ingest path, so a spec added
+    // after boot goes live without a restart. Best-effort — a load failure must
+    // never block the worker coming up.
+    try {
+      await getRuntimeSpecStore().refresh(
+        container.db,
+        Date.now(),
+        container.logger,
+      );
+    } catch (err) {
+      container.logger.warn("runtime spec store warm-up failed (non-fatal)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     container.logger.info("Hogsend worker starting", {
       hatchet: container.env.HATCHET_CLIENT_HOST_PORT,
       journeys: journeyIds,
-      dbSpecJourneys: dbSpecJourneys.map((j) => j.meta.id),
+      dbSpecs: getRuntimeSpecStore().size(),
     });
 
-    _worker = await hatchet.worker("hogsend-worker", {
-      workflows: [...workflows, ...dbSpecTasks],
-    });
+    _worker = await hatchet.worker("hogsend-worker", { workflows });
 
     reportWorkerReady({
       client: container,

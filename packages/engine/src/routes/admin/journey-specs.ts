@@ -4,6 +4,7 @@ import { asc, eq, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import type { AppEnv } from "../../app.js";
 import { validateJourneySpec } from "../../journeys/spec/journey-from-spec.js";
+import { getRuntimeSpecStore } from "../../journeys/spec/runtime-spec-store.js";
 
 /**
  * Admin CRUD for DB-stored journey specs (Slice 1). Every write is validated
@@ -266,6 +267,9 @@ export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
       .returning();
 
     if (!row) throw new Error("Failed to upsert journey spec");
+    // Make this API process's next ingest see the write immediately (the worker
+    // picks it up on its TTL refresh).
+    getRuntimeSpecStore().markStale();
     return c.json({ spec: summarize(row), created: !existing }, 200);
   })
   .openapi(patchRoute, async (c) => {
@@ -280,6 +284,7 @@ export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
       .returning();
 
     if (!row) return c.json({ error: "Spec not found" }, 404);
+    getRuntimeSpecStore().markStale();
     return c.json({ spec: summarize(row) }, 200);
   })
   .openapi(deleteRoute, async (c) => {
@@ -292,5 +297,6 @@ export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
       .returning({ id: journeySpecs.journeyId });
 
     if (deleted.length === 0) return c.json({ error: "Spec not found" }, 404);
+    getRuntimeSpecStore().markStale();
     return c.json({ deleted: true, id }, 200);
   });
