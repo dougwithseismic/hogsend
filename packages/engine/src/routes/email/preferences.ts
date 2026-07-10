@@ -95,27 +95,41 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
       return `${env.API_PUBLIC_URL}/v1/email/unsubscribe?token=${encodeURIComponent(actionToken)}`;
     }
 
-    // Built-in journey category + every enabled defined list, deduped by id
-    // (a list MAY NOT reuse a reserved category id, but guard anyway).
+    // Partition the enabled registry lists into engine-synthesized CHANNELS and
+    // author-defined TOPICS (`meta.kind ?? "topic"` mirrors every read site).
+    // The built-in journey category is always a topic and leads that group.
+    // Deduped by id across both groups (a list MAY NOT reuse a reserved category
+    // id, but guard anyway).
     const listRegistry = getListRegistry();
     const seen = new Set<string>();
-    const renderableCategories: { id: string; label: string }[] = [];
-    for (const cat of BUILTIN_CATEGORIES) {
-      seen.add(cat.id);
-      renderableCategories.push({ id: cat.id, label: cat.label });
-    }
+    const channelCategories: { id: string; label: string }[] = [];
+    const topicCategories: { id: string; label: string }[] = [];
+
     for (const list of listRegistry.getEnabled()) {
+      if ((list.kind ?? "topic") !== "channel") continue;
       if (seen.has(list.id)) continue;
       seen.add(list.id);
-      renderableCategories.push({ id: list.id, label: list.name });
+      channelCategories.push({ id: list.id, label: list.name });
     }
 
-    let categoryRows = "";
-    for (const cat of renderableCategories) {
-      // Registry-driven polarity (§2.6): defined lists honour their
+    for (const cat of BUILTIN_CATEGORIES) {
+      seen.add(cat.id);
+      topicCategories.push({ id: cat.id, label: cat.label });
+    }
+    for (const list of listRegistry.getEnabled()) {
+      if ((list.kind ?? "topic") === "channel") continue;
+      if (seen.has(list.id)) continue;
+      seen.add(list.id);
+      topicCategories.push({ id: list.id, label: list.name });
+    }
+
+    function renderRow(cat: { id: string; label: string }): string {
+      // Registry-driven polarity (§2.6): defined lists/channels honour their
       // `defaultOptIn`; unknown ids (e.g. the built-in `journey`) fall through
       // to opt-in default (blocked only on explicit `false`). A global
-      // unsubscribe overrides every per-category state.
+      // unsubscribe overrides every per-category state. Flat channel ids pass
+      // the unsubscribe route's category pattern, so channel rows reuse the same
+      // per-category token action links unchanged.
       const isSubscribed =
         listRegistry.isSubscribed(categories, cat.id) && !globalUnsub;
       const statusClass = isSubscribed ? "subscribed" : "unsubscribed";
@@ -125,7 +139,7 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
         ? makeActionUrl("unsubscribe", cat.id)
         : makeActionUrl("resubscribe", cat.id);
 
-      categoryRows += `
+      return `
         <div class="pref-row">
           <div>
             <div class="pref-label">${cat.label}</div>
@@ -134,6 +148,21 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
           <a href="${actionUrl}">${actionLabel}</a>
         </div>`;
     }
+
+    // Section headings render ONLY when channels exist. On a channel-less engine
+    // BOTH headings are suppressed so the page is byte-identical to the
+    // pre-channels layout (bare topic rows, no headings). When channels exist we
+    // show `Channels` then `Email topics`.
+    const hasChannels = channelCategories.length > 0;
+    let categoryRows = "";
+    if (hasChannels) {
+      categoryRows += `<h2 class="pref-section">Channels</h2>`;
+      categoryRows += channelCategories.map(renderRow).join("");
+    }
+    if (hasChannels && topicCategories.length > 0) {
+      categoryRows += `<h2 class="pref-section">Email topics</h2>`;
+    }
+    categoryRows += topicCategories.map(renderRow).join("");
 
     const globalStatusClass = globalUnsub ? "unsubscribed" : "subscribed";
     const globalStatusText = globalUnsub
