@@ -5,6 +5,7 @@ import {
   getJourneyBoundary,
   registerKey,
 } from "../journeys/journey-boundary.js";
+import { IN_APP_LIST_ID } from "../lists/channels.js";
 import { getListRegistry } from "../lists/registry-singleton.js";
 import { resolveOrCreateContact, resolveRecipient } from "./contacts.js";
 import { getDb } from "./db.js";
@@ -16,9 +17,11 @@ const logger = createLogger(process.env.LOG_LEVEL);
 /**
  * Reserved list id governing in-app feed suppression (mirrors the built-in
  * `transactional` / `journey` categories). A recipient unsubscribed from
- * `in_app` (or `unsubscribed_all`) gets no feed items.
+ * `in_app` (or `unsubscribed_all`) gets no feed items. Canonically defined in
+ * `../lists/channels.js` (where the in-app channel is synthesized); re-exported
+ * here so the engine's existing export surface stays stable.
  */
-export const IN_APP_LIST_ID = "in_app";
+export { IN_APP_LIST_ID };
 
 export interface SendFeedItemOptions {
   recipient: { userId?: string; email?: string; anonymousId?: string };

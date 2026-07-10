@@ -79,6 +79,7 @@ import { createRedisSecondaryStorage, getRedis } from "./lib/redis.js";
 import { sendResetPasswordEmail } from "./lib/reset-email.js";
 import { seedPostHogDestination } from "./lib/seed-posthog-destination.js";
 import { prepareTrackedHtml } from "./lib/tracking.js";
+import { synthesizeChannelLists } from "./lists/channels.js";
 import {
   type DefinedList,
   isReservedListId,
@@ -466,9 +467,17 @@ export function createHogsendClient(
   // worker (both call createHogsendClient), so `getListRegistry()` resolves the
   // wired lists in the mailer's suppression check and the preference center in
   // either process. `buildListRegistry` installs the process singleton.
+  //
+  // Channel lists (the in-app feed + one per connector exposing member-directed
+  // actions) are synthesized from the raw `opts.connectorActions` array — which
+  // is available here before the connector-action registry is built, and is
+  // identical in both the API and worker processes — then registered
+  // unconditionally (bypassing ENABLED_LISTS) after the user lists.
+  const channelLists = synthesizeChannelLists(opts.connectorActions ?? []);
   const listRegistry = buildListRegistry(
     opts.lists ?? [],
     opts.enabledLists ?? env.ENABLED_LISTS,
+    channelLists,
   );
 
   // Build the email provider registry, then resolve the single active provider

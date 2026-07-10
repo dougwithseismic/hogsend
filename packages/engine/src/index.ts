@@ -127,6 +127,7 @@ export {
   type ConnectorActionCtx,
   type DefinedConnectorAction,
   defineConnectorAction,
+  type MemberAudience,
   type ResolvedActionContact,
 } from "./connectors/define-action.js";
 // --- Inbound connectors: unified authoring layer ---
@@ -559,9 +560,15 @@ export {
   type WebhookEventType,
 } from "./lib/webhook-signing.js";
 // --- Lists (D3) ---
+// NOTE: `IN_APP_LIST_ID` is canonically defined in `./lists/channels.js` but
+// exported here via `./lib/feed.js` (which re-exports it) to keep its
+// pre-existing import path stable — do NOT also export it from channels.js
+// (a duplicate named export).
+export { synthesizeChannelLists } from "./lists/channels.js";
 export {
   type DefinedList,
   defineList,
+  type ListKind,
   type ListMeta,
 } from "./lists/define-list.js";
 export { buildListRegistry, ListRegistry } from "./lists/registry.js";
