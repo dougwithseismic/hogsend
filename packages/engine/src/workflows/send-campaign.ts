@@ -918,14 +918,16 @@ async function* resolveCohortRecipients(
  * email — mirrors the bucket-access member query. Paged by the keyset cursor on
  * `bucket_memberships.id`.
  *
- * Compliance: `bucket_memberships.userEmail` is written verbatim from the RAW
- * event payload on the realtime join path (un-normalized, unlike
- * `contacts.email`), so the recipient email is NORMALIZED (`normalizeEmail`)
- * before it is yielded — otherwise a mixed-case membership email
- * (`User@Example.com`) would not case-match its NORMALIZED `email_preferences`
- * row (`user@example.com`) and the mailer's case-sensitive suppression check
- * would MISS the row, leaking a marketing blast to a suppressed/unsubscribed
- * contact (CAN-SPAM/GDPR). Defense-in-depth: this resolver ALSO pre-filters
+ * Compliance: `bucket_memberships.userEmail` is normalized at every write site
+ * (and existing rows were backfilled by migration 0043), but this resolver
+ * KEEPS its own `normalizeEmail` / `lower(trim(…))` belt-and-braces —
+ * TODO(cleanup): safe to drop once `@hogsend/engine` has shipped past 0.40.0
+ * (all deployed write sites normalize as of this changeset). An un-normalized
+ * membership email (`User@Example.com`) would not
+ * case-match its NORMALIZED `email_preferences` row (`user@example.com`) and
+ * the mailer's case-sensitive suppression check would MISS the row, leaking a
+ * marketing blast to a suppressed/unsubscribed contact (CAN-SPAM/GDPR).
+ * Defense-in-depth: this resolver ALSO pre-filters
  * `unsubscribedAll`/`suppressed` at the audience layer (mirroring the list
  * resolver) via a LEFT JOIN to `email_preferences` on the NORMALIZED email, so
  * a globally-unsubscribed / suppressed bucket member is excluded up front
@@ -937,8 +939,9 @@ async function* resolveBucketRecipients(
   db: Database,
   bucketId: string,
 ): AsyncGenerator<CampaignRecipient> {
-  // The recipient's normalized email — the membership email may be mixed-case
-  // (written verbatim from the raw event), the contact email is the fallback.
+  // The recipient's normalized email — writes are normalized now, but the
+  // read-side lower(trim(…)) stays as belt-and-braces (TODO(cleanup): see the
+  // fn docstring for the drop condition); the contact email is the fallback.
   const recipientEmail = sql<string>`lower(trim(coalesce(${bucketMemberships.userEmail}, ${contacts.email})))`;
 
   yield* keysetPaginate({

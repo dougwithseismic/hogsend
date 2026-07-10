@@ -838,6 +838,37 @@ describe("contact-state-only property eval (Phase 1 #3, D2)", () => {
 });
 
 // ===========================================================================
+// Write-site email normalization (audience-model.md wart #1): the membership
+// row must never store the raw payload's casing/whitespace — it would
+// case-miss the normalized email_preferences keyspace at campaign-send time.
+// ===========================================================================
+
+describe("membership email normalization", () => {
+  it("stores the realtime-join email normalized (trim + lowercase)", async () => {
+    const userId = uid("mixed-case-email");
+    await seedContact(userId, { plan: "free" });
+    await db
+      .insert(userEvents)
+      .values({ userId, event: SIGNUP_EVENT, properties: {} });
+
+    const transitions = await check({
+      userId,
+      event: SIGNUP_EVENT,
+      // The shape ingestEvent forwards verbatim from a raw payload.
+      userEmail: "  Mixed.Case+Tag@Example.COM  ",
+    });
+
+    expect(
+      transitions.filter(
+        (t) => t.bucketId === EVENT_BUCKET_ID && t.transition === "entered",
+      ),
+    ).toHaveLength(1);
+    const row = await activeRow(userId, EVENT_BUCKET_ID);
+    expect(row?.userEmail).toBe("mixed.case+tag@example.com");
+  });
+});
+
+// ===========================================================================
 // Phase 1 acceptance #4 — entryLimit:"once" suppresses the 2nd entered but still
 // writes the active row
 // ===========================================================================

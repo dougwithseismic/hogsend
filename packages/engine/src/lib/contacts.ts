@@ -197,6 +197,13 @@ export function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+/** `normalizeEmail` for a maybe-missing address. */
+export function normalizeEmailOrNull(
+  email: string | null | undefined,
+): string | null {
+  return email ? normalizeEmail(email) : null;
+}
+
 // ---------------------------------------------------------------------------
 // Identity resolution
 // ---------------------------------------------------------------------------
