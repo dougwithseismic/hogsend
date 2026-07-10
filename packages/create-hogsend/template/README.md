@@ -159,6 +159,11 @@ send. Everything is **content**: edit, rename, or delete freely.
 - **Lists** (`src/lists/index.ts`): `product-updates` — the marketing template's
   `category` matches this list id, so a broadcast only reaches subscribers.
 - **Buckets** (`src/buckets/`): `power-users` — a real-time audience.
+- **A Journey Blueprint** — run `pnpm seed:example-blueprint` to add one JSON-
+  authored companion to the `welcome` journey (same primitives, stored as data
+  instead of code). Shows up in Studio → Journeys next to your code journeys.
+  Blueprints are normally created live via MCP tools, not seeded — see the
+  `hogsend-authoring-journey-blueprints` skill.
 
 ### Send a one-off transactional email
 
