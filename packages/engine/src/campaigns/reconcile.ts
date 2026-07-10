@@ -108,6 +108,20 @@ export async function reconcileDefinedCampaigns(opts: {
       result.skipped++;
       continue;
     }
+    // A list-audience campaign resolves recipients by SUBSCRIPTION. A channel
+    // preference list (`kind:"channel"`) gates a delivery transport (the in-app
+    // feed, a connector), not an email topic — a channel audience would EMAIL
+    // everyone not opted out of e.g. the discord channel. Mirror the unknown-
+    // audience config-error path: warn + skip, never throw (one bad definition
+    // must not take down worker boot for every campaign).
+    if (audienceKind === "list" && listRegistry.isChannel(audienceId)) {
+      logger.error(
+        "campaigns: channel-list audience — skipping definition (a channel preference list cannot be a campaign audience)",
+        { campaignId: meta.id, audienceId },
+      );
+      result.skipped++;
+      continue;
+    }
     // Validate EVERY send step's template, not just the mirrored first-step
     // `meta.template` — a broken template on step 3 must be caught at deploy
     // time, not mid-campaign two days into a wait.

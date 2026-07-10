@@ -137,7 +137,12 @@ export async function sendEmail(
     idempotencyKey: resolvedIdempotencyKey,
     userId: opts.userId,
     userEmail: opts.to,
-    category: "journey",
+    // A journey may stamp its own email-preference category (`meta.category`,
+    // threaded onto the boundary) — it overrides the template's own category at
+    // send time exactly as this hardcoded `"journey"` default did. Outside a
+    // journey there is no boundary, so this stays the built-in `journey`
+    // category, unchanged.
+    category: boundary?.category ?? "journey",
     tags: [
       { name: "journeyId", value: opts.journeyName ?? opts.template },
       { name: "templateKey", value: opts.template },
