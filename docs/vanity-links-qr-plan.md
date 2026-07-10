@@ -76,7 +76,7 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 
 ## Phase 8 — Client capture
 
-- [ ] 8.1 `@hogsend/js` captureRef (auto on init when `hs_ref` present, default on, config off-switch, manual export, replaceState cleanup); verify via typecheck/build + live flow (no js test suite)
+- [x] 8.1 `@hogsend/js` captureRef (auto on init when `hs_ref` present, default on, config off-switch, manual export, replaceState cleanup); verify via typecheck/build + live flow (no js test suite)
 
 ## Phase 9 — Studio + docs
 

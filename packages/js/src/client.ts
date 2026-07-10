@@ -192,6 +192,52 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   const channels = new Map<string, RealtimeChannel>();
   const unsubs: Array<() => void> = [];
 
+  const HS_REF_PARAM = "hs_ref";
+
+  /**
+   * Read the `hs_ref` arrival param from the current URL and strip it
+   * (replaceState — no navigation, no history entry). SSR-safe no-op.
+   */
+  function readAndStripRef(): string | null {
+    if (typeof location === "undefined" || typeof history === "undefined") {
+      return null;
+    }
+    try {
+      const url = new URL(location.href);
+      const ref = url.searchParams.get(HS_REF_PARAM);
+      if (!ref) return null;
+      url.searchParams.delete(HS_REF_PARAM);
+      history.replaceState(history.state, "", url.toString());
+      return ref;
+    } catch {
+      return null;
+    }
+  }
+
+  async function captureRef(explicitRef?: string): Promise<boolean> {
+    const ref = explicitRef ?? readAndStripRef();
+    if (!ref) return false;
+    const userToken = identity.getUserToken();
+    try {
+      // Token wins (the engine's trust tier for "a KNOWN user arrived");
+      // anonymous sessions report their own anon id — provenance only.
+      await transport.post("/v1/t/arrive", {
+        ref,
+        ...(userToken
+          ? { userToken }
+          : { anonymousId: identity.getAnonymousId() }),
+      });
+      return true;
+    } catch {
+      // A beacon: the engine replies 200 to every semantic outcome, so a
+      // failure here is transport-level — never break the host page over it.
+      return false;
+    }
+  }
+
+  // Auto-capture on init (default on; inert when the URL carries no hs_ref).
+  if (resolved.captureRef) void captureRef();
+
   async function identify(userId: string, traits?: Properties): Promise<void> {
     identity.setUserId(userId);
     const userToken = identity.getUserToken();
@@ -213,6 +259,7 @@ export function createHogsend(config: HogsendConfig): Hogsend {
     capture: (event, properties, opts) =>
       spine.capture(event, properties, opts),
     flush: () => spine.flush(),
+    captureRef,
 
     feed,
     preferences: () => preferencesClient,
