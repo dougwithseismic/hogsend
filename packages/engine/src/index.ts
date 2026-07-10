@@ -196,6 +196,8 @@ export { API_VERSION, env } from "./env.js";
 export {
   type DefinedJourney,
   defineJourney,
+  insertEnrollment,
+  type JourneyStateRow,
 } from "./journeys/define-journey.js";
 export { JourneyExitedError } from "./journeys/errors.js";
 // --- Journey graph extractor (Studio visual workflow) ---

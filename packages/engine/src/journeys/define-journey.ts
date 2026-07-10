@@ -11,8 +11,13 @@ import type {
   JourneyRunFn,
   JourneyUser,
 } from "@hogsend/core/types";
-import { contacts, journeyConfigs, journeyStates } from "@hogsend/db";
-import { and, eq, inArray, notInArray } from "drizzle-orm";
+import {
+  contacts,
+  type Database,
+  journeyConfigs,
+  journeyStates,
+} from "@hogsend/db";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getAnalytics } from "../lib/analytics-singleton.js";
 import { getDb } from "../lib/db.js";
 import {
@@ -170,6 +175,57 @@ function captureCallSite(): JourneySourceLocation | undefined {
   return undefined;
 }
 
+/** The `journey_states` row an enrollment insert returns. */
+export type JourneyStateRow = typeof journeyStates.$inferSelect;
+
+/**
+ * Insert the enrollment row, tolerating the partial-unique-index race.
+ *
+ * The active-state read guard in `fn` (a `findFirst` over the live statuses) is
+ * NOT atomic with this insert: two near-simultaneous FIRST events for the same
+ * (user, journey) — a burst, which is the digest primitive's whole target
+ * workload — can BOTH clear that guard and race here. The loser would otherwise
+ * hit the `uq_user_journey_active` partial unique index with a raw 23505 that
+ * escapes `fn` (the durable task runs with `retries: 0`) and surfaces as a
+ * FAILED Hatchet run. `onConflictDoNothing` against that index absorbs the
+ * loser, returning `undefined` (0 rows) — the SAME outcome the read guard
+ * produces, so the caller maps it to the `already_active` skip.
+ *
+ * DRIZZLE GOTCHA (from prior prod debugging in this repo — mirrors
+ * campaigns/reconcile.ts): for a PARTIAL unique index the arbiter predicate goes
+ * in `where`, NOT `targetWhere`. A `targetWhere` is silently ignored and
+ * Postgres then throws 42P10 ("no unique or exclusion constraint matching the ON
+ * CONFLICT specification") at runtime. The `where` reproduces the index
+ * predicate (`status IN ('active','waiting')`) EXACTLY — see
+ * journey-states.ts:uq_user_journey_active.
+ */
+export async function insertEnrollment(opts: {
+  db: Database;
+  userId: string;
+  userEmail: string;
+  journeyId: string;
+  context: Record<string, unknown>;
+  hatchetRunId?: string;
+}): Promise<JourneyStateRow | undefined> {
+  const [row] = await opts.db
+    .insert(journeyStates)
+    .values({
+      userId: opts.userId,
+      userEmail: opts.userEmail,
+      journeyId: opts.journeyId,
+      currentNodeId: "start",
+      status: "active",
+      context: opts.context,
+      hatchetRunId: opts.hatchetRunId,
+    })
+    .onConflictDoNothing({
+      target: [journeyStates.userId, journeyStates.journeyId],
+      where: sql`status IN ('active', 'waiting')`,
+    })
+    .returning();
+  return row;
+}
+
 export function defineJourney(options: {
   meta: JourneyMetaInput;
   run: JourneyRunFn;
@@ -308,22 +364,27 @@ export function defineJourney(options: {
           return { status: "skipped", reason: "already_active" };
         }
 
-        [state] = await db
-          .insert(journeyStates)
-          .values({
-            userId,
-            userEmail,
-            journeyId: meta.id,
-            currentNodeId: "start",
-            status: "active",
-            context: properties,
-            hatchetRunId: workflowRunId,
-          })
-          .returning();
-      }
-
-      if (!state) {
-        return { status: "skipped", reason: "state_creation_failed" };
+        // Insert the enrollment, tolerating the partial-unique-index race. The
+        // active-state read above is NOT atomic with this insert, so two
+        // near-simultaneous first events (a burst — the digest workload) can
+        // both clear the guard and race here. `insertEnrollment` absorbs the
+        // loser via onConflictDoNothing and returns undefined — the SAME outcome
+        // as the read guard, so map it to the identical `already_active` skip
+        // instead of letting a raw 23505 escape `fn` (retries: 0) as a failed
+        // run. A successful insert always returns exactly one row, so undefined
+        // here can ONLY mean a conflict (there is no distinct
+        // state_creation_failed case with onConflictDoNothing).
+        state = await insertEnrollment({
+          db,
+          userId,
+          userEmail,
+          journeyId: meta.id,
+          context: properties,
+          hatchetRunId: workflowRunId,
+        });
+        if (!state) {
+          return { status: "skipped", reason: "already_active" };
+        }
       }
 
       const stateId = state.id;
