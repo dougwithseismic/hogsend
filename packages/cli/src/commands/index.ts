@@ -10,6 +10,7 @@ import { eventsCommand } from "./events.js";
 import { hatchetCommand } from "./hatchet.js";
 import { importCommand } from "./import.js";
 import { journeysCommand } from "./journeys.js";
+import { mcpCommand } from "./mcp.js";
 import { patchCommand } from "./patch.js";
 import { setupCommand } from "./setup.js";
 import { skillsCommand } from "./skills.js";
@@ -40,6 +41,7 @@ export const commands: Command[] = [
   domainCommand,
   connectCommand,
   hatchetCommand,
+  mcpCommand,
   studioCommand,
   devCommand,
   setupCommand,

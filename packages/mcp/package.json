@@ -1,36 +1,31 @@
 {
-  "name": "@hogsend/cli",
+  "name": "@hogsend/mcp",
   "version": "0.40.0",
   "type": "module",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/dougwithseismic/hogsend.git",
-    "directory": "packages/cli"
+    "directory": "packages/mcp"
   },
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "bin": {
-    "hogsend": "./dist/bin.js"
+    "hogsend-mcp": "./dist/bin.js"
   },
   "exports": {
     ".": "./src/index.ts",
-    "./eject": "./src/eject.ts",
-    "./bin": "./dist/bin.js",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "src",
-    "skills",
-    "studio",
     "README.md"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "prebuild": "node scripts/bundle-studio.mjs",
     "build": "tsup",
     "check-types": "tsc --noEmit",
     "lint": "biome check .",
@@ -38,24 +33,17 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@hogsend/studio": "workspace:^",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^25.9.1",
-    "@types/papaparse": "^5.5.2",
     "tsup": "^8.5.1",
-    "tsx": "^4.22.4",
     "vitest": "^4.1.7"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
-    "@clack/prompts": "^1.5.0",
-    "@hogsend/db": "workspace:^",
-    "@hogsend/engine": "workspace:^",
-    "@hogsend/mcp": "workspace:^",
-    "better-auth": "^1.6.11",
-    "papaparse": "^5.5.3",
-    "picocolors": "^1.1.1"
+    "@hogsend/core": "workspace:^",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
   }
 }
