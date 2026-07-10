@@ -57,40 +57,16 @@ export function InAppDemoBody() {
           <span className="text-sm text-white/40">Loading your session…</span>
         </Card>
       ) : signedIn ? (
-        <>
-          <Card className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <span className="kicker mb-2 block">You&rsquo;re in</span>
-              <h3 className="font-display text-2xl text-white tracking-[-0.02em]">
-                {name ? `Welcome, ${name}.` : "Welcome."}
-              </h3>
-              <p className="mt-1.5 max-w-2xl text-sm text-white/55 leading-6">
-                You&rsquo;re signed in — the same account works on the courses
-                too. Fire a real lifecycle event below and a journey turns it
-                into a notification, keyed to you end to end.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                void signOut().then(() => window.location.reload());
-              }}
-              className="shrink-0 self-start text-[13px] text-white/40 underline decoration-white/20 underline-offset-2 transition-colors hover:text-white/70 sm:self-center"
-            >
-              Sign out
-            </button>
-          </Card>
-
-          <div className="mt-6">
-            <InAppDemoLive
-              wide
-              signedUp
-              name={name}
-              email={email}
-              onFire={handleFire}
-            />
-          </div>
-        </>
+        <InAppDemoLive
+          wide
+          signedUp
+          name={name}
+          email={email}
+          onFire={handleFire}
+          onSignOut={() => {
+            void signOut().then(() => window.location.reload());
+          }}
+        />
       ) : (
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
           <Card className="flex flex-col p-6">

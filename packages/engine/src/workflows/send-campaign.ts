@@ -7,6 +7,7 @@ import {
 } from "@hogsend/db";
 import type { TemplateName } from "@hogsend/email";
 import { and, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { campaignSendKey } from "../lib/campaign-send-key.js";
 import { normalizeEmail } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
 import { getEmailService } from "../lib/email.js";
@@ -211,7 +212,7 @@ export const sendCampaignTask = hatchet.task({
                   ? undefined
                   : campaign?.audienceId,
               // The idempotency key dedupes a retried send to its prior row.
-              idempotencyKey: `campaign:${input.campaignId}:${r.email}`,
+              idempotencyKey: campaignSendKey(input.campaignId, r.email),
             }),
           ),
         );

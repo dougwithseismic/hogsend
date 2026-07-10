@@ -9,6 +9,7 @@ import {
   TableSkeleton,
 } from "@/components/states";
 import { StatusBadge } from "@/components/status-badge";
+import { TemplatePreviewFrame } from "@/components/template-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +29,6 @@ import {
   getJourney,
   getJourneyState,
   getJourneyTemplates,
-  getTemplatePreview,
   type JourneyStateStatus,
   type JourneyStatesFilter,
   listJourneyStates,
@@ -66,30 +66,6 @@ function JsonBlock({ value }: { value: unknown }) {
     <pre className="max-h-64 overflow-auto rounded-md border bg-black/30 p-3 font-mono text-xs text-white/70">
       {JSON.stringify(value, null, 2)}
     </pre>
-  );
-}
-
-function TemplatePreviewFrame({ templateKey }: { templateKey: string }) {
-  const preview = useQuery({
-    queryKey: qk.templatePreview(templateKey),
-    queryFn: () => getTemplatePreview(templateKey),
-  });
-
-  if (preview.isPending) return <Skeleton className="h-[400px] w-full" />;
-  if (preview.isError) {
-    return (
-      <ErrorState error={preview.error} onRetry={() => preview.refetch()} />
-    );
-  }
-  return (
-    <div className="overflow-hidden rounded-lg border bg-white">
-      <iframe
-        title={`${templateKey} preview`}
-        srcDoc={preview.data.html}
-        sandbox=""
-        className="h-[600px] w-full"
-      />
-    </div>
   );
 }
 
