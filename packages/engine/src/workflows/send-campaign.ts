@@ -1,5 +1,12 @@
 import {
+  type CampaignSendStep,
+  type CampaignStep,
+  type ConditionEval,
+  durationToMs,
+} from "@hogsend/core";
+import {
   bucketMemberships,
+  campaignRecipients,
   campaigns,
   contacts,
   type Database,
@@ -7,6 +14,10 @@ import {
 } from "@hogsend/db";
 import type { TemplateName } from "@hogsend/email";
 import { and, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import {
+  cohortSuppressionSql,
+  waveConditionSql,
+} from "../campaigns/cohort-sql.js";
 import { campaignSendKey } from "../lib/campaign-send-key.js";
 import { normalizeEmail } from "../lib/contacts.js";
 import { getDb } from "../lib/db.js";
@@ -26,44 +37,60 @@ interface CampaignRecipient {
 
 /**
  * Statuses that are TERMINAL — a duplicate/late enqueue must not re-send.
- * `canceled`/`expired` matter doubly for SCHEDULED campaigns: the punctual
- * Hatchet scheduled run cannot be deleted at cancel time (we don't persist its
- * id), so it still fires and must find the row terminal here and no-op.
- * `failed` is deliberately NOT terminal — a re-enqueue can revive it.
+ * `canceled`/`expired` matter doubly for SCHEDULED (and now WAITING) campaigns:
+ * the punctual Hatchet scheduled run cannot be deleted at cancel time (we don't
+ * persist its id), so it still fires and must find the row terminal here and
+ * no-op. `failed` is deliberately NOT terminal — a re-enqueue can revive it.
  */
 const TERMINAL_STATUSES = ["sent", "canceled", "expired"] as const;
 
 /**
- * How far ahead of `scheduledAt` a run may fire and still proceed (absorbs
- * clock skew). An earlier fire — the punctual run created for a `sendAt` that
- * was later moved BACK by a reconcile/edit — skips without sending; the run
- * created for the new instant (or the reaper sweep) delivers it.
+ * How far ahead of `scheduledAt` / `nextStepAt` a run may fire and still
+ * proceed (absorbs clock skew). An earlier fire — the punctual run created for
+ * an instant that was later moved BACK (a reconcile edit for `scheduledAt`; a
+ * reap + re-park re-schedule for `nextStepAt`) — skips without sending; the
+ * run created for the new instant (or the reaper sweep) delivers it.
  */
 const EARLY_FIRE_TOLERANCE_MS = 60 * 1000;
 
 /**
- * Built-in durable campaign / broadcast task (Loops "campaign" parity). Sends a
- * single template to every subscribed member of a list (or every active member
- * of a bucket).
+ * Built-in durable campaign / broadcast task (Loops "campaign" parity). A
+ * legacy row (NULL `steps`) sends a single template to every subscribed member
+ * of a list (or every active member of a bucket). A multi-step row executes
+ * its `steps` blob as WAVES — each send step a SET operation over the
+ * campaign's anchored cohort, separated by durable waits (status `waiting`,
+ * resumed at `nextStepAt`) — see docs/campaign-steps-spec.md §Wave runtime.
+ * The task keeps its name and `{ campaignId }` input either way; the row's
+ * `currentStep` is the sole resume cursor.
  *
- * Retry-safety: each send carries an idempotency key
- * `campaign:<campaignId>:<email>` (email_sends.idempotency_key, migration 0015),
- * so a Hatchet retry re-runs the whole loop but every already-dispatched send
+ * Retry-safety: each send carries an idempotency key minted by
+ * `campaignSendKey` — legacy `campaign:<id>:<email>` for single-step
+ * campaigns, step-scoped `campaign:<id>:<step>:<email>` for EVERY step of a
+ * multi-step campaign (email_sends.idempotency_key, migration 0015) — so a
+ * Hatchet retry re-runs the wave but every already-dispatched send
  * short-circuits to its prior row instead of dispatching a duplicate provider
- * call. Counts are derived as-you-go from each `send()` result status — which is
- * itself idempotency-aware (a retried send returns the prior row's status), so
- * the tallies stay consistent across re-attempts. Final counts overwrite (not
- * increment) the row, so a retry re-derives them from scratch rather than
- * double-counting.
+ * call. Counts are derived as-you-go from each `send()` result status — which
+ * is itself idempotency-aware (a retried send returns the prior row's status),
+ * so the tallies stay consistent across re-attempts.
  *
- * Resume-on-retry: the terminal guard short-circuits ONLY a `sent` campaign — a
- * `failed`/`sending` row is NOT terminal, so a Hatchet retry (or the reaper's
- * re-enqueue) re-resolves the audience and re-loops. Already-dispatched sends
- * no-op via the idempotency key, so the re-run safely completes the TAIL of a
- * partial send instead of abandoning it. The catch block therefore does NOT
- * stamp `failed` before re-throwing — that would make the retry short-circuit
- * and silently under-deliver. A run that exhausts its retries is reaped to
- * `failed`/re-enqueued by {@link reapStuckCampaignsTask}.
+ * Counts across waves: the row counts are CUMULATIVE across waves.
+ * `stepBaseCounts` snapshots the cumulative tallies through the last COMPLETED
+ * wave (written with each cursor advance); the current wave always re-derives
+ * its own tally from scratch on top of that seed, and every flush stays an
+ * absolute overwrite — so a retried wave re-tallies exactly rather than
+ * double-counting. Prior-wave counts are deliberately NOT derived from
+ * `email_sends`: a suppressed send writes its row WITHOUT the idempotency key
+ * and a frequency-capped send writes NO row at all, so the ledger cannot
+ * reproduce skipped counts — hence the snapshot column.
+ *
+ * Resume-on-retry: the terminal guard short-circuits ONLY a terminal campaign —
+ * a `failed`/`sending` row is NOT terminal, so a Hatchet retry (or the reaper's
+ * re-enqueue) re-enters at `currentStep` and re-runs the current wave.
+ * Already-dispatched sends no-op via the idempotency key, so the re-run safely
+ * completes the TAIL of a partial wave instead of abandoning it. The catch
+ * block therefore does NOT stamp `failed` before re-throwing — that would make
+ * the retry short-circuit and silently under-deliver. A run that exhausts its
+ * retries is reaped to `failed`/re-enqueued by {@link reapStuckCampaignsTask}.
  */
 export const sendCampaignTask = hatchet.task({
   name: "send-campaign",
@@ -90,11 +117,12 @@ export const sendCampaignTask = hatchet.task({
       return { status: "failed", reason: "not_found" as const };
     }
 
-    // Already terminal — a duplicate/late enqueue must not re-send. ONLY `sent`
-    // is terminal: a `failed`/`sending` row is intentionally re-runnable so a
-    // Hatchet retry (or a reaper re-enqueue) re-resolves the audience and
-    // completes the unsent TAIL of a partial send (already-sent recipients
-    // no-op via the per-send idempotency key — risk: silent under-delivery).
+    // Already terminal — a duplicate/late enqueue must not re-send. ONLY
+    // sent/canceled/expired are terminal: a `failed`/`sending` row is
+    // intentionally re-runnable so a Hatchet retry (or a reaper re-enqueue)
+    // re-enters at `currentStep` and completes the unsent TAIL of a partial
+    // wave (already-sent recipients no-op via the per-send idempotency key —
+    // risk: silent under-delivery).
     if ((TERMINAL_STATUSES as readonly string[]).includes(campaign.status)) {
       return { status: campaign.status, skipped: true };
     }
@@ -111,20 +139,56 @@ export const sendCampaignTask = hatchet.task({
       return { status: "scheduled", skipped: true, reason: "not_due" as const };
     }
 
+    // Mirror clause for `waiting`: a punctual next-step run that fires while
+    // `nextStepAt` is still in the future is stale — a reap + re-park replaced
+    // the pending wait after this run was scheduled. The run created for the
+    // new instant (or the reaper's waiting-promotion sweep) resumes it.
+    if (
+      campaign.status === "waiting" &&
+      campaign.nextStepAt &&
+      campaign.nextStepAt.getTime() > Date.now() + EARLY_FIRE_TOLERANCE_MS
+    ) {
+      return { status: "waiting", skipped: true, reason: "not_due" as const };
+    }
+
     // Claim via CAS: only a non-terminal row transitions to `sending`, so a
     // cancel landing between the guard read above and this write is honored
-    // rather than silently resurrected.
-    const claimed = await db
+    // rather than silently resurrected. `startedAt` is claimed ONCE
+    // (coalesce): event-condition scoping reads "since campaign startedAt",
+    // so a wave-2 claim must NOT reset the anchor wave-1's conditions were
+    // already scoped by. The cursor + count seed are re-read FROM the claimed
+    // row (not the pre-claim read) so a wave resumed after a crash sees the
+    // exact state its predecessor persisted.
+    const claimedRows = await db
       .update(campaigns)
-      .set({ status: "sending", startedAt: new Date(), updatedAt: new Date() })
+      .set({
+        status: "sending",
+        startedAt: sql`coalesce(${campaigns.startedAt}, now())`,
+        // A resumed `waiting` row's wait has elapsed — clear the stale instant
+        // so serialized rows never show a countdown while `sending`. (Studio
+        // keys its countdown on status === "waiting" regardless.)
+        nextStepAt: null,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(campaigns.id, input.campaignId),
-          inArray(campaigns.status, ["queued", "scheduled", "sending"]),
+          inArray(campaigns.status, [
+            "queued",
+            "scheduled",
+            "sending",
+            "waiting",
+          ]),
         ),
       )
-      .returning({ id: campaigns.id });
-    if (claimed.length === 0) {
+      .returning({
+        id: campaigns.id,
+        currentStep: campaigns.currentStep,
+        startedAt: campaigns.startedAt,
+        stepBaseCounts: campaigns.stepBaseCounts,
+      });
+    const claim = claimedRows[0];
+    if (!claim) {
       const current = await db
         .select({ status: campaigns.status })
         .from(campaigns)
@@ -133,10 +197,56 @@ export const sendCampaignTask = hatchet.task({
       return { status: current[0]?.status ?? "unknown", skipped: true };
     }
 
-    let sentCount = 0;
-    let skippedCount = 0;
-    let failedCount = 0;
-    let totalRecipients = 0;
+    // The executable step sequence. A NULL blob is a legacy single-send row —
+    // one send step synthesized from the row columns, and (per the
+    // campaignSendKey contract) the LEGACY per-send key format. A non-NULL
+    // blob only ever holds > 1 steps (the reconciler stores single-step
+    // definitions as NULL), so `multiStep` doubles as the key-format switch:
+    // step-scoped keys for ALL steps including 0.
+    const blob = campaign.steps;
+    const multiStep = blob != null;
+    const executable: CampaignStep[] = blob
+      ? // db cannot import @hogsend/core, so the blob's elements are opaque
+        // Record<string, unknown> there; the engine owns the narrowing.
+        (blob.steps as unknown as CampaignStep[])
+      : [
+          {
+            kind: "send",
+            template: campaign.templateKey,
+            props: campaign.props ?? {},
+            ...(campaign.subject != null ? { subject: campaign.subject } : {}),
+            ...(campaign.fromEmail != null ? { from: campaign.fromEmail } : {}),
+          },
+        ];
+
+    // Immutable row facts captured once (nested fns below can't see the
+    // `campaign` narrowing). `startedAt` is non-null post-claim (coalesce);
+    // the ?? is a type-level fallback only.
+    const audienceKind = campaign.audienceKind;
+    const audienceId = campaign.audienceId;
+    const startedAt = claim.startedAt ?? new Date();
+
+    // Seed the cumulative counters from the snapshot through the last
+    // COMPLETED wave; the current wave re-derives its own tally on top. Do NOT
+    // try to derive the seed from email_sends — suppressed sends write no
+    // idempotency key and frequency-capped sends write no row (lib/tracked.ts).
+    const base = claim.stepBaseCounts ?? {
+      total: 0,
+      sent: 0,
+      skipped: 0,
+      failed: 0,
+    };
+    let totalRecipients = base.total;
+    let sentCount = base.sent;
+    let skippedCount = base.skipped;
+    let failedCount = base.failed;
+
+    const snapshotCounts = () => ({
+      total: totalRecipients,
+      sent: sentCount,
+      skipped: skippedCount,
+      failed: failedCount,
+    });
 
     const flushCounts = async (): Promise<void> => {
       await db
@@ -152,117 +262,146 @@ export const sendCampaignTask = hatchet.task({
     };
 
     try {
-      const recipients =
-        campaign.audienceKind === "bucket"
-          ? resolveBucketRecipients(db, campaign.audienceId)
-          : resolveListRecipients(db, campaign.audienceId);
+      // The wave loop: consecutive send steps run sequentially in this same
+      // task run; a wait step parks the row (`waiting`) and returns. Resuming
+      // with `currentStep` already past the last index (a crash between the
+      // final cursor advance and the completion CAS) skips straight to the
+      // completion CAS below — exactly right.
+      for (let k = claim.currentStep; k < executable.length; k++) {
+        const step = executable[k];
+        if (step === undefined) break; // unreachable — loop bound
 
-      // Mid-flight cancel: re-checked once per chunk (one cheap SELECT per
-      // CHUNK_SIZE sends) so `POST /v1/campaigns/:id/cancel` can stop a blast
-      // that is already `sending` — recipients not yet dispatched are spared.
-      let cancelDetected = false;
+        if (step.kind === "wait") {
+          const nextStepAt = new Date(Date.now() + durationToMs(step.duration));
+          // Park CAS: only a still-`sending` row goes `waiting`, so a cancel
+          // racing the end of the previous wave keeps its `canceled` status.
+          // Cursor, wait instant, count snapshot, and counts land in ONE
+          // update — a crash can never separate them.
+          const parked = await db
+            .update(campaigns)
+            .set({
+              status: "waiting",
+              currentStep: k + 1,
+              nextStepAt,
+              stepBaseCounts: snapshotCounts(),
+              totalRecipients,
+              sentCount,
+              skippedCount,
+              failedCount,
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(campaigns.id, input.campaignId),
+                eq(campaigns.status, "sending"),
+              ),
+            )
+            .returning({ id: campaigns.id });
+          if (parked.length === 0) {
+            await flushCounts();
+            const current = await db
+              .select({ status: campaigns.status })
+              .from(campaigns)
+              .where(eq(campaigns.id, input.campaignId))
+              .limit(1);
+            return { status: current[0]?.status ?? "unknown", skipped: true };
+          }
 
-      let chunk: CampaignRecipient[] = [];
-      for await (const recipient of recipients) {
-        chunk.push(recipient);
-        if (chunk.length < CHUNK_SIZE) continue;
-        await sendChunk();
-        if (cancelDetected) break;
-      }
-      // Final partial chunk.
-      if (chunk.length > 0 && !cancelDetected) await sendChunk();
+          // Punctual resume run at nextStepAt — best-effort, same split as
+          // `scheduledAt`: on failure the row stays `waiting` and the reaper's
+          // waiting-promotion sweep resumes it.
+          try {
+            await sendCampaignTask.schedule(nextStepAt, {
+              campaignId: input.campaignId,
+            });
+          } catch (err) {
+            logger.warn(
+              "send-campaign: next-step schedule failed (reaper will promote)",
+              {
+                campaignId: input.campaignId,
+                nextStepAt: nextStepAt.toISOString(),
+                error: err instanceof Error ? err.message : String(err),
+              },
+            );
+          }
 
-      async function sendChunk(): Promise<void> {
-        const statusRows = await db
-          .select({ status: campaigns.status })
-          .from(campaigns)
-          .where(eq(campaigns.id, input.campaignId))
-          .limit(1);
-        if (statusRows[0]?.status === "canceled") {
-          cancelDetected = true;
-          chunk = [];
-          return;
+          logger.info("send-campaign: wave complete — waiting", {
+            campaignId: input.campaignId,
+            currentStep: k + 1,
+            nextStepAt: nextStepAt.toISOString(),
+          });
+          return {
+            status: "waiting" as const,
+            currentStep: k + 1,
+            nextStepAt: nextStepAt.toISOString(),
+            totalRecipients,
+            sentCount,
+            skippedCount,
+            failedCount,
+          };
         }
 
-        const batch = chunk;
-        chunk = [];
-        totalRecipients += batch.length;
-
-        const results = await Promise.allSettled(
-          batch.map((r) =>
-            emailService.send({
-              template: campaign?.templateKey as TemplateName,
-              props: (campaign?.props ?? {}) as never,
-              to: r.email,
-              userId: r.userId,
-              userEmail: r.email,
-              subject: campaign?.subject ?? undefined,
-              from: campaign?.fromEmail ?? undefined,
-              // A list's audienceId IS a real subscription category, so pass it
-              // through for suppression + the unsubscribe link. A bucket's
-              // audienceId is NOT a category — forcing it here would mint an
-              // unsubscribe link keyed on the bucket id (`categories[bucketId] =
-              // false`) that the bucket resolver never honors (it only checks
-              // unsubscribedAll/suppressed), silently no-op'ing the unsubscribe.
-              // For a bucket, pass undefined so the template's OWN declared
-              // category (e.g. `product-updates`) drives both suppression and a
-              // real, honored List-Unsubscribe target.
-              category:
-                campaign?.audienceKind === "bucket"
-                  ? undefined
-                  : campaign?.audienceId,
-              // The idempotency key dedupes a retried send to its prior row.
-              idempotencyKey: campaignSendKey(input.campaignId, r.email),
-            }),
-          ),
-        );
-
-        for (const result of results) {
-          if (result.status === "rejected") {
-            failedCount++;
-            continue;
-          }
-          const status = result.value.status;
-          if (status === "sent") {
-            sentCount++;
-          } else {
-            // suppressed | unsubscribed | skipped (frequency-capped) — counted
-            // as skipped, not a delivery failure.
-            skippedCount++;
-          }
+        if (step.kind !== "send") {
+          // A blob minted by a future engine (steps.v evolution) must fail
+          // loudly here, not silently skip a delivery step.
+          throw new Error(
+            `send-campaign: unsupported step kind "${(step as { kind: string }).kind}" at step ${k} of campaign ${input.campaignId}`,
+          );
         }
 
-        await flushCounts();
-      }
+        const canceled = await runWave(k, step);
+        if (canceled) {
+          // The operator's cancel already stamped status/canceledAt; persist
+          // the progress counts so the row shows how far the blast got.
+          await flushCounts();
+          logger.info("send-campaign: canceled mid-send", {
+            campaignId: input.campaignId,
+            currentStep: k,
+            totalRecipients,
+            sentCount,
+            skippedCount,
+            failedCount,
+          });
+          return {
+            status: "canceled" as const,
+            totalRecipients,
+            sentCount,
+            skippedCount,
+            failedCount,
+          };
+        }
 
-      if (cancelDetected) {
-        // The operator's cancel already stamped status/canceledAt; persist the
-        // progress counts so the row shows how far the blast got.
-        await flushCounts();
-        logger.info("send-campaign: canceled mid-send", {
-          campaignId: input.campaignId,
-          totalRecipients,
-          sentCount,
-          skippedCount,
-          failedCount,
-        });
-        return {
-          status: "canceled" as const,
-          totalRecipients,
-          sentCount,
-          skippedCount,
-          failedCount,
-        };
+        // Advance the cursor + snapshot the cumulative counters in ONE update
+        // — the wave is complete, so a retry entering after this point starts
+        // at the NEXT step with these counts as its seed. Plain update (not
+        // CAS): a cancel that raced the tail of the wave only bumps cursor
+        // metadata on an already-terminal row, which nothing reads.
+        await db
+          .update(campaigns)
+          .set({
+            currentStep: k + 1,
+            stepBaseCounts: snapshotCounts(),
+            totalRecipients,
+            sentCount,
+            skippedCount,
+            failedCount,
+            updatedAt: new Date(),
+          })
+          .where(eq(campaigns.id, input.campaignId));
       }
 
       // Completion CAS: only a still-`sending` row is stamped `sent`, so a
       // cancel racing the final chunk (after its last per-chunk check) keeps
-      // its `canceled` status instead of being overwritten.
+      // its `canceled` status instead of being overwritten. `nextStepAt` +
+      // `stepBaseCounts` are nulled — a terminal row carries no pending wait
+      // and no resume seed.
       const completed = await db
         .update(campaigns)
         .set({
           status: "sent",
           completedAt: new Date(),
+          nextStepAt: null,
+          stepBaseCounts: null,
           totalRecipients,
           sentCount,
           skippedCount,
@@ -316,27 +455,162 @@ export const sendCampaignTask = hatchet.task({
       // Do NOT stamp `failed` here. A `failed` stamp before the re-throw makes
       // the single Hatchet retry hit the terminal guard and short-circuit
       // WITHOUT sending the remaining recipients — silently abandoning the tail
-      // of a partial send. Instead we persist the progress counts, leave the
-      // status `sending` (re-runnable), and re-throw so the genuine retry
-      // re-enters the loop and finishes the unsent tail (already-sent recipients
-      // no-op via their idempotency key). A run that EXHAUSTS its retries is
-      // transitioned to `failed` (or re-enqueued) by `reapStuckCampaignsTask`.
-      await db
-        .update(campaigns)
-        .set({
-          totalRecipients,
-          sentCount,
-          skippedCount,
-          failedCount,
-          updatedAt: new Date(),
-        })
-        .where(eq(campaigns.id, input.campaignId));
+      // of a partial wave. Instead we persist the progress counts, leave the
+      // status `sending` (re-runnable — `currentStep` still points at the
+      // interrupted wave and `stepBaseCounts` still seeds it), and re-throw so
+      // the genuine retry re-enters the wave and finishes the unsent tail
+      // (already-sent recipients no-op via their idempotency key). A run that
+      // EXHAUSTS its retries is transitioned to `failed` (or re-enqueued) by
+      // `reapStuckCampaignsTask`.
+      await flushCounts();
 
       logger.error("send-campaign: errored mid-run (will retry)", {
         campaignId: input.campaignId,
         error: error instanceof Error ? error.message : String(error),
       });
       throw error;
+    }
+
+    /**
+     * Execute one per-recipient email wave. Returns `true` when a mid-wave
+     * cancel was detected (the caller flushes + returns; nothing after the
+     * detecting chunk is dispatched).
+     *
+     * Qualifier source:
+     *  - Wave 0 resolves the audience LIVE (list/bucket resolvers, fresh
+     *    suppression pre-filter) and — for MULTI-step campaigns — ANCHORS the
+     *    cohort: each chunk is batch-inserted into `campaign_recipients`
+     *    BEFORE its sends are dispatched — a crash between insert and send is
+     *    fine (the retry re-resolves and the (campaign_id, email) unique
+     *    absorbs the replay). The audience is resolved exactly once per
+     *    campaign: someone added to the list afterwards never receives step 3
+     *    without step 1. A single-send campaign skips the ledger entirely (no
+     *    later wave will read it — the legacy write path stays byte-identical).
+     *  - Waves k > 0 qualify FROM the anchored cohort: `campaign_recipients`
+     *    ∩ the step's `where` conditions ∩ a fresh suppression re-check
+     *    (see resolveCohortRecipients — suppression is never snapshotted).
+     */
+    async function runWave(
+      k: number,
+      step: CampaignSendStep,
+    ): Promise<boolean> {
+      const recipients =
+        k === 0
+          ? audienceKind === "bucket"
+            ? resolveBucketRecipients(db, audienceId)
+            : resolveListRecipients(db, audienceId)
+          : resolveCohortRecipients(db, {
+              campaignId: input.campaignId,
+              conditions: step.where,
+              startedAt,
+            });
+
+      // Mid-flight cancel: re-checked once per chunk (one cheap SELECT per
+      // CHUNK_SIZE sends) so `POST /v1/campaigns/:id/cancel` can stop a blast
+      // that is already `sending` — recipients not yet dispatched are spared.
+      let cancelDetected = false;
+
+      let chunk: CampaignRecipient[] = [];
+      for await (const recipient of recipients) {
+        chunk.push(recipient);
+        if (chunk.length < CHUNK_SIZE) continue;
+        await sendChunk();
+        if (cancelDetected) return true;
+      }
+      // Final partial chunk.
+      if (chunk.length > 0 && !cancelDetected) await sendChunk();
+      return cancelDetected;
+
+      async function sendChunk(): Promise<void> {
+        const statusRows = await db
+          .select({ status: campaigns.status })
+          .from(campaigns)
+          .where(eq(campaigns.id, input.campaignId))
+          .limit(1);
+        if (statusRows[0]?.status === "canceled") {
+          cancelDetected = true;
+          chunk = [];
+          return;
+        }
+
+        const batch = chunk;
+        chunk = [];
+
+        // Anchor the cohort BEFORE dispatching the chunk (wave 0 of a
+        // MULTI-step campaign only — a single-send campaign has no later wave
+        // to read the ledger, so skipping the insert keeps the legacy blast's
+        // write path byte-identical). Emails are already normalized by the
+        // resolvers, matching the table's (campaign_id, email) unique
+        // keyspace.
+        if (k === 0 && multiStep) {
+          await db
+            .insert(campaignRecipients)
+            .values(
+              batch.map((r) => ({
+                campaignId: input.campaignId,
+                userId: r.userId ?? null,
+                email: r.email,
+              })),
+            )
+            .onConflictDoNothing({
+              target: [campaignRecipients.campaignId, campaignRecipients.email],
+            });
+        }
+
+        totalRecipients += batch.length;
+
+        const results = await Promise.allSettled(
+          batch.map((r) =>
+            emailService.send({
+              template: step.template as TemplateName,
+              props: (step.props ?? {}) as never,
+              to: r.email,
+              userId: r.userId,
+              userEmail: r.email,
+              subject: step.subject,
+              from: step.from,
+              // A list's audienceId IS a real subscription category, so pass it
+              // through for suppression + the unsubscribe link. A bucket's
+              // audienceId is NOT a category — forcing it here would mint an
+              // unsubscribe link keyed on the bucket id (`categories[bucketId] =
+              // false`) that the bucket resolver never honors (it only checks
+              // unsubscribedAll/suppressed), silently no-op'ing the unsubscribe.
+              // For a bucket, pass undefined so the template's OWN declared
+              // category (e.g. `product-updates`) drives both suppression and a
+              // real, honored List-Unsubscribe target. The rule applies to
+              // EVERY wave, not just the first.
+              category: audienceKind === "bucket" ? undefined : audienceId,
+              // The idempotency key dedupes a retried send to its prior row.
+              // Legacy format for single-step campaigns; step-scoped for every
+              // step of a multi-step campaign (campaignSendKey contract).
+              idempotencyKey: campaignSendKey(
+                input.campaignId,
+                r.email,
+                multiStep ? k : undefined,
+              ),
+            }),
+          ),
+        );
+
+        for (const result of results) {
+          if (result.status === "rejected") {
+            failedCount++;
+            continue;
+          }
+          const status = result.value.status;
+          if (status === "sent") {
+            sentCount++;
+          } else {
+            // suppressed | unsubscribed | skipped (frequency-capped) — counted
+            // as skipped, not a delivery failure. The member STAYS in the
+            // cohort either way: a provider hiccup or a skipped wave is not an
+            // exit, and suppression is re-checked fresh on every later wave.
+            skippedCount++;
+          }
+        }
+
+        await flushCounts();
+      }
     }
   },
 });
@@ -357,17 +631,26 @@ const STALE_AFTER_MS = Number(
  * from `updatedAt`, which the send task bumps on every progress flush) it is
  * declared `failed` rather than re-enqueued forever — a poison campaign (e.g. a
  * template that always throws) stops being re-driven and surfaces to operators.
+ *
+ * Known gap (pre-existing): the stale sweep's own re-enqueue CAS ALSO bumps
+ * `updatedAt` (its re-pick guard), so a deterministically-crashing in-flight
+ * row is re-bumped every cycle and its `updatedAt` never ages past this
+ * window — the queued/sending give-up effectively cannot fire. `scheduled` /
+ * `waiting` rows are unaffected (measured from `scheduledAt` / `nextStepAt`).
+ * Fixing it needs a bump-free staleness marker (e.g. a `stale_since` column)
+ * — a deliberate follow-up, not a waves change.
  */
 const GIVE_UP_AFTER_MS = Number(
   process.env.CAMPAIGN_GIVE_UP_AFTER_MS ?? 6 * 60 * 60 * 1000,
 );
 
 /**
- * How far past `scheduledAt` a `scheduled` campaign may sit before the reaper
- * promotes it (enqueues the send task). The punctual Hatchet scheduled run
- * created at schedule time is the primary trigger; this grace keeps the sweep
- * from routinely double-firing right at the boundary. A double fire is
- * harmless anyway (terminal guard + per-send idempotency).
+ * How far past `scheduledAt` a `scheduled` campaign (or past `nextStepAt` a
+ * `waiting` one) may sit before the reaper promotes it (enqueues the send
+ * task). The punctual Hatchet scheduled run created at schedule/park time is
+ * the primary trigger; this grace keeps the sweep from routinely
+ * double-firing right at the boundary. A double fire is harmless anyway
+ * (terminal guard + per-send idempotency).
  */
 const SCHEDULE_PROMOTE_GRACE_MS = Number(
   process.env.CAMPAIGN_PROMOTE_GRACE_MS ?? 2 * 60 * 1000,
@@ -388,6 +671,10 @@ const SCHEDULE_PROMOTE_GRACE_MS = Number(
  *    due. A scheduled row stuck past the give-up window (measured from
  *    `scheduledAt`, NOT `updatedAt` — a row is legitimately idle between
  *    create and send time) is declared `failed`.
+ *  - A `waiting` campaign whose punctual next-step run was lost — promoted
+ *    once `nextStepAt` is past the same grace. Give-up is likewise measured
+ *    from `nextStepAt`, NOT `updatedAt` — a row is legitimately idle mid-wait,
+ *    exactly like `scheduled`/`scheduledAt`.
  *
  * Recovery is a simple RE-ENQUEUE of `sendCampaignTask` (safe: the per-send
  * idempotency key no-ops already-sent recipients and the re-run completes the
@@ -411,11 +698,13 @@ export const reapStuckCampaignsTask = hatchet.task({
     const now = Date.now();
     const staleBefore = new Date(now - STALE_AFTER_MS);
     const giveUpBefore = new Date(now - GIVE_UP_AFTER_MS);
+    const promoteBefore = new Date(now - SCHEDULE_PROMOTE_GRACE_MS);
 
     // (1) Declare poison campaigns `failed` first (stuck past the give-up
     // window), so they are not re-enqueued below. In-flight rows are measured
     // from `updatedAt` (bumped on every progress flush); `scheduled` rows from
-    // `scheduledAt` (their `updatedAt` is legitimately old while they wait).
+    // `scheduledAt` and `waiting` rows from `nextStepAt` (their `updatedAt` is
+    // legitimately old while they wait).
     const failedRows = await db
       .update(campaigns)
       .set({ status: "failed", completedAt: new Date(), updatedAt: new Date() })
@@ -429,6 +718,10 @@ export const reapStuckCampaignsTask = hatchet.task({
             eq(campaigns.status, "scheduled"),
             lt(campaigns.scheduledAt, giveUpBefore),
           ),
+          and(
+            eq(campaigns.status, "waiting"),
+            lt(campaigns.nextStepAt, giveUpBefore),
+          ),
         ),
       )
       .returning({ id: campaigns.id });
@@ -437,6 +730,9 @@ export const reapStuckCampaignsTask = hatchet.task({
     // `updatedAt` so the same row is not re-picked on the very next tick before
     // the re-driven run makes progress; the per-send idempotency key keeps the
     // re-enqueue safe even if the original run is somehow still alive.
+    // `queued`/`sending` ONLY — `waiting` is deliberately excluded: a 2-day
+    // wait between waves is not a stuck campaign (its resume path is the
+    // promotion sweep below, keyed on `nextStepAt`).
     const staleRows = await db
       .update(campaigns)
       .set({ updatedAt: new Date() })
@@ -449,15 +745,22 @@ export const reapStuckCampaignsTask = hatchet.task({
       .returning({ id: campaigns.id });
 
     // (3) Promote due `scheduled` campaigns whose punctual scheduled run never
-    // fired. Enqueue-only — the send task owns the scheduled→sending
+    // fired, and due `waiting` campaigns whose punctual next-step run was lost.
+    // Enqueue-only — the send task owns the scheduled/waiting→sending
     // transition, so a failed enqueue simply retries next sweep.
     const dueRows = await db
       .select({ id: campaigns.id })
       .from(campaigns)
       .where(
-        and(
-          eq(campaigns.status, "scheduled"),
-          lte(campaigns.scheduledAt, new Date(now - SCHEDULE_PROMOTE_GRACE_MS)),
+        or(
+          and(
+            eq(campaigns.status, "scheduled"),
+            lte(campaigns.scheduledAt, promoteBefore),
+          ),
+          and(
+            eq(campaigns.status, "waiting"),
+            lte(campaigns.nextStepAt, promoteBefore),
+          ),
         ),
       );
 
@@ -521,6 +824,61 @@ async function* keysetPaginate<Row>(opts: {
     cursor = opts.cursorOf(rows[rows.length - 1] as Row);
     if (!cursor) break;
   }
+}
+
+/**
+ * Wave-k (k > 0) qualifier resolver: the campaign's anchored cohort
+ * (`campaign_recipients`) ∩ the step's `where` conditions (each compiled to a
+ * correlated [NOT] EXISTS — see `campaigns/cohort-sql.ts`) ∩ a fresh
+ * suppression/unsubscribe re-check. Membership was anchored at wave 0 and is
+ * never re-resolved — a member who left the bucket/list between waves still
+ * qualifies (suppression excepted); a member added afterwards never appears.
+ * Paged by the keyset cursor on `campaign_recipients.id` (the
+ * (campaign_id, id) index), so every page is an indexed join, never a LIKE
+ * scan over email_sends.
+ */
+async function* resolveCohortRecipients(
+  db: Database,
+  opts: {
+    campaignId: string;
+    conditions: ConditionEval[] | undefined;
+    startedAt: Date;
+  },
+): AsyncGenerator<CampaignRecipient> {
+  // Compiled once per wave — every page reuses the same predicates.
+  const qualifiers = (opts.conditions ?? []).map((condition) =>
+    waveConditionSql({
+      condition,
+      campaignId: opts.campaignId,
+      startedAt: opts.startedAt,
+    }),
+  );
+
+  yield* keysetPaginate({
+    page: (cursor) => {
+      const conditions = [
+        eq(campaignRecipients.campaignId, opts.campaignId),
+        cohortSuppressionSql(),
+        ...qualifiers,
+      ];
+      if (cursor) conditions.push(gt(campaignRecipients.id, cursor));
+
+      return db
+        .select({
+          id: campaignRecipients.id,
+          userId: campaignRecipients.userId,
+          email: campaignRecipients.email,
+        })
+        .from(campaignRecipients)
+        .where(and(...conditions))
+        .orderBy(campaignRecipients.id)
+        .limit(CHUNK_SIZE);
+    },
+    cursorOf: (row) => row.id,
+    // Cohort emails were normalized at anchor time; userId may be NULL for an
+    // email-only member (kept — the mailer falls back the same way wave 0 did).
+    map: (row) => ({ email: row.email, userId: row.userId ?? undefined }),
+  });
 }
 
 /**

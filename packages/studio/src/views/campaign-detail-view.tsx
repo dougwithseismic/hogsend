@@ -31,6 +31,7 @@ import { CANCELABLE, cancelDescription } from "./campaigns/campaign-cancel";
 import { CampaignFunnel } from "./campaigns/campaign-funnel";
 import { CampaignLifecycle } from "./campaigns/campaign-lifecycle";
 import { CampaignRecipients } from "./campaigns/campaign-recipients";
+import { formatCountdown, isMultiStep } from "./campaigns/campaign-steps";
 
 function MetaRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -64,6 +65,12 @@ function CampaignMetaCard({ campaign }: { campaign: Campaign }) {
         <MetaRow label="Template">
           <CodeChip>{campaign.templateKey}</CodeChip>
         </MetaRow>
+        {isMultiStep(campaign) ? (
+          <MetaRow label="Steps">
+            {campaign.steps.length} steps ·{" "}
+            {campaign.steps.filter((s) => s.kind === "send").length} send waves
+          </MetaRow>
+        ) : null}
         <MetaRow label="Subject">
           {campaign.subject ?? (
             <span className="text-white/40">template default</span>
@@ -88,15 +95,45 @@ function CampaignMetaCard({ campaign }: { campaign: Campaign }) {
 }
 
 /**
- * One-template sibling of the journey page's Email card — dispatch +
- * engagement counters for the campaign's template with a toggleable preview.
+ * Sibling of the journey page's Email card — dispatch + engagement counters
+ * per template with a toggleable preview. A single-send campaign is one row
+ * (the campaign's template); a multi-step campaign gets one row PER SEND
+ * WAVE from the per-step stats (rows keyed by step index, since two waves
+ * may legitimately send the same template).
  */
 function CampaignEmailCard({ campaign }: { campaign: Campaign }) {
-  const [showPreview, setShowPreview] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const stats = useQuery({
     queryKey: qk.campaignStats(campaign.id),
     queryFn: () => getCampaignStats(campaign.id),
   });
+
+  const multiStep = isMultiStep(campaign);
+  const rows =
+    stats.data === undefined
+      ? []
+      : multiStep && stats.data.steps
+        ? stats.data.steps
+            .filter((s) => s.kind === "send")
+            .map((s) => ({
+              stepIndex: s.index,
+              templateKey: s.templateKey ?? campaign.templateKey,
+              sent: s.sends,
+              opened: s.opened,
+              clicked: s.clicked,
+              lastSentAt: s.lastSentAt,
+            }))
+        : [
+            {
+              stepIndex: 0,
+              templateKey: campaign.templateKey,
+              sent: campaign.sentCount,
+              opened: stats.data.opened,
+              clicked: stats.data.clicked,
+              lastSentAt: stats.data.lastSentAt,
+            },
+          ];
+  const preview = rows.find((r) => r.stepIndex === previewIndex);
 
   return (
     <Card>
@@ -122,38 +159,48 @@ function CampaignEmailCard({ campaign }: { campaign: Campaign }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <TableRow>
-                  <TableCell className="font-mono text-xs text-white/90">
-                    {campaign.templateKey}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatNumber(campaign.sentCount)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatNumber(stats.data.opened)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {formatNumber(stats.data.clicked)}
-                  </TableCell>
-                  <TableCell className="text-white/60">
-                    {stats.data.lastSentAt
-                      ? formatDateTime(stats.data.lastSentAt)
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowPreview((v) => !v)}
-                    >
-                      {showPreview ? "Hide" : "Preview"}
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                {rows.map((row) => (
+                  <TableRow key={row.stepIndex}>
+                    <TableCell className="font-mono text-xs text-white/90">
+                      {multiStep ? (
+                        // Step numbering matches the funnel's wave breakdown.
+                        <span className="text-white/40">
+                          step {row.stepIndex + 1} ·{" "}
+                        </span>
+                      ) : null}
+                      {row.templateKey}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatNumber(row.sent)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatNumber(row.opened)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {formatNumber(row.clicked)}
+                    </TableCell>
+                    <TableCell className="text-white/60">
+                      {row.lastSentAt ? formatDateTime(row.lastSentAt) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setPreviewIndex((cur) =>
+                            cur === row.stepIndex ? null : row.stepIndex,
+                          )
+                        }
+                      >
+                        {previewIndex === row.stepIndex ? "Hide" : "Preview"}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
-            {showPreview ? (
-              <TemplatePreviewFrame templateKey={campaign.templateKey} />
+            {preview ? (
+              <TemplatePreviewFrame templateKey={preview.templateKey} />
             ) : null}
           </>
         )}
@@ -171,10 +218,14 @@ export function CampaignDetailView({ campaignId }: { campaignId: string }) {
     queryKey: qk.campaign(campaignId),
     queryFn: () => getCampaign(campaignId),
     // A live blast moves — keep the lifecycle band + counters fresh while the
-    // worker chews through chunks.
+    // worker chews through chunks. A `waiting` campaign only moves at
+    // `nextStepAt` (possibly days away), so poll it slowly — just enough for
+    // the page to flip to `sending` without a manual reload.
     refetchInterval: (q) => {
       const status = q.state.data?.status;
-      return status === "queued" || status === "sending" ? 4000 : false;
+      if (status === "queued" || status === "sending") return 4000;
+      if (status === "waiting") return 30000;
+      return false;
     },
   });
 
@@ -242,6 +293,15 @@ export function CampaignDetailView({ campaignId }: { campaignId: string }) {
                 {campaign.audienceKind}:{campaign.audienceId}
               </code>
             </span>
+            {campaign.status === "waiting" && campaign.nextStepAt ? (
+              <span className="text-sm text-white/50">
+                · next wave in{" "}
+                <span className="text-white/80">
+                  {formatCountdown(campaign.nextStepAt)}
+                </span>{" "}
+                ({formatDateTime(campaign.nextStepAt)})
+              </span>
+            ) : null}
           </div>
 
           {/* The lifecycle band — the campaign-shaped sibling of the journey

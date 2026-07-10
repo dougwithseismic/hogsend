@@ -15,16 +15,24 @@
  *    and warn loudly. A late deploy NEVER fires a surprise blast; bump
  *    `sendAt` (or delete the file) to resolve.
  *  - Row exists and is still `scheduled` → sync mutable fields (name,
- *    audience, template, props, subject, from, sendAt) so editing the file and
- *    redeploying updates the pending broadcast — the git-ops loop. A moved
- *    `sendAt` gets a fresh scheduled run; the stale run no-ops via the send
- *    task's early-fire guard.
+ *    audience, template, props, subject, from, sendAt, steps) so editing the
+ *    file and redeploying updates the pending broadcast — the git-ops loop. A
+ *    moved `sendAt` gets a fresh scheduled run; the stale run no-ops via the
+ *    send task's early-fire guard.
  *  - Row exists in any other status (`sent`/`canceled`/`expired`/`failed`/
- *    in-flight) → no-op. `sent` is the natural "retired" end state; an
- *    operator `canceled` is never resurrected by a redeploy.
+ *    in-flight/`waiting`) → no-op. `sent` is the natural "retired" end state;
+ *    an operator `canceled` is never resurrected by a redeploy. Editing steps
+ *    mid-flight is deliberately unsupported in v1 — once the campaign leaves
+ *    `scheduled` (running or waiting between waves), the row is the source of
+ *    truth.
  */
+import type { CampaignSendStep } from "@hogsend/core";
 import { campaigns } from "@hogsend/db";
-import { getTemplateNames } from "@hogsend/email";
+import {
+  getTemplateDefinition,
+  getTemplateNames,
+  type TemplateName,
+} from "@hogsend/email";
 import { and, eq, sql } from "drizzle-orm";
 import type { HogsendClient } from "../container.js";
 import { sendCampaignTask } from "../workflows/send-campaign.js";
@@ -100,14 +108,57 @@ export async function reconcileDefinedCampaigns(opts: {
       result.skipped++;
       continue;
     }
-    if (!templateNames.has(meta.template)) {
+    // Validate EVERY send step's template, not just the mirrored first-step
+    // `meta.template` — a broken template on step 3 must be caught at deploy
+    // time, not mid-campaign two days into a wait.
+    const sendSteps = meta.steps.filter(
+      (s): s is CampaignSendStep => s.kind === "send",
+    );
+    const unknownTemplates = sendSteps
+      .map((s) => s.template)
+      .filter((t) => !templateNames.has(t));
+    if (unknownTemplates.length > 0) {
       logger.error("campaigns: unknown template — skipping definition", {
         campaignId: meta.id,
-        template: meta.template,
+        templates: unknownTemplates,
       });
       result.skipped++;
       continue;
     }
+
+    // A bucket campaign borrows consent from each template's declared
+    // category (a bucket is behavior, not consent — docs/audience-model.md).
+    // A categoryless template leaves suppression + List-Unsubscribe with
+    // nothing beyond unsubscribedAll/suppressed, so its compliance story is
+    // only as good as the template's category. Warn, don't skip — the send is
+    // legal-by-default, just weaker than it should be.
+    if (audienceKind === "bucket") {
+      for (const s of sendSteps) {
+        const definition = getTemplateDefinition({
+          key: s.template as TemplateName,
+          registry: templates,
+        });
+        if (!definition.category) {
+          logger.warn(
+            "campaigns: bucket-audience campaign template has no category — consent/unsubscribe fall back to the global opt-out only",
+            { campaignId: meta.id, template: s.template },
+          );
+        }
+      }
+    }
+
+    // The stored steps blob: multi-step definitions persist `{ v: 1, steps }`;
+    // a single-step definition stores NULL — the legacy row shape — so its
+    // per-send idempotency keys stay byte-for-byte legacy (campaignSendKey
+    // contract). The cast crosses the db package's opaque element type (db
+    // cannot import @hogsend/core; the engine narrows at read time).
+    const stepsBlob =
+      meta.steps.length > 1
+        ? {
+            v: 1 as const,
+            steps: meta.steps as unknown as Array<Record<string, unknown>>,
+          }
+        : null;
 
     const idempotencyKey = `${DEFINED_CAMPAIGN_KEY_PREFIX}${meta.id}`;
     const existingRows = await db
@@ -121,6 +172,7 @@ export async function reconcileDefinedCampaigns(opts: {
         props: campaigns.props,
         fromEmail: campaigns.fromEmail,
         subject: campaigns.subject,
+        steps: campaigns.steps,
         scheduledAt: campaigns.scheduledAt,
       })
       .from(campaigns)
@@ -143,6 +195,7 @@ export async function reconcileDefinedCampaigns(opts: {
           props: meta.props ?? {},
           fromEmail: meta.from ?? null,
           subject: meta.subject ?? null,
+          steps: stepsBlob,
           scheduledAt: meta.sendAt,
           idempotencyKey,
         });
@@ -169,6 +222,7 @@ export async function reconcileDefinedCampaigns(opts: {
           props: meta.props ?? {},
           fromEmail: meta.from ?? null,
           subject: meta.subject ?? null,
+          steps: stepsBlob,
           scheduledAt: meta.sendAt,
           idempotencyKey,
         })
@@ -210,10 +264,10 @@ export async function reconcileDefinedCampaigns(opts: {
       existing.audienceKind !== audienceKind ||
       existing.audienceId !== audienceId ||
       existing.templateKey !== meta.template ||
-      JSON.stringify(existing.props ?? {}) !==
-        JSON.stringify(meta.props ?? {}) ||
+      canonicalJson(existing.props ?? {}) !== canonicalJson(meta.props ?? {}) ||
       (existing.fromEmail ?? null) !== (meta.from ?? null) ||
       (existing.subject ?? null) !== (meta.subject ?? null) ||
+      canonicalJson(existing.steps ?? null) !== canonicalJson(stepsBlob) ||
       existing.scheduledAt?.getTime() !== meta.sendAt.getTime();
 
     if (!changed) {
@@ -236,6 +290,7 @@ export async function reconcileDefinedCampaigns(opts: {
         props: meta.props ?? {},
         fromEmail: meta.from ?? null,
         subject: meta.subject ?? null,
+        steps: stepsBlob,
         scheduledAt: meta.sendAt,
         updatedAt: new Date(),
       })
@@ -264,6 +319,31 @@ export async function reconcileDefinedCampaigns(opts: {
   }
 
   return result;
+}
+
+/**
+ * Key-order-canonical JSON for the changed-comparison. `existing.props` /
+ * `existing.steps` round-trip through Postgres jsonb, which does NOT preserve
+ * object key order (jsonb canonicalizes it), so a plain `JSON.stringify`
+ * comparison against the freshly-authored definition would report a permanent
+ * phantom "changed" for any multi-key object — an unchanged definition
+ * rewritten (and logged as updated) on every worker boot. Arrays keep their
+ * order; only object keys are sorted.
+ */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(sortKeysDeep(value));
+}
+
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, entry]) => [key, sortKeysDeep(entry)]),
+    );
+  }
+  return value;
 }
 
 /**

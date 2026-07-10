@@ -26,6 +26,13 @@ export async function evaluateCondition(opts: {
     }
     case "email_engagement":
       return evaluateEmailEngagementCondition({ condition, ctx });
+    case "channel_identity":
+      // Evaluated as bulk SQL on the campaign wave path (engine); there is no
+      // per-user implementation and core must not grow contact-table access
+      // for one.
+      throw new Error(
+        "channel_identity conditions are bulk-only in v1 (campaign waves) — not supported by the per-user evaluator.",
+      );
     case "composite":
       return evaluateCompositeCondition({ condition, ctx });
     default:
