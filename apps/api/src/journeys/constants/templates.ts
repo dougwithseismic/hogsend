@@ -25,6 +25,7 @@ export const Templates = {
   CONVERSION_WINBACK_OFFER: "conversion-winback-offer",
 
   RETENTION_ACHIEVEMENT: "retention-achievement",
+  RETENTION_WEEKLY_DIGEST: "retention-weekly-digest",
 
   ONBOARDING_PERSONALIZED: "onboarding-personalized",
   ONBOARDING_NUDGE: "onboarding-nudge",

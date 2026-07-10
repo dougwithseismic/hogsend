@@ -32,7 +32,7 @@ export const welcome = defineJourney({
     enabled: true,
     trigger: { event: Events.USER_CREATED },     // event that enrolls a user
     entryLimit: "once",                          // re-entry policy (+ entryPeriod)
-    suppress: hours(12),                         // required declared cool-down field
+    suppress: hours(12),                         // required min-gap between sends (enforced; 0 disables)
     exitOn: [{ event: Events.USER_DELETED }],    // events that pull users out
   },
   run: async (user, ctx) => {
@@ -59,9 +59,12 @@ export const welcome = defineJourney({
 ## Key concepts
 
 - **`ctx` is orchestration primitives ONLY** — `sleep`, `sleepUntil`, `when`,
-  `waitForEvent`, `checkpoint`, `trigger`, `guard.isSubscribed`,
-  `history.hasEvent/journey/email`. Features are standalone imports: `sendEmail()`
-  comes from `@hogsend/engine`, NOT off `ctx`.
+  `waitForEvent`, `digest`, `throttle`, `checkpoint`, `trigger`, `once`,
+  `guard.isSubscribed`, `history.hasEvent/journey/email`. `ctx.digest` collapses a
+  window of trigger events into ONE run (batch via `Object.groupBy` over
+  `digest.events`); `ctx.throttle` is an advisory windowed send-count check.
+  Features are standalone imports: `sendEmail()` comes from `@hogsend/engine`, NOT
+  off `ctx`.
 - **Fan-out is DESTINATIONS, not `ctx`.** There is no `ctx.identify` /
   `ctx.posthog.capture` — those single-vendor PostHog shims were removed. To get
   user/event data into product + data tools (PostHog, Segment, Slack, a CRM, a

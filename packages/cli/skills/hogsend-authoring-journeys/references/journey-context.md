@@ -65,6 +65,71 @@ If the journey `exitOn`-matches (or is cancelled) WHILE waiting, the run aborts
 cleanly — state goes `"exited"`, the durable run is cancelled, and no post-wait
 step (or email) fires. You don't catch anything; the engine handles it.
 
+## Digest — aggregate a window into ONE execution
+
+```ts
+// Collapse many trigger events over a fixed window into a single run. The FIRST
+// event enrolls; every same-name event during the window is absorbed by the
+// active-enrollment guard (no new run) and returned here at flush. So a user
+// firing an event 40x this week gets ONE email, not 40. Replay-safe: the flush
+// scan runs once and the result is recorded, so a replay returns it verbatim.
+const digest = await ctx.digest({
+  window: days(7),            // aggregation window, measured from this call. Max 720h.
+  // event: Events.FEATURE_USED,  // optional — defaults to the journey's trigger event
+  // where: (b) => b.prop("plan").eq("pro"),  // optional; trigger.where applies by default
+  // maxEvents: 100,          // events returned AND recorded. Default 100, ceiling 500.
+  label: "weekly-activity",   // node id; default `digest:<event>`. Distinct per run.
+});
+// digest.events   → chronological [{ properties, occurredAt }], capped at maxEvents
+// digest.count    → number of events in the window
+// digest.truncated→ true when more than maxEvents matched
+// digest.flushedAt→ ISO instant the window closed (recorded — replay-stable)
+
+// A 7-day window is a long wait; unsubscribe does NOT exit the journey.
+if (!(await ctx.guard.isSubscribed())) return;
+
+// "Batch" is plain TypeScript over digest.events — there is NO batch primitive.
+const byProject = Object.groupBy(digest.events, (e) =>
+  String(e.properties?.projectId ?? "other"),
+);
+```
+
+`entryLimit: "unlimited"` → a ROLLING digest (each window re-enrolls from the
+next event). `entryLimit: "once"` → exactly ONE window ever. Pair a rolling
+digest with `suppress: days(0)`: the digest already collapses the sends, and a
+`suppress` ≥ the window would gap out each new window's email. The window is
+NEVER tier-gated. Straggler caveat: an event landing between the flush scan and
+the run completing counts toward the NEXT window, not this one.
+
+## Throttle — advisory frequency check
+
+```ts
+// ADVISORY branch: "has this user already had `limit` emails this window? then
+// skip the nudge." Counts THIS user's non-failed email_sends by recipient email
+// (the same count the client-level frequencyCap enforces on). The verdict is
+// RECORDED once per site and replayed verbatim, so a replay branches identically.
+const { allowed, count, remaining } = await ctx.throttle({
+  limit: 3,
+  window: days(7),
+  // category: "marketing",   // optional — count only this category. No exemptions.
+  // label: "nudge-throttle", // optional — distinct per site; reusing one throws.
+});
+if (!allowed) return; // already got `limit` this window
+```
+
+ADVISORY, not enforcement: the client-level `frequencyCap` config stays the HARD
+send-time backstop, and the two can disagree across a long wait (this verdict is
+frozen at first check; the cap re-counts at send). There is NO reservation, so
+concurrent journeys can overshoot an advisory limit. To count things that are
+NOT sends (pushes, Slack messages, a specific action), use the named-counter
+recipe: `ctx.trigger({ event: "nudge.sent", userId })` to record + a windowed
+`ctx.history.hasEvent({ event: "nudge.sent", within: days(7) })` to count.
+
+`ctx.digest`, `ctx.throttle`, and `ctx.once` persist recorded state under the
+reserved context keys `__digest__` / `__throttle__` / `__once__` (don't write
+them yourself) and reserve the `digest:` / `throttle:` label prefixes — give each
+call a distinct `label` when a run has more than one.
+
 ## Observability
 
 ```ts

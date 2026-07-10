@@ -20,6 +20,7 @@ import { linkClickCampaign } from "./link-click-campaign.js";
 import { reactivationDormancy } from "./reactivation-dormancy.js";
 import { referralInvite } from "./referral-invite.js";
 import { retentionMilestone } from "./retention-milestone.js";
+import { retentionWeeklyDigest } from "./retention-weekly-digest.js";
 import { telegramLinkRequest } from "./telegram-link-request.js";
 import { telegramLinked } from "./telegram-linked.js";
 import { telegramOnboarding } from "./telegram-onboarding.js";
@@ -38,6 +39,7 @@ export const journeys: DefinedJourney[] = [
   conversionTrialUpgrade,
   conversionAbandonedCheckout,
   retentionMilestone,
+  retentionWeeklyDigest,
   referralInvite,
   feedbackNps,
   detractorRescue,
@@ -84,6 +86,7 @@ export {
   reactivationDormancy,
   referralInvite,
   retentionMilestone,
+  retentionWeeklyDigest,
   telegramLinked,
   telegramLinkRequest,
   telegramOnboarding,
