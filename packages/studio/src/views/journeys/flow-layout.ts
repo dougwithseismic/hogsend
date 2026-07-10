@@ -27,6 +27,7 @@ export const NODE_DIMS: Record<
   sleep: { width: 240, height: 76 },
   sleepUntil: { width: 240, height: 76 },
   wait: { width: 240, height: 76 },
+  digest: { width: 240, height: 76 },
   send: { width: 240, height: 76 },
   connector: { width: 240, height: 76 },
   checkpoint: { width: 240, height: 76 },

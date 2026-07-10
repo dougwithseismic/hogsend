@@ -3,6 +3,7 @@ export type JourneyNodeType =
   | "sleep"
   | "sleepUntil"
   | "wait"
+  | "digest"
   | "send"
   | "connector"
   | "checkpoint"

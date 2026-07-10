@@ -600,7 +600,10 @@ export {
   bucketExpiryTask,
   bucketReconcileTask,
 } from "./workflows/bucket-reconcile.js";
-export { checkAlertsTask } from "./workflows/check-alerts.js";
+export {
+  checkAlertsTask,
+  surfaceStrandedWaiting,
+} from "./workflows/check-alerts.js";
 // --- Outbound webhooks: durable delivery task + reaper (Section 1.5) ---
 export {
   deliverWebhookTask,

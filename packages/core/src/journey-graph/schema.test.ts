@@ -49,6 +49,23 @@ describe("journeyGraphSchema", () => {
     }
   });
 
+  it("accepts a digest node type", () => {
+    const withDigest = {
+      ...validGraph,
+      nodes: [
+        ...validGraph.nodes,
+        {
+          id: "digest:order.placed",
+          type: "digest",
+          title: "Digest",
+          subtitle: "1 hour",
+          meta: { event: "order.placed", duration: { hours: 1 } },
+        },
+      ],
+    };
+    expect(journeyGraphSchema.safeParse(withDigest).success).toBe(true);
+  });
+
   it("rejects a node with an invalid type", () => {
     const bad = {
       ...validGraph,
