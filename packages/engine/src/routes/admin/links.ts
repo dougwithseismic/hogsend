@@ -231,7 +231,9 @@ const listLinksRoute = createRoute({
       includeArchived: z.coerce.boolean().default(false),
       // true = only links whose QR scan row exists — the "QR codes" lens
       // (a QR code IS a managed link whose QR row has been minted).
-      hasQr: z.coerce.boolean().optional(),
+      // stringbool, NOT coerce.boolean: coerce turns the string "false" into
+      // true (any non-empty string is truthy), inverting ?hasQr=false.
+      hasQr: z.stringbool().optional(),
     }),
   },
   responses: {
@@ -328,8 +330,10 @@ const qrLinkRoute = createRoute({
       // URL), so this only affects raster/viewport dimensions.
       size: z.coerce.number().min(64).max(2048).default(512),
       // Transparent background (both formats) — for print/overlay use where
-      // the artwork supplies its own background.
-      transparent: z.coerce.boolean().default(false),
+      // the artwork supplies its own background. stringbool, NOT
+      // coerce.boolean: coerce would turn ?transparent=false into true and
+      // ship an invisible-on-white QR.
+      transparent: z.stringbool().default(false),
     }),
   },
   responses: {

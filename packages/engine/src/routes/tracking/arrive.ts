@@ -2,7 +2,10 @@ import { linkClicks, links, trackedLinks } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, isNull } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
-import { PublishableAnonymousMergeError } from "../../lib/contacts.js";
+import {
+  collidesWithIdentified,
+  PublishableAnonymousMergeError,
+} from "../../lib/contacts.js";
 import { ingestEvent } from "../../lib/ingestion.js";
 import { emitOutbound } from "../../lib/outbound.js";
 import { LINK_ARRIVED } from "../../lib/tracking-event-names.js";
@@ -10,7 +13,6 @@ import {
   InvalidUserTokenError,
   verifyUserToken,
 } from "../../lib/user-token.js";
-import { collidesWithIdentified } from "../feed/recipient.js";
 
 /**
  * Arrival attribution: the landing page reports "a visitor arrived from

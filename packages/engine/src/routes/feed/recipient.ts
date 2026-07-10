@@ -1,8 +1,9 @@
 import { contacts, type Database } from "@hogsend/db";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { Context } from "hono";
 import type { AppEnv } from "../../app.js";
 import {
+  collidesWithIdentified,
   contactKey,
   normalizeEmail,
   resolveContact,
@@ -128,52 +129,6 @@ export async function resolveFeedRecipient(
     status: 400,
     error: "anonymousId, userId, email, or userToken is required",
   };
-}
-
-/**
- * True when `value` is the canonical key of an IDENTIFIED contact — i.e. a live
- * contact's `external_id`, or its `email` when that is its canonical key (no
- * `external_id`). Such a value names an identified person's feed rows, so a
- * token-less publishable caller must NOT be allowed to claim it as an "anon id".
- *
- * A genuine browser anon id only ever matches a contact via `anonymous_id` whose
- * canonical key is that same anon id (the contact has no `external_id`) — that is
- * the caller's OWN anon contact and is allowed (returns false).
- *
- * Exported for the arrive endpoint (`POST /v1/t/arrive`), which must run the
- * SAME check before stamping an anon value onto a click row — otherwise
- * `{ ref, anonymousId: "<victim key>" }` would forge "victim arrived here".
- */
-export async function collidesWithIdentified(
-  db: Database,
-  value: string,
-): Promise<boolean> {
-  const rows = await db
-    .select({
-      externalId: contacts.externalId,
-      email: contacts.email,
-      anonymousId: contacts.anonymousId,
-    })
-    .from(contacts)
-    .where(
-      and(
-        or(
-          eq(contacts.externalId, value),
-          eq(contacts.email, value),
-          eq(contacts.anonymousId, value),
-        ),
-        isNull(contacts.deletedAt),
-      ),
-    );
-  for (const row of rows) {
-    // The supplied value is this contact's `external_id` → its rows are keyed on
-    // it (identified). Reject.
-    if (row.externalId === value) return true;
-    // The supplied value is this contact's `email` AND that email is its
-    // canonical key (no external_id) → identified rows are keyed on it. Reject.
-    if (row.email === value && !row.externalId) return true;
-  }
-  return false;
 }
 
 /**

@@ -188,12 +188,19 @@ export async function handleTrackedClick(
     // else: broadcast link (no distinctId, no send) — mint nothing.
 
     if (tokenDistinctId && tokenSrc) {
-      identityToken = generateIdentityToken({
-        secret: env.BETTER_AUTH_SECRET,
-        distinctId: tokenDistinctId,
-        src: tokenSrc,
-        emailSendId: emailSendId ?? undefined,
-      });
+      // Graceful degradation (pre-extraction behavior): a token-mint throw
+      // (crypto failure) must degrade to a plain redirect for the human
+      // clicker, never a 500 on the redirect path.
+      try {
+        identityToken = generateIdentityToken({
+          secret: env.BETTER_AUTH_SECRET,
+          distinctId: tokenDistinctId,
+          src: tokenSrc,
+          emailSendId: emailSendId ?? undefined,
+        });
+      } catch {
+        identityToken = null;
+      }
     }
   }
 

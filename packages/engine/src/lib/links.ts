@@ -250,32 +250,37 @@ export async function mintLink(opts: MintLinkOptions): Promise<MintedLink> {
   const linkId = randomUUID();
   const trackedLinkId = randomUUID();
 
+  // ONE transaction: a half-failed mint would otherwise strand a `links` row
+  // that reserves a globally-unique slug with no tracked row — `/l/<slug>`
+  // dead (inner join misses) yet the slug 409s every re-mint.
   try {
-    await opts.db.insert(links).values({
-      id: linkId,
-      originalUrl: opts.url,
-      type,
-      slug,
-      label: opts.label ?? null,
-      description: opts.description ?? null,
-      appendRef: opts.appendRef ?? false,
-      campaign: opts.campaign ?? null,
-      source: opts.source,
-      distinctId,
-      createdBy: opts.createdBy ?? null,
+    await opts.db.transaction(async (tx) => {
+      await tx.insert(links).values({
+        id: linkId,
+        originalUrl: opts.url,
+        type,
+        slug,
+        label: opts.label ?? null,
+        description: opts.description ?? null,
+        appendRef: opts.appendRef ?? false,
+        campaign: opts.campaign ?? null,
+        source: opts.source,
+        distinctId,
+        createdBy: opts.createdBy ?? null,
+      });
+      await tx.insert(trackedLinks).values({
+        id: trackedLinkId,
+        linkId,
+        emailSendId: null,
+        distinctId,
+        source: opts.source,
+        originalUrl: opts.url,
+      });
     });
   } catch (err) {
     if (slug && isSlugUniqueViolation(err)) throw new SlugTakenError(slug);
     throw err;
   }
-  await opts.db.insert(trackedLinks).values({
-    id: trackedLinkId,
-    linkId,
-    emailSendId: null,
-    distinctId,
-    source: opts.source,
-    originalUrl: opts.url,
-  });
 
   return {
     linkId,
