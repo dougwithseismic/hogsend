@@ -451,6 +451,11 @@ export {
 export { getPostHog } from "./lib/posthog.js";
 // --- PostHog OAuth scopes (front-loaded set; gap-detector source of truth) ---
 export { EXPECTED_POSTHOG_SCOPES } from "./lib/posthog-scopes.js";
+// --- Recipient preferences (shared aggregated read across email/feed/connectors) ---
+export {
+  type RecipientPreferences,
+  readRecipientPreferences,
+} from "./lib/preferences.js";
 // --- Provider credentials (encrypted-at-rest OAuth token store) ---
 export {
   type CredentialKind,
