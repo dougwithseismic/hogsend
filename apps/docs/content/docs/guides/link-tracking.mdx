@@ -124,6 +124,57 @@ first/last hit times — and the Studio QR dialog shows the same breakdown. The
 QR code on your door can point at this month's offer while last month's numbers
 stay attributed to last month's page.
 
+## Arrival attribution — "did a known user scan this?"
+
+A redirect can't recognize the visitor: your app's cookies live on your site's
+domain, not the tracking host. **Arrival attribution** closes that gap with one
+extra hop — the landing page reports the visitor back.
+
+- **Opt in per link** (`appendRef` on mint/PATCH; the Studio toggle — default
+  ON in the New QR code dialog). The redirect then appends
+  `hs_ref=<hit id>` to the destination. Leave it off for destinations that
+  reject unknown params (e.g. OAuth redirect URIs). Reserved params on tracked
+  destinations: `hs_t`, `hs_ref`.
+- **The landing page reports back** to `POST /v1/t/arrive` with
+  `{ ref, anonymousId? | userToken? }`. With `@hogsend/js` this is automatic:
+  the SDK reads `hs_ref` on init, sends the beacon with the session's
+  identity, and strips the param (`captureRef: false` + `hogsend.captureRef()`
+  for SPAs that route before init).
+- **Identity is evidence-based, same rules as everywhere**: a `userToken`
+  (server-minted via `generateUserToken`) proves a userId — that's a **known
+  contact** arrival. A bare anon id is provenance-only: it can never attach to
+  an identified contact, and one that collides with an identified contact's
+  key is discarded. The endpoint answers `200 {"ok":true}` to every outcome.
+- **What you get**: the hit row is stamped with the visitor
+  (first-write-wins — replays can't re-attribute), link detail carries
+  `arrivalCount` + `identifiedArrivalCount`, the Studio QR dialog shows
+  "N confirmed arrivals · M from known contacts", and a **`link.arrived`**
+  event fires on the bus (trigger journeys on it; filter by `linkId`,
+  `campaign`, or `source: "qr"`) and on outbound webhooks.
+- **`link.arrived` ⊆ `link.clicked`**: it only fires when the link opts in AND
+  the landing page integrates — never trigger a journey on `arrived` expecting
+  every click.
+
+Server-rendered site without `@hogsend/js`? Read `hs_ref` from the request URL
+and POST it yourself — with a `userToken` minted server-side when the viewer is
+logged in:
+
+```ts
+import { generateUserToken } from "@hogsend/engine";
+
+await fetch(`${HOGSEND_URL}/v1/t/arrive`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    ref: url.searchParams.get("hs_ref"),
+    userToken: generateUserToken({
+      userId: session.userId,
+      secret: process.env.BETTER_AUTH_SECRET,
+    }),
+  }),
+});
+```
+
 ## Click counts
 
 The count is computed on read by summing `tracked_links.click_count`, so a click

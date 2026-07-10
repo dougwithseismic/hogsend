@@ -141,4 +141,21 @@ export const onChangelogClick = defineJourney({
   A `pk_` publishable key is fail-closed on origin: the `requirePublishableOrIngest` gate requires the key's `allowedOrigins` to list the request `Origin`. No allowlist, no `Origin` header, or an unlisted origin returns `403`.
 </Callout>
 
+## Arrival capture (`hs_ref`)
+
+When a visitor lands from a tracked link or QR code whose link opted into
+arrival attribution, the URL carries an `hs_ref` param. The SDK captures it
+automatically on init: it POSTs the ref to `/v1/t/arrive` with the session's
+identity (the `userToken` when held — a **known contact** arrival — else the
+anon id) and strips the param from the URL. This powers "did an existing user
+scan the door QR?" and the `link.arrived` journey trigger.
+
+- `captureRef: false` in the config turns auto-capture off.
+- `hogsend.captureRef()` is the manual escape hatch for SPAs that route before
+  init (optionally `captureRef(ref)` with an explicitly extracted value).
+- Inert when the URL carries no `hs_ref`; the beacon never throws.
+
+See the [link-tracking guide](/docs/guides/link-tracking) for the engine-side
+model (opt-in, trust tiers, per-hit stamps).
+
 See [Hooks](./hooks) for the client-side calls that emit these events and [Components](./components) for the UI that wires them.

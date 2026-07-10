@@ -189,6 +189,37 @@ stays, where it leads changes, and each destination keeps its own numbers.
   codes" view lists this lens and its "New QR code" flow mints a link then
   touches the QR endpoint so the row exists immediately
 
+### Arrival attribution — `hs_ref` + `POST /v1/t/arrive`
+
+A redirect can't recognize the visitor (their cookies live on the landing
+site's domain). Opt-in per link (`links.append_ref`, default false — appended
+params break strict OAuth redirect_uris): the redirect appends
+`hs_ref=<link_clicks.id>` (raw per-hit UUID, provenance not identity; built in
+the SAME URL pass as `hs_t` so the two never clobber each other). The landing
+page reports back to `POST /v1/t/arrive` — automatic with `@hogsend/js`
+(`captureRef`, default on) or server-side with a `generateUserToken`-minted
+token.
+
+- **Trust tiers** (mirrors the events route + feed recipient): `userToken` →
+  verified userId, `visitor_kind='token'` (a KNOWN contact); raw anon id →
+  `visitor_kind='anon'`, provenance-only — collision-checked against
+  identified contacts BEFORE stamping and ingested under
+  `restrictToAnonymous`. Invariant (tested): nothing the ref resolves to
+  (esp. `links.distinct_id`) ever enters the contact resolver as a subject
+- **First-write-wins stamp** on `link_clicks`
+  (`visitor_distinct_id`/`visitor_kind`/`arrived_at`): replays re-run the
+  ingest from the STAMPED identity (`idempotencyKey link:arrived:<ref>`) —
+  self-healing retry, never re-attribution. Outbound fires only on the fresh
+  store
+- **`link.arrived`** (bus + outbound, 16th catalog event): the
+  landing-confirmed SUBSET of `link.clicked` — carries the VISITOR's identity
+  (`linkId` = managed `links.id`; `trackedLinkId` separate). Journeys trigger
+  on it (filter `linkId`/`campaign`/`source: "qr"`)
+- **Uniform response**: `200 {"ok":true}` for every outcome — no
+  contact-existence oracle from an unauthenticated endpoint
+- Admin detail carries `arrivalCount` + `identifiedArrivalCount`; `clicks[]`
+  rows expose the stamp fields
+
 ## Semantic links — in-email answers
 
 A plain tracked link records THAT it was clicked; a **semantic link** records
