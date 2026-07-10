@@ -441,10 +441,11 @@ export async function ingestEvent(opts: {
   // spec — a dispatch failure must never fail the ingest.
   if (runtimeSpecsEnabled) {
     const liveSpecs = getRuntimeSpecStore().getByTriggerEvent(event.event);
-    for (const spec of liveSpecs) {
+    for (const { spec, version } of liveSpecs) {
       try {
         await journeySpecRunnerTask.runNoWait({
           spec: spec as unknown as JsonObject,
+          specVersion: version,
           userId: resolvedKey,
           userEmail: event.userEmail ?? "",
           properties: serializableProperties,
@@ -525,7 +526,7 @@ async function checkExits(
     // carry the same exitOn shape.
     const journey =
       registry.get(state.journeyId) ??
-      getRuntimeSpecStore().getById(state.journeyId)?.meta;
+      getRuntimeSpecStore().getById(state.journeyId)?.spec.meta;
     if (!journey?.exitOn) continue;
 
     const shouldExit = journey.exitOn.some((exitCondition) => {

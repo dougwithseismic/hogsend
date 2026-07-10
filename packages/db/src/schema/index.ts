@@ -19,6 +19,7 @@ export * from "./feed-items.js";
 export * from "./import-jobs.js";
 export * from "./journey-configs.js";
 export * from "./journey-logs.js";
+export * from "./journey-spec-versions.js";
 export * from "./journey-specs.js";
 export * from "./journey-states.js";
 export * from "./link-clicks.js";

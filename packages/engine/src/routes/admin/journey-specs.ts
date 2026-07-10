@@ -1,8 +1,9 @@
-import { journeySpecs } from "@hogsend/db";
+import { journeySpecs, journeySpecVersions } from "@hogsend/db";
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { ZodError } from "zod";
 import type { AppEnv } from "../../app.js";
+import { ejectSpecToCode } from "../../journeys/spec/eject-to-code.js";
 import { validateJourneySpec } from "../../journeys/spec/journey-from-spec.js";
 import { getRuntimeSpecStore } from "../../journeys/spec/runtime-spec-store.js";
 
@@ -174,6 +175,88 @@ const deleteRoute = createRoute({
   },
 });
 
+const versionsRoute = createRoute({
+  method: "get",
+  path: "/{id}/versions",
+  tags: ["Admin — Journey Specs"],
+  summary: "List the version history of a stored journey spec",
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            versions: z.array(
+              z.object({ version: z.number(), createdAt: z.string() }),
+            ),
+          }),
+        },
+      },
+      description: "All archived versions, newest first",
+    },
+  },
+});
+
+const rollbackRoute = createRoute({
+  method: "post",
+  path: "/{id}/rollback",
+  tags: ["Admin — Journey Specs"],
+  summary: "Roll a stored spec back to a prior version",
+  request: {
+    params: z.object({ id: z.string() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({ version: z.number().int().positive() }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ spec: specSummarySchema }),
+        },
+      },
+      description:
+        "Rolled forward: the target snapshot becomes the live spec at a new version",
+    },
+    400: {
+      content: { "application/json": { schema: errorSchema } },
+      description:
+        "Target snapshot no longer validates (e.g. a template was removed)",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Spec or target version not found",
+    },
+  },
+});
+
+const ejectRoute = createRoute({
+  method: "get",
+  path: "/{id}/eject",
+  tags: ["Admin — Journey Specs"],
+  summary: "Promote a stored spec to equivalent defineJourney() TypeScript",
+  request: { params: z.object({ id: z.string() }) },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({ filename: z.string(), code: z.string() }),
+        },
+      },
+      description:
+        "The generated .journey.ts source (the graduation path to code)",
+    },
+    404: {
+      content: { "application/json": { schema: errorSchema } },
+      description: "Spec not found",
+    },
+  },
+});
+
 export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
@@ -267,6 +350,20 @@ export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
       .returning();
 
     if (!row) throw new Error("Failed to upsert journey spec");
+    // Archive this version into the immutable history (Slice 3) so it can be
+    // listed / diffed / rolled back to. Keyed (journeyId, version) — idempotent
+    // on a retry of the same version.
+    await db
+      .insert(journeySpecVersions)
+      .values({
+        journeyId: id,
+        version: row.version,
+        // biome-ignore lint/suspicious/noExplicitAny: validated JourneySpec → jsonb
+        spec: spec as any,
+      })
+      .onConflictDoNothing({
+        target: [journeySpecVersions.journeyId, journeySpecVersions.version],
+      });
     // Make this API process's next ingest see the write immediately (the worker
     // picks it up on its TTL refresh).
     getRuntimeSpecStore().markStale();
@@ -299,4 +396,116 @@ export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
     if (deleted.length === 0) return c.json({ error: "Spec not found" }, 404);
     getRuntimeSpecStore().markStale();
     return c.json({ deleted: true, id }, 200);
+  })
+  .openapi(versionsRoute, async (c) => {
+    const { db } = c.get("container");
+    const { id } = c.req.valid("param");
+    const rows = await db
+      .select({
+        version: journeySpecVersions.version,
+        createdAt: journeySpecVersions.createdAt,
+      })
+      .from(journeySpecVersions)
+      .where(eq(journeySpecVersions.journeyId, id))
+      .orderBy(desc(journeySpecVersions.version));
+    return c.json(
+      {
+        versions: rows.map((r) => ({
+          version: r.version,
+          createdAt: r.createdAt.toISOString(),
+        })),
+      },
+      200,
+    );
+  })
+  .openapi(rollbackRoute, async (c) => {
+    const { db, templates } = c.get("container");
+    const { id } = c.req.valid("param");
+    const { version } = c.req.valid("json");
+
+    // A live spec must exist to roll back (rollback re-points it forward).
+    const [live] = await db
+      .select({ version: journeySpecs.version })
+      .from(journeySpecs)
+      .where(eq(journeySpecs.journeyId, id))
+      .limit(1);
+    if (!live) return c.json({ error: "Spec not found" }, 404);
+
+    const [target] = await db
+      .select({ spec: journeySpecVersions.spec })
+      .from(journeySpecVersions)
+      .where(
+        and(
+          eq(journeySpecVersions.journeyId, id),
+          eq(journeySpecVersions.version, version),
+        ),
+      )
+      .limit(1);
+    if (!target) return c.json({ error: `Version ${version} not found` }, 404);
+
+    // Re-validate against the CURRENT registry — a template the old snapshot used
+    // may have been removed since. Fail closed rather than restoring a dead ref.
+    const templateKeys = new Set(Object.keys(templates ?? {}));
+    let spec: ReturnType<typeof validateJourneySpec>;
+    try {
+      spec = validateJourneySpec(target.spec, { templateKeys });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json(
+        { error: `Target version no longer validates: ${message}` },
+        400,
+      );
+    }
+
+    // Roll FORWARD (Conductor model): the target snapshot becomes the live spec
+    // at a NEW version, so in-flight runs on other versions are undisturbed.
+    const [row] = await db
+      .update(journeySpecs)
+      .set({
+        // biome-ignore lint/suspicious/noExplicitAny: validated JourneySpec → jsonb
+        spec: spec as any,
+        specSchemaVersion: spec.specVersion,
+        version: sql`${journeySpecs.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(journeySpecs.journeyId, id))
+      .returning();
+    if (!row) throw new Error("Failed to roll back journey spec");
+
+    await db
+      .insert(journeySpecVersions)
+      .values({
+        journeyId: id,
+        version: row.version,
+        // biome-ignore lint/suspicious/noExplicitAny: validated JourneySpec → jsonb
+        spec: spec as any,
+      })
+      .onConflictDoNothing({
+        target: [journeySpecVersions.journeyId, journeySpecVersions.version],
+      });
+    getRuntimeSpecStore().markStale();
+    return c.json({ spec: summarize(row) }, 200);
+  })
+  .openapi(ejectRoute, async (c) => {
+    const { db } = c.get("container");
+    const { id } = c.req.valid("param");
+    const [row] = await db
+      .select({ spec: journeySpecs.spec })
+      .from(journeySpecs)
+      .where(eq(journeySpecs.journeyId, id))
+      .limit(1);
+    if (!row) return c.json({ error: "Spec not found" }, 404);
+
+    // Parse defensively; a stored row is valid-at-write, but eject must never 500
+    // on drift — surface it as a not-found-shaped error instead.
+    let spec: ReturnType<typeof validateJourneySpec>;
+    try {
+      spec = validateJourneySpec(row.spec);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return c.json({ error: `Spec no longer validates: ${message}` }, 404);
+    }
+
+    const code = ejectSpecToCode(spec);
+    return c.json({ filename: `${spec.id}.journey.ts`, code }, 200);
   });

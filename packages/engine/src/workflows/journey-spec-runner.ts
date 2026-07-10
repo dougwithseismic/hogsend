@@ -20,6 +20,8 @@ const logger = createLogger(process.env.LOG_LEVEL);
  */
 export interface JourneySpecRunnerInput extends JsonObject {
   spec: JsonObject;
+  /** `journey_specs.version` this snapshot came from (stamped on the state). */
+  specVersion: number;
   userId: string;
   userEmail: string;
   properties: JsonObject;
@@ -61,6 +63,7 @@ export const journeySpecRunnerTask = hatchet.durableTask({
       run: makeSpecRun(spec),
       input,
       hatchetCtx,
+      specVersion: input.specVersion,
     });
   },
 });

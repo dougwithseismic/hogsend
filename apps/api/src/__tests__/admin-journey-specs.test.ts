@@ -7,7 +7,7 @@ process.env.DATABASE_URL =
 const { createApp, createHogsendClient, loadAndRegisterDbSpecs } = await import(
   "@hogsend/engine"
 );
-const { journeySpecs } = await import("@hogsend/db");
+const { journeySpecs, journeySpecVersions } = await import("@hogsend/db");
 const { like } = await import("drizzle-orm");
 const { journeys } = await import("../journeys/index.js");
 const { templates } = await import("../emails/index.js");
@@ -57,6 +57,9 @@ function put(id: string, body: unknown) {
 }
 
 afterAll(async () => {
+  await db
+    .delete(journeySpecVersions)
+    .where(like(journeySpecVersions.journeyId, `${RUN}%`));
   await db.delete(journeySpecs).where(like(journeySpecs.journeyId, `${RUN}%`));
 });
 
@@ -234,5 +237,102 @@ describe("Slice 1 boot hydration (smoke)", () => {
     expect(nodeIds).toContain("start");
     expect(nodeIds).toContain("send:hello");
     expect(nodeIds).toContain("settle");
+  });
+});
+
+describe("Slice 3 — version history, rollback, eject", () => {
+  it("archives every write and lists versions newest-first", async () => {
+    const id = `${RUN}-hist`;
+    await put(id, specFor(id, "v1-name"));
+    await put(id, specFor(id, "v2-name"));
+    await put(id, specFor(id, "v3-name"));
+
+    const res = await app.request(`/v1/admin/journey-specs/${id}/versions`, {
+      headers: AUTH,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const versions = body.versions.map((v: { version: number }) => v.version);
+    expect(versions).toEqual([3, 2, 1]); // newest first
+  });
+
+  it("rolls forward to a prior version's content at a new version number", async () => {
+    const id = `${RUN}-rb`;
+    // v1 = checkpoint "alpha"; v2 = checkpoint "beta".
+    const v1 = {
+      ...specFor(id),
+      steps: [{ id: "alpha", type: "checkpoint" }],
+    };
+    const v2 = {
+      ...specFor(id),
+      steps: [{ id: "beta", type: "checkpoint" }],
+    };
+    await put(id, v1);
+    await put(id, v2);
+
+    // Roll back to version 1 → becomes the live spec at version 3.
+    const rb = await app.request(`/v1/admin/journey-specs/${id}/rollback`, {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({ version: 1 }),
+    });
+    expect(rb.status).toBe(200);
+    expect((await rb.json()).spec.version).toBe(3);
+
+    // The live document is v1's content (step id "alpha"), not v2's.
+    const cur = await app.request(`/v1/admin/journey-specs/${id}`, {
+      headers: AUTH,
+    });
+    const doc = await cur.json();
+    expect(doc.spec.steps[0].id).toBe("alpha");
+    expect(doc.summary.version).toBe(3);
+  });
+
+  it("404s rolling back to a missing version", async () => {
+    const id = `${RUN}-rb404`;
+    await put(id, specFor(id));
+    const rb = await app.request(`/v1/admin/journey-specs/${id}/rollback`, {
+      method: "POST",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({ version: 99 }),
+    });
+    expect(rb.status).toBe(404);
+  });
+
+  it("ejects a spec to defineJourney() TypeScript source", async () => {
+    const id = `${RUN}-eject`;
+    await put(id, {
+      ...specFor(id),
+      steps: [
+        { id: "hello", type: "send_email", template: "welcome", subject: "hi" },
+        { id: "settle", type: "sleep", duration: { minutes: 5 } },
+        {
+          id: "gate",
+          type: "branch",
+          if: {
+            type: "property",
+            property: "plan",
+            operator: "eq",
+            value: "pro",
+          },
+          yes: [{ id: "done", type: "end" }],
+          no: [{ id: "mark", type: "checkpoint" }],
+        },
+      ],
+    });
+
+    const res = await app.request(`/v1/admin/journey-specs/${id}/eject`, {
+      headers: AUTH,
+    });
+    expect(res.status).toBe(200);
+    const { filename, code } = await res.json();
+    expect(filename).toBe(`${id}.journey.ts`);
+    // Faithful 1:1 translation to the runtime primitives.
+    expect(code).toContain("defineJourney({");
+    expect(code).toContain("await sendEmail({");
+    expect(code).toContain("await ctx.sleep({");
+    expect(code).toContain('user.properties["plan"] === "pro"');
+    expect(code).toContain("await ctx.checkpoint(");
+    expect(code).toContain("return;"); // the `end` step
   });
 });

@@ -24,6 +24,11 @@ export const journeyStates = pgTable(
     status: journeyStatusEnum("status").notNull().default("active"),
     hatchetRunId: text("hatchet_run_id"),
     context: jsonb("context").$type<Record<string, unknown>>().default({}),
+    // The DB-spec row version this enrollment is running (Slice 3). NULL for
+    // code journeys and pre-Slice-3 rows. The spec snapshot in the runner's
+    // Hatchet payload is what actually pins execution across replay; this column
+    // just makes "which version is each enrollment on" queryable for ops/UI.
+    specVersion: integer("spec_version"),
     errorMessage: text("error_message"),
     entryCount: integer("entry_count").notNull().default(1),
     completedAt: timestamp("completed_at", { withTimezone: true }),

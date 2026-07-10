@@ -249,6 +249,7 @@ export {
   getJourneyRegistrySingleton,
   setJourneyRegistry,
 } from "./journeys/registry-singleton.js";
+export { ejectSpecToCode } from "./journeys/spec/eject-to-code.js";
 export {
   isJourneySpec,
   journeyFromSpec,

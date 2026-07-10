@@ -1,7 +1,6 @@
-import type { JourneySpec } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import type { Logger } from "../../lib/logger.js";
-import { loadJourneySpecsFromDb } from "./load-from-db.js";
+import { type LoadedSpec, loadJourneySpecsFromDb } from "./load-from-db.js";
 
 /**
  * In-memory index of the currently-active DB journey specs (Slice 2). This is
@@ -16,8 +15,8 @@ import { loadJourneySpecsFromDb } from "./load-from-db.js";
  * when due), and `markStale` lets the admin write path force the next refresh.
  */
 export class RuntimeSpecStore {
-  private byId = new Map<string, JourneySpec>();
-  private byTrigger = new Map<string, JourneySpec[]>();
+  private byId = new Map<string, LoadedSpec>();
+  private byTrigger = new Map<string, LoadedSpec[]>();
   private lastRefreshedAt = 0;
   private inFlight: Promise<void> | null = null;
 
@@ -30,13 +29,13 @@ export class RuntimeSpecStore {
     this.inFlight = (async () => {
       try {
         const specs = await loadJourneySpecsFromDb({ db, logger });
-        const byId = new Map<string, JourneySpec>();
-        const byTrigger = new Map<string, JourneySpec[]>();
-        for (const spec of specs) {
-          byId.set(spec.id, spec);
-          const event = spec.meta.trigger.event;
+        const byId = new Map<string, LoadedSpec>();
+        const byTrigger = new Map<string, LoadedSpec[]>();
+        for (const loaded of specs) {
+          byId.set(loaded.spec.id, loaded);
+          const event = loaded.spec.meta.trigger.event;
           const list = byTrigger.get(event) ?? [];
-          list.push(spec);
+          list.push(loaded);
           byTrigger.set(event, list);
         }
         this.byId = byId;
@@ -65,15 +64,15 @@ export class RuntimeSpecStore {
     this.lastRefreshedAt = 0;
   }
 
-  getByTriggerEvent(event: string): JourneySpec[] {
+  getByTriggerEvent(event: string): LoadedSpec[] {
     return this.byTrigger.get(event) ?? [];
   }
 
-  getById(id: string): JourneySpec | undefined {
+  getById(id: string): LoadedSpec | undefined {
     return this.byId.get(id);
   }
 
-  all(): JourneySpec[] {
+  all(): LoadedSpec[] {
     return [...this.byId.values()];
   }
 

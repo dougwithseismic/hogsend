@@ -106,21 +106,21 @@ describe("loadJourneySpecsFromDb", () => {
     });
 
     const loaded = await loadJourneySpecsFromDb({ db, logger });
-    const ids = loaded.map((s) => s.id);
+    const ids = loaded.map((s) => s.spec.id);
 
     expect(ids).toContain(okId);
     expect(ids).not.toContain(disabledId); // enabled=false filtered by query
     expect(ids).not.toContain(malformedId); // parse failure skipped
     expect(ids).not.toContain(`${RUN}-other-id`); // id mismatch skipped
     // Every returned value is a fully-parsed spec.
-    const ok = loaded.find((s) => s.id === okId);
-    expect(ok?.meta.trigger.event).toBe(`${RUN}.trigger`);
-    expect(ok?.steps).toHaveLength(1);
+    const ok = loaded.find((s) => s.spec.id === okId);
+    expect(ok?.spec.meta.trigger.event).toBe(`${RUN}.trigger`);
+    expect(ok?.spec.steps).toHaveLength(1);
   });
 
   it("returns an empty array when there are no rows (never throws)", async () => {
     const loaded = await loadJourneySpecsFromDb({ db, logger });
-    const mine = loaded.filter((s) => s.id.startsWith(RUN));
+    const mine = loaded.filter((s) => s.spec.id.startsWith(RUN));
     expect(mine).toHaveLength(0);
   });
 
@@ -135,7 +135,7 @@ describe("loadJourneySpecsFromDb", () => {
     });
 
     const loaded = await loadJourneySpecsFromDb({ db, logger });
-    const ids = loaded.map((s) => s.id);
+    const ids = loaded.map((s) => s.spec.id);
     expect(ids).toContain(`${RUN}-good`);
     expect(ids).not.toContain(`${RUN}-bad`);
   });

@@ -74,16 +74,18 @@ describe("RuntimeSpecStore", () => {
     const store = new RuntimeSpecStore();
     await store.refresh(db, 1000, logger);
 
-    expect(store.getById(a)?.id).toBe(a);
+    expect(store.getById(a)?.spec.id).toBe(a);
     expect(store.getById(off)).toBeUndefined();
-    const mine = store.all().filter((s) => s.id.startsWith(RUN));
+    const mine = store.all().filter((s) => s.spec.id.startsWith(RUN));
     expect(mine).toHaveLength(2);
 
     const onOne = store
       .getByTriggerEvent(`${RUN}.one`)
-      .filter((s) => s.id.startsWith(RUN));
-    expect(onOne.map((s) => s.id)).toEqual([a]); // off excluded
-    expect(store.getByTriggerEvent(`${RUN}.two`).map((s) => s.id)).toContain(b);
+      .filter((s) => s.spec.id.startsWith(RUN));
+    expect(onOne.map((s) => s.spec.id)).toEqual([a]); // off excluded
+    expect(
+      store.getByTriggerEvent(`${RUN}.two`).map((s) => s.spec.id),
+    ).toContain(b);
   });
 
   it("refreshIfStale reloads only after the TTL elapses", async () => {
@@ -92,18 +94,20 @@ describe("RuntimeSpecStore", () => {
 
     const store = new RuntimeSpecStore();
     await store.refresh(db, 10_000, logger);
-    const before = store.all().filter((s) => s.id.startsWith(RUN)).length;
+    const before = store.all().filter((s) => s.spec.id.startsWith(RUN)).length;
 
     // Add another AFTER the last refresh.
     await insert(`${RUN}-ttl-b`, `${RUN}.ttl`);
 
     // Within TTL → no reload.
     await store.refreshIfStale(db, 12_000, 5000, logger);
-    expect(store.all().filter((s) => s.id.startsWith(RUN)).length).toBe(before);
+    expect(store.all().filter((s) => s.spec.id.startsWith(RUN)).length).toBe(
+      before,
+    );
 
     // Past TTL → reload picks up the new row.
     await store.refreshIfStale(db, 16_000, 5000, logger);
-    expect(store.all().filter((s) => s.id.startsWith(RUN)).length).toBe(
+    expect(store.all().filter((s) => s.spec.id.startsWith(RUN)).length).toBe(
       before + 1,
     );
   });
@@ -112,13 +116,13 @@ describe("RuntimeSpecStore", () => {
     await insert(`${RUN}-ms-a`, `${RUN}.ms`);
     const store = new RuntimeSpecStore();
     await store.refresh(db, 10_000, logger);
-    const before = store.all().filter((s) => s.id.startsWith(RUN)).length;
+    const before = store.all().filter((s) => s.spec.id.startsWith(RUN)).length;
 
     await insert(`${RUN}-ms-b`, `${RUN}.ms`);
     store.markStale();
     // Even though only 1ms passed, markStale forces the reload.
     await store.refreshIfStale(db, 10_001, 5000, logger);
-    expect(store.all().filter((s) => s.id.startsWith(RUN)).length).toBe(
+    expect(store.all().filter((s) => s.spec.id.startsWith(RUN)).length).toBe(
       before + 1,
     );
   });

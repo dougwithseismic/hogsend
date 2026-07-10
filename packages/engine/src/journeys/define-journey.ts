@@ -190,6 +190,7 @@ export async function insertEnrollment(opts: {
   journeyId: string;
   context: Record<string, unknown>;
   hatchetRunId?: string;
+  specVersion?: number;
 }): Promise<JourneyStateRow | undefined> {
   const [row] = await opts.db
     .insert(journeyStates)
@@ -201,6 +202,9 @@ export async function insertEnrollment(opts: {
       status: "active",
       context: opts.context,
       hatchetRunId: opts.hatchetRunId,
+      ...(opts.specVersion !== undefined
+        ? { specVersion: opts.specVersion }
+        : {}),
     })
     .onConflictDoNothing({
       target: [journeyStates.userId, journeyStates.journeyId],
@@ -290,8 +294,13 @@ export async function executeJourneyRun(params: {
   run: JourneyRunFn;
   input: EventPayloadInput;
   hatchetCtx: HatchetDurableCtx;
+  /**
+   * The DB-spec row version this enrollment runs (Slice 3), stamped on the
+   * `journey_states` row for observability. Undefined for code journeys.
+   */
+  specVersion?: number;
 }): Promise<JourneyRunResult> {
-  const { meta, run, input, hatchetCtx } = params;
+  const { meta, run, input, hatchetCtx, specVersion } = params;
   const db = getDb();
   const userId = input.userId as string;
   const userEmail = input.userEmail as string;
@@ -391,6 +400,7 @@ export async function executeJourneyRun(params: {
       journeyId: meta.id,
       context: properties,
       hatchetRunId: workflowRunId,
+      specVersion,
     });
     if (!state) {
       return { status: "skipped", reason: "already_active" };

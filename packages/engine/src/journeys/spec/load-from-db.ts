@@ -7,10 +7,16 @@ import type { Logger } from "../../lib/logger.js";
 import type { DefinedJourney } from "../define-journey.js";
 import { journeyFromSpec } from "./journey-from-spec.js";
 
+/** A validated spec plus the `journey_specs.version` it was loaded from. */
+export interface LoadedSpec {
+  spec: JourneySpec;
+  version: number;
+}
+
 /**
  * Load DB-stored journey specs (Slice 1). Returns the enabled rows parsed into
- * validated {@link JourneySpec}s, ready to merge into the `journeys` array
- * alongside the code journeys.
+ * validated {@link JourneySpec}s (each with its row `version`, Slice 3), ready to
+ * merge into the `journeys` array alongside the code journeys.
  *
  * Tolerance is the whole point: a code-array spec crashes boot when invalid
  * (it's code — fail loud). A DB row is DATA, so a single malformed/schema-drifted
@@ -24,7 +30,7 @@ import { journeyFromSpec } from "./journey-from-spec.js";
 export async function loadJourneySpecsFromDb(opts: {
   db: Database;
   logger?: Logger;
-}): Promise<JourneySpec[]> {
+}): Promise<LoadedSpec[]> {
   const { db, logger } = opts;
 
   const rows = await db
@@ -37,7 +43,7 @@ export async function loadJourneySpecsFromDb(opts: {
     .where(and(eq(journeySpecs.enabled, true), eq(journeySpecs.origin, "json")))
     .orderBy(asc(journeySpecs.journeyId));
 
-  const loaded: JourneySpec[] = [];
+  const loaded: LoadedSpec[] = [];
   for (const row of rows) {
     const parsed = journeySpecSchema.safeParse(row.spec);
     if (!parsed.success) {
@@ -60,13 +66,13 @@ export async function loadJourneySpecsFromDb(opts: {
       );
       continue;
     }
-    loaded.push(parsed.data);
+    loaded.push({ spec: parsed.data, version: row.version });
   }
 
   if (loaded.length > 0) {
     logger?.info("journey_specs: loaded DB journey specs", {
       count: loaded.length,
-      ids: loaded.map((s) => s.id),
+      ids: loaded.map((s) => s.spec.id),
     });
   }
   return loaded;
@@ -100,7 +106,7 @@ export async function loadAndRegisterDbSpecs(
 
   const templateKeys = new Set(Object.keys(templates ?? {}));
   const adapted: DefinedJourney[] = [];
-  for (const spec of specs) {
+  for (const { spec } of specs) {
     if (registry.get(spec.id)) {
       logger.warn(
         "journey_specs: DB spec id collides with a registered journey — code wins, skipping",
