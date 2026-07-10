@@ -68,6 +68,20 @@ export interface JourneyBoundary {
    * touched; when it isn't, Layer 2 still guarantees exactly-once.
    */
   memoize<T>(deps: unknown[], fn: () => Promise<T> | T): Promise<T>;
+  /**
+   * The enclosing journey's id (`meta.id`), threaded onto the boundary so the
+   * tracked mailer can enforce `meta.suppress` at send time WITHOUT the send
+   * call sites having to pass it. Optional so non-journey boundaries (tests,
+   * harness contexts) compile unchanged. Undefined ⇒ the suppress guard is inert.
+   */
+  journeyId?: string;
+  /**
+   * The enclosing journey's `meta.suppress` resolved to milliseconds
+   * (`durationToMs`). > 0 arms the tracked mailer's per-recipient min-gap
+   * suppress guard for this journey's sends; 0 (the `{}`/zero-duration default)
+   * disables it. Optional for the same reason as {@link journeyId}.
+   */
+  suppressMs?: number;
 }
 
 const journeyBoundaryAls = new AsyncLocalStorage<JourneyBoundary>();

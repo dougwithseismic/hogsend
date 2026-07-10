@@ -58,6 +58,17 @@ export interface JourneyMeta {
     where?: PropertyCondition[];
   }>;
 
+  /**
+   * Minimum gap between sends WITHIN this journey, per recipient email —
+   * enforced at send time in the engine-owned tracked mailer. If a non-failed
+   * `email_sends` row for this journey (across ALL of the journey's
+   * enrollments) to the same recipient already exists inside the window, the
+   * send is SKIPPED: it returns `{ status: "skipped", reason:
+   * "journey_suppressed" }`, writes NO `email_sends` row, and makes NO provider
+   * call — the journey run continues. A zero duration (`{}` / `hours(0)`)
+   * DISABLES the guard. Only journey-bound sends are affected; transactional /
+   * non-journey sends (`POST /v1/emails`, password-reset) are never suppressed.
+   */
   suppress: DurationObject;
 
   // Bucket-reaction tagging (set by buildBucketReaction). Generated reactions

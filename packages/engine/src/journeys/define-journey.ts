@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
 import {
+  durationToMs,
   evaluatePropertyConditions,
   type JourneySourceLocation,
   normalizeWhere,
@@ -507,6 +508,12 @@ export function defineJourney(options: {
         seenKeys: new Set<string>(),
         seenRecordLabels: new Set<string>(),
         memoize: createMemoize(hatchetCtx),
+        journeyId: meta.id,
+        // `meta.suppress` is a required DurationObject, but a `{}` / zero
+        // duration must yield 0 (disabled); `durationToMs` maps both to 0.
+        // Guard against a runtime-absent value so an undefined never reaches
+        // durationToMs (which would throw dereferencing `.hours`).
+        suppressMs: meta.suppress ? durationToMs(meta.suppress) : 0,
       };
 
       // Seed the context's memoized-clock snapshot ONCE before run() so a
