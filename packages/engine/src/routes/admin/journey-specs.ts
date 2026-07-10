@@ -98,6 +98,13 @@ const putRoute = createRoute({
   summary: "Create or replace a journey spec",
   request: {
     params: z.object({ id: z.string() }),
+    query: z.object({
+      // Initial enabled state on CREATE only (the DB default is true, which
+      // would make a freshly-PUT spec live before anyone reviewed it — agent
+      // writers pass false and flip it with PATCH after approval). Ignored on
+      // replace: enable/disable of an existing spec stays PATCH's job.
+      enabled: z.enum(["true", "false"]).optional(),
+    }),
     body: {
       content: { "application/json": { schema: specBodySchema } },
     },
@@ -283,6 +290,7 @@ export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
   .openapi(putRoute, async (c) => {
     const { db, registry, templates } = c.get("container");
     const { id } = c.req.valid("param");
+    const { enabled: enabledParam } = c.req.valid("query");
     const body = c.req.valid("json");
 
     // Validate exactly as the boot loader does — shape + referential + template
@@ -336,6 +344,13 @@ export const journeySpecsRouter = new OpenAPIHono<AppEnv>()
         spec: spec as any,
         specSchemaVersion: spec.specVersion,
         origin: "json",
+        // Initial state on CREATE only (DB default is enabled:true; agent
+        // writers pass ?enabled=false so a fresh spec is born disabled). The
+        // conflict-update set below deliberately omits `enabled` — replacing a
+        // spec never flips its live state.
+        ...(enabledParam !== undefined
+          ? { enabled: enabledParam === "true" }
+          : {}),
       })
       .onConflictDoUpdate({
         target: journeySpecs.journeyId,

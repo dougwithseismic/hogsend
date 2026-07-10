@@ -182,6 +182,55 @@ describe("admin journey-specs CRUD", () => {
   });
 });
 
+describe("PUT ?enabled=false (disabled-at-birth, MCP write path)", () => {
+  it("creates the spec disabled; a later replace does not flip enabled", async () => {
+    const id = `${RUN}-born-off`;
+    const created = await app.request(
+      `/v1/admin/journey-specs/${id}?enabled=false`,
+      {
+        method: "PUT",
+        headers: { ...AUTH, "content-type": "application/json" },
+        body: JSON.stringify(specFor(id)),
+      },
+    );
+    expect(created.status).toBe(200);
+    expect((await created.json()).spec.enabled).toBe(false);
+
+    // Enable it, then replace WITHOUT the param — must stay enabled.
+    await app.request(`/v1/admin/journey-specs/${id}`, {
+      method: "PATCH",
+      headers: { ...AUTH, "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    const replaced = await put(id, specFor(id, "renamed"));
+    expect((await replaced.json()).spec.enabled).toBe(true);
+  });
+
+  it("default PUT (no param) still creates enabled (back-compat)", async () => {
+    const id = `${RUN}-born-on`;
+    const created = await put(id, specFor(id));
+    expect((await created.json()).spec.enabled).toBe(true);
+  });
+});
+
+describe("GET /v1/admin/api-keys/self", () => {
+  it("identifies the authenticated credential", async () => {
+    const res = await app.request("/v1/admin/api-keys/self", {
+      headers: AUTH,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // Test auth uses the legacy env ADMIN_API_KEY → api-key actor, legacy id.
+    expect(body.actor).toBe("api-key");
+    expect(body.scopes).toContain("full-admin");
+  });
+
+  it("401s without auth", async () => {
+    const res = await app.request("/v1/admin/api-keys/self");
+    expect(res.status).toBe(401);
+  });
+});
+
 // End-to-end smoke: write a spec via the CRUD route, then run the SAME boot
 // hydration the API's index.ts does (`loadAndRegisterDbSpecs`), and confirm the
 // stored journey now shows up in the admin journeys list AND renders a

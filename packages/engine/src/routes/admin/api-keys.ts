@@ -49,6 +49,32 @@ const listRoute = createRoute({
   },
 });
 
+const selfRoute = createRoute({
+  method: "get",
+  path: "/self",
+  tags: ["Admin — API Keys"],
+  summary: "Identify the authenticated credential (key id/name/scopes)",
+  description:
+    "Lets an agent (e.g. the MCP server) identify which key it connected with, " +
+    "for audit-friendly startup logging and scope-aware behavior. Session " +
+    "(cookie) auth returns actor: session with no key fields.",
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            actor: z.enum(["api-key", "session"]),
+            id: z.string().nullable(),
+            name: z.string().nullable(),
+            scopes: z.array(z.string()),
+          }),
+        },
+      },
+      description: "The authenticated credential's identity",
+    },
+  },
+});
+
 const createKeyRoute = createRoute({
   method: "post",
   path: "/",
@@ -152,6 +178,24 @@ function serializeKey(row: typeof apiKeys.$inferSelect) {
 }
 
 export const apiKeysRouter = new OpenAPIHono<AppEnv>()
+  .openapi(selfRoute, async (c) => {
+    const key = c.get("apiKey");
+    if (!key) {
+      return c.json(
+        { actor: "session" as const, id: null, name: null, scopes: [] },
+        200,
+      );
+    }
+    return c.json(
+      {
+        actor: "api-key" as const,
+        id: key.id === "legacy" ? null : key.id,
+        name: key.name,
+        scopes: key.scopes,
+      },
+      200,
+    );
+  })
   .openapi(listRoute, async (c) => {
     const { db } = c.get("container");
     const { limit, offset, includeRevoked } = c.req.valid("query");
