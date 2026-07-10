@@ -106,10 +106,10 @@ export const blueprintWaitNodeSchema = z.object({
  * `send` — `sendEmail({ template, idempotencyLabel? })`. Template key must be
  * a non-empty string.
  *
- * TODO(phase 3): check `template` against the registered template keys
- * (the template registry lives in the engine container / consumer app, not in
- * @hogsend/core — the admin `/validate` route is where the registry lookup
- * can happen without inventing infrastructure here).
+ * The registry lookup (is `template` a registered template key?) lives in the
+ * engine's admin blueprint routes (`routes/admin/blueprints.ts`,
+ * `validateBlueprintGraphForSave`) — the template registry belongs to the
+ * engine container / consumer app, not to @hogsend/core.
  */
 export const blueprintSendNodeSchema = z.object({
   id: z.string().min(1),
@@ -127,8 +127,9 @@ export const blueprintSendNodeSchema = z.object({
 /**
  * `connector` — `sendConnectorAction({ connectorId, action })`.
  *
- * TODO(phase 3): check `connectorId`/`action` against the registered
- * connectors (same registry situation as `send.meta.template` above).
+ * The registry lookup (`connectorId`/`action` registered?) lives in the
+ * engine's admin blueprint routes (same registry situation as
+ * `send.meta.template` above).
  */
 export const blueprintConnectorNodeSchema = z.object({
   id: z.string().min(1),

@@ -47,7 +47,9 @@ const journeySchema = z.object({
   }),
 });
 
-const stateSchema = z.object({
+/** Shared with the blueprint admin routes — a blueprint enrollment is the
+ * same `journey_states` row shape (journeyId = the blueprint id). */
+export const stateSchema = z.object({
   id: z.string(),
   userId: z.string(),
   userEmail: z.string(),
@@ -66,7 +68,7 @@ const stateSchema = z.object({
 
 const errorSchema = z.object({ error: z.string() });
 
-function serializeState(row: typeof journeyStates.$inferSelect) {
+export function serializeState(row: typeof journeyStates.$inferSelect) {
   return {
     ...row,
     context: (row.context ?? {}) as Record<string, unknown>,

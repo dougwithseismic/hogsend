@@ -1,2 +1,5 @@
 export { bucketMetaSchema } from "./bucket.schema.js";
-export { journeyMetaSchema } from "./journey.schema.js";
+export {
+  journeyMetaSchema,
+  propertyConditionSchema,
+} from "./journey.schema.js";
