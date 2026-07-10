@@ -80,7 +80,7 @@ export function JourneyFunnel({
 
   return (
     <div className="space-y-3">
-      <FunnelStages stages={stages} />
+      <FunnelStages stages={stages} variant="rows" />
       <FunnelNotes
         label="Left the journey"
         items={[

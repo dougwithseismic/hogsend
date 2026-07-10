@@ -29,8 +29,6 @@ import {
   getJourney,
   getJourneyState,
   getJourneyTemplates,
-  type JourneyCondition,
-  type JourneyDetail,
   type JourneyStateStatus,
   type JourneyStatesFilter,
   listJourneyStates,
@@ -38,13 +36,8 @@ import {
   setJourneyEnabled,
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
-import {
-  formatDateTime,
-  formatDurationObject,
-  formatNumber,
-} from "@/lib/format";
+import { formatDateTime, formatNumber } from "@/lib/format";
 import { JourneyFlow } from "./journeys/journey-flow";
-import { JourneyFunnel } from "./journeys/journey-funnel";
 
 const PAGE_SIZE = 25;
 
@@ -60,16 +53,6 @@ const STATUS_FILTERS: Array<{
   { label: "Exited", value: "exited" },
 ];
 
-/** Render a condition object readably: "score lte 6", else its JSON. */
-function formatCondition(c: JourneyCondition): string {
-  const prop = c.property ?? c.field;
-  const op = c.operator ?? c.op;
-  if (typeof prop === "string" && typeof op === "string") {
-    return `${prop} ${op} ${JSON.stringify(c.value ?? null)}`;
-  }
-  return JSON.stringify(c);
-}
-
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
     <h4 className="text-xs font-medium uppercase tracking-wide text-white/40">
@@ -83,79 +66,6 @@ function JsonBlock({ value }: { value: unknown }) {
     <pre className="max-h-64 overflow-auto rounded-md border bg-black/30 p-3 font-mono text-xs text-white/70">
       {JSON.stringify(value, null, 2)}
     </pre>
-  );
-}
-
-function ConditionList({ where }: { where?: JourneyCondition[] }) {
-  if (!where || where.length === 0) {
-    return <span className="text-white/40">any</span>;
-  }
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {where.map((c) => (
-        <code
-          key={formatCondition(c)}
-          className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs text-white/80"
-        >
-          {formatCondition(c)}
-        </code>
-      ))}
-    </div>
-  );
-}
-
-function MetaRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1 sm:flex-row sm:gap-4">
-      <span className="w-24 shrink-0 text-sm text-white/50">{label}</span>
-      <div className="min-w-0 flex-1 text-sm text-white/90">{children}</div>
-    </div>
-  );
-}
-
-function JourneyMetaCard({ journey }: { journey: JourneyDetail }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Definition</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {journey.description ? (
-          <p className="text-sm text-white/70">{journey.description}</p>
-        ) : null}
-        <MetaRow label="Trigger">
-          <div className="space-y-1.5">
-            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs text-accent">
-              {journey.trigger.event}
-            </code>
-            <ConditionList where={journey.trigger.where} />
-          </div>
-        </MetaRow>
-        <MetaRow label="Exit on">
-          {journey.exitOn && journey.exitOn.length > 0 ? (
-            <div className="space-y-2">
-              {journey.exitOn.map((ex) => (
-                <div
-                  key={`${ex.event}:${JSON.stringify(ex.where ?? [])}`}
-                  className="space-y-1"
-                >
-                  <code className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs text-white/80">
-                    {ex.event}
-                  </code>
-                  <ConditionList where={ex.where} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <span className="text-white/40">none</span>
-          )}
-        </MetaRow>
-        <MetaRow label="Entry limit">{journey.entryLimit}</MetaRow>
-        <MetaRow label="Suppress">
-          {formatDurationObject(journey.suppress) ?? "none"}
-        </MetaRow>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -551,22 +461,10 @@ export function JourneyDetailView({ journeyId }: { journeyId: string }) {
             </span>
           </div>
 
-          {/* Compact Definition + Funnel strip — the flow below is the
-              centrepiece, so these stay small. */}
-          <div className="grid gap-4 lg:grid-cols-2">
-            <JourneyMetaCard journey={journey} />
-            <Card>
-              <CardHeader>
-                <CardTitle>Funnel</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <JourneyFunnel journeyId={journeyId} />
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* The visual workflow — inline, full-width, the page's focus. */}
-          <JourneyFlow journeyId={journeyId} />
+          {/* The visual workflow — inline, full-width, the page's focus. The
+              definition + funnel live in its side panel until a node is
+              selected. */}
+          <JourneyFlow journeyId={journeyId} journey={journey} />
 
           <JourneyEmailsCard journeyId={journeyId} />
           <JourneyStatesBrowser journeyId={journeyId} />

@@ -58,6 +58,7 @@ import { useToast } from "@/components/ui/toast";
 import {
   getJourneyGraph,
   getTemplatePreview,
+  type JourneyDetail,
   type JourneyGraph,
   type JourneyGraphEdge,
   type JourneyGraphNode,
@@ -72,6 +73,8 @@ import { downloadDataUrl } from "@/lib/download";
 import { toMermaid } from "@/lib/mermaid";
 import { cn } from "@/lib/utils";
 import { buildEdgePath, layoutGraph, type XY } from "./flow-layout";
+import { JourneyDefinition } from "./journey-definition";
+import { JourneyFunnel } from "./journey-funnel";
 
 // --- Node visual language -------------------------------------------------
 
@@ -813,38 +816,31 @@ function NodeDetailBody({
   );
 }
 
-/** Shown in the side panel before a node is picked: hint + a type legend. */
-function NodePanelPlaceholder({ graph }: { graph: JourneyGraph }) {
-  const types = useMemo(() => {
-    const seen = new Set<JourneyGraphNodeType>();
-    const ordered: JourneyGraphNodeType[] = [];
-    for (const node of graph.nodes) {
-      if (seen.has(node.type)) continue;
-      seen.add(node.type);
-      ordered.push(node.type);
-    }
-    return ordered;
-  }, [graph]);
-
+/**
+ * Shown in the side panel before a node is picked: the journey's definition
+ * and conversion funnel (they used to be cards above the flow), plus the
+ * select-a-node hint.
+ */
+function NodePanelPlaceholder({
+  graph,
+  journey,
+}: {
+  graph: JourneyGraph;
+  journey: JourneyDetail;
+}) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <p className="text-sm text-white/60">
         Select a node to inspect it — its metrics, config, and (for email nodes)
         the rendered template preview appear here.
       </p>
-      <section className="space-y-2">
-        <SectionHeading>Legend</SectionHeading>
-        <ul className="space-y-1.5">
-          {types.map((type) => (
-            <li key={type} className="flex items-center gap-2 text-sm">
-              <span
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: NODE_STYLE[type].rail }}
-              />
-              <span className="text-white/70">{NODE_STYLE[type].kind}</span>
-            </li>
-          ))}
-        </ul>
+      <section className="space-y-2.5">
+        <SectionHeading>Definition</SectionHeading>
+        <JourneyDefinition journey={journey} />
+      </section>
+      <section className="space-y-2.5">
+        <SectionHeading>Funnel</SectionHeading>
+        <JourneyFunnel journeyId={graph.journeyId} />
       </section>
     </div>
   );
@@ -1036,7 +1032,13 @@ function FlowToolbar({ graph }: { graph: JourneyGraph }) {
 
 // --- Canvas + inline resizable side panel ---------------------------------
 
-function JourneyFlowCanvas({ data }: { data: JourneyGraphResponse }) {
+function JourneyFlowCanvas({
+  data,
+  journey,
+}: {
+  data: JourneyGraphResponse;
+  journey: JourneyDetail;
+}) {
   const { graph, metrics } = data;
   const { fitView } = useReactFlow();
 
@@ -1224,7 +1226,7 @@ function JourneyFlowCanvas({ data }: { data: JourneyGraphResponse }) {
               {selectedNode ? (
                 <NodeDetailBody node={selectedNode} metric={selectedMetric} />
               ) : (
-                <NodePanelPlaceholder graph={graph} />
+                <NodePanelPlaceholder graph={graph} journey={journey} />
               )}
             </aside>
           </Panel>
@@ -1236,7 +1238,13 @@ function JourneyFlowCanvas({ data }: { data: JourneyGraphResponse }) {
 
 // --- Public view -----------------------------------------------------------
 
-export function JourneyFlow({ journeyId }: { journeyId: string }) {
+export function JourneyFlow({
+  journeyId,
+  journey,
+}: {
+  journeyId: string;
+  journey: JourneyDetail;
+}) {
   const query = useQuery({
     queryKey: qk.journeyGraph(journeyId),
     queryFn: () => getJourneyGraph(journeyId),
@@ -1249,7 +1257,7 @@ export function JourneyFlow({ journeyId }: { journeyId: string }) {
 
   return (
     <ReactFlowProvider>
-      <JourneyFlowCanvas data={query.data} />
+      <JourneyFlowCanvas data={query.data} journey={journey} />
     </ReactFlowProvider>
   );
 }
