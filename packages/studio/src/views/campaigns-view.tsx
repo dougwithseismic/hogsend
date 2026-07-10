@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Megaphone } from "lucide-react";
 import { useState } from "react";
 import {
@@ -15,8 +16,6 @@ import {
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -36,6 +35,7 @@ import {
 } from "@/lib/admin-api";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber } from "@/lib/format";
+import { CANCELABLE, cancelDescription } from "./campaigns/campaign-cancel";
 
 const PAGE_SIZE = 25;
 
@@ -56,13 +56,6 @@ const STATUS_FILTERS: {
   { value: "canceled", label: "Canceled", statuses: ["canceled"] },
   { value: "failed", label: "Failed", statuses: ["failed", "expired"] },
 ];
-
-/** In-flight (non-terminal) statuses a cancel is allowed against. */
-const CANCELABLE: ReadonlySet<CampaignStatus> = new Set<CampaignStatus>([
-  "scheduled",
-  "queued",
-  "sending",
-]);
 
 /** sent/total plus a skipped·failed sub-line, mirroring the dense-cell idiom. */
 function CampaignProgress({ campaign }: { campaign: Campaign }) {
@@ -87,17 +80,10 @@ function CampaignProgress({ campaign }: { campaign: Campaign }) {
   );
 }
 
-/** Confirm-copy that matches the cancel semantics for the target's state. */
-function cancelDescription(c: Campaign): string {
-  if (c.status === "sending") {
-    return `"${c.name}" will stop at the next chunk of 100 recipients. Emails already dispatched cannot be recalled.`;
-  }
-  return `"${c.name}" is ${c.status} and will not be sent.`;
-}
-
 export function CampaignsView() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
 
   const [statusFilter, setStatusFilter] = useState("");
   const [offset, setOffset] = useState(0);
@@ -146,22 +132,20 @@ export function CampaignsView() {
         description="One-off broadcasts to a list or bucket. Authored in code or via the API — Studio shows their progress and can cancel one still in flight."
       />
 
-      <div className="flex max-w-xs flex-col gap-1.5">
-        <Label htmlFor="campaign-status-filter">Status</Label>
-        <Select
-          id="campaign-status-filter"
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value);
-            setOffset(0);
-          }}
-        >
-          {STATUS_FILTERS.map((f) => (
-            <option key={f.value} value={f.value}>
-              {f.label}
-            </option>
-          ))}
-        </Select>
+      <div className="flex flex-wrap gap-1.5">
+        {STATUS_FILTERS.map((f) => (
+          <Button
+            key={f.value}
+            variant={statusFilter === f.value ? "default" : "outline"}
+            size="sm"
+            onClick={() => {
+              setStatusFilter(f.value);
+              setOffset(0);
+            }}
+          >
+            {f.label}
+          </Button>
+        ))}
       </div>
 
       {query.isPending ? (
@@ -183,10 +167,9 @@ export function CampaignsView() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
+                <TableHead>Campaign</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Audience</TableHead>
-                <TableHead>Template</TableHead>
                 <TableHead>Scheduled for</TableHead>
                 <TableHead>Progress</TableHead>
                 <TableHead>Created</TableHead>
@@ -195,9 +178,21 @@ export function CampaignsView() {
             </TableHeader>
             <TableBody>
               {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="font-medium text-white">
-                    {row.name}
+                <TableRow
+                  key={row.id}
+                  className="cursor-pointer"
+                  onClick={() =>
+                    navigate({
+                      to: "/campaigns/$campaignId",
+                      params: { campaignId: row.id },
+                    })
+                  }
+                >
+                  <TableCell>
+                    <span className="font-medium text-white">{row.name}</span>
+                    <span className="block font-mono text-xs text-white/70">
+                      {row.templateKey}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={row.status} />
@@ -206,9 +201,6 @@ export function CampaignsView() {
                     <code className="rounded border border-hairline-faint bg-white/[0.04] px-1.5 py-0.5 font-mono text-white/70 text-xs">
                       {row.audienceKind}:{row.audienceId}
                     </code>
-                  </TableCell>
-                  <TableCell className="text-white/60">
-                    {row.templateKey}
                   </TableCell>
                   <TableCell className="text-white/60">
                     {row.status === "scheduled"
@@ -226,7 +218,10 @@ export function CampaignsView() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setCancelTarget(row)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCancelTarget(row);
+                        }}
                       >
                         Cancel
                       </Button>

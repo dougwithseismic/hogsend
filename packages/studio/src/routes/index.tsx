@@ -5,6 +5,7 @@ import {
 } from "@tanstack/react-router";
 import { AppShell } from "@/components/layout/app-shell";
 import { BucketsView } from "@/views/buckets-view";
+import { CampaignDetailView } from "@/views/campaign-detail-view";
 import { CampaignsView } from "@/views/campaigns-view";
 import { ContactsView } from "@/views/contacts-view";
 import { EventsView } from "@/views/events-view";
@@ -57,6 +58,17 @@ const campaignsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/campaigns",
   component: CampaignsView,
+});
+
+const campaignDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/campaigns/$campaignId",
+  // Same prop-threading pattern as the journey detail route below: read the
+  // param here so the view stays router-agnostic.
+  component: function CampaignDetailRoute() {
+    const { campaignId } = campaignDetailRoute.useParams();
+    return <CampaignDetailView campaignId={campaignId} />;
+  },
 });
 
 const journeysRoute = createRoute({
@@ -119,6 +131,7 @@ const routeTree = rootRoute.addChildren([
   templatesRoute,
   linksRoute,
   campaignsRoute,
+  campaignDetailRoute,
   journeysRoute,
   journeyDetailRoute,
   bucketsRoute,
