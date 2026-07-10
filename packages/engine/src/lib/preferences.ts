@@ -1,6 +1,6 @@
 import type { Database } from "@hogsend/db";
 import { emailPreferences } from "@hogsend/db";
-import { sql } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import { resolveRecipient } from "./contacts.js";
 import { hatchet } from "./hatchet.js";
 import { createLogger } from "./logger.js";
@@ -119,6 +119,85 @@ export async function upsertEmailPreference(opts: {
       },
     }).catch(logger.warn);
   }
+}
+
+/**
+ * Aggregated preference verdict for a recipient, folded across EVERY matching
+ * `email_preferences` row. See {@link readRecipientPreferences}.
+ */
+export interface RecipientPreferences {
+  /** true when ANY matching row has unsubscribed_all (global master opt-out). */
+  unsubscribedAll: boolean;
+  /**
+   * true when ANY matching row is suppressed (hard bounce / complaint).
+   * Email-transport-specific — channel checks must NOT consume this.
+   */
+  suppressed: boolean;
+  /** Category map merged across ALL matching rows, explicit false winning. */
+  categories: Record<string, boolean>;
+}
+
+/**
+ * The ONE aggregated preference READ shared by the email mailer (checkSuppression),
+ * the in-app feed, and connector-send gating. Selects EVERY `email_preferences`
+ * row matching the given identity keys and folds them into a single verdict.
+ *
+ * An address can legitimately have MORE THAN ONE row: the `(user_id, email)`
+ * composite PK means a suppression imported before the contact existed is keyed
+ * (email, email) while later interactive writes key (external_id, email). We
+ * aggregate across ALL matching rows — any suppression signal on ANY row must
+ * win — so an imported unsubscribe/bounce can never be shadowed by a newer clean
+ * row for the same address.
+ *
+ * Rows are selected `WHERE email = keys.email OR user_id = keys.userId`, each leg
+ * included ONLY when its key is a non-empty string. With NEITHER key provided we
+ * do NOT query and return the empty/clean default.
+ *
+ * Category maps are merged with explicit FALSE winning: `categories[key] =
+ * (categories[key] ?? true) && value` over every row's map — an opt-out recorded
+ * on any row blocks, matching the conservative aggregation above. (In the common
+ * single-row case this is identical to reading the row's map directly.)
+ */
+export async function readRecipientPreferences(
+  db: Database,
+  keys: { email?: string | null; userId?: string | null },
+): Promise<RecipientPreferences> {
+  // Build the OR legs conditionally — an empty/absent key contributes NO leg, so
+  // a `{ email }`-only read never matches every `user_id = ''` row and vice versa.
+  const legs = [];
+  if (typeof keys.email === "string" && keys.email.length > 0) {
+    legs.push(eq(emailPreferences.email, keys.email));
+  }
+  if (typeof keys.userId === "string" && keys.userId.length > 0) {
+    legs.push(eq(emailPreferences.userId, keys.userId));
+  }
+
+  // Neither key: do NOT query — a bare `.where()`/`or()` with no legs would match
+  // the whole table. Return the clean default instead.
+  if (legs.length === 0) {
+    return { unsubscribedAll: false, suppressed: false, categories: {} };
+  }
+
+  const rows = await db
+    .select()
+    .from(emailPreferences)
+    .where(or(...legs));
+
+  // Merge category maps across rows with explicit FALSE winning (see JSDoc). This
+  // always runs — an absent/empty map contributes nothing, so the result is `{}`.
+  const categories: Record<string, boolean> = {};
+  for (const prefs of rows) {
+    const map = (prefs.categories ?? {}) as Record<string, boolean>;
+    for (const [key, value] of Object.entries(map)) {
+      categories[key] = (categories[key] ?? true) && value;
+    }
+  }
+
+  return {
+    unsubscribedAll: rows.some((r) => r.unsubscribedAll),
+    suppressed: rows.some((r) => r.suppressed),
+    categories,
+  };
 }
 
 /**

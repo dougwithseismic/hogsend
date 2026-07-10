@@ -427,6 +427,12 @@ export async function executeJourneyRun(
     // Guard against a runtime-absent value so an undefined never reaches
     // durationToMs (which would throw dereferencing `.hours`).
     suppressMs: meta.suppress ? durationToMs(meta.suppress) : 0,
+    // The journey-level email-preference category (validated fail-closed at
+    // boot). The standalone `sendEmail` reads it off the boundary and stamps
+    // it on the send, overriding the template's own category. Undefined for
+    // journeys without a `meta.category` (incl. bucket reactions) ⇒ the send
+    // keeps the built-in `journey` default.
+    category: meta.category,
   };
 
   // Seed the context's memoized-clock snapshot ONCE before run() so a

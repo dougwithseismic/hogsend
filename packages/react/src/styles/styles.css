@@ -99,6 +99,9 @@
   --hs-pref-divider: var(--hs-color-border);
   --hs-pref-label-weight: 500;
   --hs-pref-desc-color: var(--hs-color-text-muted);
+  --hs-pref-section-header-color: var(--hs-pref-desc-color, #6b7280);
+  --hs-pref-section-header-weight: 600;
+  --hs-pref-section-header-size: 11px;
   --hs-switch-width: 36px;
   --hs-switch-height: 20px;
   --hs-switch-thumb: 16px;
@@ -854,6 +857,22 @@
   padding: var(--hs-spacing);
   font-weight: 600;
   border-bottom: 1px solid var(--hs-pref-divider);
+}
+
+/* Sectioned layout (Channels / Topics). Only rendered when the catalog carries
+   `kind: "channel"` lists; flat-mode DOM is untouched so no divider regression. */
+.hsr-pref__section {
+  display: flex;
+  flex-direction: column;
+}
+
+.hsr-pref__section-header {
+  padding: var(--hs-pref-row-padding);
+  font-size: var(--hs-pref-section-header-size);
+  font-weight: var(--hs-pref-section-header-weight);
+  color: var(--hs-pref-section-header-color);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .hsr-pref__matrix-header {

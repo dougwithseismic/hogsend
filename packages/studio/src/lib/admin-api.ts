@@ -761,6 +761,27 @@ export function updateContactPreferences(
   );
 }
 
+// --- Lists (defined subscription lists) ----------------------------------
+
+/**
+ * One registered list from `GET /v1/admin/lists` — an author-defined topic OR
+ * an engine-synthesized delivery channel. Mirrors the engine list schema
+ * (routes/admin/lists.ts). `defaultOptIn` is the resolution polarity: a
+ * contact's subscription is `prefs.categories[id] ?? defaultOptIn`.
+ */
+export type DefinedListMeta = {
+  id: string;
+  name: string;
+  description?: string;
+  defaultOptIn: boolean;
+  enabled: boolean;
+  kind: "channel" | "topic";
+};
+
+export function listDefinedLists() {
+  return api.get<{ lists: DefinedListMeta[] }>("/v1/admin/lists");
+}
+
 // --- Suppressions --------------------------------------------------------
 
 export type Suppression = {
@@ -1458,6 +1479,7 @@ export const qk = {
   contact: (id: string) => ["contact", id] as const,
   contactActivity: (id: string) => ["contact-activity", id] as const,
   contactTimeline: (id: string) => ["contact-timeline", id] as const,
+  lists: ["lists"] as const,
   suppressions: (type: string) => ["suppressions", type] as const,
   apiKeys: ["api-keys"] as const,
   domain: ["domain"] as const,

@@ -29,6 +29,18 @@ export const sendMessage: DefinedConnectorAction<
   connectorId: TELEGRAM_PROVIDER_ID,
   name: "sendMessage",
   description: "Send a text message to a Telegram chat (Bot API).",
+  // Member-directed: gate on the recipient's `telegram` channel preference. A
+  // private chat to a linked user resolves a contact and gates — either via
+  // `externalId = "telegram:<chatId>"` (a telegram-PRIMARY contact) or via
+  // `properties.telegram.chat_id` (a telegram linked onto an ALREADY-identified
+  // contact, whose external_id stays the app id). A GROUP chat (negative id)
+  // matches neither → no preference surface → allowed.
+  audience: {
+    kind: "member",
+    ref(args) {
+      return `telegram:${args.chatId}`;
+    },
+  },
   async run(args, ctx) {
     const res = await tgFetch("sendMessage", {
       chat_id: args.chatId,

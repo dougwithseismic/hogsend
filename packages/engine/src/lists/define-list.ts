@@ -33,6 +33,27 @@ export function isReservedListId(id: string): boolean {
 const LIST_ID_PATTERN = /^[a-z0-9_-]+$/i;
 
 /**
+ * Reserved list id for the engine's in-app channel list (the notification
+ * feed). Unlike {@link RESERVED_LIST_IDS} — which doubles as the template
+ * category allowlist in `container.ts` — this id is a channel that IS
+ * auto-registered by the engine (`synthesizeChannelLists`), so it gets its own
+ * dedicated {@link defineList} guard instead of joining that set (adding it
+ * there would change the allowlist's meaning). Kept lowercase; the check is
+ * case-insensitive.
+ */
+const IN_APP_RESERVED_LIST_ID = "in_app";
+
+/**
+ * The kind of list. `"topic"` is an author-defined subscription category (the
+ * `defineList` output — every manual list is a topic). `"channel"` is an
+ * engine-synthesized delivery channel (the in-app feed + one per connector that
+ * exposes member-directed actions), minted by `synthesizeChannelLists`, never
+ * authored. Read sites treat an absent `kind` as `"topic"` (`meta.kind ??
+ * "topic"`) so pre-existing manual `ListMeta` constructions keep compiling.
+ */
+export type ListKind = "channel" | "topic";
+
+/**
  * The validated, fully-defaulted list metadata. `enabled` is always present
  * after `defineList` (defaults to `true`); authoring input leaves it optional.
  */
@@ -42,6 +63,12 @@ export interface ListMeta<Id extends string = string> {
   description?: string;
   defaultOptIn: boolean;
   enabled: boolean;
+  /**
+   * Whether this is an author-defined `"topic"` or an engine-synthesized
+   * delivery `"channel"`. Optional so existing manual constructions compile;
+   * read as `meta.kind ?? "topic"`. `defineList` always stamps `"topic"`.
+   */
+  kind?: ListKind;
 }
 
 /**
@@ -82,12 +109,19 @@ export function defineList<const Id extends string>(meta: {
     );
   }
 
+  if (id.toLowerCase() === IN_APP_RESERVED_LIST_ID) {
+    throw new Error(
+      `Reserved list id "${id}": it is the engine's in-app channel list, auto-registered for the notification feed.`,
+    );
+  }
+
   const resolvedMeta: ListMeta<Id> = {
     id,
     name,
     ...(description !== undefined ? { description } : {}),
     defaultOptIn,
     enabled: enabled ?? true,
+    kind: "topic",
   };
 
   return {

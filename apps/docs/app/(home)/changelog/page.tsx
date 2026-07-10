@@ -55,6 +55,71 @@ type ChangelogEntry = {
  */
 const ENTRIES: ChangelogEntry[] = [
   {
+    version: "0.41.0",
+    anchor: "0-41-0",
+    date: "July 10, 2026",
+    title: "Channel preferences",
+    bullets: (
+      <>
+        <Bullet>
+          Delivery channels are now opt-out lists. The engine auto-registers a{" "}
+          <Code>kind: &ldquo;channel&rdquo;</Code> list for the in-app feed (
+          <Code>in_app</Code>, always) and one per member-directed connector (
+          <Code>telegram</Code> always in the dogfood, <Code>discord</Code> when
+          configured). They live in the same{" "}
+          <Code>email_preferences.categories</Code> namespace and are managed
+          with the usual <Code>POST /v1/lists/:id/(un)subscribe</Code>. A{" "}
+          <Code>defineList</Code> id may not collide with a channel id, and{" "}
+          <Code>in_app</Code> is reserved — both throw at boot.
+        </Bullet>
+        <Bullet>
+          Member-directed connector actions are preference-gated automatically.
+          Discord <Code>dmMember</Code> and Telegram <Code>dm</Code> /{" "}
+          <Code>sendMessage</Code> skip with a typed{" "}
+          <Code>ConnectorActionSkipped</Code> (guarded by{" "}
+          <Code>isConnectorActionSkipped</Code>) when the resolved contact has
+          globally unsubscribed or opted out of that connector&rsquo;s channel.
+          Ops actions (roles, broadcasts, channel messages) are never gated, and
+          a send with no resolvable contact proceeds. The skip verdict is
+          replay-stable. The in-app feed now enforces <Code>in_app</Code> the
+          same way, through an aggregated multi-row preference read.
+        </Bullet>
+        <Bullet>
+          <Code>defineJourney</Code> meta gains an optional{" "}
+          <Code>category</Code> that stamps every one of the journey&rsquo;s{" "}
+          <Code>sendEmail</Code> sends (overriding the template&rsquo;s
+          category, like the built-in <Code>journey</Code> default). It is
+          boot-validated fail-closed: unknown, channel-list, or excluded-opt-in
+          categories throw; excluded opt-out warns. Campaign audiences reject
+          channel lists too.
+        </Bullet>
+        <Bullet>
+          The SDK and Studio caught up. <Code>GET /v1/lists</Code> items carry{" "}
+          <Code>kind</Code>; a new <Code>POST /v1/lists/preferences</Code>{" "}
+          writes the account-wide <Code>unsubscribedAll</Code> master toggle
+          behind the same identity gate as list writes. <Code>@hogsend/js</Code>{" "}
+          adds <Code>ListSummary.kind</Code>,{" "}
+          <Code>preferences().setUnsubscribedAll()</Code>, and the exported{" "}
+          <Code>ALL_EMAILS_CATEGORY</Code> (<Code>&ldquo;$all&rdquo;</Code>)
+          sentinel; <Code>@hogsend/react</Code>&rsquo;s{" "}
+          <Code>&lt;PreferenceCenter&gt;</Code> auto-sections into Channels
+          (with a synthetic Email master row) and Topics, with new{" "}
+          <Code>layout</Code> / <Code>emailToggle</Code> /{" "}
+          <Code>sectionLabels</Code> props. Studio&rsquo;s contact drawer gains
+          per-channel and per-topic toggles.
+        </Bullet>
+      </>
+    ),
+    upgradeNote: (
+      <>
+        Upgrade: <Code>{'pnpm up "@hogsend/*"'}</Code>. Additive — an older
+        engine emits no <Code>kind</Code>, so the preference center renders flat
+        exactly as before. Refresh the vendored skills with{" "}
+        <Code>pnpm dlx hogsend skills add --force</Code>.
+      </>
+    ),
+  },
+  {
     version: "0.39.0",
     anchor: "0-39-0",
     date: "July 9, 2026",

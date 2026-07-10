@@ -26,6 +26,12 @@ export interface UsePreferences {
   setPreference: (categoryId: string, subscribed: boolean) => Promise<void>;
   subscribe: (listId: string) => Promise<void>;
   unsubscribe: (listId: string) => Promise<void>;
+  /**
+   * Set the global email opt-out (`unsubscribedAll`). The SDK's optimistic
+   * slice update makes `preferences.unsubscribedAll` reactive through the
+   * existing selector.
+   */
+  setUnsubscribedAll: (unsubscribed: boolean) => Promise<void>;
   refetch: () => Promise<void>;
 }
 
@@ -104,6 +110,8 @@ export function usePreferences(): UsePreferences {
       prefsClient.setPreference(categoryId, subscribed),
     subscribe: (listId) => prefsClient.subscribe(listId),
     unsubscribe: (listId) => prefsClient.unsubscribe(listId),
+    setUnsubscribedAll: (unsubscribed) =>
+      prefsClient.setUnsubscribedAll(unsubscribed),
     refetch,
   };
 }

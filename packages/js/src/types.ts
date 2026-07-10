@@ -104,6 +104,12 @@ export interface ListSummary {
   description?: string;
   defaultOptIn: boolean;
   subscribed: boolean;
+  /**
+   * Whether this list is a delivery `channel` (in_app, telegram, discord…) or a
+   * content `topic`. OPTIONAL — an older self-hosted engine omits it, so a
+   * consumer MUST treat `undefined` as `"topic"`.
+   */
+  kind?: "channel" | "topic";
 }
 
 /** Resolved email/notification preferences for the current identity. */
@@ -133,6 +139,12 @@ export interface PreferencesClient {
   subscribe(listId: string): Promise<void>;
   /** Unsubscribe the current identity from a list/category. */
   unsubscribe(listId: string): Promise<void>;
+  /**
+   * Set the global email opt-out (`unsubscribedAll`) for the current identity.
+   * POSTs `/v1/lists/preferences`; emits `inapp.preference_changed` with
+   * `categoryId: ALL_EMAILS_CATEGORY` (`"$all"`).
+   */
+  setUnsubscribedAll(unsubscribed: boolean): Promise<void>;
 }
 
 /** Identity slice of the reactive store. */
