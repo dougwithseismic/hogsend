@@ -215,9 +215,11 @@ export interface Hogsend {
   flush(): Promise<void>;
   /**
    * Report an arrival from a tracked link/QR hit to `POST /v1/t/arrive`.
-   * Without an argument, reads (and strips) the `hs_ref` URL param — the
-   * manual escape hatch for SPAs that route before init (`captureRef: false`).
-   * Resolves true when a beacon was actually sent. Never throws.
+   * Without an argument, reads the `hs_ref` URL param; the param is stripped
+   * only AFTER a successful send (a transport failure keeps it so a reload or
+   * retry can recapture). The manual escape hatch for SPAs that route before
+   * init (`captureRef: false`). Resolves true when the beacon was delivered.
+   * Never throws.
    */
   captureRef(ref?: string): Promise<boolean>;
 

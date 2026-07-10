@@ -193,30 +193,44 @@ export function createHogsend(config: HogsendConfig): Hogsend {
   const unsubs: Array<() => void> = [];
 
   const HS_REF_PARAM = "hs_ref";
+  // Grace window for a late-arriving userToken before an auto-captured ref is
+  // sent at the anon tier. The engine's stamp is first-write-wins, so sending
+  // too early would PERMANENTLY record a known contact as anonymous; hosts
+  // that mint the token asynchronously right after init (the secure-mode
+  // flow) get this long before the beacon commits to the anon tier.
+  const CAPTURE_REF_TOKEN_GRACE_MS = 2000;
 
-  /**
-   * Read the `hs_ref` arrival param from the current URL and strip it
-   * (replaceState — no navigation, no history entry). SSR-safe no-op.
-   */
-  function readAndStripRef(): string | null {
-    if (typeof location === "undefined" || typeof history === "undefined") {
-      return null;
-    }
+  /** Read the `hs_ref` arrival param from the current URL. SSR-safe. */
+  function readRef(): string | null {
+    if (typeof location === "undefined") return null;
     try {
-      const url = new URL(location.href);
-      const ref = url.searchParams.get(HS_REF_PARAM);
-      if (!ref) return null;
-      url.searchParams.delete(HS_REF_PARAM);
-      history.replaceState(history.state, "", url.toString());
-      return ref;
+      return new URL(location.href).searchParams.get(HS_REF_PARAM);
     } catch {
       return null;
     }
   }
 
-  async function captureRef(explicitRef?: string): Promise<boolean> {
-    const ref = explicitRef ?? readAndStripRef();
-    if (!ref) return false;
+  /**
+   * Strip `hs_ref` from the URL (replaceState — no navigation, no history
+   * entry). Called only AFTER a successful arrive POST: a transport failure
+   * keeps the param, so a reload or a manual captureRef() can retry — the
+   * engine's first-write-wins stamp makes re-sends harmless.
+   */
+  function stripRef(): void {
+    if (typeof location === "undefined" || typeof history === "undefined") {
+      return;
+    }
+    try {
+      const url = new URL(location.href);
+      if (!url.searchParams.has(HS_REF_PARAM)) return;
+      url.searchParams.delete(HS_REF_PARAM);
+      history.replaceState(history.state, "", url.toString());
+    } catch {
+      // Unparseable URL — leave it; the param is inert.
+    }
+  }
+
+  async function sendRef(ref: string): Promise<boolean> {
     const userToken = identity.getUserToken();
     try {
       // Token wins (the engine's trust tier for "a KNOWN user arrived");
@@ -227,16 +241,46 @@ export function createHogsend(config: HogsendConfig): Hogsend {
           ? { userToken }
           : { anonymousId: identity.getAnonymousId() }),
       });
+      stripRef();
       return true;
     } catch {
       // A beacon: the engine replies 200 to every semantic outcome, so a
-      // failure here is transport-level — never break the host page over it.
+      // failure here is transport-level — keep the URL param and never break
+      // the host page over it.
       return false;
     }
   }
 
+  async function captureRef(explicitRef?: string): Promise<boolean> {
+    const ref = explicitRef ?? readRef();
+    if (!ref) return false;
+    return sendRef(ref);
+  }
+
+  /**
+   * Auto-capture: if a userToken is already held, send immediately at the
+   * known-contact tier. Otherwise poll briefly for the host's async token
+   * mint (`setUserToken` writes a closure, not the store — no subscription
+   * fires) before committing to the anon tier.
+   */
+  function autoCaptureRef(): void {
+    const ref = readRef();
+    if (!ref) return;
+    if (identity.getUserToken()) {
+      void sendRef(ref);
+      return;
+    }
+    const deadline = Date.now() + CAPTURE_REF_TOKEN_GRACE_MS;
+    const poll = setInterval(() => {
+      if (identity.getUserToken() || Date.now() >= deadline) {
+        clearInterval(poll);
+        void sendRef(ref);
+      }
+    }, 100);
+  }
+
   // Auto-capture on init (default on; inert when the URL carries no hs_ref).
-  if (resolved.captureRef) void captureRef();
+  if (resolved.captureRef) autoCaptureRef();
 
   async function identify(userId: string, traits?: Properties): Promise<void> {
     identity.setUserId(userId);
