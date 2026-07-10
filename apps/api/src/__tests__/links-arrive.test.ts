@@ -331,6 +331,43 @@ describe("POST /v1/t/arrive (7.2)", () => {
     expect(events[0]?.userId).not.toBe(victimContactKey);
   });
 
+  it("link detail surfaces arrival counts and stamped click rows (7.3)", async () => {
+    const link = await mint({ label: `${RUN}-surface`, appendRef: true });
+
+    // One anon arrival + one token arrival + one un-arrived click.
+    const anonRef = await clickForRef(link.trackedLinkId);
+    const tokenRef = await clickForRef(link.trackedLinkId);
+    await clickForRef(link.trackedLinkId);
+    const anonId = `${RUN}-surface-anon`;
+    const knownId = `${RUN}-surface-known`;
+    createdContactKeys.push(anonId, knownId);
+    await arrive({ ref: anonRef, anonymousId: anonId });
+    await arrive({
+      ref: tokenRef,
+      userToken: generateUserToken({
+        userId: knownId,
+        secret: env.BETTER_AUTH_SECRET,
+      }),
+    });
+
+    const res = await app.request(`/v1/admin/links/${link.id}`, {
+      headers: AUTH_HEADER,
+    });
+    const body = await res.json();
+    expect(body.arrivalCount).toBe(2);
+    expect(body.identifiedArrivalCount).toBe(1);
+
+    const stamped = body.clicks.filter(
+      (cl: { visitorDistinctId: string | null }) =>
+        cl.visitorDistinctId !== null,
+    );
+    expect(stamped.length).toBe(2);
+    const known = body.clicks.find((cl: { id: string }) => cl.id === tokenRef);
+    expect(known.visitorDistinctId).toBe(knownId);
+    expect(known.visitorKind).toBe("token");
+    expect(known.arrivedAt).not.toBeNull();
+  });
+
   it("no-ops uniformly: unknown ref, opted-out link, no identity, invalid token", async () => {
     // Unknown ref.
     const unknown = await arrive({

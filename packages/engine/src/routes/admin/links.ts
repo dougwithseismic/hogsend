@@ -98,6 +98,12 @@ const clickSchema = z.object({
   ipAddress: z.string().nullable(),
   userAgent: z.string().nullable(),
   clickedAt: z.string(),
+  // Arrival stamp (POST /v1/t/arrive): who landed from THIS hit.
+  // `visitorKind` is the trust tier — 'token' = verified userId ("known
+  // contact"), 'anon' = the visitor's raw anon id (provenance only).
+  visitorDistinctId: z.string().nullable(),
+  visitorKind: z.string().nullable(),
+  arrivedAt: z.string().nullable(),
 });
 
 // Per-destination stats bucket: hits grouped by the destination that was live
@@ -115,6 +121,10 @@ const destinationStatSchema = z.object({
 const linkDetailSchema = linkSchema.extend({
   clicks: z.array(clickSchema),
   destinations: z.array(destinationStatSchema),
+  // Landing-confirmed arrivals (stamped hits). `identifiedArrivalCount` is
+  // the token-verified subset — "how many KNOWN contacts arrived".
+  arrivalCount: z.number(),
+  identifiedArrivalCount: z.number(),
 });
 
 type LinkRow = typeof links.$inferSelect;
@@ -510,7 +520,7 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
     // destination buckets group EVERY hit by the target that was live when it
     // landed (per-hit provenance) — most-recent activity first, so the current
     // destination leads.
-    const [agg, clickRows, destinationRows] = await Promise.all([
+    const [agg, clickRows, destinationRows, arrivalAgg] = await Promise.all([
       aggregateFor(db, [id]),
       db
         .select({
@@ -519,6 +529,9 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
           ipAddress: linkClicks.ipAddress,
           userAgent: linkClicks.userAgent,
           clickedAt: linkClicks.clickedAt,
+          visitorDistinctId: linkClicks.visitorDistinctId,
+          visitorKind: linkClicks.visitorKind,
+          arrivedAt: linkClicks.arrivedAt,
         })
         .from(linkClicks)
         .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
@@ -541,6 +554,20 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
         .where(eq(trackedLinks.linkId, id))
         .groupBy(linkClicks.destinationUrl)
         .orderBy(desc(sql`max(${linkClicks.clickedAt})`)),
+      db
+        .select({
+          arrivals:
+            sql<number>`count(*) filter (where ${linkClicks.visitorDistinctId} is not null)`.mapWith(
+              Number,
+            ),
+          identified:
+            sql<number>`count(*) filter (where ${linkClicks.visitorKind} = 'token')`.mapWith(
+              Number,
+            ),
+        })
+        .from(linkClicks)
+        .innerJoin(trackedLinks, eq(linkClicks.trackedLinkId, trackedLinks.id))
+        .where(eq(trackedLinks.linkId, id)),
     ]);
 
     return c.json(
@@ -552,6 +579,9 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
           ipAddress: cl.ipAddress,
           userAgent: cl.userAgent,
           clickedAt: cl.clickedAt.toISOString(),
+          visitorDistinctId: cl.visitorDistinctId,
+          visitorKind: cl.visitorKind,
+          arrivedAt: cl.arrivedAt ? cl.arrivedAt.toISOString() : null,
         })),
         destinations: destinationRows.map((d) => ({
           url: d.url,
@@ -560,6 +590,8 @@ export const linksRouter = new OpenAPIHono<AppEnv>()
           firstAt: new Date(d.firstAt).toISOString(),
           lastAt: new Date(d.lastAt).toISOString(),
         })),
+        arrivalCount: arrivalAgg[0]?.arrivals ?? 0,
+        identifiedArrivalCount: arrivalAgg[0]?.identified ?? 0,
       },
       200,
     );
