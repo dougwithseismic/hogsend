@@ -61,7 +61,7 @@ const {
   emailPreferences,
   emailSends,
 } = await import("@hogsend/db");
-const { eq, like } = await import("drizzle-orm");
+const { eq, like, or } = await import("drizzle-orm");
 const {
   buildBucketRegistry,
   createApp,
@@ -276,11 +276,24 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // email_sends rows the campaigns created (keyed by the campaign idempotency
-  // namespace + the bucket recipient).
-  await db
-    .delete(emailSends)
-    .where(like(emailSends.idempotencyKey, "campaign:%"));
+  // email_sends rows the campaigns created — scoped to THIS FILE's campaigns
+  // (looked up by their audience ids before the campaign rows are deleted
+  // below). A bare `campaign:%` sweep here would delete every campaign's send
+  // history in a shared dev database.
+  const testCampaigns = await db
+    .select({ id: campaigns.id })
+    .from(campaigns)
+    .where(
+      or(
+        eq(campaigns.audienceId, "broadcast"),
+        eq(campaigns.audienceId, BUCKET_ID),
+      ),
+    );
+  for (const { id } of testCampaigns) {
+    await db
+      .delete(emailSends)
+      .where(like(emailSends.idempotencyKey, `campaign:${id}:%`));
+  }
   for (const email of [...ALL_LIST_EMAILS, BUCKET_EMAIL, BUCKET_LEFT_EMAIL]) {
     await db.delete(emailSends).where(eq(emailSends.toEmail, email));
     await db.delete(emailPreferences).where(eq(emailPreferences.email, email));
