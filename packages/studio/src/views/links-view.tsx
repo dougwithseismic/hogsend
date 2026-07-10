@@ -39,6 +39,7 @@ import {
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
 import { isHttpUrl } from "@/lib/url";
+import { AppendRefField } from "./links/append-ref-field";
 import { QrLinkDialog } from "./links/qr-dialog";
 
 const TYPES = [
@@ -137,6 +138,7 @@ export function LinksView() {
   const [slug, setSlug] = useState("");
   const [linkType, setLinkType] = useState<LinkType>("public");
   const [distinctId, setDistinctId] = useState("");
+  const [appendRef, setAppendRef] = useState(false);
 
   // Edit-form fields (separate from the create form so the two dialogs never
   // share state). Pre-filled from the target row on open.
@@ -145,6 +147,7 @@ export function LinksView() {
   const [editDescription, setEditDescription] = useState("");
   const [editCampaign, setEditCampaign] = useState("");
   const [editSlug, setEditSlug] = useState("");
+  const [editAppendRef, setEditAppendRef] = useState(false);
 
   const query = useQuery({
     queryKey: qk.links(type),
@@ -160,6 +163,7 @@ export function LinksView() {
     setSlug("");
     setLinkType("public");
     setDistinctId("");
+    setAppendRef(false);
   }
 
   function openEdit(row: Link) {
@@ -169,6 +173,7 @@ export function LinksView() {
     setEditDescription(row.description ?? "");
     setEditCampaign(row.campaign ?? "");
     setEditSlug(row.slug ?? "");
+    setEditAppendRef(row.appendRef);
   }
 
   const urlValid = isHttpUrl(url.trim());
@@ -187,6 +192,7 @@ export function LinksView() {
         label: label.trim(),
         type: linkType,
         description: description.trim() || undefined,
+        appendRef,
         campaign: campaign.trim() || undefined,
         slug: normalizeSlugInput(slug) || undefined,
         // Share-safe invariant: identity only travels on personal links. The
@@ -221,6 +227,7 @@ export function LinksView() {
         originalUrl: editUrl.trim(),
         label: editLabel.trim(),
         description: editDescription.trim() || null,
+        appendRef: editAppendRef,
         campaign: editCampaign.trim() || undefined,
         ...(nextSlug !== prevSlug ? { slug: nextSlug || null } : {}),
       });
@@ -515,6 +522,12 @@ export function LinksView() {
           />
         </div>
 
+        <AppendRefField
+          id="link-append-ref"
+          checked={appendRef}
+          onChange={setAppendRef}
+        />
+
         <SlugField
           id="link-slug"
           value={slug}
@@ -645,6 +658,12 @@ export function LinksView() {
             onChange={(e) => setEditDescription(e.target.value)}
           />
         </div>
+
+        <AppendRefField
+          id="edit-link-append-ref"
+          checked={editAppendRef}
+          onChange={setEditAppendRef}
+        />
 
         <SlugField
           id="edit-link-slug"

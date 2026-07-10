@@ -30,6 +30,7 @@ import {
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatNumber, truncate } from "@/lib/format";
 import { isHttpUrl } from "@/lib/url";
+import { AppendRefField } from "./links/append-ref-field";
 import { QrLinkDialog } from "./links/qr-dialog";
 
 /**
@@ -46,10 +47,12 @@ export function QrCodesView() {
   const [createOpen, setCreateOpen] = useState(false);
   const [qrTarget, setQrTarget] = useState<Link | null>(null);
 
-  // Create-form fields.
+  // Create-form fields. Arrival ref defaults ON for QR-first mints — the
+  // print-marketing story wants known-contact arrivals out of the box.
   const [url, setUrl] = useState("");
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
+  const [appendRef, setAppendRef] = useState(true);
 
   const query = useQuery({
     queryKey: qk.qrCodes(),
@@ -60,6 +63,7 @@ export function QrCodesView() {
     setUrl("");
     setLabel("");
     setDescription("");
+    setAppendRef(true);
   }
 
   const urlValid = isHttpUrl(url.trim());
@@ -72,6 +76,7 @@ export function QrCodesView() {
         label: label.trim(),
         type: "public",
         description: description.trim() || undefined,
+        appendRef,
       });
       // Touch the QR endpoint so the scan row exists NOW — this is what makes
       // the new link a member of the hasQr lens (and warms the preview).
@@ -250,6 +255,12 @@ export function QrCodesView() {
             What/where this code physically is — for telling codes apart later.
           </p>
         </div>
+
+        <AppendRefField
+          id="qr-append-ref"
+          checked={appendRef}
+          onChange={setAppendRef}
+        />
       </Dialog>
 
       <QrLinkDialog link={qrTarget} onClose={() => setQrTarget(null)} />

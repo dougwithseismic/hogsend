@@ -135,6 +135,29 @@ export function QrLinkDialog({
             updates where the printed code leads.
           </p>
 
+          {/* Landing-confirmed arrivals — the known-contact story. Shown once
+              the link participates (appendRef) or any arrival exists. */}
+          {(detail.data?.arrivalCount ?? 0) > 0 || link.appendRef ? (
+            <p className="text-white/60 text-xs">
+              {formatNumber(detail.data?.arrivalCount ?? 0)} confirmed arrival
+              {(detail.data?.arrivalCount ?? 0) === 1 ? "" : "s"} ·{" "}
+              <span
+                className={
+                  (detail.data?.identifiedArrivalCount ?? 0) > 0
+                    ? "text-accent"
+                    : undefined
+                }
+              >
+                {formatNumber(detail.data?.identifiedArrivalCount ?? 0)} from
+                known contact
+                {(detail.data?.identifiedArrivalCount ?? 0) === 1 ? "" : "s"}
+              </span>
+              {link.appendRef
+                ? ""
+                : " — enable “Append arrival ref” to capture more"}
+            </p>
+          ) : null}
+
           <SplitButton<QrExportFormat>
             items={QR_EXPORT_ITEMS}
             storageKey={QR_EXPORT_STORAGE_KEY}

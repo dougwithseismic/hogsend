@@ -1044,6 +1044,8 @@ export type Link = {
   label: string | null;
   /** Longer operator note for bulk identification ("sticker on the door"). */
   description: string | null;
+  /** Arrival attribution opt-in: redirects append `hs_ref=<click id>`. */
+  appendRef: boolean;
   campaign: string | null;
   source: string | null;
   distinctId: string | null;
@@ -1066,6 +1068,13 @@ export type LinkClick = {
   clickedAt: string;
   ipAddress: string | null;
   userAgent: string | null;
+  /**
+   * Arrival stamp: who landed from this hit. `visitorKind` is the trust
+   * tier — 'token' = verified userId (known contact), 'anon' = raw anon id.
+   */
+  visitorDistinctId: string | null;
+  visitorKind: string | null;
+  arrivedAt: string | null;
 };
 
 /**
@@ -1085,6 +1094,9 @@ export type DestinationStat = {
 export type LinkDetail = Link & {
   clicks: LinkClick[];
   destinations: DestinationStat[];
+  /** Landing-confirmed arrivals; `identifiedArrivalCount` = known contacts. */
+  arrivalCount: number;
+  identifiedArrivalCount: number;
 };
 
 /**
@@ -1124,6 +1136,8 @@ export function createLink(body: {
   type: "personal" | "public";
   campaign?: string;
   description?: string;
+  /** Arrival attribution opt-in (`hs_ref` on redirects). */
+  appendRef?: boolean;
   /** Optional vanity slug (`/l/:slug`). 409 if already taken. */
   slug?: string;
   /** Honored only when `type === "personal"` (share-safe invariant). */
@@ -1137,6 +1151,7 @@ export function updateLink(
   body: {
     label?: string;
     description?: string | null;
+    appendRef?: boolean;
     campaign?: string;
     originalUrl?: string;
     /** string = set/replace (409 if taken); null = clear the slug. */
