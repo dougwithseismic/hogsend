@@ -38,8 +38,7 @@ export function journeyFromSpec(
   input: unknown,
   opts: { templateKeys?: ReadonlySet<string> } = {},
 ): DefinedJourney {
-  const spec = journeySpecSchema.parse(input);
-  validateReferences(spec, opts.templateKeys);
+  const spec = validateJourneySpec(input, opts);
   registerJourneySpec(spec);
 
   const journey = defineJourney({
@@ -47,6 +46,23 @@ export function journeyFromSpec(
     run: makeSpecRun(spec),
   });
   return journey;
+}
+
+/**
+ * Parse + referentially validate a spec WITHOUT any side effect (no
+ * `registerJourneySpec`, no Hatchet task built). The write path (admin
+ * `PUT /journey-specs/:id`) uses this to reject a bad spec at author time with
+ * the same guarantees the boot loader enforces, so a stored row is always
+ * valid-at-write. Throws a `ZodError` (shape) or an `Error` (referential) —
+ * both carry an actionable message. Returns the typed, validated spec.
+ */
+export function validateJourneySpec(
+  input: unknown,
+  opts: { templateKeys?: ReadonlySet<string> } = {},
+): JourneySpec {
+  const spec = journeySpecSchema.parse(input);
+  validateReferences(spec, opts.templateKeys);
+  return spec;
 }
 
 // ---------------------------------------------------------------------------

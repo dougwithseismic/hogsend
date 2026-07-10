@@ -18,6 +18,7 @@ import {
   parseEnabledFilter,
   selectJourneyTasks,
 } from "./journeys/registry.js";
+import { loadAndRegisterDbSpecs } from "./journeys/spec/load-from-db.js";
 import { reportWorkerReady } from "./lib/boot.js";
 import { hatchet } from "./lib/hatchet.js";
 import { getRedisIfConnected } from "./lib/redis.js";
@@ -176,12 +177,23 @@ export function createWorker(opts: CreateWorkerOptions): Worker {
     // Emit BEFORE the Hatchet handshake: proves the process booted past init
     // even while the connection is still establishing (the worker banner /
     // "ready" line only fires once `hatchet.worker()` resolves).
+    // Slice 1: adopt DB-stored journey specs at boot. Registers each into
+    // container.registry (code-wins on id collision) and returns the adapted
+    // journeys so their Hatchet tasks join this worker's workflow set. A new DB
+    // spec needs a worker restart to be picked up here — the generic-dispatch
+    // pivot (Slice 2) is what makes it live without one.
+    const dbSpecJourneys = await loadAndRegisterDbSpecs(container);
+    const dbSpecTasks = dbSpecJourneys.map((j) => j.task);
+
     container.logger.info("Hogsend worker starting", {
       hatchet: container.env.HATCHET_CLIENT_HOST_PORT,
       journeys: journeyIds,
+      dbSpecJourneys: dbSpecJourneys.map((j) => j.meta.id),
     });
 
-    _worker = await hatchet.worker("hogsend-worker", { workflows });
+    _worker = await hatchet.worker("hogsend-worker", {
+      workflows: [...workflows, ...dbSpecTasks],
+    });
 
     reportWorkerReady({
       client: container,

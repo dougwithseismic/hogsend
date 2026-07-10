@@ -253,7 +253,12 @@ export {
   isJourneySpec,
   journeyFromSpec,
   makeSpecRun,
+  validateJourneySpec,
 } from "./journeys/spec/journey-from-spec.js";
+export {
+  loadAndRegisterDbSpecs,
+  loadJourneySpecsFromDb,
+} from "./journeys/spec/load-from-db.js";
 export { specToGraph } from "./journeys/spec/spec-to-graph.js";
 // --- Studio co-working agent (HITL proposal chokepoint) ---
 export {

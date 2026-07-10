@@ -59,6 +59,15 @@ export const webhookDeliveryStatusEnum = pgEnum("webhook_delivery_status", [
   "discarded", // endpoint disabled/deleted mid-flight — TERMINAL, NOT an error, NOT dead-lettered
 ]);
 
+// Provenance of a stored journey definition (Novu-style `origin`). Every row in
+// `journey_specs` is "json" today (code journeys live in the code array, not
+// this table); "code" is reserved for a future unified view that mirrors code
+// journeys in for read-only listing.
+export const journeySpecOriginEnum = pgEnum("journey_spec_origin", [
+  "code",
+  "json",
+]);
+
 export const connectorDeliveryStatusEnum = pgEnum("connector_delivery_status", [
   "queued", // row claimed (INSERT won) — the action call is in flight; NOT yet a
   // satisfied duplicate. A replay finding this re-drives the action (safer

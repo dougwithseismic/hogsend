@@ -7,6 +7,7 @@ import {
   getEngineSchemaVersion,
   getPostHog,
   getRedisIfConnected,
+  loadAndRegisterDbSpecs,
   reportApiReady,
 } from "@hogsend/engine";
 import { discordActions } from "@hogsend/plugin-discord";
@@ -119,6 +120,12 @@ await bootstrapAdminFromEnv({ client });
 // Idempotent (no-op once any key exists), opt out with
 // HOGSEND_BOOTSTRAP_API_KEY=false. API process only — never the worker.
 await bootstrapApiKeyFromEnv({ client });
+
+// Slice 1: hydrate the journey registry with DB-stored specs so the admin
+// journey list and `ingestEvent`'s exitOn evaluation (checkExits) see them in
+// the API process too. The worker does the same in its own boot to register the
+// runnable Hatchet tasks; here we keep only the registry side effect.
+await loadAndRegisterDbSpecs(client);
 
 const app = createApp(client, {
   webhookSources,
