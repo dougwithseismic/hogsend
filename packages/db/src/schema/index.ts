@@ -17,6 +17,7 @@ export * from "./email-sends.js";
 export * from "./enums.js";
 export * from "./feed-items.js";
 export * from "./import-jobs.js";
+export * from "./journey-blueprints.js";
 export * from "./journey-configs.js";
 export * from "./journey-logs.js";
 export * from "./journey-states.js";
