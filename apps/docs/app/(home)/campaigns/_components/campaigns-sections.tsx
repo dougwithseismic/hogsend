@@ -1,3 +1,4 @@
+import Image, { type StaticImageData } from "next/image";
 import type { JSX, ReactNode } from "react";
 import { Eyebrow } from "@/components/ds/badge";
 import { Button } from "@/components/ds/button";
@@ -53,12 +54,15 @@ type ProseSectionProps = {
   eyebrow: string;
   title: ReactNode;
   children: ReactNode;
+  /** Optional Studio screenshot, framed with window chrome below the prose. */
+  image?: { src: StaticImageData; alt: string; label: string };
 };
 
 export function ProseSection({
   eyebrow,
   title,
   children,
+  image,
 }: ProseSectionProps): JSX.Element {
   return (
     <Section>
@@ -68,6 +72,34 @@ export function ProseSection({
           {children}
         </p>
       </Reveal>
+      {image ? (
+        <Reveal delay={0.14}>
+          <div className="relative mt-10">
+            <div
+              aria-hidden="true"
+              className="-inset-x-10 -inset-y-6 pointer-events-none absolute"
+              style={{
+                background:
+                  "radial-gradient(60% 60% at 50% 65%, rgba(246, 72, 56, 0.14), transparent 70%)",
+                filter: "blur(40px)",
+              }}
+            />
+            <div className="relative overflow-hidden rounded-xl border border-white/10 bg-[#0a0606]">
+              <div className="flex items-center gap-3 border-white/[0.08] border-b px-4 py-2.5">
+                <div aria-hidden="true" className="flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                  <span className="size-2.5 rounded-full bg-white/15" />
+                </div>
+                <span className="font-mono text-[11px] text-white/40 tracking-wide">
+                  {image.label}
+                </span>
+              </div>
+              <Image src={image.src} alt={image.alt} className="w-full" />
+            </div>
+          </div>
+        </Reveal>
+      ) : null}
     </Section>
   );
 }

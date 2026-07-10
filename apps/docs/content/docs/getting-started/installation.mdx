@@ -251,8 +251,11 @@ A zero-users instance shows a read-only info screen pointing you back here — n
 
 - **[/studio/sends](http://localhost:3002/studio/sends)** — every email the engine sent, with engagement (opened / clicked) as it happens
 - **[/studio/journeys](http://localhost:3002/studio/journeys)** — each journey and the contacts moving through it
+- **[/studio/setup](http://localhost:3002/studio/setup)** — a checklist confirming the worker, email provider, API key, and sending domain are all wired up
 
 Your `welcome-1` send shows up under **Sends**; open it and you'll see open and click state populate once you interact with the email.
+
+![The Setup checklist in Hogsend Studio, confirming the instance is production-ready](/images/studio/13-setup-checklist.png)
 
 <Callout type="info">
   Link-click and open tracking is **automatic** — the engine rewrites outgoing HTML to inject tracked links and an open pixel before the provider ever sees it. There is nothing to configure; every send is tracked.

@@ -164,6 +164,8 @@ The reaper's timing is tunable per deploy:
 
 The Studio **Campaigns** view shows every campaign's status, audience, scheduled time, and live progress counts — sent, skipped, failed — and can cancel anything still in flight. Studio cannot author campaigns; that stays in code or the API, where it can be reviewed.
 
+![The Campaigns view in Hogsend Studio, listing scheduled, sent, and canceled campaigns with live progress](/images/studio/07-campaigns-list.png)
+
 ## What a campaign is not
 
 - **Not recurring.** One `sendAt`, one send, retired. A weekly digest is a journey (or a cron task that calls `hs.campaigns.send` with a fresh id).

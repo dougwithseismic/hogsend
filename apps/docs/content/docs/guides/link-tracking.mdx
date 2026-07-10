@@ -67,6 +67,8 @@ link's live click count and lets you archive the ones you're done with.
 Archiving is a soft-delete — the short URL keeps redirecting and the click
 history survives.
 
+![The Links view in Hogsend Studio, listing tracked short links with click counts](/images/studio/06-links-tracking.png)
+
 The same surface is a REST API: `POST /v1/admin/links` to mint,
 `GET /v1/admin/links` to list, `GET /v1/admin/links/:id` for one link with its
 recent clicks, `PATCH` to rename/regroup/re-target, `DELETE` to archive.

@@ -7,16 +7,24 @@ Hogsend Studio is a read-and-operate admin UI for your instance. It is a static 
 
 <StudioDemoCallout placement="docs-studio" />
 
+![Hogsend Studio — the Overview dashboard, showing headline delivery and engagement metrics](/images/studio/02-overview-dashboard.png)
+
 ## What's in it
 
 | View | What it shows |
 |---|---|
 | **Overview** | Headline metrics for the instance (sends, delivery, engagement, contacts, journeys). |
+| **Events** | Every event ingested into the pipeline — who it's from, its source, and its properties — filterable by event, source, user, and time range. |
 | **Sends** | Every email send with filters (template, status, engagement, journey, recipient, date). Open a send for its event timeline + tracked links; resend failed/bounced sends. |
 | **Templates** | The template catalog with a live preview (sandboxed iframe), per-template totals and a sends-over-time chart, and a send-test action. |
+| **Links** | First-party tracked short links minted outside email — label, type (public/personal), live click count, and archive when done. |
+| **Campaigns** | One-off broadcasts to a list or bucket — status, audience, scheduled time, and live send progress; cancel one still in flight. |
 | **Journeys** | Enrollment + completion funnels per journey, with an enable/disable toggle. |
+| **Buckets** | Real-time, code-defined audience membership — current size, enter/leave trends, and which journeys each bucket feeds. |
 | **Contacts** | Search contacts; open one for its profile, activity, and timeline; un-suppress. |
 | **Suppressions** | Bounced / unsubscribed / complained contacts, filterable, with un-suppress. |
+| **Integrations** | Code-registered connectors and destinations — webhook URLs and verify secrets; connect via the CLI, then observe here. |
+| **Setup** | A configuration checklist plus sending-domain verification, so you know when the instance is production-ready. |
 | **Settings** | Create and revoke admin API keys (one-time secret reveal on create). |
 
 ## Opening the Studio

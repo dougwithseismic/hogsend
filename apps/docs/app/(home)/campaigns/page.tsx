@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { JSX } from "react";
+import campaignsListShot from "@/public/images/studio/07-campaigns-list.png";
 import {
   ClosingCta,
   CodeWalkthrough,
@@ -170,6 +171,11 @@ export default function CampaignsPage(): JSX.Element {
       <ProseSection
         eyebrow="Studio"
         title="Authored in code, watched in Studio"
+        image={{
+          src: campaignsListShot,
+          alt: "Hogsend Studio — the Campaigns view, listing scheduled, sent, and canceled campaigns with live progress",
+          label: "demo.hogsend.com/studio/campaigns",
+        }}
       >
         The Campaigns view shows every campaign's status, audience, scheduled
         time, and live progress — sent, skipped, failed. One button cancels
