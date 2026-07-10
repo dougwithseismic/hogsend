@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import type { JsonValue } from "@hatchet-dev/typescript-sdk/v1/types.js";
 import {
+  durationToMs,
   evaluatePropertyConditions,
   type JourneySourceLocation,
   normalizeWhere,
@@ -11,8 +12,13 @@ import type {
   JourneyRunFn,
   JourneyUser,
 } from "@hogsend/core/types";
-import { contacts, journeyConfigs, journeyStates } from "@hogsend/db";
-import { and, eq, inArray, notInArray } from "drizzle-orm";
+import {
+  contacts,
+  type Database,
+  journeyConfigs,
+  journeyStates,
+} from "@hogsend/db";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getAnalytics } from "../lib/analytics-singleton.js";
 import { getDb } from "../lib/db.js";
 import {
@@ -170,6 +176,57 @@ function captureCallSite(): JourneySourceLocation | undefined {
   return undefined;
 }
 
+/** The `journey_states` row an enrollment insert returns. */
+export type JourneyStateRow = typeof journeyStates.$inferSelect;
+
+/**
+ * Insert the enrollment row, tolerating the partial-unique-index race.
+ *
+ * The active-state read guard in `fn` (a `findFirst` over the live statuses) is
+ * NOT atomic with this insert: two near-simultaneous FIRST events for the same
+ * (user, journey) — a burst, which is the digest primitive's whole target
+ * workload — can BOTH clear that guard and race here. The loser would otherwise
+ * hit the `uq_user_journey_active` partial unique index with a raw 23505 that
+ * escapes `fn` (the durable task runs with `retries: 0`) and surfaces as a
+ * FAILED Hatchet run. `onConflictDoNothing` against that index absorbs the
+ * loser, returning `undefined` (0 rows) — the SAME outcome the read guard
+ * produces, so the caller maps it to the `already_active` skip.
+ *
+ * DRIZZLE GOTCHA (from prior prod debugging in this repo — mirrors
+ * campaigns/reconcile.ts): for a PARTIAL unique index the arbiter predicate goes
+ * in `where`, NOT `targetWhere`. A `targetWhere` is silently ignored and
+ * Postgres then throws 42P10 ("no unique or exclusion constraint matching the ON
+ * CONFLICT specification") at runtime. The `where` reproduces the index
+ * predicate (`status IN ('active','waiting')`) EXACTLY — see
+ * journey-states.ts:uq_user_journey_active.
+ */
+export async function insertEnrollment(opts: {
+  db: Database;
+  userId: string;
+  userEmail: string;
+  journeyId: string;
+  context: Record<string, unknown>;
+  hatchetRunId?: string;
+}): Promise<JourneyStateRow | undefined> {
+  const [row] = await opts.db
+    .insert(journeyStates)
+    .values({
+      userId: opts.userId,
+      userEmail: opts.userEmail,
+      journeyId: opts.journeyId,
+      currentNodeId: "start",
+      status: "active",
+      context: opts.context,
+      hatchetRunId: opts.hatchetRunId,
+    })
+    .onConflictDoNothing({
+      target: [journeyStates.userId, journeyStates.journeyId],
+      where: sql`status IN ('active', 'waiting')`,
+    })
+    .returning();
+  return row;
+}
+
 export function defineJourney(options: {
   meta: JourneyMetaInput;
   run: JourneyRunFn;
@@ -308,22 +365,21 @@ export function defineJourney(options: {
           return { status: "skipped", reason: "already_active" };
         }
 
-        [state] = await db
-          .insert(journeyStates)
-          .values({
-            userId,
-            userEmail,
-            journeyId: meta.id,
-            currentNodeId: "start",
-            status: "active",
-            context: properties,
-            hatchetRunId: workflowRunId,
-          })
-          .returning();
-      }
-
-      if (!state) {
-        return { status: "skipped", reason: "state_creation_failed" };
+        // A successful insert always returns exactly one row, so undefined here
+        // can ONLY mean a burst-race conflict (see insertEnrollment's doc for
+        // the race + arbiter mechanics) — the same outcome as the read guard,
+        // mapped to the identical skip.
+        state = await insertEnrollment({
+          db,
+          userId,
+          userEmail,
+          journeyId: meta.id,
+          context: properties,
+          hatchetRunId: workflowRunId,
+        });
+        if (!state) {
+          return { status: "skipped", reason: "already_active" };
+        }
       }
 
       const stateId = state.id;
@@ -417,6 +473,15 @@ export function defineJourney(options: {
         journeyContext: { ...properties },
         resolvedTimezone: tz.timezone,
         defaultSendWindow: scheduleDefaults.sendWindow,
+        // Digest defaults: the trigger event + its already-normalized `where`
+        // (so a digest of the journey's own trigger honors the trigger contract
+        // without restating it), plus the enrollment shape for the digest's
+        // definition-interplay warnings.
+        triggerEvent: meta.trigger.event,
+        ...(meta.trigger.where ? { triggerWhere: meta.trigger.where } : {}),
+        journeyId: meta.id,
+        entryLimit: meta.entryLimit,
+        ...(meta.entryPeriod ? { entryPeriod: meta.entryPeriod } : {}),
       });
 
       // The journey boundary makes journey side effects (sendEmail, ctx.trigger)
@@ -435,7 +500,14 @@ export function defineJourney(options: {
         runAnchor,
         currentLabel: undefined,
         seenKeys: new Set<string>(),
+        seenRecordLabels: new Set<string>(),
         memoize: createMemoize(hatchetCtx),
+        journeyId: meta.id,
+        // `meta.suppress` is a required DurationObject, but a `{}` / zero
+        // duration must yield 0 (disabled); `durationToMs` maps both to 0.
+        // Guard against a runtime-absent value so an undefined never reaches
+        // durationToMs (which would throw dereferencing `.hours`).
+        suppressMs: meta.suppress ? durationToMs(meta.suppress) : 0,
       };
 
       // Seed the context's memoized-clock snapshot ONCE before run() so a
@@ -502,6 +574,55 @@ export function defineJourney(options: {
         // without marking it "failed" or re-pushing a journey:failed event.
         if (err instanceof JourneyExitedError) {
           return { stateId, status: "exited" };
+        }
+
+        // Graceful worker shutdown (SIGTERM → worker.stop()) ABORTS in-flight
+        // durable runs so Hatchet can REASSIGN them: the suspended sleepFor/
+        // waitFor rejects with the SDK's AbortError. That is a RELEASE, not a
+        // failure — writing "failed" + pushing journey:failed here permanently
+        // POISONS the enrollment (recovery-first later finds a terminal row and
+        // never resumes), turning every graceful redeploy mid-wait into enrollment
+        // death. Detect the abort by the SDK's error CONTRACT (name/code — the
+        // message text varies, so never match on it), with the DurableContext's
+        // aborted signal as a belt-and-braces fallback.
+        const isAbort =
+          (err instanceof Error &&
+            (err.name === "AbortError" ||
+              (err as { code?: string }).code === "ABORT_ERR")) ||
+          (
+            hatchetCtx as {
+              abortController?: { signal?: { aborted?: boolean } };
+            }
+          ).abortController?.signal?.aborted === true;
+
+        if (isAbort) {
+          // Read the CURRENT status: an exitOn/admin cancel may have flipped the
+          // row terminal BEFORE the abort surfaced — keep today's "exited"
+          // outcome there. Otherwise the row is still waiting/active (the
+          // graceful-shutdown release) — leave it EXACTLY as-is so recovery-first
+          // (by hatchetRunId) resumes the recorded window on re-dispatch. The old
+          // "failed" write was converting a redeploy into permanent enrollment
+          // death; if Hatchet ever fails to re-dispatch, the stranded-waiting
+          // alert flags the row — strictly better than a false "failed".
+          const current = await db.query.journeyStates.findFirst({
+            where: eq(journeyStates.id, stateId),
+            columns: { status: true },
+          });
+          const status = current?.status;
+          if (
+            status &&
+            (TERMINAL_STATUSES as readonly string[]).includes(status)
+          ) {
+            return { stateId, status: "exited" };
+          }
+          logger.info(
+            "journey run released mid-wait (worker shutdown/reassignment); " +
+              "enrollment left intact for re-dispatch",
+            { journeyId: meta.id, stateId, status },
+          );
+          // Rethrow so the SDK completes its cancellation flow. NO row write, NO
+          // journey:failed push, NO "failed" transition.
+          throw err;
         }
 
         const message =

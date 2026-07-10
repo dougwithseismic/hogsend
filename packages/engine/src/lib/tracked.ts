@@ -30,6 +30,7 @@ import {
 } from "./email-service-types.js";
 import { isFrequencyCapped } from "./frequency-cap.js";
 import { hatchet } from "./hatchet.js";
+import { checkJourneySuppress } from "./journey-suppress.js";
 import { createLogger, type Logger } from "./logger.js";
 import { emitOutbound } from "./outbound.js";
 import {
@@ -256,6 +257,38 @@ async function sendTrackedEmailInner<K extends TemplateName>(
           reason: "frequency_capped",
         });
       }
+    }
+
+    // Journey suppress (`meta.suppress`) — a per-recipient min-gap flooding
+    // guard, enforced ONLY for journey-bound sends (a JourneyBoundary is
+    // present) whose journey sets suppress > 0. Slotted ADJACENT to the
+    // frequency cap so the skip mirrors it exactly: on a hit there is no
+    // provider call, no `email_sends` row, and no throw — the journey run
+    // continues. It MUST run AFTER the idempotency short-circuit above: a replay
+    // of an already-dispatched send has to return that dup (from its prior
+    // `sent` row) BEFORE any suppress evaluation, or the second drive would
+    // wrongly re-evaluate suppression for a send that already went out. The
+    // verdict itself is RECORDED set-once (see checkJourneySuppress) so it is
+    // replay-stable. Non-journey sends (no boundary: transactional API /
+    // password-reset flows) are inert here.
+    const boundary = getJourneyBoundary();
+    const suppress = await checkJourneySuppress({
+      db,
+      boundary,
+      to: options.to,
+      idempotencyKey: options.idempotencyKey,
+    });
+    if (suppress.suppressed) {
+      logger?.info("send skipped: journey_suppressed", {
+        to: options.to,
+        journeyId: boundary?.journeyId,
+      });
+      return trackedSendResult({
+        emailSendId: "",
+        messageId: "",
+        status: "skipped",
+        reason: "journey_suppressed",
+      });
     }
   }
 

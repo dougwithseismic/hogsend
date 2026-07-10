@@ -88,6 +88,7 @@ const NODE_STYLE: Record<JourneyGraphNodeType, { rail: string; kind: string }> =
     sleep: { rail: "#6e7681", kind: "Sleep" },
     sleepUntil: { rail: "#6e7681", kind: "Sleep until" },
     wait: { rail: "#f64838", kind: "Wait for event" },
+    digest: { rail: "#39c5cf", kind: "Digest" },
     branch: { rail: "#f64838", kind: "Branch" },
     decision: { rail: "#f64838", kind: "Decision" },
     send: { rail: "#d29922", kind: "Email" },

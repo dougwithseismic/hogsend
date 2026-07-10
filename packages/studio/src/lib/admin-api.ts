@@ -389,6 +389,7 @@ export type JourneyGraphNodeType =
   | "sleep"
   | "sleepUntil"
   | "wait"
+  | "digest"
   | "send"
   | "connector"
   | "checkpoint"

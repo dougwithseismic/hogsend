@@ -23,7 +23,7 @@ interface JourneyMeta {
     where?: PropertyCondition[];
   }>;
 
-  suppress: DurationObject;   // declared cool-down (required field; see note)
+  suppress: DurationObject;   // min-gap between sends, enforced at send time (0 disables)
 }
 ```
 
@@ -103,14 +103,19 @@ exitOn: [
 
 ### `suppress`
 
-A **required** `DurationObject` field declaring an intended cool-down before
-re-entry. Note: the engine's enrollment gates do NOT currently read `suppress` —
-actual re-entry timing is enforced by `entryLimit` + `entryPeriod` (above). It is
-stored as journey metadata and surfaced on the admin journeys API. Treat it as
-the declarative cool-down you pair with `entryLimit` (e.g.
-`entryLimit: "once_per_period"`, `entryPeriod: days(7)`, `suppress: hours(12)`);
-use `hours(0)` on `"unlimited"` test journeys. Because it is required, always set
-it — `hours(0)` when you mean "none".
+A **required** `DurationObject` — the minimum time between sends within this
+journey, **enforced at send time** in the tracked mailer. A send that lands
+inside the gap is skipped (`journey_suppressed`): no provider call, no
+`email_sends` row. The gap is measured per recipient across **all** enrollments
+of the journey (not per-enrollment), so a re-enrollment inside the window is
+still gapped. This is a per-send min-gap, distinct from re-entry timing —
+`entryLimit` + `entryPeriod` gate whether a user *enrolls*; `suppress` gates
+whether an enrolled run's *send* fires. Pair the two (e.g.
+`entryLimit: "once_per_period"`, `entryPeriod: days(7)`, `suppress: hours(12)`).
+`days(0)` / `hours(0)` **disables** it — use that on `"unlimited"` test journeys
+and on `ctx.digest` journeys (the digest already collapses the sends, so a
+non-zero suppress would fight the rolling re-enrollment). Because it is required,
+always set it — `hours(0)` when you mean "none".
 
 ### `enabled`
 

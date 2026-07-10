@@ -76,11 +76,14 @@ export interface TrackedSendResult {
   /**
    * Present only when `status === "skipped"`:
    * - `"frequency_capped"` — the per-recipient frequency cap was hit.
+   * - `"journey_suppressed"` — the enclosing journey's `meta.suppress` min-gap
+   *   was in force: a non-failed send for this journey to this recipient already
+   *   went out inside the window, so this one was skipped (no row, no send).
    * - `"test_mode_blocked"` — test mode was active but no redirect address
    *   resolved (no `HOGSEND_TEST_EMAIL` / `STUDIO_ADMIN_EMAIL`), so the send was
    *   blocked rather than delivered to the real recipient.
    */
-  reason?: "frequency_capped" | "test_mode_blocked";
+  reason?: "frequency_capped" | "journey_suppressed" | "test_mode_blocked";
 }
 
 /**

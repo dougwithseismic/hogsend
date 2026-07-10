@@ -53,12 +53,23 @@ interface OpenEnd {
 }
 
 /** ctx namespaces/methods that are decision inputs / utilities, not nodes. */
-const CTX_SKIP = new Set(["history", "guard", "when", "once", "now"]);
+// `throttle` is an advisory frequency check the author branches on (like
+// guard/history) — a decision INPUT, not a durable step, so it never becomes a
+// node (a following `if (!allowed)` still forks as usual).
+const CTX_SKIP = new Set([
+  "history",
+  "guard",
+  "when",
+  "once",
+  "now",
+  "throttle",
+]);
 /** ctx primitives that DO become nodes, mapped to their node type. */
 const CTX_NODE: Record<string, JourneyNodeType> = {
   sleep: "sleep",
   sleepUntil: "sleepUntil",
   waitForEvent: "wait",
+  digest: "digest",
   checkpoint: "checkpoint",
   trigger: "trigger",
 };
@@ -170,7 +181,7 @@ function extract(runSource: string, meta: JourneyMeta): JourneyGraph {
   raws.sort((a, b) => a.start - b.start);
 
   // --- Pass B: assign ids (A2 join-key rules) ---
-  const emitted = assignNodes(raws);
+  const emitted = assignNodes(raws, meta.trigger.event);
   dedupeIds(emitted);
 
   const start = startNode(meta);
@@ -518,6 +529,19 @@ function ctxNodeFields(
       timeout: arg ? extractDuration(objectProp(arg, "timeout")) : undefined,
     };
   }
+  if (kind === "digest") {
+    // ctx.digest({ window, event?, label? }) — `duration` carries the window.
+    const label = extractLabel(arg && objectProp(arg, "label"));
+    const eventNode = arg ? objectProp(arg, "event") : undefined;
+    return {
+      kind,
+      authoredLabel: label?.value,
+      labelUnstable: label?.unstable,
+      eventLiteral: stringLiteral(eventNode),
+      eventIdent: lastIdentOf(eventNode),
+      duration: arg ? extractDuration(objectProp(arg, "window")) : undefined,
+    };
+  }
   // trigger
   const eventNode = arg ? objectProp(arg, "event") : undefined;
   return {
@@ -543,7 +567,7 @@ function sendFields(arg: acorn.ObjectExpression): ClassifiedFields {
 // Node id assignment (A2)
 // ---------------------------------------------------------------------------
 
-function assignNodes(raws: Raw[]): JourneyNode[] {
+function assignNodes(raws: Raw[], triggerEvent?: string): JourneyNode[] {
   const nodes: JourneyNode[] = [];
   // The nearest preceding boundary label — the "site" a send inherits when it
   // has no idempotencyLabel (mirrors the engine's boundary.currentLabel, which
@@ -551,7 +575,12 @@ function assignNodes(raws: Raw[]): JourneyNode[] {
   let currentLabel: string | undefined;
 
   raws.forEach((raw, idx) => {
-    const { node, boundaryLabel } = nodeFromRaw(raw, idx, currentLabel);
+    const { node, boundaryLabel } = nodeFromRaw(
+      raw,
+      idx,
+      currentLabel,
+      triggerEvent,
+    );
     if (boundaryLabel !== undefined) currentLabel = boundaryLabel;
     nodes.push(node);
   });
@@ -562,6 +591,7 @@ function nodeFromRaw(
   raw: Raw,
   idx: number,
   currentLabel: string | undefined,
+  triggerEvent: string | undefined,
 ): { node: JourneyNode; boundaryLabel?: string } {
   const meta: NonNullable<JourneyNode["meta"]> = {};
   let id: string;
@@ -620,6 +650,39 @@ function nodeFromRaw(
       if (raw.timeout) meta.timeout = raw.timeout;
       subtitle = raw.eventLiteral ?? raw.eventIdent;
       title = raw.authoredLabel ?? subtitle ?? "Wait for event";
+      break;
+    }
+    case "digest": {
+      // Runtime nodeId = `opts.label ?? digest:${opts.event ?? triggerEvent}`,
+      // and digest advances the boundary label (setBoundaryLabel/performSleep)
+      // just like sleep/wait — so mirror both here to keep the synthetic id
+      // byte-identical to `currentNodeId` and let a following label-less send
+      // inherit the digest site.
+      if (raw.authoredLabel !== undefined) {
+        id = raw.authoredLabel;
+        boundaryLabel = raw.labelUnstable ? undefined : raw.authoredLabel;
+        if (raw.labelUnstable) meta.unstable = true;
+      } else if (raw.eventLiteral !== undefined) {
+        id = `digest:${raw.eventLiteral}`;
+        boundaryLabel = id;
+      } else if (raw.eventIdent === undefined && triggerEvent !== undefined) {
+        // No `event` arg → the runtime falls back to the journey's trigger event,
+        // which the extractor knows from meta (deterministic + boundary-advancing).
+        id = `digest:${triggerEvent}`;
+        boundaryLabel = id;
+      } else {
+        // An explicit but NON-literal event (`Events.X`) resolves to a string the
+        // extractor can't see, so the id can't be made byte-identical — synthetic.
+        id = `digest:${idx}`;
+        meta.unstable = true;
+      }
+      if (raw.eventLiteral) meta.event = raw.eventLiteral;
+      if (raw.duration) meta.duration = raw.duration;
+      subtitle =
+        raw.eventLiteral ??
+        raw.eventIdent ??
+        (raw.duration ? formatDuration(raw.duration) : undefined);
+      title = raw.authoredLabel ?? "Digest";
       break;
     }
     case "checkpoint": {

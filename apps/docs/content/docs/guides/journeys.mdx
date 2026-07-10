@@ -130,7 +130,7 @@ interface JourneyMeta {
 | `entryLimit` | `"once" \| "once_per_period" \| "unlimited"` | Controls how many times a user can enter. |
 | `entryPeriod` | `DurationObject?` | Required when `entryLimit` is `"once_per_period"`. The cooldown window. |
 | `exitOn` | `Array<{ event, where? }>?` | Events that immediately terminate the journey for a user. Evaluated by the ingestion pipeline on every incoming event. |
-| `suppress` | `DurationObject` | Minimum time between sends within this journey. Prevents email flooding. |
+| `suppress` | `DurationObject` | Minimum time between sends within this journey, **enforced at send time**. A send inside the gap is skipped (`journey_suppressed`) — no provider call, no `email_sends` row. Measured per recipient across **all** enrollments of the journey, so a re-enrollment inside the window is still gapped. `days(0)` disables it. |
 
 ### Entry limits
 
@@ -359,6 +359,121 @@ run: async (user, ctx) => {
 ```
 
 This is the reactive complement to `ctx.sleep()` — combine them freely: sleep for a delay, then wait for the behavior you actually care about. Because the wait is scoped to the enrolled user and resumes through the same ingestion pipeline, any event your product (or a [webhook source](/docs/guides/events)) emits can wake a journey.
+
+## `ctx.digest()`
+
+Aggregate many trigger events over a fixed window into **one** execution. The first event enrolls the journey; every event of the same name that arrives while the window is open is absorbed by the active-enrollment guard — spawning no new run — and collected when the window flushes. A user firing an event 40 times in a week gets **one** email, not forty.
+
+```ts
+digest(opts: {
+  window: DurationObject;    // aggregation window, measured from this call. Max 720h.
+  event?: string;            // event to collect. Defaults to the journey's trigger event.
+  where?: PropertyCondition[] | ((b) => PropertyCondition | PropertyCondition[]);
+  maxEvents?: number;        // events returned AND recorded. Default 100, ceiling 500.
+  lookback?: DurationObject; // widen the scan back to catch the enrolling event. Default 15m.
+  label?: string;            // node id for this digest. Default `digest:<event>`.
+}): Promise<{
+  events: Array<{
+    properties: Record<string, string | number | boolean | null> | null;
+    occurredAt: string;      // ISO-8601, recorded — replay-stable
+  }>;
+  count: number;
+  truncated: boolean;        // true when more than `maxEvents` matched
+  flushedAt: string;         // ISO-8601 instant the window closed
+}>
+```
+
+When `event` is (or defaults to) the journey's trigger event and `where` is omitted, the journey's `trigger.where` is applied automatically — the digest honors the same trigger contract that gates enrollment.
+
+**The "batch" recipe.** `ctx.digest()` only collects and dedups the window; grouping is plain TypeScript. Use `Object.groupBy()` over `digest.events` to turn a flat window into a grouped email — there's no batch primitive, because you don't need one:
+
+```ts
+run: async (user, ctx) => {
+  // One rolling week of activity → one execution.
+  const digest = await ctx.digest({
+    window: days(7),
+    event: Events.FEATURE_USED,
+    label: "weekly-activity",
+  });
+
+  // A 7-day window is a long wait, and unsubscribe doesn't exit the journey.
+  if (!(await ctx.guard.isSubscribed())) return;
+
+  // "Batch" = Object.groupBy over the digested events.
+  const byFeature = Object.groupBy(
+    digest.events,
+    (e) => String(e.properties?.feature ?? "other"),
+  );
+  const stats = Object.entries(byFeature).map(([feature, events]) => ({
+    label: feature,
+    value: String(events?.length ?? 0),
+  }));
+
+  await sendEmail({
+    to: user.email,
+    userId: user.id,
+    journeyStateId: user.stateId,
+    template: Templates.RETENTION_WEEKLY_DIGEST,
+    subject: "Your week in review",
+    journeyName: user.journeyName,
+    props: { periodLabel: "Last 7 days", stats },
+  });
+};
+```
+
+**Entry limit picks the cadence.** `entryLimit: "unlimited"` gives a **rolling** digest — each window re-enrolls from the next event after it flushes, so the user gets a fresh digest every active period. `entryLimit: "once"` digests exactly **one** window ever; events after the first enrollment are dropped, not digested. Pair a rolling digest with `suppress: days(0)` — the digest already collapses the sends, and a `suppress` ≥ the window would gap out each new window's email.
+
+**Replay-safe.** The flush scan runs once and the result is recorded in the state row; a replay-from-top returns the verbatim-same set instead of rescanning — deterministic on any engine.
+
+**Never tier-gated.** The window has no plan ceiling other than the journey execution limit (720h / 30 days). A digest window is a first-class primitive, not a paid add-on.
+
+**Straggler band.** An event landing between the flush scan and the journey completing is absorbed by the enrollment guard but not included in that digest — it counts toward the next window instead. This is an accepted caveat, matching Novu's digest semantics.
+
+## `ctx.throttle()`
+
+An **advisory** frequency check the journey branches on: "has this user already received `limit` emails this window? then skip the nudge." It counts the user's non-failed `email_sends` within the window by recipient email — the same count the client-level frequency cap enforces on — and passes while that count is below `limit`.
+
+```ts
+throttle(opts: {
+  limit: number;      // pass while the windowed send count is < limit. >= 1.
+  window: DurationObject;
+  category?: string;  // count only this category. No exemptions — "transactional" counts.
+  label?: string;     // disambiguates the recorded verdict site.
+}): Promise<{
+  allowed: boolean;
+  count: number;      // sends in the window at first check
+  remaining: number;
+}>
+```
+
+```ts
+const { allowed } = await ctx.throttle({ limit: 3, window: days(7) });
+if (!allowed) return; // already got 3 this week — skip the nudge
+
+await sendEmail({ /* ... */ });
+```
+
+**Advisory, not enforcement.** `ctx.throttle()` is a branch _you_ write; the client-level `frequencyCap` config (see the [email guide](/docs/guides/email)) is the hard send-time backstop. The two can legitimately disagree across a long wait — the throttle verdict is frozen at first check, the cap re-counts at send. There is no reservation, either: two concurrent journeys each read the same count and can overshoot an advisory limit. Reach for `frequencyCap` when you need a ceiling that can't be crossed.
+
+**Replay-safe.** The verdict is recorded once per site and replayed verbatim, so a replay-from-top branches identically — even though the run's own sends have since landed in the window. (A live re-count on replay would diverge: allowed → send → crash → replay re-counts → now blocked → different branch — the exact divergence the replay-safety model forbids.)
+
+**Counting things that aren't sends.** `ctx.throttle()` counts email sends only. To rate-limit anything else — a push, a Slack message, a specific journey action — use the **named-counter recipe**: fire a marker with `ctx.trigger()` and count it with `ctx.history.hasEvent()`.
+
+```ts
+const { count } = await ctx.history.hasEvent({
+  userId: user.id,
+  event: "nudge.sent",
+  within: days(7),
+});
+if (count >= 3) return;
+
+// ... do the thing, then record that it happened
+await ctx.trigger({ event: "nudge.sent", userId: user.id });
+```
+
+### Reserved context state
+
+`ctx.digest()`, `ctx.throttle()`, and `ctx.once()` persist their recorded results under reserved keys in the journey's context bag — `__digest__`, `__throttle__`, and `__once__`. Don't write those keys yourself. Digest and throttle also reserve **label prefixes** on the per-run node-id set: `digest:` (the default `digest:<event>` node id) and `throttle:`. If you set your own `label`, keep it clear of those prefixes, and give each `ctx.digest()` / `ctx.throttle()` call a distinct label when a run has more than one — reusing a label throws a loud collision error rather than silently over-collapsing two records.
 
 ## `ctx.checkpoint()`
 

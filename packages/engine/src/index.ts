@@ -197,6 +197,8 @@ export { API_VERSION, env } from "./env.js";
 export {
   type DefinedJourney,
   defineJourney,
+  insertEnrollment,
+  type JourneyStateRow,
 } from "./journeys/define-journey.js";
 export { JourneyExitedError } from "./journeys/errors.js";
 // --- Journey graph extractor (Studio visual workflow) ---
@@ -211,6 +213,7 @@ export {
   type JourneyBoundary,
   parseJourneySendSite,
   registerKey,
+  registerRecordLabel,
   runWithJourneyBoundary,
 } from "./journeys/journey-boundary.js";
 export { createJourneyContext } from "./journeys/journey-context.js";
@@ -230,6 +233,10 @@ export {
   resetJourneySources,
   setJourneySources,
 } from "./journeys/journey-sources-singleton.js";
+export {
+  type RecordNamespace,
+  recordOnce,
+} from "./journeys/record-once.js";
 export {
   buildJourneyRegistry,
   parseEnabledFilter,
@@ -376,7 +383,7 @@ export {
   type SendFeedItemResult,
   sendFeedItem,
 } from "./lib/feed.js";
-export { isFrequencyCapped } from "./lib/frequency-cap.js";
+export { countRecentSends, isFrequencyCapped } from "./lib/frequency-cap.js";
 export { addrSpecOf, hostOfFromAddress } from "./lib/from-address.js";
 export { hatchet } from "./lib/hatchet.js";
 // --- Identity service (resolve/merge + analytics merge propagation, §7) ---
@@ -599,7 +606,10 @@ export {
   bucketExpiryTask,
   bucketReconcileTask,
 } from "./workflows/bucket-reconcile.js";
-export { checkAlertsTask } from "./workflows/check-alerts.js";
+export {
+  checkAlertsTask,
+  surfaceStrandedWaiting,
+} from "./workflows/check-alerts.js";
 // --- Outbound webhooks: durable delivery task + reaper (Section 1.5) ---
 export {
   deliverWebhookTask,

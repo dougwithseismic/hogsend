@@ -53,6 +53,14 @@ export interface JourneyBoundary {
    */
   seenKeys: Set<string>;
   /**
+   * Every `ctx.digest`/`ctx.throttle` SITE label seen so far in THIS run. Unlike
+   * {@link seenKeys} (auto-derived send/trigger keys), these are the authored
+   * site labels the primitives use to anchor their durable record. Reusing one
+   * label for two distinct sites would make them share a record and silently
+   * over-collapse, so {@link registerRecordLabel} throws loudly on a collision.
+   */
+  seenRecordLabels: Set<string>;
+  /**
    * Layer-1 fast path: run `fn` through Hatchet's durable `memo` keyed by
    * `deps` when (and only when) the engine supports eviction; otherwise fall
    * through to a bare `fn()`. Belt-and-suspenders over the Layer-2 DB key — when
@@ -60,6 +68,20 @@ export interface JourneyBoundary {
    * touched; when it isn't, Layer 2 still guarantees exactly-once.
    */
   memoize<T>(deps: unknown[], fn: () => Promise<T> | T): Promise<T>;
+  /**
+   * The enclosing journey's id (`meta.id`), threaded onto the boundary so the
+   * tracked mailer can enforce `meta.suppress` at send time WITHOUT the send
+   * call sites having to pass it. Optional so non-journey boundaries (tests,
+   * harness contexts) compile unchanged. Undefined ⇒ the suppress guard is inert.
+   */
+  journeyId?: string;
+  /**
+   * The enclosing journey's `meta.suppress` resolved to milliseconds
+   * (`durationToMs`). > 0 arms the tracked mailer's per-recipient min-gap
+   * suppress guard for this journey's sends; 0 (the `{}`/zero-duration default)
+   * disables it. Optional for the same reason as {@link journeyId}.
+   */
+  suppressMs?: number;
 }
 
 const journeyBoundaryAls = new AsyncLocalStorage<JourneyBoundary>();
@@ -202,4 +224,27 @@ export function registerKey(boundary: JourneyBoundary, key: string): void {
     );
   }
   boundary.seenKeys.add(key);
+}
+
+/**
+ * Record a `ctx.digest`/`ctx.throttle` SITE label as used in this run, throwing
+ * loudly if it collides with a label an earlier primitive call in the same run
+ * already used. Two sites sharing a label would share one durable record and
+ * silently over-collapse (a second digest folding into the first's window, a
+ * throttle verdict bleeding across sites), so we fail fast at dev time instead.
+ * No-op when `boundary` is undefined (a unit-test context outside a durable run).
+ */
+export function registerRecordLabel(
+  boundary: JourneyBoundary | undefined,
+  label: string,
+): void {
+  if (!boundary) return;
+  if (boundary.seenRecordLabels.has(label)) {
+    throw new Error(
+      `journey replay-safety: the digest/throttle site label "${label}" was ` +
+        "used twice in one journey run. Each ctx.digest/ctx.throttle call needs " +
+        "a unique site — pass a distinct `label` to one of them.",
+    );
+  }
+  boundary.seenRecordLabels.add(label);
 }

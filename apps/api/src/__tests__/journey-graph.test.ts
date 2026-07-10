@@ -586,6 +586,81 @@ describe("buildJourneyGraph — A2 join-key fidelity (mirror the runtime)", () =
   });
 });
 
+describe("buildJourneyGraph — digest + throttle primitives", () => {
+  const meta = metaFor({
+    id: "digest-journey",
+    trigger: { event: "order.placed" },
+  });
+
+  it("renders ctx.digest as a digest node keyed on the trigger event (label ?? digest:<event>)", () => {
+    // No `event`/`label` → the runtime nodeId falls back to the trigger event
+    // (`digest:order.placed`); the extractor mirrors that from meta, and — like
+    // sleep/wait — the deterministic id advances the boundary so a following
+    // label-less send inherits the digest site.
+    const graph = buildJourneyGraph({
+      runSource: `async (user, ctx) => {
+        const { events } = await ctx.digest({ window: hours(1) });
+        await sendEmail({ to: user.email, template: Templates.X });
+      }`,
+      meta,
+    });
+    expectValidGraph(graph);
+    expect(graph.degraded).toBeUndefined();
+    const digest = graph.nodes.find((n) => n.type === "digest");
+    expect(digest?.id).toBe("digest:order.placed");
+    expect(digest?.title).toBe("Digest");
+    expect(digest?.meta?.duration).toEqual({ hours: 1 });
+    expect(graph.nodes.find((n) => n.type === "send")?.id).toBe(
+      "send:digest:order.placed",
+    );
+  });
+
+  it("respects an explicit digest label and records the event", () => {
+    const graph = buildJourneyGraph({
+      runSource: `async (user, ctx) => {
+        await ctx.digest({
+          window: days(1),
+          event: "signup.completed",
+          label: "daily-signups",
+        });
+      }`,
+      meta,
+    });
+    expectValidGraph(graph);
+    const digest = graph.nodes.find((n) => n.type === "digest");
+    expect(digest?.id).toBe("daily-signups");
+    expect(digest?.title).toBe("daily-signups");
+    expect(digest?.meta?.event).toBe("signup.completed");
+    expect(digest?.subtitle).toBe("signup.completed");
+  });
+
+  it("treats ctx.throttle as a decision input — NO node, edges pass through", () => {
+    // throttle is an advisory frequency check the author branches on (CTX_SKIP),
+    // never a durable step — so it emits no node and the surrounding nodes connect
+    // straight through it.
+    const graph = buildJourneyGraph({
+      runSource: `async (user, ctx) => {
+        await ctx.checkpoint("before");
+        const { allowed } = await ctx.throttle({ within: days(1), max: 1 });
+        await ctx.checkpoint("after");
+      }`,
+      meta,
+    });
+    expectValidGraph(graph);
+    expect(graph.degraded).toBeUndefined();
+    // No throttle node interposed — just the two checkpoints on the spine.
+    expect(types(graph)).toEqual([
+      "start",
+      "checkpoint",
+      "checkpoint",
+      "end-completed",
+    ]);
+    expect(
+      graph.edges.some((e) => e.source === "before" && e.target === "after"),
+    ).toBe(true);
+  });
+});
+
 // --- Real-import smoke: an actual journey's captured source round-trips. ---
 describe("buildJourneyGraph — real journey import smoke", () => {
   it("extracts a graph from the live feedbackNps.runSource", async () => {

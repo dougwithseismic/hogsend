@@ -1,6 +1,56 @@
 import type { RecipeLander } from "./types";
 
-const TASK_CODE = `// src/workflows/weekly-digest.ts
+const JOURNEY_CODE = `// src/journeys/weekly-digest.ts
+import { days, defineJourney, sendEmail } from "@hogsend/engine";
+import { Events, Templates } from "./constants/index.js";
+
+export const weeklyDigest = defineJourney({
+  meta: {
+    id: "weekly-digest",
+    name: "Retention — Weekly activity digest",
+    enabled: true,
+    // Any report activity opens a window; the rest of the week folds in.
+    trigger: { event: Events.REPORT_CREATED },
+    entryLimit: "unlimited", // rolling: a fresh window opens after each flush
+    // ctx.digest already collapses the week into one send — a non-zero
+    // suppress would gap out each new window's email against the previous.
+    suppress: days(0),
+    exitOn: [{ event: Events.USER_DELETED }],
+  },
+
+  run: async (user, ctx) => {
+    // First report enrolls; every report.created in the next 7 days is
+    // absorbed by the enrollment guard and returned here at flush. One
+    // execution, one email — not one per report.
+    const digest = await ctx.digest({ window: days(7), label: "weekly" });
+
+    // A 7-day window is a long wait; unsubscribe doesn't exit the journey.
+    if (!(await ctx.guard.isSubscribed())) return;
+
+    // The "batch" recipe: ctx.digest collects the window, grouping is plain
+    // TypeScript over digest.events.
+    const byProject = Object.groupBy(
+      digest.events,
+      (e) => String(e.properties?.projectId ?? "unknown"),
+    );
+    const projects = Object.entries(byProject).map(([projectId, events]) => ({
+      projectId,
+      count: events?.length ?? 0,
+    }));
+
+    await sendEmail({
+      to: user.email,
+      userId: user.id,
+      journeyStateId: user.stateId,
+      template: Templates.RETENTION_WEEKLY_DIGEST,
+      subject: "Your week in review",
+      journeyName: user.journeyName,
+      props: { totalReports: digest.count, projects },
+    });
+  },
+});`;
+
+const TASK_CODE = `// src/workflows/weekly-digest.ts — the fixed-day alternative
 import { contacts, userEvents } from "@hogsend/db";
 import { hatchet } from "@hogsend/engine";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
@@ -78,92 +128,77 @@ export const weeklyDigestTask = hatchet.task({
   },
 });`;
 
-const REGISTER_CODE = `// src/worker.ts — extraWorkflows comes from src/workflows/index.ts,
-// which exports [weeklyDigestTask]; the engine's built-ins register themselves.
-import { createWorker } from "@hogsend/engine";
-import { getContainer } from "./container.js";
-import { journeys } from "./journeys/index.js";
-import { extraWorkflows } from "./workflows/index.js";
-
-const client = getContainer();
-const worker = createWorker({
-  container: client,
-  journeys,
-  extraWorkflows, // NOT \`workflows\`
-});
-await worker.start();`;
-
 export const weeklyDigest: RecipeLander = {
   slug: "weekly-digest",
   category: "retention",
   title: "Weekly digest",
   metaDescription:
-    "A weekly activity digest as a cron Hatchet task in TypeScript: one aggregate query over user_events, per-user idempotency keys so retries never double-send, preference-checked sends, and empty digests structurally skipped.",
+    "A per-user weekly activity digest as one defineJourney() + ctx.digest: a rolling 7-day window that collapses a burst of activity into one replay-safe email, the Object.groupBy batch recipe, and the cron fan-out as the fixed-day alternative.",
   cardDescription:
-    "A cron task that aggregates the week, skips empty digests, and survives its own retries.",
+    "One ctx.digest() call collapses a week of activity into one email — replay-safe, no idempotency bookkeeping.",
   eyebrow: "Recipe — Retention & engagement",
   subhead:
-    "One hatchet.task() on a Monday cron sweeps the whole audience: a single GROUP BY decides who has something to read, and digest:<userId>:<week> idempotency keys make a crashed run's retry finish the list instead of re-mailing it.",
+    "ctx.digest() opens a 7-day window on a user's first activity, absorbs every event that week into one execution, and records the flush — so a busy user gets one email instead of forty, and a replay re-sends nothing. The cron sweep stays for a fixed Monday cadence.",
   problem: {
     label: "The digest-sender problem",
     statement:
-      "Digest senders fail in two boring ways: the cron that dies at recipient 4,000 of 9,000 re-sends the first 4,000 on retry, and the query that returns every user emails the ones with nothing to report. Both are idempotency and audience problems, not template problems — and a scheduler with no send-level dedup key can fix neither.",
+      "A hand-rolled digest fails in two boring ways: the process that fires on every activity event mails forty times for a busy week, and the retry after a mid-run crash re-sends the front half of the list. Both are aggregation-and-dedup problems — ctx.digest solves both structurally, collapsing the window into one recorded execution whose send is auto-keyed against replay.",
   },
   walkthrough: {
-    eyebrow: "The task",
-    title: "Not a journey — and that's the point",
+    eyebrow: "The journey",
+    title: "One primitive, not a cron and a weekKey",
     subtitle:
-      "A journey run is born from one user's event; a digest's trigger is a clock and its audience is a query. One cron Hatchet task in src/workflows/ does what N synthetic enrollments would simulate badly.",
-    note: "Journeys also cap a run at 720 hours, so a per-user 'sleep until next Monday, forever' loop terminates after four digests — the cron task has no such loop because each Monday is a fresh run over a fresh query.",
+      "ctx.digest sleeps the window out durably, scans the user's events once, and records the result. The first event enrolls; the rest of the week is absorbed by the enrollment guard and returned at flush.",
+    note: "Rolling and per-user: entryLimit 'unlimited' opens a fresh window after each flush, so an active user is digested roughly weekly and a silent one never is — the window counts from their own activity, not a server clock.",
   },
   code: [
+    {
+      filename: "src/journeys/weekly-digest.ts",
+      code: JOURNEY_CODE,
+      caption:
+        "ctx.digest collapses the week into one execution; Object.groupBy over digest.events is the whole 'batch' step. No aggregate SQL, no contact lookup, no weekKey.",
+    },
     {
       filename: "src/workflows/weekly-digest.ts",
       code: TASK_CODE,
       caption:
-        "onCrons replaces onEvents: the clock is the trigger. The aggregate only returns active users, and every send carries a per-user, per-week idempotency key.",
-    },
-    {
-      filename: "src/worker.ts",
-      code: REGISTER_CODE,
-      caption:
-        "Registered via extraWorkflows next to the engine's built-ins — the task resolves db and emailService from the same process-wide container the worker boots.",
+        "The alternative: when every user should get the digest at the same fixed UTC instant, a cron task sweeps the audience in one query and carries an explicit per-user, per-week idempotency key.",
     },
   ],
   points: [
     {
-      title: "Retries finish the list, they don't restart it",
-      body: 'Every send carries idempotencyKey: "digest:<userId>:<weekKey>". A retry (or a manual re-run from the Hatchet dashboard) re-issues the same keys, and the mailer short-circuits already-fulfilled ones to the existing email_sends row — the back half of the list gets sent, the front half no-ops.',
+      title: "A burst collapses into one execution",
+      body: "The first event enrolls the journey; every later event of the same name that week is absorbed by the active-enrollment guard — spawning no new run — and collected when the window flushes. Forty report.created events become one email, not forty.",
     },
     {
-      title: "Empty digests are structurally impossible",
-      body: "The recipient list is the GROUP BY result of one aggregate query over user_events scoped to the window — a user with no qualifying activity is never selected, so the 'your week: nothing happened' email cannot be constructed.",
+      title: "Replay-safe with nothing to author",
+      body: "The flush scan runs once and its result is recorded in the state row, so a replay-from-top returns the verbatim-same set instead of rescanning. The post-digest send is auto-keyed to the digest site, so a replay short-circuits to the existing email_sends row — no weekKey, no manual idempotency key.",
     },
     {
-      title: "Preferences are enforced at send time",
-      body: "Each send flows through the tracked mailer's preference check: unsubscribed and suppressed contacts come back as a counted status, not a delivery. The task never passes skipPreferenceCheck — a digest is exactly the mail a preference center exists to control.",
+      title: "The batch is plain TypeScript",
+      body: "ctx.digest only collects and dedups the window; digest.events is a flat chronological array. Object.groupBy (or a reduce) turns it into whatever sections the template wants — there is deliberately no batch primitive to learn.",
     },
     {
-      title: "Same worker, same container, same tracking",
-      body: "The task registers via extraWorkflows alongside your journeys and resolves emailService from the process-wide container, so digest sends get the full pipeline — email_sends rows, link and open tracking, typed template props — identical to journey sends.",
+      title: "Windows are never tier-gated",
+      body: "A digest window has no plan ceiling other than the journey execution limit (720h / 30 days). suppress: days(0) keeps the per-journey min-gap from fighting the rolling re-enrollment, and ctx.guard.isSubscribed() re-checks the long wait before the send.",
     },
   ],
   faq: [
     {
-      q: "Why is this not a journey?",
-      a: "defineJourney() wires its task to onEvents: [trigger.event] — a journey run starts from one user's ingested event. A digest has no triggering event (the trigger is a clock) and no per-user flow (the audience is a query at send time). Forcing it into journeys means a synthetic event per user every Monday, or a per-user infinite sleep loop that the 720-hour journey execution timeout kills after a month.",
+      q: "When should I use the cron task instead of ctx.digest?",
+      a: "Use ctx.digest for a rolling, per-user digest — each user's window opens on their own activity, so timing is per person and there's no fixed day. Use the cron task when you want every active user to get the digest at the same fixed instant (a Monday-morning newsletter cadence). The cron fires in UTC for everyone; per-recipient local timing is only possible in the journey.",
     },
     {
-      q: "What happens when the task crashes mid-run?",
-      a: "retries: 1 re-runs the function. The aggregate re-selects the same audience, the loop re-issues the same idempotency keys, and sends already fulfilled short-circuit to their existing email_sends rows — recipients before the crash get nothing new, recipients after it get their digest.",
+      q: "How does a busy user not get one email per event?",
+      a: "The first event enrolls and opens the window; every subsequent event of the same name is folded into the active enrollment by the guard rather than starting a new run, and is returned in digest.events at flush. The journey executes exactly once per window, so it sends exactly once.",
     },
     {
-      q: "Can the digest land in each user's local morning?",
-      a: "Not from one cron — cron expressions evaluate in UTC, so 0 9 * * 1 is the same instant for everyone. Per-recipient local timing is what ctx.when inside a journey is for; see the Timezone-aware scheduling recipe. A digest trades local timing for a single sweep.",
+      q: "What happens on a worker crash mid-window?",
+      a: "The window deadline is recorded set-once, so a replay-from-top reuses it instead of extending the window. The flush result is recorded too, so a replay returns the same set without rescanning, and the auto-keyed send short-circuits to the existing email_sends row. Nothing double-sends.",
     },
     {
-      q: "Why emailService.send instead of the sendEmail() journeys use?",
-      a: "sendEmail() is the journey-side wrapper: it hardcodes the journey category and takes no idempotencyKey. The container's emailService.send accepts the idempotency key and lets the template registry's own category apply — while still running the same render, preference-check, and tracking pipeline.",
+      q: "Does an event that arrives right as the digest sends get lost?",
+      a: "No — it's absorbed by the enrollment guard. It just isn't included in the digest that's flushing; it counts toward the next window instead. This straggler band is an accepted caveat that matches Novu's digest semantics.",
     },
   ],
   links: [
@@ -172,8 +207,8 @@ export const weeklyDigest: RecipeLander = {
       href: "/docs/recipes/weekly-digest",
     },
     {
-      label: "Custom Hatchet tasks — defining and registering",
-      href: "/docs/guides/webhook-sources",
+      label: "ctx.digest — window, replay, and batch semantics",
+      href: "/docs/guides/journeys#ctxdigest",
     },
     {
       label: "Email guide — the tracked send pipeline",

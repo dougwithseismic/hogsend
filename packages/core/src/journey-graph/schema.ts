@@ -6,6 +6,7 @@ export const journeyNodeTypeSchema = z.enum([
   "sleep",
   "sleepUntil",
   "wait",
+  "digest",
   "send",
   "connector",
   "checkpoint",

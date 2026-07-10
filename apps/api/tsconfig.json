@@ -2,6 +2,7 @@
   "extends": "@repo/typescript-config/base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
+    "lib": ["es2024", "DOM", "DOM.Iterable"],
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
