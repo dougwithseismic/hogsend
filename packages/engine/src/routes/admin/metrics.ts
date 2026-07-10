@@ -19,6 +19,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
+import { getRuntimeSpecMeta } from "../../journeys/spec/runtime-spec-store.js";
 import { rate, TRUNC_SQL } from "../../lib/metrics-sql.js";
 import { errorSchema } from "../../lib/schemas.js";
 
@@ -471,7 +472,9 @@ export const metricsRouter = new OpenAPIHono<AppEnv>()
     const { db, registry } = c.get("container");
     const { id } = c.req.valid("param");
 
-    const journey = registry.get(id);
+    // Runtime-added DB specs live in the runtime store until the next boot
+    // registers them — fall back so a just-created journey reads immediately.
+    const journey = registry.get(id) ?? getRuntimeSpecMeta(id);
     if (!journey) {
       return c.json({ error: "Journey not found" }, 404);
     }

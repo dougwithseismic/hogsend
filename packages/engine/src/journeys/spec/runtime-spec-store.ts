@@ -1,3 +1,4 @@
+import type { JourneySpec } from "@hogsend/core";
 import type { Database } from "@hogsend/db";
 import type { Logger } from "../../lib/logger.js";
 import { type LoadedSpec, loadJourneySpecsFromDb } from "./load-from-db.js";
@@ -105,4 +106,19 @@ export function getRuntimeSpecStore(): RuntimeSpecStore {
 /** Test-only reset. */
 export function resetRuntimeSpecStore(): void {
   _store = undefined;
+}
+
+/**
+ * The JourneyMeta of a RUNTIME-added DB spec (present in the store but not in
+ * the boot-time journey registry). Admin read routes use this as their
+ * `registry.get(id) ?? …` fallback so a journey created via the API is
+ * immediately readable (detail/graph/funnel/enroll) without a process restart —
+ * the read-side sibling of the ingest path's exitOn fallback.
+ */
+export function getRuntimeSpecMeta(
+  id: string,
+): (JourneySpec["meta"] & { id: string }) | undefined {
+  const loaded = getRuntimeSpecStore().getById(id);
+  if (!loaded) return undefined;
+  return { id: loaded.spec.id, ...loaded.spec.meta };
 }

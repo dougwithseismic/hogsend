@@ -20,6 +20,10 @@ import {
 } from "drizzle-orm";
 import type { AppEnv } from "../../app.js";
 import { buildJourneyGraph } from "../../journeys/graph/build-graph.js";
+import {
+  getRuntimeSpecMeta,
+  getRuntimeSpecStore,
+} from "../../journeys/spec/runtime-spec-store.js";
 import { getJourneySpec } from "../../journeys/spec/spec-registry.js";
 import { specToGraph } from "../../journeys/spec/spec-to-graph.js";
 import { ingestEvent } from "../../lib/ingestion.js";
@@ -536,7 +540,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     const { db, registry } = c.get("container");
     const { id } = c.req.valid("param");
 
-    const meta = registry.get(id);
+    const meta = registry.get(id) ?? getRuntimeSpecMeta(id);
     if (!meta) {
       return c.json({ error: "Journey not found" }, 404);
     }
@@ -604,7 +608,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const meta = registry.get(id);
+    const meta = registry.get(id) ?? getRuntimeSpecMeta(id);
     if (!meta) {
       return c.json({ error: "Journey not found" }, 404);
     }
@@ -639,7 +643,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     const { id } = c.req.valid("param");
     const { limit, offset, status, userId } = c.req.valid("query");
 
-    if (!registry.has(id)) {
+    if (!registry.has(id) && !getRuntimeSpecMeta(id)) {
       return c.json({ error: "Journey not found" }, 404);
     }
 
@@ -756,7 +760,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     const { id } = c.req.valid("param");
     const body = c.req.valid("json");
 
-    const meta = registry.get(id);
+    const meta = registry.get(id) ?? getRuntimeSpecMeta(id);
     if (!meta) {
       return c.json({ error: "Journey not found" }, 404);
     }
@@ -791,7 +795,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     const { db, registry } = c.get("container");
     const { id } = c.req.valid("param");
 
-    if (!registry.has(id)) {
+    if (!registry.has(id) && !getRuntimeSpecMeta(id)) {
       return c.json({ error: "Journey not found" }, 404);
     }
 
@@ -839,7 +843,7 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
       c.get("container");
     const { id } = c.req.valid("param");
 
-    const meta = registry.get(id);
+    const meta = registry.get(id) ?? getRuntimeSpecMeta(id);
     if (!meta) {
       return c.json({ error: "Journey not found" }, 404);
     }
@@ -847,7 +851,13 @@ export const journeysRouter = new OpenAPIHono<AppEnv>()
     // Build (and cache) the IR — runSource is static per process, so a repeat
     // request re-uses the parse rather than re-walking the AST. The captured
     // call-site (also static per process) is baked into the cached graph.
-    let graph = journeyGraphCache.get(id);
+    // Runtime-added/edited DB specs render fresh each request (their spec can
+    // change between requests via the admin API — the per-process cache below
+    // is only correct for boot-static journeys, whose sources never change).
+    const runtimeSpec = getRuntimeSpecStore().getById(id)?.spec;
+    let graph = runtimeSpec
+      ? specToGraph(runtimeSpec)
+      : journeyGraphCache.get(id);
     if (!graph) {
       // Spec journeys (JSON/YAML-defined) render straight from their spec —
       // full fidelity, no parsing, never degraded. Their `runSource` is the

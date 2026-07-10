@@ -191,21 +191,33 @@ async function journeyScope(
   client: AdminClient,
   id: string,
 ): Promise<ReturnType<typeof toolResult>> {
+  // Every leg tolerated: a DISABLED runtime-created spec has a journey-specs
+  // row but no registry/graph/funnel presence yet — the scope still renders
+  // from the stored spec instead of failing.
   const [detail, graph, funnel, specDoc] = await Promise.all([
-    client.get<{ journey: Record<string, unknown> }>(
-      `/v1/admin/journeys/${id}`,
-    ),
-    client.get<GraphResponse>(`/v1/admin/journeys/${id}/graph`),
+    client
+      .get<{ journey: Record<string, unknown> }>(`/v1/admin/journeys/${id}`)
+      .catch(() => null),
+    client
+      .get<GraphResponse>(`/v1/admin/journeys/${id}/graph`)
+      .catch(() => null),
     client
       .get<JourneyFunnel>(`/v1/admin/metrics/journeys/${id}`)
       .catch(() => null),
     client.get<SpecDoc>(`/v1/admin/journey-specs/${id}`).catch(() => null), // 404 = code journey
   ]);
+  if (!detail && !graph && !specDoc) {
+    return toolError(
+      `No journey "${id}" found (checked live registry and stored specs — see scope "catalog").`,
+    );
+  }
 
   const walkthrough = specDoc
     ? // biome-ignore lint/suspicious/noExplicitAny: validated server-side; narrated textually
       specWalkthrough(specDoc.spec as any)
-    : graphWalkthrough(graph.graph.nodes);
+    : graph
+      ? graphWalkthrough(graph.graph.nodes)
+      : "(no walkthrough available)";
 
   const funnelText = funnel
     ? `Funnel: enrolled ${funnel.enrolled} → sent ${funnel.emailSent} → opened ${funnel.emailOpened} (${pct(funnel.emailOpened, funnel.emailSent)}%) → clicked ${funnel.emailClicked} (${pct(funnel.emailClicked, funnel.emailOpened)}%) → completed ${funnel.completed}. Failed ${funnel.failed}, exited ${funnel.exited}.`
@@ -223,16 +235,17 @@ async function journeyScope(
     "",
     funnelText,
     "",
-    "Where users are right now (live) and where they failed:",
-    nodeTable(graph.graph.nodes, graph.metrics.nodes),
+    graph
+      ? `Where users are right now (live) and where they failed:\n${nodeTable(graph.graph.nodes, graph.metrics.nodes)}`
+      : "No live metrics yet (journey has not run).",
     "",
     `Studio: ${deepLink(client.baseUrl, `/journeys/${id}`)}`,
   ].join("\n");
 
   return toolResult(text, {
-    journey: detail.journey,
-    graph: graph.graph,
-    metrics: graph.metrics,
+    journey: detail?.journey ?? null,
+    graph: graph?.graph ?? null,
+    metrics: graph?.metrics ?? null,
     funnel,
     spec: specDoc?.spec ?? null,
     specVersion: specDoc?.summary.version ?? null,
