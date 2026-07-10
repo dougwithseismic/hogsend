@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import type { JourneyBoundary } from "@hogsend/engine";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // The feed service (`sendFeedItem`) reads its OWN db singleton off
@@ -26,10 +27,14 @@ vi.mock("../lib/hatchet.js", () => ({
 
 const { apiKeys, contacts, emailPreferences, feedItems, userEvents } =
   await import("@hogsend/db");
-const { and, eq, sql } = await import("drizzle-orm");
-const { createApp, createHogsendClient, sendFeedItem } = await import(
-  "@hogsend/engine"
-);
+const { and, eq, inArray, like, sql } = await import("drizzle-orm");
+const {
+  createApp,
+  createHogsendClient,
+  createMemoize,
+  runWithJourneyBoundary,
+  sendFeedItem,
+} = await import("@hogsend/engine");
 
 const mockHatchet = {
   durableTask: vi.fn(() => ({
@@ -542,5 +547,225 @@ describe("anonymous recipient", () => {
       state: "read",
     });
     expect(markRes.status).toBe(400);
+  });
+});
+
+// ===========================================================================
+// Phase 4 — feed preference gate moved INSIDE the durable memo (THE LAW) +
+// the unified aggregated preference read. RUN-namespaced so these rows never
+// collide with the fixtures above (or a concurrent suite); cleaned below.
+// ===========================================================================
+const RUN = `feedp4-${Date.now()}`;
+
+// Test-1 (registered-list regression) identity.
+const T1_USER = `${RUN}-t1ext`;
+const T1_EMAIL = `${RUN}-t1@example.com`;
+// Test-2 (unification): contact identified by a DIFFERENT external id than the
+// (email,email)-keyed unsubscribe row, so the OLD single-row (extId,email) read
+// would have MISSED it.
+const T2_EXT = `${RUN}-t2ext`;
+const T2_EMAIL = `${RUN}-t2@example.com`;
+// Test-3 (THE LAW): a suppressed recipient (flips mid-run) + a subscribed one.
+const T3_EXT = `${RUN}-t3ext`;
+const T3_EMAIL = `${RUN}-t3@example.com`;
+const T3B_EXT = `${RUN}-t3bext`;
+const T3B_EMAIL = `${RUN}-t3b@example.com`;
+
+/**
+ * A memo journal modeling a durable, eviction-capable Hatchet context: `memo`
+ * records the first result per deps key and replays it verbatim on the next
+ * call with the same deps. `memoDeps` records the deps sequence so a test can
+ * assert the durable-call ORDER is identical across drives (mirrors the pattern
+ * in connector-skip-replay.test.ts).
+ */
+function makeJournalCtx() {
+  const journal = new Map<string, unknown>();
+  const memoDeps: string[] = [];
+  const ctx = {
+    supportsEviction: true,
+    tag: "journal",
+    async memo<T>(fn: () => Promise<T> | T, deps: unknown[]): Promise<T> {
+      if (this.tag !== "journal") {
+        throw new TypeError("memo called without its `this` binding");
+      }
+      const k = JSON.stringify(deps);
+      memoDeps.push(k);
+      if (journal.has(k)) return journal.get(k) as T;
+      const v = await fn();
+      journal.set(k, v);
+      return v;
+    },
+  };
+  return { ctx, memoDeps };
+}
+
+function boundaryFor(
+  memoize: JourneyBoundary["memoize"],
+  runAnchor: string,
+): JourneyBoundary {
+  return {
+    stateId: runAnchor,
+    runAnchor,
+    currentLabel: undefined,
+    seenKeys: new Set<string>(),
+    seenRecordLabels: new Set<string>(),
+    memoize,
+  };
+}
+
+afterAll(async () => {
+  await db
+    .delete(feedItems)
+    .where(inArray(feedItems.recipientKey, [T1_USER, T2_EXT, T3_EXT, T3B_EXT]));
+  await db
+    .delete(emailPreferences)
+    .where(like(emailPreferences.email, `${RUN}%`));
+  await db.delete(contacts).where(like(contacts.email, `${RUN}%`));
+});
+
+describe("sendFeedItem preference gate (Phase 4)", () => {
+  it("suppresses a recipient opted out of the registered in_app channel", async () => {
+    // Regression: `{ in_app: false }` now resolves through the REGISTERED
+    // channel list (defaultOptIn:true → subscribed unless explicit false), not
+    // the old unregistered-key fallback. Same verdict: suppressed, no row.
+    await db.insert(contacts).values({ externalId: T1_USER, email: T1_EMAIL });
+    await db.insert(emailPreferences).values({
+      userId: T1_USER,
+      email: T1_EMAIL,
+      unsubscribedAll: false,
+      categories: { in_app: false },
+    });
+
+    const res = await sendFeedItem({
+      recipient: { userId: T1_USER, email: T1_EMAIL },
+      type: "blocked-inapp",
+      title: "Blocked",
+    });
+    expect(res.suppressed).toBe(true);
+    expect(res.feedItemId).toBeNull();
+
+    const rows = await db
+      .select()
+      .from(feedItems)
+      .where(eq(feedItems.recipientKey, T1_USER));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("suppresses via an (email,email)-keyed unsubscribe the old single-row read would MISS", async () => {
+    // Contact is identified by T2_EXT. The unsubscribe row is keyed
+    // (T2_EMAIL, T2_EMAIL) — an unsubscribe imported before the contact
+    // existed. The OLD code read a single row on (T2_EXT, T2_EMAIL), which does
+    // NOT exist, so it would have sent. The unified aggregated read matches the
+    // (email,email) row via its email leg → suppressed.
+    await db.insert(contacts).values({ externalId: T2_EXT, email: T2_EMAIL });
+    await db.insert(emailPreferences).values({
+      userId: T2_EMAIL,
+      email: T2_EMAIL,
+      unsubscribedAll: true,
+    });
+
+    const res = await sendFeedItem({
+      recipient: { userId: T2_EXT, email: T2_EMAIL },
+      type: "should-be-suppressed",
+      title: "Imported unsub",
+    });
+    expect(res.suppressed).toBe(true);
+    expect(res.feedItemId).toBeNull();
+
+    const rows = await db
+      .select()
+      .from(feedItems)
+      .where(eq(feedItems.recipientKey, T2_EXT));
+    expect(rows).toHaveLength(0);
+  });
+});
+
+describe("sendFeedItem replay-safety (THE LAW)", () => {
+  it("records the suppressed verdict in the memo and replays it verbatim after prefs flip", async () => {
+    await db.insert(contacts).values({ externalId: T3_EXT, email: T3_EMAIL });
+    const [pref] = await db
+      .insert(emailPreferences)
+      .values({
+        userId: T3_EXT,
+        email: T3_EMAIL,
+        categories: { in_app: false },
+      })
+      .returning({ id: emailPreferences.id });
+
+    const journal = makeJournalCtx();
+    const memoize = createMemoize(journal.ctx);
+    const anchor = `${RUN}-anchor-t3`;
+    const drive = async () => {
+      const boundary = boundaryFor(memoize, anchor);
+      const result = await runWithJourneyBoundary(boundary, () =>
+        sendFeedItem({
+          recipient: { userId: T3_EXT, email: T3_EMAIL },
+          type: "law-item",
+          title: "Law",
+        }),
+      );
+      return { result, keys: Array.from(boundary.seenKeys) };
+    };
+
+    const first = await drive();
+    expect(first.result.suppressed).toBe(true);
+    expect(first.result.feedItemId).toBeNull();
+
+    // FLIP the recipient to subscribed between the run and the replay.
+    await db
+      .update(emailPreferences)
+      .set({ categories: { in_app: true } })
+      .where(eq(emailPreferences.id, pref?.id ?? ""));
+
+    // REPLAY: the memo short-circuits, replaying the recorded skip verbatim —
+    // the live-flipped preference is NEVER re-read.
+    const second = await drive();
+    // (a) verdict replayed verbatim.
+    expect(second.result).toEqual(first.result);
+    expect(second.result.suppressed).toBe(true);
+    // (b) registered-key + durable-call order IDENTICAL across both drives.
+    expect(first.keys).toHaveLength(1);
+    expect(second.keys).toEqual(first.keys);
+    expect(journal.memoDeps).toHaveLength(2);
+    expect(journal.memoDeps[1]).toEqual(journal.memoDeps[0]);
+
+    // No feed_items row was ever written on EITHER drive.
+    const rows = await db
+      .select()
+      .from(feedItems)
+      .where(eq(feedItems.recipientKey, T3_EXT));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("a subscribed send inserts exactly ONE feed_items row across both drives", async () => {
+    await db.insert(contacts).values({ externalId: T3B_EXT, email: T3B_EMAIL });
+    // No pref row → subscribed by default.
+
+    const journal = makeJournalCtx();
+    const memoize = createMemoize(journal.ctx);
+    const anchor = `${RUN}-anchor-t3b`;
+    const drive = () =>
+      runWithJourneyBoundary(boundaryFor(memoize, anchor), () =>
+        sendFeedItem({
+          recipient: { userId: T3B_EXT, email: T3B_EMAIL },
+          type: "law-ok",
+          title: "OK",
+        }),
+      );
+
+    const first = await drive();
+    expect(first.suppressed).toBe(false);
+    expect(first.feedItemId).toBeTruthy();
+
+    // REPLAY: the memo short-circuits, replaying the recorded insert result
+    // verbatim — no second insert, no second publish.
+    const second = await drive();
+    expect(second).toEqual(first);
+
+    const rows = await db
+      .select()
+      .from(feedItems)
+      .where(eq(feedItems.recipientKey, T3B_EXT));
+    expect(rows).toHaveLength(1);
   });
 });
