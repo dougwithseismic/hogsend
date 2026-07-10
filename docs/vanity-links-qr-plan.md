@@ -81,7 +81,7 @@ Two features layered on the managed link tracker (`mintLink` / Studio Links / `/
 ## Phase 9 — Studio + docs
 
 - [x] 9.1 Studio: "Append arrival ref" toggle (QR create default ON with OAuth-redirect caveat; Links create/edit default OFF), known-arrival display in QR dialog + detail
-- [ ] 9.2 Docs (guides/link-tracking.mdx arrival section + client-side captureRef page + docs/tracking.md) and changesets (extend 0.41.0 engine-line + new @hogsend/js)
+- [x] 9.2 Docs (guides/link-tracking.mdx arrival section + client-side captureRef page + docs/tracking.md) and changesets (extend 0.41.0 engine-line + new @hogsend/js)
 
 ## Seam notes
 
