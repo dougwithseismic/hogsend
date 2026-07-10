@@ -68,6 +68,24 @@ export function createPreferencesClient(
     opts.store.setState((prev) => ({ ...prev, preferences: next }));
   }
 
+  /**
+   * Optimistically patch the local preferences slice, applying `mutate` to the
+   * current slice (or the default `{ categories: {}, unsubscribedAll: false }`
+   * when none exists yet). Shared by `setPreference` (per-category) and
+   * `setUnsubscribedAll` (master flip).
+   */
+  function patchPreferences(
+    mutate: (prefs: PreferencesState) => PreferencesState,
+  ): void {
+    opts.store.setState((prev) => {
+      const prefs = prev.preferences ?? {
+        categories: {},
+        unsubscribedAll: false,
+      };
+      return { ...prev, preferences: mutate(prefs) };
+    });
+  }
+
   async function get(): Promise<PreferencesState> {
     const res = await opts.transport.get<PreferencesResponse>(
       "/v1/lists/preferences",
@@ -108,19 +126,10 @@ export function createPreferencesClient(
         : `/v1/lists/${encodeURIComponent(categoryId)}/unsubscribe`;
       await opts.transport.post(path, identityBody(opts.identity));
       // Optimistic local slice update.
-      opts.store.setState((prev) => {
-        const prefs = prev.preferences ?? {
-          categories: {},
-          unsubscribedAll: false,
-        };
-        return {
-          ...prev,
-          preferences: {
-            ...prefs,
-            categories: { ...prefs.categories, [categoryId]: subscribed },
-          },
-        };
-      });
+      patchPreferences((prefs) => ({
+        ...prefs,
+        categories: { ...prefs.categories, [categoryId]: subscribed },
+      }));
       // The structural closed-loop trigger.
       await emitChange(categoryId, subscribed);
     },
@@ -133,16 +142,10 @@ export function createPreferencesClient(
       });
       // Optimistic local slice update — mirrors setPreference, preserving the
       // per-category map.
-      opts.store.setState((prev) => {
-        const prefs = prev.preferences ?? {
-          categories: {},
-          unsubscribedAll: false,
-        };
-        return {
-          ...prev,
-          preferences: { ...prefs, unsubscribedAll: unsubscribed },
-        };
-      });
+      patchPreferences((prefs) => ({
+        ...prefs,
+        unsubscribedAll: unsubscribed,
+      }));
       // The structural closed-loop trigger — a global flip carries the `$all`
       // sentinel plus `scope: "all"`.
       await opts.spine.capture(PREFERENCE_CHANGED_EVENT, {

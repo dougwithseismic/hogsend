@@ -105,22 +105,30 @@ export const preferencesRouter = new OpenAPIHono<AppEnv>().openapi(
     const channelCategories: { id: string; label: string }[] = [];
     const topicCategories: { id: string; label: string }[] = [];
 
+    // Single pass: channels are collected in registry order (deduped now);
+    // non-channels are buffered and appended AFTER the built-ins. Because every
+    // channel id lands in `seen` before any buffered topic is deduped, this is
+    // identical to the prior two-pass form (channel pass fully preceding the
+    // topic pass, with the built-ins seeded in between).
+    const bufferedTopics: { id: string; label: string }[] = [];
     for (const list of listRegistry.getEnabled()) {
-      if ((list.kind ?? "topic") !== "channel") continue;
-      if (seen.has(list.id)) continue;
-      seen.add(list.id);
-      channelCategories.push({ id: list.id, label: list.name });
+      if ((list.kind ?? "topic") === "channel") {
+        if (seen.has(list.id)) continue;
+        seen.add(list.id);
+        channelCategories.push({ id: list.id, label: list.name });
+      } else {
+        bufferedTopics.push({ id: list.id, label: list.name });
+      }
     }
 
     for (const cat of BUILTIN_CATEGORIES) {
       seen.add(cat.id);
       topicCategories.push({ id: cat.id, label: cat.label });
     }
-    for (const list of listRegistry.getEnabled()) {
-      if ((list.kind ?? "topic") === "channel") continue;
-      if (seen.has(list.id)) continue;
-      seen.add(list.id);
-      topicCategories.push({ id: list.id, label: list.name });
+    for (const topic of bufferedTopics) {
+      if (seen.has(topic.id)) continue;
+      seen.add(topic.id);
+      topicCategories.push(topic);
     }
 
     function renderRow(cat: { id: string; label: string }): string {

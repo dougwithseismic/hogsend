@@ -209,6 +209,12 @@ export async function sendFeedItem(
   // yet); the `in_app` channel check still runs, but empty categories → opt-in
   // default → subscribed, so an anon recipient is never suppressed here.
   const doGatedInsertAndPublish = async (): Promise<SendFeedItemResult> => {
+    const suppressedResult: SendFeedItemResult = {
+      feedItemId: null,
+      recipientKey,
+      suppressed: true,
+      createdAt: null,
+    };
     const recip = await resolveRecipient({
       db,
       userId: recipient.userId,
@@ -225,20 +231,10 @@ export async function sendFeedItem(
     // the email mailer's `checkEmailPreferences`); guarded on `recip` so an
     // anon recipient with no preference surface is never blocked.
     if (recip && prefs.unsubscribedAll) {
-      return {
-        feedItemId: null,
-        recipientKey,
-        suppressed: true,
-        createdAt: null,
-      };
+      return suppressedResult;
     }
     if (!getListRegistry().isSubscribed(prefs.categories, IN_APP_LIST_ID)) {
-      return {
-        feedItemId: null,
-        recipientKey,
-        suppressed: true,
-        createdAt: null,
-      };
+      return suppressedResult;
     }
     return doInsertAndPublish();
   };

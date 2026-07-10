@@ -361,7 +361,7 @@ export function PreferenceCenter(props: PreferenceCenterProps): ReactNode {
         >
           {sectionLabels?.channels ?? "Channels"}
         </div>
-        {emailToggle !== false ? emailRow : null}
+        {emailRow}
         {channelLists.map((list) => renderListRow(list))}
       </section>
       {topicLists.length > 0 ? (

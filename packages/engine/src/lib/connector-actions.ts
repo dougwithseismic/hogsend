@@ -135,6 +135,7 @@ async function resolveContact(
  */
 async function checkActionAudience(
   db: Database,
+  resolveCachedContact: (ref: string) => Promise<ResolvedActionContact | null>,
   action: DefinedConnectorAction,
   connectorId: string,
   actionName: string,
@@ -161,7 +162,7 @@ async function checkActionAudience(
   }
 
   for (const ref of candidates) {
-    const contact = await resolveContact(db, ref);
+    const contact = await resolveCachedContact(ref);
     // No contact for this candidate → no preference surface → try the next; a
     // fully-unresolved recipient (raw id / group chat) falls through to allow.
     if (!contact) continue;
@@ -250,11 +251,28 @@ export async function sendConnectorAction(
     );
   }
   const db = getDb();
+
+  // Per-call promise-memoized contact resolver so the preference gate and the
+  // plugin share ONE contacts round-trip per ref: `checkActionAudience` and the
+  // plugin's `ctx.resolveContact` would otherwise resolve the SAME member ref
+  // twice. Scoped to THIS call (never module-level) — a durable replay rebuilds
+  // it fresh; it adds/removes no durable calls and lives inside the memoized
+  // closure's execution, never moving the gate outside it (THE LAW).
+  const contactCache = new Map<string, Promise<ResolvedActionContact | null>>();
+  const resolveCached = (ref: string) => {
+    let p = contactCache.get(ref);
+    if (!p) {
+      p = resolveContact(db, ref);
+      contactCache.set(ref, p);
+    }
+    return p;
+  };
+
   const doRun = () =>
     action.run(input.args, {
       db,
       logger,
-      resolveContact: (ref: string) => resolveContact(db, ref),
+      resolveContact: resolveCached,
     });
 
   // Preference gate shared by BOTH the no-boundary and memoized paths: consult
@@ -263,6 +281,7 @@ export async function sendConnectorAction(
   const gate = async (run: () => Promise<unknown>): Promise<unknown> => {
     const skip = await checkActionAudience(
       db,
+      resolveCached,
       action,
       input.connectorId,
       input.action,

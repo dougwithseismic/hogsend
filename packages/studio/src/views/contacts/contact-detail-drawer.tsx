@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
 import {
+  type DefinedListMeta,
   getContact,
   getContactActivity,
   getContactTimeline,
@@ -263,6 +264,20 @@ export function ContactDetailDrawer({
                   const channels = lists.filter((l) => l.kind === "channel");
                   const topics = lists.filter((l) => l.kind === "topic");
                   const cats = prefs?.categories ?? {};
+                  const listRow = (l: DefinedListMeta) => (
+                    <PrefRow
+                      key={l.id}
+                      label={l.name}
+                      description={l.description}
+                      checked={cats[l.id] ?? l.defaultOptIn}
+                      disabled={updatePrefs.isPending}
+                      onCheckedChange={(next) =>
+                        updatePrefs.mutate({
+                          categories: { ...cats, [l.id]: next },
+                        })
+                      }
+                    />
+                  );
                   return (
                     <div className="space-y-4">
                       <div className="space-y-2">
@@ -279,20 +294,7 @@ export function ContactDetailDrawer({
                               updatePrefs.mutate({ unsubscribedAll: !next })
                             }
                           />
-                          {channels.map((l) => (
-                            <PrefRow
-                              key={l.id}
-                              label={l.name}
-                              description={l.description}
-                              checked={cats[l.id] ?? l.defaultOptIn}
-                              disabled={updatePrefs.isPending}
-                              onCheckedChange={(next) =>
-                                updatePrefs.mutate({
-                                  categories: { ...cats, [l.id]: next },
-                                })
-                              }
-                            />
-                          ))}
+                          {channels.map(listRow)}
                         </ul>
                       </div>
                       {topics.length > 0 ? (
@@ -300,22 +302,7 @@ export function ContactDetailDrawer({
                           <p className="text-xs font-medium text-white/40">
                             Topics
                           </p>
-                          <ul className="space-y-2">
-                            {topics.map((l) => (
-                              <PrefRow
-                                key={l.id}
-                                label={l.name}
-                                description={l.description}
-                                checked={cats[l.id] ?? l.defaultOptIn}
-                                disabled={updatePrefs.isPending}
-                                onCheckedChange={(next) =>
-                                  updatePrefs.mutate({
-                                    categories: { ...cats, [l.id]: next },
-                                  })
-                                }
-                              />
-                            ))}
-                          </ul>
+                          <ul className="space-y-2">{topics.map(listRow)}</ul>
                         </div>
                       ) : null}
                     </div>
