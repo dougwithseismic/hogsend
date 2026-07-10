@@ -26,12 +26,7 @@ vi.mock("../workflows/send-email.js", () => ({
 
 const { linkClicks, links, trackedLinks } = await import("@hogsend/db");
 const { and, eq } = await import("drizzle-orm");
-const {
-  createApp,
-  createHogsendClient,
-  ensureQrTrackedLink,
-  QR_TRACKED_SOURCE,
-} = await import("@hogsend/engine");
+const { createApp, createHogsendClient } = await import("@hogsend/engine");
 
 const container = createHogsendClient();
 const app = createApp(container);
@@ -58,6 +53,35 @@ afterAll(async () => {
   }
 });
 
+// The 'qr' source marker + lazy mint are engine-internal — tests drive them
+// through the public admin endpoint (`GET /:id/qr` lazy-mints the scan row)
+// and read the row back from the DB.
+const QR_SOURCE = "qr";
+
+async function qrRowOf(linkId: string) {
+  const [row] = await db
+    .select({
+      id: trackedLinks.id,
+      distinctId: trackedLinks.distinctId,
+      originalUrl: trackedLinks.originalUrl,
+      clickCount: trackedLinks.clickCount,
+    })
+    .from(trackedLinks)
+    .where(
+      and(eq(trackedLinks.linkId, linkId), eq(trackedLinks.source, QR_SOURCE)),
+    );
+  return row;
+}
+
+/** Touch the QR endpoint (lazy-mints the scan row) and return that row. */
+async function ensureQrViaEndpoint(linkId: string) {
+  const res = await app.request(`/v1/admin/links/${linkId}/qr`, {
+    headers: AUTH_HEADER,
+  });
+  expect(res.status).toBe(200);
+  return qrRowOf(linkId);
+}
+
 async function mint(body: Record<string, unknown> = {}) {
   const res = await app.request("/v1/admin/links", {
     method: "POST",
@@ -73,17 +97,16 @@ async function mint(body: Record<string, unknown> = {}) {
   return json;
 }
 
-describe("QR scan spine — ensureQrTrackedLink", () => {
+describe("QR scan spine — lazy mint via the QR endpoint", () => {
   it("lazily mints the QR row once and is idempotent", async () => {
     const link = await mint();
 
-    const first = await ensureQrTrackedLink({ db, linkId: link.id });
-    expect(first).not.toBeNull();
-    expect(first?.created).toBe(true);
+    expect(await qrRowOf(link.id)).toBeUndefined();
+    const first = await ensureQrViaEndpoint(link.id);
+    expect(first).toBeDefined();
 
-    const second = await ensureQrTrackedLink({ db, linkId: link.id });
-    expect(second?.created).toBe(false);
-    expect(second?.trackedLinkId).toBe(first?.trackedLinkId);
+    const second = await ensureQrViaEndpoint(link.id);
+    expect(second?.id).toBe(first?.id);
 
     // Exactly one QR row exists; the canonical redirect row is untouched.
     const qrRows = await db
@@ -92,7 +115,7 @@ describe("QR scan spine — ensureQrTrackedLink", () => {
       .where(
         and(
           eq(trackedLinks.linkId, link.id),
-          eq(trackedLinks.source, QR_TRACKED_SOURCE),
+          eq(trackedLinks.source, QR_SOURCE),
         ),
       );
     expect(qrRows.length).toBe(1);
@@ -110,12 +133,10 @@ describe("QR scan spine — ensureQrTrackedLink", () => {
 
     const results = await Promise.all(
       Array.from({ length: 5 }, () =>
-        ensureQrTrackedLink({ db, linkId: link.id }),
+        app.request(`/v1/admin/links/${link.id}/qr`, { headers: AUTH_HEADER }),
       ),
     );
-    const ids = new Set(results.map((r) => r?.trackedLinkId));
-    expect(ids.size).toBe(1);
-    expect(results.filter((r) => r?.created).length).toBe(1);
+    for (const r of results) expect(r.status).toBe(200);
 
     const qrRows = await db
       .select({ id: trackedLinks.id })
@@ -123,18 +144,18 @@ describe("QR scan spine — ensureQrTrackedLink", () => {
       .where(
         and(
           eq(trackedLinks.linkId, link.id),
-          eq(trackedLinks.source, QR_TRACKED_SOURCE),
+          eq(trackedLinks.source, QR_SOURCE),
         ),
       );
     expect(qrRows.length).toBe(1);
   });
 
-  it("returns null for an unknown link", async () => {
-    const result = await ensureQrTrackedLink({
-      db,
-      linkId: "00000000-0000-0000-0000-000000000000",
-    });
-    expect(result).toBeNull();
+  it("404s for an unknown link (no phantom row minted)", async () => {
+    const res = await app.request(
+      "/v1/admin/links/00000000-0000-0000-0000-000000000000/qr",
+      { headers: AUTH_HEADER },
+    );
+    expect(res.status).toBe(404);
   });
 
   it("copies distinctId onto a personal link's QR row", async () => {
@@ -144,27 +165,23 @@ describe("QR scan spine — ensureQrTrackedLink", () => {
       distinctId: "qr-contact-1",
     });
 
-    const qr = await ensureQrTrackedLink({ db, linkId: link.id });
-    const [row] = await db
-      .select({ distinctId: trackedLinks.distinctId })
-      .from(trackedLinks)
-      .where(eq(trackedLinks.id, qr?.trackedLinkId ?? ""));
-    expect(row?.distinctId).toBe("qr-contact-1");
+    const qr = await ensureQrViaEndpoint(link.id);
+    expect(qr?.distinctId).toBe("qr-contact-1");
   });
 });
 
 describe("QR scan spine — counts + retarget", () => {
   it("a scan increments scanCount; clickCount stays the all-paths total", async () => {
     const link = await mint({ label: `${RUN}-counts` });
-    const qr = await ensureQrTrackedLink({ db, linkId: link.id });
+    const qr = await ensureQrViaEndpoint(link.id);
 
     // One click on the canonical row, two scans through the QR row — all via
     // the same public click route.
     await app.request(`/v1/t/c/${link.trackedLinkId}`, { redirect: "manual" });
-    const scan1 = await app.request(`/v1/t/c/${qr?.trackedLinkId}`, {
+    const scan1 = await app.request(`/v1/t/c/${qr?.id}`, {
       redirect: "manual",
     });
-    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${qr?.id}`, { redirect: "manual" });
     expect(scan1.status).toBe(302);
     expect(scan1.headers.get("location")).toBe("https://example.com/qr-spine");
 
@@ -181,7 +198,7 @@ describe("QR scan spine — counts + retarget", () => {
 
   it("PATCH re-target updates the QR row too (printed codes follow)", async () => {
     const link = await mint({ label: `${RUN}-retarget` });
-    const qr = await ensureQrTrackedLink({ db, linkId: link.id });
+    const qr = await ensureQrViaEndpoint(link.id);
 
     const next = "https://example.com/qr-retargeted";
     const patch = await app.request(`/v1/admin/links/${link.id}`, {
@@ -192,7 +209,7 @@ describe("QR scan spine — counts + retarget", () => {
     expect(patch.status).toBe(200);
 
     // The scan URL (what a printed QR encodes) now 302s to the new target.
-    const scan = await app.request(`/v1/t/c/${qr?.trackedLinkId}`, {
+    const scan = await app.request(`/v1/t/c/${qr?.id}`, {
       redirect: "manual",
     });
     expect(scan.headers.get("location")).toBe(next);
@@ -208,7 +225,7 @@ describe("QR scan spine — counts + retarget", () => {
       .where(
         and(
           eq(trackedLinks.linkId, link.id),
-          eq(trackedLinks.source, QR_TRACKED_SOURCE),
+          eq(trackedLinks.source, QR_SOURCE),
         ),
       );
     expect(before.length).toBe(0);
@@ -227,7 +244,7 @@ describe("QR scan spine — counts + retarget", () => {
       .where(
         and(
           eq(trackedLinks.linkId, link.id),
-          eq(trackedLinks.source, QR_TRACKED_SOURCE),
+          eq(trackedLinks.source, QR_SOURCE),
         ),
       );
     expect(qrRow).toBeDefined();
@@ -352,11 +369,11 @@ describe("QR scan spine — counts + retarget", () => {
       label: `${RUN}-provenance`,
       url: "https://example.com/qr-first-target",
     });
-    const qr = await ensureQrTrackedLink({ db, linkId: link.id });
+    const qr = await ensureQrViaEndpoint(link.id);
 
     // One click + one scan against the FIRST destination…
     await app.request(`/v1/t/c/${link.trackedLinkId}`, { redirect: "manual" });
-    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${qr?.id}`, { redirect: "manual" });
 
     // …re-target…
     await app.request(`/v1/admin/links/${link.id}`, {
@@ -368,7 +385,7 @@ describe("QR scan spine — counts + retarget", () => {
     });
 
     // …then one more scan against the SECOND destination.
-    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${qr?.id}`, { redirect: "manual" });
 
     const rows = await db
       .select({
@@ -389,7 +406,7 @@ describe("QR scan spine — counts + retarget", () => {
     expect(first.length).toBe(2);
     expect(second.length).toBe(1);
     // The post-retarget scan rode the QR row.
-    expect(second[0]?.trackedLinkId).toBe(qr?.trackedLinkId);
+    expect(second[0]?.trackedLinkId).toBe(qr?.id);
   });
 
   it("GET /:id groups stats per destination across a re-target", async () => {
@@ -397,12 +414,12 @@ describe("QR scan spine — counts + retarget", () => {
       label: `${RUN}-destinations`,
       url: "https://example.com/dest-a",
     });
-    const qr = await ensureQrTrackedLink({ db, linkId: link.id });
+    const qr = await ensureQrViaEndpoint(link.id);
 
     // Destination A: two clicks + one scan.
     await app.request(`/v1/t/c/${link.trackedLinkId}`, { redirect: "manual" });
     await app.request(`/v1/t/c/${link.trackedLinkId}`, { redirect: "manual" });
-    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${qr?.id}`, { redirect: "manual" });
 
     await app.request(`/v1/admin/links/${link.id}`, {
       method: "PATCH",
@@ -411,7 +428,7 @@ describe("QR scan spine — counts + retarget", () => {
     });
 
     // Destination B: one scan only.
-    await app.request(`/v1/t/c/${qr?.trackedLinkId}`, { redirect: "manual" });
+    await app.request(`/v1/t/c/${qr?.id}`, { redirect: "manual" });
 
     const res = await app.request(`/v1/admin/links/${link.id}`, {
       headers: AUTH_HEADER,
@@ -439,7 +456,7 @@ describe("QR scan spine — counts + retarget", () => {
   it("GET /?hasQr=true lists only links whose QR row exists", async () => {
     const withQr = await mint({ label: `${RUN}-lens-with` });
     const withoutQr = await mint({ label: `${RUN}-lens-without` });
-    await ensureQrTrackedLink({ db, linkId: withQr.id });
+    await ensureQrViaEndpoint(withQr.id);
 
     const res = await app.request("/v1/admin/links?hasQr=true&limit=200", {
       headers: AUTH_HEADER,
@@ -462,7 +479,7 @@ describe("QR scan spine — counts + retarget", () => {
       label: `${RUN}-vanity-canonical`,
       slug: `${RUN}-vanity`,
     });
-    await ensureQrTrackedLink({ db, linkId: link.id });
+    await ensureQrViaEndpoint(link.id);
 
     await app.request(`/l/${RUN}-vanity`, { redirect: "manual" });
 
@@ -479,7 +496,7 @@ describe("QR scan spine — counts + retarget", () => {
       .where(
         and(
           eq(trackedLinks.linkId, link.id),
-          eq(trackedLinks.source, QR_TRACKED_SOURCE),
+          eq(trackedLinks.source, QR_SOURCE),
         ),
       );
     expect(qrRow?.clickCount).toBe(0);
