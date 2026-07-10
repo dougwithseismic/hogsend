@@ -69,3 +69,4 @@ marketing/screenshots/
 
 # Promo/discount code exports — live Stripe codes, never commit
 free-codes-*.csv
+.pnpm-store/
