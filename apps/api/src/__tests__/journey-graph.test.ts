@@ -4,6 +4,7 @@ import {
   degradedGraphFromMeta,
   type JourneyGraph,
   type JourneyMeta,
+  type JourneyNode,
   journeyGraphSchema,
 } from "@hogsend/engine";
 import { describe, expect, it } from "vitest";
@@ -37,6 +38,16 @@ const ids = (g: JourneyGraph) => g.nodes.map((n) => n.id);
 const types = (g: JourneyGraph) => g.nodes.map((n) => n.type);
 const nodeById = (g: JourneyGraph, id: string) =>
   g.nodes.find((n) => n.id === id);
+/** Find by id AND narrow to the expected discriminated-union variant. */
+const nodeOfType = <T extends JourneyNode["type"]>(
+  g: JourneyGraph,
+  id: string,
+  type: T,
+) =>
+  g.nodes.find(
+    (n): n is Extract<JourneyNode, { type: T }> =>
+      n.id === id && n.type === type,
+  );
 
 function expectValidGraph(g: JourneyGraph): void {
   const parsed = journeyGraphSchema.safeParse(g);
@@ -133,11 +144,15 @@ describe("buildJourneyGraph — feedback-nps shape", () => {
     // `days(n)`/`hours(n)` reconstruct the actual `@hogsend/core` object
     // (days(14) = { hours: 336 }) so an unlabeled node's synthetic id matches
     // the engine's runtime currentNodeId byte-for-byte.
-    expect(nodeById(graph, "day-14")?.meta?.duration).toEqual({ hours: 336 });
-    expect(nodeById(graph, "await-score")?.meta?.timeout).toEqual({
+    expect(nodeOfType(graph, "day-14", "sleep")?.meta?.duration).toEqual({
+      hours: 336,
+    });
+    expect(nodeOfType(graph, "await-score", "wait")?.meta?.timeout).toEqual({
       hours: 72,
     });
-    expect(nodeById(graph, "await-score-reminder")?.meta?.timeout).toEqual({
+    expect(
+      nodeOfType(graph, "await-score-reminder", "wait")?.meta?.timeout,
+    ).toEqual({
       hours: 168,
     });
     // Display stays human-friendly.
@@ -145,12 +160,12 @@ describe("buildJourneyGraph — feedback-nps shape", () => {
   });
 
   it("records idempotencyLabel on send nodes", () => {
-    expect(nodeById(graph, "send:nps-survey")?.meta?.idempotencyLabel).toBe(
-      "nps-survey",
-    );
-    expect(nodeById(graph, "send:nps-reminder")?.meta?.idempotencyLabel).toBe(
-      "nps-reminder",
-    );
+    expect(
+      nodeOfType(graph, "send:nps-survey", "send")?.meta?.idempotencyLabel,
+    ).toBe("nps-survey");
+    expect(
+      nodeOfType(graph, "send:nps-reminder", "send")?.meta?.idempotencyLabel,
+    ).toBe("nps-reminder");
   });
 
   it("marks the template-literal checkpoint id unstable", () => {
@@ -287,7 +302,7 @@ describe("buildJourneyGraph — activation-nudge shape", () => {
   });
 
   it("leaves the typed template undefined for member-expr templates but labels via subtitle", () => {
-    const firstSend = nodeById(graph, "send:initial-nudge");
+    const firstSend = nodeOfType(graph, "send:initial-nudge", "send");
     expect(firstSend?.meta?.template).toBeUndefined();
     expect(firstSend?.subtitle).toBe("ACTIVATION_NUDGE_SERIES");
   });
@@ -448,7 +463,7 @@ describe("buildJourneyGraph — connector-only + helper (unused _ctx)", () => {
   });
 
   it("records connectorId + action on the connector node", () => {
-    const c = nodeById(graph, "connector:discord:dmMember");
+    const c = nodeOfType(graph, "connector:discord:dmMember", "connector");
     expect(c?.meta?.connectorId).toBe("discord");
     expect(c?.meta?.action).toBe("dmMember");
   });
@@ -496,7 +511,9 @@ describe("buildJourneyGraph — degraded fallbacks (never throws)", () => {
     const graph = degradedGraphFromMeta(withWhere);
     expectValidGraph(graph);
     expect(graph.degraded).toBe(true);
-    expect(nodeById(graph, "start")?.meta?.conditions).toHaveLength(1);
+    expect(nodeOfType(graph, "start", "start")?.meta?.conditions).toHaveLength(
+      1,
+    );
   });
 });
 
@@ -515,7 +532,7 @@ describe("buildJourneyGraph — trigger.where chips on start", () => {
       meta,
     });
     expectValidGraph(graph);
-    const start = nodeById(graph, "start");
+    const start = nodeOfType(graph, "start", "start");
     expect(start?.subtitle).toBe("nps.scored");
     expect(start?.meta?.conditions).toEqual([
       { type: "property", property: "score", operator: "lte", value: 6 },

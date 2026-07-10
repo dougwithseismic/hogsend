@@ -402,24 +402,88 @@ export type JourneyGraphNodeType =
   | "end-failed"
   | "unknown";
 
-export type JourneyGraphNode = {
+type JourneyGraphNodeBase = {
   id: string;
-  type: JourneyGraphNodeType;
   title: string;
   subtitle?: string;
-  meta?: {
-    duration?: Record<string, number>;
-    timeout?: Record<string, number>;
-    event?: string;
-    template?: string;
-    idempotencyLabel?: string;
-    connectorId?: string;
-    action?: string;
-    conditions?: unknown[];
-    unstable?: boolean;
-  };
   line?: number;
 };
+
+/** `unstable` is a property of the node id, shared by every variant's meta. */
+type JourneyGraphNodeMetaBase = { unstable?: boolean };
+
+/**
+ * Discriminated union on `type` — one variant per node type, each carrying
+ * only the meta fields that node type actually uses (mirrors the core union).
+ * `conditions` stays display-loose (`unknown[]`): the Studio only renders it
+ * as JSON, and mirroring core's full `ConditionEval` here would defeat the
+ * no-workspace-import rule above.
+ */
+export type JourneyGraphNode =
+  | (JourneyGraphNodeBase & {
+      type: "start";
+      meta?: JourneyGraphNodeMetaBase & { conditions?: unknown[] };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "sleep";
+      meta?: JourneyGraphNodeMetaBase & { duration?: Record<string, number> };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "sleepUntil";
+      meta?: JourneyGraphNodeMetaBase;
+    })
+  | (JourneyGraphNodeBase & {
+      type: "wait";
+      meta?: JourneyGraphNodeMetaBase & {
+        event?: string;
+        timeout?: Record<string, number>;
+      };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "digest";
+      meta?: JourneyGraphNodeMetaBase & {
+        event?: string;
+        duration?: Record<string, number>;
+      };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "send";
+      meta?: JourneyGraphNodeMetaBase & {
+        template?: string;
+        idempotencyLabel?: string;
+      };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "connector";
+      meta?: JourneyGraphNodeMetaBase & {
+        connectorId?: string;
+        action?: string;
+      };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "checkpoint";
+      meta?: JourneyGraphNodeMetaBase;
+    })
+  | (JourneyGraphNodeBase & {
+      type: "trigger";
+      meta?: JourneyGraphNodeMetaBase & { event?: string };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "capture";
+      meta?: JourneyGraphNodeMetaBase;
+    })
+  | (JourneyGraphNodeBase & {
+      type: "branch" | "decision";
+      meta?: JourneyGraphNodeMetaBase & { conditions?: unknown[] };
+    })
+  | (JourneyGraphNodeBase & {
+      type: "end-completed" | "end-exited" | "end-failed";
+      meta?: JourneyGraphNodeMetaBase;
+    })
+  | (JourneyGraphNodeBase & {
+      type: "unknown";
+      meta?: JourneyGraphNodeMetaBase & { [key: string]: unknown };
+    });
 
 export type JourneyGraphEdgeKind =
   | "default"

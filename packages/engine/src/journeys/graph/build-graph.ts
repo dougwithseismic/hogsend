@@ -1,9 +1,19 @@
 import type {
+  JourneyCheckpointNode,
+  JourneyConnectorNode,
+  JourneyDigestNode,
   JourneyEdge,
+  JourneyEndNode,
   JourneyGraph,
   JourneyMeta,
   JourneyNode,
   JourneyNodeType,
+  JourneySendNode,
+  JourneySleepNode,
+  JourneySleepUntilNode,
+  JourneyStartNode,
+  JourneyTriggerNode,
+  JourneyWaitNode,
 } from "@hogsend/core";
 import * as acorn from "acorn";
 import * as walk from "acorn-walk";
@@ -593,14 +603,28 @@ function nodeFromRaw(
   currentLabel: string | undefined,
   triggerEvent: string | undefined,
 ): { node: JourneyNode; boundaryLabel?: string } {
-  const meta: NonNullable<JourneyNode["meta"]> = {};
-  let id: string;
-  let title: string;
-  let subtitle: string | undefined;
-  let boundaryLabel: string | undefined;
+  /** Base fields shared by every variant: id/title + optional subtitle/line. */
+  const shell = (
+    id: string,
+    title: string,
+    subtitle?: string,
+  ): { id: string; title: string; subtitle?: string; line?: number } => ({
+    id,
+    title,
+    ...(subtitle ? { subtitle } : {}),
+    ...(raw.line ? { line: raw.line } : {}),
+  });
+  /** Omit `meta` entirely when no field was extracted (keeps old shape). */
+  const metaSpread = <M extends object>(meta: M): { meta?: M } =>
+    Object.keys(meta).length ? { meta } : {};
 
+  // One case per emitted node type, each constructing its own precisely-typed
+  // variant of the JourneyNode discriminated union.
   switch (raw.kind) {
     case "sleep": {
+      const meta: NonNullable<JourneySleepNode["meta"]> = {};
+      let id: string;
+      let boundaryLabel: string | undefined;
       if (raw.authoredLabel !== undefined) {
         id = raw.authoredLabel;
         boundaryLabel = raw.labelUnstable ? undefined : raw.authoredLabel;
@@ -616,11 +640,20 @@ function nodeFromRaw(
       }
       if (raw.duration) meta.duration = raw.duration;
       if (raw.labelUnstable) meta.unstable = true;
-      title = raw.authoredLabel ?? "Sleep";
-      subtitle = raw.duration ? formatDuration(raw.duration) : undefined;
-      break;
+      const subtitle = raw.duration ? formatDuration(raw.duration) : undefined;
+      return {
+        node: {
+          ...shell(id, raw.authoredLabel ?? "Sleep", subtitle),
+          type: "sleep",
+          ...metaSpread(meta),
+        },
+        boundaryLabel,
+      };
     }
     case "sleepUntil": {
+      const meta: NonNullable<JourneySleepUntilNode["meta"]> = {};
+      let id: string;
+      let boundaryLabel: string | undefined;
       if (raw.authoredLabel !== undefined) {
         id = raw.authoredLabel;
         boundaryLabel = raw.labelUnstable ? undefined : raw.authoredLabel;
@@ -629,10 +662,19 @@ function nodeFromRaw(
         id = `wait-until:${idx}`;
         meta.unstable = true;
       }
-      title = raw.authoredLabel ?? "Sleep until";
-      break;
+      return {
+        node: {
+          ...shell(id, raw.authoredLabel ?? "Sleep until"),
+          type: "sleepUntil",
+          ...metaSpread(meta),
+        },
+        boundaryLabel,
+      };
     }
     case "wait": {
+      const meta: NonNullable<JourneyWaitNode["meta"]> = {};
+      let id: string;
+      let boundaryLabel: string | undefined;
       if (raw.authoredLabel !== undefined) {
         id = raw.authoredLabel;
         boundaryLabel = raw.labelUnstable ? undefined : raw.authoredLabel;
@@ -648,9 +690,19 @@ function nodeFromRaw(
       }
       if (raw.eventLiteral) meta.event = raw.eventLiteral;
       if (raw.timeout) meta.timeout = raw.timeout;
-      subtitle = raw.eventLiteral ?? raw.eventIdent;
-      title = raw.authoredLabel ?? subtitle ?? "Wait for event";
-      break;
+      const subtitle = raw.eventLiteral ?? raw.eventIdent;
+      return {
+        node: {
+          ...shell(
+            id,
+            raw.authoredLabel ?? subtitle ?? "Wait for event",
+            subtitle,
+          ),
+          type: "wait",
+          ...metaSpread(meta),
+        },
+        boundaryLabel,
+      };
     }
     case "digest": {
       // Runtime nodeId = `opts.label ?? digest:${opts.event ?? triggerEvent}`,
@@ -658,6 +710,9 @@ function nodeFromRaw(
       // just like sleep/wait — so mirror both here to keep the synthetic id
       // byte-identical to `currentNodeId` and let a following label-less send
       // inherit the digest site.
+      const meta: NonNullable<JourneyDigestNode["meta"]> = {};
+      let id: string;
+      let boundaryLabel: string | undefined;
       if (raw.authoredLabel !== undefined) {
         id = raw.authoredLabel;
         boundaryLabel = raw.labelUnstable ? undefined : raw.authoredLabel;
@@ -678,81 +733,119 @@ function nodeFromRaw(
       }
       if (raw.eventLiteral) meta.event = raw.eventLiteral;
       if (raw.duration) meta.duration = raw.duration;
-      subtitle =
+      const subtitle =
         raw.eventLiteral ??
         raw.eventIdent ??
         (raw.duration ? formatDuration(raw.duration) : undefined);
-      title = raw.authoredLabel ?? "Digest";
-      break;
+      return {
+        node: {
+          ...shell(id, raw.authoredLabel ?? "Digest", subtitle),
+          type: "digest",
+          ...metaSpread(meta),
+        },
+        boundaryLabel,
+      };
     }
     case "checkpoint": {
-      id = raw.authoredLabel ?? `checkpoint:${idx}`;
+      const meta: NonNullable<JourneyCheckpointNode["meta"]> = {};
+      const id = raw.authoredLabel ?? `checkpoint:${idx}`;
       if (raw.authoredLabel === undefined || raw.labelUnstable) {
         meta.unstable = true;
       }
+      let boundaryLabel: string | undefined;
       if (raw.authoredLabel !== undefined && !raw.labelUnstable) {
         boundaryLabel = raw.authoredLabel;
       }
-      title = "Checkpoint";
-      subtitle = raw.authoredLabel;
-      break;
+      return {
+        node: {
+          ...shell(id, "Checkpoint", raw.authoredLabel),
+          type: "checkpoint",
+          ...metaSpread(meta),
+        },
+        boundaryLabel,
+      };
     }
     case "trigger": {
+      const meta: NonNullable<JourneyTriggerNode["meta"]> = {};
       const key = raw.eventLiteral ?? raw.eventIdent ?? String(idx);
-      id = `trigger:${key}`;
       if (raw.eventLiteral) meta.event = raw.eventLiteral;
-      title = "Trigger";
-      subtitle = raw.eventLiteral ?? raw.eventIdent;
-      break;
+      return {
+        node: {
+          ...shell(
+            `trigger:${key}`,
+            "Trigger",
+            raw.eventLiteral ?? raw.eventIdent,
+          ),
+          type: "trigger",
+          ...metaSpread(meta),
+        },
+      };
     }
     case "send": {
+      const meta: NonNullable<JourneySendNode["meta"]> = {};
       const site =
         raw.idempotencyLabel ??
         currentLabel ??
         raw.templateLiteral ??
         raw.templateIdent ??
         "send";
-      id = `send:${site}`;
       if (raw.templateLiteral) meta.template = raw.templateLiteral;
       if (raw.idempotencyLabel) meta.idempotencyLabel = raw.idempotencyLabel;
-      title = "Send email";
-      subtitle =
-        raw.templateLiteral ?? raw.templateIdent ?? raw.idempotencyLabel;
-      break;
+      return {
+        node: {
+          ...shell(
+            `send:${site}`,
+            "Send email",
+            raw.templateLiteral ?? raw.templateIdent ?? raw.idempotencyLabel,
+          ),
+          type: "send",
+          ...metaSpread(meta),
+        },
+      };
     }
     case "connector": {
-      id = `connector:${raw.connectorId ?? idx}:${raw.action ?? idx}`;
+      const meta: NonNullable<JourneyConnectorNode["meta"]> = {};
       if (raw.connectorId) meta.connectorId = raw.connectorId;
       if (raw.action) meta.action = raw.action;
-      title = raw.action ?? "Connector action";
-      subtitle =
-        [raw.connectorId, raw.action].filter(Boolean).join(" · ") || undefined;
-      break;
+      return {
+        node: {
+          ...shell(
+            `connector:${raw.connectorId ?? idx}:${raw.action ?? idx}`,
+            raw.action ?? "Connector action",
+            [raw.connectorId, raw.action].filter(Boolean).join(" · ") ||
+              undefined,
+          ),
+          type: "connector",
+          ...metaSpread(meta),
+        },
+      };
     }
     case "capture": {
-      id = `capture:${idx}`;
-      title = raw.captureMethod === "identify" ? "Identify" : "Capture";
-      subtitle = raw.captureMethod;
-      break;
+      return {
+        node: {
+          ...shell(
+            `capture:${idx}`,
+            raw.captureMethod === "identify" ? "Identify" : "Capture",
+            raw.captureMethod,
+          ),
+          type: "capture",
+        },
+      };
     }
     default: {
-      // unknown
-      id = `unknown:${raw.calleeName ?? "call"}:${idx}`;
-      title = raw.calleeName ?? "Unknown call";
-      subtitle = "helper call";
-      break;
+      // unknown — the honest escape hatch for unexpanded helper calls.
+      return {
+        node: {
+          ...shell(
+            `unknown:${raw.calleeName ?? "call"}:${idx}`,
+            raw.calleeName ?? "Unknown call",
+            "helper call",
+          ),
+          type: "unknown",
+        },
+      };
     }
   }
-
-  const node: JourneyNode = {
-    id,
-    type: raw.kind,
-    title,
-    ...(subtitle ? { subtitle } : {}),
-    ...(Object.keys(meta).length ? { meta } : {}),
-    ...(raw.line ? { line: raw.line } : {}),
-  };
-  return { node, boundaryLabel };
 }
 
 /** Suffix `#2`, `#3`, … onto any duplicate emitted ids to keep them unique. */
@@ -774,7 +867,7 @@ function dedupeIds(nodes: JourneyNode[]): void {
 // Terminals
 // ---------------------------------------------------------------------------
 
-function startNode(meta: JourneyMeta): JourneyNode {
+function startNode(meta: JourneyMeta): JourneyStartNode {
   return {
     id: "start",
     type: "start",
@@ -786,7 +879,7 @@ function startNode(meta: JourneyMeta): JourneyNode {
   };
 }
 
-function endNode(): JourneyNode {
+function endNode(): JourneyEndNode {
   return { id: "end-completed", type: "end-completed", title: "Completed" };
 }
 

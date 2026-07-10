@@ -59,6 +59,27 @@ export const webhookDeliveryStatusEnum = pgEnum("webhook_delivery_status", [
   "discarded", // endpoint disabled/deleted mid-flight — TERMINAL, NOT an error, NOT dead-lettered
 ]);
 
+export const journeyBlueprintStatusEnum = pgEnum("journey_blueprint_status", [
+  "draft", // staged, never dispatched — the opt-in review state (spec §10)
+  "enabled", // live: ingest dispatch enrolls matching events
+  "disabled", // stops NEW enrollments; in-flight runs keep going
+]);
+
+// Mirrors JourneyMeta["entryLimit"] (@hogsend/core journeyMetaSchema) — kept
+// in lockstep by hand: code journeys never store entryLimit in the DB, so
+// this enum exists only for blueprints (there was no db-level enum to reuse).
+export const journeyEntryLimitEnum = pgEnum("journey_entry_limit", [
+  "once",
+  "once_per_period",
+  "unlimited",
+]);
+
+export const journeyBlueprintSourceEnum = pgEnum("journey_blueprint_source", [
+  "mcp",
+  "studio",
+  "api",
+]);
+
 export const connectorDeliveryStatusEnum = pgEnum("connector_delivery_status", [
   "queued", // row claimed (INSERT won) — the action call is in flight; NOT yet a
   // satisfied duplicate. A replay finding this re-drives the action (safer

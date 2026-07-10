@@ -555,8 +555,28 @@ function NodeDetailBody({
   metric: JourneyNodeMetric;
 }) {
   const style = NODE_STYLE[node.type];
-  const meta = node.meta;
-  const templateKey = metric.templateKey ?? meta?.template;
+  // Narrow the discriminated union once — each meta field only exists on the
+  // variant(s) that actually use it, so pull them out per node type.
+  const template = node.type === "send" ? node.meta?.template : undefined;
+  const idempotencyLabel =
+    node.type === "send" ? node.meta?.idempotencyLabel : undefined;
+  const event =
+    node.type === "wait" || node.type === "digest" || node.type === "trigger"
+      ? node.meta?.event
+      : undefined;
+  const duration =
+    node.type === "sleep" || node.type === "digest"
+      ? node.meta?.duration
+      : undefined;
+  const timeout = node.type === "wait" ? node.meta?.timeout : undefined;
+  const connectorId =
+    node.type === "connector" ? node.meta?.connectorId : undefined;
+  const action = node.type === "connector" ? node.meta?.action : undefined;
+  const conditions =
+    node.type === "start" || node.type === "branch" || node.type === "decision"
+      ? node.meta?.conditions
+      : undefined;
+  const templateKey = metric.templateKey ?? template;
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
@@ -608,20 +628,18 @@ function NodeDetailBody({
         {node.subtitle ? (
           <DetailRow label="Summary">{node.subtitle}</DetailRow>
         ) : null}
-        {meta?.event ? (
+        {event ? (
           <DetailRow label="Event">
-            <code className="font-mono text-xs text-accent">{meta.event}</code>
+            <code className="font-mono text-xs text-accent">{event}</code>
           </DetailRow>
         ) : null}
-        {meta?.duration ? (
+        {duration ? (
           <DetailRow label="Duration">
-            {formatDurationObject(meta.duration)}
+            {formatDurationObject(duration)}
           </DetailRow>
         ) : null}
-        {meta?.timeout ? (
-          <DetailRow label="Timeout">
-            {formatDurationObject(meta.timeout)}
-          </DetailRow>
+        {timeout ? (
+          <DetailRow label="Timeout">{formatDurationObject(timeout)}</DetailRow>
         ) : null}
         {templateKey ? (
           <DetailRow label="Template">
@@ -630,19 +648,17 @@ function NodeDetailBody({
             </code>
           </DetailRow>
         ) : null}
-        {meta?.idempotencyLabel ? (
-          <DetailRow label="Idempotency">{meta.idempotencyLabel}</DetailRow>
+        {idempotencyLabel ? (
+          <DetailRow label="Idempotency">{idempotencyLabel}</DetailRow>
         ) : null}
-        {meta?.connectorId ? (
-          <DetailRow label="Connector">{meta.connectorId}</DetailRow>
+        {connectorId ? (
+          <DetailRow label="Connector">{connectorId}</DetailRow>
         ) : null}
-        {meta?.action ? (
-          <DetailRow label="Action">{meta.action}</DetailRow>
-        ) : null}
+        {action ? <DetailRow label="Action">{action}</DetailRow> : null}
         {typeof node.line === "number" ? (
           <DetailRow label="Source line">{node.line}</DetailRow>
         ) : null}
-        {meta?.unstable ? (
+        {node.meta?.unstable ? (
           <DetailRow label="Note">
             <span className="text-white/60">
               Dynamic node id — live metrics may not attach.
@@ -651,11 +667,11 @@ function NodeDetailBody({
         ) : null}
       </section>
 
-      {meta?.conditions && meta.conditions.length > 0 ? (
+      {conditions && conditions.length > 0 ? (
         <section className="space-y-2">
           <SectionHeading>Conditions</SectionHeading>
           <pre className="max-h-48 overflow-auto rounded-md border bg-black/30 p-3 font-mono text-xs text-white/70">
-            {JSON.stringify(meta.conditions, null, 2)}
+            {JSON.stringify(conditions, null, 2)}
           </pre>
         </section>
       ) : null}

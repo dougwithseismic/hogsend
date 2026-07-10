@@ -197,13 +197,21 @@ export {
 // --- Env ---
 export { API_VERSION, env } from "./env.js";
 // --- Journeys ---
+export { BLUEPRINT_RUN_EVENT } from "./journeys/constants.js";
 export {
   type DefinedJourney,
   defineJourney,
-  insertEnrollment,
-  type JourneyStateRow,
 } from "./journeys/define-journey.js";
 export { JourneyExitedError } from "./journeys/errors.js";
+export {
+  type EventPayloadInput,
+  type ExecuteJourneyRunOptions,
+  type ExecuteJourneyRunResult,
+  executeJourneyRun,
+  insertEnrollment,
+  type JourneyDurableCtx,
+  type JourneyStateRow,
+} from "./journeys/execute-journey-run.js";
 // --- Journey graph extractor (Studio visual workflow) ---
 export {
   buildJourneyGraph,
@@ -404,6 +412,7 @@ export {
 } from "./lib/identity-token.js";
 // --- Ingestion pipeline ---
 export {
+  checkBlueprintTriggers,
   type IngestEvent,
   type IngestResult,
   ingestEvent,
@@ -638,6 +647,15 @@ export {
   type SuppressionImportRow,
   type SuppressionReason,
 } from "./workflows/import-suppressions.js";
+// --- Journey blueprints: the generic interpreter task (spec §5/§6) ---
+export {
+  type BlueprintRunPayload,
+  blueprintMetaFromRow,
+  type JourneyBlueprintRow,
+  journeyBlueprintInterpreter,
+  type WalkBlueprintGraphOptions,
+  walkBlueprintGraph,
+} from "./workflows/journey-blueprint-interpreter.js";
 export {
   reapStuckCampaignsTask,
   sendCampaignTask,

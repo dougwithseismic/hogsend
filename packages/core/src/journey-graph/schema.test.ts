@@ -15,9 +15,19 @@ const validGraph: JourneyGraph = {
     },
     {
       id: "wait-event:nps.answered",
-      type: "branch",
+      type: "wait",
       title: "Wait for answer",
       meta: { event: "nps.answered", timeout: { days: 3 } },
+    },
+    {
+      id: "check-detractor",
+      type: "branch",
+      title: "Detractor?",
+      meta: {
+        conditions: [
+          { type: "property", property: "score", operator: "lte", value: 6 },
+        ],
+      },
     },
     { id: "end-completed", type: "end-completed", title: "Completed" },
   ],
@@ -44,9 +54,52 @@ describe("journeyGraphSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.journeyId).toBe("feedback-nps");
-      expect(result.data.nodes).toHaveLength(4);
+      expect(result.data.nodes).toHaveLength(5);
       expect(result.data.edges).toHaveLength(3);
     }
+  });
+
+  it("reports per-branch, per-field errors (discriminated union)", () => {
+    // The validator knows the node is a `sleep` BEFORE validating it, so a
+    // wrong-typed field errors at its exact path instead of a generic
+    // whole-object union failure.
+    const bad = {
+      ...validGraph,
+      nodes: [
+        {
+          id: "wait:1d",
+          type: "sleep",
+          title: "Sleep",
+          meta: { duration: { hours: "not-a-number" } },
+        },
+      ],
+    };
+    const result = journeyGraphSchema.safeParse(bad);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.path).toEqual([
+        "nodes",
+        0,
+        "meta",
+        "duration",
+        "hours",
+      ]);
+    }
+  });
+
+  it("validates decision conditions against the real condition vocabulary", () => {
+    const bad = {
+      ...validGraph,
+      nodes: [
+        {
+          id: "check",
+          type: "decision",
+          title: "Check",
+          meta: { conditions: [{ type: "not-a-condition" }] },
+        },
+      ],
+    };
+    expect(journeyGraphSchema.safeParse(bad).success).toBe(false);
   });
 
   it("accepts a digest node type", () => {

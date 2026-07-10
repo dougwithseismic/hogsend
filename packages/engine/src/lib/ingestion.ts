@@ -2,12 +2,20 @@ import type { HatchetClient } from "@hatchet-dev/typescript-sdk/v1/index.js";
 import type {
   AnalyticsEventMirrorConfig,
   AnalyticsProvider,
+  PropertyCondition,
 } from "@hogsend/core";
 import { evaluatePropertyConditions } from "@hogsend/core";
 import type { JourneyRegistry } from "@hogsend/core/registry";
-import { type Database, journeyStates, userEvents } from "@hogsend/db";
+import type { JourneyMeta } from "@hogsend/core/types";
+import {
+  type Database,
+  journeyBlueprints,
+  journeyStates,
+  userEvents,
+} from "@hogsend/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { checkBucketMembership } from "../buckets/check-membership.js";
+import { BLUEPRINT_RUN_EVENT } from "../journeys/constants.js";
 import { logTransition } from "../journeys/journey-log.js";
 import {
   logResidualTwins,
@@ -155,6 +163,80 @@ function shouldMirrorEvent(
   if (cfg.allow && !cfg.allow.includes(eventName)) return false;
   if (cfg.deny?.includes(eventName)) return false;
   return true;
+}
+
+/**
+ * Blueprint dispatch (spec §5) — the DB-lookup counterpart of the static
+ * `onEvents` registration code journeys get at boot. Code journeys can't gain
+ * a trigger without a worker redeploy; a blueprint row created at 3pm must
+ * fire at 3:01. So on every ingested event this queries the enabled
+ * `journey_blueprints` whose `triggerEvent` matches (served by the
+ * `(trigger_event, status)` index), applies `triggerWhere` with the SAME
+ * `evaluatePropertyConditions` the interpreter's enrollment guard re-checks
+ * with (dispatch and guard must agree, and both see the serializable-scalar
+ * payload), and pushes one `blueprint:run` per match to the single
+ * statically-registered `journey-blueprint-interpreter` task.
+ *
+ * Returns the number of dispatched enrollment attempts.
+ */
+export async function checkBlueprintTriggers(opts: {
+  db: Database;
+  hatchet: HatchetClient;
+  logger: Logger;
+  event: {
+    name: string;
+    userId: string;
+    userEmail: string;
+    /** The serializable-scalar subset that will reach the interpreter. */
+    properties: Record<string, string | number | boolean | null>;
+  };
+}): Promise<number> {
+  const { db, hatchet, logger, event } = opts;
+
+  const candidates = await db
+    .select({
+      id: journeyBlueprints.id,
+      version: journeyBlueprints.version,
+      triggerWhere: journeyBlueprints.triggerWhere,
+    })
+    .from(journeyBlueprints)
+    .where(
+      and(
+        eq(journeyBlueprints.triggerEvent, event.name),
+        eq(journeyBlueprints.status, "enabled"),
+      ),
+    );
+
+  let dispatched = 0;
+  for (const bp of candidates) {
+    const where = (bp.triggerWhere ?? []) as unknown as PropertyCondition[];
+    if (
+      where.length > 0 &&
+      !evaluatePropertyConditions({
+        conditions: where,
+        properties: event.properties,
+      })
+    ) {
+      continue;
+    }
+    await hatchet.events.push(BLUEPRINT_RUN_EVENT, {
+      blueprintId: bp.id,
+      blueprintVersion: bp.version,
+      userId: event.userId,
+      userEmail: event.userEmail,
+      triggerProperties: event.properties,
+    });
+    dispatched += 1;
+  }
+
+  if (dispatched > 0) {
+    logger.info("Blueprint runs dispatched", {
+      event: event.name,
+      userId: event.userId,
+      dispatched,
+    });
+  }
+  return dispatched;
 }
 
 export async function ingestEvent(opts: {
@@ -402,6 +484,34 @@ export async function ingestEvent(opts: {
   }
   const exits = exitsResult.value;
 
+  // (5b) Blueprint dispatch (spec §5) — the DB-driven twin of the Hatchet
+  // push in (4): one `blueprint:run` per enabled matching blueprint. Runs
+  // AFTER the main push settled, so a dispatched blueprint never observes an
+  // event code journeys were not notified of. Best-effort by design: the
+  // event row + code-journey push are already committed, so throwing here
+  // could not be retried into a redelivery (the idempotency claim survives) —
+  // it would only fail the caller for work that half-happened. Mirrors the
+  // bucket-membership stance below.
+  try {
+    await checkBlueprintTriggers({
+      db,
+      hatchet,
+      logger,
+      event: {
+        name: event.event,
+        userId: resolvedKey,
+        userEmail: event.userEmail ?? "",
+        properties: serializableProperties,
+      },
+    });
+  } catch (err) {
+    logger.warn("Blueprint trigger dispatch failed", {
+      event: event.event,
+      userId: resolvedKey,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // (6) Real-time bucket membership re-evaluation (Section 6.1). NOT part of the
   // Promise.all above: its property eval reads contact state ⊕ this-ingest
   // contactProperties patch, and its bucket:entered/left emissions recurse back
@@ -458,14 +568,45 @@ async function checkExits(
     ),
   });
 
+  // Blueprint enrollments share journeyStates but are NOT in the code-journey
+  // registry — their exitOn lives on the journey_blueprints row (spec §4).
+  // Resolve exitOn for any active state whose journeyId the registry doesn't
+  // know, in one batched read. Deliberately status-agnostic: disabling a
+  // blueprint stops NEW enrollments, but an in-flight run keeps honoring its
+  // exit rules (spec §10/§12).
+  const unregisteredIds = [
+    ...new Set(
+      activeStates
+        .map((state) => state.journeyId)
+        .filter((journeyId) => !registry.get(journeyId)),
+    ),
+  ];
+  const blueprintExitOn = new Map<string, NonNullable<JourneyMeta["exitOn"]>>();
+  if (unregisteredIds.length > 0) {
+    const rows = await db
+      .select({ id: journeyBlueprints.id, exitOn: journeyBlueprints.exitOn })
+      .from(journeyBlueprints)
+      .where(inArray(journeyBlueprints.id, unregisteredIds));
+    for (const row of rows) {
+      if (row.exitOn?.length) {
+        blueprintExitOn.set(
+          row.id,
+          row.exitOn as NonNullable<JourneyMeta["exitOn"]>,
+        );
+      }
+    }
+  }
+
   const statesToExit: string[] = [];
   const runIdsToCancel: string[] = [];
 
   for (const state of activeStates) {
-    const journey = registry.get(state.journeyId);
-    if (!journey?.exitOn) continue;
+    const exitOn =
+      registry.get(state.journeyId)?.exitOn ??
+      blueprintExitOn.get(state.journeyId);
+    if (!exitOn) continue;
 
-    const shouldExit = journey.exitOn.some((exitCondition) => {
+    const shouldExit = exitOn.some((exitCondition) => {
       if (exitCondition.event !== event.eventName) return false;
       if (!exitCondition.where?.length) return true;
       return evaluatePropertyConditions({

@@ -40,7 +40,13 @@ export interface SendEmailOptions {
    * dynamically (e.g. the public `POST /v1/emails`).
    */
   template: TemplateName;
-  subject: string;
+  /**
+   * The email subject. Optional: when omitted, the tracked mailer falls back
+   * to the template registry's `defaultSubject` for {@link template} (the
+   * blueprint interpreter's send nodes rely on this — a blueprint send node
+   * carries only a template key). Code journeys typically pass it explicitly.
+   */
+  subject?: string;
   journeyName?: string;
   journeyStateId?: string;
   props?: Record<string, unknown>;
